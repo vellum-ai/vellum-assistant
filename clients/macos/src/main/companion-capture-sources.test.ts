@@ -25,6 +25,7 @@ mock.module("./sidecar/shared-cu-helper", () => ({
 
 const {
   CHROME_BUNDLE_ID,
+  bringForward,
   chromeWindowFor,
   listCaptureSources,
   parseChromeTabs,
@@ -56,8 +57,9 @@ const chrome = (over: Partial<HelperWindow>): HelperWindow =>
 /** Deps that answer with what a case hands in and record what was asked. */
 const deps = (
   over: Partial<CaptureSourceDeps> = {},
-): CaptureSourceDeps & { activated: [number, number][] } => {
+): CaptureSourceDeps & { activated: [number, number][]; raised: number[] } => {
   const activated: [number, number][] = [];
+  const raised: number[] = [];
   return {
     listWindows: async () => [],
     listDisplays: () => [],
@@ -66,9 +68,14 @@ const deps = (
       activated.push([chromeWindowId, tabIndex]);
       return null;
     },
+    raiseWindow: async (windowId) => {
+      raised.push(windowId);
+      return true;
+    },
     iconFor: async () => undefined,
     ...over,
     activated,
+    raised,
   };
 };
 
@@ -447,7 +454,7 @@ describe("the Chrome window for a tab", () => {
 });
 
 describe("resolving a pick", () => {
-  test("a display and a window are already targets", async () => {
+  test("a display is already a target, and nothing is brought forward", async () => {
     const d = deps();
     expect(
       await resolveCapturePick({ kind: "display", displayId: 5 }, d),
@@ -455,13 +462,74 @@ describe("resolving a pick", () => {
       kind: "display",
       displayId: 5,
     });
+    expect(d.activated).toEqual([]);
+    expect(d.raised).toEqual([]);
+  });
+
+  test("a window is already a target, and comes to the front", async () => {
+    const d = deps();
     expect(
       await resolveCapturePick({ kind: "window", windowId: 8 }, d),
     ).toEqual({
       kind: "window",
       windowId: 8,
     });
+    expect(d.raised).toEqual([8]);
     expect(d.activated).toEqual([]);
+  });
+
+  test("a window the helper cannot raise is still the target", async () => {
+    for (const raiseWindow of [
+      async () => false,
+      async () => {
+        throw new Error("helper down");
+      },
+    ]) {
+      const d = deps({ raiseWindow });
+      expect(
+        await resolveCapturePick({ kind: "window", windowId: 8 }, d),
+      ).toEqual({ kind: "window", windowId: 8 });
+    }
+  });
+
+  test("a helper that is slow to raise does not hold the pick", async () => {
+    // A helper that never answers: the shared client would give up after a
+    // minute, and a pick cannot wait that long on a window that is going
+    // to be read where it is anyway.
+    let late: ((raised: boolean) => void) | undefined;
+    const d = deps({
+      raiseWindow: () =>
+        new Promise<boolean>((resolve) => {
+          late = resolve;
+        }),
+    });
+    const started = Date.now();
+    await bringForward(8, d, 20);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    // The answer arriving afterwards is taken quietly.
+    late?.(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  test("a helper that fails after the wait does not surface an unhandled rejection", async () => {
+    let fail: ((err: Error) => void) | undefined;
+    const d = deps({
+      raiseWindow: () =>
+        new Promise<boolean>((_, reject) => {
+          fail = reject;
+        }),
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await bringForward(8, d, 20);
+      fail?.(new Error("helper down"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   test("a tab is shown, brought forward, and then is its window", async () => {
@@ -487,6 +555,9 @@ describe("resolving a pick", () => {
     expect(d.activated).toEqual([[101, 2]]);
     // Every window, so a look-alike on another Space is counted.
     expect(asked).toEqual([true]);
+    // The window it resolved to, after Chrome's own activation, so the tab
+    // is in front of the user's work and not only in front of Chrome's.
+    expect(d.raised).toEqual([2]);
   });
 
   test("a tab Chrome no longer has resolves to nothing", async () => {

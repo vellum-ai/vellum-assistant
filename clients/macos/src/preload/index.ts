@@ -26,10 +26,10 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
@@ -58,6 +58,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_READ_FRONT_SELECTION,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
@@ -80,7 +81,6 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -181,11 +181,6 @@ const bridge: VellumBridge = {
       };
     },
     hotkey: {
-      fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
-        ipcRenderer.invoke(
-          "vellum:helper:hotkey:fnPushToTalk",
-          enable,
-        ) as Promise<FnPushToTalkResult>,
       setModifierHold: (
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult> =>
@@ -193,6 +188,10 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_MODIFIER_HOLD,
           hold,
         ) as Promise<ModifierHoldRegistrationResult>,
+      readFrontSelection: (): Promise<HotkeySelection | null> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_READ_FRONT_SELECTION,
+        ) as Promise<HotkeySelection | null>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);

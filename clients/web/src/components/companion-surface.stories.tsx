@@ -530,6 +530,48 @@ export const InCallPicking: Story = {
 };
 
 /**
+ * The picker open before the host has answered: a skeleton in the list's own
+ * shape, so the card does not change size once the answer lands.
+ */
+export const InCallPickingLoading: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: <CompanionCapturePicker sources={null} />,
+  },
+};
+
+/**
+ * A desktop with more than the card's reservation can show at once: the fade
+ * at the bottom is the only hint, since the card never grows past what the
+ * canvas set aside for it.
+ */
+export const InCallPickingLongList: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: (
+      <CompanionCapturePicker
+        sources={{
+          displays: [
+            { kind: "display", displayId: 1, index: 0, primary: true },
+          ],
+          tabs: [],
+          windows: Array.from({ length: 12 }, (_, index) => ({
+            kind: "window" as const,
+            windowId: index + 1,
+            title: `Window ${index + 1}`,
+            app: "Finder",
+          })),
+        }}
+      />
+    ),
+  },
+};
+
+/**
  * The dial: Talk pressed, and the session it asked for not yet on the surface.
  *
  * Who is being called and the one control that means anything yet, the end.

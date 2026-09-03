@@ -44,20 +44,54 @@ Tell the user:
 
 ## Path B Step 4: Configure Scopes and Callback URL
 
+Figma rejects the **whole** authorization request when the app is not configured
+to grant one of the requested scopes, so the app has to enable every scope the
+connect flow asks for. Read the exact set first, and follow the CLI if it
+returns something different from the list below:
+
+```bash
+assistant oauth providers get figma --json | jq -r '.defaultScopes[]'
+```
+
 Tell the user:
 
 > **Step 2: Set up scopes and callback URL**
 >
 > On the app settings page:
 >
-> 1. Find the **Scopes** section and enable:
->    - `files:read`
+> 1. Find the **Scopes** section and enable all of these:
+>    - `current_user:read`
+>    - `file_content:read`
+>    - `file_metadata:read`
+>    - `file_versions:read`
+>    - `file_comments:read`
 >    - `file_comments:write`
+>    - `file_dev_resources:read`
+>    - `file_dev_resources:write`
+>    - `folders:read`
+>    - `folder_metadata:read`
+>    - `library_content:read`
+>    - `library_assets:read`
+>    - `team_library_content:read`
+>    - `selections:read`
 > 2. Find the **Callback URL** field and paste this exact URL:
 >    `OAUTH_CALLBACK_URL`
 > 3. Click **Save**
 >
 > Let me know when it's saved.
+
+If the user does not want to enable all fourteen, have them enable only the
+scopes they are comfortable with and pass that exact set on connect, which
+replaces the defaults entirely (keep `current_user:read`, since the ping and
+identity checks both call `GET /v1/me`):
+
+```bash
+assistant oauth connect figma --scopes current_user:read file_content:read file_comments:write
+```
+
+`file_variables:*`, `library_analytics:read`, and the `org:*` scopes need an
+Enterprise plan (and org admin for `org:*`). Requesting one the app cannot grant
+fails the whole authorization, so leave them out unless the user has them.
 
 ## Path B Step 5: Get Credentials
 

@@ -37,7 +37,6 @@ import type {
   DictationTranscribeResult,
   DownloadDoneEvent,
   ElectronHostOS,
-  FnPushToTalkResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
@@ -45,6 +44,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  HotkeySelection,
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairingPollResult,
@@ -95,12 +95,12 @@ export type {
   DictationPartialEvent,
   DictationPartialsResult,
   DownloadDoneEvent,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  HotkeySelection,
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
@@ -162,13 +162,13 @@ declare global {
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
-          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
           ): Promise<VoiceModeChordRegistrationResult>;
           setModifierHold?(
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
+          readFrontSelection?(): Promise<HotkeySelection | null>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;

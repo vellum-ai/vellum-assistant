@@ -192,23 +192,34 @@ export type VoiceModeChord =
 /**
  * Which binding an edge came from, and what a pair of them means.
  *
- * `fnPushToTalk` and `voiceModeChord` are completed taps, reported as a
- * `down`/`up` pair once the keys are already back up: a tap is only known to be
- * one after it ends, so the pair says "a tap happened" rather than bracketing
- * anything. Consumers read the `down` and discard the `up`.
+ * `voiceModeChord` is a completed tap (the Windows helper), reported as a
+ * `down`/`up` pair once the keys are already back up: a tap is only known to
+ * be one after it ends, so the pair says "a tap happened" rather than
+ * bracketing anything. Consumers read the `down` and discard the `up`.
  *
- * `modifierHold` brackets a hold. `down` arrives while the keys are still down
- * and `up` when they are not, so the two edges are a span, and something that
- * has to run for exactly as long as the keys are held can run across it.
+ * `modifierHold` brackets a hold (the macOS helper). `down` arrives while the
+ * keys are still down and `up` when they are not, so the two edges are a
+ * span, and something that has to run for exactly as long as the keys are
+ * held can run across it.
  */
-export type HotkeyEventKind =
-  "fnPushToTalk" | "voiceModeChord" | "modifierHold";
+export type HotkeyEventKind = "voiceModeChord" | "modifierHold";
 
 /**
- * What the user had highlighted in the application in front when a hold
- * began. Read by the helper over Accessibility at the `down` edge and carried
- * on it, so a hold made with something selected can be about the selection.
- * Bounded at the helper; `truncated` says the text is a prefix.
+ * Why a `modifierHold` closed.
+ *
+ * A consumer reading the span as a gesture needs the difference: a set that
+ * came back up on its own may have been a tap, while a chord passing through
+ * the held state (`chord`) never was one, and a hold closed from underneath
+ * (`cancelled`: the binding cleared, the helper going away) is neither.
+ */
+export type ModifierHoldUpReason = "released" | "chord" | "cancelled";
+
+/**
+ * What the user has highlighted in the application in front. Read by the
+ * helper over Accessibility when the app asks (`readFrontSelection`), which a
+ * hold does once it has armed, so a hold made with something selected can be
+ * about the selection. Bounded at the helper; `truncated` says the text is a
+ * prefix.
  */
 export interface HotkeySelection {
   text: string;
@@ -227,21 +238,15 @@ export interface HotkeySelection {
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;
-  /** Only on a `modifierHold` `down`, and only when something was selected. */
-  selection?: HotkeySelection;
-  /**
-   * How long the keys had already been down when this edge was sent, where
-   * the helper held it to read the selection. A consumer timing the hold from
-   * the edge takes this off its clock, so a slow application in front costs
-   * the read and not the hold.
-   */
-  heldMs?: number;
+  /** Only on a `modifierHold` `up`. */
+  reason?: ModifierHoldUpReason;
 }
 
-export type FnPushToTalkResult =
+/** Whether a helper took a binding, or why it did not. */
+export type HotkeyRegistrationResult =
   { ok: true; enabled: boolean } | { ok: false; reason: string };
 
-export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
+export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
 /**
  * The binding a hold is watched on: every modifier of the set down together,
@@ -250,7 +255,7 @@ export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
 export type ModifierHold =
   { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
-export type ModifierHoldRegistrationResult = FnPushToTalkResult;
+export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
 // ---------------------------------------------------------------------------
 // System permissions

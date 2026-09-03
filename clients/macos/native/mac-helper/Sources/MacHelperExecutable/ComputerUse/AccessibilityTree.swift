@@ -68,7 +68,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// probe multiple apps, while staying generous enough for slow/heavy
     /// targets (Chrome with many tabs, Electron during GC) where individual
     /// attribute reads can momentarily take upwards of 1s.
-    private static let axMessagingTimeoutSeconds: Float = 3.0
+    static let axMessagingTimeoutSeconds: Float = 3.0
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -324,22 +324,90 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         }.value
     }
 
-    private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+    /// A window as the window server describes it: who owns it, what it is
+    /// called, and where it is. Nil for an id the window server does not know.
+    struct ServerWindow {
+        let pid: pid_t
+        let name: String?
+        let bounds: CGRect
+    }
+
+    func serverWindow(for windowId: CGWindowID) -> ServerWindow? {
+        // Asked of the window list with the id as the filter rather than of
+        // `CGWindowListCreateDescriptionFromArray`: that call wants its ids as
+        // raw values in the array, and an array bridged from Swift carries
+        // numbers instead, so it answers with nothing for a window that is
+        // plainly there. The list call takes the id directly. The option
+        // promises only that the window is in the answer, not that it is
+        // alone there, so the entry is picked by its window number rather
+        // than taken from the front of the list.
         guard
-            let descriptions = CGWindowListCreateDescriptionFromArray([windowId] as CFArray) as? [[String: Any]],
-            let description = descriptions.first,
+            let descriptions = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowId) as? [[String: Any]],
+            let description = descriptions.first(where: { entry in
+                (entry[kCGWindowNumber as String] as? Int).map { CGWindowID($0) } == windowId
+            }),
             let ownerPID = description[kCGWindowOwnerPID as String] as? Int
         else {
+            return nil
+        }
+        var bounds = CGRect.zero
+        if let boundsDict = description[kCGWindowBounds as String] as? NSDictionary,
+           let rect = CGRect(dictionaryRepresentation: boundsDict) {
+            bounds = rect
+        }
+        return ServerWindow(pid: pid_t(ownerPID), name: description[kCGWindowName as String] as? String, bounds: bounds)
+    }
+
+    /// The one AX window of `pid` that is `window`: the single window at its
+    /// frame, or else the single window with its title. Two windows at one
+    /// frame (two maximized browser windows) or titled alike (two "Untitled"
+    /// documents) would otherwise let the wrong one be read or raised beside
+    /// the right one's screenshot, so a frame or title that fits more than
+    /// one window decides nothing. Nil when neither fits exactly one.
+    ///
+    /// The app element is handed back with the match because a caller that
+    /// wants to read the tree marks it first, and one that only wants to raise
+    /// the window does not.
+    func axWindow(for window: ServerWindow, in appElement: AXUIElement) -> AXUIElement? {
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement],
+              !windows.isEmpty else {
+            log.warning("axWindow: pid \(window.pid) exposes no AX windows")
+            return nil
+        }
+        // A minimized window is still in both lists: the window server keeps
+        // describing it, with the bounds it had on screen, and the app keeps
+        // reporting that same frame through AX, so the frame match holds for
+        // a window that is in the Dock.
+        let framed = windows.filter { candidate in
+            let frame = getFrameAttribute(candidate)
+            return abs(frame.origin.x - window.bounds.origin.x) <= 2
+                && abs(frame.origin.y - window.bounds.origin.y) <= 2
+                && abs(frame.width - window.bounds.width) <= 2
+                && abs(frame.height - window.bounds.height) <= 2
+        }
+        if framed.count == 1 {
+            return framed[0]
+        }
+        // No window at that frame (a sheet, a window mid-resize) or several
+        // (stacked windows of one size): the title settles it, among the
+        // windows at the frame when there are any, since a title shared with
+        // a window elsewhere still names one window here.
+        let candidates = framed.isEmpty ? windows : framed
+        return window.name.flatMap { name in
+            let titled = candidates.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
+            return titled.count == 1 ? titled[0] : nil
+        }
+    }
+
+    private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        guard let server = serverWindow(for: windowId) else {
             log.warning("enumerateWindow: window \(windowId) is not known to the window server")
             return nil
         }
-        let pid = pid_t(ownerPID)
-        let cgName = description[kCGWindowName as String] as? String
-        var cgBounds = CGRect.zero
-        if let boundsDict = description[kCGWindowBounds as String] as? NSDictionary,
-           let rect = CGRect(dictionaryRepresentation: boundsDict) {
-            cgBounds = rect
-        }
+        let pid = server.pid
+        let cgName = server.name
 
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
         let appElement = AXUIElementCreateApplication(pid)
@@ -350,30 +418,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             log.info("Set AXEnhancedUserInterface on \(appName, privacy: .public) (pid \(pid)): \(result == .success ? "success" : "failed (\(result.rawValue))")")
         }
 
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement],
-              !windows.isEmpty else {
-            log.warning("enumerateWindow: \(appName, privacy: .public) (pid \(pid)) exposes no AX windows")
-            return nil
-        }
-
-        let byFrame = windows.first(where: { window in
-            let frame = getFrameAttribute(window)
-            return abs(frame.origin.x - cgBounds.origin.x) <= 2
-                && abs(frame.origin.y - cgBounds.origin.y) <= 2
-                && abs(frame.width - cgBounds.width) <= 2
-                && abs(frame.height - cgBounds.height) <= 2
-        })
-        // A title only stands in for the frame when it names exactly one of
-        // the app's windows. Two windows titled alike (two "Untitled"
-        // documents, two browser windows on the same page) would otherwise
-        // let the wrong one's tree be filed beside the right one's screenshot.
-        let byTitle: AXUIElement? = cgName.flatMap { name in
-            let titled = windows.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
-            return titled.count == 1 ? titled[0] : nil
-        }
-        guard let windowElement = byFrame ?? byTitle else {
+        guard let windowElement = axWindow(for: server, in: appElement) else {
             log.warning("enumerateWindow: no AX window of \(appName, privacy: .public) matches window \(windowId)")
             return nil
         }

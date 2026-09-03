@@ -234,6 +234,13 @@ export interface CaptureSourceDeps {
     chromeWindowId: number,
     tabIndex: number,
   ) => Promise<ChromeWindowPlacement | null>;
+  /**
+   * Bring the window to the front: out of the Dock if it is there, its app
+   * activated, and the window raised above the app's others. Resolves to
+   * whether the window itself was raised; an app that would not take the
+   * request is still activated.
+   */
+  raiseWindow: (windowId: number) => Promise<boolean>;
   /** The icon of the app at `appPath` as a data URL, or nothing. */
   iconFor: (appPath: string) => Promise<string | undefined>;
 }
@@ -280,6 +287,23 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
     parseChromeWindowPlacement(
       await runAppleScript(activateChromeTabScript(chromeWindowId, tabIndex)),
     ),
+  raiseWindow: async (windowId) => {
+    const answer = await getSharedCuHelper().call("captureSources.raise", {
+      windowId,
+    });
+    const { raised, reason } =
+      typeof answer === "object" && answer !== null
+        ? (answer as { raised?: unknown; reason?: unknown })
+        : {};
+    // The helper says why it left the window where it was, and this is the
+    // log someone reads first: the pick was made from here.
+    if (raised !== true && typeof reason === "string") {
+      log.warn(
+        `[companion] helper did not raise window ${windowId}: ${reason}`,
+      );
+    }
+    return raised === true;
+  },
   iconFor: readIcon,
 };
 
@@ -426,14 +450,80 @@ export function chromeWindowFor(
 }
 
 /**
+ * How long a pick waits for its window to come to the front before going
+ * ahead without it. The helper answers in milliseconds for an app that is
+ * answering at all, and gives up on one that is not within a few seconds of
+ * its own; the shared helper client's budget is a minute, sized for
+ * computer-use actions, and a pick left waiting that long would read as a
+ * dead button.
+ */
+export const RAISE_WAIT_MS = 5_000;
+
+/**
+ * Bring a picked window to the front, and carry on either way.
+ *
+ * The pick is what the user is about to talk about, so it belongs in front
+ * of whatever they were looking at when they picked it. The capture does not
+ * depend on it: a window the helper could not raise (an app refusing the
+ * request, a helper that is down, a helper still trying past `waitMs`) is
+ * still read where it is, so this never decides whether the pick resolves.
+ * A raise that lands after the wait lands on the window the session is
+ * reading anyway, or on a pick the generation guard in `companion-window`
+ * has already superseded, which is a window the user chose a moment ago.
+ */
+export const bringForward = async (
+  windowId: number,
+  deps: Pick<CaptureSourceDeps, "raiseWindow">,
+  waitMs = RAISE_WAIT_MS,
+): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<"expired">((resolve) => {
+    timer = setTimeout(() => resolve("expired"), waitMs);
+  });
+  try {
+    const raise = deps.raiseWindow(windowId);
+    const outcome = await Promise.race([raise, expiry]);
+    if (outcome === "expired") {
+      log.warn(
+        `[companion] window ${windowId} is still coming to the front after ${waitMs}ms; not waiting`,
+      );
+      // The late answer is only worth a line in the log, and its rejection
+      // is caught so it never surfaces as an unhandled one.
+      raise.then(
+        (raised) => {
+          if (!raised) {
+            log.warn(
+              `[companion] window ${windowId} would not come to the front`,
+            );
+          }
+        },
+        (err) =>
+          log.warn(
+            "[companion] could not bring the picked window forward:",
+            err,
+          ),
+      );
+    } else if (!outcome) {
+      log.warn(`[companion] window ${windowId} would not come to the front`);
+    }
+  } catch (err) {
+    log.warn("[companion] could not bring the picked window forward:", err);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
  * Turn a pressed row into the target the session is told to read, or nothing
  * when it cannot be: a tab whose window Chrome no longer has, or a Chrome
  * that would not take the request.
  *
- * A display and a window are already targets. A tab is the window showing
- * it, which takes an activation round trip through Chrome and a fresh list
- * from the helper, since the window that shows it may not have been in front
- * (or on screen at all, if minimized) when the picker was drawn.
+ * A display is already a target. A window is one too, and comes to the front
+ * on the way. A tab is the window showing it, which takes an activation round
+ * trip through Chrome and a fresh list from the helper, since the window that
+ * shows it may not have been in front (or on screen at all, if minimized)
+ * when the picker was drawn; that window comes to the front as well, since
+ * Chrome's own activation is of the app and not always of the window.
  */
 export async function resolveCapturePick(
   pick: CompanionCapturePick,
@@ -443,6 +533,7 @@ export async function resolveCapturePick(
     return { kind: "display", displayId: pick.displayId };
   }
   if (pick.kind === "window") {
+    await bringForward(pick.windowId, deps);
     return { kind: "window", windowId: pick.windowId };
   }
   let title = "";
@@ -480,6 +571,14 @@ export async function resolveCapturePick(
     log.warn("[companion] no Chrome window on screen for the picked tab");
     return null;
   }
+  // Raised after Chrome has finished its own activation (the script above
+  // returns once Chrome has processed it), never alongside it. When Chrome
+  // did bring this window forward, the raise finds it already restored and
+  // in front and changes nothing; when Chrome activated with another of its
+  // windows in front, which happens, this is what puts the tab's window
+  // there. Unconditional because the cheap case is a no-op and the check
+  // that would skip it (is this window frontmost now?) costs the same trip.
+  await bringForward(window.windowId, deps);
   return { kind: "window", windowId: window.windowId };
 }
 

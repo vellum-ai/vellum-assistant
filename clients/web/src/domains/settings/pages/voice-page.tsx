@@ -17,24 +17,16 @@ import { Slider } from "@vellumai/design-library/components/slider";
 import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { TurnDetectionRow } from "@/domains/settings/pages/turn-detection-row";
+import { VoiceKeyCard } from "@/domains/settings/pages/voice-key-card";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
-import type { SystemPermissionStatus } from "@vellumai/ipc-contract";
 
 import { supportsModifierHold } from "@/runtime/hotkey";
-import {
-  setHoldToDictateEnabled,
-  useHoldToDictateEnabled,
-} from "@/utils/hold-to-dictate";
-import {
-  getSystemPermissionsState,
-  requestSystemPermission,
-} from "@/runtime/system-permissions";
-import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
@@ -51,7 +43,6 @@ import {
 import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import { removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
-  FN_PTT_ACTIVATOR,
   activatorDisplayName,
   activatorsEqual,
   modifierLabel,
@@ -60,7 +51,6 @@ import {
 } from "@/utils/ptt-activator";
 import {
   defaultVoiceModeActivator,
-  isFnVoiceModeActivator,
   keyboardDefaultActivator,
   readVoiceModeActivator,
   supportsBareModifierVoiceMode,
@@ -71,7 +61,6 @@ import {
   LS_VOICE_INPUT_DEVICE,
   getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
-import { supportsFnPushToTalk } from "@/runtime/hotkey";
 import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
@@ -128,8 +117,7 @@ export function VoiceSections() {
       >
         <MicrophoneCard />
         <ListeningLanguageCard />
-        <VoiceModeShortcutCard />
-        <HoldToDictateCard />
+        {supportsModifierHold() ? <VoiceKeyCard /> : <VoiceModeShortcutCard />}
         <ConversationTuningCard />
       </VoiceSection>
 
@@ -137,86 +125,6 @@ export function VoiceSections() {
         <CaptionsCard />
       </VoiceSection>
     </div>
-  );
-}
-
-/**
- * Hold to dictate, which is the one binding here that reaches outside the app.
- *
- * Off until switched on, because arming it costs an Input Monitoring grant: a
- * feature nobody asked for should not be the reason macOS asks to watch the
- * keyboard. So the toggle is also where the grant is asked for, which is the
- * only moment that can ask. A press cannot: noticing the press is the thing
- * being granted, so a binding with no grant is silent rather than refused, and
- * a user waiting to be prompted would wait forever.
- *
- * Absent on hosts with no helper to watch the raw keyboard, since there is
- * nothing there to switch on.
- */
-function HoldToDictateCard() {
-  const { t } = useTranslation("settings");
-  const enabled = useHoldToDictateEnabled();
-  const [inputMonitoring, setInputMonitoring] =
-    useState<SystemPermissionStatus | null>(null);
-
-  const refreshPermission = useCallback(async () => {
-    const state = await getSystemPermissionsState();
-    setInputMonitoring(state?.inputMonitoring.status ?? null);
-  }, []);
-
-  useEffect(() => {
-    void refreshPermission();
-    // The grant is made in System Settings, which sends nothing back. Polling
-    // while the card is on screen is what lets the notice go away by itself
-    // once the user returns, rather than reading stale until the next reload.
-    const timer = setInterval(() => {
-      void refreshPermission();
-    }, 2000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [refreshPermission]);
-
-  if (!supportsModifierHold()) {
-    return null;
-  }
-
-  const granted = inputMonitoring === "granted";
-
-  return (
-    <DetailCard
-      title={t("voicePage.holdToDictateTitle")}
-      subtitle={t("voicePage.holdToDictateSubtitle")}
-    >
-      <div className="flex flex-col gap-4">
-        <Toggle
-          checked={enabled}
-          onChange={(next: boolean) => {
-            setHoldToDictateEnabled(next);
-            // Switching it on is the moment to ask, and the only one: a press
-            // cannot be, since noticing the press is the thing being granted.
-            if (next) {
-              void requestSystemPermission("inputMonitoring").then(
-                refreshPermission,
-              );
-            }
-          }}
-          label={t("voicePage.holdToDictateEnable")}
-        />
-
-        {enabled && !granted && (
-          <span className={labelClasses}>
-            {t("voicePage.holdToDictateNeedsInputMonitoring")}
-          </span>
-        )}
-
-        {enabled && (
-          <span className={labelClasses}>
-            {t("voicePage.holdToDictateVoiceOverNote")}
-          </span>
-        )}
-      </div>
-    </DetailCard>
   );
 }
 
@@ -455,15 +363,14 @@ function MicrophoneCard() {
 }
 
 /** Keys that only ever appear as part of a chord, never as its subject. */
-const MODIFIER_KEY_NAMES = new Set(["Control", "Alt", "Shift", "Meta", "Fn"]);
+const MODIFIER_KEY_NAMES = new Set(["Control", "Alt", "Shift", "Meta"]);
 
 /**
- * The binding that starts and ends a voice conversation.
+ * The binding that starts and ends a voice conversation, on hosts without a
+ * voice key: the web app and the Windows and Linux desktop apps.
  *
  * Records a chord rather than a bare modifier: voice mode is a toggle, so a
- * modifier-only binding would fire on every abandoned Ctrl chord. Fn is the
- * one exception the recorder accepts on its own, and only on a desktop host
- * that can see it.
+ * modifier-only binding would fire on every abandoned Ctrl chord.
  */
 /** The Keyboard Shortcuts key the desktop host binds Talk to, globally. */
 const TALK_HOTKEY_KEY = "toggleVoice";
@@ -490,20 +397,15 @@ const BARE_MODIFIER_PRESETS: ReadonlyArray<{
 
 function VoiceModeShortcutCard() {
   const { t } = useTranslation("settings");
-  const fnConfigurable = supportsFnPushToTalk();
   /**
    * On the desktop app the keyboard binding is an Electron `globalShortcut`
    * the host owns, listed in Keyboard Shortcuts as "Talk". This card does not
    * record chords there: it would be writing a second binding that nothing
-   * reads. Fn is the one thing still configured here, since it is not an
-   * accelerator and cannot live on that rail.
+   * reads.
    */
   const desktopHost = isElectron();
-  // `false` only after an attempt was refused; `null` means none was made.
-  const fnRefused =
-    useFnRegistrationStore((state) => state.registered) === false;
   const [activator, setActivator] = useState<VoiceModeActivator>(() =>
-    readVoiceModeActivator(fnConfigurable),
+    readVoiceModeActivator(),
   );
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
@@ -512,14 +414,8 @@ function VoiceModeShortcutCard() {
 
   const presets = useMemo(() => {
     const keyboard = keyboardDefaultActivator();
-    const keyboardPreset = {
-      label: activatorDisplayName(keyboard),
-      activator: keyboard,
-    };
-    return fnConfigurable
-      ? [{ label: "Fn", activator: FN_PTT_ACTIVATOR }, keyboardPreset]
-      : [keyboardPreset];
-  }, [fnConfigurable]);
+    return [{ label: activatorDisplayName(keyboard), activator: keyboard }];
+  }, []);
 
   const shortcutEnabled = activator.kind !== "off";
 
@@ -532,9 +428,10 @@ function VoiceModeShortcutCard() {
   }, []);
 
   /**
-   * Fn and a recorded chord are one choice, not two settings: the row asks
-   * what starts Talk and takes one answer. Recording therefore clears Fn, and
-   * choosing Fn clears the chord, so the selected chip is always the truth.
+   * A bare-modifier tap and a recorded chord are one choice, not two
+   * settings: the row asks what starts Talk and takes one answer. Recording
+   * therefore clears the tap, and choosing a tap clears the chord, so the
+   * selected chip is always the truth.
    */
   const recorder = useHotkeyRecorder({
     onBound: () => selectActivator({ kind: "off" }),
@@ -544,13 +441,9 @@ function VoiceModeShortcutCard() {
   );
   const talkAccelerator = talkHotkey?.accelerator ?? "";
   const recordingTalk = recorder.recordingKey === TALK_HOTKEY_KEY;
-  const chooseFn = useCallback(() => {
-    selectActivator(FN_PTT_ACTIVATOR);
-    recorder.removeHotkey(TALK_HOTKEY_KEY);
-  }, [recorder, selectActivator]);
 
-  // Like Fn, a bare-modifier tap is an answer to the same one question, so
-  // choosing one also clears the recorded Talk chord.
+  // A bare-modifier tap is an answer to the same one question, so choosing
+  // one also clears the recorded Talk chord.
   const bareModifierPresets = supportsBareModifierVoiceMode()
     ? BARE_MODIFIER_PRESETS
     : [];
@@ -562,8 +455,8 @@ function VoiceModeShortcutCard() {
     [recorder, selectActivator],
   );
 
-  // "Nothing" is also an answer to the one question: clear the Fn binding
-  // and the recorded Talk chord so no keyboard path starts a session.
+  // "Nothing" is also an answer to the one question: clear the tap and the
+  // recorded Talk chord so no keyboard path starts a session.
   const chooseOff = useCallback(() => {
     selectActivator({ kind: "off" });
     recorder.removeHotkey(TALK_HOTKEY_KEY);
@@ -587,9 +480,6 @@ function VoiceModeShortcutCard() {
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
-      if (fnConfigurable && event.getModifierState("Fn")) {
-        modifiers.push("function");
-      }
       if (event.ctrlKey) {
         modifiers.push("control");
       }
@@ -604,7 +494,7 @@ function VoiceModeShortcutCard() {
       }
       return modifiers;
     },
-    [fnConfigurable],
+    [],
   );
 
   const handleCaptureKeyDown = useCallback(
@@ -618,13 +508,6 @@ function VoiceModeShortcutCard() {
       }
 
       const modifiers = collectModifiers(event);
-
-      // Fn stands alone: nothing else on macOS claims a bare Fn tap, and the
-      // host helper reports it over the hotkey bridge rather than as a key.
-      if (modifiers.includes("function")) {
-        selectActivator(FN_PTT_ACTIVATOR);
-        return;
-      }
 
       // Show the chord building as it is held. Whether it becomes a binding
       // depends on a real key arriving before the modifiers are released.
@@ -693,17 +576,8 @@ function VoiceModeShortcutCard() {
         <div className="flex flex-col gap-2">
           {/* Both answers to "what starts Talk" are the same control, so
               neither reads as the primary one with the other bolted on. The
-              write still goes to the host: Fn through the helper, a chord
-              through `settings.hotkeys`. */}
+              write still goes to the host: a chord through `settings.hotkeys`. */}
           <div className="flex flex-wrap items-center gap-2">
-            {fnConfigurable && (
-              <ActivationKeyOption
-                label={t("voicePage.fnKeyLabel")}
-                badge={t("voicePage.recommendedBadge")}
-                selected={isFnVoiceModeActivator(activator)}
-                onClick={chooseFn}
-              />
-            )}
             {bareModifierPresets.map((preset) => (
               <ActivationKeyOption
                 key={preset.label}
@@ -742,16 +616,6 @@ function VoiceModeShortcutCard() {
             />
           </div>
 
-          {/* An offer the host has already refused. Fn is presented as the
-              recommended binding, so saying nothing would leave the user
-              pressing a key that cannot fire. */}
-          {isFnVoiceModeActivator(activator) && fnRefused && (
-            <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--system-negative-strong)]">
-              <Info className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>{t("voicePage.fnRefusedNote")}</span>
-            </div>
-          )}
-
           {recorder.conflict?.key === TALK_HOTKEY_KEY && (
             <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
               <Info className="mt-0.5 h-3 w-3 shrink-0" />
@@ -777,9 +641,7 @@ function VoiceModeShortcutCard() {
           checked={shortcutEnabled}
           onChange={(next: boolean) => {
             selectActivator(
-              next
-                ? defaultVoiceModeActivator(fnConfigurable)
-                : { kind: "off" },
+              next ? defaultVoiceModeActivator() : { kind: "off" },
             );
           }}
           label={t("voicePage.enableVoiceShortcut")}
@@ -846,51 +708,6 @@ function VoiceModeShortcutCard() {
         )}
       </div>
     </DetailCard>
-  );
-}
-
-function ActivationKeyOption({
-  label,
-  badge,
-  selected,
-  recording = false,
-  onClick,
-}: {
-  label: ReactNode;
-  /** Muted suffix inside the chip, e.g. marking the recommended option. */
-  badge?: string;
-  selected: boolean;
-  recording?: boolean;
-  onClick: () => void;
-}) {
-  const classes = [
-    "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-body-medium-lighter transition-colors",
-    "border-[var(--border-subtle)]",
-    selected
-      ? "bg-[var(--surface-active)]"
-      : "bg-[var(--surface-lift)] hover:bg-[var(--surface-hover)]",
-    recording ? "animate-pulse" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    <button type="button" onClick={onClick} className={classes}>
-      <span
-        className={[
-          "inline-block h-2.5 w-2.5 rounded-full border",
-          selected
-            ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
-            : "border-[var(--border-element)]",
-        ].join(" ")}
-      />
-      <span className="text-[var(--content-default)]">{label}</span>
-      {badge && (
-        <span className="text-body-small-default text-[var(--content-quiet)]">
-          {badge}
-        </span>
-      )}
-    </button>
   );
 }
 

@@ -62,6 +62,19 @@ beforeEach(() => {
   __resetForTesting();
 });
 
+describe("installHotkeysIpc with an exclusion", () => {
+  test("a shell that excludes a command offers no row and takes no override", () => {
+    installHotkeysIpc({ ...ipc, exclude: ["toggleVoice"] });
+
+    const catalog = invoke("vellum:hotkeys:get", []) as Array<{ key: string }>;
+    expect(catalog.map((c) => c.key)).not.toContain("toggleVoice");
+    expect(() =>
+      invoke("vellum:hotkeys:set", ["toggleVoice", "CmdOrCtrl+Shift+T"]),
+    ).toThrow("Unknown hotkey command: toggleVoice");
+    expect(hotkeys).toEqual({});
+  });
+});
+
 describe("resolveHotkeyCatalog", () => {
   test("returns every rebindable command with its compiled default", () => {
     const catalog = resolveHotkeyCatalog();

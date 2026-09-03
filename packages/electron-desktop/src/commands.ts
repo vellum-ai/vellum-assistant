@@ -74,8 +74,8 @@ export const GLOBAL_SHORTCUT_DEFAULTS: Record<string, string> = {
    *
    * There is no chord we can pick that is not load-bearing somewhere, and no
    * way to find out which one we broke. So the user picks it, in Keyboard
-   * Shortcuts, spending a chord they know they can spare. Fn stays the
-   * zero-configuration way in on macOS, and nothing else claims a bare Fn tap.
+   * Shortcuts, spending a chord they know they can spare. The macOS shell
+   * excludes it altogether: a double tap of the voice key is the way in there.
    */
   toggleVoice: "",
 };

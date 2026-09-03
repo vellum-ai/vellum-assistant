@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   COMPANION_BASE_AVATAR_BOX,
@@ -126,6 +126,25 @@ const register =
     into.set(channel, (args) => fn(schema.parse(args) as never));
   };
 
+/**
+ * The system's "Reduce motion", which decides whether a call moves the surface
+ * at once or glides it. On by default so every case about *where* the surface
+ * goes reads its answer synchronously; the cases about the glide itself turn
+ * it off.
+ */
+let reducedMotion = true;
+
+/**
+ * The display the window server answers for whatever point it is asked, the
+ * one the surface is placed against. Mutable so a case can change the display
+ * under a surface that is mid-move, as unplugging or rescaling one does.
+ */
+const NEAREST_DISPLAY = {
+  bounds: { x: 0, y: 0, width: 1440, height: 900 },
+  workArea: { x: 0, y: 0, width: 1440, height: 900 },
+};
+let nearestDisplay = NEAREST_DISPLAY;
+
 /** Main's application listeners, so a case can bring the app forward. */
 const appListeners: {
   event: string;
@@ -143,6 +162,9 @@ const fireAppEvent = (event: string, ...args: unknown[]): void => {
 
 mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
+  systemPreferences: {
+    getAnimationSettings: () => ({ prefersReducedMotion: reducedMotion }),
+  },
   app: {
     on: (event: string, listener: (...args: unknown[]) => void) => {
       appListeners.push({ event, listener });
@@ -155,10 +177,7 @@ mock.module("electron", () => ({
   shell: { openExternal: () => Promise.resolve() },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
-    getDisplayNearestPoint: () => ({
-      bounds: { x: 0, y: 0, width: 1440, height: 900 },
-      workArea: { x: 0, y: 0, width: 1440, height: 900 },
-    }),
+    getDisplayNearestPoint: () => nearestDisplay,
     getAllDisplays: () => displays,
     getPrimaryDisplay: () => displays[0],
     on: (event: string, listener: () => void) => {
@@ -423,7 +442,9 @@ const {
   callOnUpdate,
   callSurfaceFor,
   COMPANION_DIAL_TIMEOUT_MS,
+  COMPANION_GLIDE_MS,
   dialOnTalk,
+  glideProgress,
   introOnAdvance,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
@@ -441,6 +462,7 @@ beforeEach(() => {
   sizes.options = "small";
   setCompanionSurfaceSize("avatar", "small");
   origin = { x: 0, y: 0 };
+  nearestDisplay = NEAREST_DISPLAY;
   boundsSet.length = 0;
   glow = null;
   glowPushes.length = 0;
@@ -880,6 +902,10 @@ describe("the call surface", () => {
 /**
  * The surface the call takes: the handlebar goes to the bottom centre of the
  * display from the dial until the call ends, and then the pill goes home.
+ *
+ * Under "Reduce motion", so each move lands in the same beat it is asked for.
+ * These cases are about where the surface ends up, which is the same point
+ * either way; how it gets there has cases of its own below.
  */
 describe("the surface a call takes", () => {
   /** The screen the electron mock answers for, whatever point it is asked. */
@@ -966,6 +992,230 @@ describe("the surface a call takes", () => {
     send("vellum:voiceActivity:start", START);
     expect(centre()).toEqual(bottomCentre);
     send("vellum:voiceActivity:end");
+  });
+});
+
+/**
+ * How the surface gets there: a glide from where it rests to where the call
+ * puts it, and back. Real timers, since the glide is stepped on one, so each
+ * case waits the glide out rather than asserting on a beat of it.
+ */
+describe("the glide between the pill's home and the call's place", () => {
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + GEOMETRY.canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
+  });
+  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
+  const park = (): { x: number; y: number } => {
+    send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
+    return centre();
+  };
+  const wait = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+  /** Long enough for a glide started just now to have landed. */
+  const settle = (): Promise<void> => wait(COMPANION_GLIDE_MS + 80);
+  /**
+   * Early enough in a glide that it is certainly still in flight, with the
+   * slack of most of its length for a slow machine, and late enough that at
+   * least one frame of it has run.
+   */
+  const MID_FLIGHT_MS = COMPANION_GLIDE_MS / 4;
+  const between = (
+    point: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+  ): boolean =>
+    point.y > Math.min(a.y, b.y) &&
+    point.y < Math.max(a.y, b.y) &&
+    point.x > Math.min(a.x, b.x) &&
+    point.x < Math.max(a.x, b.x);
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    reducedMotion = false;
+  });
+
+  /** Leave the surface at rest with no call on it, whatever the case did. */
+  afterEach(async () => {
+    send("vellum:voiceActivity:end");
+    send("vellum:voiceActivity:control", { action: "endSession" });
+    await settle();
+    reducedMotion = true;
+  });
+
+  test("lands exactly on the call's place, over time rather than at once", async () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(home);
+    await wait(MID_FLIGHT_MS);
+    expect(between(centre(), home, bottomCentre)).toBe(true);
+    await settle();
+    expect(centre()).toEqual(bottomCentre);
+  });
+
+  test("goes home the same way once the call is over", async () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    await settle();
+    send("vellum:voiceActivity:end");
+    await wait(MID_FLIGHT_MS);
+    expect(between(centre(), home, bottomCentre)).toBe(true);
+    await settle();
+    expect(centre()).toEqual(home);
+  });
+
+  test("moves at once under Reduce motion", () => {
+    reducedMotion = true;
+    const home = park();
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+
+  /**
+   * The home is where the pill rested, not where the outbound glide had got
+   * to when the call ended, and the outbound glide does not carry on
+   * underneath the homeward one.
+   */
+  test("a call ending mid-flight sends the pill back to where it rested", async () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    await wait(MID_FLIGHT_MS);
+    expect(centre()).not.toEqual(home);
+    send("vellum:voiceActivity:end");
+    await settle();
+    expect(centre()).toEqual(home);
+    await settle();
+    expect(centre()).toEqual(home);
+  });
+
+  /**
+   * A call that arrives while the pill is still on its way home reads its
+   * home off the glide's destination rather than the point it has reached,
+   * so the pill goes back to the same place after both calls.
+   */
+  test("a call arriving on the way home remembers that home", async () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    await settle();
+    send("vellum:voiceActivity:end");
+    await wait(MID_FLIGHT_MS);
+    const passing = centre();
+    expect(passing).not.toEqual(home);
+    send("vellum:companion:startVoice");
+    await settle();
+    expect(centre()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+    await settle();
+    expect(centre()).toEqual(home);
+    expect(centre()).not.toEqual(passing);
+  });
+
+  test("a drag mid-flight wins over the glide", async () => {
+    park();
+    send("vellum:companion:startVoice");
+    await wait(MID_FLIGHT_MS);
+    const reached = centre();
+    send("vellum:companion:moveBy", -60, -40);
+    const dragged = centre();
+    expect(dragged).toEqual({ x: reached.x - 60, y: reached.y - 40 });
+    await settle();
+    expect(centre()).toEqual(dragged);
+  });
+
+  /**
+   * The canvas is rebuilt around where the avatar rests, and a glide in
+   * flight rests where it is headed: the pick lands it there at once, in the
+   * new canvas, and no frame of the old glide steps across the rebuilt one.
+   */
+  test("a size pick mid-flight lands the glide in the new canvas", async () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    await wait(MID_FLIGHT_MS);
+    expect(between(centre(), home, bottomCentre)).toBe(true);
+    setCompanionSurfaceSize("options", "huge");
+    const bounds = boundsSet.at(-1);
+    expect({ width: bounds?.width, height: bounds?.height }).toEqual({
+      width: BIG_OPTIONS.canvasWidth,
+      height: BIG_OPTIONS.canvasHeight,
+    });
+    // Read back out of the new canvas, the way main reads it.
+    const centreInNewCanvas = (): { x: number; y: number } => ({
+      x: origin.x + BIG_OPTIONS.canvasWidth / 2,
+      y: origin.y + avatarOffsetFor(state().cardGrowth, BIG_OPTIONS),
+    });
+    expect(centreInNewCanvas()).toEqual(bottomCentre);
+    // Still there a frame or more later, where the old glide would have been
+    // passing through a point short of it.
+    await wait(MID_FLIGHT_MS);
+    expect(centreInNewCanvas()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+    await settle();
+    expect(centreInNewCanvas()).toEqual(home);
+  });
+
+  /**
+   * The landing is clamped against the display under the avatar when it
+   * lands, not the one the glide was aimed at: a display that shrinks or goes
+   * mid-flight cannot leave the pill off the edge of the one that is left.
+   */
+  test("lands inside the display under it at landing time", async () => {
+    park();
+    send("vellum:companion:startVoice");
+    await wait(MID_FLIGHT_MS);
+    const shrunk = { x: 0, y: 0, width: 1000, height: 600 };
+    nearestDisplay = { bounds: shrunk, workArea: shrunk };
+    await settle();
+    const placed = placeCanvas(bottomCentre, shrunk, GEOMETRY);
+    expect(centre()).toEqual({
+      x: placed.origin.x + GEOMETRY.canvasWidth / 2,
+      y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, GEOMETRY),
+    });
+    expect(centre().y).toBeLessThanOrEqual(
+      shrunk.height - GEOMETRY.avatarBox / 2,
+    );
+  });
+
+  /**
+   * The setting is read per move, not per frame: a glide already in flight
+   * lands on its timetable, and the move after the toggle is the one that
+   * happens at once.
+   */
+  test("Reduce motion turned on mid-flight applies from the next move", async () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    await wait(MID_FLIGHT_MS);
+    reducedMotion = true;
+    expect(between(centre(), home, bottomCentre)).toBe(true);
+    await settle();
+    expect(centre()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+});
+
+describe("glideProgress", () => {
+  test("starts at the start and ends at the end", () => {
+    expect(glideProgress(0)).toBe(0);
+    expect(glideProgress(1)).toBe(1);
+  });
+
+  test("holds at the ends past them", () => {
+    expect(glideProgress(-0.5)).toBe(0);
+    expect(glideProgress(1.5)).toBe(1);
+  });
+
+  /** An ease-out: ahead of a straight line, and never going back. */
+  test("eases out", () => {
+    let last = 0;
+    for (let t = 0.1; t < 1; t += 0.1) {
+      const now = glideProgress(t);
+      expect(now).toBeGreaterThan(t);
+      expect(now).toBeGreaterThan(last);
+      last = now;
+    }
   });
 });
 

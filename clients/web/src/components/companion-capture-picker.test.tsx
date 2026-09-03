@@ -137,4 +137,11 @@ describe("the capture picker", () => {
     );
     expect(card).not.toBeNull();
   });
+
+  test("stands in for the list with its own shape while loading", () => {
+    const { container } = render(<CompanionCapturePicker sources={null} />);
+    expect(
+      container.querySelectorAll("[aria-hidden] .animate-pulse").length,
+    ).toBeGreaterThan(0);
+  });
 });

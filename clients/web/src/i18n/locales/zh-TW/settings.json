@@ -2167,8 +2167,6 @@
     "customKey": "自訂",
     "defaultBadge": "預設",
     "enableVoiceShortcut": "啟用語音模式捷徑",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn 需要輸入監控。請在「系統設定」中授予權限，或設定自訂捷徑。",
     "focusedTabNote": "按鍵通話僅在此分頁為焦點時有效，且瀏覽器可能會在頁面偵測到某些捷徑（例如 Ctrl+T）之前將其攔截。若要啟用始終開啟的按鍵通話功能，請使用 Vellum 桌面應用程式。",
     "grantMicrophoneAccessHint": "授予麥克風存取權限，以列出可用的輸入裝置。",
     "interruptSensitivityAriaLabel": "打斷靈敏度",
@@ -2186,7 +2184,6 @@
     "pauseBeforeReplyDescription": "您停止說話後，助理等待多久才回覆。較長的暫停時間可讓您在句子中間整理思緒，而不會被打斷。",
     "pauseBeforeReplyLabel": "回覆前暫停",
     "pressShortcut": "按下捷徑…",
-    "recommendedBadge": "建議",
     "recordingPrompt": "按下組合鍵或按鍵…",
     "resetToDefaults": "重設為預設值",
     "savedMicrophone": "已儲存的麥克風",
@@ -2211,6 +2208,20 @@
     "voiceShortcutSubtitleDesktop": "用於開始/結束語音對話的全域捷徑。",
     "voiceShortcutTitle": "語音模式捷徑",
     "captionsRecommendation": "我們建議初次使用時保持關閉，體驗更接近真實對話。"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "允許輸入監控",
+    "customHint": "按住 Cmd、Ctrl、Option、Shift 中的兩個或更多鍵，然後放開。",
+    "customLabel": "自訂",
+    "fnDictationNote": "如果 macOS 聽寫在連按兩次 Fn 時啟動，請在「系統設定」的「鍵盤」中關閉它。",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "在允許輸入監控之前，無法監聽此鍵。",
+    "offLabel": "關閉",
+    "recordingPrompt": "按住修飾鍵…",
+    "refusedNote": "無法監聽此鍵。請重新啟動 App 後再試一次。",
+    "subtitle": "按住可在游標處聽寫或詢問所選內容。連按兩次可開始或結束通話。",
+    "title": "語音鍵",
+    "voiceOverNote": "Control 和 Option 是 VoiceOver 的修飾鍵。如果你使用 VoiceOver，其指令會優先佔用這些鍵。"
   },
   "voicePickerCard": {
     "changeButton": "變更",

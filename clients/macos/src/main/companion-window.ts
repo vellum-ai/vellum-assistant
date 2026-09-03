@@ -3,6 +3,7 @@ import {
   Menu,
   app,
   screen,
+  systemPreferences,
   type Display,
   type MenuItemConstructorOptions,
   type Rectangle,
@@ -429,8 +430,79 @@ const FRAME_FOLLOW_MS = 250;
  * ends the pill goes back to where it lived. Held in memory only: the
  * surface's position is never persisted, so there is nothing on disk for a
  * call to corrupt.
+ *
+ * Always a place the surface rests, never one it is passing through. A call
+ * that arrives while the pill is still gliding home reads its home off the
+ * glide's target (see {@link glide}), so the call after it goes back to the
+ * same place the one before it did.
  */
 let callHome: { x: number; y: number } | null = null;
+
+/**
+ * How long the surface takes to glide between the pill's home and the call's
+ * place at the bottom of the display.
+ *
+ * A little longer than the 300ms the surface's own CSS gives the pill. That
+ * transition crosses a pill's width where this one can cross most of a
+ * display, and a move that far at the pill's pace reads as a flick rather
+ * than a glide.
+ */
+export const COMPANION_GLIDE_MS = 380;
+
+/**
+ * The frame the glide is stepped at, near the display's own refresh so each
+ * step is a point or two rather than a hop.
+ */
+const GLIDE_FRAME_MS = 16;
+
+/**
+ * How far along the glide the surface is at a moment of it, from `0` at the
+ * start to `1` at the end.
+ *
+ * An ease-out: most of the distance goes by early and the last of it settles
+ * slowly, the shape of the `cubic-bezier(.2,.8,.2,1)` the surface's CSS moves
+ * the pill with, so the window moving and the pill unfurling on it read as
+ * one motion. Exported for its tests, as {@link growthFor} is.
+ */
+export const glideProgress = (t: number): number => {
+  const clamped = Math.min(Math.max(t, 0), 1);
+  return 1 - (1 - clamped) ** 3;
+};
+
+/**
+ * The glide in flight, or `null` while the surface is at rest.
+ *
+ * `to` is where the avatar's centre will come to rest, which is the point
+ * `callHome` reads when a call arrives mid-flight. `from` is where it left,
+ * so each frame is a fraction of one straight line rather than a step from
+ * wherever the last frame happened to land.
+ */
+let glide: {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  startedAt: number;
+  timer: ReturnType<typeof setTimeout>;
+} | null = null;
+
+const cancelGlide = (): void => {
+  if (glide === null) {
+    return;
+  }
+  clearTimeout(glide.timer);
+  glide = null;
+};
+
+/**
+ * Whether the surface moves at once rather than over time.
+ *
+ * Read per move rather than once at launch: it is the system's "Reduce
+ * motion" setting, which the user can change while the app runs. Per move
+ * and not per frame, so a glide is one thing from start to landing: a toggle
+ * during one lands the glide in flight on its timetable and decides how the
+ * next move happens.
+ */
+const prefersReducedMotion = (): boolean =>
+  systemPreferences.getAnimationSettings().prefersReducedMotion;
 
 /**
  * What the app's window last published about the assistant: its name, whether
@@ -816,6 +888,90 @@ const displayUnder = (point: { x: number; y: number }): Display =>
   });
 
 /**
+ * Take the avatar to a point over {@link COMPANION_GLIDE_MS}, landing exactly
+ * where {@link moveAvatarTo} would have put it at once.
+ *
+ * A timer on this side rather than the window server's own animated
+ * `setPosition`. That one takes neither a duration nor a curve (macOS derives
+ * the time from the change in the frame's *height*, so a move that keeps the
+ * canvas's size is over before it can be seen), it blocks main for the length
+ * of it, and it moves the window along a line nothing here has clamped. Every
+ * frame of this glide goes through `moveAvatarTo` against the display under
+ * it, so each is clamped the way a drag's move is and the card direction is
+ * settled before the window moves, exactly as for a hand.
+ *
+ * The landing point is fixed when the glide starts and placed again against
+ * whatever display is under it when the glide lands, so a display that
+ * changes mid-flight cannot leave the avatar off the edge of it. A new glide
+ * replaces a running one from wherever the window has reached, and a drag
+ * cancels one outright (see the `moveBy` handler): the hand wins over the
+ * timetable.
+ *
+ * Instant under the system's "Reduce motion".
+ */
+const glideAvatarTo = (
+  win: BrowserWindow,
+  centre: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): void => {
+  cancelGlide();
+  if (prefersReducedMotion()) {
+    moveAvatarTo(win, centre, workArea);
+    return;
+  }
+  const from = avatarCentre(win);
+  // The point the glide ends on is the point the instant move would land on,
+  // read back out of the placement the same way `avatarCentre` reads it out of
+  // the window, so nothing about where the surface rests depends on which of
+  // the two moved it.
+  const placed = placeCanvas(centre, workArea, geometry);
+  const to = {
+    x: placed.origin.x + geometry.canvasWidth / 2,
+    y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
+  };
+  if (from.x === to.x && from.y === to.y) {
+    return;
+  }
+  const tick = (): void => {
+    // A frame belongs to the glide it was scheduled by, and only that glide
+    // is allowed to move the window. Checked by identity rather than against
+    // `null`: a frame of a glide that was replaced must not touch the one
+    // that replaced it, in either direction, and cancelling from here would
+    // clear the newer glide's timer, not this one's.
+    if (glide !== flight) {
+      return;
+    }
+    if (win.isDestroyed()) {
+      cancelGlide();
+      return;
+    }
+    const t = (performance.now() - flight.startedAt) / COMPANION_GLIDE_MS;
+    if (t >= 1) {
+      glide = null;
+      moveAvatarTo(win, to, displayUnder(to).workArea);
+      return;
+    }
+    const progress = glideProgress(t);
+    const point = {
+      x: from.x + (to.x - from.x) * progress,
+      y: from.y + (to.y - from.y) * progress,
+    };
+    // Against the display the frame is over rather than the one the glide is
+    // headed for, as a drag is: a glide between displays clamped to its
+    // destination's edges would jump to that edge on its first frame.
+    moveAvatarTo(win, point, displayUnder(point).workArea);
+    flight.timer = setTimeout(tick, GLIDE_FRAME_MS);
+  };
+  const flight: NonNullable<typeof glide> = {
+    from,
+    to,
+    startedAt: performance.now(),
+    timer: setTimeout(tick, GLIDE_FRAME_MS),
+  };
+  glide = flight;
+};
+
+/**
  * Frame a rectangle of the desktop, or move the frame to it.
  *
  * For a display, its whole bounds rather than its work area, the way a shared
@@ -984,8 +1140,8 @@ const syncWatchFrame = (): void => {
  * main is holding.
  *
  * Idempotent, and run after every change to the session or the dial. Into a
- * call: remember where the avatar was and take it to the bottom centre of its
- * display. Out of one: take the avatar home. A surface not on screen has
+ * call: remember where the avatar rests and glide it to the bottom centre of
+ * its display. Out of one: glide the avatar home. A surface not on screen has
  * nothing to move.
  */
 const syncCallSurface = (): void => {
@@ -994,9 +1150,13 @@ const syncCallSurface = (): void => {
     if (win === null || callHome !== null) {
       return;
     }
-    callHome = avatarCentre(win);
+    // Where the surface rests, which while it is gliding home is where the
+    // glide is headed rather than the point it has reached. A call that
+    // arrives on the way home must send the pill back to that home when it
+    // ends, not to wherever it was passing through when the call came.
+    callHome = glide === null ? avatarCentre(win) : glide.to;
     const display = displayUnder(callHome);
-    moveAvatarTo(
+    glideAvatarTo(
       win,
       defaultAvatarCentre(display.workArea, geometry),
       display.workArea,
@@ -1011,7 +1171,7 @@ const syncCallSurface = (): void => {
   if (win === null) {
     return;
   }
-  moveAvatarTo(win, home, displayUnder(home).workArea);
+  glideAvatarTo(win, home, displayUnder(home).workArea);
 };
 
 /**
@@ -1229,6 +1389,10 @@ export const installCompanionWindow = (): void => {
       if (!win || win.isDestroyed()) {
         return;
       }
+      // The hand wins over a glide in flight. Left running, the glide would
+      // keep pulling the surface toward its target between the user's moves,
+      // and the pill would slide out from under the pointer.
+      cancelGlide();
       // In the avatar's coordinates, not the window's. The avatar is what the
       // hand is holding, and its offset inside the canvas changes when the card
       // direction flips, so a delta applied to the origin would drag the mascot
@@ -1686,8 +1850,10 @@ export const openCompanionWindow = (): void => {
   refreshGrowth();
   win.on("move", refreshGrowth);
   // A home remembered for a window that no longer exists is one the next
-  // window must not be sent to: it opens where every window opens.
+  // window must not be sent to: it opens where every window opens. A glide
+  // still in flight has nothing left to move.
   win.on("closed", () => {
+    cancelGlide();
     callHome = null;
   });
   // `createFloatingWindow` has already shown it. A surface opened while the
@@ -1768,7 +1934,13 @@ export const setCompanionSurfaceSize = (
     geometry = next;
     return;
   }
-  const centre = avatarCentre(win);
+  // Where the avatar rests, which for a glide in flight is where it is headed.
+  // The canvas is rebuilt around a point the avatar stays on, and a point it
+  // is passing through is one the next frame leaves; so the glide lands here,
+  // early, and the canvas is built around its landing. Left running, its
+  // frames would step a line measured in the old geometry across the new one.
+  const centre = glide === null ? avatarCentre(win) : glide.to;
+  cancelGlide();
   geometry = next;
   const { workArea } = screen.getDisplayNearestPoint({
     x: Math.round(centre.x),

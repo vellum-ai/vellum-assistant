@@ -114,7 +114,7 @@ export async function submitGuardianForm(
   if (options.cancelled === true) {
     await reportResolution(
       requestId,
-      { requestId, error: "Cancelled by user" },
+      { requestId, error: "Cancelled by user", cancelled: true },
       settleDeadline,
       resolveOperation,
     );
