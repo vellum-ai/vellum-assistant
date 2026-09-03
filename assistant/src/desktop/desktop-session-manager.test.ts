@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
@@ -28,12 +28,17 @@ const SHUTTING_DOWN = {
 } as const;
 
 const profileDir = mkdtempSync(join(tmpdir(), "desktop-session-test-"));
+const panelConfigDir = mkdtempSync(join(tmpdir(), "desktop-panel-test-"));
+const tint2rcPath = join(panelConfigDir, "tint2rc");
 afterAll(() => {
   rmSync(profileDir, { recursive: true, force: true });
+  rmSync(panelConfigDir, { recursive: true, force: true });
 });
 
-function newManager(options: Omit<FakeDesktopOptions, "profileDir"> = {}) {
-  return newFakeDesktop({ profileDir, ...options });
+function newManager(
+  options: Omit<FakeDesktopOptions, "profileDir" | "panelConfigDir"> = {},
+) {
+  return newFakeDesktop({ profileDir, panelConfigDir, ...options });
 }
 
 describe("DesktopSessionManager process tree", () => {
@@ -56,11 +61,14 @@ describe("DesktopSessionManager process tree", () => {
     ]);
     await settle();
 
+    // The dock waits on the Chromium path its launcher points at, so it comes
+    // up alongside the browser rather than with the rest of the tree.
     expect(h.roles()).toEqual([
       "x-server",
       "window-manager",
-      "panel",
+      "compositor",
       "clipboard",
+      "panel",
       "browser",
     ]);
 
@@ -72,8 +80,9 @@ describe("DesktopSessionManager process tree", () => {
     expect(x[x.indexOf("-geometry") + 1]).toBe("1440x900");
     for (const role of [
       "window-manager",
-      "panel",
+      "compositor",
       "clipboard",
+      "panel",
       "browser",
     ] as const) {
       expect(h.child(role).request.env).toEqual({
@@ -85,7 +94,14 @@ describe("DesktopSessionManager process tree", () => {
       });
     }
     expect(h.child("window-manager").request.cmd).toEqual(["/usr/bin/openbox"]);
-    expect(h.child("panel").request.cmd).toEqual(["/usr/bin/tint2"]);
+    // The compositor precedes the dock: without one already running, tint2
+    // gets no ARGB visual and the rounded translucent dock renders square.
+    expect(h.child("compositor").request.cmd).toEqual(["/usr/bin/xcompmgr"]);
+    expect(h.child("panel").request.cmd).toEqual([
+      "/usr/bin/tint2",
+      "-c",
+      tint2rcPath,
+    ]);
     expect(h.child("clipboard").request.cmd).toEqual([
       "/usr/bin/tigervncconfig",
       "-nowin",
@@ -114,12 +130,68 @@ describe("DesktopSessionManager process tree", () => {
 
   test("a missing binary fails the start before anything is spawned", async () => {
     const h = newManager({
-      missingBinaries: ["Xtigervnc", "tint2", "tigervncconfig", "vncconfig"],
+      missingBinaries: [
+        "Xtigervnc",
+        "xcompmgr",
+        "tint2",
+        "tigervncconfig",
+        "vncconfig",
+        "xterm",
+      ],
     });
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(
-      "Desktop binaries missing from PATH: Xtigervnc, tint2, tigervncconfig",
+      "Desktop binaries missing from PATH: Xtigervnc, xcompmgr, tint2, tigervncconfig, xterm",
     );
     expect(h.spawned).toEqual([]);
+  });
+
+  test("the dock is generated with the resolved Chromium and terminal", async () => {
+    const h = newManager();
+    await h.manager.ensureDesktopRunning();
+    await settle();
+
+    const tint2rc = readFileSync(tint2rcPath, "utf8");
+    expect(tint2rc).toContain("panel_position = bottom center horizontal");
+    expect(tint2rc).toContain("panel_shrink = 1");
+    expect(tint2rc).toContain("panel_layer = top");
+    expect(tint2rc).toContain("autohide = 0");
+    // Icon-only: no window titles, and no clock or tray in the item list.
+    expect(tint2rc).toContain("panel_items = LT");
+    expect(tint2rc).toContain("task_text = 0");
+    expect(tint2rc).toContain(
+      `launcher_item_app = ${join(panelConfigDir, "chromium.desktop")}`,
+    );
+    expect(tint2rc).toContain(
+      `launcher_item_app = ${join(panelConfigDir, "terminal.desktop")}`,
+    );
+
+    const chromium = readFileSync(
+      join(panelConfigDir, "chromium.desktop"),
+      "utf8",
+    );
+    expect(chromium).toContain(`Exec="/fake/chromium"`);
+    expect(chromium).toContain(`"--user-data-dir=${profileDir}"`);
+    expect(chromium).toContain(`Icon=${join(panelConfigDir, "browser.png")}`);
+
+    const terminal = readFileSync(
+      join(panelConfigDir, "terminal.desktop"),
+      "utf8",
+    );
+    expect(terminal).toContain(`Exec="/usr/bin/xterm"`);
+    expect(terminal).toContain(`Icon=${join(panelConfigDir, "terminal.png")}`);
+
+    // The icons are decoded from source constants, so check they land as whole
+    // PNGs: tint2 renders a launcher with an unreadable icon blank.
+    for (const icon of ["browser.png", "terminal.png"]) {
+      const bytes = readFileSync(join(panelConfigDir, icon));
+      expect([...bytes.subarray(0, 8)]).toEqual([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ]);
+      // The trailing IEND chunk, so a truncated constant cannot pass.
+      expect([...bytes.subarray(-12)]).toEqual([
+        0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+      ]);
+    }
   });
 
   test("a VNC port that never opens fails the start and kills the X server, and a retry works", async () => {
@@ -189,7 +261,7 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["panel", "window-manager", "x-server"]);
+    ).toEqual(["compositor", "window-manager", "x-server"]);
     expect(lost).toEqual([{ code: 4011, reason: "Desktop failed to start" }]);
 
     failSpawn.length = 0;
@@ -198,11 +270,30 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.roles().slice(3)).toEqual([
       "x-server",
       "window-manager",
-      "panel",
+      "compositor",
       "clipboard",
+      "panel",
       "browser",
     ]);
     expect(h.terminated()).toHaveLength(3);
+  });
+
+  test("a dock or compositor that will not spawn leaves the desktop up", async () => {
+    const h = newManager({ failSpawn: ["compositor", "panel"] });
+    const { viewer, lost } = newViewer();
+    h.manager.acquireViewerSlot(viewer);
+
+    await h.manager.ensureDesktopRunning();
+    await settle();
+
+    expect(lost).toEqual([]);
+    expect(h.killed).toEqual([]);
+    expect(h.roles()).toEqual([
+      "x-server",
+      "window-manager",
+      "clipboard",
+      "browser",
+    ]);
   });
 
   test("an X server exit tears the tree down and tells the viewer", async () => {
@@ -223,7 +314,13 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["browser", "clipboard", "panel", "window-manager"]);
+    ).toEqual([
+      "browser",
+      "clipboard",
+      "compositor",
+      "panel",
+      "window-manager",
+    ]);
     // The slot is free and the next start builds a fresh tree.
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual({
       ok: true,
@@ -291,7 +388,13 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["clipboard", "panel", "window-manager", "x-server"]);
+    ).toEqual([
+      "clipboard",
+      "compositor",
+      "panel",
+      "window-manager",
+      "x-server",
+    ]);
   });
 
   test("a browser that cannot be installed takes the desktop down", async () => {
@@ -307,7 +410,14 @@ describe("DesktopSessionManager process tree", () => {
     expect(lost).toEqual([
       { code: 4011, reason: "Desktop browser failed to start" },
     ]);
-    expect(h.terminated()).toHaveLength(4);
+    // The dock never got its Chromium path, so only the three fatal children
+    // and no panel are killed.
+    expect(
+      h
+        .terminated()
+        .map((c) => c.role)
+        .sort(),
+    ).toEqual(["clipboard", "compositor", "window-manager", "x-server"]);
   });
 
   test("destroy terminates, hard-kills stragglers after the grace, and refuses what comes after", async () => {
@@ -325,8 +435,8 @@ describe("DesktopSessionManager process tree", () => {
       { code: 1001, reason: "The assistant is shutting down" },
     ]);
     expect(h.killed.map((k) => k.signal)).toEqual([
-      ...Array(5).fill("SIGTERM"),
-      ...Array(5).fill("SIGKILL"),
+      ...Array(6).fill("SIGTERM"),
+      ...Array(6).fill("SIGKILL"),
     ]);
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual(
       SHUTTING_DOWN,
@@ -342,7 +452,7 @@ describe("DesktopSessionManager process tree", () => {
     await settle();
 
     await h.manager.destroy();
-    expect(h.killed.map((k) => k.signal)).toEqual(Array(5).fill("SIGTERM"));
+    expect(h.killed.map((k) => k.signal)).toEqual(Array(6).fill("SIGTERM"));
   });
 });
 
@@ -373,7 +483,7 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.killed).toEqual([]);
 
     await sleep(LINGER_MS * 2);
-    expect(h.terminated()).toHaveLength(5);
+    expect(h.terminated()).toHaveLength(6);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(2);
   });

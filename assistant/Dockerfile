@@ -112,8 +112,10 @@ RUN apt-get update && apt-get install -y \
     wget \
     xauth \
     xclip \
+    xcompmgr \
     xdg-utils \
     xfonts-base \
+    xterm \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder instead of re-installing

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { sleep } from "../../util/retry.js";
 import {
   type DesktopChild,
@@ -35,6 +37,8 @@ export const KILL_GRACE_MS = 20;
 
 export interface FakeDesktopOptions {
   profileDir: string;
+  /** Defaults inside `profileDir`, for tests that ignore the dock's config. */
+  panelConfigDir?: string;
   /** Roles whose spawn throws, to exercise a start that fails partway. */
   failSpawn?: DesktopChildRole[];
   /** Binaries `which` cannot find. */
@@ -76,6 +80,8 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     readyDeadlineMs: 30,
     killGraceMs: KILL_GRACE_MS,
     profileDir: options.profileDir,
+    panelConfigDir:
+      options.panelConfigDir ?? join(options.profileDir, "desktop-panel"),
     sourceEnv: options.sourceEnv,
   });
   return {
