@@ -10,6 +10,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
 import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
 
@@ -46,9 +48,22 @@ export function ActivationController(): ReactNode {
    * after the welcome modal has been closed: they are different surfaces and
    * only one of them is closed at a time.
    */
-  const [closedSurface, setClosedSurface] = useState<ActivationSurface | null>(
-    null,
-  );
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const [closedFor, setClosedFor] = useState<{
+    assistantId: string | null;
+    surface: ActivationSurface;
+  } | null>(null);
+  // A dismissal belongs to the assistant it was made on; switching assistants
+  // without remounting must not carry it over to the next one's welcome.
+  const closedSurface =
+    closedFor !== null && closedFor.assistantId === activeAssistantId
+      ? closedFor.surface
+      : null;
+  const setClosedSurface = (next: ActivationSurface | null): void => {
+    setClosedFor(
+      next === null ? null : { assistantId: activeAssistantId, surface: next },
+    );
+  };
 
   // The celebration is a distinct dismissal: it records that the user has seen
   // it, which is what retires the checklist for good.

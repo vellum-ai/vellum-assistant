@@ -17,7 +17,13 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
@@ -247,6 +253,24 @@ describe("ActivationController", () => {
     const { getByRole, queryByRole } = renderSurfaces();
     fireEvent.click(getByRole("button", { name: "Do it Later" }));
     expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
+  });
+
+  test("a dismissal on one assistant does not silence the next assistant's welcome", async () => {
+    const { getByRole, queryByRole } = renderSurfaces();
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Do it Later" }));
+    });
+    expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Vel", MIN_VERSION, "asst-2");
+    });
+    await waitFor(() => {
+      expect(getByRole("button", { name: "Do it Later" })).toBeTruthy();
+    });
   });
 
   test("a dismissal the daemon refused does not put the modal back", async () => {
