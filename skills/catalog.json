@@ -323,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-02T23:53:58.000Z"
+      "updatedAt": "2026-09-03T15:55:37.000Z"
     },
     {
       "id": "gmail-trigger",
@@ -370,7 +370,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-02T23:53:58.000Z"
+      "updatedAt": "2026-09-03T15:55:37.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -736,7 +736,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-02T23:53:58.000Z"
+      "updatedAt": "2026-09-03T15:55:37.000Z"
     },
     {
       "id": "plugin-builder",
