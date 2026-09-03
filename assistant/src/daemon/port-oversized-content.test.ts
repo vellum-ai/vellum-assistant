@@ -7,9 +7,12 @@ import {
   assembleUserContentBlocks,
   offloadLinkPlan,
   offloadOversizedText,
-  OVERSIZED_CONTENT_FILENAME,
+  OVERSIZED_CONTENT_FILENAME_PREFIX,
   OVERSIZED_CONTENT_NOTE,
+  oversizedContentFilename,
 } from "./port-oversized-content.js";
+
+const OVERSIZED_FILENAME_RE = /^oversized-content-[0-9a-f-]{36}\.txt$/;
 
 await initializeDb();
 
@@ -47,12 +50,13 @@ describe("offloadOversizedText", () => {
 
     expect(result.text).toBe(OVERSIZED_CONTENT_NOTE);
     expect(result.attachmentId).toBeDefined();
+    expect(result.filename).toMatch(OVERSIZED_FILENAME_RE);
     expect(result.fileBlock).toMatchObject({
       type: "file",
       source: {
         type: "workspace_ref",
         media_type: "text/plain",
-        filename: OVERSIZED_CONTENT_FILENAME,
+        filename: result.filename,
         attachmentId: result.attachmentId,
       },
     });
@@ -65,6 +69,30 @@ describe("offloadOversizedText", () => {
     expect(JSON.stringify(blocks)).not.toContain(original);
     expect(blocks[0]).toEqual({ type: "text", text: OVERSIZED_CONTENT_NOTE });
     expect(blocks[1]).toEqual(result.fileBlock);
+  });
+
+  test("assigns a distinct generated filename per offload in one conversation", async () => {
+    resetTables();
+    const conv = createConversation();
+    const ctx = {
+      conversationId: conv.id,
+      conversationCreatedAt: conv.createdAt,
+    };
+    const first = await offloadOversizedText("a".repeat(32), ctx, 16);
+    const second = await offloadOversizedText("b".repeat(32), ctx, 16);
+
+    expect(first.filename).toMatch(OVERSIZED_FILENAME_RE);
+    expect(second.filename).toMatch(OVERSIZED_FILENAME_RE);
+    expect(first.filename).not.toBe(second.filename);
+    expect(first.filename).toContain(OVERSIZED_CONTENT_FILENAME_PREFIX);
+  });
+});
+
+describe("oversizedContentFilename", () => {
+  test("embeds the given id", () => {
+    expect(oversizedContentFilename("11111111-1111-1111-1111-111111111111")).toBe(
+      "oversized-content-11111111-1111-1111-1111-111111111111.txt",
+    );
   });
 });
 

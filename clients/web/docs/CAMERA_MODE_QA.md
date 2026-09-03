@@ -72,6 +72,40 @@ scrim.
       flagged session the panel has two rows; on an ordinary session it has one.
       This panel is the only place the readout is switched on and off, so check
       Settings, Debug, General carries no row for it.
+- [ ] The readout is a strip on a phone. On a staff or flagged session, switch
+      the frame gate readout on with the camera up. What appears under the
+      chrome band is one slim glass row: the verdict and three small meters,
+      never the full card. It clears both the status pill above it and the two
+      corner controls beside them, with a long assistant name in the pill.
+- [ ] The strip opens the readout, and gives the frame back. Tap the strip: a
+      sheet rises from the bottom with the decision order, the recent frames,
+      the keeps and the threshold sliders. Tap the frame anywhere outside it,
+      and separately tap the bar at the top of the sheet: each closes it, and
+      neither press reaches the shutter underneath. The strip stays up while
+      the sheet is open and its meters keep moving.
+- [ ] The sheet scrolls, and the room holds still under it. The readout is
+      taller than the sheet's height cap, so the lower sliders are reachable
+      only by scrolling. With the sheet open, swipe up and down its body: the
+      readout scrolls to the reset button and back, and the room never starts
+      sliding toward a minimize. Drag a threshold sideways across its whole
+      range and the same holds.
+- [ ] The open sheet stands the room's pull-down down, and closing gives it
+      back. With the sheet open, drag downward on the frame outside it: nothing
+      moves, because a press out there is aimed at dismissing the readout and
+      answering it with a minimize would hang the call off a tap that missed.
+      Tap once to close, then drag downward from the same place, and from the
+      strip: the room minimizes both times.
+- [ ] The room's own pull-down is unchanged everywhere else. With no readout on
+      screen at all, drag the room down from its chrome, from the middle of the
+      feed, and from over a control: it tracks the finger, springs back from a
+      short pull and minimizes past the threshold, exactly as on main. Sliding
+      a finger sideways across the control row still does not start it.
+- [ ] Holding still raises no callout. Press and hold on the room for a couple
+      of seconds: no text is selected and iOS shows no selection callout or
+      magnifier.
+- [ ] Tuning survives the collapse. Move a threshold in the sheet, close it,
+      and open it again: the value is where it was left, and the dot marking a
+      moved threshold is still beside it. Reset puts every slider back.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
@@ -229,6 +263,11 @@ answers nothing here.
 - [ ] Escape closes the panel before it minimizes the room. With the view
       options open, one Escape closes the panel and leaves the room up; a second
       minimizes the room.
+- [ ] The readout is a card here, and it changes width with the window. On a
+      staff or flagged session with the readout on, the full card is parked
+      under the chrome band with every slider on it. Narrow the browser window
+      past the mobile breakpoint: the card is replaced by the strip. Widen it
+      again and the card comes back, with the thresholds where they were left.
 - [ ] A mouse can hold. Press and keep the button down on the shutter for half a
       second: Live starts, and releasing takes no photo. Press and drag off the
       button before the half second and nothing happens at all.

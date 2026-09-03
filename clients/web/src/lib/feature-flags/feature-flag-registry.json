@@ -37,6 +37,15 @@
       "values": ["off", "on"]
     },
     {
+      "id": "assistant-initiated-threads",
+      "scope": "assistant",
+      "key": "assistant-initiated-threads",
+      "label": "Assistant-Initiated Threads",
+      "description": "Gates the sidebar section collecting the conversations the assistant started on its own: rows stamped `source='assistant_initiated'` at creation by producers that opt a thread in (heartbeat realizations worth the user's time; nothing stamps it yet, so the section starts empty and holds only new threads by construction). Transactional notification trails keep `source='notification'` and stay in Chats and the bell. When on, the daemon emits an `assistant` row from the section index and withholds member conversations from the Chats bucket; when off, they stay in Chats and no `assistant` row is emitted, which is the shipped behavior. Deliberately daemon-scope only: the index row is self-describing, so clients render the section on its presence rather than on a flag of their own. A second client-side gate could only hide a section whose rows the daemon has already withheld from Chats, which would lose those threads instead of reverting the feature. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",

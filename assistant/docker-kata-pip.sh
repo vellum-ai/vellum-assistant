@@ -38,10 +38,16 @@ if [ "$(id -u)" = "0" ]; then
       # unshare -m works there; if this environment can't create a mount
       # namespace, fall back to a bare chroot — index installs still persist,
       # only caller-path installs lose visibility.
+      rc=0
       if unshare -m true 2>/dev/null; then
-        exec unshare -m /app/assistant/docker-kata-pip-chroot.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
+        unshare -m /app/assistant/docker-kata-chroot-exec.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@" || rc=$?
+      else
+        chroot "${DATA_ROOT}" /bin/sh -c 'cd "$1" 2>/dev/null || cd /; shift; exec "$@"' sh "${PWD}" "/usr/bin/${PIP_NAME}" "$@" || rc=$?
       fi
-      exec chroot "${DATA_ROOT}" /bin/sh -c 'cd "$1" 2>/dev/null || cd /; shift; exec "$@"' sh "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
+      # pip can add usr/local commands that outrank existing shims on the
+      # PATH overlay; refresh so a stale shim never shadows them.
+      /app/assistant/docker-kata-apt-shims.sh || true
+      exit "${rc}"
     fi
   fi
   echo "Warning: persistent pip root unavailable; falling back to the image pip (installs will not survive a save)" >&2

@@ -469,9 +469,8 @@ describe("AppIconRow", () => {
       });
     });
 
-    // The two bundles hold sRGB channels in a display-p3 fill, so the readings
-    // are visibly different colors rather than rounding of each other. sRGB is
-    // the closest a renderer that cannot parse `color()` can get.
+    // The bundle fill and the hex name one color in two gamuts, so the sRGB
+    // reading is what a renderer that cannot parse `color()` falls back to.
     test("paints the sRGB ground where color() will not parse", async () => {
       dropDisplayP3Support();
       shellAppId = "ai.vocify-inc.vellum-assistant-ios.dev";
@@ -512,11 +511,11 @@ describe("AppIconRow", () => {
     });
   });
 
-  // Android draws its launcher field from per-flavor resources that share
-  // nothing with the iOS bundles, so the thumbnail standing in for the primary
-  // icon reads the shell's platform as well as its build.
+  // Android draws its launcher field from per-flavor resources that name the
+  // same colors as the iOS bundles in plain sRGB, so the thumbnail standing in
+  // for the primary icon reads the shell's platform as well as its build.
   describe("the default thumbnail follows the Android flavor", () => {
-    test("draws the dev flavor's blue field", async () => {
+    test("draws the dev flavor's pink field", async () => {
       runOnAndroidShell("ai.vellum.assistant.dev");
 
       await renderRow();
@@ -524,10 +523,14 @@ describe("AppIconRow", () => {
       await waitFor(() => {
         expect(previewFill()).toBe(flavorLauncherBackground("dev"));
       });
+      // Naming one ground for both platforms holds only while the flavor
+      // resource and the shared constant agree, so this comparison fails
+      // whenever either side moves alone.
+      expect(flavorLauncherBackground("dev")).toBe(APP_ICON_GROUNDS.dev);
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
 
-    test("draws the staging flavor's orange field", async () => {
+    test("draws the staging flavor's yellow field", async () => {
       runOnAndroidShell("ai.vellum.assistant.staging");
 
       await renderRow();
@@ -535,6 +538,9 @@ describe("AppIconRow", () => {
       await waitFor(() => {
         expect(previewFill()).toBe(flavorLauncherBackground("staging"));
       });
+      expect(flavorLauncherBackground("staging")).toBe(
+        APP_ICON_GROUNDS.staging,
+      );
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
 
@@ -549,6 +555,7 @@ describe("AppIconRow", () => {
       // Production is the one flavor the row names no field for, which is only
       // honest while the flavor itself declares the catalog's own green.
       expect(flavorLauncherBackground("production")).toBe(hexFor("green"));
+      expect(hexFor("green")).toBe(APP_ICON_GROUNDS.production);
       expect(previewFill()).toBe(hexFor("green"));
     });
   });

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   offloadOversizedText,
-  OVERSIZED_CONTENT_FILENAME,
+  OVERSIZED_CONTENT_FILENAME_PREFIX,
 } from "../daemon/port-oversized-content.js";
 import {
   attachInlineAttachmentToMessage,
@@ -476,7 +476,11 @@ describe("createInlineAttachment (workspace_ref persistence)", () => {
     expect(result.attachmentId).toBeDefined();
     const filePath = getFilePathForAttachment(result.attachmentId!);
     expect(filePath).toBeTruthy();
-    expect(filePath!.endsWith(OVERSIZED_CONTENT_FILENAME)).toBe(true);
+    expect(result.filename).toBeDefined();
+    expect(filePath!.endsWith(result.filename!)).toBe(true);
+    expect(result.filename!.startsWith(`${OVERSIZED_CONTENT_FILENAME_PREFIX}-`)).toBe(
+      true,
+    );
     expect(readFileSync(filePath!).toString("utf8")).toBe(original);
   });
 });

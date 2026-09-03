@@ -691,7 +691,7 @@ describe("the dial", () => {
 
 /**
  * When the surface is the call's rather than the pill: taken to the bottom of
- * the display, closed around the creature, the display's edge lit.
+ * the display, the creature standing beside it, the display's edge lit.
  */
 describe("the call surface", () => {
   test("is the pill with nothing running", () => {

@@ -23,11 +23,13 @@
 import type { ConversationStrategy } from "../channels/config.js";
 import { getConversationStrategy } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
+import { isAssistantInitiatedThreadsEnabled } from "../config/assistant-initiated-threads-gate.js";
 import {
   addMessage,
   createConversation,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import { ASSISTANT_INITIATED_SOURCE } from "../persistence/conversation-types.js";
 import {
   getBindingByChannelChat,
   upsertOutboundBinding,
@@ -106,13 +108,77 @@ export interface PairingOptions {
  * Errors are caught and logged — this function never throws so the
  * notification pipeline is not disrupted by pairing failures.
  */
-export async function pairDeliveryWithConversation(
+/**
+ * The event the assistant emits when it has a thought worth the user's time
+ * ("assistant.share" - the notifications skill's default), as opposed to a
+ * transactional request or a system alert.
+ */
+const ASSISTANT_SHARE_EVENT = "assistant.share";
+
+/**
+ * Promote a background share into an assistant-initiated thread, under the
+ * `assistant-initiated-threads` flag.
+ *
+ * The heartbeat's "have a thought, share it" path emits an assistant.share
+ * signal from its own background conversation, and the passive-vellum rule
+ * below would append the body there - a row the sidebar never shows. When the
+ * section exists, that share is exactly what it is for, so the signal is
+ * rewritten to materialize a fresh standard conversation stamped
+ * {@link ASSISTANT_INITIATED_SOURCE}, which is the section's membership mark.
+ *
+ * Deliberately narrow, in every direction it can be:
+ * - vellum channel only: other channels deliver the share as a native
+ *   message and need no in-app thread;
+ * - assistant.share only: transactional events keep their own pairing
+ *   rules, and their threads stay out of the section by source;
+ * - only when the producing conversation is a background/scheduled run (or
+ *   nothing resolvable): a share emitted from inside a user-facing thread
+ *   keeps the append, since the user is already looking at that thread;
+ * - never over an explicit `conversationMetadata.source` or an existing
+ *   `requiresConversation`: a producer that declared its own filing wins.
+ *
+ * Flag off, the signal passes through untouched and shares keep the passive
+ * append: nothing changes for anyone outside the rollout.
+ */
+function withAssistantInitiatedThread(
   signal: NotificationSignal,
+  channel: NotificationChannel,
+): NotificationSignal {
+  if (
+    channel !== "vellum" ||
+    signal.sourceEventName !== ASSISTANT_SHARE_EVENT ||
+    signal.requiresConversation === true ||
+    signal.conversationMetadata?.source !== undefined ||
+    !isAssistantInitiatedThreadsEnabled()
+  ) {
+    return signal;
+  }
+  const producing = getConversation(signal.sourceContextId);
+  if (
+    producing &&
+    producing.conversationType !== "background" &&
+    producing.conversationType !== "scheduled"
+  ) {
+    return signal;
+  }
+  return {
+    ...signal,
+    requiresConversation: true,
+    conversationMetadata: {
+      ...signal.conversationMetadata,
+      source: ASSISTANT_INITIATED_SOURCE,
+    },
+  };
+}
+
+export async function pairDeliveryWithConversation(
+  rawSignal: NotificationSignal,
   channel: NotificationChannel,
   copy: RenderedChannelCopy,
   options?: PairingOptions,
 ): Promise<PairingResult> {
   try {
+    const signal = withAssistantInitiatedThread(rawSignal, channel);
     const strategy = getConversationStrategy(channel as ChannelId);
 
     if (strategy === "not_deliverable" || strategy === "push_only") {
@@ -490,7 +556,7 @@ export async function pairDeliveryWithConversation(
     };
   } catch (err) {
     log.error(
-      { err, signalId: signal.signalId, channel },
+      { err, signalId: rawSignal.signalId, channel },
       "Failed to pair notification delivery with conversation — continuing without pairing",
     );
     const fallbackStrategy = (() => {
