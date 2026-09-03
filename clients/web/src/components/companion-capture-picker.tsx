@@ -1,4 +1,4 @@
-import { AppWindow, Check, Monitor } from "lucide-react";
+import { AppWindow, Monitor } from "lucide-react";
 import { type CSSProperties, type ReactNode, type Ref } from "react";
 
 import { companionLayoutFor } from "@/components/companion-layout";
@@ -9,7 +9,6 @@ import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
-  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -50,17 +49,6 @@ export interface CompanionCapturePickerProps {
    * something before the list lands.
    */
   sources: CompanionCaptureSources | null;
-  /**
-   * What a running session actually reads, or `undefined` for the whole
-   * screen or when nothing is running. Marks the row it names, so reopening
-   * the picker on a live session shows where it stands rather than asking the
-   * choice again from nothing.
-   *
-   * Never a tab: the host resolves a picked tab to the window showing it, and
-   * reports that window back, not the tab. A tab row is therefore never marked
-   * current even while its own window is being read.
-   */
-  current?: WatchCaptureTarget;
   cardGrowth?: CompanionCardGrowth;
   avatarBox?: number;
   optionsBox?: number;
@@ -75,7 +63,6 @@ export interface CompanionCapturePickerProps {
 
 export function CompanionCapturePicker({
   sources,
-  current,
   cardGrowth = "up",
   avatarBox = COMPANION_BASE_AVATAR_BOX,
   optionsBox = COMPANION_BASE_AVATAR_BOX,
@@ -160,10 +147,6 @@ export function CompanionCapturePicker({
                   title={t("companionSurface.captureScreen", {
                     n: display.index + 1,
                   })}
-                  current={
-                    current?.kind === "display" &&
-                    current.displayId === display.displayId
-                  }
                   onClick={() => {
                     onPick?.({
                       kind: "display",
@@ -209,10 +192,6 @@ export function CompanionCapturePicker({
                   // reading as blank would be a row nobody could pick on purpose.
                   title={window.title === "" ? window.app : window.title}
                   detail={window.title === "" ? undefined : window.app}
-                  current={
-                    current?.kind === "window" &&
-                    current.windowId === window.windowId
-                  }
                   onClick={() => {
                     onPick?.({ kind: "window", windowId: window.windowId });
                   }}
@@ -262,15 +241,12 @@ function Row({
   icon,
   title,
   detail,
-  current = false,
   onClick,
 }: {
   icon: ReactNode;
   title: string;
   /** What the title belongs to, when the title alone does not say. */
   detail?: string;
-  /** Whether a running session is reading exactly this. */
-  current?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -279,27 +255,15 @@ function Row({
       // The row's whole text is its name: a reader is told the window and the
       // app it belongs to in one breath, the way a looking user reads both.
       aria-label={detail === undefined ? title : `${title} (${detail})`}
-      aria-pressed={current}
-      className={`flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2 text-left text-[12px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:ring-inset ${
-        current
-          ? "bg-[#ff9f45]/10 text-white"
-          : "text-white/85 hover:bg-white/10 active:bg-white/15"
-      }`}
+      className="flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-white/85 transition-colors outline-none hover:bg-white/10 focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:ring-inset active:bg-white/15"
       onClick={onClick}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{title}</span>
-      {detail !== undefined && !current && (
+      {detail !== undefined && (
         <span className="max-w-[80px] shrink-0 truncate text-[11px] text-white/40">
           {detail}
         </span>
-      )}
-      {current && (
-        <Check
-          className="size-3.5 shrink-0 text-[#ff9f45]"
-          strokeWidth={2.5}
-          aria-hidden
-        />
       )}
     </button>
   );
