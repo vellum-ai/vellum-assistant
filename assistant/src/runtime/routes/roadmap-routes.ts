@@ -59,7 +59,8 @@ function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-const PRODUCTION_PLATFORM_HOST = "platform.vellum.ai";
+/** Derived from the seed table so it cannot drift from the canonical URL. */
+const PRODUCTION_PLATFORM_HOST = new URL(SEEDS.production.platformUrl).hostname;
 
 /**
  * Whether this assistant belongs to the production deployment, judged by the
