@@ -24,6 +24,12 @@ export interface ConversationStarterChipProps {
    * readers fall back to the visible `label` text.
    */
   "aria-label"?: string;
+  /**
+   * Merged last, so a surface can restate the chip's box: the activation
+   * checklist's row wants a hugging tinted pill rather than the dock's
+   * full-width card.
+   */
+  className?: string;
 }
 
 /**
@@ -54,7 +60,7 @@ export const ConversationStarterChip = forwardRef<
   HTMLButtonElement,
   ConversationStarterChipProps
 >(function ConversationStarterChip(
-  { label, onSelect, disabled, "aria-label": ariaLabel },
+  { label, onSelect, disabled, "aria-label": ariaLabel, className },
   ref,
 ) {
   return (
@@ -75,6 +81,7 @@ export const ConversationStarterChip = forwardRef<
         "text-center",
         // Soft white card, no border (Figma 7471-25047).
         "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-secondary)]",
+        className,
       )}
     >
       <span className={`line-clamp-2 ${CONVERSATION_STARTER_CHIP_LINE}`}>

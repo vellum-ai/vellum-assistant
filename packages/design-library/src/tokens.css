@@ -370,6 +370,14 @@
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #EFE8C4;
 
+  /* Decorative accent: two hues the avatar palette carries that no semantic
+     role above already names. Same strong-on-weak shape as the feed
+     identifiers, for the same job of tinting a glyph against its own disc. */
+  --accent-orange-strong: #E9642F;
+  --accent-orange-weak: #FBE3D8;
+  --accent-purple-strong: #A665C9;
+  --accent-purple-weak: #EDE0F5;
+
   /* Aux */
   --aux-white: #FFFFFF;
 
@@ -458,6 +466,13 @@
   --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
+
+  /* Decorative accent. Strong holds; weak drops to the same band the feed
+     identifiers drop to on a dark ground. */
+  --accent-orange-strong: #E9642F;
+  --accent-orange-weak: #4E3226;
+  --accent-purple-strong: #A665C9;
+  --accent-purple-weak: #3B2C4A;
 
   /* Aux */
   --aux-white: #FFFFFF;
@@ -551,6 +566,13 @@
   --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
+
+  /* Decorative accent. Strong holds; weak drops to the same band the feed
+     identifiers drop to on a dark ground. */
+  --accent-orange-strong: #E9642F;
+  --accent-orange-weak: #4E3226;
+  --accent-purple-strong: #A665C9;
+  --accent-purple-weak: #3B2C4A;
 
   /* Aux */
   --aux-white: #FFFFFF;
