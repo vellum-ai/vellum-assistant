@@ -50,6 +50,7 @@ let createStatus = 200;
 let startStatus = 200;
 let sendStatus = 200;
 let sendThrows = false;
+let startThrows = false;
 let mintCounter = 0;
 
 const emitMock = mock(() => {});
@@ -116,6 +117,9 @@ function installFetch(): void {
           created: true,
         });
       case "start":
+        if (startThrows) {
+          throw new TypeError("network down");
+        }
         if (startStatus !== 200) {
           return json(startStatus, { detail: "task id rejected" });
         }
@@ -174,6 +178,7 @@ beforeEach(() => {
   startStatus = 200;
   sendStatus = 200;
   sendThrows = false;
+  startThrows = false;
   emitMock.mockClear();
   installFetch();
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
@@ -227,6 +232,17 @@ describe("useLaunchActivationTask", () => {
     expect(requestFor("send").body.content).toContain("PDF proposal");
   });
 
+  // The prompt is generated, not typed, so activation analytics has to be able
+  // to exclude the turn. An omitted marker reads as unknown, not false.
+  test("marks the generated turn as scripted on the wire", async () => {
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(requestFor("send").body.scripted).toBe(true);
+  });
+
   test("sends a custom prompt in place of the catalog one", async () => {
     const result = launcher();
     await act(async () => {
@@ -251,10 +267,11 @@ describe("useLaunchActivationTask", () => {
     });
   });
 
-  // An unlinked prompt would run a task the checklist can never observe, and
-  // the conversation created for it has no owner, so it is given back.
-  test("never sends when the link fails, and discards the conversation", async () => {
-    startStatus = 500;
+  // An unlinked prompt would run a task the checklist can never observe, and a
+  // conversation the daemon answered and refused to link has no owner, so it
+  // is given back.
+  test("never sends when the daemon refuses the link, and discards the conversation", async () => {
+    startStatus = 400;
     const result = launcher();
     let outcome;
     await act(async () => {
@@ -264,7 +281,44 @@ describe("useLaunchActivationTask", () => {
     expect(calls.slice(0, 2)).toEqual(["create", "start"]);
     expect(calls).not.toContain("send");
     expect(outcome).toMatchObject({ ok: false, error: "task id rejected" });
+    expect(outcome).not.toHaveProperty("conversationId");
     expect(requestFor("discard").url).toContain("/conversations/conv-1");
+  });
+
+  // A 5xx can land after the daemon persisted the link, so deleting the
+  // conversation would strand a `started` task pointing at a row that is gone.
+  test("keeps the conversation when the link fails with a server error", async () => {
+    startStatus = 500;
+    const result = launcher();
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.launch("pdf-proposal");
+    });
+
+    expect(calls).toEqual(["create", "start"]);
+    expect(requestsFor("discard")).toHaveLength(0);
+    expect(outcome).toMatchObject({
+      ok: false,
+      conversationId: "conv-1",
+      error: "task id rejected",
+    });
+  });
+
+  // A transport that never answers says nothing about whether the write
+  // landed, so the conversation is kept for the row to recover with.
+  test("keeps the conversation when the link throws instead of answering", async () => {
+    startThrows = true;
+    const result = launcher();
+    let outcome: LaunchActivationTaskResult | undefined;
+    await act(async () => {
+      outcome = await result.current.launch("pdf-proposal");
+    });
+
+    expect(calls).toEqual(["create", "start"]);
+    expect(requestsFor("discard")).toHaveLength(0);
+    expect(outcome).toMatchObject({ ok: false, conversationId: "conv-1" });
+    expect(outcome?.error).toBeTruthy();
+    expect(result.current.pendingTaskId).toBeNull();
   });
 
   test("reports a failed send against the conversation it linked", async () => {

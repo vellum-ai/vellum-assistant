@@ -109,11 +109,18 @@ export interface SendBackgroundPromptArgs {
  * The id names a row the daemon already holds, so the strict `conversationId`
  * wire field resolves it on assistants that use it and the legacy
  * `conversationKey` lookup finds it on assistants that do not.
+ *
+ * `scripted: true` because the prompt is generated: the user picked a surface
+ * that sends it, not the words. The marker is what activation analytics
+ * excludes on, and an omitted marker reads as unknown rather than false, so a
+ * background turn left unmarked can be counted as typed engagement.
  */
 export async function sendBackgroundPrompt({
   assistantId,
   conversationId,
   prompt,
 }: SendBackgroundPromptArgs): Promise<PostMessageResult> {
-  return postChatMessage(assistantId, conversationId, prompt);
+  return postChatMessage(assistantId, conversationId, prompt, {
+    scripted: true,
+  });
 }

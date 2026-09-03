@@ -34,7 +34,8 @@ import {
  *
  * - `modal`: the welcome modal, until "Do it Later" is clicked.
  * - `pill`: the top-bar reminder, after dismissal and while starters remain.
- * - `all-done`: the celebration, once and only once.
+ * - `all-done`: the celebration, once and only once, and the last surface the
+ *   checklist ever shows.
  * - `null`: nothing, which is also every gated-off state.
  */
 export type ActivationSurface = "modal" | "pill" | "all-done";
@@ -97,6 +98,13 @@ export function useActivationVisibility(): ActivationVisibility {
 
   if (doneCount >= starters.length && progress.allDoneShownAt === null) {
     return { surface: "all-done", listId };
+  }
+  // The celebration is terminal. It is only reachable once every starter is
+  // done, and closing it records `allDoneShownAt` alone, so a user who
+  // finished the list without ever clicking "Do it Later" still carries a null
+  // `modalDismissedAt` and would otherwise land back on the welcome modal.
+  if (progress.allDoneShownAt !== null) {
+    return HIDDEN;
   }
   if (progress.modalDismissedAt === null) {
     return { surface: "modal", listId };

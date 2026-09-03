@@ -157,6 +157,18 @@ describe("useActivationVisibility surface selection", () => {
     expect(visibility().surface).toBeNull();
   });
 
+  // Finishing all three starters without ever clicking "Do it Later" leaves
+  // `modalDismissedAt` null, so the celebration has to end the checklist on
+  // its own rather than falling through to the welcome modal.
+  test("shows nothing after a celebration dismissed without the modal ever being", () => {
+    progress = {
+      ...ACTIVATION_PROGRESS_ALL_DONE,
+      modalDismissedAt: null,
+      allDoneShownAt: "2026-09-02T10:00:00.000Z",
+    };
+    expect(visibility()).toEqual({ surface: null, listId: null });
+  });
+
   // Re-bucketing a user in LaunchDarkly must not reshuffle a checklist they
   // have already started, so the daemon's frozen list beats the arm.
   test("prefers the frozen list over the flag arm", () => {

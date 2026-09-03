@@ -17,9 +17,12 @@
  * costs one round trip and closes that window.
  *
  * A failed link therefore never sends: an unlinked prompt would run a task the
- * checklist cannot observe. The conversation created for it is given back
- * rather than left in the sidebar as a thread the user never started. The
- * error is returned for the row to show.
+ * checklist cannot observe. What becomes of the conversation depends on how
+ * the link failed. A 4xx is the daemon answering and refusing, so nothing
+ * points at the conversation and it is given back rather than left in the
+ * sidebar as a thread the user never started. Every other failure leaves the
+ * link's fate unknown: the daemon may already hold it, so the conversation is
+ * kept and its id handed back alongside the error for the row to recover from.
  *
  * `launch` never rejects. Every failure, transport included, comes back as a
  * result: the row has to be able to leave its pending state and say what
@@ -33,12 +36,10 @@
 
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
-import {
-  activationProgressGetQueryKey,
-  activationTasksByTaskIdStartPostMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { activationTasksByTaskIdStartPost } from "@/generated/daemon/sdk.gen";
 import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
@@ -50,6 +51,63 @@ import {
 } from "@/utils/background-conversation";
 
 import { readRawActivationTask } from "../catalog";
+
+/**
+ * A link the client never saw succeed. `rejected` is true only when the daemon
+ * answered with a 4xx, which is the one case where the link certainly does not
+ * exist.
+ */
+interface LinkFailure {
+  rejected: boolean;
+  error: string;
+}
+
+interface LinkActivationTaskArgs {
+  assistantId: string;
+  taskId: string;
+  listId: string;
+  conversationId: string;
+  /** Copy to show when the failure carried no message of its own. */
+  fallback: string;
+}
+
+/**
+ * Record the task's link to `conversationId`, and say what a failure was.
+ *
+ * Called through the SDK rather than the generated react-query mutation
+ * because that mutation throws the parsed body and drops the response: only an
+ * answered 4xx proves the link does not exist, and telling that apart from a
+ * transport failure or a 5xx needs the status in hand. A 5xx counts as unknown
+ * on purpose, since the daemon can persist the link and then fail to answer.
+ */
+async function linkActivationTask({
+  assistantId,
+  taskId,
+  listId,
+  conversationId,
+  fallback,
+}: LinkActivationTaskArgs): Promise<LinkFailure | null> {
+  try {
+    const { error, response } = await activationTasksByTaskIdStartPost({
+      path: { assistant_id: assistantId, taskId },
+      body: { conversationId, listId },
+      throwOnError: false,
+    });
+    if (response?.ok) {
+      return null;
+    }
+    const status = response?.status;
+    return {
+      rejected: status !== undefined && status >= 400 && status < 500,
+      error: extractErrorMessage(error, response, fallback),
+    };
+  } catch (error) {
+    return {
+      rejected: false,
+      error: extractErrorMessage(error, undefined, fallback),
+    };
+  }
+}
 
 export interface LaunchActivationTaskResult {
   ok: boolean;
@@ -79,9 +137,6 @@ export function useLaunchActivationTask(
   const arm = useActivationChecklistArm();
   const queryClient = useQueryClient();
   const { t } = useTranslation("activation");
-  const { mutateAsync: startTask } = useMutation(
-    activationTasksByTaskIdStartPostMutation(),
-  );
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
 
   const launch = useCallback(
@@ -109,14 +164,19 @@ export function useLaunchActivationTask(
         }
         const { conversationId } = created;
 
-        try {
-          await startTask({
-            path: { assistant_id: assistantId, taskId },
-            body: { conversationId, listId },
-          });
-        } catch (error) {
-          void discardBackgroundConversation(assistantId, conversationId);
-          return { ok: false, error: extractErrorMessage(error) };
+        const linkFailure = await linkActivationTask({
+          assistantId,
+          taskId,
+          listId,
+          conversationId,
+          fallback: t("launch.failed"),
+        });
+        if (linkFailure) {
+          if (linkFailure.rejected) {
+            void discardBackgroundConversation(assistantId, conversationId);
+            return { ok: false, error: linkFailure.error };
+          }
+          return { ok: false, conversationId, error: linkFailure.error };
         }
 
         let sent;
@@ -158,7 +218,7 @@ export function useLaunchActivationTask(
         setPendingTaskId(null);
       }
     },
-    [arm, assistantId, listId, queryClient, startTask, t],
+    [arm, assistantId, listId, queryClient, t],
   );
 
   return { launch, pendingTaskId };
