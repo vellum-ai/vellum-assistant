@@ -36,7 +36,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
-import { useEffect, useId, useMemo } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 
 import {
@@ -87,10 +87,22 @@ export function AssistantSleepStage() {
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
 
-  const dismissed = useAssistantSleepStageStore.use.dismissed();
+  const wasDismissed = useAssistantSleepStageStore.use.dismissed();
+  const dismissedAssistantId =
+    useAssistantSleepStageStore.use.dismissedAssistantId();
   const setVisible = useAssistantSleepStageStore.use.setVisible();
-  const dismiss = useAssistantSleepStageStore.use.dismiss();
+  const dismissStage = useAssistantSleepStageStore.use.dismiss();
   const reset = useAssistantSleepStageStore.use.reset();
+
+  // The dismissal belongs to the assistant it was aimed at: another assistant
+  // that is also asleep gets its own stage, while a remount of this one (the
+  // window crossing the mobile breakpoint moves the stage between
+  // `ChatLayout`'s branches) stays dismissed.
+  const dismissed = wasDismissed && dismissedAssistantId === assistantId;
+  const dismiss = useCallback(
+    () => dismissStage(assistantId),
+    [dismissStage, assistantId],
+  );
 
   const visible =
     onConversationPage && !voiceRoomVisible && phase !== null && !dismissed;
@@ -100,17 +112,12 @@ export function AssistantSleepStage() {
     return () => setVisible(false);
   }, [visible, setVisible]);
 
-  // A dismissal lasts as long as the sleep it was aimed at, and belongs to the
-  // assistant it was aimed at: switching to another assistant that is also
-  // asleep never reports a phase of null, so the switch clears it too.
+  // A dismissal lasts as long as the sleep it was aimed at.
   useEffect(() => {
     if (phase === null) {
       reset();
     }
   }, [phase, reset]);
-  useEffect(() => {
-    reset();
-  }, [assistantId, reset]);
 
   // Traits from the assistant when it is reachable, else the last ones this
   // device saw it wearing. On a cold load the thing that serves them is the
@@ -119,15 +126,35 @@ export function AssistantSleepStage() {
   // screen exists for. Only a character is recovered: an uploaded image would
   // mean a blob URL to own, and the copy alone carries that case.
   const lastSeen = useQuery({
-    queryKey: ["assistant-sleep-stage", "last-seen-traits", assistantId],
-    queryFn: async () => {
-      const seen = await readLastSeenAvatar(assistantId!);
-      return seen?.kind === "character" ? seen.traits : null;
-    },
+    queryKey: ["assistant-sleep-stage", "last-seen-avatar", assistantId],
+    queryFn: () => readLastSeenAvatar(assistantId!),
+    // Deliberately not pinned: the record is deleted when the user removes
+    // their avatar, and nothing invalidates this key, so a later sleep in the
+    // same session re-reads rather than redrawing a character that is gone.
     enabled: visible && Boolean(assistantId) && !traits && !customImageUrl,
-    staleTime: Infinity,
   });
-  const effectiveTraits = traits ?? lastSeen.data ?? null;
+  const effectiveTraits =
+    traits ??
+    (lastSeen.data?.kind === "character" ? lastSeen.data.traits : null);
+
+  // The recovered image is a blob, so the object URL is owned here and lives
+  // exactly as long as the render that shows it.
+  const lastSeenBlob =
+    lastSeen.data?.kind === "image" ? lastSeen.data.blob : null;
+  const [lastSeenImageUrl, setLastSeenImageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!lastSeenBlob) {
+      setLastSeenImageUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(lastSeenBlob);
+    setLastSeenImageUrl(url);
+    return () => {
+      setLastSeenImageUrl(null);
+      URL.revokeObjectURL(url);
+    };
+  }, [lastSeenBlob]);
+  const imageUrl = customImageUrl ?? lastSeenImageUrl;
 
   // The catalog is bundled, so the eyes still draw while the assistant that
   // serves `/avatar/character-components` is the thing asleep.
@@ -141,7 +168,7 @@ export function AssistantSleepStage() {
     const look = resolveVoiceRoomLook(
       components ?? BUNDLED_COMPONENTS,
       effectiveTraits,
-      customImageUrl,
+      imageUrl,
     );
     if (!look?.art) {
       return null;
@@ -163,7 +190,7 @@ export function AssistantSleepStage() {
       lidColor: look.bgHex,
     };
     return eyeArt;
-  }, [visible, components, effectiveTraits, customImageUrl]);
+  }, [visible, components, effectiveTraits, imageUrl]);
 
   if (!visible || phase === null) {
     return null;
@@ -194,9 +221,9 @@ export function AssistantSleepStage() {
           clipId={clipId}
           reduce={Boolean(reduce)}
         />
-      ) : customImageUrl ? (
+      ) : imageUrl ? (
         <img
-          src={customImageUrl}
+          src={imageUrl}
           alt=""
           aria-hidden="true"
           className="w-[clamp(120px,20vw,200px)] rounded-full object-cover opacity-60"

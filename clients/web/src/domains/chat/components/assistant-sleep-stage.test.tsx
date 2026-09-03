@@ -73,7 +73,11 @@ beforeEach(() => {
   voiceRoomVisibleMock = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   useAssistantIdentityStore.setState({ name: "Mel", version: null });
-  useAssistantSleepStageStore.setState({ visible: false, dismissed: false });
+  useAssistantSleepStageStore.setState({
+    visible: false,
+    dismissed: false,
+    dismissedAssistantId: null,
+  });
 });
 
 afterEach(cleanup);
@@ -131,8 +135,23 @@ describe("AssistantSleepStage", () => {
     expect(useAssistantSleepStageStore.getState().dismissed).toBe(true);
   });
 
+  test("a dismissal survives a remount of the same assistant's stage", () => {
+    const view = renderAt("/assistant/conversations/c1");
+    fireEvent.click(screen.getByText("Mel is waking up…"));
+    view.unmount();
+
+    // What a window crossing the mobile breakpoint does: `ChatLayout` moves
+    // the stage between its branches, remounting it on the same assistant.
+    renderAt("/assistant/conversations/c1");
+
+    expect(screen.queryByText("Mel is waking up…")).toBeNull();
+  });
+
   test("the dismissal lasts only as long as the sleep it was aimed at", () => {
-    useAssistantSleepStageStore.setState({ dismissed: true });
+    useAssistantSleepStageStore.setState({
+      dismissed: true,
+      dismissedAssistantId: "assistant-1",
+    });
     phaseMock = null;
 
     const view = renderAt("/assistant/conversations/c1");
@@ -154,7 +173,9 @@ describe("AssistantSleepStage", () => {
       useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
     });
 
-    expect(useAssistantSleepStageStore.getState().dismissed).toBe(false);
+    // The dismissal was aimed at the assistant that was asleep, not at the
+    // stage: the one switched to gets its own.
     expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+    expect(useAssistantSleepStageStore.getState().visible).toBe(true);
   });
 });
