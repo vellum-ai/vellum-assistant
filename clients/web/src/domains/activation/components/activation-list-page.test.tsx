@@ -8,7 +8,7 @@
  * only pairing that can prove a row reads its own record.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import {
@@ -162,6 +162,10 @@ describe("ActivationListPage", () => {
   });
 });
 
+// The list draws a call to action without being asked to open the row first,
+// which is the one thing it shows that the modal's collapsed row does not.
+// Whether the desktop app carries the link at all is the row's own question
+// and is asserted in `activation-task-row.test.tsx`.
 describe("ActivationListPage external links", () => {
   const linked = TASKS.find((task) => task.link);
 
@@ -174,24 +178,5 @@ describe("ActivationListPage external links", () => {
     // It leaves the app, so it gets the hardening every external link gets.
     expect(anchor.getAttribute("target")).toBe("_blank");
     expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
-  });
-
-  test("the desktop app drops it: it already is the download", async () => {
-    mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
-    const { ActivationListPage: ElectronPage } = await import(
-      "@/domains/activation/components/activation-list-page"
-    );
-
-    render(
-      <ElectronPage
-        tasks={TASKS}
-        progress={{}}
-        onLaunch={() => {}}
-        onOpenConversation={() => {}}
-      />,
-    );
-
-    expect(screen.queryByRole("link")).toBeNull();
-    mock.restore();
   });
 });

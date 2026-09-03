@@ -6,6 +6,10 @@
  * write also freezes the list id when nothing has frozen one yet, so a user
  * who dismisses before launching anything still keeps the list they saw.
  *
+ * The dismissal is written into the progress cache before it goes on the wire,
+ * so every surface reading that cache agrees with the screen at once: the
+ * modal closes and the pill takes its place without waiting on a round trip.
+ *
  * A failed write is not surfaced. The surface has already closed by the time
  * it lands, the query refetch puts the truth back on the next read, and the
  * worst case is the modal returning once, which is a far smaller cost than a
@@ -15,7 +19,10 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  activationProgressGetQueryKey,
+  activationProgressGetSetQueryData,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { activationDismissPost } from "@/generated/daemon/sdk.gen";
 import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -46,6 +53,25 @@ export function useDismissActivation(
         return;
       }
       emitActivationEvent("activation_modal_dismissed", { arm, listId });
+      // The daemon stamps the same two fields, and freezes the list when
+      // nothing has frozen one yet. An absent cache is left absent: a progress
+      // document the client invented would turn on surfaces the missing read
+      // keeps hidden.
+      const now = new Date().toISOString();
+      activationProgressGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        (cached) =>
+          cached
+            ? {
+                ...cached,
+                listId: cached.listId ?? listId,
+                ...(kind === "all-done"
+                  ? { allDoneShownAt: now }
+                  : { modalDismissedAt: now }),
+              }
+            : cached,
+      );
       void activationDismissPost({
         path: { assistant_id: assistantId },
         body: { kind, listId },

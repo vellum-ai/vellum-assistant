@@ -8,7 +8,15 @@
  */
 
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -33,13 +41,25 @@ let progress: ActivationProgress | undefined;
 // Spread the real module: `mock.module` replaces it for every test file
 // sharing this process, so returning only the mocked export would erase the
 // rest for anything that loads it later.
-const progressModule = await import(
-  "@/domains/activation/hooks/use-activation-progress"
-);
+const progressModule =
+  await import("@/domains/activation/hooks/use-activation-progress");
+// Captured by value: a module namespace's bindings are live, so reading the
+// export back after the mock is installed would hand out the mock.
+const { useActivationProgress: realUseActivationProgress } = progressModule;
 mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
   ...progressModule,
   useActivationProgress: () => ({ data: progress }),
 }));
+
+// The mock outlives this file otherwise, and the surfaces that read the same
+// hook elsewhere (the Preferences entry point) would read this file's leftover
+// snapshot instead of their own.
+afterAll(() => {
+  mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
+    ...progressModule,
+    useActivationProgress: realUseActivationProgress,
+  }));
+});
 
 /**
  * Telemetry is caught at its transport rather than at `emitActivationEvent`.
@@ -62,12 +82,10 @@ mock.module("@/lib/telemetry/ingest", () => ({
   },
 }));
 
-const { ActivationController } = await import(
-  "@/domains/activation/activation-controller"
-);
-const { ActivationSuggestionsPillHost } = await import(
-  "@/domains/activation/activation-suggestions-pill-host"
-);
+const { ActivationController } =
+  await import("@/domains/activation/activation-controller");
+const { ActivationSuggestionsPillHost } =
+  await import("@/domains/activation/activation-suggestions-pill-host");
 
 const { starters } = getActivationList("smb");
 const ASSISTANT_ID = "asst-1";
@@ -79,6 +97,7 @@ interface CapturedRequest {
 
 const requests: CapturedRequest[] = [];
 const originalFetch = globalThis.fetch;
+let dismissStatus = 200;
 
 /** Records what the surfaces write, so a dismissal can be asserted on. */
 function installFetch(): void {
@@ -97,8 +116,9 @@ function installFetch(): void {
       url,
       body: bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {},
     });
+    const status = url.includes("/activation/dismiss") ? dismissStatus : 200;
     return new Response("{}", {
-      status: 200,
+      status,
       headers: { "Content-Type": "application/json" },
     });
   }) as typeof fetch;
@@ -140,6 +160,7 @@ function setArm(arm: string): void {
 beforeEach(() => {
   events.length = 0;
   requests.length = 0;
+  dismissStatus = 200;
   installFetch();
   progress = ACTIVATION_PROGRESS_EMPTY;
   setArm("smb");
@@ -215,6 +236,35 @@ describe("ActivationController", () => {
     expect(dismissals()).toEqual([{ kind: "all-done", listId: "smb" }]);
   });
 
+  /**
+   * The dialog is blocking and the write behind it is a round trip, so the
+   * click has to take effect on the screen before the daemon hears about it.
+   * `progress` is deliberately left unchanged here: it stands in for a read
+   * that has not caught up, which is exactly the window the modal used to
+   * stay open through.
+   */
+  test("Do it Later closes the modal without waiting for the write", () => {
+    const { getByRole, queryByRole } = renderSurfaces();
+    fireEvent.click(getByRole("button", { name: "Do it Later" }));
+    expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
+  });
+
+  test("a dismissal the daemon refused does not put the modal back", async () => {
+    dismissStatus = 500;
+    const { getByRole, queryByRole } = renderSurfaces();
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Do it Later" }));
+    });
+    expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
+  });
+
+  test("closing the celebration closes it at once too", () => {
+    progress = ACTIVATION_PROGRESS_ALL_DONE;
+    const { getByRole, queryByRole } = renderSurfaces();
+    fireEvent.click(getByRole("button", { name: "Show me the full list" }));
+    expect(queryByRole("button", { name: "Show me the full list" })).toBeNull();
+  });
+
   test("shows the celebration once every starter is done", () => {
     progress = ACTIVATION_PROGRESS_ALL_DONE;
     const { getByRole, queryByRole } = renderSurfaces();
@@ -261,5 +311,19 @@ describe("ActivationSuggestionsPillHost", () => {
       "activation_pill_clicked",
       "activation_modal_shown",
     ]);
+  });
+
+  // A modal reopened from the pill closes locally and nothing else: the
+  // dismissal it would write is one the daemon already holds.
+  test("closing a reopened modal writes no second dismissal", () => {
+    progress = ACTIVATION_PROGRESS_DISMISSED;
+    const { getByRole, queryByRole } = renderSurfaces();
+    fireEvent.click(getByRole("button", { name: "Suggestions, 1 of 3 done" }));
+    fireEvent.click(getByRole("button", { name: "Do it Later" }));
+    expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
+    expect(dismissals()).toEqual([]);
+    expect(
+      getByRole("button", { name: "Suggestions, 1 of 3 done" }),
+    ).not.toBeNull();
   });
 });

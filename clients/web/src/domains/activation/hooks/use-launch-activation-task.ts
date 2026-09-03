@@ -68,7 +68,51 @@ import {
 
 import { readRawActivationTask } from "../catalog";
 
-import type { ActivationProgress } from "./use-activation-progress";
+import type {
+  ActivationProgress,
+  ActivationTaskProgress,
+} from "./use-activation-progress";
+
+/**
+ * How far along each status is. A task only ever moves forward, so the two
+ * records for one task can be compared by rank alone.
+ */
+const STATUS_RANK: Record<ActivationTaskProgress["status"], number> = {
+  started: 0,
+  done: 1,
+};
+
+/**
+ * The further along of the two records for one task.
+ *
+ * The daemon answers a start with a snapshot taken while it handled that
+ * start, so a task another launch has since finished can come back as
+ * `started` in an answer the cache is already newer than. Taking the answer
+ * wholesale would un-finish it, and the row would offer a done task back.
+ */
+function furtherAlong(
+  cached: ActivationTaskProgress | undefined,
+  answered: ActivationTaskProgress,
+): ActivationTaskProgress {
+  if (!cached) {
+    return answered;
+  }
+  return STATUS_RANK[cached.status] > STATUS_RANK[answered.status]
+    ? cached
+    : answered;
+}
+
+/** Fold an answered snapshot's tasks into the cached ones, task by task. */
+function mergeAnsweredTasks(
+  cached: ActivationProgress["tasks"],
+  answered: ActivationProgress["tasks"],
+): ActivationProgress["tasks"] {
+  const merged: ActivationProgress["tasks"] = { ...cached };
+  for (const [taskId, record] of Object.entries(answered)) {
+    merged[taskId] = furtherAlong(merged[taskId], record);
+  }
+  return merged;
+}
 
 /**
  * A link the client never saw succeed. `rejected` is true only when the daemon
@@ -123,9 +167,13 @@ function seedStartedTask(
     (cached) => {
       if (answered) {
         // Concurrent starts answer with snapshots taken at different points,
-        // so an older answer must not erase a task a newer one already seeded.
+        // so an older answer must neither erase a task a newer one already
+        // seeded nor walk one of them back to an earlier status.
         return cached
-          ? { ...answered, tasks: { ...cached.tasks, ...answered.tasks } }
+          ? {
+              ...answered,
+              tasks: mergeAnsweredTasks(cached.tasks, answered.tasks),
+            }
           : answered;
       }
       if (!cached) {

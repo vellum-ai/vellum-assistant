@@ -7,7 +7,9 @@
  * worth reading on its own: the expanded body is where the chip, the custom
  * field and the send button have to sit together without the field's right
  * edge colliding with the button, and the working and done states are where a
- * long description has to share the row with a status pill.
+ * long description has to share the row with a status pill. The `list` stories
+ * at the end are the same row on the Inspiration List, which has no accordion
+ * (Figma: New-App `8300:167483`, `8300:167749`).
  *
  * Every fixture is the wire shape `GET /v1/activation/progress` returns, so a
  * row here cannot show a combination the daemon could never produce.
@@ -108,4 +110,22 @@ export const DoneWithFileDark: Story = {
 export const TodoExpandedMobile: Story = {
   args: { expanded: true },
   globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+/**
+ * The Inspiration List's face of the row: a click is the launch, so there is
+ * no body to open and the task's call to action shows straight away.
+ */
+export const ListTodo: Story = {
+  args: { task: COMPUTER_USE_TASK, surface: "list" },
+};
+
+/** A launch the list has fired and the daemon has not answered for yet. */
+export const ListPending: Story = {
+  args: { surface: "list", pending: true },
+};
+
+/** A finished list row, where the file sits under the muted title. */
+export const ListDoneWithFile: Story = {
+  args: { surface: "list", progress: doneWithArtifactProgress() },
 };

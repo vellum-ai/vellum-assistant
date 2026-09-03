@@ -10,6 +10,9 @@
  * against a story fixture as against the daemon, and the route beside it owns
  * the catalog, the progress query and the launch.
  *
+ * The rows are `ActivationTaskRow` in its `list` surface, the same component
+ * the welcome modal draws, so a task reads the same in both places.
+ *
  * Progress that has not landed yet is `undefined`, not an empty map, and the
  * rows are placeholders until it does. A missing record reads as "never
  * started", so rendering the real rows early would offer a finished task back
@@ -23,7 +26,7 @@ import { useTranslation } from "@/i18n";
 
 import type { ActivationTask } from "../catalog";
 import type { ActivationProgress } from "../hooks/use-activation-progress";
-import { ActivationListRow } from "./activation-list-row";
+import { ActivationTaskRow } from "./activation-task-row";
 
 export interface ActivationListPageProps {
   /** Starters first, then the rest, exactly as the list orders them. */
@@ -87,15 +90,20 @@ export function ActivationListPage({
           {loading
             ? tasks.map((task) => <ActivationListRowSkeleton key={task.id} />)
             : tasks.map((task) => (
-                <ActivationListRow
+                <li
                   key={task.id}
-                  task={task}
-                  progress={progress[task.id]}
-                  pending={pendingTaskIds?.has(task.id) ?? false}
-                  onLaunch={onLaunch}
-                  onOpenConversation={onOpenConversation}
-                  assistantId={assistantId}
-                />
+                  className="border-b border-[var(--border-base)] last:border-b-0"
+                >
+                  <ActivationTaskRow
+                    task={task}
+                    surface="list"
+                    progress={progress[task.id]}
+                    pending={pendingTaskIds?.has(task.id) ?? false}
+                    onLaunch={() => onLaunch(task.id)}
+                    onOpenConversation={onOpenConversation}
+                    assistantId={assistantId}
+                  />
+                </li>
               ))}
         </ul>
       </div>

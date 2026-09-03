@@ -28,13 +28,7 @@
  * celebration.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -55,12 +49,10 @@ import { publicAsset } from "@/utils/public-asset";
 import { routes } from "@/utils/routes";
 
 import { useActivationUiStore } from "../activation-ui-store";
-import { useActivationList, type ActivationTask } from "../catalog";
+import { useAvailableActivationList } from "../capabilities";
+import type { ActivationTask } from "../catalog";
 import type { ActivationProgress } from "../hooks/use-activation-progress";
-import {
-  useLaunchActivationTask,
-  type UseLaunchActivationTask,
-} from "../hooks/use-launch-activation-task";
+import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
 import { ActivationTaskList } from "./activation-task-list";
 import { activationRowStatus } from "./activation-task-row";
 
@@ -98,26 +90,6 @@ function firstTodoTaskId(
 /** Body padding, kept in one place so the sheet and the modal agree. */
 const PANEL_INSET = "px-4";
 
-/**
- * Whether a given task's own launch is still in flight.
- *
- * The launch hook is growing from one in-flight id to a set of them, and this
- * is the question every row actually asks, so it is asked here rather than by
- * comparing ids at each call site. Reading the newer `isPending` when the hook
- * offers it keeps the rows working across the change.
- */
-function pendingPredicate(
-  launcher: UseLaunchActivationTask,
-): (taskId: string) => boolean {
-  const withPredicate = launcher as UseLaunchActivationTask & {
-    isPending?: (taskId: string) => boolean;
-  };
-  if (typeof withPredicate.isPending === "function") {
-    return withPredicate.isPending;
-  }
-  return (taskId) => launcher.pendingTaskId === taskId;
-}
-
 export function ActivationWelcomeModal({
   open,
   listId,
@@ -129,10 +101,10 @@ export function ActivationWelcomeModal({
   const navigate = useNavigate();
   const touchSurface = useTouchSurface();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const { starters, items } = useActivationList(listId);
-  const launcher = useLaunchActivationTask(listId);
-  const { launch } = launcher;
-  const isPending = pendingPredicate(launcher);
+  // Filtered, so a row whose prerequisite is missing is never offered, seeded
+  // as the open one, or counted by Show More (`../capabilities.ts`).
+  const { starters, items } = useAvailableActivationList(listId);
+  const { launch, isPending } = useLaunchActivationTask(listId);
 
   const expandedTaskId = useActivationUiStore.use.expandedTaskId();
   const setExpandedTaskId = useActivationUiStore.use.setExpandedTaskId();
@@ -173,11 +145,18 @@ export function ActivationWelcomeModal({
 
   const handleLaunch = useCallback(
     (taskId: string, promptOverride?: string) => {
-      // The launched row flips to Working on the next progress read, so the
-      // accordion moves on now rather than waiting for the round trip.
-      setExpandedTaskId(firstTodoTaskId(tasks, progress, taskId));
       void launch(taskId, promptOverride).then((result) => {
-        if (result.ok || !result.error) {
+        if (result.ok) {
+          // The accordion moves on only once the daemon holds the launch: a
+          // refused row has to stay where the user left it, and a row they
+          // opened while the launch was out is theirs rather than this
+          // launch's to overwrite.
+          if (useActivationUiStore.getState().expandedTaskId === taskId) {
+            setExpandedTaskId(firstTodoTaskId(tasks, progress, taskId));
+          }
+          return;
+        }
+        if (!result.error) {
           return;
         }
         // A failure that still names a conversation got as far as linking one,
@@ -263,7 +242,9 @@ export function ActivationWelcomeModal({
           className="max-h-[85dvh] overflow-hidden"
         >
           <ActivationWelcomeHeader sheet />
-          <div className={cn("min-h-0 flex-1 overflow-y-auto pt-6", PANEL_INSET)}>
+          <div
+            className={cn("min-h-0 flex-1 overflow-y-auto pt-6", PANEL_INSET)}
+          >
             {body}
           </div>
           {footer}

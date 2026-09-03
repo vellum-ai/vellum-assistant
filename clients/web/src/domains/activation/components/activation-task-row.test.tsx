@@ -6,7 +6,7 @@
  * able to confuse the two.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { getActivationList } from "@/domains/activation/catalog";
@@ -16,6 +16,10 @@ import {
   startedTaskProgress,
 } from "@/domains/activation/activation-test-fixtures";
 import { ActivationTaskRow } from "@/domains/activation/components/activation-task-row";
+
+// Captured by value before anything mocks the module: a module namespace's
+// bindings are live, so reading it back afterwards would hand out the mock.
+const { isElectron: realIsElectron } = await import("@/runtime/is-electron");
 
 const { starters, items } = getActivationList("smb");
 const TASK = starters[0]!;
@@ -181,5 +185,79 @@ describe("ActivationTaskRow", () => {
     expect(
       (getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  test("the desktop app drops the call to action: it already is the download", async () => {
+    // `mock.module` replaces the module for every test file sharing this
+    // process and `mock.restore` does not undo it, so the real one is put back
+    // by hand rather than left to leak into whatever runs next.
+    mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
+    try {
+      const { ActivationTaskRow: DesktopRow } =
+        await import("@/domains/activation/components/activation-task-row");
+      const { container } = render(<DesktopRow task={LINKED_TASK} expanded />);
+      expect(container.querySelector("a")).toBeNull();
+    } finally {
+      mock.module("@/runtime/is-electron", () => ({
+        isElectron: realIsElectron,
+      }));
+    }
+  });
+});
+
+/**
+ * The Inspiration List draws the same row without an accordion: a click is the
+ * launch, the call to action shows on a row nobody has opened, and a launch
+ * still out reads as Working because there is no open body to lock instead.
+ */
+describe("ActivationTaskRow on the list surface", () => {
+  test("clicking an untouched row launches it", () => {
+    const launched: (string | undefined)[] = [];
+    let toggles = 0;
+    const { getByRole } = render(
+      <ActivationTaskRow
+        task={TASK}
+        surface="list"
+        onLaunch={(override) => launched.push(override)}
+        onToggle={() => {
+          toggles += 1;
+        }}
+      />,
+    );
+    fireEvent.click(getByRole("button"));
+    expect(launched).toEqual([undefined]);
+    expect(toggles).toBe(0);
+  });
+
+  test("an unopened row still offers the task's call to action", () => {
+    const { getByText } = render(
+      <ActivationTaskRow task={LINKED_TASK} surface="list" />,
+    );
+    expect(
+      getByText(LINKED_TASK.link!.label).closest("a")?.getAttribute("href"),
+    ).toBe(LINKED_TASK.link!.url);
+  });
+
+  test("a launch in flight reads as working and cannot be fired again", () => {
+    const launched: (string | undefined)[] = [];
+    const { getByRole, getByText } = render(
+      <ActivationTaskRow
+        task={TASK}
+        surface="list"
+        pending
+        onLaunch={(override) => launched.push(override)}
+      />,
+    );
+    expect(getByText("Working")).not.toBeNull();
+    fireEvent.click(getByRole("button"));
+    expect(launched).toEqual([]);
+  });
+
+  test("neither the chip nor the Custom field belongs here", () => {
+    const { queryByLabelText, queryByText } = render(
+      <ActivationTaskRow task={TASK} surface="list" expanded />,
+    );
+    expect(queryByLabelText("Custom:")).toBeNull();
+    expect(queryByText(TASK.chip)).toBeNull();
   });
 });

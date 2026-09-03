@@ -151,10 +151,11 @@ export const routes = {
   personality: r("/assistant/personality"),
   memory: r("/assistant/memory"),
   /**
-   * The full activation task list, reached from the Preferences menu and from
-   * the checklist's celebration modal. Not an About Assistant section: it is
-   * launched from a menu rather than drilled into from the assistant
-   * overview, so it takes no sidebar highlight.
+   * The Inspiration List: every activation task of the active persona list,
+   * reached from the Preferences menu and from the checklist's celebration
+   * modal. A standalone page rather than an About Assistant section, so it
+   * carries no `ABOUT_ASSISTANT_SECTIONS` entry, inherits none of that
+   * drill-down chrome and takes no sidebar highlight.
    */
   activationList: r("/assistant/suggestions"),
   /**
@@ -191,14 +192,6 @@ export const routes = {
   document: (surfaceId: string) => dyn(r("/assistant/documents"), surfaceId),
 
   connect: r("/assistant/connect"),
-
-  /**
-   * The Inspiration List: every activation task of the active persona list,
-   * reachable from the Preferences menu. A standalone page rather than an
-   * About Assistant section, so it carries no `ABOUT_ASSISTANT_SECTIONS`
-   * entry and inherits none of that drill-down chrome.
-   */
-  activationList: r("/assistant/suggestions"),
 
   channels: r("/assistant/channels"),
 

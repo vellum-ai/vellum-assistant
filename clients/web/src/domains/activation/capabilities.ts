@@ -8,6 +8,14 @@
  * available) while the signal is loading, when the read fails, and for any tag
  * this build does not know, because showing an extra row is a much smaller
  * cost than hiding one the user could have done.
+ *
+ * The rule is the same on every surface, and this is the one file that states
+ * it: a task whose prerequisite is missing is skipped by the modal's rows, by
+ * the Inspiration List, and by anything counting either. A list's three
+ * starters carry no prerequisite at all (frozen by `catalog.test.ts`), so the
+ * "n of 3" the pill reports and the all-done check that retires the checklist
+ * count the same starters the modal draws without resolving a signal of their
+ * own.
  */
 
 import { useMemo } from "react";
@@ -17,7 +25,11 @@ import { homeStateGetOptions } from "@/generated/daemon/@tanstack/react-query.ge
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-import type { ActivationTask } from "./catalog";
+import {
+  useActivationList,
+  type ActivationList,
+  type ActivationTask,
+} from "./catalog";
 
 /**
  * The tags the catalog uses, each with the signal behind it:
@@ -112,5 +124,24 @@ export function taskIsAvailable(
 ): boolean {
   return (task.requires ?? []).every(
     (tag) => !isKnownCapabilityTag(tag) || availableTags.has(tag),
+  );
+}
+
+/**
+ * The tasks of `listId` the user can actually do, starters and items kept
+ * apart because the surfaces treat them differently.
+ *
+ * Every surface that renders catalog tasks reads them from here, so none can
+ * offer a row another one hides.
+ */
+export function useAvailableActivationList(listId: string): ActivationList {
+  const { starters, items } = useActivationList(listId);
+  const availableTags = useAvailableCapabilityTags();
+  return useMemo(
+    () => ({
+      starters: starters.filter((task) => taskIsAvailable(task, availableTags)),
+      items: items.filter((task) => taskIsAvailable(task, availableTags)),
+    }),
+    [availableTags, items, starters],
   );
 }

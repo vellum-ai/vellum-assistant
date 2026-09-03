@@ -40,6 +40,11 @@ interface CapturedRequest {
 const requests: CapturedRequest[] = [];
 const originalFetch = globalThis.fetch;
 let startStatus = 200;
+/**
+ * Resolvers for the `start` writes still out, so a test can hold one launch
+ * open, begin another, and settle them in whatever order it wants to prove.
+ */
+let heldStarts: (() => void)[] | null = null;
 
 /** The prompt bodies that reached `POST /v1/messages`. */
 function sentPrompts(): unknown[] {
@@ -79,6 +84,9 @@ function installFetch(): void {
       });
     }
     if (url.includes("/activation/tasks/")) {
+      if (heldStarts) {
+        await new Promise<void>((resolve) => heldStarts?.push(resolve));
+      }
       if (startStatus !== 200) {
         return new Response(JSON.stringify({ detail: "task id rejected" }), {
           status: startStatus,
@@ -131,6 +139,7 @@ function renderModal(
 beforeEach(() => {
   requests.length = 0;
   startStatus = 200;
+  heldStarts = null;
   installFetch();
   useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
   useActivationUiStore.setState({
@@ -217,12 +226,72 @@ describe("ActivationWelcomeModal", () => {
     expect(sentPrompts()).toEqual([]);
   });
 
-  test("a launch moves the accordion on to the next unstarted row", () => {
+  test("a launch moves the accordion on to the next unstarted row", async () => {
     const { getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
-    fireEvent.click(getByText(starters[0]!.chip));
+    await act(async () => {
+      fireEvent.click(getByText(starters[0]!.chip));
+    });
     expect(useActivationUiStore.getState().expandedTaskId).toBe(
       FIXTURE_STARTER_IDS[1],
     );
+  });
+
+  // A row the daemon refused is the row the user still has to deal with, so
+  // the accordion has nowhere to move on to.
+  test("a refused launch leaves the accordion where it was", async () => {
+    startStatus = 400;
+    const { getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
+    await act(async () => {
+      fireEvent.click(getByText(starters[0]!.chip));
+    });
+    expect(useActivationUiStore.getState().expandedTaskId).toBe(
+      FIXTURE_STARTER_IDS[0],
+    );
+  });
+
+  // The user opened another row while the launch was out. That choice is
+  // theirs, and a launch landing afterwards must not take it back.
+  test("a launch does not overwrite a row opened while it was out", async () => {
+    heldStarts = [];
+    const { getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
+    fireEvent.click(getByText(starters[0]!.chip));
+    fireEvent.click(getByText(starters[2]!.title));
+    expect(useActivationUiStore.getState().expandedTaskId).toBe(
+      FIXTURE_STARTER_IDS[2],
+    );
+
+    await act(async () => {
+      heldStarts?.forEach((resolve) => resolve());
+      heldStarts = null;
+    });
+    expect(useActivationUiStore.getState().expandedTaskId).toBe(
+      FIXTURE_STARTER_IDS[2],
+    );
+  });
+
+  // Two launches can be out at once. Each row locks only itself, and it stays
+  // locked until its own launch settles, whichever one settles first.
+  test("a second launch does not unlock the first row", async () => {
+    heldStarts = [];
+    const { getByRole, getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
+    fireEvent.click(getByText(starters[0]!.chip));
+    fireEvent.click(getByText(starters[1]!.title));
+    fireEvent.click(getByText(starters[1]!.chip));
+
+    // Settle the second launch alone, then look at the first row again.
+    await act(async () => {
+      heldStarts?.splice(1).forEach((resolve) => resolve());
+    });
+    fireEvent.click(getByText(starters[0]!.title));
+    expect(
+      (getByRole("button", { name: starters[0]!.chip }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      heldStarts?.forEach((resolve) => resolve());
+      heldStarts = null;
+    });
   });
 
   test("Show More counts the rest of the catalog and opens it inline", () => {
