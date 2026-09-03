@@ -6,7 +6,7 @@
  * the list actually renders. Claims that exist must stay in the document, not
  * get clipped out of an overflow region.
  *
- * Single-file `bun test` only — `mock.module` leaks across files in this repo,
+ * Single-file `bun test` only: `mock.module` leaks across files in this repo,
  * so run this file on its own (or via scripts/run-tests.ts).
  */
 
