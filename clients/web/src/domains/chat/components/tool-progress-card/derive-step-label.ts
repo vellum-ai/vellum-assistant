@@ -13,6 +13,7 @@
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
+  ACTIVITY_KEYS,
   COMMAND_KEYS,
   FILE_PATH_KEYS,
   readToolInputString,
@@ -117,7 +118,7 @@ export function deriveStepLabelFromName(
   // spread onto every branch so phase-grouping (`title`/`info`/`iconName`)
   // stays untouched. `readToolInputString` trims and returns "" when neither
   // key is set.
-  const activity = readToolInputString(inputBag, "activity", "reason");
+  const activity = readToolInputString(inputBag, ...ACTIVITY_KEYS);
 
   const mcp = parseMcpToolName(toolName);
   if (mcp) {

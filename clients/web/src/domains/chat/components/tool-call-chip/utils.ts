@@ -4,6 +4,11 @@
  */
 
 import { truncate as truncateShared } from "@/domains/chat/utils/truncate";
+import {
+  COMMAND_KEYS,
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 
 /** Extract just the filename from a file path string. */
 function extractFileName(path: string): string | null {
@@ -247,6 +252,15 @@ function browserOpIcon(op: BrowserOperation): string {
   }
 }
 
+const FILE_TOOL_NAMES = new Set([
+  "file_read",
+  "host_file_read",
+  "file_write",
+  "host_file_write",
+  "file_edit",
+  "host_file_edit",
+]);
+
 /** Extract a human-readable input summary from the tool input object. */
 export function extractInputSummary(
   toolName: string,
@@ -255,38 +269,21 @@ export function extractInputSummary(
   const name = toolName.toLowerCase();
 
   if (name === "bash" || name === "host_bash") {
-    const command = input.command ?? input.cmd;
-    if (typeof command === "string") {
-      return command.replace(/\s+/g, " ").trim();
-    }
+    // A command is one line here however it was typed, so internal runs of
+    // whitespace collapse on top of the reader's trim.
+    return readToolInputString(input, ...COMMAND_KEYS).replace(/\s+/g, " ");
   }
 
-  if (
-    name === "file_read" ||
-    name === "host_file_read" ||
-    name === "file_write" ||
-    name === "host_file_write" ||
-    name === "file_edit" ||
-    name === "host_file_edit"
-  ) {
-    const filePath = input.file_path ?? input.path ?? input.filePath;
-    if (typeof filePath === "string") {
-      return filePath;
-    }
+  if (FILE_TOOL_NAMES.has(name)) {
+    return readToolInputString(input, ...FILE_PATH_KEYS);
   }
 
   if (name === "grep" || name === "glob") {
-    const pattern = input.pattern ?? input.query;
-    if (typeof pattern === "string") {
-      return pattern;
-    }
+    return readToolInputString(input, "pattern", "query");
   }
 
   if (name === "web_search") {
-    const query = input.query ?? input.search;
-    if (typeof query === "string") {
-      return query;
-    }
+    return readToolInputString(input, "query", "search");
   }
 
   return "";

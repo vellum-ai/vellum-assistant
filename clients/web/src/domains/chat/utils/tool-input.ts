@@ -43,3 +43,9 @@ export const FILE_PATH_KEYS = ["file_path", "path", "filePath"] as const;
 
 /** Spellings a shell command arrives under; `cmd` is the legacy one. */
 export const COMMAND_KEYS = ["command", "cmd"] as const;
+
+/**
+ * Spellings of the activity sentence the daemon attaches to an input, mirroring
+ * macOS `reasonDescription`; `reason` is the legacy one.
+ */
+export const ACTIVITY_KEYS = ["activity", "reason"] as const;
