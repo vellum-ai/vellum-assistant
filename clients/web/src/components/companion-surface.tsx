@@ -1001,12 +1001,28 @@ export function CompanionSurface({
 /**
  * The name's fill, named once and shared by the rectangle and its beak.
  *
- * A shared constant rather than the same literal typed twice, and fully
- * opaque rather than translucent: the beak sits flush against the
- * rectangle's own bottom edge, and a translucent fill would show a seam
- * there wherever the two overlap by even a pixel of anti-aliasing.
+ * A shared constant rather than the same literal typed twice. Translucent
+ * rather than the flat fill this had before `backdrop-filter` was added:
+ * the blur only has something to show once the fill lets it through. The
+ * beak sits flush against the rectangle's bottom edge rather than
+ * overlapping it (`top-full`, not a negative offset), so the two panes of
+ * blurred backdrop meet edge to edge instead of compositing on top of each
+ * other, which is what kept the flat-fill version seam-free and keeps this
+ * one seam-free too.
  */
-const NAME_CAPTION_FILL = "#1c1c1e";
+const NAME_CAPTION_FILL = "rgba(28, 28, 30, 0.55)";
+
+/**
+ * The blur and saturation boost shared by the rectangle and its beak, so the
+ * one pane of "glass" reads as one material rather than two.
+ *
+ * An approximation of macOS's own vibrancy material, not the real thing: a
+ * genuine `NSGlassEffectView` is a native layer, and this is HTML painted
+ * inside the window's own transparent content, so the closest available
+ * tool is Chromium's `backdrop-filter` sampling the desktop showing through
+ * that transparency.
+ */
+const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
 
 /**
  * The creature's name for a press, the way the Dock names an icon: a small
@@ -1027,7 +1043,7 @@ function CompanionNameCaption({
 }) {
   return (
     <span
-      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${
+      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${
         named ? "opacity-100" : "opacity-0"
       }`}
       style={{ ...style, backgroundColor: NAME_CAPTION_FILL }}
@@ -1036,15 +1052,25 @@ function CompanionNameCaption({
     >
       {label}
       {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
-          nudged down to meet it, so there is no gap for the seam a
-          translucent fill would show anyway. Centred under the text rather
-          than under the whole padded box for the same reason a Dock label's
-          beak centres on the name: it is pointing at the icon below, and the
-          icon is what the horizontal centre of this box was already placed
-          over. */}
+          nudged down to meet it, so the two blurred panes meet at a seam
+          rather than compositing on top of each other. Centred under the
+          text rather than under the whole padded box for the same reason a
+          Dock label's beak centres on the name: it is pointing at the icon
+          below, and the icon is what the horizontal centre of this box was
+          already placed over.
+
+          Clipped to a triangle rather than drawn with the border trick:
+          `backdrop-filter` blurs an element's whole border box, transparent
+          border colour or not, so the border trick left a hazy rectangular
+          smudge around the visible point. `clip-path` removes those corners
+          from the element entirely, so there is nothing left there for the
+          blur to show through. */}
       <span
-        className="absolute top-full left-1/2 block size-0 -translate-x-1/2 border-x-[5px] border-t-[6px] border-x-transparent"
-        style={{ borderTopColor: NAME_CAPTION_FILL }}
+        className={`absolute top-full left-1/2 h-1.5 w-2.5 -translate-x-1/2 ${NAME_CAPTION_GLASS}`}
+        style={{
+          backgroundColor: NAME_CAPTION_FILL,
+          clipPath: "polygon(0 0, 100% 0, 50% 100%)",
+        }}
         aria-hidden
       />
     </span>
