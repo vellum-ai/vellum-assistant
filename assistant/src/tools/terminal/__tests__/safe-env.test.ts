@@ -98,3 +98,23 @@ describe("safe-env Windows forwarding", () => {
     expect(windowsEnv.COMSPEC).toBe("C:\\Windows\\System32\\cmd.exe");
   });
 });
+
+describe("safe-env PATH scrubbing", () => {
+  test("drops Bun's synthesized node shim dir, keeping the rest in order", () => {
+    const env = buildSanitizedEnv("linux", {
+      PATH: "/tmp/bun-node-abc123:/usr/local/bin:/usr/bin:/bin",
+    });
+
+    expect(env.PATH).toBe("/usr/local/bin:/usr/bin:/bin");
+  });
+
+  test("keeps a similarly named directory outside the temp dir", () => {
+    const env = buildSanitizedEnv("linux", {
+      PATH: "/usr/local/bin:/home/assistant/bun-node-tools:/usr/bin",
+    });
+
+    expect(env.PATH).toBe(
+      "/usr/local/bin:/home/assistant/bun-node-tools:/usr/bin",
+    );
+  });
+});

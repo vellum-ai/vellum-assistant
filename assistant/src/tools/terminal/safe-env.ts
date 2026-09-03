@@ -6,6 +6,7 @@
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
 import { readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { pathListDelimiter } from "@vellumai/environments/shell";
 
@@ -169,6 +170,49 @@ function kataPythonPaths(dataRoot: string): string[] {
   ];
 }
 
+// Bun synthesizes a `node` shim directory (<temp>/bun-node-<hash>/, holding
+// `node` and `bun` symlinks to itself) and prepends it to PATH whenever it
+// starts with no real Node on PATH. That `node` is Bun, which runs a Node CLI
+// under different semantics, so it must never shadow a real interpreter in a
+// sandbox subprocess.
+function bunNodeShimParents(sourceEnv: NodeJS.ProcessEnv): string[] {
+  const roots = [
+    tmpdir(),
+    "/tmp",
+    sourceEnv.TMPDIR,
+    sourceEnv.TEMP,
+    sourceEnv.TMP,
+  ];
+  return roots
+    .filter((root): root is string => Boolean(root))
+    .map((root) => root.replace(/[\\/]+$/, ""));
+}
+
+function stripBunNodeShimDirs(
+  value: string,
+  sourceEnv: NodeJS.ProcessEnv,
+): string {
+  const parents = bunNodeShimParents(sourceEnv);
+  const separator = pathListDelimiter();
+  return value
+    .split(separator)
+    .filter((entry) => {
+      const normalized = entry.replace(/[\\/]+$/, "");
+      const cut = Math.max(
+        normalized.lastIndexOf("/"),
+        normalized.lastIndexOf("\\"),
+      );
+      if (cut < 0) {
+        return true;
+      }
+      return !(
+        normalized.slice(cut + 1).startsWith("bun-node-") &&
+        parents.includes(normalized.slice(0, cut))
+      );
+    })
+    .join(separator);
+}
+
 /**
  * Keys that buildSanitizedEnv always injects into the returned env,
  * independent of what is present in process.env.
@@ -220,6 +264,9 @@ export function buildSanitizedEnv(
     if (value != null) {
       env[key] = value;
     }
+  }
+  if (env.PATH != null) {
+    env.PATH = stripBunNodeShimDirs(env.PATH, sourceEnv);
   }
   if (isKataRuntime) {
     const kataAptDataRoot = env.VELLUM_APT_DATA_ROOT ?? KATA_APT_DATA_ROOT;
