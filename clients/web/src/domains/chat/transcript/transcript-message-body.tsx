@@ -47,6 +47,7 @@ import {
 import {
   activityItemsToCardData,
   type ContentBlockActivityItem,
+  finalResponseStartIndex,
   groupContentBlocks,
   isSubagentSpawnCall,
   isTaskProgressSurface,
@@ -1175,8 +1176,9 @@ export function TranscriptMessageBody({
     );
   }
 
-  const finalResponseGroupIndex = groups.findLastIndex(
-    (group) => group.type === "text" && group.text.trim().length > 0,
+  const finalResponseGroupIndex = finalResponseStartIndex(
+    groups,
+    groupRendersRow,
   );
   // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
   // no group is collapsible, so the whole response renders inline at full

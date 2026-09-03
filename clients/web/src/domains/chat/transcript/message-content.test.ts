@@ -4,6 +4,8 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
+  type ContentBlockGroup,
+  finalResponseStartIndex,
   groupContentBlocks,
   isBackgroundBashCall,
   isRunWorkflowCall,
@@ -421,5 +423,80 @@ describe("isTaskProgressSurface", () => {
     expect(
       isTaskProgressSurface(surface({ template: "weather_forecast" })),
     ).toBe(false);
+  });
+});
+
+describe("finalResponseStartIndex", () => {
+  const textGroup = (value: string): ContentBlockGroup => ({
+    type: "text",
+    text: value,
+  });
+  const surfaceGroup = (): ContentBlockGroup => ({
+    type: "surface",
+    surface: { surfaceId: "s1", surfaceType: "choice", data: {} },
+  });
+  const activityGroup = (): ContentBlockGroup => ({
+    type: "activity",
+    items: [{ type: "tool_use", toolCall: toolCall({ id: "tc-1" }) }],
+  });
+
+  /** Every group draws a row except the indexes named by `blank`. */
+  function rendersRow(blank: number[] = []) {
+    return (_group: ContentBlockGroup, index: number) => !blank.includes(index);
+  }
+
+  test("prose opening an interactive surface is the response, not earlier work", () => {
+    // The onboarding greeting's shape: prose, the `ui_show` call that draws
+    // nothing, the choice surface, then a scrap of trailing text.
+    const groups: ContentBlockGroup[] = [
+      textGroup("Hey there, shall we start with your work?"),
+      activityGroup(),
+      surfaceGroup(),
+      textGroup("Sparkle"),
+    ];
+    expect(finalResponseStartIndex(groups, rendersRow([1]))).toBe(0);
+  });
+
+  test("keeps intermediate text before a drawn tool run out of the response", () => {
+    const groups: ContentBlockGroup[] = [
+      textGroup("I will check that."),
+      activityGroup(),
+      textGroup("Here is the final answer."),
+    ];
+    expect(finalResponseStartIndex(groups, rendersRow())).toBe(2);
+  });
+
+  test("a group that draws nothing does not pull earlier text into the response", () => {
+    const groups: ContentBlockGroup[] = [
+      textGroup("I will check that."),
+      activityGroup(),
+      textGroup("Here is the final answer."),
+    ];
+    expect(finalResponseStartIndex(groups, rendersRow([1]))).toBe(2);
+  });
+
+  test("every text block introducing a surface joins the response", () => {
+    const groups: ContentBlockGroup[] = [
+      textGroup("Hey there."),
+      textGroup("Shall we start with your work?"),
+      activityGroup(),
+      surfaceGroup(),
+      textGroup("Sparkle"),
+    ];
+    expect(finalResponseStartIndex(groups, rendersRow([2]))).toBe(0);
+  });
+
+  test("a drawn tool run ends the response, surface or not", () => {
+    const groups: ContentBlockGroup[] = [
+      textGroup("Let me look that up."),
+      activityGroup(),
+      surfaceGroup(),
+      textGroup("Here is the final answer."),
+    ];
+    expect(finalResponseStartIndex(groups, rendersRow())).toBe(2);
+  });
+
+  test("returns -1 for a response carrying no text", () => {
+    expect(finalResponseStartIndex([activityGroup()], rendersRow())).toBe(-1);
   });
 });
