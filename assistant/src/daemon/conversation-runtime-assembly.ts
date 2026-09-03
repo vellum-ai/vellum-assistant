@@ -1001,12 +1001,12 @@ function injectTransportHints(message: Message, hints: string[]): Message {
  * `<active_thread>` focus block. DMs are excluded because they have no
  * threads.
  *
- * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
- * conversation (public, private, and mpim alike — see
- * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
- * We therefore accept only `chatType === "channel"` — when the gateway
- * omits `chatType` (as it does for DMs), the check correctly returns
- * `false`.
+ * The gateway normalizer (`gateway/src/slack/message-normalizer.ts`)
+ * forwards `chatType: "channel"` for channel messages, `"im"` for a 1:1
+ * DM, and `"mpim"` for a group DM, and omits it for an app mention, which
+ * Slack sends without naming the room kind. Accepting only
+ * `chatType === "channel"` therefore returns `false` for both DM shapes
+ * and for an app mention.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on

@@ -90,6 +90,42 @@ assistant oauth request --provider slack_channel \
   /conversations.replies --json
 ```
 
+### Read back what you sent
+
+When someone asks what you sent them earlier ("what did you send me this morning", "quote the digest from yesterday"), look in this order: the current conversation first; then `recall`, which searches your other conversations; then Slack itself, for anything older or posted from a scheduled run or a notification.
+
+Reading Slack back is three calls on `slack_channel`. That is your own bot identity, and it is the right one here: a DM with you is your app's own DM, the posts you are looking for were made as the bot, and the history scopes this needs (`im:history`, `mpim:history`, `channels:history`, `groups:history`) are ones the app setup already requests.
+
+1. **Know where you are.** When your `<turn_context>` carries `chat_id` (and `thread_id` for a message in a thread), that is the chat. Otherwise the person's contact record has the DM as `externalChatId` (see User Resolution below).
+
+2. **Read the top level.** `conversations.history` returns only top-level messages, never thread replies. In a DM with you, every proactive post you made (a digest, a notification, a check-in from a scheduled run) is top-level and appears here directly. Each thread you have taken part in appears only as its parent, carrying `reply_count`, `latest_reply`, and `reply_users`.
+
+   Do not put the time window you were asked about into `oldest` here: history filters by each parent's own timestamp, and a thread started days ago can hold a reply you made this morning. Read recent parents by count instead, and follow `response_metadata.next_cursor` while the parents are still newer than the window you care about.
+
+   ```bash
+   assistant oauth request --provider slack_channel \
+     -X POST \
+     -d '{"channel":"D0123456789","limit":100}' \
+     /conversations.history --json
+   ```
+
+3. **Read the threads you replied in.** Your own user id comes from `auth.test` (`user_id` in the response). Keep the parents whose `reply_users` includes it and whose `latest_reply` is not older than the window; fetch each of those threads. The first message returned is the parent, the rest are the replies in order; pick the replies whose `ts` falls in the window, and follow `next_cursor` on a long thread.
+
+   ```bash
+   assistant oauth request --provider slack_channel /auth.test --json
+
+   assistant oauth request --provider slack_channel \
+     -X POST \
+     -d '{"channel":"D0123456789","ts":"1756800000.000100","limit":200}' \
+     /conversations.replies --json
+   ```
+
+In an agent-style DM, every conversation the person starts with you is its own thread, so what you said in an earlier chat lives in that chat's replies, not in the thread you are answering from now. The parents from step 2 are the list of those chats; step 3 reads the ones you spoke in.
+
+Do not reach for `search.messages` here. It is a user-token method: on `slack_channel` it fails with `not_allowed_token_type`, and on `slack` it would read as the person who connected the integration, with their reach, which is not what re-reading your own DM calls for.
+
+If any of these calls fails with `missing_scope`, the installed app holds fewer scopes than the setup requests. Do not work around it: `assistant channels get slack` re-probes the install and names the missing scopes with the reinstall step, and the **slack-app-setup** skill walks the reconnect.
+
 ### Add a reaction
 
 ```bash

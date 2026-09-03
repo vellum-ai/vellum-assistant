@@ -149,6 +149,7 @@ import { stripUnsupportedFallbackProfilesMigration } from "./148-strip-unsupport
 import { repointBackupProfileSelectionsMigration } from "./149-repoint-backup-profile-selections.js";
 import { sttFluxProviderToModelFamilyMigration } from "./150-stt-flux-provider-to-model-family.js";
 import { repairRenamedFireworksDeepseekProModelIdMigration } from "./151-repair-renamed-fireworks-deepseek-pro-model-id.js";
+import { repairRetiredFireworksMinimaxM2p7ModelIdMigration } from "./152-repair-retired-fireworks-minimax-m2p7-model-id.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -313,4 +314,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repointBackupProfileSelectionsMigration,
   sttFluxProviderToModelFamilyMigration,
   repairRenamedFireworksDeepseekProModelIdMigration,
+  repairRetiredFireworksMinimaxM2p7ModelIdMigration,
 ];

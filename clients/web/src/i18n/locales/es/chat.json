@@ -393,10 +393,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Preguntar al Doctor",
-    "copyCliFix": "Copiar corrección de CLI",
     "goToDoctor": "Ir al Doctor",
     "openPage": "Abrir página",
-    "suggestionFallback": "Sugerencia"
+    "suggestionFallback": "Sugerencia",
+    "copyCliFix": "Copiar corrección de CLI"
   },
   "chatRuleEditorModal": {
     "applyTo": "Aplicar a",
@@ -648,6 +648,9 @@
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
+  "deletedMessageRow": {
+    "label": "Este mensaje fue eliminado"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
   },
@@ -747,6 +750,10 @@
   "formSurface": {
     "secureHint": "Este valor se enviará de forma segura y no se guardará en tu navegador.",
     "selectPlaceholder": "Seleccionar..."
+  },
+  "frameGateHud": {
+    "collapse": "Ocultar la lectura del filtro de fotogramas",
+    "expand": "Mostrar la lectura del filtro de fotogramas"
   },
   "groupActions": {
     "archiveAll": "Archivar todas…",
@@ -1774,5 +1781,15 @@
     "reactionAdded": "{name} reaccionó con {emoji}",
     "reactionRemoved": "{name} quitó su reacción {emoji}",
     "reactionSomeone": "Alguien"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "Restaurar acceso",
+    "restoring": "Restaurando...",
+    "restored": "Restaurado. Los modelos gestionados por Vellum vuelven a funcionar.",
+    "failedNoAssistant": "Selecciona un asistente y vuelve a intentarlo.",
+    "failedCannotActHere": "Esta aplicación no puede restaurar la credencial de este asistente. Abre el asistente en el equipo que lo ejecuta.",
+    "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
+    "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
+    "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
   }
 }

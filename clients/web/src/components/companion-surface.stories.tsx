@@ -13,6 +13,7 @@ import {
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
+import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
@@ -397,6 +398,18 @@ export const Hover: Story = {
 };
 
 /**
+ * The creature's name for a press, drawn the way the Dock names an icon: a
+ * small label centred above it, with a beak pointing back down at it rather
+ * than any shape borrowed from the pill.
+ *
+ * `spotlight="talk"` forces the label open with no dwell or pointer needed,
+ * so it sits still for review instead of only appearing on a real hover.
+ */
+export const TalkName: Story = {
+  args: { phase: "hover", spotlight: "talk" },
+};
+
+/**
  * A session reading the screen, with the pointer nowhere near the surface.
  *
  * `hovered` is off on purpose: this is the state the phase exists for. The pill
@@ -456,17 +469,80 @@ export const SummaryReady: Story = {
  * capture takes it: the creature already carries the turn in its own pose,
  * and a call is a thing the user started and can hear.
  *
- * The widest row the surface draws outside the card: the activity line and five
- * controls, with the stop beside what the session is doing rather than beside
- * End, since two stops in a row is a misclick that ends the wrong one.
+ * The widest row the surface draws outside the card: the activity line and the
+ * handlebar with Teach held down and so spelling its name out, beside what the
+ * session is doing rather than beside End, since two stops in a row is a
+ * misclick that ends the wrong one.
  */
 export const InCallWhileWatching: Story = {
   args: { phase: "call", watching: true, call: DEMO_CALL },
 };
 
-/** Expanded mid-call: the session's own controls, at pill scale. */
+/**
+ * Teach pressed, and the question it asks first: what to read.
+ *
+ * The picker is a card over the bar rather than a row on it, on the height
+ * the host reserves for a card, since a desktop has a dozen windows and the
+ * bar is one thin row by design. Screens, then Chrome's tabs, then every
+ * other window; the pick is what starts the session, and the picked surface
+ * is what gets the frame.
+ */
+export const InCallPicking: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: (
+      <CompanionCapturePicker
+        sources={{
+          displays: [
+            { kind: "display", displayId: 1, index: 0, primary: true },
+            { kind: "display", displayId: 2, index: 1, primary: false },
+          ],
+          tabs: [
+            {
+              kind: "tab",
+              chromeWindowId: 101,
+              tabIndex: 1,
+              title: "Quarterly plan - Google Docs",
+            },
+            {
+              kind: "tab",
+              chromeWindowId: 101,
+              tabIndex: 2,
+              title: "vellum-ai/vellum-assistant: Pull request #42002",
+            },
+          ],
+          windows: [
+            { kind: "window", windowId: 7, title: "Groceries", app: "Notes" },
+            { kind: "window", windowId: 8, title: "", app: "Preview" },
+            {
+              kind: "window",
+              windowId: 9,
+              title: "companion-surface.tsx",
+              app: "Code",
+            },
+          ],
+        }}
+      />
+    ),
+  },
+};
+
+/**
+ * The dial: Talk pressed, and the session it asked for not yet on the surface.
+ *
+ * Who is being called and the one control that means anything yet, the end.
+ * The session opens after a network round trip in a window the user cannot
+ * see, so this is what says the press landed.
+ */
+export const Dialing: Story = {
+  args: { phase: "call", assistantName: "Ziggy" },
+};
+
+/** Expanded mid-call: the handlebar, at pill scale. */
 export const InCall: Story = {
-  args: { phase: "call" },
+  args: { phase: "call", call: DEMO_CALL },
 };
 
 /**
@@ -477,9 +553,6 @@ export const InCall: Story = {
  * until this is answered, so it is the only thing here worth pressing. The
  * activity line says what is being asked; the pill is not the place to render a
  * tool call's arguments, and the app is a click away for that.
- *
- * This is the widest the surface ever gets, so it is what `MAX_PILL_WIDTH` in
- * `companion-window.ts` sizes the canvas to hold.
  */
 export const PendingApproval: Story = {
   args: {
@@ -530,7 +603,7 @@ export const InCallMuted: Story = {
  * stops being readable over a pale one.
  */
 export const OnALightDesktop: Story = {
-  args: { phase: "call", backdrop: "light" },
+  args: { phase: "call", call: DEMO_CALL, backdrop: "light" },
 };
 
 /**

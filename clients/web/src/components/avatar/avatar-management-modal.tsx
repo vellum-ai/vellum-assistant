@@ -1,4 +1,4 @@
-import { ChevronRight, Dices, Upload } from "lucide-react";
+import { ChevronRight, Dices, RotateCcw, Upload } from "lucide-react";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -12,13 +12,18 @@ import { Button, Modal } from "@vellumai/design-library";
 
 import {
   fetchCharacterComponents,
+  saveAvatarAccent,
   saveCharacterTraits,
   uploadAvatarImage,
 } from "@/assistant/avatar-api";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { TraitCycleRow } from "@/components/avatar/trait-cycle-row";
 import { useTranslation } from "@/i18n";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type {
+  AvatarAccent,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
 
 interface AvatarManagementModalProps {
   open: boolean;
@@ -27,8 +32,16 @@ interface AvatarManagementModalProps {
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
+  /**
+   * The daemon's accent for the current avatar, or null on an assistant that
+   * predates accents, which is also when there is no route to save one to,
+   * so the accent row is not offered.
+   */
+  accent: AvatarAccent | null;
   onSaveCharacter: (traits: CharacterTraits) => void;
   onUploadImage: () => void;
+  /** The accent was saved; the caller refetches the avatar. */
+  onSaveAccent: () => void;
   /** Current assistant name — shows the name editor when provided
    *  together with `onRenameSubmit`. */
   assistantName?: string;
@@ -60,8 +73,10 @@ export function AvatarManagementModal({
   components,
   traits,
   customImageUrl,
+  accent,
   onSaveCharacter,
   onUploadImage,
+  onSaveAccent,
   assistantName,
   onRenameSubmit,
   isRenaming = false,
@@ -88,6 +103,12 @@ export function AvatarManagementModal({
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [nameDraft, setNameDraft] = useState(assistantName ?? "");
+  // The accent the user picked over the uploaded image, applied on Save:
+  // undefined while untouched, a hex once picked, null once reset to the
+  // colour read out of the image.
+  const [accentDraft, setAccentDraft] = useState<string | null | undefined>(
+    undefined,
+  );
 
   const displayImageUrl = localUploadUrl ?? customImageUrl;
   const hasCustomImage = Boolean(displayImageUrl);
@@ -171,6 +192,7 @@ export function AvatarManagementModal({
   useEffect(() => {
     if (!open) {
       setLocalUploadUrl(null);
+      setAccentDraft(undefined);
     }
   }, [open]);
 
@@ -213,6 +235,9 @@ export function AvatarManagementModal({
         onUploadImage();
         setLocalUploadUrl(URL.createObjectURL(file));
         setPreviewMode("custom");
+        // A new image earns a new automatic accent; a pick over the old one
+        // no longer applies.
+        setAccentDraft(undefined);
       }
 
       if (fileInputRef.current) {
@@ -237,6 +262,23 @@ export function AvatarManagementModal({
       // the uploaded image keeps that image.
       const shouldSaveTraits =
         resolvedComponents && previewMode === "character";
+      // The accent is only written from the image view, and only when the
+      // user touched it: the daemon already holds the automatic one.
+      const shouldSaveAccent =
+        previewMode === "custom" &&
+        accent !== null &&
+        accentDraft !== undefined;
+      if (shouldSaveAccent) {
+        setIsSaving(true);
+        try {
+          if (await saveAvatarAccent(assistantId, accentDraft)) {
+            setAccentDraft(undefined);
+            onSaveAccent();
+          }
+        } finally {
+          setIsSaving(false);
+        }
+      }
       if (shouldSaveTraits) {
         const nextTraits: CharacterTraits = {
           bodyShape: resolvedComponents.bodyShapes[bodyIndex]!.id,
@@ -265,11 +307,14 @@ export function AvatarManagementModal({
       trimmedDraft,
       resolvedComponents,
       previewMode,
+      accent,
+      accentDraft,
       bodyIndex,
       eyeIndex,
       colorIndex,
       assistantId,
       onSaveCharacter,
+      onSaveAccent,
       onClose,
     ],
   );
@@ -311,6 +356,13 @@ export function AvatarManagementModal({
 
                 <div className="space-y-3">
                   {nameRow}
+                  {accent && (
+                    <AccentRow
+                      accent={accent}
+                      draft={accentDraft}
+                      onChange={setAccentDraft}
+                    />
+                  )}
                   <SwitchModeRow
                     label={t("avatarManagementModal.useCharacterLabel")}
                     description={t(
@@ -534,6 +586,68 @@ function NameRow({ value, onChange, disabled }: NameRowProps) {
         <span aria-hidden className="h-7 w-7 shrink-0" />
       </div>
     </label>
+  );
+}
+
+interface AccentRowProps {
+  /** The accent as the daemon holds it. */
+  accent: AvatarAccent;
+  /** The user's pending pick: a hex, null for "back to automatic", undefined while untouched. */
+  draft: string | null | undefined;
+  onChange: (draft: string | null) => void;
+}
+
+/**
+ * The accent over an uploaded image, styled like a {@link TraitCycleRow}: the
+ * swatch is the native colour input itself, so the picker is the platform's
+ * own and keyboard-operable, and a reset returns to the colour read out of
+ * the image. The row is only offered when the daemon holds an accent, since
+ * that is also when it has a route to save one to.
+ */
+function AccentRow({ accent, draft, onChange }: AccentRowProps) {
+  const { t } = useTranslation();
+  // A reset that has not been saved yet has no colour to show until the
+  // daemon reads one out of the image again, so it reads as automatic.
+  const pendingReset = draft === null;
+  const hex = draft ?? accent.hex;
+  const isCustom =
+    draft !== undefined ? !pendingReset : accent.source === "custom";
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3 py-2">
+      <span className="text-body-small-default uppercase tracking-wider text-[var(--content-quiet)]">
+        {t("avatarManagementModal.accent")}
+      </span>
+      <div className="flex items-center gap-2">
+        {isCustom ? (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            aria-label={t("avatarManagementModal.accentReset")}
+            title={t("avatarManagementModal.accentReset")}
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </button>
+        ) : (
+          <span aria-hidden className="h-7 w-7 shrink-0" />
+        )}
+        <div className="flex min-w-[80px] items-center justify-center gap-2">
+          <input
+            type="color"
+            value={hex}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label={t("avatarManagementModal.accentPickerLabel")}
+            className="h-5 w-5 cursor-pointer appearance-none rounded-full border border-[var(--border-element)] bg-transparent p-0 [&::-moz-color-swatch]:rounded-full [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0"
+          />
+          <span className="text-body-medium-default uppercase text-[var(--content-strong)]">
+            {pendingReset
+              ? t("avatarManagementModal.accentAutomatic")
+              : hex.replace("#", "")}
+          </span>
+        </div>
+        <span aria-hidden className="h-7 w-7 shrink-0" />
+      </div>
+    </div>
   );
 }
 

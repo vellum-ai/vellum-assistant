@@ -24,7 +24,8 @@
     "./stripe-currency": "./src/stripe-currency.ts",
     "./error": "./src/error.ts",
     "./reactions": "./src/reactions.ts",
-    "./guardian-requests": "./src/guardian-requests.ts"
+    "./guardian-requests": "./src/guardian-requests.ts",
+    "./platform-credential": "./src/platform-credential.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

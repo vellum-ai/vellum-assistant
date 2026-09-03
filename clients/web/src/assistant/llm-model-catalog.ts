@@ -236,8 +236,18 @@ export const MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
+      id: "gemini-3.8-flash",
+      displayName: "Gemini 3.8 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+      thinkingFloor: "low",
+    },
+    {
       id: "gemini-3.7-flash",
       displayName: "Gemini 3.7 Flash",
+      family: "gemini-flash",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -389,18 +399,10 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/glm-5p2",
-      displayName: "GLM 5.2",
-      vendor: "zhipu",
-      contextWindowTokens: 1_040_000,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 131_072,
-      supportsThinking: true,
-    },
-    {
       id: "accounts/fireworks/models/glm-5p3",
       displayName: "GLM 5.3",
       vendor: "zhipu",
+      family: "glm",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -417,6 +419,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
       adaptiveThinkingOnly: true,
     },
+    {
+      id: "accounts/fireworks/models/glm-5p2",
+      displayName: "GLM 5.2",
+      vendor: "zhipu",
+      family: "glm",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
     // Kimi K2.5 (kimi-k2p5) is intentionally absent: Fireworks serves it
     // on-demand/dedicated only, so serverless calls 404.
     {
@@ -428,15 +440,6 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 512_000,
       supportsThinking: true,
-    },
-    {
-      id: "accounts/fireworks/models/minimax-m2p7",
-      displayName: "MiniMax M2.7",
-      vendor: "minimax",
-      family: "minimax-m",
-      contextWindowTokens: 196_608,
-      defaultContextWindowTokens: 196_608,
-      maxOutputTokens: 25_000,
     },
     {
       id: "accounts/fireworks/models/deepseek-v4-pro-0813",
@@ -854,7 +857,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.3",
-      displayName: "GLM-5.3",
+      displayName: "GLM 5.3",
       vendor: "zhipu",
       family: "glm",
       contextWindowTokens: 1_048_576,
@@ -864,7 +867,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.3-flash",
-      displayName: "GLM-5.3 Flash",
+      displayName: "GLM 5.3 Flash",
       vendor: "zhipu",
       contextWindowTokens: 1_310_720,
       defaultContextWindowTokens: 200_000,
@@ -873,7 +876,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.2",
-      displayName: "GLM-5.2",
+      displayName: "GLM 5.2",
       vendor: "zhipu",
       family: "glm",
       contextWindowTokens: 1_048_576,

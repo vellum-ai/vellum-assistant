@@ -150,6 +150,44 @@ describe("resolveModelFirstGroups", () => {
     ]);
   });
 
+  test("reads a merged vendor's section newest first", () => {
+    // Z.ai's models all come from the one provider that lists them first, so
+    // the section is that provider's own order: newest, then its fast
+    // sibling, then the version before it.
+    expect(namesOf([], "zhipu")).toEqual([
+      "GLM 5.3",
+      "GLM 5.3 Flash",
+      "GLM 5.2",
+    ]);
+    // Moonshot's are split: Fireworks lists the newest two and OpenRouter the
+    // one it does not, which lands under them rather than among them.
+    expect(namesOf([], "moonshot")).toEqual([
+      "Kimi K3",
+      "Kimi K2.6",
+      "Kimi K2.5",
+    ]);
+    // The same split under DeepSeek, where the two Fireworks serves are the
+    // newest and the two only OpenRouter lists are older.
+    expect(namesOf([], "deepseek")).toEqual([
+      "DeepSeek V4 Pro",
+      "DeepSeek V4 Flash",
+      "DeepSeek R1",
+      "DeepSeek V3",
+    ]);
+  });
+
+  test("gives a model one row however many providers serve it", () => {
+    // `displayName` is the cross-provider identity, so two providers spelling
+    // one model differently would split it into two rows and hide one route
+    // from the other. Z.ai's are served by two, under one name each.
+    const zhipu = groupFor([], "zhipu").options;
+    expect(zhipu).toHaveLength(3);
+    const newest = zhipu.find((option) => option.displayName === "GLM 5.3");
+    const providers = newest?.candidates.map((candidate) => candidate.provider);
+    expect(providers).toContain("fireworks");
+    expect(providers).toContain("openrouter");
+  });
+
   test("carries the vendor on each option", () => {
     const byName = new Map(
       groupFor([], "xai").options.map((option) => [
@@ -230,6 +268,17 @@ describe("collapseSectionRows", () => {
       "GPT-5.6 Terra",
       "GPT-5.6 Luna",
     ]);
+  });
+
+  test("folds a version away without folding its fast sibling", () => {
+    // GLM 5.3 and GLM 5.2 are one line, so only the newer stands; the Flash
+    // is a line of its own and stands beside it.
+    const { shown, hidden } = collapseSectionRows(optionsFor("zhipu"));
+    expect(shown.map((option) => option.displayName)).toEqual([
+      "GLM 5.3",
+      "GLM 5.3 Flash",
+    ]);
+    expect(hidden.map((option) => option.displayName)).toEqual(["GLM 5.2"]);
   });
 
   test("folds nothing when a section holds three models or fewer", () => {

@@ -35,6 +35,7 @@ function avatarState(
     traits,
     source: "builder",
     image: null,
+    accent: null,
     ...overrides,
   };
 }

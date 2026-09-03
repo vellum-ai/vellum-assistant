@@ -10,6 +10,8 @@
 
 import { isElectron } from "@/runtime/is-electron";
 import type {
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionContext,
   CompanionDictating,
   CompanionIntroAction,
@@ -88,9 +90,29 @@ export function startCompanionVoice(): void {
  * press leaves this renderer immediately and nothing is awaited: what comes
  * back is `watching` on the pushed state, once the window that owns the session
  * has one to report.
+ *
+ * `pick` is the row of the picker a start came from, when it came from one.
+ * Main turns it into the session's target, so what comes back beside
+ * `watching` is `captureTarget`, and the frame main draws around it.
  */
-export function toggleCompanionWatch(): void {
-  bridge()?.toggleWatch?.();
+export function toggleCompanionWatch(pick?: CompanionCapturePick): void {
+  bridge()?.toggleWatch?.(pick);
+}
+
+/**
+ * What a session could read right now, for the picker Teach opens.
+ *
+ * Resolves to nothing at all off Electron and on a shell that predates the
+ * picker, rather than to an empty list: an empty list is a desktop with no
+ * windows on it, which is a different fact, and the surface reads nothing as
+ * having no picker to draw.
+ */
+export function listCompanionCaptureSources(): Promise<CompanionCaptureSources | null> {
+  const companion = bridge();
+  if (!companion?.listCaptureSources) {
+    return Promise.resolve(null);
+  }
+  return companion.listCaptureSources().catch(() => null);
 }
 
 /**

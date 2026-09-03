@@ -642,6 +642,11 @@ export const ConversationMessageSchema = z.object({
     })
     .optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
+  /** Unix ms at which the message was deleted on its channel after the daemon
+   *  stored it (a Slack or Discord deletion the gateway forwarded). The stored
+   *  content stays for audit and the Inspect view; clients render a tombstone
+   *  in place of the content, mirroring what the channel now shows. */
+  deletedAt: z.number().optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's
    * in-memory queue (enqueued while the agent was mid-turn, not yet drained or

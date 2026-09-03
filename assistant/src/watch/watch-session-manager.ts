@@ -23,6 +23,7 @@ import {
   getConversation,
 } from "../persistence/conversation-crud.js";
 import {
+  type HostCaptureTarget,
   type HostObservationFields,
   observeHostScreen,
 } from "../runtime/host-observe.js";
@@ -141,6 +142,8 @@ function shouldAttachScreenshot(observation: HostObservationFields): boolean {
   return observation.axDiff?.includes(WHOLE_WINDOW_REPLACEMENT_MARKER) === true;
 }
 
+export type { HostCaptureTarget } from "../runtime/host-observe.js";
+
 /** What a finished session leaves behind for the retrospective to read. */
 export interface WatchSessionSummary {
   readonly sessionId: string;
@@ -168,6 +171,12 @@ export interface WatchSessionStartOptions {
    * client and returns an ambiguity error otherwise.
    */
   readonly clientId?: string;
+  /**
+   * What the session reads: one display, one window, or the client's default.
+   * Fixed for the session's life, since it is the user's pick from the
+   * surface that started it, and passed to every observation unchanged.
+   */
+  readonly captureTarget?: HostCaptureTarget;
   /**
    * Called once for each screen read that landed on the timeline, so whoever
    * started the session can tell the user their screen was just read.
@@ -221,6 +230,7 @@ interface ActiveWatchSession {
   readonly conversationId: string;
   readonly sourceActorPrincipalId: string;
   readonly clientId: string | undefined;
+  readonly captureTarget: HostCaptureTarget | undefined;
   readonly onObservation: (() => void) | undefined;
   readonly startedAtMs: number;
   entryCount: number;
@@ -300,6 +310,7 @@ export class WatchSessionManager {
       conversationId,
       sourceActorPrincipalId: options.sourceActorPrincipalId,
       clientId: options.clientId,
+      captureTarget: options.captureTarget,
       onObservation: options.onObservation,
       startedAtMs: this.now(),
       entryCount: 0,
@@ -456,6 +467,12 @@ export class WatchSessionManager {
         sourceActorPrincipalId: session.sourceActorPrincipalId,
         timeoutMs: OBSERVE_TIMEOUT_MS,
         ...(session.clientId ? { clientId: session.clientId } : {}),
+        ...(session.captureTarget
+          ? { captureTarget: session.captureTarget }
+          : {}),
+        // The helper's diff state is this session's alone, so its first
+        // observation is never described against the last session's.
+        stateKey: `watch:${session.sessionId}`,
       });
       if (session.stopped) {
         return;

@@ -170,7 +170,7 @@
           },
           "model": {
             "type": "string",
-            "description": "LLM model to use for analysis. Default: 'claude-sonnet-4-6'"
+            "description": "LLM model to use for analysis. Defaults to the assistant's active chat model."
           }
         },
         "required": ["asset_id", "query"]

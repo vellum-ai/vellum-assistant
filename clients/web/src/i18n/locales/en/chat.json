@@ -90,6 +90,10 @@
   "assistantNavItem": {
     "newChat": "New Chat"
   },
+  "assistantSection": {
+    "emptyTitle": "Nothing on my mind yet.",
+    "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
@@ -393,10 +397,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Ask the Doctor",
-    "copyCliFix": "Copy CLI fix",
     "goToDoctor": "Go to Doctor",
     "openPage": "Open page",
-    "suggestionFallback": "Suggestion"
+    "suggestionFallback": "Suggestion",
+    "copyCliFix": "Copy CLI fix"
   },
   "chatRuleEditorModal": {
     "applyTo": "Apply to",
@@ -648,6 +652,9 @@
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
+  "deletedMessageRow": {
+    "label": "This message was deleted"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
   },
@@ -749,8 +756,10 @@
     "selectPlaceholder": "Select..."
   },
   "frameGateHud": {
+    "collapse": "Hide the frame gate readout",
     "decisionOrder": "Decision order",
     "detailLabel": "Detail (luma SD)",
+    "expand": "Show the frame gate readout",
     "keep": "Keep",
     "keptFrameAlt": "Kept frame",
     "maxIntervalLabel": "Heartbeat interval",
@@ -763,6 +772,7 @@
     "overridden": "Moved off the default",
     "reasonFeatureless": "Too little detail to compare.",
     "reasonFirst": "Nothing kept yet, and the view settled.",
+    "reasonForced": "Kept for the question being asked right now.",
     "reasonHeartbeat": "Nothing changed, but the last photo is old.",
     "reasonMoving": "The view is still moving.",
     "reasonNovel": "Enough changed since the last photo.",
@@ -776,6 +786,7 @@
     "skip": "Skip",
     "stepFeatureless": "Detail floor",
     "stepFirst": "First keep",
+    "stepForced": "Asked for",
     "stepHeartbeat": "Heartbeat",
     "stepMoving": "Settled",
     "stepNovel": "Novelty",
@@ -1828,11 +1839,31 @@
     "reactionSomeone": "Someone"
   },
   "watchRetroSurface": {
-    "discard": "Discard",
+    "back": "Back",
+    "dontSave": "Don't save",
+    "looksRight": "Looks right",
     "next": "Next",
     "save": "Save skill",
     "skip": "Skip",
-    "thatsIt": "That's it",
+    "somethingOff": "Something's off",
+    "stepCount": "{count, plural, one {# step} other {# steps}}",
+    "stepQuestion": "Question {number}",
+    "stepRecap": "Recap",
+    "stepSummary": "Save",
+    "summarySay": "Say",
+    "summarySteps": "Steps",
+    "summaryTitle": "Ready to save",
+    "summaryUnanswered": "Not set",
     "untitledTask": "What I saw"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "Restore access",
+    "restoring": "Restoring...",
+    "restored": "Restored. Vellum-managed models are working again.",
+    "failedNoAssistant": "Select an assistant, then try again.",
+    "failedCannotActHere": "This app cannot restore the credential for this assistant. Open the assistant on the computer that runs it.",
+    "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
+    "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
+    "failedGeneric": "Could not restore access. Try again in a moment."
   }
 }

@@ -29,9 +29,10 @@ import { toneForBg, type AvatarTone } from "@/utils/avatar-tone";
 import { AssistantPeekingEyes } from "./assistant-peeking-eyes";
 
 /**
- * Backdrop when there is no avatar color to paint — a custom-image or
- * empty avatar on the otherwise-tinted stage. Matches onboarding's dark
- * surface so the two surfaces read as one family.
+ * Backdrop when there is no avatar color to paint: an avatar still loading,
+ * or an uploaded image with no colour to read, on the otherwise-tinted
+ * stage. Matches onboarding's dark surface so the two surfaces read as one
+ * family.
  */
 const DEFAULT_STAGE_BG = "#17191C";
 
@@ -64,21 +65,12 @@ export function useAssistantStage(): AssistantStageValue {
   return ctx;
 }
 
-/** Resolve the avatar color hex for a character avatar, if any. */
-export function resolveAvatarHex(
-  components: CharacterComponents | null,
-  traits: CharacterTraits | null,
-): string | null {
-  if (!components || !traits) {
-    return null;
-  }
-  return components.colors.find((c) => c.id === traits.color)?.hex ?? null;
-}
-
 interface AssistantStageProps {
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
+  /** The avatar's accent, painted edge-to-edge; see `resolveAvatarAccentHex`. */
+  accentHex: string | null;
   /** Play the avatar's grow-in entrance (eyes/image drop from center). */
   entrance?: boolean;
   children: ReactNode;
@@ -89,13 +81,14 @@ export function AssistantStage({
   components,
   traits,
   customImageUrl,
+  accentHex,
   entrance = false,
   children,
   className,
 }: AssistantStageProps) {
   const { ref, size } = useElementSize();
 
-  const bg = resolveAvatarHex(components, traits) ?? DEFAULT_STAGE_BG;
+  const bg = accentHex ?? DEFAULT_STAGE_BG;
   const tone = toneForBg(bg);
 
   // The stage is the page's canvas on the full-bleed routes (overview,

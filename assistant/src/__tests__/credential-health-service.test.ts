@@ -53,6 +53,12 @@ let managedPingOutcome:
   | { kind: "credential_required" }
   | { kind: "throw"; message: string } = { kind: "status", status: 200 };
 
+// Managed assistant-credential mock state. The verdict is what the platform
+// answers about the stored assistant API key; `platformClientAvailable` covers
+// the case where the client cannot be built at all.
+let assistantKeyVerdict: "valid" | "rejected" | "unknown" = "valid";
+let platformClientAvailable = true;
+
 // ── Module mocks ─────────────────────────────────────────────────────
 
 mock.module("../security/secure-keys.js", () => ({
@@ -123,14 +129,20 @@ mock.module("../security/token-manager.js", () => ({
 // seeded into the real workspace config via `seedGoogleOAuthMode` below.
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
-    create: async () => ({
-      platformAssistantId: "test-assistant",
-      fetch: async (_path: string) => ({
-        ok: managedListResponse.ok,
-        status: managedListResponse.status,
-        json: async () => managedListResponse.body ?? { results: [] },
-      }),
-    }),
+    create: async () => {
+      if (!platformClientAvailable) {
+        return null;
+      }
+      return {
+        platformAssistantId: "test-assistant",
+        fetch: async (_path: string) => ({
+          ok: managedListResponse.ok,
+          status: managedListResponse.status,
+          json: async () => managedListResponse.body ?? { results: [] },
+        }),
+        verifyCredential: async () => assistantKeyVerdict,
+      };
+    },
   },
 }));
 
@@ -164,8 +176,12 @@ mock.module("../oauth/platform-connection.js", () => ({
 
 import { setConfig } from "./helpers/set-config.js";
 
-const { checkAllCredentials, checkCredentialForProvider, _setFetchFn } =
-  await import("../credential-health/credential-health-service.js");
+const {
+  checkAllCredentials,
+  checkAssistantApiKey,
+  checkCredentialForProvider,
+  _setFetchFn,
+} = await import("../credential-health/credential-health-service.js");
 
 /** Seed the real workspace config's `services.google-oauth.mode`. */
 function seedGoogleOAuthMode(mode: "managed" | "your-own"): void {
@@ -259,6 +275,8 @@ describe("credential-health-service", () => {
     seedGoogleOAuthMode("your-own");
     managedListResponse = { ok: true, status: 200, body: { results: [] } };
     managedPingOutcome = { kind: "status", status: 200 };
+    assistantKeyVerdict = "valid";
+    platformClientAvailable = true;
   });
 
   test("returns empty report when no providers exist", async () => {
@@ -761,6 +779,76 @@ describe("credential-health-service", () => {
 
       const result = await checkCredentialForProvider("google");
       expect(result!.status).toBe("missing_token");
+    });
+  });
+
+  describe("managed assistant credential", () => {
+    const KEY = "credential/vellum/assistant_api_key";
+    const BASE_URL = "credential/vellum/platform_base_url";
+
+    // Checked directly rather than through `checkAllCredentials`: the managed
+    // credential is not enrolled in the heartbeat pass yet, because the alert
+    // that pass raises has nowhere to send the reader until the notification
+    // carries the repair.
+    const assistantKeyResult = checkAssistantApiKey;
+
+    test("is not reported when the workspace was never connected", async () => {
+      expect(await assistantKeyResult()).toBeNull();
+    });
+
+    test("is missing_token when a platform identity exists without a key", async () => {
+      secureKeyValues.set(BASE_URL, "https://platform.example");
+
+      const result = await assistantKeyResult();
+      expect(result!.status).toBe("missing_token");
+      expect(result!.canAutoRecover).toBe(true);
+    });
+
+    test("is healthy when the platform accepts the stored key", async () => {
+      secureKeyValues.set(BASE_URL, "https://platform.example");
+      secureKeyValues.set(KEY, "stored-key");
+      assistantKeyVerdict = "valid";
+
+      expect((await assistantKeyResult())!.status).toBe("healthy");
+    });
+
+    test("is revoked when the platform rejects the stored key", async () => {
+      secureKeyValues.set(BASE_URL, "https://platform.example");
+      secureKeyValues.set(KEY, "stored-key");
+      assistantKeyVerdict = "rejected";
+
+      const result = await assistantKeyResult();
+      expect(result!.status).toBe("revoked");
+      // Recovery needs a signed-in client to rotate the key, but no
+      // re-authorization from the user.
+      expect(result!.canAutoRecover).toBe(true);
+    });
+
+    // The anti-churn invariant: only a settled rejection may read as revoked,
+    // because `revoked` is what drives a rotation. An unsettled answer (server
+    // error, transport failure) must degrade to `unreachable`, which the
+    // heartbeat drops before notifying.
+    test("an unsettled platform answer is unreachable, never revoked", async () => {
+      secureKeyValues.set(BASE_URL, "https://platform.example");
+      secureKeyValues.set(KEY, "stored-key");
+      assistantKeyVerdict = "unknown";
+
+      expect((await assistantKeyResult())!.status).toBe("unreachable");
+    });
+
+    test("an unreadable credential store is unreachable, never revoked", async () => {
+      secureKeyValues.set(BASE_URL, "https://platform.example");
+      markUnreachable(KEY);
+
+      expect((await assistantKeyResult())!.status).toBe("unreachable");
+    });
+
+    test("is unreachable when the platform client cannot be built", async () => {
+      secureKeyValues.set(BASE_URL, "https://platform.example");
+      secureKeyValues.set(KEY, "stored-key");
+      platformClientAvailable = false;
+
+      expect((await assistantKeyResult())!.status).toBe("unreachable");
     });
   });
 });

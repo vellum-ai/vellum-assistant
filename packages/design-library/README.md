@@ -177,6 +177,11 @@ References:
 
 [Storybook](https://storybook.js.org/) provides isolated component development and auto-generated documentation.
 
+Both Storybooks are published off `main` and cross-link to each other from the toolbar above the canvas:
+
+- Design library: <https://storybook.vellum.ai/design-library/main/>
+- Web (`clients/web`): <https://storybook.vellum.ai/web/main/>
+
 ```bash
 cd packages/design-library
 bun install                # installs deps + Playwright Chromium via @playwright/browser-chromium

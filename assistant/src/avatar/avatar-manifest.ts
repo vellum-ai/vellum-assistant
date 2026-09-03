@@ -21,6 +21,7 @@ import {
   AVATAR_IMAGE_FILENAME,
   AVATAR_MANIFEST_FILENAME,
   AVATAR_TRAITS_FILENAME,
+  type AvatarAccent,
   type AvatarImageMeta,
   type AvatarKind,
   type AvatarSource,
@@ -32,10 +33,17 @@ import {
 
 import { getLogger } from "../util/logger.js";
 import { getAvatarDir } from "../util/platform.js";
+import { paletteAccent } from "./avatar-accent.js";
 
 const log = getLogger("avatar-manifest");
 
-export type { AvatarImageMeta, AvatarKind, AvatarSource, AvatarState };
+export type {
+  AvatarAccent,
+  AvatarImageMeta,
+  AvatarKind,
+  AvatarSource,
+  AvatarState,
+};
 export type { CharacterTraits };
 
 /**
@@ -134,16 +142,26 @@ export function deriveStateFromLegacyFiles(
         traits: derived.traits,
         source: null,
         image: null,
+        accent: paletteAccent(derived.traits.color),
       };
     case "image":
+      // The image's accent is read out of its pixels by the store's backfill,
+      // which the state route runs; this derivation stays synchronous.
       return {
         kind: "image",
         traits: null,
         source: null,
         image: computeImageMeta(imagePath),
+        accent: null,
       };
     case "none":
-      return { kind: "none", traits: null, source: null, image: null };
+      return {
+        kind: "none",
+        traits: null,
+        source: null,
+        image: null,
+        accent: null,
+      };
   }
 }
 

@@ -25,6 +25,19 @@
  * focused renderer window via `vellum:command` IPC; the renderer routes
  * them through the event bus.
  */
+/**
+ * How long a `startVoice` request stays live once asked for, in the renderer
+ * that parked it.
+ *
+ * The park exists for one race, a request that lands before the layout that
+ * owns sessions mounts, which resolves in seconds or not at all. A bound is
+ * what stops a request bounced by a route guard from opening a session out of
+ * nowhere on some later mount. Here in the contract because the shell reads
+ * it too: the companion draws a dial for the request and has to know how long
+ * one can still turn into a session.
+ */
+export const VOICE_START_REQUEST_TTL_MS = 60_000;
+
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
@@ -73,6 +86,17 @@ export type VellumCommand =
    */
   | { kind: "startVoice" }
   /**
+   * Take back a `startVoice` that has been asked for and not yet served, which
+   * is what ending the companion's dial means.
+   *
+   * A command rather than a session control, because there may be no session
+   * to control yet: the request is parked or partway through its preflight,
+   * and the layout that owns sessions may not even be mounted. The root
+   * layout consumes commands for the life of the window, so this one lands
+   * whatever route the app is on. See {@link VOICE_START_REQUEST_TTL_MS}.
+   */
+  | { kind: "cancelVoiceStart" }
+  /**
    * Turn a watch session on or off, the way the companion surface's Watch
    * option asks.
    *
@@ -85,8 +109,14 @@ export type VellumCommand =
    * floating surface precisely because they are working somewhere else, and
    * here that work is the subject: raising the app would cover the very thing
    * the session exists to observe.
+   *
+   * `target` is what the session should read, when the press chose one: a
+   * display or a window, as the companion's picker resolved it. Only the start
+   * edge reads it. Absent is the whole screen, which is what a press from a
+   * surface with no picker asks for and what a session always read before
+   * there was one.
    */
-  | { kind: "toggleWatch" }
+  | { kind: "toggleWatch"; target?: WatchCaptureTarget }
   /**
    * Answer the question the surface asks once a watch session's summary is
    * written: open it now, or not.
@@ -151,11 +181,7 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
+  "function" | "control" | "shift" | "option" | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -176,9 +202,7 @@ export type VoiceModeChord =
  * has to run for exactly as long as the keys are held can run across it.
  */
 export type HotkeyEventKind =
-  | "fnPushToTalk"
-  | "voiceModeChord"
-  | "modifierHold";
+  "fnPushToTalk" | "voiceModeChord" | "modifierHold";
 
 /**
  * What the user had highlighted in the application in front when a hold
@@ -215,8 +239,7 @@ export interface HotkeyEvent {
 }
 
 export type FnPushToTalkResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
 
@@ -225,8 +248,7 @@ export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = FnPushToTalkResult;
 
@@ -304,11 +326,7 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
+  "suspend" | "resume" | "lock" | "unlock" | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -386,8 +404,7 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -409,8 +426,7 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  | DictationOverlayState
-  | { kind: "dismiss" };
+  DictationOverlayState | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -649,12 +665,7 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
+  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -718,8 +729,7 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
+  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -941,8 +951,13 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
  * A ceiling rather than a width, since every other state is as wide as its
  * content. Main sizes the canvas to hold this much beyond the gap, so a state
  * that wanted more would be clipped by the window.
+ *
+ * Generous on purpose. The call row is a handlebar that grows with what it
+ * carries, and the canvas is click-through, so room the pill never uses costs
+ * the desktop nothing where a control clipped off the end costs the user the
+ * control.
  */
-export const COMPANION_BASE_MAX_PILL_WIDTH = 316;
+export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
  * The room between the avatar's edge and the options pill beside it, at the
@@ -1113,6 +1128,86 @@ export interface CompanionCharacter {
 export type CompanionWatchRetro = "pending" | "ready";
 
 /**
+ * What a watch session reads, once the user has picked: one display or one
+ * window.
+ *
+ * The two shapes the host can actually capture. A display is named by its
+ * `CGDirectDisplayID`, which is what Electron's `Display.id` is on macOS, and a
+ * window by its `CGWindowID`, which is what the window server names a window
+ * and what a screenshot of one window is taken by. Both travel from the
+ * companion's pick to the session's stream and on to the native helper, so the
+ * frame drawn around the picked surface and the pixels the session reads are
+ * one and the same thing.
+ *
+ * A browser tab is not one of these. The picker offers tabs, but a tab is
+ * captured as the window it is in once the browser has been told to show it,
+ * so by the time a target exists the tab has become a window.
+ */
+export type WatchCaptureTarget =
+  | { kind: "display"; displayId: number }
+  | { kind: "window"; windowId: number };
+
+/**
+ * What the companion's picker offers a press of Teach: a display, a window,
+ * or a Chrome tab, with what a person needs to tell them apart.
+ *
+ * Decoration on the {@link WatchCaptureTarget} shapes rather than the target
+ * itself, because a list is read and a target is captured: a title and an
+ * icon are how the user finds the window, and neither is anything the session
+ * needs once it has been found.
+ *
+ * `index` on a display is its position in the host's list, which is how a
+ * display is named to a person ("Screen 2"), since a display id is not. The
+ * renderer owns that wording.
+ *
+ * A tab is named by Chrome's own window id and the tab's index in it, which are
+ * the two handles Chrome's scripting interface takes; neither is a window the
+ * window server knows. Picking one has the host activate the tab and resolve
+ * it to the Chrome window showing it, so the surface never has to know how.
+ */
+export type CompanionCaptureSource =
+  | {
+      kind: "display";
+      displayId: number;
+      index: number;
+      primary: boolean;
+    }
+  | {
+      kind: "window";
+      windowId: number;
+      title: string;
+      app: string;
+      /** The owning app's icon as a data URL, when the host could read one. */
+      icon?: string;
+    }
+  | {
+      kind: "tab";
+      chromeWindowId: number;
+      tabIndex: number;
+      title: string;
+      /** Chrome's icon as a data URL, when the host could read one. */
+      icon?: string;
+    };
+
+/** What the host lists for the picker, in the order the picker draws it. */
+export interface CompanionCaptureSources {
+  displays: Extract<CompanionCaptureSource, { kind: "display" }>[];
+  tabs: Extract<CompanionCaptureSource, { kind: "tab" }>[];
+  windows: Extract<CompanionCaptureSource, { kind: "window" }>[];
+}
+
+/**
+ * The press on one row of the picker: the source with its decoration removed.
+ *
+ * What the surface hands back to main. A tab is still a tab here, since only
+ * main can turn one into a window; the other two are already targets.
+ */
+export type CompanionCapturePick =
+  | { kind: "display"; displayId: number }
+  | { kind: "window"; windowId: number }
+  | { kind: "tab"; chromeWindowId: number; tabIndex: number };
+
+/**
  * What the app's own window knows that the surface cannot.
  *
  * The surface is a renderer with no assistant and no conversation in it, so
@@ -1170,6 +1265,30 @@ export interface CompanionContext {
    * the truthful reading of silence.
    */
   captureCount?: number;
+  /**
+   * What the running session is reading, when it was started on a pick.
+   *
+   * Published by the window that owns the session rather than remembered by
+   * main from the press, for the reason `watching` is: the press is a request
+   * and this is what the session actually did with it. A session started with
+   * no pick, or on an assistant too old to honour one, reads the whole screen
+   * and reports nothing here, so the frame main draws follows the read and not
+   * the wish.
+   */
+  captureTarget?: WatchCaptureTarget;
+  /**
+   * Whether a session started from this window can be told what to read.
+   *
+   * The assistant the session would run on has to understand a target on its
+   * stream, and only this window knows that assistant's version. The surface
+   * offers the picker on a positive answer and starts the whole-screen session
+   * it always started on anything else, so a pick is never taken from a user
+   * that nothing downstream could honour.
+   *
+   * Optional and defaulted to false, the bargain `watching` makes: a publisher
+   * that does not say is one whose sessions cannot be aimed.
+   */
+  watchTargets?: boolean;
   /**
    * What a dictation started from the keyboard has got to, when one is running.
    *
@@ -1370,6 +1489,18 @@ export interface CompanionSurfaceState {
    * {@link CompanionSurfaceState.watching} makes with absence.
    */
   captureCount?: number;
+  /**
+   * What the running session is reading, as the window that owns it reported.
+   * See {@link CompanionContext.captureTarget}. Absent is the whole screen.
+   */
+  captureTarget?: WatchCaptureTarget;
+  /**
+   * Whether a press of Teach may offer a choice of what to read. See
+   * {@link CompanionContext.watchTargets}. Read it as `watchTargets === true`,
+   * the way `watching` is read: a shell or a window that never said is one
+   * whose sessions read the whole screen.
+   */
+  watchTargets?: boolean;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the
@@ -1396,6 +1527,14 @@ export interface CompanionSurfaceState {
    */
   character?: CompanionCharacter;
   /**
+   * The avatar's accent as `#rrggbb`: the colour the resting capsule and the
+   * display's edge glow light in. Carried apart from `character` because an
+   * uploaded image has an accent and no traits. `undefined` when the avatar
+   * has no colour yet, or on a shell that predates the field, where the
+   * surface falls back to the character's palette colour.
+   */
+  accentHex?: string;
+  /**
    * The live-voice session the surface is showing, or `null` when none is
    * running.
    *
@@ -1405,6 +1544,21 @@ export interface CompanionSurfaceState {
    * that only shows itself on hover is a live microphone the user cannot see.
    */
   call: VoiceActivityState | null;
+  /**
+   * Whether Talk has been pressed and no session has answered it yet.
+   *
+   * The press leaves the surface at once and the session it asks for opens in
+   * the app's window, behind whatever the user is working in, after a network
+   * round trip. Without this the pill draws nothing across that wait, and a
+   * press that changes nothing on screen reads as a press that did nothing.
+   * Main sets it on the press and clears it when the session's `start`
+   * arrives, when the window asked declines by sending `end` with no session
+   * running, when the user ends the dial from the pill, or after a bound.
+   *
+   * Optional, and absence means not dialing, the bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  dialing?: boolean;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

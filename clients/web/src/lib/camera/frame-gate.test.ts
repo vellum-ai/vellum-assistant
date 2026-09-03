@@ -23,6 +23,7 @@ import {
   createFrameGate,
   DEFAULT_FRAME_GATE_OPTIONS,
   frameGateDecisionPath,
+  FRAME_GATE_FORCED_KEEP_TTL_MS,
   FRAME_GRID_CELLS,
   FRAME_GRID_SIZE,
   type FrameGateDecision,
@@ -509,6 +510,7 @@ describe("frame gate decision path", () => {
     heartbeat: true,
     novel: true,
     unchanged: true,
+    forced: true,
   } satisfies Record<FrameGateReason, true>) as FrameGateReason[];
 
   /** The checks that need a kept frame to score against. */
@@ -542,6 +544,8 @@ describe("frame gate decision path", () => {
     decisions.push(gate.offer(scene({ seed: 9 }), 2_300));
     decisions.push(gate.offer(scene({ seed: 9 }), 2_400));
     decisions.push(gate.offer(scene({ seed: 3 }), 2_450));
+    gate.armForcedKeep(2_460);
+    decisions.push(gate.offer(scene({ seed: 3 }), 2_470));
 
     const flipped = createFrameGate(TEST_OPTIONS);
     flipped.reset(0);
@@ -606,5 +610,347 @@ describe("frame gate decision path", () => {
 
     const path = frameGateDecisionPath(decision);
     expect(path.indexOf("rate-floor")).toBeLessThan(path.indexOf("first"));
+  });
+});
+
+/**
+ * The record-only primer.
+ *
+ * A sampler polling once a second cannot produce two frames close enough
+ * together for motion to mean anything, so it takes a pair and primes the gate
+ * with the first. That makes `observe` a second entry point into a shared
+ * engine, and the property that matters is that it is inert: it moves the
+ * motion baseline and nothing else, so no existing decision path can be
+ * reached differently because a caller primed a frame first.
+ */
+describe("frame gate primer", () => {
+  test("gives the next offer a motion reading it would not otherwise have", () => {
+    const still = scene({ seed: 4 });
+    const panned = scene({ seed: 4, panX: 3 });
+
+    const unprimed = createFrameGate(TEST_OPTIONS);
+    unprimed.reset(0);
+    // A whole poll interval apart, which is what the native cadence produces.
+    unprimed.offer(still, 1_000);
+    expect(unprimed.offer(panned, 2_000).motion).toBeNull();
+
+    const primed = createFrameGate(TEST_OPTIONS);
+    primed.reset(0);
+    primed.offer(still, 1_000);
+    primed.observe(still, 2_000);
+    // The pair's spacing, well inside `motionMaxAgeMs`.
+    const decision = primed.offer(panned, 2_060);
+    expect(decision.motion).not.toBeNull();
+    expect(decision.motion).toBeGreaterThan(0);
+  });
+
+  test("measures motion against the primed frame, not the last offered one", () => {
+    const first = scene({ seed: 7 });
+    const second = scene({ seed: 12 });
+
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(first, 100);
+    // Primed with the frame the next offer is identical to. Measured against
+    // the offer before it instead, this would be a large number.
+    gate.observe(second, 200);
+    expect(gate.offer(second, 220).motion).toBe(0);
+  });
+
+  test("never keeps the frame it is given, and does not move the rate floor", () => {
+    const view = scene({ seed: 3 });
+    const other = scene({ seed: 21 });
+
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    // Two frames primed where a keep would otherwise be due. The last one is
+    // the view about to be offered, so the settle check passes and what is
+    // left to decide the outcome is whether a primer ever counted as a keep.
+    gate.observe(view, 100);
+    gate.observe(other, 200);
+    const decision = gate.offer(other, 220);
+    // "first" is the proof: had either primer kept, this would be an ordinary
+    // offer inside the rate floor instead.
+    expect(decision.keep).toBe(true);
+    expect(decision.reason).toBe("first");
+    // And the floor runs from the offer, not from either primed frame.
+    expect(gate.offer(other, 250).reason).toBe("rate-floor");
+  });
+
+  test("does not become the novelty baseline", () => {
+    const kept = scene({ seed: 5 });
+    const primed = scene({ seed: 40 });
+
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(kept, 0);
+    const withoutPrimer = gate.offer(kept, 10_000).novelty;
+
+    const primedGate = createFrameGate(TEST_OPTIONS);
+    primedGate.reset(0);
+    primedGate.offer(kept, 0);
+    primedGate.observe(primed, 9_980);
+    // Novelty is scored against the last KEPT frame, which a primed frame
+    // never becomes, so the same candidate scores the same either way.
+    expect(primedGate.offer(kept, 10_000).novelty).toBe(withoutPrimer!);
+  });
+
+  test("does not end warmup", () => {
+    const view = scene({ seed: 9 });
+    const gate = createFrameGate({ ...TEST_OPTIONS, warmupMs: 500 });
+    gate.reset(0);
+
+    gate.observe(view, 100);
+    gate.observe(view, 200);
+    // Warmup covers the badly exposed frames a camera opens with. A primer is
+    // one of those frames too, and passing it must not spend the window.
+    expect(gate.offer(view, 300).reason).toBe("warmup");
+    expect(gate.offer(scene({ seed: 10 }), 600).keep).toBe(true);
+  });
+
+  test("judges the offered frame on its own detail, not the primer's", () => {
+    const view = scene({ seed: 11 });
+    const flat = flatWall(makeRandom(2));
+
+    // Settle raised out of reach, so the only thing left to reject this frame
+    // is the detail check the primer must not have poisoned. A flat primer
+    // against a textured frame is otherwise a large motion reading, which is
+    // the gate working and would hide what this case is about.
+    const gate = createFrameGate({ ...TEST_OPTIONS, settleThreshold: 100 });
+    gate.reset(0);
+    gate.observe(flat, 100);
+    const decision = gate.offer(view, 120);
+    expect(decision.detail).toBeGreaterThan(TEST_OPTIONS.minDetail);
+    expect(decision.reason).toBe("first");
+    expect(decision.keep).toBe(true);
+  });
+
+  test("rejects a grid of the wrong size, exactly as an offer does", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(() => gate.observe(new Uint8Array(4), 0)).toThrow();
+  });
+});
+
+/**
+ * The one-shot arm.
+ *
+ * Everything the gate weighs is about the frames around this one, and none of
+ * it can see the moment a user starts asking about what the camera is pointed
+ * at. An arm is the caller answering that question for it, so what these check
+ * is the shape of the exception: which vetoes it is allowed to skip, which it
+ * is not, that it spends itself, and that the frame behind it is judged against
+ * it rather than firing again.
+ */
+describe("frame gate forced keep", () => {
+  test("keeps a frame the rate floor would have turned away", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
+    expect(gate.offer(scene({ seed: 1 }), 20).reason).toBe("rate-floor");
+
+    gate.armForcedKeep(30);
+    const decision = gate.offer(scene({ seed: 1 }), 40);
+    expect(decision.keep).toBe(true);
+    expect(decision.reason).toBe("forced");
+  });
+
+  test("keeps a moving frame, and one nothing changed in", () => {
+    const still = scene({ seed: 4 });
+    const panned = scene({ seed: 4, panX: 4 });
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(still, 0);
+
+    // Mid-pan: motion against the frame 20ms before it is over the settle
+    // threshold, which is what normally holds a smeared frame back.
+    gate.offer(panned, 200);
+    gate.armForcedKeep(210);
+    const moving = gate.offer(still, 220);
+    expect(moving.motion).toBeGreaterThan(TEST_OPTIONS.settleThreshold);
+    expect(moving.reason).toBe("forced");
+
+    // The other end of the same exception: a view the gate has already kept
+    // and would otherwise call unchanged.
+    gate.armForcedKeep(400);
+    const same = gate.offer(still, 420);
+    expect(same.novelty).toBeLessThan(TEST_OPTIONS.noveltyThreshold);
+    expect(same.reason).toBe("forced");
+  });
+
+  test("keeps before any baseline exists, in place of the first keep", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+
+    gate.armForcedKeep(0);
+    const decision = gate.offer(scene({ seed: 1 }), 10);
+    expect(decision.reason).toBe("forced");
+    expect(decision.novelty).toBeNull();
+  });
+
+  test("is spent by the frame it keeps", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+
+    gate.armForcedKeep(0);
+    expect(gate.offer(scene({ seed: 1 }), 10).reason).toBe("forced");
+    // The whole point of a one-shot: a second arm is a second ask, and a
+    // second keep off one ask would double every utterance's cost.
+    expect(gate.offer(scene({ seed: 2 }), 20).reason).toBe("rate-floor");
+  });
+
+  test("re-arms the rate floor, so the next frame does not keep behind it", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(200);
+    expect(gate.offer(scene({ seed: 1 }), 210).reason).toBe("forced");
+    // Recorded like any other keep, so the floor's clock moved with it. A
+    // forced keep that skipped that would fire a second, ambient keep of the
+    // same scene on the very next frame.
+    expect(gate.offer(scene({ seed: 9 }), 260).reason).toBe("rate-floor");
+    // And the novelty baseline moved too: this is the forced frame's own view
+    // offered back once the floor has passed.
+    expect(gate.offer(scene({ seed: 1 }), 400).reason).toBe("unchanged");
+  });
+
+  test("keeps nothing while the camera is still warming up", () => {
+    const gate = createFrameGate({ ...TEST_OPTIONS, warmupMs: 600 });
+    gate.reset(0);
+
+    gate.armForcedKeep(0);
+    // A frame taken before exposure converged answers nobody's question, and
+    // keeping one would make it the baseline everything else is scored on.
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("warmup");
+    expect(gate.offer(scene({ seed: 1 }), 599).reason).toBe("warmup");
+    // The arm outlives the window rather than being spent by it, so the first
+    // frame worth keeping is the one the ask lands on.
+    expect(gate.offer(scene({ seed: 1 }), 620).reason).toBe("forced");
+  });
+
+  test("keeps nothing off a featureless view", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+
+    gate.armForcedKeep(0);
+    expect(gate.offer(flatWall(makeRandom(3)), 10).reason).toBe("featureless");
+    expect(gate.offer(occluded(makeRandom(5)), 20).reason).toBe("featureless");
+    // Still armed: the hand comes off the lens and that is the view the ask
+    // was about.
+    expect(gate.offer(scene({ seed: 1 }), 30).reason).toBe("forced");
+  });
+
+  test("expires rather than keeping a scene the ask has outlived", () => {
+    // The heartbeat raised out of reach, so what keeps this frame or does not
+    // is the arm alone rather than the refresh a long idle would have earned.
+    const gate = createFrameGate({ ...TEST_OPTIONS, maxIntervalMs: 60_000 });
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(10);
+    const late = gate.offer(
+      scene({ seed: 1 }),
+      10 + FRAME_GATE_FORCED_KEEP_TTL_MS + 1,
+    );
+    expect(late.keep).toBe(false);
+    expect(late.reason).toBe("unchanged");
+  });
+
+  test("a frame on the last millisecond of the window still consumes it", () => {
+    const gate = createFrameGate({ ...TEST_OPTIONS, maxIntervalMs: 60_000 });
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(10);
+    expect(
+      gate.offer(scene({ seed: 1 }), 10 + FRAME_GATE_FORCED_KEEP_TTL_MS).reason,
+    ).toBe("forced");
+  });
+
+  test("leaves a frame stamped before the ask to the ambient rules", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    // A native pair in flight when speech starts offers a capture stamped
+    // before the arm: the pre-question scene, exactly what the arm exists to
+    // get past. It is judged like any ambient frame instead.
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("rate-floor");
+  });
+
+  test("stands past a pre-ask frame and is spent by the next fresh one", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("rate-floor");
+    // The follow-up pair, captured after the ask, is the one the arm is for.
+    expect(gate.offer(scene({ seed: 9 }), 60).reason).toBe("forced");
+  });
+
+  test("a frame stamped at the ask's own moment consumes it", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("forced");
+  });
+
+  test("a capture begun before the ask cannot spend the arm, however late it lands", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    // A bridge request issued at 40 that answers at 60: the offer's stamp
+    // postdates the arm, but the picture cannot be proven to.
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 9 }), 60, 40).reason).toBe("rate-floor");
+    // The arm survives it, for a capture that provably began after the ask.
+    expect(gate.offer(scene({ seed: 9 }), 70, 65).reason).toBe("forced");
+  });
+
+  test("a capture begun at the ask's own moment consumes it", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 1 }), 60, 50).reason).toBe("forced");
+  });
+
+  test("a reset drops an unspent arm", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(20);
+    // A flip points the camera somewhere else entirely, so the ask was about a
+    // scene this gate can no longer be asked for. The floor's clock survives
+    // the reset, which is what the next frame is turned away by.
+    gate.reset(30);
+    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("rate-floor");
+  });
+
+  test("names a check the readout can place, on both branches", () => {
+    const withoutBaseline = createFrameGate(TEST_OPTIONS);
+    withoutBaseline.reset(0);
+    withoutBaseline.armForcedKeep(0);
+    const first = withoutBaseline.offer(scene({ seed: 1 }), 10);
+
+    const withBaseline = createFrameGate(TEST_OPTIONS);
+    withBaseline.reset(0);
+    withBaseline.offer(scene({ seed: 1 }), 0);
+    withBaseline.armForcedKeep(10);
+    const later = withBaseline.offer(scene({ seed: 1 }), 20);
+
+    expect(first.novelty).toBeNull();
+    expect(later.novelty).not.toBeNull();
+    for (const decision of [first, later]) {
+      expect(frameGateDecisionPath(decision)).toContain("forced");
+    }
   });
 });

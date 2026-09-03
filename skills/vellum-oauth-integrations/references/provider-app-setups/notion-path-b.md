@@ -64,6 +64,8 @@ assistant credentials prompt --service notion --field internal_secret \
 
 Never solicit the secret in chat or store a chat-pasted value with `assistant credentials set` — always collect it through the secure `assistant credentials prompt` flow above so it never transits the conversation.
 
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
+
 ## Path B Step 4: Grant Page Access
 
 Tell the user:

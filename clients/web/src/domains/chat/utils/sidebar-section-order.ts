@@ -37,6 +37,32 @@ import { createKeyedStorageAccessor } from "@/utils/typed-storage";
  */
 const MAX_STORED_KEYS = 100;
 
+/**
+ * Section key for the assistant-initiated threads.
+ *
+ * The one section that is not user-orderable: it sits at the bottom of the
+ * list, directly above the Preferences footer, wherever the user has arranged
+ * everything else. See {@link pinAssistantSectionLast}.
+ */
+export const ASSISTANT_SECTION_KEY = "assistant";
+
+/**
+ * Move {@link ASSISTANT_SECTION_KEY} to the end of `keys`, if present.
+ *
+ * Applied to the *rendered* order and to every reorder result, so the stored
+ * preference list can say whatever it likes about this key and the section
+ * still renders last. That keeps the pin from depending on storage being
+ * well-formed: a stored order written before the section existed, or one a
+ * drag left in an odd state, both resolve to the same place.
+ *
+ * A no-op when the key is absent, which is every assistant without the
+ * section.
+ */
+export function pinAssistantSectionLast(keys: readonly string[]): string[] {
+  const rest = keys.filter((key) => key !== ASSISTANT_SECTION_KEY);
+  return rest.length === keys.length ? rest : [...rest, ASSISTANT_SECTION_KEY];
+}
+
 // ---------------------------------------------------------------------------
 // Order merging
 // ---------------------------------------------------------------------------

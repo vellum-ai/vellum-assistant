@@ -70,6 +70,10 @@
     "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
   },
   "avatarManagementModal": {
+    "accent": "Accent",
+    "accentAutomatic": "Automatic",
+    "accentPickerLabel": "Accent color",
+    "accentReset": "Reset",
     "body": "Body",
     "color": "Color",
     "eyes": "Eyes",
@@ -152,6 +156,14 @@
   },
   "companionSurface": {
     "allow": "Allow",
+    "calling": "Calling…",
+    "callingNamed": "Calling {name}…",
+    "captureNothing": "Nothing to show",
+    "capturePicker": "What to teach from",
+    "captureScreen": "Screen {n}",
+    "captureScreens": "Screens",
+    "captureTabs": "Chrome tabs",
+    "captureWindows": "Windows",
     "deny": "Deny",
     "dictating": "Listening",
     "dictatingTranscribing": "Thinking",
@@ -159,6 +171,7 @@
     "muteAssistant": "Mute assistant",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
+    "openVellum": "Open Vellum",
     "showSummary": "Show summary",
     "stopTeaching": "Stop teaching",
     "summarizing": "Summarizing",

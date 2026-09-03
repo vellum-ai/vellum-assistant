@@ -282,7 +282,7 @@ Channel bindings follow a three-phase lifecycle:
 
 1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
 
-2. **Route** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
+2. **Route**: Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Slack and Telegram are thread-scoped: a message that arrives in a Slack thread (including every message in a Slack agent DM, which Slack always delivers in a thread) or a Telegram topic resolves to that thread's own conversation, keyed on the chat plus the thread id (`assistant/src/persistence/delivery-crud.ts`, `buildScopedConversationKey`); a thread-less message resolves to the chat's base conversation. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
 
 3. **Rebind** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new.
 
@@ -704,7 +704,7 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 **Event processing** (inbound):
 
 1. Every Socket Mode envelope is ACKed immediately by echoing `{ envelope_id }` back on the WebSocket — this is required by Slack regardless of whether the event is processed.
-2. Only `events_api` envelopes with `app_mention` events are processed in MVP. Other envelope types (slash commands, interactive payloads) are ACKed but ignored.
+2. `events_api` envelopes are admitted per event kind (`processEventPayload` in `socket-mode.ts`): `app_mention` events; every message in a DM or group DM (`message.im`, `message.mpim`); unmentioned replies in a thread the assistant is already part of (mention-then-thread mode); and edits, deletes, and reactions scoped to those rooms. The bot's own echoes are dropped by a single self-filter before routing. Interactive payloads (button presses) are handled separately; slash commands are ACKed and ignored.
 3. Events are deduplicated by a compound key in the SQLite-backed `slack_seen_events` table: every event records its Slack `event_id`, and message-shaped events additionally record `msg:${channel}:${ts}` so the live and reconnect-replay paths dedup symmetrically. Entries TTL out after 24h; a periodic cleanup sweep evicts expired rows.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
@@ -744,14 +744,14 @@ Any persistent-stream transport that does not buffer events for disconnected cli
 
 **Key modules:**
 
-| Module                                     | Purpose                                                                                       |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up |
-| `gateway/src/slack/slack-web.ts`           | `conversations.history` / `conversations.replies` helpers for reconnect catch-up              |
-| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping                  |
-| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`                           |
+| Module                                    | Purpose                                                                                                               |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/slack/socket-mode.ts`        | `SlackSocketModeClient`: WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up                          |
+| `gateway/src/slack/slack-web.ts`          | `conversations.history` / `conversations.replies` helpers for reconnect catch-up                                      |
+| `gateway/src/slack/message-normalizer.ts` | Normalizers per event family (`normalizeSlackAppMention()`, DM, group DM, channel message) with bot-mention stripping |
+| `gateway/src/index.ts`                    | `/deliver/slack` route: outbound message delivery via `chat.postMessage`, thread and message ts on the callback URL   |
 
-**Limitations (MVP):** Text-only — attachments are rejected. Only `app_mention` events are processed (direct messages to the bot are not handled). Rich approval UI (inline buttons) is not supported.
+**What the ingress does not do:** it never forwards the bot's own posts to the daemon (except a deletion of one, which the daemon records), and it never reads history on the daemon's behalf beyond the bounded reconnect catch-up above; the daemon's inbound-triggered backfill hydrates context.
 
 ---
 

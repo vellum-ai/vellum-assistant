@@ -27,6 +27,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 
 import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
 import type { FrameSamplerOptions } from "@/lib/camera/frame-sampler";
+import type { NativeFrameSourceOptions } from "@/lib/camera/native-frame-source";
 
 import type { VoiceRoomSight } from "./use-voice-room-sight";
 
@@ -40,12 +41,45 @@ mock.module("@/lib/camera/frame-sampler", () => ({
   },
 }));
 
+let nativeSourceOptions: NativeFrameSourceOptions | null = null;
+const nativeStart = mock(() => {});
+const nativeStop = mock(() => {});
+const nativeInvalidate = mock(() => {});
+const nativeSampleNow = mock(() => {});
+mock.module("@/lib/camera/native-frame-source", () => ({
+  createNativeFrameSource: (options: NativeFrameSourceOptions) => {
+    nativeSourceOptions = options;
+    return {
+      start: nativeStart,
+      sampleNow: nativeSampleNow,
+      invalidate: nativeInvalidate,
+      stop: nativeStop,
+    };
+  },
+}));
+
+const captureNativeVoiceCameraSample = mock(async (_quality: number) =>
+  btoa("native-sample"),
+);
+mock.module("@/runtime/native-voice-camera", () => ({
+  captureNativeVoiceCameraSample,
+}));
+
 const captureVideoFrame = mock(
   async (_video: HTMLVideoElement, filename: string) =>
     new File([new Uint8Array([1, 2, 3])], filename, { type: "image/jpeg" }),
 );
+/**
+ * The quality the camera module shares between a photo and a Live keep.
+ *
+ * A literal here because the module it comes from is replaced: what the cases
+ * below check is that the hook passes the shared value through untouched, which
+ * is the wiring. Whether 85 is the right number is `voice-camera`'s business.
+ */
+const NATIVE_CAPTURE_QUALITY = 85;
 mock.module("@/domains/chat/voice/voice-room/voice-camera", () => ({
   captureVideoFrame,
+  NATIVE_CAPTURE_QUALITY,
 }));
 
 mock.module(
@@ -80,6 +114,17 @@ const deleteChatAttachment = mock(
 mock.module("@/domains/chat/api/messages", () => ({
   uploadChatAttachment,
   deleteChatAttachment,
+}));
+
+/**
+ * The keep's own feedback, replaced because the real one lazy-imports a
+ * Capacitor plugin that has no bridge here. What the cases check is which
+ * frames it fires for, which is the wiring; whether a light impact is the right
+ * effect is the haptics util's business.
+ */
+const hapticLight = mock(async () => {});
+mock.module("@/utils/haptics", () => ({
+  haptic: { light: hapticLight },
 }));
 
 const { useVoiceRoomSight } = await import("./use-voice-room-sight");
@@ -212,13 +257,32 @@ function watchGateReset() {
   return spy;
 }
 
+/**
+ * The same, for the one-shot arm, on whichever sampler is running.
+ *
+ * Both are handed the very gate the hook keeps, so replacing the method on the
+ * object the source was given is what the hook calls.
+ */
+function watchGateArm() {
+  const spy = mock((_nowMs: number) => {});
+  (samplerOptions ?? nativeSourceOptions)!.gate.armForcedKeep = spy;
+  return spy;
+}
+
 beforeEach(() => {
   samplerOptions = null;
   samplerStart.mockClear();
   samplerStop.mockClear();
+  nativeSourceOptions = null;
+  nativeStart.mockClear();
+  nativeStop.mockClear();
+  nativeInvalidate.mockClear();
+  nativeSampleNow.mockClear();
+  captureNativeVoiceCameraSample.mockClear();
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
   deleteChatAttachment.mockClear();
+  hapticLight.mockClear();
   pendingUploads = [];
   autoUploadId = 0;
   uploadsResolveImmediately = true;
@@ -368,24 +432,28 @@ describe("useVoiceRoomSight: when it samples", () => {
     expect(view.result.current.live).toBe(false);
   });
 
-  test("offers no Live behind the native preview", () => {
+  test("offers Live behind the native preview", () => {
     const { view } = renderSight({ nativePreview: true, live: true });
 
-    // The native shells put their preview behind the web view, so the `<video>`
-    // this reads is not on screen and never receives the stream.
-    expect(view.result.current.liveAvailable).toBe(false);
-    expect(view.result.current.live).toBe(false);
+    // The preview is up only because the camera plugin accepted a start, and
+    // the sample call ships in that same plugin, so there is nothing further to
+    // ask before offering the hold.
+    expect(view.result.current.liveAvailable).toBe(true);
+    expect(view.result.current.live).toBe(true);
+    expect(nativeStart).toHaveBeenCalledTimes(1);
+    // The native preview sits behind the web view, so the room's own element
+    // is not on screen and never receives the stream.
     expect(samplerStart).not.toHaveBeenCalled();
   });
 
-  test("a preview that turns native mid-viewfinder ends the Live it was in", () => {
+  test("a preview that turns native mid-viewfinder swaps the source under Live", () => {
     const { view } = renderSight({ live: true });
     expect(view.result.current.live).toBe(true);
     expect(samplerStart).toHaveBeenCalledTimes(1);
 
-    // A shell whose native start failed runs the browser fallback, where Live
-    // is on offer. A later flip retries the native start, and the retry
-    // succeeding swaps the preview under a mode that is already running.
+    // A shell whose native start failed runs the browser fallback. A later flip
+    // retries the native start, and the retry succeeding swaps the preview
+    // under a mode that is already running.
     act(() => {
       view.rerender({
         cameraOpen: true,
@@ -394,11 +462,12 @@ describe("useVoiceRoomSight: when it samples", () => {
       });
     });
 
-    // Mode and offer together. Left raised, the pill and the shutter would go
-    // on claiming Live over a preview the sampler cannot reach.
-    expect(view.result.current.liveAvailable).toBe(false);
-    expect(view.result.current.live).toBe(false);
+    // Same camera, same hold, a different way of reading it. Ending Live here
+    // would charge the user a hold for a swap they never asked for.
+    expect(view.result.current.liveAvailable).toBe(true);
+    expect(view.result.current.live).toBe(true);
     expect(samplerStop).toHaveBeenCalled();
+    expect(nativeStart).toHaveBeenCalledTimes(1);
   });
 
   test("a setter held from an earlier render is refused against availability now", () => {
@@ -409,11 +478,7 @@ describe("useVoiceRoomSight: when it samples", () => {
     const askFromBefore = view.result.current.setLive;
 
     act(() => {
-      view.rerender({
-        cameraOpen: true,
-        facing: "environment",
-        nativePreview: true,
-      });
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
     });
     act(() => {
       askFromBefore(true);
@@ -489,6 +554,28 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     // The daemon owns a frame it was told about and reclaims it if the
     // persist fails, so nothing here may delete the row.
     expect(deleteChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test("a keep the call was given is felt once", async () => {
+    // The pulse is on a screen nobody is watching: Live is held at arm's
+    // length, aimed at whatever is being talked about.
+    const { view } = renderSight();
+
+    await keepFrame();
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+  });
+
+  test("a keep the session refused is felt not at all", async () => {
+    // Same reason the thumbnail stays down for one: nothing was shared, so
+    // there is nothing to report.
+    controls.sightFrame.mockImplementation(() => false);
+    renderSight();
+
+    await keepFrame();
+
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   test("sends each keep exactly once", async () => {
@@ -990,14 +1077,11 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     await flush();
 
     // Availability going is the third way consent ends, and it ends it for the
-    // same reason: the preview the frame came from is not the one on screen.
+    // same reason: an unavailable Live has nowhere honest to land a frame.
     act(() => {
-      view.rerender({
-        cameraOpen: true,
-        facing: "environment",
-        nativePreview: true,
-      });
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
     });
+    expect(view.result.current.liveAvailable).toBe(false);
     await act(async () => {
       pendingUploads[0]!({ ok: true, id: "att-unavailable" });
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1551,5 +1635,385 @@ describe("useVoiceRoomSight: closing and flipping", () => {
     expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe("useVoiceRoomSight: the native preview", () => {
+  /** Offer one kept frame to the running poll and settle the upload. */
+  async function keepNativeFrame(bytes: number[]): Promise<Blob> {
+    const sample = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
+    await act(async () => {
+      nativeSourceOptions?.onDecision(KEEP, performance.now(), sample);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return sample;
+  }
+
+  test("asks the bridge for a sample at the shared capture quality", async () => {
+    renderSight({ nativePreview: true, live: true });
+
+    await nativeSourceOptions!.captureSample();
+
+    // Passed straight through from the camera module, so a Live keep and a
+    // photo off the same camera are encoded alike.
+    expect(captureNativeVoiceCameraSample).toHaveBeenCalledWith(
+      NATIVE_CAPTURE_QUALITY,
+    );
+  });
+
+  test("keeps the exact frame the gate judged", async () => {
+    const createUrl = spyOn(URL, "createObjectURL");
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    await keepNativeFrame([9, 8, 7]);
+
+    // One capture and not two: the bridge is asked once, and the frame the
+    // transcript ends up with is the frame the decision was about.
+    expect(captureVideoFrame).not.toHaveBeenCalled();
+    const uploaded = uploadChatAttachment.mock.calls[0]?.[1];
+    expect(uploaded?.type).toBe("image/jpeg");
+    expect(new Uint8Array(await uploaded!.arrayBuffer())).toEqual(
+      new Uint8Array([9, 8, 7]),
+    );
+    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+    // The pulse is an object URL over those same bytes, given back by the same
+    // `hold` the browser path uses.
+    expect(createUrl).toHaveBeenCalledTimes(1);
+    expect((createUrl.mock.calls[0]?.[0] as File).size).toBe(3);
+    createUrl.mockRestore();
+  });
+
+  test("shares nothing for a frame the gate skipped", async () => {
+    renderSight({ nativePreview: true, live: true });
+
+    await act(async () => {
+      nativeSourceOptions?.onDecision(
+        SKIP,
+        performance.now(),
+        new Blob([new Uint8Array([1])], { type: "image/jpeg" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // The poll offers every frame it takes, kept or not, and only a keep costs
+    // an upload.
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+  });
+
+  test("gives the pulse back when a newer keep replaces it", async () => {
+    const revoke = spyOn(URL, "revokeObjectURL");
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    await keepNativeFrame([1, 2, 3]);
+    const first = view.result.current.heldFrame!;
+    await keepNativeFrame([4, 5, 6]);
+
+    // Each preview holds a decoded frame alive, and a long call keeps one every
+    // few seconds.
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+    expect(revoke).toHaveBeenCalledWith(first.previewUrl);
+    revoke.mockRestore();
+  });
+
+  test("resets the gate when the native camera flips, and keeps polling", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+    const reset = mock((_nowMs: number) => {});
+    nativeSourceOptions!.gate.reset = reset;
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: true,
+      });
+    });
+
+    // The poll does not know which camera is behind the preview, so the reset
+    // is the owner's to make. Nothing about the source itself changed.
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(nativeStop).not.toHaveBeenCalled();
+  });
+
+  test("backgrounding stops the poll, and coming back does not restart it", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+    expect(nativeStart).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      publish("app.hidden", { signal: "visibility" });
+    });
+
+    // The source watches no lifecycle of its own: the bus edge lowers the mode,
+    // and lowering the mode is what stops it.
+    expect(view.result.current.live).toBe(false);
+    expect(nativeStop).toHaveBeenCalled();
+
+    act(() => {
+      publish("app.resume", { signal: "visibility" });
+    });
+    expect(nativeStart).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses a frame the poll offered after the app was put away", async () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    // The bus edge and the stop are a commit apart, and a poll that is mid-tick
+    // across that gap offers into it. The revocation is what closes it: it is
+    // synchronous with the edge, and the capture path reads it first.
+    publish("app.hidden", { signal: "visibility" });
+    await keepNativeFrame([4]);
+
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+  });
+
+  test("stops the poll when the viewfinder closes", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    act(() => {
+      view.rerender({
+        cameraOpen: false,
+        facing: "environment",
+        nativePreview: true,
+      });
+    });
+
+    expect(nativeStop).toHaveBeenCalled();
+    expect(view.result.current.live).toBe(false);
+  });
+});
+
+describe("useVoiceRoomSight: refusing the native sample a change caught in flight", () => {
+  /**
+   * The hook's half of the fix. The refusal itself is the source's, and its own
+   * suite proves it: a sample invalidated mid-flight is never offered, and the
+   * next tick still is. What can only be proved here is that the boundaries
+   * reach the running poll at all, and that they reach nothing else.
+   *
+   * The seam exists because the epoch cannot cover this on its own. A capture
+   * stamps itself when the gate KEEPS a frame, which on the native path is
+   * after the bytes were taken, so a frame of the outgoing camera carries the
+   * incoming camera's stamp and passes every guard on its way to the transcript.
+   */
+  test("tells the running poll when the camera flips", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: true,
+      });
+    });
+
+    expect(nativeInvalidate).toHaveBeenCalledTimes(1);
+    // Told, not restarted: the replacement camera is one tick away rather than
+    // a whole interval, and the gate keeps the rate floor a rebuild would drop.
+    expect(nativeStop).not.toHaveBeenCalled();
+    expect(nativeStart).toHaveBeenCalledTimes(1);
+  });
+
+  test("tells the running poll when the transport reconnects", () => {
+    renderSight({ nativePreview: true, live: true });
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+
+    // The same hole, reached without a flip: the generation survives a
+    // reconnect by design, so a sample from before the gap would be persisted
+    // to the fresh session as the current view.
+    expect(nativeInvalidate).toHaveBeenCalledTimes(1);
+    expect(nativeStop).not.toHaveBeenCalled();
+  });
+
+  test("says nothing to a stopped poll", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    expect(nativeStop).toHaveBeenCalled();
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: true,
+      });
+    });
+
+    // A stopped source has already refused everything it held, and a reference
+    // kept past the run would be one this hook could still reach into.
+    expect(nativeInvalidate).not.toHaveBeenCalled();
+  });
+
+  test("says nothing on the browser path, which has nothing to refuse", () => {
+    const { view } = renderSight({ live: true });
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: false,
+      });
+    });
+
+    // That sampler encodes its frame from the element at the moment of the
+    // keep, so the picture and the decision are of the same camera.
+    expect(nativeInvalidate).not.toHaveBeenCalled();
+    expect(samplerStop).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The frame for the question being asked.
+ *
+ * The gate keeps on its own schedule, and the daemon reads the conversation the
+ * instant an utterance closes, so a question asked just after the camera moved
+ * is answered about the scene before it. The moment the user starts speaking is
+ * the only signal the client has for "this is the one", and these cover what it
+ * is composed from, that it fires once per utterance, and that it reaches the
+ * keep through the same path every other keep takes.
+ */
+describe("useVoiceRoomSight: a frame for the question being asked", () => {
+  /** Put the session on the server VAD, which is where an utterance exists. */
+  function goHandsFree(): void {
+    act(() => {
+      useLiveVoiceStore.getState().setHandsFree(true);
+    });
+  }
+
+  function openUtterance(open: boolean): void {
+    act(() => {
+      useLiveVoiceStore.getState().setUtteranceOpen(open);
+    });
+  }
+
+  test("arms the gate when a hands-free utterance opens", () => {
+    goHandsFree();
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).toHaveBeenCalledTimes(1);
+  });
+
+  test("arms once per utterance, however the store is written to inside it", () => {
+    goHandsFree();
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+    // A mute and an unmute mid-sentence are two more writes this hook reads,
+    // and neither is a new question.
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(false);
+    });
+    expect(armed).toHaveBeenCalledTimes(1);
+
+    // The next utterance is a new question and gets its own frame.
+    openUtterance(false);
+    openUtterance(true);
+    expect(armed).toHaveBeenCalledTimes(2);
+  });
+
+  test("arms when a manual session opens the user's turn", () => {
+    // Push-to-talk has no VAD and no utterance: the session reaching
+    // `listening` is where forwarding starts, which is the press.
+    act(() => {
+      useLiveVoiceStore.getState().setState("connecting");
+    });
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    expect(armed).toHaveBeenCalledTimes(1);
+  });
+
+  test("arms nothing while the mic is muted", () => {
+    goHandsFree();
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  test("arms nothing once Live is off", () => {
+    goHandsFree();
+    const { view } = renderSight({ live: true });
+    const armed = watchGateArm();
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    openUtterance(true);
+
+    // Nothing is sampling, so there is nothing for a keep to be made of and
+    // no consent to make it under.
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  test("asks the native poll for a sample instead of waiting for its tick", () => {
+    goHandsFree();
+    renderSight({ live: true, nativePreview: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).toHaveBeenCalledTimes(1);
+    expect(nativeSampleNow).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not nudge a browser sampler, whose next frame is a moment away", () => {
+    goHandsFree();
+    renderSight({ live: true });
+
+    openUtterance(true);
+
+    expect(nativeSampleNow).not.toHaveBeenCalled();
+  });
+
+  test("does not arm for an utterance that was already open when Live began", () => {
+    goHandsFree();
+    openUtterance(true);
+
+    renderSight({ live: true, nativePreview: true });
+
+    // The ask happened before there was a camera streaming, and the fresh
+    // gate's first keep covers that scene anyway.
+    expect(nativeSampleNow).not.toHaveBeenCalled();
+  });
+
+  test("the forced keep travels the same path as every other one", async () => {
+    goHandsFree();
+    renderSight({ live: true });
+    openUtterance(true);
+
+    // The arm decides WHICH frame is kept; the keep itself is the sampler's
+    // own decision callback, so consent, capture order, the upload and the
+    // thumbnail are inherited rather than duplicated.
+    await keepFrame();
+
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
   });
 });

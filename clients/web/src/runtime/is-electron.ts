@@ -20,6 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
@@ -210,7 +212,10 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
-        setCharacter?(character: CompanionCharacter | null): void;
+        setCharacter?(
+          character: CompanionCharacter | null,
+          accentHex?: string | null,
+        ): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -378,7 +383,8 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
-        toggleWatch?(): void;
+        toggleWatch?(pick?: CompanionCapturePick): void;
+        listCaptureSources?(): Promise<CompanionCaptureSources>;
         answerWatchRetro?(open: boolean): void;
         activate?(): void;
         setContext?(context: CompanionContext): void;

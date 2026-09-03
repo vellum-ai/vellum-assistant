@@ -1,7 +1,10 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CompanionContext } from "@vellumai/ipc-contract";
+import type {
+  CompanionContext,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
 import type * as WatchController from "@/domains/chat/watch/watch-controller";
 
 const published: CompanionContext[] = [];
@@ -41,6 +44,7 @@ mock.module("@/runtime/popout-window", () => ({
 // flag and a counted stop.
 let watching = false;
 let captureCount = 0;
+let target: WatchCaptureTarget | undefined;
 const watchListeners = new Set<() => void>();
 const stopWatchMock = mock(() => {
   setWatching(false);
@@ -50,7 +54,7 @@ mock.module(
   (): Partial<typeof WatchController> => ({
     stopWatch: stopWatchMock,
     useWatchStore: {
-      getState: () => ({ watching, captureCount }),
+      getState: () => ({ watching, captureCount, target }),
       subscribe: (listener: () => void) => {
         watchListeners.add(listener);
         return () => {
@@ -91,6 +95,12 @@ const { beginWatchRetro, clearWatchRetro, settleWatchRetro } =
   await import("@/domains/chat/watch/watch-retro");
 const { useVoiceRecordingStore } =
   await import("@/domains/chat/voice/voice-recording-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { MIN_VERSION: TARGET_MIN_VERSION } =
+  await import("@/lib/backwards-compat/watch-capture-target");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -105,9 +115,12 @@ afterEach(() => {
   stopWatchMock.mockClear();
   watching = false;
   captureCount = 0;
+  target = undefined;
   watchListeners.clear();
   clearWatchRetro();
   isPopout = false;
+  useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
   useChatSessionStore.setState({ snapshot: null } as never);
@@ -361,6 +374,57 @@ describe("the watch summary the companion mirror publishes", () => {
  * the session is started by a command from the surface and can end on its own
  * when the socket drops, neither of which writes any store the tail reads.
  */
+/**
+ * What the session reads, and whether one started here could be aimed at
+ * all. The first rides the flag's store; the second is the assistant's
+ * version, which only this window knows.
+ */
+describe("the capture target the companion mirror publishes", () => {
+  test("is absent with no session, and the session's while one runs", async () => {
+    render(<Mirror />);
+    expect(latest().captureTarget).toBeUndefined();
+    target = { kind: "window", windowId: 4242 };
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().captureTarget).toEqual({
+        kind: "window",
+        windowId: 4242,
+      });
+    });
+    target = undefined;
+    setWatching(false);
+    await waitFor(() => {
+      expect(latest().captureTarget).toBeUndefined();
+    });
+  });
+
+  test("says a session cannot be aimed until the assistant's version says so", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    render(<Mirror />);
+    expect(latest().watchTargets).toBe(false);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", TARGET_MIN_VERSION, "asst-1");
+    });
+    await waitFor(() => {
+      expect(latest().watchTargets).toBe(true);
+    });
+  });
+
+  test("does not let one assistant's version aim another's sessions", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    render(<Mirror />);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", TARGET_MIN_VERSION, "asst-1");
+    });
+    await Promise.resolve();
+    expect(latest().watchTargets).toBe(false);
+  });
+});
+
 describe("the watch flag the companion mirror publishes", () => {
   test("is false with no session running", () => {
     render(<Mirror />);

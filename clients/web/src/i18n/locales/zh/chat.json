@@ -392,10 +392,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "询问 Doctor",
-    "copyCliFix": "复制 CLI 修复命令",
     "goToDoctor": "前往 Doctor",
     "openPage": "打开页面",
-    "suggestionFallback": "建议"
+    "suggestionFallback": "建议",
+    "copyCliFix": "复制 CLI 修复命令"
   },
   "chatRuleEditorModal": {
     "applyTo": "应用于",
@@ -626,6 +626,9 @@
     "title": "删除对话",
     "untitled": "无标题"
   },
+  "deletedMessageRow": {
+    "label": "此消息已被删除"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "下载PDF失败"
   },
@@ -725,6 +728,10 @@
   "formSurface": {
     "secureHint": "此值将安全发送，不会存储在您的浏览器中。",
     "selectPlaceholder": "选择..."
+  },
+  "frameGateHud": {
+    "collapse": "隐藏帧筛选读数",
+    "expand": "显示帧筛选读数"
   },
   "groupActions": {
     "archiveAll": "全部归档…",
@@ -1752,5 +1759,15 @@
     "reactionAdded": "{name} 用 {emoji} 回应",
     "reactionRemoved": "{name} 移除了 {emoji} 回应",
     "reactionSomeone": "有人"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "恢复访问",
+    "restoring": "正在恢复...",
+    "restored": "已恢复。由 Vellum 托管的模型重新可用。",
+    "failedNoAssistant": "请选择一个助手，然后重试。",
+    "failedCannotActHere": "此应用无法为该助手恢复凭据。请在运行该助手的电脑上打开它。",
+    "failedReplacementRejected": "Vellum 拒绝了新的凭据。请登录 Vellum 平台后重试。",
+    "failedUnconfirmed": "新凭据已保存，但无法与 Vellum 确认。它可能很快就会生效。",
+    "failedGeneric": "无法恢复访问。请稍后重试。"
   }
 }

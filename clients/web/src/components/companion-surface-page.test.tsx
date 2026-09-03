@@ -5,17 +5,47 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
-const toggleWatchMock = mock(() => undefined);
+const startVoiceMock = mock(() => undefined);
+const toggleWatchMock = mock((_pick?: unknown) => undefined);
+/**
+ * What the shell lists for the picker. Null is a shell with no picker to
+ * offer, which is what a bridge that predates it answers.
+ */
+let captureSources: {
+  displays: {
+    kind: "display";
+    displayId: number;
+    index: number;
+    primary: boolean;
+  }[];
+  tabs: {
+    kind: "tab";
+    chromeWindowId: number;
+    tabIndex: number;
+    title: string;
+  }[];
+  windows: { kind: "window"; windowId: number; title: string; app: string }[];
+} | null = null;
+const listSourcesMock = mock(async () => captureSources);
 const answerRetroMock = mock((_open: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
+const sendControlMock = mock((_control: { action: string }) => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -32,14 +62,29 @@ const STATE: CompanionSurfaceState = {
   intro: null,
 };
 
+/** The ordinary middle of a call, which is where the call row is drawn. */
+const LISTENING_CALL = {
+  phase: "listening" as const,
+  label: "Listening",
+  accentHex: "#5eead4",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "Ziggy",
+};
+
 /** Reset between cases, since `STATE` is what the mocked bridge hands back. */
 const resetState = () => {
   STATE.avatarBox = 44;
   STATE.optionsBox = 44;
   STATE.working = false;
   STATE.call = null;
+  delete STATE.dialing;
   delete STATE.watching;
   delete STATE.captureCount;
+  delete STATE.watchTargets;
+  delete STATE.captureTarget;
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
@@ -82,8 +127,9 @@ mock.module("@/runtime/companion-surface", () => ({
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
   activateCompanionApp: activateMock,
-  startCompanionVoice: () => undefined,
+  startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
+  listCompanionCaptureSources: listSourcesMock,
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
@@ -93,7 +139,7 @@ mock.module("@/runtime/companion-surface", () => ({
 }));
 
 mock.module("@/runtime/desktop-voice-activity", () => ({
-  sendVoiceActivityControl: () => undefined,
+  sendVoiceActivityControl: sendControlMock,
 }));
 
 const { CompanionSurfacePage } = await import("./companion-surface-page");
@@ -104,9 +150,13 @@ afterEach(() => {
   moveByMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
+  startVoiceMock.mockClear();
   toggleWatchMock.mockClear();
+  listSourcesMock.mockClear();
+  captureSources = null;
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
+  sendControlMock.mockClear();
 });
 
 /** The canvas the page fills, which is where the pointer handlers live. */
@@ -126,9 +176,16 @@ const canvasOf = (container: HTMLElement): HTMLElement => {
 const closed = (container: HTMLElement): boolean =>
   container.querySelector("[inert]") !== null;
 
-/** Open the surface by putting the pointer on the creature. */
+/**
+ * Open the pill and put the pointer on the creature.
+ *
+ * Hover alone opens nothing now that the creature is the call button, so the
+ * pill is opened the way every open pill is: by a state the user is in. A
+ * session reading the screen is the smallest of those, one control wide.
+ */
 const open = async (container: HTMLElement): Promise<HTMLElement> => {
   const canvas = canvasOf(container);
+  pushState({ ...STATE, watching: true });
   fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
   await waitFor(() => {
     if (closed(container)) {
@@ -252,14 +309,14 @@ describe("the gap between the avatar and the pill", () => {
 });
 
 /**
- * The pill outlives the phase that opened it.
+ * The pill outlives the state that opened it.
  *
- * The pointer leaving puts the phase back to resting at once, and the pill
- * spends the next 300ms giving its width back. A window that stopped
- * hit-testing it there would be click-through over controls that are still on
- * screen, and a press aimed at one of them would land in whatever application
- * is behind the surface. So the measured width is what decides, and a pointer
- * that comes back finds the pill and re-opens it.
+ * The session ending shuts the pill at once, and it spends the next 300ms
+ * giving its width back. A window that stopped hit-testing it there would be
+ * click-through over controls that are still on screen, and a press aimed at
+ * one of them would land in whatever application is behind the surface. So
+ * the measured width is what decides, and a pointer that comes back finds
+ * the pill still drawn and keeps the window clickable for it.
  */
 describe("the pill while it is collapsing", () => {
   test("is still part of the surface under a returning pointer", async () => {
@@ -272,8 +329,8 @@ describe("the pill while it is collapsing", () => {
 
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
     await waitFor(() => {
-      if (closed(container)) {
-        throw new Error("Expected the pill to open again");
+      if (!closed(container)) {
+        throw new Error("Expected the pill to stay shut for a hover alone");
       }
     });
   });
@@ -527,7 +584,7 @@ describe("dragging the companion surface", () => {
     expect(activateMock).not.toHaveBeenCalled();
   });
 
-  test("a press that held still still goes back to Vellum", async () => {
+  test("a press that held still starts a call", async () => {
     const { container } = render(<CompanionSurfacePage />);
     const { avatar, pill } = await pinSurface(container);
     const canvas = canvasOf(container);
@@ -542,7 +599,51 @@ describe("dragging the companion surface", () => {
     fireEvent.mouseUp(canvas);
     fireEvent.click(avatar);
 
+    expect(startVoiceMock).toHaveBeenCalledTimes(1);
+    expect(activateMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The creature is the call button when there is no call. On one, the press
+   * goes back to Vellum instead, which is where the room and the transcript
+   * are, and the same holds for a dial still waiting on its session.
+   */
+  test("a press that held still on a call goes back to Vellum", async () => {
+    STATE.call = LISTENING_CALL;
+    const { container } = render(<CompanionSurfacePage />);
+    const { avatar, pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseUp(canvas);
+    fireEvent.click(avatar);
+
     expect(activateMock).toHaveBeenCalledTimes(1);
+    expect(startVoiceMock).not.toHaveBeenCalled();
+  });
+
+  test("a press that held still on a dial goes back to Vellum too", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    const { avatar, pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseUp(canvas);
+    fireEvent.click(avatar);
+
+    expect(activateMock).toHaveBeenCalledTimes(1);
+    expect(startVoiceMock).not.toHaveBeenCalled();
   });
 
   /**
@@ -699,27 +800,32 @@ describe("dragging the companion surface", () => {
 });
 
 /**
- * The working ring is fed by two independent things: a live call's own phase,
- * and the flag the window owning the conversation publishes. A typed turn has
- * no call behind it, so it rides entirely on the flag, and these cover that it
- * survives the trip through main rather than only through the component.
+ * The creature's working pose is fed by two independent things: a live call's
+ * own phase, and the flag the window owning the conversation publishes. A
+ * typed turn has no call behind it, so it rides entirely on the flag, and
+ * these cover that it survives the trip through main rather than only through
+ * the component.
  */
-describe("the working ring on the page", () => {
-  test("lights for a typed turn, with no call running", async () => {
+describe("the working pose on the page", () => {
+  const CREATURE = { bodyShape: "burst", eyeStyle: "curious", color: "orange" };
+
+  test("is held for a typed turn, with no call running", async () => {
     STATE.working = true;
+    STATE.character = CREATURE;
 
     const { container } = render(<CompanionSurfacePage />);
 
     await waitFor(() => {
-      expect(container.querySelector(".companion-working-ring")).not.toBeNull();
+      expect(container.querySelector('[data-busy="true"]')).not.toBeNull();
     });
   });
 
-  test("stays dark when nothing is running", async () => {
+  test("is dropped when nothing is running", async () => {
+    STATE.character = CREATURE;
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
 
-    expect(container.querySelector(".companion-working-ring")).toBeNull();
+    expect(container.querySelector('[data-busy="true"]')).toBeNull();
   });
 });
 
@@ -731,6 +837,7 @@ describe("the working ring on the page", () => {
  * sentence and by a call, and the indicator is not.
  */
 describe("the watch session on the companion surface", () => {
+  /** The way in, which is on the call row. */
   const watchOf = (container: HTMLElement): HTMLButtonElement => {
     const found = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Teach"]',
@@ -740,12 +847,21 @@ describe("the watch session on the companion surface", () => {
     }
     return found;
   };
+  /**
+   * The way out, which is what the idle pill draws for a running session and
+   * so the one thing on it that says the screen is being read.
+   */
+  const stopOf = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop teaching"]',
+    );
 
   test("hands the press back to the window holding the session", async () => {
+    // From the call row, which is where Teach lives: the idle pill's one way
+    // in is Talk.
+    STATE.call = LISTENING_CALL;
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
-    const canvas = canvasOf(container);
-    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
 
     fireEvent.click(watchOf(container));
 
@@ -766,57 +882,8 @@ describe("the watch session on the companion surface", () => {
     const { container } = render(<CompanionSurfacePage />);
 
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+      expect(stopOf(container)).not.toBeNull();
     });
-  });
-
-  /**
-   * The session's screen reads reach this window the same way the flag does,
-   * and they are the half nothing else can stand in for: the flag says a
-   * session is open and only the count says the screen has actually been read.
-   */
-  test("draws a capture the session reported", async () => {
-    STATE.watching = true;
-    STATE.captureCount = 3;
-    const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
-
-    pushState({ ...STATE, captureCount: 4 });
-
-    expect(container.querySelector(".companion-capture-pulse")).not.toBeNull();
-  });
-
-  /**
-   * This window is recreated on every reload, and main answers the new one
-   * with the total it has been keeping. That number stands for reads taken
-   * before this window existed, so drawing it would present the last of them
-   * as one happening now.
-   */
-  test("does not draw a capture it only inherited from main", async () => {
-    STATE.watching = true;
-    STATE.captureCount = 3;
-    const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
-
-    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
-  });
-
-  /**
-   * A state that cannot say how many reads a session has taken has not
-   * established that it took any, the same bargain the flag itself is given.
-   */
-  test("reads a state that says nothing about captures as none", async () => {
-    STATE.watching = true;
-    const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
-
-    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
 
   /**
@@ -830,8 +897,242 @@ describe("the watch session on the companion surface", () => {
     fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
 
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+      expect(stopOf(container)).toBeNull();
     });
+  });
+});
+
+/**
+ * The picker Teach opens, when the window holding the session says it can be
+ * told what to read. The choice is this page's; the pick leaves it the way
+ * every press does.
+ */
+describe("the picker behind Teach", () => {
+  const teachOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    if (!found) {
+      throw new Error("Expected Teach to render");
+    }
+    return found;
+  };
+  const pickerOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("[data-companion-capture-picker]");
+
+  const SOURCES = {
+    displays: [
+      { kind: "display" as const, displayId: 1, index: 0, primary: true },
+    ],
+    tabs: [
+      { kind: "tab" as const, chromeWindowId: 5, tabIndex: 2, title: "Docs" },
+    ],
+    windows: [
+      {
+        kind: "window" as const,
+        windowId: 9,
+        title: "Groceries",
+        app: "Notes",
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    STATE.call = LISTENING_CALL;
+    STATE.watchTargets = true;
+    captureSources = SOURCES;
+  });
+
+  test("opens on Teach with what the shell lists, and holds Teach down", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+      expect(
+        container.querySelector('button[aria-label="Screen 1"]'),
+      ).not.toBeNull();
+    });
+    expect(teachOf(container).getAttribute("aria-pressed")).toBe("true");
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+  });
+
+  test("a pick leaves as the toggle, and closes the picker", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const row = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Groceries (Notes)"]',
+      );
+      if (!found) {
+        throw new Error("Expected the window row");
+      }
+      return found;
+    });
+
+    fireEvent.click(row);
+
+    expect(toggleWatchMock).toHaveBeenCalledWith({
+      kind: "window",
+      windowId: 9,
+    });
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("gives the desktop back when a pick removes the card under the pointer", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const canvas = canvasOf(container);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const card = await waitFor(() => {
+      const found = pickerOf(container);
+      if (!found) {
+        throw new Error("Expected the picker");
+      }
+      return found;
+    });
+    pin(card, { left: 100, right: 360, top: 400, bottom: 600 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 500 });
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(container.querySelector('button[aria-label="Screen 1"]')!);
+
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(false);
+  });
+
+  test("a second press of Teach closes it unanswered", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+
+    fireEvent.click(teachOf(container));
+
+    expect(pickerOf(container)).toBeNull();
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+  });
+
+  test("closes once a session starts, whoever started it", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+
+    pushState({ ...STATE, watching: true });
+
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("closes with the call it sits over", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+
+    pushState({ ...STATE, call: null });
+
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  /**
+   * The window holding the session has not said its assistant can be told
+   * what to read, so the press is what it always was: the whole screen.
+   */
+  test("is not offered where a session cannot be aimed", async () => {
+    STATE.watchTargets = false;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+    expect(toggleWatchMock).toHaveBeenCalledWith();
+    expect(pickerOf(container)).toBeNull();
+    expect(listSourcesMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The list arrives after a round trip. A picker the user closed in the
+   * meantime is not answered by it, least of all with the whole-screen
+   * session a shell with nothing to list would otherwise start.
+   */
+  test("ignores a list that arrives after the picker was closed", async () => {
+    let answer: ((listed: typeof captureSources) => void) | null = null;
+    listSourcesMock.mockImplementationOnce(
+      () =>
+        new Promise<typeof captureSources>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+    fireEvent.click(teachOf(container));
+    expect(pickerOf(container)).toBeNull();
+
+    await act(async () => {
+      answer?.(null);
+      await Promise.resolve();
+    });
+
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("starts the whole-screen session on a shell with nothing to list", async () => {
+    captureSources = null;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    await waitFor(() => {
+      expect(toggleWatchMock).toHaveBeenCalledWith();
+    });
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("makes the window clickable while the pointer is on the card", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const canvas = canvasOf(container);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const card = await waitFor(() => {
+      const found = pickerOf(container);
+      if (!found) {
+        throw new Error("Expected the picker");
+      }
+      return found;
+    });
+    pin(card, { left: 100, right: 360, top: 400, bottom: 600 });
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 500 });
+
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
+  });
+
+  test("the stop is never a question", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledWith();
+    expect(pickerOf(container)).toBeNull();
   });
 });
 
@@ -1018,6 +1319,63 @@ describe("the companion's introduction", () => {
 });
 
 /**
+ * The dial, which is main's from the press until a session answers it.
+ *
+ * The press leaves this window the moment it is made, so the pill's answer to
+ * it has to arrive the way the call does: on the pushed state.
+ */
+describe("the dial on the companion surface", () => {
+  test("holds the pill open with the pointer nowhere near it", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(closed(container)).toBe(false);
+    expect(container.textContent).toContain("Calling Ziggy…");
+  });
+
+  test("closes the pill once main says the dial is over", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    STATE.dialing = false;
+    pushState();
+
+    expect(closed(container)).toBe(true);
+  });
+
+  test("hands the end back through main, the way the call's controls go", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    const end = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="End session"]',
+    );
+    if (!end) {
+      throw new Error("Expected the end control to render");
+    }
+    fireEvent.click(end);
+
+    expect(sendControlMock).toHaveBeenCalledWith({ action: "endSession" });
+  });
+
+  test("reads a state that says nothing about it as not dialing", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(closed(container)).toBe(true);
+  });
+
+  test("withdraws the introduction's card, as a call does", async () => {
+    STATE.intro = "talk";
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(container.querySelector('[role="group"]')).toBeNull();
+  });
+});
+
+/**
  * The Watch flag, which this window cannot evaluate for itself.
  *
  * The route is standalone: no auth, no `RootLayout`, and so no flag store that
@@ -1029,11 +1387,18 @@ describe("the Watch flag on the companion surface", () => {
   const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
     container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
-  /** Open the pill, which is where the way into a session would be drawn. */
+  /**
+   * Open the call row, which is where the way into a session would be drawn:
+   * a call holds the pill open on its own.
+   */
   const openPill = async (container: HTMLElement): Promise<void> => {
     await pinSurface(container);
     await open(container);
   };
+
+  beforeEach(() => {
+    STATE.call = LISTENING_CALL;
+  });
 
   test("draws no way in when the pushed state says nothing about it", async () => {
     delete STATE.watchEnabled;
@@ -1214,8 +1579,29 @@ describe("the companion's accent colour", () => {
   });
 
   /**
-   * An uploaded image has no palette colour to resolve, so the component's own
-   * default is the last word rather than a colour guessed from nothing.
+   * The accent the app's window published is the colour every other surface
+   * paints with, so it is the capsule's too: an uploaded image lights the
+   * surface in its own colour without a character to resolve one from.
+   */
+  test("lights an uploaded image in the accent the app published", async () => {
+    STATE.accentHex = "#c81e1e";
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#c81e1e");
+  });
+
+  test("lets the published accent win over the character's palette colour", async () => {
+    STATE.character = { ...CHARACTER };
+    STATE.accentHex = "#12ab34";
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#12ab34");
+  });
+
+  /**
+   * With neither a published accent nor a character (an uploaded image on a
+   * shell that predates the accent), the component's own default is the last
+   * word rather than a colour guessed from nothing.
    */
   test("falls back to the component default without a character", async () => {
     const { container } = render(<CompanionSurfacePage />);

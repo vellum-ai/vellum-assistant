@@ -28,6 +28,14 @@ struct WindowInfo: Sendable {
 protocol AccessibilityTreeProviding: Sendable {
     func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) async -> [WindowInfo]
+    func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+}
+
+extension AccessibilityTreeProviding {
+    /// A provider that knows nothing of window ids has no tree to offer for one.
+    func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        nil
+    }
 }
 
 /// Enumerates macOS accessibility trees for the focused window and any
@@ -297,6 +305,89 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
 
         guard !elements.isEmpty else { return nil }
+        lastTargetPid = pid
+        return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
+    }
+
+    /// Enumerate one window by its window server id, focused or not.
+    ///
+    /// The watch session's capture target: the user picked a window and the
+    /// screenshot is scoped to it, so the tree has to describe that window
+    /// rather than whichever one has focus. AX has no lookup by `CGWindowID`,
+    /// so the window is described through the window server first and then
+    /// matched among its owner's AX windows by frame, or by a title no other
+    /// window of the app shares when the frame does not line up (a sheet, a
+    /// window mid-resize). Anything less certain yields no tree.
+    func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        await Task.detached { [self] in
+            enumerateWindowSync(windowId: windowId)
+        }.value
+    }
+
+    private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        guard
+            let descriptions = CGWindowListCreateDescriptionFromArray([windowId] as CFArray) as? [[String: Any]],
+            let description = descriptions.first,
+            let ownerPID = description[kCGWindowOwnerPID as String] as? Int
+        else {
+            log.warning("enumerateWindow: window \(windowId) is not known to the window server")
+            return nil
+        }
+        let pid = pid_t(ownerPID)
+        let cgName = description[kCGWindowName as String] as? String
+        var cgBounds = CGRect.zero
+        if let boundsDict = description[kCGWindowBounds as String] as? NSDictionary,
+           let rect = CGRect(dictionaryRepresentation: boundsDict) {
+            cgBounds = rect
+        }
+
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
+
+        if Self.markEnhancedAXIfNeeded(pid: pid) {
+            let result = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+            log.info("Set AXEnhancedUserInterface on \(appName, privacy: .public) (pid \(pid)): \(result == .success ? "success" : "failed (\(result.rawValue))")")
+        }
+
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement],
+              !windows.isEmpty else {
+            log.warning("enumerateWindow: \(appName, privacy: .public) (pid \(pid)) exposes no AX windows")
+            return nil
+        }
+
+        let byFrame = windows.first(where: { window in
+            let frame = getFrameAttribute(window)
+            return abs(frame.origin.x - cgBounds.origin.x) <= 2
+                && abs(frame.origin.y - cgBounds.origin.y) <= 2
+                && abs(frame.width - cgBounds.width) <= 2
+                && abs(frame.height - cgBounds.height) <= 2
+        })
+        // A title only stands in for the frame when it names exactly one of
+        // the app's windows. Two windows titled alike (two "Untitled"
+        // documents, two browser windows on the same page) would otherwise
+        // let the wrong one's tree be filed beside the right one's screenshot.
+        let byTitle: AXUIElement? = cgName.flatMap { name in
+            let titled = windows.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
+            return titled.count == 1 ? titled[0] : nil
+        }
+        guard let windowElement = byFrame ?? byTitle else {
+            log.warning("enumerateWindow: no AX window of \(appName, privacy: .public) matches window \(windowId)")
+            return nil
+        }
+
+        let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? cgName ?? "Untitled"
+
+        nextId = 1
+        totalElementsEnumerated = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+
+        let flat = AccessibilityTreeEnumerator.flattenElements(elements)
+        let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
+        log.info("Enumerated window \(windowId) of \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1)")
+
         lastTargetPid = pid
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }

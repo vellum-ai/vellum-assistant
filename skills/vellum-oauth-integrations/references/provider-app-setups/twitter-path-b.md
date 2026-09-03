@@ -79,9 +79,17 @@ Tell the user:
 
 Wait for the Client ID, then ask for the secret:
 
-> Now send me the **Client Secret**. Send it as a standalone message with no other text.
+> Copy the **Client Secret**. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: Twitter OAuth 2.0 Client Secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service twitter --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the Client Secret from the app settings page."
+```
+
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
 
 ## Path B Step 6: Authorize and Done
 

@@ -19,12 +19,11 @@ export const CHANNELS_PLUGIN_SEARCH_HINT =
 
 export const channelsHelp: CliCommandHelp = {
   name: "channels",
-  description:
-    "Inspect and repair messaging channels (slack, telegram, email, etc.)",
+  description: "Inspect and repair messaging channels",
   helpText: `
-Channels are the messaging surfaces the assistant talks over — slack,
-telegram, whatsapp, email, phone, vellum, platform, a2a. Each channel
-has a probe that reports whether it's configured and reachable.
+Channels are the messaging surfaces the assistant talks over. Built-in
+readiness probes cover slack, telegram, whatsapp, email, phone, vellum,
+platform, and a2a.
 
 ${CHANNELS_PLUGIN_SEARCH_HINT} Plugins can bundle additional channels
 from other Vellum users.

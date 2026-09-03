@@ -59,6 +59,34 @@ export interface HostObservationFields {
   executionError?: string;
 }
 
+/**
+ * What the desktop client is asked to read: one display, one window, or
+ * whatever it reads by default (the main display and the focused window).
+ *
+ * Ids are the window server's own, `CGDirectDisplayID` and `CGWindowID`, as
+ * the client enumerated them. The daemon never interprets them: it carries the
+ * user's pick from the surface that offered it to the helper that honours it.
+ */
+export type HostCaptureTarget =
+  | { readonly kind: "display"; readonly displayId: number }
+  | { readonly kind: "window"; readonly windowId: number };
+
+/**
+ * The observe request's `input`, from the target. The helper reads these two
+ * keys and nothing else, so an absent target is an empty input rather than a
+ * key set to nothing.
+ */
+export function captureTargetInput(
+  target: HostCaptureTarget | undefined,
+): Record<string, number> {
+  if (target === undefined) {
+    return {};
+  }
+  return target.kind === "display"
+    ? { captureDisplayId: target.displayId }
+    : { captureWindowId: target.windowId };
+}
+
 /** A successful observation, or a structured failure. Never throws. */
 export type HostObservation =
   | ({ ok: true } & HostObservationFields)
@@ -82,6 +110,23 @@ export interface ObserveHostScreenOptions {
    * connected.
    */
   clientId?: string;
+  /**
+   * What to read. Defaults to the client's own choice, which is the main
+   * display and the focused window. Passed through to the helper as the
+   * request's `input`, so a session scoped to one window reads that window
+   * even while the user works in another.
+   */
+  captureTarget?: HostCaptureTarget;
+  /**
+   * The key the helper files this request's per-session state under, when
+   * the caller has a session. The helper diffs each observation's
+   * accessibility tree against the previous one filed under the same key,
+   * and the diff names what changed, so two sessions sharing a key would
+   * carry text from one into the first observation of the next. A watch
+   * session passes its own id; absent is the shared default the ad hoc
+   * callers always used.
+   */
+  stateKey?: string;
 }
 
 /**
@@ -175,7 +220,11 @@ export async function observeHostScreen(
           return;
         }
         broadcastMessage(
-          { type: "host_cu_cancel", requestId, conversationId: "" },
+          {
+            type: "host_cu_cancel",
+            requestId,
+            conversationId: options.stateKey ?? "",
+          },
           undefined,
           { targetClientId },
         );
@@ -202,12 +251,13 @@ export async function observeHostScreen(
           {
             type: "host_cu_request",
             requestId,
-            // Conversation-agnostic. The native helper keys its per-session
-            // state off this id, and an empty string is already what the
-            // desktop executor sends when no conversation is attached.
-            conversationId: "",
+            // No conversation is attached; the native helper only uses this
+            // to key its per-session state (see `stateKey`), and an empty
+            // string is already what the desktop executor sends when no
+            // conversation is attached.
+            conversationId: options.stateKey ?? "",
             toolName: "computer_use_observe",
-            input: {},
+            input: captureTargetInput(options.captureTarget),
             stepNumber: 1,
           },
           undefined,

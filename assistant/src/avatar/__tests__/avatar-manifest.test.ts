@@ -30,6 +30,7 @@ describe("avatar-manifest", () => {
         traits: VALID_TRAITS,
         source: "builder",
         image: null,
+        accent: null,
       };
       writeManifest(state, dir);
       expect(readManifest(dir)).toEqual(state);
@@ -41,6 +42,7 @@ describe("avatar-manifest", () => {
         traits: null,
         source: "upload",
         image: { updatedAt: "2024-01-01T00:00:00.000Z", etag: "abc123" },
+        accent: null,
       };
       writeManifest(state, dir);
       expect(readManifest(dir)).toEqual(state);
@@ -63,6 +65,7 @@ describe("avatar-manifest", () => {
           traits: null,
           source: null,
           image: null,
+          accent: null,
         }),
       );
       expect(readManifest(dir)).toBeNull();
@@ -81,6 +84,7 @@ describe("avatar-manifest", () => {
           traits: null,
           source: null,
           image: null,
+          accent: null,
         }),
       );
       expect(readManifest(dir)).toBeNull();
@@ -102,6 +106,7 @@ describe("avatar-manifest", () => {
           traits: { bodyShape: "round" },
           source: null,
           image: null,
+          accent: null,
         }),
       );
       expect(readManifest(dir)).toBeNull();
@@ -115,6 +120,7 @@ describe("avatar-manifest", () => {
           traits: null,
           source: null,
           image: null,
+          accent: null,
         }),
       );
       expect(readManifest(dir)).toBeNull();
@@ -136,6 +142,7 @@ describe("avatar-manifest", () => {
           traits: null,
           source: null,
           image: { updatedAt: "2024-01-01T00:00:00.000Z", etag: "" },
+          accent: null,
         }),
       );
       expect(readManifest(dir)).toBeNull();
@@ -149,6 +156,7 @@ describe("avatar-manifest", () => {
           traits: null,
           source: null,
           image: { etag: "abc123" },
+          accent: null,
         }),
       );
       expect(readManifest(dir)).toBeNull();
@@ -160,6 +168,7 @@ describe("avatar-manifest", () => {
         traits: null,
         source: null,
         image: null,
+        accent: null,
       };
       writeFileSync(join(dir, "avatar.json"), JSON.stringify({ kind: "none" }));
       expect(readManifest(dir)).toEqual(state);
@@ -230,6 +239,7 @@ describe("avatar-manifest", () => {
         traits: null,
         source: null,
         image: null,
+        accent: null,
       });
     });
   });
