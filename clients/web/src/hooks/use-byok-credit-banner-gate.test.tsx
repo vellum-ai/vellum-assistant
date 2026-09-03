@@ -8,9 +8,8 @@
  * provably skips the wallet from one that has not been classified yet, and a
  * caller reading it inverted turns that gap into a false claim.
  *
- * The `suppress` value asserted in each case is the one the hook returned when
- * it was a bare boolean, so the matrix is the record that the banner path did
- * not move.
+ * The matrix below is the suppression contract in full: every branch that can
+ * produce a verdict, and the `settled` each one carries.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderHook } from "@testing-library/react";
@@ -124,10 +123,9 @@ describe("useByokCreditRouteVerdict", () => {
   });
 
   test("no resolved assistant is not-asked-yet, not answered-no", () => {
-    // The regression this hook's shape exists for. Every route query is
-    // disabled without an assistant, so the fail-open verdict below rests on
-    // nothing; reading it as a settled "route spends the wallet" is what let
-    // the usage panel claim extra credits before it had asked anything.
+    // Every route query is disabled without an assistant, so the fail-open
+    // verdict rests on nothing. A caller that read it as settled would claim
+    // a managed route on evidence the gate has not gathered.
     assistantId = null;
     const v = verdict();
     expect(v).toEqual({ suppress: false, settled: false });

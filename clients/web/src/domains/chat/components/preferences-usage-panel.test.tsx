@@ -359,9 +359,9 @@ describe("PreferencesUsagePanel", () => {
 
   test("holds the neutral reading while the classification is in flight", async () => {
     // Spent grants with credit behind them on a route that will turn out to
-    // be managed: the settled answer is the amber extra-credits line. What
-    // must not happen on the way there is the red reading, which is what the
-    // panel painted for as long as the classifier's daemon queries took.
+    // be managed: the settled answer is the amber extra-credits line. The red
+    // reading must not appear on the way there, however long the classifier's
+    // daemon queries take.
     totalUsageBalance = "25.00";
     availableUsageBalance = "0.00";
     effectiveBalance = "12.00";
