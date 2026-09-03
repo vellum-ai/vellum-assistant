@@ -270,6 +270,17 @@ export function CompanionSurfacePage() {
     });
   };
 
+  // A row pressed under a still pointer removes the card and nothing moves,
+  // so no mouse-move arrives to hand the desktop back. Give it back here,
+  // the way the introduction's card does; the next move re-arms the window
+  // if the pointer is still on the surface.
+  useEffect(() => {
+    if (!picking && interactiveRef.current) {
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, [picking]);
+
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
     setPicking(false);

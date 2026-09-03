@@ -982,6 +982,27 @@ describe("the picker behind Teach", () => {
     expect(pickerOf(container)).toBeNull();
   });
 
+  test("gives the desktop back when a pick removes the card under the pointer", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const canvas = canvasOf(container);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const card = await waitFor(() => {
+      const found = pickerOf(container);
+      if (!found) {
+        throw new Error("Expected the picker");
+      }
+      return found;
+    });
+    pin(card, { left: 100, right: 360, top: 400, bottom: 600 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 500 });
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(container.querySelector('button[aria-label="Screen 1"]')!);
+
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(false);
+  });
+
   test("a second press of Teach closes it unanswered", async () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);

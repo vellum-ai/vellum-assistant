@@ -1227,9 +1227,12 @@ export const installCompanionWindow = (): void => {
    * on demand: the desktop changes under every push, and the list is only
    * worth anything at the moment it is drawn.
    */
-  handle("vellum:companion:listCaptureSources", z.tuple([]), () =>
-    listCaptureSources(),
-  );
+  handle("vellum:companion:listCaptureSources", z.tuple([]), () => {
+    // A picker opening again is the user starting over: whatever pick was
+    // still resolving belonged to the choice they just left.
+    pickGeneration += 1;
+    return listCaptureSources();
+  });
 
   /**
    * The answer to the summary question, delivered to the window that asked it.
@@ -1390,6 +1393,9 @@ export const installCompanionWindow = (): void => {
       return;
     }
     call = null;
+    // The row the pick was made from is gone with the call, so a pick still
+    // resolving must not start a session over a bar that is not there.
+    pickGeneration += 1;
     syncCallSurface();
     pushState();
   });

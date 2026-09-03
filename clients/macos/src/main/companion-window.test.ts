@@ -1155,6 +1155,37 @@ describe("the picker behind Teach", () => {
     ]);
   });
 
+  test("reopening the picker or ending the call supersedes a pending pick", async () => {
+    for (const supersede of ["list", "end"] as const) {
+      dispatched.length = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const slow = resolvedPickAsync;
+      resolvedPickAsync = async () => {
+        await gate;
+        return { kind: "window", windowId: 1 };
+      };
+      send("vellum:companion:toggleWatch", {
+        kind: "tab",
+        chromeWindowId: 3,
+        tabIndex: 1,
+      });
+      resolvedPickAsync = slow;
+      if (supersede === "list") {
+        await invocable.get("vellum:companion:listCaptureSources")?.([]);
+      } else {
+        send("vellum:companion:startVoice");
+        send("vellum:voiceActivity:start", START);
+        send("vellum:voiceActivity:end");
+      }
+      release();
+      await Bun.sleep(0);
+      expect(dispatched.filter((c) => c.kind === "toggleWatch")).toEqual([]);
+    }
+  });
+
   test("a press with no pick supersedes a pending one", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

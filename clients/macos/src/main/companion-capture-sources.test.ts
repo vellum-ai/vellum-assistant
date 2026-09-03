@@ -28,6 +28,7 @@ const {
   chromeWindowFor,
   listCaptureSources,
   parseChromeTabs,
+  parseChromeWindowPlacement,
   parseHelperWindows,
   resolveCapturePick,
   windowBoundsFor,
@@ -63,6 +64,7 @@ const deps = (
     listChromeTabs: async () => [],
     activateChromeTab: async (chromeWindowId, tabIndex) => {
       activated.push([chromeWindowId, tabIndex]);
+      return null;
     },
     iconFor: async () => undefined,
     ...over,
@@ -266,6 +268,30 @@ describe("listing what a session could read", () => {
   });
 });
 
+describe("Chrome's account of the shown window", () => {
+  test("is read as minimized plus a rectangle", () => {
+    expect(
+      parseChromeWindowPlacement(
+        ["false", "22", "33", "1378", "1117"].join(SEP) + "\n",
+      ),
+    ).toEqual({
+      minimized: false,
+      bounds: { x: 22, y: 33, width: 1356, height: 1084 },
+    });
+    expect(
+      parseChromeWindowPlacement(["true", "0", "0", "10", "10"].join(SEP))
+        ?.minimized,
+    ).toBe(true);
+  });
+
+  test("is nothing for an answer that is not one", () => {
+    expect(parseChromeWindowPlacement("")).toBeNull();
+    expect(
+      parseChromeWindowPlacement(["false", "1", "x", "3", "4"].join(SEP)),
+    ).toBeNull();
+  });
+});
+
 describe("the Chrome window for a tab", () => {
   const windows = [
     window({ windowId: 1, title: "Inbox" }),
@@ -284,6 +310,49 @@ describe("the Chrome window for a tab", () => {
 
   test("tolerates a title Chrome decorated", () => {
     expect(chromeWindowFor(windows, "Inbox - ")?.windowId).toBe(4);
+  });
+
+  test("is the window at the bounds Chrome reports, whatever the titles", () => {
+    const placed = {
+      minimized: false,
+      bounds: { x: 0, y: 0, width: 600, height: 400 },
+    };
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 6, title: "Inbox" }),
+          chrome({
+            windowId: 3,
+            title: "Inbox",
+            bounds: { x: 100, y: 0, width: 600, height: 400 },
+          }),
+        ],
+        "Inbox",
+        placed,
+      )?.windowId,
+    ).toBe(6);
+    expect(
+      chromeWindowFor(
+        [
+          chrome({
+            windowId: 6,
+            title: "Inbox",
+            bounds: { x: 100, y: 0, width: 600, height: 400 },
+          }),
+        ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("is nothing while Chrome says the window is still minimized", () => {
+    expect(
+      chromeWindowFor([chrome({ windowId: 6, title: "Inbox" })], "Inbox", {
+        minimized: true,
+        bounds: { x: 0, y: 0, width: 600, height: 400 },
+      }),
+    ).toBeUndefined();
   });
 
   test("is nothing when two windows carry the exact title", () => {
@@ -369,6 +438,42 @@ describe("resolving a pick", () => {
       ),
     ).toBeNull();
     expect(d.activated).toEqual([]);
+  });
+
+  test("a tab whose window stays minimized resolves to nothing, not to another window", async () => {
+    const d = deps({
+      listChromeTabs: async () => [
+        { chromeWindowId: 101, tabIndex: 2, active: false, title: "Docs" },
+      ],
+      activateChromeTab: async () => ({
+        minimized: true,
+        bounds: { x: 0, y: 0, width: 600, height: 400 },
+      }),
+      listWindows: async () => [chrome({ windowId: 2, title: "Docs" })],
+    });
+    expect(
+      await resolveCapturePick(
+        { kind: "tab", chromeWindowId: 101, tabIndex: 2 },
+        d,
+      ),
+    ).toBeNull();
+  });
+
+  test("a helper that cannot list windows after the activation resolves to nothing", async () => {
+    const d = deps({
+      listChromeTabs: async () => [
+        { chromeWindowId: 101, tabIndex: 2, active: false, title: "Docs" },
+      ],
+      listWindows: async () => {
+        throw new Error("helper down");
+      },
+    });
+    expect(
+      await resolveCapturePick(
+        { kind: "tab", chromeWindowId: 101, tabIndex: 2 },
+        d,
+      ),
+    ).toBeNull();
   });
 
   test("a Chrome that will not show the tab resolves to nothing", async () => {
