@@ -140,9 +140,10 @@ const MondayOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
-const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
+export const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
+export type FigmaOAuthService = z.infer<typeof FigmaOAuthServiceSchema>;
 
 export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
