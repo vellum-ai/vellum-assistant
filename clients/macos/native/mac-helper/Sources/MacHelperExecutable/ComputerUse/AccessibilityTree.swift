@@ -333,8 +333,14 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     }
 
     func serverWindow(for windowId: CGWindowID) -> ServerWindow? {
+        // Asked of the window list with the id as the filter rather than of
+        // `CGWindowListCreateDescriptionFromArray`: that call wants its ids as
+        // raw values in the array, and an array bridged from Swift carries
+        // numbers instead, so it answers with nothing for a window that is
+        // plainly there. The list call takes the id directly and answers
+        // with that one window.
         guard
-            let descriptions = CGWindowListCreateDescriptionFromArray([windowId] as CFArray) as? [[String: Any]],
+            let descriptions = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowId) as? [[String: Any]],
             let description = descriptions.first,
             let ownerPID = description[kCGWindowOwnerPID as String] as? Int
         else {

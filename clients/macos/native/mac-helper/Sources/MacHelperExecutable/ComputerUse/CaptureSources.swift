@@ -95,10 +95,16 @@ enum CaptureSources {
         let enumerator = AccessibilityTreeEnumerator()
         guard let server = enumerator.serverWindow(for: windowId) else {
             log.warning("raise: window \(windowId) is not known to the window server")
-            return ["raised": false]
+            return ["raised": false, "reason": "unknown window"]
         }
+        // Why the window itself was not raised, for the shell's log. The
+        // answer names the reason rather than hiding it in this process's
+        // own log, since the pick is made from the shell and that is where
+        // someone looks first.
+        var reason = ""
         var raised = false
         if !AXIsProcessTrusted() {
+            reason = "accessibility not granted"
             log.warning("raise: Accessibility is not granted; activating the app of window \(windowId) only")
         } else {
             let appElement = AXUIElementCreateApplication(server.pid)
@@ -112,8 +118,13 @@ enum CaptureSources {
                    (minimized as? Bool) == true {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
                 }
-                raised = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+                let result = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                raised = result == .success
+                if !raised {
+                    reason = "AXRaise failed (\(result.rawValue))"
+                }
             } else {
+                reason = "no AX window matched"
                 log.warning("raise: no AX window matches window \(windowId); activating its app only")
             }
         }
@@ -128,6 +139,7 @@ enum CaptureSources {
         // on this one. AppKit work belongs on the main thread, and the answer
         // does not wait on it: whether the app took focus is not something
         // the pick acts on.
+        var activation = "requested"
         if let app = NSRunningApplication(processIdentifier: server.pid) {
             DispatchQueue.main.async {
                 guard let bundleURL = app.bundleURL else {
@@ -142,8 +154,14 @@ enum CaptureSources {
                     }
                 }
             }
+        } else {
+            activation = "no running app for pid \(server.pid)"
         }
-        return ["raised": raised]
+        var answer: [String: Any] = ["raised": raised, "activation": activation]
+        if !reason.isEmpty {
+            answer["reason"] = reason
+        }
+        return answer
     }
 
     /// The frontmost ordinary window lying wholly on `displayId`, by the

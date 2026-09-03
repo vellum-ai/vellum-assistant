@@ -275,11 +275,18 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
     const answer = await getSharedCuHelper().call("captureSources.raise", {
       windowId,
     });
-    return (
-      typeof answer === "object" &&
-      answer !== null &&
-      (answer as { raised?: unknown }).raised === true
-    );
+    const { raised, reason } =
+      typeof answer === "object" && answer !== null
+        ? (answer as { raised?: unknown; reason?: unknown })
+        : {};
+    // The helper says why it left the window where it was, and this is the
+    // log someone reads first: the pick was made from here.
+    if (raised !== true && typeof reason === "string") {
+      log.warn(
+        `[companion] helper did not raise window ${windowId}: ${reason}`,
+      );
+    }
+    return raised === true;
   },
   iconFor: readIcon,
 };
