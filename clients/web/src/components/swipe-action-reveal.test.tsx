@@ -16,6 +16,25 @@ const noopAction: SwipeAction = {
   onSelect: () => {},
 };
 
+/**
+ * The px a layer is translated by, read from the layer holding the action
+ * named `label`. Parsed rather than string-matched so the assertion is about
+ * the distance travelled, and survives the transform being written as
+ * `translate3d` or with different spacing.
+ */
+function shiftOf(host: HTMLElement, label: string): number {
+  const layer = host.querySelector(
+    `button[aria-label="${label}"]`,
+  )?.parentElement;
+  const match = /translate(?:X|3d)?\(\s*(-?[\d.]+)px/.exec(
+    layer?.style.transform ?? "",
+  );
+  if (!match) {
+    throw new Error(`no translate on the layer holding "${label}"`);
+  }
+  return Number(match[1]);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -53,8 +72,8 @@ describe("SwipeActionReveal", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal
         enabled={true}
-        leadingActions={[noopAction]}
-        trailingActions={[noopAction]}
+        leadingActions={[{ ...noopAction, id: "pin", label: "Pin" }]}
+        trailingActions={[{ ...noopAction, id: "archive", label: "Archive" }]}
       >
         <div>Row content</div>
       </SwipeActionReveal>,
@@ -65,15 +84,16 @@ describe("SwipeActionReveal", () => {
     // so at rest it is wholly outside the box that clips. A swipe walks that
     // back in step with the content, which is what confines an action to the
     // strip the content has vacated.
+    //
+    // Each side is asserted against the edge it hangs from, and the layers are
+    // found by the action each one holds. Asserting that the two shifts exist
+    // somewhere would pass just as well with the sides swapped, which is a row
+    // whose actions slide in from the wrong edge.
     const host = document.createElement("div");
     host.innerHTML = html;
-    const layers = [
-      ...host.querySelectorAll<HTMLElement>("[style*=translateX]"),
-    ];
-    const shifts = layers.map((layer) => layer.style.transform);
 
-    expect(shifts).toContain(`translateX(${ACTION_WIDTH_PX}px)`);
-    expect(shifts).toContain(`translateX(-${ACTION_WIDTH_PX}px)`);
+    expect(shiftOf(host, "Pin")).toBe(-ACTION_WIDTH_PX);
+    expect(shiftOf(host, "Archive")).toBe(ACTION_WIDTH_PX);
   });
 
   test("the content layer paints no fill of its own", () => {

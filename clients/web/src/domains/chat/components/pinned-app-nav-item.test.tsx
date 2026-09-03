@@ -232,7 +232,10 @@ describe("PinnedAppNavItem", () => {
     // pill's own surface is not in this list and is not being asserted on.
     const row = container.querySelector("[data-swipe-action-row]");
     const clip = row?.firstElementChild;
-    const sliding = clip?.querySelector('[style*="translateX(0px)"]');
+    // The layer that slides is the clip's last child: action layers are
+    // rendered before it so it paints over them. Located structurally rather
+    // than by its transform, which is a formatted string and not the point.
+    const sliding = clip?.lastElementChild;
 
     expect(row).not.toBeNull();
     expect(sliding).not.toBeNull();
