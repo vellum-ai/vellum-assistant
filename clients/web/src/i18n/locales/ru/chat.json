@@ -379,6 +379,9 @@
   "fileDownload": {
     "failed": "Не удалось скачать файл"
   },
+  "followUpSuggestions": {
+    "groupAria": "Предлагаемые продолжения"
+  },
   "groupActions": {
     "archiveAll": "В архив все…",
     "copyGroupId": "Скопировать ID группы",

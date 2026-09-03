@@ -148,7 +148,14 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
 import type { UseResourcePressureMonitorResult } from "@/assistant/use-resource-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
-import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
+import {
+  useFollowUpSuggestions,
+  useGhostTextSuggestion,
+} from "@/domains/chat/hooks/use-ghost-text-suggestion";
+import {
+  FollowUpSuggestions,
+  shouldShowFollowUpSuggestions,
+} from "@/domains/chat/components/follow-up-suggestions";
 import {
   handleConfirmationSubmit,
   handleAllowAndCreateRule,
@@ -708,11 +715,24 @@ export function ChatMainPanel({
       : null;
   }, [messages, liveAssistantMessageId]);
 
-  const suggestion = useGhostTextSuggestion({
+  const followUpSuggestionsEnabled =
+    useClientFeatureFlagStore.use.followUpSuggestions();
+
+  const ghostTextSuggestion = useGhostTextSuggestion({
     assistantId,
     conversationId: activeConversationId,
     lastCompleteAssistantMsgId,
   });
+  const followUpSuggestions = useFollowUpSuggestions({
+    assistantId,
+    conversationId: activeConversationId,
+    lastCompleteAssistantMsgId,
+  });
+
+  // The chips and the ghost text answer the same question, so only one of them
+  // offers a next message at a time. With the chips on, the composer stays a
+  // blank field.
+  const suggestion = followUpSuggestionsEnabled ? null : ghostTextSuggestion;
 
   // -------------------------------------------------------------------------
   // Transcript data (sanitise + build items)
@@ -1309,6 +1329,34 @@ export function ChatMainPanel({
   });
 
   // -------------------------------------------------------------------------
+  // Follow-up suggestion chips
+  // -------------------------------------------------------------------------
+  // Seeds the composer before submitting, the same path a conversation-starter
+  // chip takes, so a blocked send leaves the text to retry rather than losing
+  // it. The one click seam for the surface.
+  const handleSelectFollowUp = useCallback(
+    (followUp: string) => {
+      handleSelectStarter({ prompt: followUp });
+    },
+    [handleSelectStarter],
+  );
+
+  const showFollowUpSuggestions = shouldShowFollowUpSuggestions({
+    enabled: followUpSuggestionsEnabled,
+    suggestions: followUpSuggestions,
+    turnActive: isAssistantBusy || sendDisabled,
+    awaitingInteraction:
+      uiContext.hasPendingQuestion || uiContext.hasUncompletedVisibleSurface,
+  });
+
+  const followUpSuggestionsSlot = showFollowUpSuggestions ? (
+    <FollowUpSuggestions
+      suggestions={followUpSuggestions}
+      onSelect={handleSelectFollowUp}
+    />
+  ) : undefined;
+
+  // -------------------------------------------------------------------------
   // JSX construction
   // -------------------------------------------------------------------------
   const chatTranscriptProps: TranscriptProps = {
@@ -1342,6 +1390,7 @@ export function ChatMainPanel({
     onWorkflowClick,
     onStopWorkflow,
     renderOnboardingChoice,
+    followUpSuggestionsSlot,
   };
 
   const cmdEnterMode = cmdEnterToSend.useValue();

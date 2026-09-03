@@ -1,8 +1,12 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
 
 const GHOST_TEXT_SUGGESTION_GC_MS = 5 * 60_000;
+
+/** Stable empty result, so a suggestion-less turn keeps a stable identity. */
+const EMPTY_SUGGESTIONS: string[] = [];
 
 /** Query-key factory for the ghost-text suggestion query. */
 function ghostTextSuggestionQueryKey(
@@ -19,7 +23,7 @@ function ghostTextSuggestionQueryKey(
   ];
 }
 
-interface UseGhostTextSuggestionParams {
+interface UseReplySuggestionParams {
   assistantId: string | null;
   conversationId: string | null;
   /**
@@ -36,34 +40,27 @@ interface UseGhostTextSuggestionParams {
 }
 
 /**
- * Server-state hook for the after-turn autocomplete ghost text shown in
- * the chat composer.
+ * The one `suggestion_get` query behind both after-turn suggestion surfaces:
+ * the composer's ghost text and the follow-up chips under the latest reply.
  *
- * The suggestion is a server-derived value keyed by
+ * The response is a server-derived value keyed by
  * `(assistantId, conversationId, lastCompleteAssistantMsgId)`. The query
  * key gives us:
  *
- *   - **Dedup** — same key → no new fetch.
- *   - **Implicit clear on send / on conversation switch** — when the
+ *   - **Dedup**: same key means no new fetch, so the two consumer hooks
+ *     share one request and one cache entry.
+ *   - **Implicit clear on send / on conversation switch**: when the
  *     latest message becomes a user message (after send) or
  *     `conversationId` changes, the key derives a new value or `null`
  *     and the previous cache entry is no longer matched.
- *   - **Implicit suppression while streaming** — `lastCompleteAssistantMsgId`
+ *   - **Implicit suppression while streaming**: `lastCompleteAssistantMsgId`
  *     is `null` until the assistant's reply finishes.
- *
- * The hook is *pure* w.r.t. composer input: it always returns the
- * cached suggestion (or `null` when nothing is cached). The render-time
- * gate that decides whether to show ghost text — and whether to show
- * the full suggestion or just the unrendered suffix — lives in
- * `ChatComposer.computeGhostSuffix`. Keeping that gate in one place
- * preserves the "type the prefix → see only the tail as ghost"
- * suffix-completion behavior.
  */
-export function useGhostTextSuggestion({
+function useReplySuggestionQuery({
   assistantId,
   conversationId,
   lastCompleteAssistantMsgId,
-}: UseGhostTextSuggestionParams): string | null {
+}: UseReplySuggestionParams) {
   const enabled =
     assistantId != null &&
     conversationId != null &&
@@ -108,5 +105,45 @@ export function useGhostTextSuggestion({
     retry: false,
   });
 
+  return query;
+}
+
+/**
+ * The after-turn ghost text for the composer: the strongest of the
+ * suggestions the daemon returned, or `null` when it returned none.
+ *
+ * Pure w.r.t. composer input: it always returns the cached suggestion. The
+ * render-time gate that decides whether to show ghost text, and whether to
+ * show the full suggestion or just the unrendered suffix, lives in
+ * `ChatComposer.computeGhostSuffix`. Keeping that gate in one place
+ * preserves the "type the prefix, see only the tail as ghost"
+ * suffix-completion behavior.
+ */
+export function useGhostTextSuggestion(
+  params: UseReplySuggestionParams,
+): string | null {
+  const query = useReplySuggestionQuery(params);
   return query.data?.suggestion ?? null;
+}
+
+/**
+ * The same turn's suggestions as a list, for the follow-up chips under the
+ * latest assistant reply. Shares {@link useReplySuggestionQuery}'s key with
+ * {@link useGhostTextSuggestion}, so mounting both costs one fetch.
+ *
+ * Older daemons answer without the `suggestions` field; they still fill
+ * `suggestion`, so the singular value stands in for the list rather than
+ * leaving the chips empty on an assistant that predates the pair.
+ */
+export function useFollowUpSuggestions(
+  params: UseReplySuggestionParams,
+): string[] {
+  const query = useReplySuggestionQuery(params);
+  const data = query.data;
+  return useMemo(() => {
+    if (data?.suggestions && data.suggestions.length > 0) {
+      return data.suggestions;
+    }
+    return data?.suggestion ? [data.suggestion] : EMPTY_SUGGESTIONS;
+  }, [data]);
 }

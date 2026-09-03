@@ -1755,7 +1755,9 @@ describe("TranscriptMessageBody", () => {
     );
 
     expect(
-      container.querySelector("[data-testid='surface'][data-surface-id='s-keep']"),
+      container.querySelector(
+        "[data-testid='surface'][data-surface-id='s-keep']",
+      ),
     ).not.toBeNull();
   });
 
@@ -2782,5 +2784,70 @@ describe("TranscriptMessageBody: response asset cards", () => {
     expect(
       container.querySelector("[data-surface-id='page-app-8']"),
     ).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up suggestion chips
+//
+// The chat page hands the same slot to every row, so the placement rule lives
+// here: the chips belong under the reply the transcript ends on, and nowhere
+// else.
+// ---------------------------------------------------------------------------
+
+describe("TranscriptMessageBody — follow-up suggestion slot", () => {
+  const slot = <div data-testid="follow-up-slot" />;
+
+  test("renders the slot under the latest assistant message", () => {
+    const { queryByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-follow-up-latest",
+          role: "assistant",
+          contentBlocks: [textBlock("Here is the answer.")],
+          timestamp: 1_000,
+        }}
+        isLatestMessage
+        followUpSuggestionsSlot={slot}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByTestId("follow-up-slot")).not.toBeNull();
+  });
+
+  test("leaves the slot off an earlier assistant message", () => {
+    const { queryByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-follow-up-earlier",
+          role: "assistant",
+          contentBlocks: [textBlock("An earlier answer.")],
+          timestamp: 1_000,
+        }}
+        followUpSuggestionsSlot={slot}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByTestId("follow-up-slot")).toBeNull();
+  });
+
+  test("leaves the slot off the user's own latest message", () => {
+    const { queryByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-follow-up-user",
+          role: "user",
+          contentBlocks: [textBlock("My question.")],
+          timestamp: 1_000,
+        }}
+        isLatestMessage
+        followUpSuggestionsSlot={slot}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByTestId("follow-up-slot")).toBeNull();
   });
 });

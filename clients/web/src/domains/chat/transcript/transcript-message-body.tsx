@@ -165,6 +165,7 @@ export function TranscriptMessageBody({
   responseArtifacts,
   isStreaming = false,
   isLatestMessage = false,
+  followUpSuggestionsSlot,
 }: TranscriptMessageBodyProps) {
   const { t } = useTranslation("chat");
   const inlineAssistantIntermediates =
@@ -1337,6 +1338,9 @@ export function TranscriptMessageBody({
             asset work lands in "Earlier activity" still ends with its cards. */}
         {responseArtifactCards}
         {trailer}
+        {/* Below the actions row, so the chips read as the next thing to do
+            rather than as another action on the reply above them. */}
+        {isAssistant && isLatestMessage ? followUpSuggestionsSlot : null}
       </div>
       {vellumFileModal}
       {isTouch && !isAssistant && (

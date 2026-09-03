@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 import {
   isAcpSpawnCall,
@@ -111,6 +113,14 @@ export interface TranscriptMessageBodyProps {
    * mid-transcript never shifts layout.
    */
   isLatestMessage?: boolean;
+  /**
+   * Follow-up suggestion chips, rendered below the hover-actions row of the
+   * message this transcript ends on and nowhere else. The chat page owns the
+   * node (it holds the flag, the suggestions, and the send path) and every row
+   * receives the same one, so the `isLatestMessage` + assistant test here is
+   * what decides where it lands. Absent when the surface has nothing to offer.
+   */
+  followUpSuggestionsSlot?: ReactNode;
 }
 
 /**

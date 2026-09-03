@@ -77,6 +77,10 @@ export interface LatestTurnRowProps {
    *  responses by `Transcript`. Only the message that ends a completed response
    *  has an entry, and the in-flight response has none. */
   responseArtifactsByKey?: ReadonlyMap<string, ResponseArtifact[]>;
+  /** Follow-up suggestion chips for the reply this turn ended on. Handed only
+   *  to the response rows: the anchor is the user's own message, which never
+   *  carries them. */
+  followUpSuggestionsSlot?: ReactNode;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
@@ -104,6 +108,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onWorkflowClick,
   onStopWorkflow,
   responseArtifactsByKey,
+  followUpSuggestionsSlot,
 }: LatestTurnRowProps) {
   // The response cluster is "streaming" whenever the turn is in flight. This
   // keeps each response message's last tool-call group expanded for the whole
@@ -174,6 +179,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             responseArtifacts={responseArtifactsByKey?.get(response.key)}
             isStreaming={isStreaming}
             isLatestMessage={response === lastMessageItem}
+            followUpSuggestionsSlot={followUpSuggestionsSlot}
           />
         </Fragment>
       ))}

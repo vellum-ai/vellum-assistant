@@ -756,6 +756,9 @@
     "upload": "Subir",
     "uploading": "Subiendo..."
   },
+  "followUpSuggestions": {
+    "groupAria": "Sugerencias de seguimiento"
+  },
   "formSurface": {
     "secureHint": "Este valor se enviará de forma segura y no se guardará en tu navegador.",
     "selectPlaceholder": "Seleccionar..."

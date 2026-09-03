@@ -65,6 +65,11 @@ export interface TranscriptProps {
    *  different lifecycle than interaction prompts, so it stays as a
    *  render-prop for now. */
   renderOnboardingChoice?: () => ReactNode;
+  /** Follow-up suggestion chips for the reply the transcript ends on, or
+   *  omitted when the surface has nothing to offer. Handed to every row; only
+   *  the latest assistant message renders it (see
+   *  `TranscriptMessageBodyProps.followUpSuggestionsSlot`). */
+  followUpSuggestionsSlot?: ReactNode;
   /** Click handler on a tool-call risk badge — opens the rule editor. The
    *  ToolCallChip forwards the active tool-call's metadata so the modal can
    *  pre-fill its fields. */
@@ -353,6 +358,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onStopSubagent: rest.onStopSubagent,
       onWorkflowClick: rest.onWorkflowClick,
       onStopWorkflow: rest.onStopWorkflow,
+      followUpSuggestionsSlot: rest.followUpSuggestionsSlot,
     };
 
     return (
