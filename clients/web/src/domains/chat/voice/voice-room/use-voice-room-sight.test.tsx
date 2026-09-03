@@ -45,11 +45,13 @@ let nativeSourceOptions: NativeFrameSourceOptions | null = null;
 const nativeStart = mock(() => {});
 const nativeStop = mock(() => {});
 const nativeInvalidate = mock(() => {});
+const nativeSampleNow = mock(() => {});
 mock.module("@/lib/camera/native-frame-source", () => ({
   createNativeFrameSource: (options: NativeFrameSourceOptions) => {
     nativeSourceOptions = options;
     return {
       start: nativeStart,
+      sampleNow: nativeSampleNow,
       invalidate: nativeInvalidate,
       stop: nativeStop,
     };
@@ -255,6 +257,18 @@ function watchGateReset() {
   return spy;
 }
 
+/**
+ * The same, for the one-shot arm, on whichever sampler is running.
+ *
+ * Both are handed the very gate the hook keeps, so replacing the method on the
+ * object the source was given is what the hook calls.
+ */
+function watchGateArm() {
+  const spy = mock((_nowMs: number) => {});
+  (samplerOptions ?? nativeSourceOptions)!.gate.armForcedKeep = spy;
+  return spy;
+}
+
 beforeEach(() => {
   samplerOptions = null;
   samplerStart.mockClear();
@@ -263,6 +277,7 @@ beforeEach(() => {
   nativeStart.mockClear();
   nativeStop.mockClear();
   nativeInvalidate.mockClear();
+  nativeSampleNow.mockClear();
   captureNativeVoiceCameraSample.mockClear();
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
@@ -1854,5 +1869,151 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
     // keep, so the picture and the decision are of the same camera.
     expect(nativeInvalidate).not.toHaveBeenCalled();
     expect(samplerStop).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The frame for the question being asked.
+ *
+ * The gate keeps on its own schedule, and the daemon reads the conversation the
+ * instant an utterance closes, so a question asked just after the camera moved
+ * is answered about the scene before it. The moment the user starts speaking is
+ * the only signal the client has for "this is the one", and these cover what it
+ * is composed from, that it fires once per utterance, and that it reaches the
+ * keep through the same path every other keep takes.
+ */
+describe("useVoiceRoomSight: a frame for the question being asked", () => {
+  /** Put the session on the server VAD, which is where an utterance exists. */
+  function goHandsFree(): void {
+    act(() => {
+      useLiveVoiceStore.getState().setHandsFree(true);
+    });
+  }
+
+  function openUtterance(open: boolean): void {
+    act(() => {
+      useLiveVoiceStore.getState().setUtteranceOpen(open);
+    });
+  }
+
+  test("arms the gate when a hands-free utterance opens", () => {
+    goHandsFree();
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).toHaveBeenCalledTimes(1);
+  });
+
+  test("arms once per utterance, however the store is written to inside it", () => {
+    goHandsFree();
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+    // A mute and an unmute mid-sentence are two more writes this hook reads,
+    // and neither is a new question.
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(false);
+    });
+    expect(armed).toHaveBeenCalledTimes(1);
+
+    // The next utterance is a new question and gets its own frame.
+    openUtterance(false);
+    openUtterance(true);
+    expect(armed).toHaveBeenCalledTimes(2);
+  });
+
+  test("arms when a manual session opens the user's turn", () => {
+    // Push-to-talk has no VAD and no utterance: the session reaching
+    // `listening` is where forwarding starts, which is the press.
+    act(() => {
+      useLiveVoiceStore.getState().setState("connecting");
+    });
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    expect(armed).toHaveBeenCalledTimes(1);
+  });
+
+  test("arms nothing while the mic is muted", () => {
+    goHandsFree();
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  test("arms nothing once Live is off", () => {
+    goHandsFree();
+    const { view } = renderSight({ live: true });
+    const armed = watchGateArm();
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    openUtterance(true);
+
+    // Nothing is sampling, so there is nothing for a keep to be made of and
+    // no consent to make it under.
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  test("asks the native poll for a sample instead of waiting for its tick", () => {
+    goHandsFree();
+    renderSight({ live: true, nativePreview: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).toHaveBeenCalledTimes(1);
+    expect(nativeSampleNow).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not nudge a browser sampler, whose next frame is a moment away", () => {
+    goHandsFree();
+    renderSight({ live: true });
+
+    openUtterance(true);
+
+    expect(nativeSampleNow).not.toHaveBeenCalled();
+  });
+
+  test("does not arm for an utterance that was already open when Live began", () => {
+    goHandsFree();
+    openUtterance(true);
+
+    renderSight({ live: true, nativePreview: true });
+
+    // The ask happened before there was a camera streaming, and the fresh
+    // gate's first keep covers that scene anyway.
+    expect(nativeSampleNow).not.toHaveBeenCalled();
+  });
+
+  test("the forced keep travels the same path as every other one", async () => {
+    goHandsFree();
+    renderSight({ live: true });
+    openUtterance(true);
+
+    // The arm decides WHICH frame is kept; the keep itself is the sampler's
+    // own decision callback, so consent, capture order, the upload and the
+    // thumbnail are inherited rather than duplicated.
+    await keepFrame();
+
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
   });
 });

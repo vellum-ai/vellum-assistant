@@ -155,7 +155,37 @@ which is the thing to watch for battery and heat below.
       native sampler.
 - [ ] **Battery and thermals over a ten-minute call.** Hold Live for a sustained
       stretch and note case temperature and battery drain against the same call
-      without Live. Two captures a second is the cost being measured.
+      without Live. Two captures a second is the cost being measured, plus at
+      most one extra pair per question: the start of an utterance asks the poll
+      for a sample out of cycle instead of waiting for its next tick.
+
+### The frame the question is about
+
+Speech start is the client's only signal for "the answer is about what the
+camera is pointed at right now". It arms the gate for one keep, which skips the
+rate floor and the novelty bar but not the warmup or the detail floor, and on
+the native path it also asks the poll for a pair at once. Run these in both
+hands-free and push-to-talk, on iOS, Android and desktop web.
+
+- [ ] **Point at A, ask, then point at B and ask.** With Live running, ask about
+      one object, let the answer finish, move the camera to a different object
+      and ask "what am I looking at now?". The answer describes the second
+      object, not the first. Five times over, in both session modes and on each
+      platform. An answer about the previous object is the bug this exists to
+      catch; note which mode and platform it happened in.
+- [ ] **Short-question stress.** Pan to something new and immediately ask a
+      question about a second long ("what is this?"). Note any answer that
+      describes the previous scene, and the network the device was on. The keep
+      races the upload here, and how often it loses is what decides whether the
+      daemon-side hold needs the earlier client hint on top of it.
+- [ ] **One frame per question, not a burst.** With the tuning readout on, watch
+      the decision order as a question starts: exactly one keep is decided as
+      "Asked for", and the frames right behind it are turned away by the rate
+      floor rather than keeping again. A pair of near-identical frames in the
+      transcript per question is the regression.
+- [ ] **Nothing is kept when nothing is being asked.** Hold Live and stay quiet
+      for a minute: keeps come at the ambient cadence only. Then mute the mic
+      and speak: no keep follows the speech.
 
 - [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
       second the haptic fires, the ring goes crimson, the pill says Live and the

@@ -17,4 +17,9 @@ describe("formatCostUsd", () => {
     expect(formatCostUsd(1.5)).toBe("$1.50");
     expect(formatCostUsd(12.345)).toBe("$12.35");
   });
+
+  test("keeps the sign ahead of the dollar sign for negative amounts", () => {
+    expect(formatCostUsd(-2.5)).toBe("-$2.50");
+    expect(formatCostUsd(-0.004)).toBe("-$0.004000");
+  });
 });

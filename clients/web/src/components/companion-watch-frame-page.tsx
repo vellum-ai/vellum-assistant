@@ -1,15 +1,22 @@
 /**
- * The edge of the display, lit while the screen is being read.
+ * The frame around what is being read: a border, and nothing inside it.
  *
- * Drawn in its own click-through window the size of the display, which the
- * macOS shell opens for a watch session and closes after it
- * (`clients/macos/src/main/companion-window.ts`). The whole screen says it is
- * being read, the way a shared screen is framed, so a capture is never
+ * Drawn in its own click-through window, which the macOS shell opens for a
+ * watch session, sizes to whatever the session reads (a display, or the one
+ * window the user picked), moves with it, and closes after it
+ * (`clients/macos/src/main/companion-window.ts`). The surface being read says
+ * so on its own edge, the way a shared screen is framed, so a capture is never
  * something only a ring on a creature in one corner admits to.
  *
+ * A border and no glow, deliberately. A frame's job is to say exactly where
+ * the read stops, and light bleeding inward from the edge says the opposite:
+ * it dims the thing the user is working on and makes the boundary a
+ * gradient. The edge is the whole signal.
+ *
  * **It draws the session and holds none of it.** The window is pushed the
- * same state the companion surface is, and lights when that state says a
- * session is reading the screen. Nothing here is interactive: the page is
+ * same state the companion surface is, and draws when that state says a
+ * session is reading the screen. Where the window sits is the shell's; this
+ * page only paints to its own edges. Nothing here is interactive: the page is
  * decoration on a desktop it does not own.
  */
 
@@ -61,7 +68,7 @@ function useObservedCaptures(captureCount: number, watching: boolean): number {
   return observed;
 }
 
-export function CompanionWatchGlowPage() {
+export function CompanionWatchFramePage() {
   const [state, setState] = useState<CompanionSurfaceState | null>(null);
 
   useEffect(() => {
@@ -89,14 +96,14 @@ export function CompanionWatchGlowPage() {
     >
       {lit && (
         <div
-          className="companion-watch-glow fixed inset-0"
+          className="companion-watch-frame fixed inset-0"
           style={{
             ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
           }}
         />
       )}
-      {/* One capture, as a single breath of light on the same frame. The frame
-          says the screen is being read, which is a state; this says it was
+      {/* One capture, as a single brightening of the same edge. The frame
+          says the surface is being read, which is a state; this says it was
           read just now, which is an event, and the two need different
           treatments or the second is invisible inside the first. Keyed by the
           captures this window has watched arrive, so each one remounts the
@@ -104,7 +111,7 @@ export function CompanionWatchGlowPage() {
       {lit && observedCaptures > 0 && (
         <div
           key={observedCaptures}
-          className="companion-watch-glow-flash fixed inset-0"
+          className="companion-watch-frame-flash fixed inset-0"
           style={{
             ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
           }}

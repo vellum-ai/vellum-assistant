@@ -27,6 +27,8 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -161,8 +163,7 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -293,8 +294,14 @@ export interface VellumBridge {
      * Publish the traits the assistant's character is composed from, so
      * surfaces that can render it live do, rather than showing the still that
      * `setAvatar` ships. `null` when the avatar is a custom image or absent.
+     * `accentHex` is the avatar's accent as `#rrggbb`, carried separately
+     * because an uploaded image has one and no traits; `null` when the
+     * avatar has no colour yet. Omitted by a web bundle that predates it.
      */
-    setCharacter(character: CompanionCharacter | null): void;
+    setCharacter(
+      character: CompanionCharacter | null,
+      accentHex?: string | null,
+    ): void;
   };
   dock: {
     setBadge(count: number): void;
@@ -554,8 +561,23 @@ export interface VellumBridge {
      * surface draws a single control and the window holding the session is the
      * only side that knows which edge a press is. What comes back is `watching`
      * on `onState`.
+     *
+     * `pick` is the row of the picker the start edge came from, when it came
+     * from one. Main resolves a tab to the window showing it and hands the
+     * result to the session as its target; what comes back is `captureTarget`
+     * on `onState`, and the frame main draws around it.
      */
-    toggleWatch(): void;
+    toggleWatch(pick?: CompanionCapturePick): void;
+    /**
+     * What a session could read right now: the displays, the Chrome tabs, and
+     * the windows on screen, for the picker Teach opens.
+     *
+     * Listed on demand rather than pushed, because the desktop changes under
+     * every push and the list is only worth anything at the moment it is drawn.
+     * Absent on a shell that predates the picker, which the surface reads as
+     * having nothing to offer and starts the whole-screen session instead.
+     */
+    listCaptureSources?(): Promise<CompanionCaptureSources>;
     /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.

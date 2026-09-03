@@ -21,13 +21,8 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const {
-  CompanionSurface,
-  FALLBACK_WIDTHS,
-  INNER_GAP,
-  CALL_SLOT_GAP,
-  NAME_DWELL_MS,
-} = await import("./companion-surface");
+const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP, NAME_DWELL_MS } =
+  await import("./companion-surface");
 
 afterEach(() => {
   cleanup();
@@ -306,9 +301,9 @@ describe("the companion surface's anchor in the canvas", () => {
    * every state the surface can be in.
    */
   test("keeps the avatar's own point in every phase but the call", () => {
-    // The call bar is the one exception, and a deliberate one: the creature
-    // moves into the bar's slot, and the bar is what stays on the point. See
-    // "the companion surface's call bar".
+    // The call bar is the one exception, and a deliberate one: the bar is
+    // what stays on the point, and the creature steps aside to stand beside
+    // it. See "the companion surface's call bar".
     for (const phase of PHASES.filter((candidate) => candidate !== "call")) {
       const { container } = render(<CompanionSurface phase={phase} />);
       expect(avatarOf(container).style.left).toBe("50%");
@@ -639,6 +634,59 @@ describe("the companion surface's Watch action", () => {
   });
 
   /**
+   * The way in may be a question first. A page that can ask what to read
+   * takes the press with no session running; the stop is the session's and
+   * never a question.
+   */
+  test("hands the way in to the page that asks first, and the stop to the session", () => {
+    const presses: string[] = [];
+    const surface = (watching: boolean) => (
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled
+        watching={watching}
+        onWatch={() => {
+          presses.push("watch");
+        }}
+        onTeach={() => {
+          presses.push("teach");
+        }}
+      />
+    );
+    const { container, rerender } = render(surface(false));
+    fireEvent.click(watchOf(container));
+    rerender(surface(true));
+    fireEvent.click(watchOf(container));
+    expect(presses).toEqual(["teach", "watch"]);
+  });
+
+  test("is held down while the question is open", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled
+        picking
+      />,
+    );
+    expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("draws the picker it is handed beside the surface", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled
+        picking
+        picker={<div data-testid="picker" />}
+      />,
+    );
+    expect(container.querySelector('[data-testid="picker"]')).not.toBeNull();
+  });
+
+  /**
    * A reader gets none of what this surface spends on the state: not the amber
    * ring, not the held-down background. The pressed state is the whole of what
    * reaches them, so it is what says a session is running and that the press
@@ -921,11 +969,30 @@ describe("the companion surface's call bar", () => {
     expect(pill.style.transform).toBe("translateY(-100%)");
   });
 
-  test("takes the creature into its leading slot", () => {
+  /**
+   * Half the bar back from the centre, then the gap and the creature's own
+   * half box: 12 and 22 at the base pair, the same step the pill takes off the
+   * creature in every other phase, read from the bar's side.
+   */
+  test("stands the creature beside the bar's leading end, across the gap", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
-    expect(creatureOf(container).style.left).toMatch(/^calc\(50% - /);
+    const half = parseFloat(pillOf(container).style.width) / 2;
+    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half + 34}px)`);
+  });
+
+  test("steps the creature off the bar by the gap the pair earns", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        avatarBox={110}
+        optionsBox={44}
+      />,
+    );
+    const half = parseFloat(pillOf(container).style.width) / 2;
+    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half + 67}px)`);
   });
 
   test("leaves the creature on its own point outside a call", () => {
@@ -933,15 +1000,12 @@ describe("the companion surface's call bar", () => {
     expect(creatureOf(container).style.left).toBe("50%");
   });
 
-  test("keeps the creature's slot clear ahead of the body", () => {
+  test("keeps the same clearance ahead of the body as every other pill", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     const row = pillOf(container).querySelector<HTMLElement>(".h-11.shrink-0");
-    expect(row?.style.paddingInlineStart).toBe(
-      `${INNER_GAP + 44 + CALL_SLOT_GAP}px`,
-    );
-    expect(row?.style.paddingInlineEnd).toBe(`${INNER_GAP}px`);
+    expect(row?.style.paddingInline).toBe(`${INNER_GAP}px`);
   });
 
   /**
@@ -1267,12 +1331,8 @@ describe("the companion surface's width ceiling", () => {
    * with the clearance at either end left off is not one that fits.
    */
   test("holds for every measured body once the pill's own clearance is on it", () => {
-    // The call bar's clearance includes the creature's slot at its leading
-    // end, since the creature is inside that bar rather than beside it.
-    const clearance = (phase: string): number =>
-      phase === "call" ? 2 * INNER_GAP + 44 + CALL_SLOT_GAP : 2 * INNER_GAP;
     const over = Object.entries(FALLBACK_WIDTHS).filter(
-      ([phase, width]) => width + clearance(phase) > CANVAS_CEILING,
+      ([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
   });

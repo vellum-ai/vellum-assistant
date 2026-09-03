@@ -90,6 +90,10 @@
   "assistantNavItem": {
     "newChat": "New Chat"
   },
+  "assistantSection": {
+    "emptyTitle": "Nothing on my mind yet.",
+    "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
@@ -768,6 +772,7 @@
     "overridden": "Moved off the default",
     "reasonFeatureless": "Too little detail to compare.",
     "reasonFirst": "Nothing kept yet, and the view settled.",
+    "reasonForced": "Kept for the question being asked right now.",
     "reasonHeartbeat": "Nothing changed, but the last photo is old.",
     "reasonMoving": "The view is still moving.",
     "reasonNovel": "Enough changed since the last photo.",
@@ -781,6 +786,7 @@
     "skip": "Skip",
     "stepFeatureless": "Detail floor",
     "stepFirst": "First keep",
+    "stepForced": "Asked for",
     "stepHeartbeat": "Heartbeat",
     "stepMoving": "Settled",
     "stepNovel": "Novelty",

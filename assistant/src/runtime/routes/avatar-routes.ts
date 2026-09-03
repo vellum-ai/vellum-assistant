@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { getCharacterComponents } from "@vellumai/avatar-catalog";
-import { AVATAR_TRAITS_FILENAME } from "@vellumai/avatar-manifest";
+import {
+  AVATAR_TRAITS_FILENAME,
+  normalizeAvatarAccentHex,
+} from "@vellumai/avatar-manifest";
 import { z } from "zod";
 
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
@@ -13,7 +16,9 @@ import {
   writeManifest,
 } from "../../avatar/avatar-manifest.js";
 import {
+  backfillAccent,
   clearAvatar,
+  setAccent,
   setCharacter,
   setImage,
 } from "../../avatar/avatar-store.js";
@@ -81,12 +86,38 @@ function readManifestSelfHealing(): AvatarState {
  * Return the authoritative avatar render state.
  *
  * Reads the manifest (`avatar.json`). When the manifest is absent it is
- * self-healed once from the legacy sidecar files and persisted. Never 404s —
- * an empty workspace yields `{ kind: "none", traits: null, source: null,
- * image: null }`.
+ * self-healed once from the legacy sidecar files and persisted, and a manifest
+ * written before accents existed has its accent filled in the same way. Never
+ * 404s: an empty workspace yields `{ kind: "none" }` with every other field
+ * null.
  */
 function handleGetAvatarState() {
-  return readManifestSelfHealing();
+  return backfillAccent(readManifestSelfHealing());
+}
+
+/**
+ * Set the accent over the current avatar, or hand it back to the automatic
+ * one. Returns the state as written so the caller can paint without a
+ * second read.
+ */
+async function handleSetAvatarAccent({ body, headers }: RouteHandlerArgs) {
+  const payload = body as Record<string, unknown> | undefined;
+  const raw = payload?.hex;
+  let hex: string | null = null;
+  if (raw !== null && raw !== undefined) {
+    hex = normalizeAvatarAccentHex(raw);
+    if (!hex) {
+      throw new BadRequestError("hex must be a #rrggbb colour, or null");
+    }
+  }
+
+  const state = await setAccent(hex);
+  if (!state) {
+    throw new BadRequestError("No avatar to set an accent on");
+  }
+
+  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+  return state;
 }
 
 function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
@@ -147,7 +178,7 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
 
   // Route through the store: atomically writes the PNG, removes the now-stale
   // character sidecars (traits + ASCII), and records an AI-sourced manifest.
-  setImage(result.pngBuffer, "ai");
+  await setImage(result.pngBuffer, "ai");
 
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true, message: result.content };
@@ -159,7 +190,7 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
  * single server-authoritative endpoint: the store atomically writes the PNG,
  * clears the character sidecars, and records an `image` manifest.
  */
-function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
+async function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
   const payload = body as Record<string, unknown> | undefined;
   const content = payload?.content;
   const encoding = payload?.encoding;
@@ -195,13 +226,13 @@ function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
 
   // Route through the store: atomically writes the PNG, removes the now-stale
   // character sidecars (traits + ASCII), and records an uploaded-image manifest.
-  setImage(buffer, "upload");
+  await setImage(buffer, "upload");
 
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }
 
-function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
+async function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
   const imagePath = (body as Record<string, unknown>)?.imagePath as
     | string
     | undefined;
@@ -227,7 +258,7 @@ function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
 
   // Route through the store so traits sidecars are cleared and the manifest is
   // recorded as an uploaded image atomically (no more stale both-files state).
-  setImage(readFileSync(normalized), "upload");
+  await setImage(readFileSync(normalized), "upload");
 
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
@@ -333,6 +364,31 @@ function handleCharacterAscii({ queryParams, body }: RouteHandlerArgs) {
   return { ascii };
 }
 
+/** The wire shape of `avatar.json`, shared by every route that answers with it. */
+const avatarStateSchema = z.object({
+  kind: z.enum(["character", "image", "none"]),
+  traits: z
+    .object({
+      bodyShape: z.string(),
+      eyeStyle: z.string(),
+      color: z.string(),
+    })
+    .nullable(),
+  source: z.enum(["builder", "upload", "ai"]).nullable(),
+  image: z
+    .object({
+      updatedAt: z.string(),
+      etag: z.string(),
+    })
+    .nullable(),
+  accent: z
+    .object({
+      hex: z.string(),
+      source: z.enum(["palette", "derived", "custom"]),
+    })
+    .nullable(),
+});
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "avatar_character_components",
@@ -384,25 +440,25 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleGetAvatarState,
     summary: "Get avatar state",
     description:
-      "Return the authoritative avatar render mode (character, image, or none).",
+      "Return the authoritative avatar render mode (character, image, or none) and its accent colour.",
     tags: ["avatar"],
-    responseBody: z.object({
-      kind: z.enum(["character", "image", "none"]),
-      traits: z
-        .object({
-          bodyShape: z.string(),
-          eyeStyle: z.string(),
-          color: z.string(),
-        })
-        .nullable(),
-      source: z.enum(["builder", "upload", "ai"]).nullable(),
-      image: z
-        .object({
-          updatedAt: z.string(),
-          etag: z.string(),
-        })
-        .nullable(),
-    }),
+    responseBody: avatarStateSchema,
+  },
+  {
+    operationId: "avatar_set_accent",
+    endpoint: "avatar/accent",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handleSetAvatarAccent,
+    summary: "Set avatar accent",
+    description:
+      "Set the accent colour over the current avatar as #rrggbb, or null to return to the automatic one (the character's palette colour, or the colour read out of the uploaded image).",
+    tags: ["avatar"],
+    requestBody: z.object({ hex: z.string().nullable() }),
+    responseBody: avatarStateSchema,
   },
   {
     operationId: "avatar_render_from_traits",

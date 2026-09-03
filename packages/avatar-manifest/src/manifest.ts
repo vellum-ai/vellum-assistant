@@ -1,3 +1,5 @@
+import { isAvatarAccentHex } from "./accent.js";
+
 export type AvatarKind = "character" | "image" | "none";
 export type AvatarSource = "builder" | "upload" | "ai";
 
@@ -12,12 +14,27 @@ export interface AvatarImageMeta {
   etag: string;
 }
 
+/**
+ * Where an accent came from. `palette`: a character's chosen colour.
+ * `derived`: read out of an uploaded image's pixels. `custom`: set by the
+ * user over an image. Only the last is worth offering a reset from.
+ */
+export type AvatarAccentSource = "palette" | "derived" | "custom";
+
+/** The colour every avatar-tinted surface paints with, as `#rrggbb`. */
+export interface AvatarAccent {
+  hex: string;
+  source: AvatarAccentSource;
+}
+
 /** The persisted manifest (`avatar.json`). */
 export interface AvatarState {
   kind: AvatarKind;
   traits: CharacterTraits | null;
   source: AvatarSource | null;
   image: AvatarImageMeta | null;
+  /** Null for `none`, and for an image whose colour could not be read. */
+  accent: AvatarAccent | null;
 }
 
 const AVATAR_KINDS: ReadonlySet<string> = new Set<AvatarKind>([
@@ -30,6 +47,12 @@ const AVATAR_SOURCES: ReadonlySet<string> = new Set<AvatarSource>([
   "builder",
   "upload",
   "ai",
+]);
+
+const AVATAR_ACCENT_SOURCES: ReadonlySet<string> = new Set<AvatarAccentSource>([
+  "palette",
+  "derived",
+  "custom",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,6 +90,23 @@ function isValidAvatarImageMeta(value: unknown): value is AvatarImageMeta {
 }
 
 /**
+ * An accent is optional on the wire and in the file: manifests written before
+ * accents existed carry none, and an unreadable image has none. Anything not
+ * a well-formed accent normalizes to null rather than failing the manifest.
+ */
+function parseAvatarAccent(value: unknown): AvatarAccent | null {
+  if (
+    !isRecord(value) ||
+    !isAvatarAccentHex(value.hex) ||
+    typeof value.source !== "string" ||
+    !AVATAR_ACCENT_SOURCES.has(value.source)
+  ) {
+    return null;
+  }
+  return { hex: value.hex, source: value.source as AvatarAccentSource };
+}
+
+/**
  * Validates a parsed `avatar.json`. Returns `null` for a non-object, an
  * invalid or missing `kind`, or a valid `kind` whose per-kind payload is
  * missing or malformed, so callers fall back to legacy derivation instead
@@ -90,15 +130,27 @@ export function parseAvatarManifest(value: unknown): AvatarState | null {
     if (!isValidCharacterTraits(value.traits)) {
       return null;
     }
-    return { kind, traits: value.traits, source, image: null };
+    return {
+      kind,
+      traits: value.traits,
+      source,
+      image: null,
+      accent: parseAvatarAccent(value.accent),
+    };
   }
   if (kind === "image") {
     if (!isValidAvatarImageMeta(value.image)) {
       return null;
     }
-    return { kind, traits: null, source, image: value.image };
+    return {
+      kind,
+      traits: null,
+      source,
+      image: value.image,
+      accent: parseAvatarAccent(value.accent),
+    };
   }
-  return { kind, traits: null, source, image: null };
+  return { kind, traits: null, source, image: null, accent: null };
 }
 
 type LegacyAvatarDerivation =

@@ -421,7 +421,8 @@ export function AssistantSideMenu({
 
   const listContext: ConversationListContextValue = {
     overlayCards: variant === "overlay",
-    scrollParent: variant === "overlay" ? (bodyElement ?? undefined) : undefined,
+    scrollParent:
+      variant === "overlay" ? (bodyElement ?? undefined) : undefined,
     activeConversationId,
     activeConversationProcessing,
     processingConversationIds,
@@ -492,6 +493,18 @@ export function AssistantSideMenu({
     });
   };
 
+  /* Index of the last section that may claim the rail's leftover space: the
+     last one that is not the bottom-pinned assistant section. -1 when the
+     list holds nothing else, so nothing fills. */
+  const lastFillIndex = (() => {
+    for (let i = sidebar.sections.length - 1; i >= 0; i--) {
+      if (sidebar.sections[i]!.type !== "assistant") {
+        return i;
+      }
+    }
+    return -1;
+  })();
+
   const renderSection = (section: SidebarSection, index: number) => (
     <SidebarSectionItem
       key={section.key}
@@ -509,7 +522,14 @@ export function AssistantSideMenu({
       // near-empty box the same size as a busy one beside it. The overlay
       // skips that fill: its lists scroll with the drawer body so rows
       // can travel clear of the floating action pills.
-      isLast={variant === "rail" && index === sidebar.sections.length - 1}
+      //
+      // "Bottom-most" here means the last *space-claiming* section, which is
+      // not the last rendered one once the assistant section is pinned below
+      // everything. That section hugs its own rows against the Preferences
+      // footer; handing it the fill instead would stretch a short list of
+      // realizations down the rail and squeeze Chats — the list that actually
+      // grows — into a fixed box above it.
+      isLast={variant === "rail" && index === lastFillIndex}
     />
   );
 

@@ -81,6 +81,7 @@ function createRecordingGate(): {
     observe(grid, nowMs) {
       observed.push({ grid, cells: Array.from(grid), nowMs });
     },
+    armForcedKeep() {},
     reset() {},
   };
   return { gate, offers, observed };
@@ -1656,5 +1657,272 @@ describe("native frame source bridge deadline", () => {
     expect(offers).toHaveLength(1);
     debug.mockRestore();
     live.stop();
+  });
+});
+
+/**
+ * The out-of-cycle sample.
+ *
+ * A poll a second apart answers a question asked now with a frame that can be
+ * most of a second old, so the owner can ask for one at once. What matters is
+ * that asking changes nothing else: the pair, the bridge queue, the generation
+ * checks and the cadence behind it are the ones every tick uses, because a lone
+ * capture would reach the gate with no motion baseline and a second pair beside
+ * a running one would race the plugin's single callback.
+ */
+describe("native frame source out-of-cycle sample", () => {
+  test("takes a whole pair, and leaves the cadence running behind it", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await advance(400);
+    expect(capture.callCount()).toBe(0);
+
+    source.sampleNow();
+    await settle();
+    // The primer first, exactly as a tick takes it: the offered frame needs
+    // something recent to measure motion against.
+    expect(capture.callCount()).toBe(1);
+    expect(observed).toHaveLength(1);
+    expect(offers).toHaveLength(0);
+
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
+    expect(offers).toHaveLength(1);
+    expect(offers[0]?.nowMs).toBe(460);
+
+    // The poll is untouched by it: its own tick lands on schedule.
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS - 460);
+    await finishPair();
+    expect(capture.callCount()).toBe(4);
+    expect(offers).toHaveLength(2);
+    expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
+  test("is remembered while the run has a pair out, and answered when it settles", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(capture.callCount()).toBe(1);
+
+    // The claim spans the whole pair, so the gap between its two samples is
+    // not a hole a second pair can be started in. The ask is kept instead.
+    source.sampleNow();
+    await settle();
+    expect(capture.callCount()).toBe(1);
+
+    // The outstanding pair closes, and the remembered ask takes its own pair
+    // right behind it: the closing pair's captures predate the ask.
+    await finishPair();
+    expect(offers).toHaveLength(1);
+    expect(capture.callCount()).toBe(3);
+
+    await finishPair();
+    expect(capture.callCount()).toBe(4);
+    expect(offers).toHaveLength(2);
+    expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
+  test("a pair in flight at the ask is judged plainly; the follow-up is the forced one", async () => {
+    // The real gate, so what is asserted is the arm's time bound itself: the
+    // in-flight pair's judged frame is stamped before the ask and must not
+    // spend it, and the follow-up pair's frame is stamped after and must.
+    const gate = createFrameGate({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      warmupMs: 0,
+    });
+    gate.reset(0);
+    const decisions: FrameGateDecision[] = [];
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: (decision) => decisions.push(decision),
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    // Hold the primer's decode open, so the pair's two captures both land and
+    // the pair is still unjudged when speech begins.
+    decode.holdNext();
+    await startPair();
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
+    expect(decisions).toHaveLength(0);
+
+    // Speech starts. The hook arms the gate and nudges the source, and both
+    // captures already on the books predate this moment.
+    await advance(40);
+    const askAtMs = clock;
+    gate.armForcedKeep(askAtMs);
+    source.sampleNow();
+
+    decode.releaseHeld();
+    await settle();
+    // The stale pair judged by the ambient rules, not force-kept.
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.reason).toBe("first");
+
+    // The follow-up pair, captured after the ask, spends the arm.
+    await finishPair();
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]?.reason).toBe("forced");
+    expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
+  test("a judged capture unresolved at the ask cannot spend the arm by answering late", async () => {
+    // Codex's residual interval: the pair's second bridge request is issued
+    // before the ask and still unresolved when speech begins. Its answer-time
+    // stamp postdates the arm, but the picture predates it, and only the
+    // request-time bound can tell the two apart.
+    const gate = createFrameGate({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      warmupMs: 0,
+    });
+    gate.reset(0);
+    const decisions: FrameGateDecision[] = [];
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: (decision) => decisions.push(decision),
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(capture.callCount()).toBe(1);
+
+    // The judged request goes out and hangs on the bridge.
+    capture.holdNext();
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
+    expect(decisions).toHaveLength(0);
+
+    // Speech starts while it is still unresolved.
+    await advance(40);
+    gate.armForcedKeep(clock);
+    source.sampleNow();
+
+    // The late answer lands after the arm. Judged plainly, arm intact.
+    capture.releaseHeld();
+    await settle();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.reason).toBe("first");
+
+    // The remembered follow-up, requested after the ask, spends it.
+    await finishPair();
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]?.reason).toBe("forced");
+    expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
+  test("drops a remembered ask with the run that made it", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    source.sampleNow();
+    // A flip: the ask was about the camera that is gone, so no follow-up pair
+    // is owed to it.
+    source.invalidate();
+    await finishPair();
+    expect(capture.callCount()).toBe(1);
+
+    // The next tick samples for itself, and only for itself.
+    await startPair();
+    await finishPair();
+    await settle();
+    expect(capture.callCount()).toBe(3);
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
+  test("a stop buries a remembered ask, restart owes it nothing", async () => {
+    const { gate } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    source.sampleNow();
+    source.stop();
+    await finishPair();
+    expect(capture.callCount()).toBe(1);
+
+    source.start();
+    await settle();
+    // Nothing before the new cadence's own first tick.
+    expect(capture.callCount()).toBe(1);
+    source.stop();
+  });
+
+  test("samples nothing on a source that is not polling", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    // Before the first start there is no camera to ask, and after a stop the
+    // one there was is being torn down.
+    source.sampleNow();
+    await settle();
+    expect(capture.callCount()).toBe(0);
+
+    source.start();
+    source.stop();
+    source.sampleNow();
+    await settle();
+    expect(capture.callCount()).toBe(0);
+    expect(offers).toHaveLength(0);
   });
 });
