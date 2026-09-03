@@ -41,13 +41,20 @@ export function AssistantDesktopAffordance() {
       <Modal.Root open={open} onOpenChange={setOpen}>
         <Modal.Content
           size="xl"
-          className="h-[calc(100vh-2rem)]"
+          // Wider and shorter than the `xl` default: the remote display is
+          // 1440x900, and the caps keep the viewport near that 16:10 rather
+          // than letterboxing a tall modal.
+          className="h-[min(calc(100vh-2rem),1000px)] max-w-[min(96vw,1600px)]"
           // Escape belongs to the remote desktop (dismissing its dialogs,
           // leaving fullscreen); the close button and overlay still dismiss.
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
-          <Modal.Header>
-            <Modal.Title>{t("assistantDesktop.title")}</Modal.Title>
+          {/* A 36px header, which is exactly the close button's top offset
+              plus its height, so the desktop keeps the rest of the modal. */}
+          <Modal.Header className="p-2.5 pr-10">
+            <Modal.Title className="text-title-small">
+              {t("assistantDesktop.title")}
+            </Modal.Title>
           </Modal.Header>
           <Modal.Body className="min-h-0 overflow-hidden p-0">
             <LazyBoundary>

@@ -1,7 +1,7 @@
 /**
  * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
  * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
- * tint2 panel, the tigervncconfig clipboard bridge and Playwright's Chromium,
+ * tint2 dock, the tigervncconfig clipboard bridge and Playwright's Chromium,
  * started by the first viewer and lingering after the last one leaves so a
  * reconnect is instant.
  */
@@ -17,6 +17,7 @@ import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 
 const log = getLogger("desktop-session");
 
@@ -154,8 +155,19 @@ interface DesktopSessionManagerOptions {
   readonly readyDeadlineMs?: number;
   readonly killGraceMs?: number;
   readonly profileDir?: string;
+  /** Where the generated tint2rc, its launchers and their icons are written. */
+  readonly panelConfigDir?: string;
   /** Where the children's allowlisted env is read from. */
   readonly sourceEnv?: NodeJS.ProcessEnv;
+}
+
+/** The desktop's binaries, resolved once per start. */
+interface DesktopBinaries {
+  readonly xServer: string;
+  readonly windowManager: string;
+  readonly panel: string;
+  readonly clipboard: string;
+  readonly terminal: string;
 }
 
 export class DesktopSessionManager {
@@ -170,6 +182,10 @@ export class DesktopSessionManager {
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
   private browserExitsAt: number[] = [];
+  /** Resolved for the current tree, and read again when the dock comes up. */
+  private binaries: DesktopBinaries | null = null;
+  /** Whether this tree has already had its one dock start attempted. */
+  private panelStarted = false;
 
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
   private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
@@ -186,6 +202,7 @@ export class DesktopSessionManager {
   private readonly readyDeadlineMs: number;
   private readonly killGraceMs: number;
   private readonly profileDir: string;
+  private readonly panelConfigDir: string;
   private readonly sourceEnv: NodeJS.ProcessEnv;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
@@ -200,6 +217,8 @@ export class DesktopSessionManager {
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS;
     this.profileDir =
       options.profileDir ?? join(getDataDir(), "desktop-profile");
+    this.panelConfigDir =
+      options.panelConfigDir ?? join(getDataDir(), "desktop-panel");
     this.sourceEnv = options.sourceEnv ?? process.env;
   }
 
@@ -270,9 +289,9 @@ export class DesktopSessionManager {
     const generation = this.generation;
     let env: Record<string, string>;
     try {
-      const binaries = this.resolveBinaries();
+      this.binaries = this.resolveBinaries();
       env = this.childEnv();
-      this.launch("x-server", xServerCommand(binaries.xServer), env);
+      this.launch("x-server", xServerCommand(this.binaries.xServer), env);
       const ready = await this.waitForVnc(generation);
       if (this.generation !== generation) {
         throw new Error("Desktop was torn down while starting");
@@ -282,10 +301,8 @@ export class DesktopSessionManager {
           `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
         );
       }
-      this.launch("window-manager", [binaries.windowManager], env);
-      // The panel needs its window manager already up to list windows.
-      this.launch("panel", [binaries.panel], env);
-      this.launch("clipboard", [binaries.clipboard, "-nowin"], env);
+      this.launch("window-manager", [this.binaries.windowManager], env);
+      this.launch("clipboard", [this.binaries.clipboard, "-nowin"], env);
     } catch (err) {
       if (this.generation === generation) {
         void this.teardown(START_FAILED_LOSS);
@@ -298,23 +315,25 @@ export class DesktopSessionManager {
   }
 
   /** Preflight every binary the tree needs before anything is spawned. */
-  private resolveBinaries() {
+  private resolveBinaries(): DesktopBinaries {
     const xServer = this.which("Xtigervnc");
     const windowManager = this.which("openbox");
     const panel = this.which("tint2");
     const clipboard = this.which("tigervncconfig") ?? this.which("vncconfig");
-    if (!xServer || !windowManager || !panel || !clipboard) {
+    const terminal = this.which("xterm");
+    if (!xServer || !windowManager || !panel || !clipboard || !terminal) {
       const missing = [
         xServer ? null : "Xtigervnc",
         windowManager ? null : "openbox",
         panel ? null : "tint2",
         clipboard ? null : "tigervncconfig",
+        terminal ? null : "xterm",
       ].filter(Boolean);
       throw new Error(
         `Desktop binaries missing from PATH: ${missing.join(", ")}`,
       );
     }
-    return { xServer, windowManager, panel, clipboard };
+    return { xServer, windowManager, panel, clipboard, terminal };
   }
 
   private async waitForVnc(generation: number): Promise<boolean> {
@@ -332,10 +351,10 @@ export class DesktopSessionManager {
   }
 
   /**
-   * Launch Chromium unless it is already up. Runs after the X server is
-   * serving so the viewer sees a desktop while a first-time install
-   * completes; an install failure takes the desktop down so the viewer is
-   * not left staring at an empty one.
+   * Launch Chromium unless it is already up, and the dock along with the first
+   * one. Runs after the X server is serving so the viewer sees a desktop while
+   * a first-time install completes; an install failure takes the desktop down
+   * so the viewer is not left staring at an empty one.
    */
   private async ensureBrowser(
     env: Record<string, string>,
@@ -350,6 +369,7 @@ export class DesktopSessionManager {
         return;
       }
       mkdirSync(this.profileDir, { recursive: true });
+      this.startPanel(executable, env);
       this.launch("browser", browserCommand(executable, this.profileDir), env);
     } catch (err) {
       log.warn({ err }, "Desktop browser failed to launch");
@@ -359,6 +379,31 @@ export class DesktopSessionManager {
           reason: "Desktop browser failed to start",
         });
       }
+    }
+  }
+
+  /**
+   * Bring the dock up once per tree. It waits on Chromium because its launcher
+   * points at that executable, and its window manager is long up by then. A
+   * dock that cannot be written or spawned costs the taskbar, not the desktop,
+   * so the failure is only logged.
+   */
+  private startPanel(chromiumPath: string, env: Record<string, string>): void {
+    const binaries = this.binaries;
+    if (this.panelStarted || !binaries) {
+      return;
+    }
+    this.panelStarted = true;
+    try {
+      const configPath = writeDesktopPanelConfig({
+        configDir: this.panelConfigDir,
+        chromiumPath,
+        chromiumProfileDir: this.profileDir,
+        terminalPath: binaries.terminal,
+      });
+      this.launch("panel", [binaries.panel, "-c", configPath], env);
+    } catch (err) {
+      log.warn({ err }, "Desktop panel failed to start");
     }
   }
 
@@ -440,6 +485,8 @@ export class DesktopSessionManager {
     this.generation += 1;
     this.running = false;
     this.browserExitsAt = [];
+    this.binaries = null;
+    this.panelStarted = false;
     const children = new Map(this.children);
     this.children.clear();
     const viewer = this.viewer;
