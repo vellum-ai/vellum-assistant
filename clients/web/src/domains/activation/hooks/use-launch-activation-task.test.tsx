@@ -98,9 +98,8 @@ mock.module("@/utils/activation-telemetry", () => ({
   emitActivationEvent: emitMock,
 }));
 
-const { useLaunchActivationTask } = await import(
-  "@/domains/activation/hooks/use-launch-activation-task"
-);
+const { useLaunchActivationTask } =
+  await import("@/domains/activation/hooks/use-launch-activation-task");
 type LaunchActivationTaskResult = Awaited<
   ReturnType<ReturnType<typeof useLaunchActivationTask>["launch"]>
 >;
@@ -120,9 +119,8 @@ function installFetch(): void {
     init?: RequestInit,
   ): Promise<Response> => {
     const url = input instanceof Request ? input.url : String(input);
-    const method = (input instanceof Request
-      ? input.method
-      : init?.method ?? "GET"
+    const method = (
+      input instanceof Request ? input.method : (init?.method ?? "GET")
     ).toUpperCase();
     let bodyText: string | undefined;
     if (input instanceof Request) {

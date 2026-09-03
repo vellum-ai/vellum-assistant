@@ -258,9 +258,8 @@ mock.module("@/domains/chat/components/credits-card", () => ({
     ),
 }));
 
-const { PreferencesMenu, showsMenuCredits } = await import(
-  "@/domains/chat/components/preferences-menu"
-);
+const { PreferencesMenu, showsMenuCredits } =
+  await import("@/domains/chat/components/preferences-menu");
 
 /** Opens the menu the way a touch user does, and returns the open surface. */
 async function openMenu(
