@@ -1518,7 +1518,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Submit a contact address in response to a prompt",
           description:
-            "Authenticated gateway endpoint that accepts a contact address submitted by the user in response to a contacts/prompt IPC request. Binds the address to the contact the parked form targets, read back from the daemon, and otherwise resolves the contact from the address. Writes the contact, notifies the daemon to unblock the waiting CLI call.",
+            "Authenticated gateway endpoint that accepts a contact address submitted by the user in response to a contacts/prompt IPC request. Binds the address to the contact the parked form targets, read back from the assistant, and otherwise resolves the contact from the address. Writes the contact, notifies the assistant to unblock the waiting CLI call.",
           operationId: "contactsPromptSubmitPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
