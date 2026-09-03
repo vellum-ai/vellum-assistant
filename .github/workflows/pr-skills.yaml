@@ -69,7 +69,7 @@ jobs:
           node-version: '22.22.2'
 
       - name: Prettier check
-        run: npx prettier --check --ignore-unknown "skills/${{ matrix.skill }}/**"
+        run: npx prettier@3.8.1 --check --ignore-unknown "skills/${{ matrix.skill }}/**"
 
   lint-imports:
     name: Lint cross-skill imports
