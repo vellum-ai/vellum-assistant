@@ -531,7 +531,9 @@ const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
  * closes on the `up`, and the edge has to say the user did not let go.
  */
 const sendSyntheticHotkeyUpIfNeeded = (): void => {
-  if (!holdIsOpen) return;
+  if (!holdIsOpen) {
+    return;
+  }
   holdIsOpen = false;
   sendHotkeyEventToOwner({
     kind: "modifierHold",
