@@ -49,6 +49,12 @@ export function ActivationController(): ReactNode {
    * only one of them is closed at a time.
    */
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const resetTransientState = useActivationUiStore.use.resetTransientState();
+  // Expanded row, Show More and a pill reopen belong to one assistant's
+  // checklist; the next assistant starts from the default view.
+  useEffect(() => {
+    resetTransientState();
+  }, [activeAssistantId, resetTransientState]);
   const [closedFor, setClosedFor] = useState<{
     assistantId: string | null;
     surface: ActivationSurface;

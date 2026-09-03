@@ -37,6 +37,8 @@ interface ActivationUiActions {
   toggleTask: (taskId: string) => void;
   setExpandedTaskId: (taskId: string | null) => void;
   setShowMore: (showMore: boolean) => void;
+  /** Drops every transient choice; the next assistant starts from the default view. */
+  resetTransientState: () => void;
   openModal: () => void;
   closeModal: () => void;
 }
@@ -53,6 +55,8 @@ const useActivationUiStoreBase = create<ActivationUiStore>((set) => ({
     })),
   setExpandedTaskId: (taskId) => set({ expandedTaskId: taskId }),
   setShowMore: (showMore) => set({ showMore }),
+  resetTransientState: () =>
+    set({ expandedTaskId: null, showMore: false, modalReopened: false }),
   openModal: () => set({ modalReopened: true }),
   closeModal: () => set({ modalReopened: false }),
 }));

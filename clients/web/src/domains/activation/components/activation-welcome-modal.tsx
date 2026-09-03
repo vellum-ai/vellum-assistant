@@ -31,6 +31,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   BottomSheet,
@@ -42,6 +43,7 @@ import {
   useTouchSurface,
 } from "@vellumai/design-library";
 
+import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -105,6 +107,13 @@ export function ActivationWelcomeModal({
   // as the open one, or counted by Show More (`../capabilities.ts`).
   const { starters, items } = useAvailableActivationList(listId);
   const { launch, isPending } = useLaunchActivationTask(listId);
+  const queryClient = useQueryClient();
+  // Launch completions read the pending set as it is when they settle, not as
+  // it was when the launch began.
+  const isPendingRef = useRef(isPending);
+  useEffect(() => {
+    isPendingRef.current = isPending;
+  }, [isPending]);
 
   const expandedTaskId = useActivationUiStore.use.expandedTaskId();
   const setExpandedTaskId = useActivationUiStore.use.setExpandedTaskId();
@@ -152,7 +161,20 @@ export function ActivationWelcomeModal({
           // opened while the launch was out is theirs rather than this
           // launch's to overwrite.
           if (useActivationUiStore.getState().expandedTaskId === taskId) {
-            setExpandedTaskId(firstTodoTaskId(tasks, progress, taskId));
+            // Progress and the pending set as they stand now: a row launched
+            // meanwhile is neither todo nor a candidate to open.
+            const current =
+              (assistantId
+                ? queryClient.getQueryData<ActivationProgress>(
+                    activationProgressGetQueryKey({
+                      path: { assistant_id: assistantId },
+                    }),
+                  )
+                : undefined) ?? progress;
+            const candidates = tasks.filter(
+              (task) => !isPendingRef.current(task.id),
+            );
+            setExpandedTaskId(firstTodoTaskId(candidates, current, taskId));
           }
           return;
         }
@@ -174,7 +196,16 @@ export function ActivationWelcomeModal({
         });
       });
     },
-    [handleOpenConversation, launch, progress, setExpandedTaskId, t, tasks],
+    [
+      handleOpenConversation,
+      launch,
+      progress,
+      setExpandedTaskId,
+      t,
+      tasks,
+      assistantId,
+      queryClient,
+    ],
   );
 
   const handleShowFullList = useCallback(() => {

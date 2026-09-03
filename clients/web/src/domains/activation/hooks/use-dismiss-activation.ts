@@ -76,13 +76,22 @@ export function useDismissActivation(
         path: { assistant_id: assistantId },
         body: { kind, listId },
         throwOnError: false,
-      }).finally(() => {
-        void queryClient.invalidateQueries({
-          queryKey: activationProgressGetQueryKey({
-            path: { assistant_id: assistantId },
-          }),
-        });
-      });
+      }).then(
+        ({ response }) => {
+          // Only a write the daemon accepted is worth refetching. A refused
+          // one keeps the optimistic dismissal so the pill stays reachable
+          // instead of a refetch restoring a modal the user already closed.
+          if (!response.ok) {
+            return;
+          }
+          void queryClient.invalidateQueries({
+            queryKey: activationProgressGetQueryKey({
+              path: { assistant_id: assistantId },
+            }),
+          });
+        },
+        () => {},
+      );
     },
     [arm, assistantId, listId, queryClient],
   );

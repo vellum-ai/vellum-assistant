@@ -273,6 +273,21 @@ describe("ActivationController", () => {
     });
   });
 
+  test("switching assistants drops the previous checklist's transient choices", async () => {
+    renderSurfaces();
+    act(() => {
+      useActivationUiStore.setState({ showMore: true, expandedTaskId: "x" });
+    });
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Vel", MIN_VERSION, "asst-2");
+    });
+    expect(useActivationUiStore.getState().showMore).toBe(false);
+    expect(useActivationUiStore.getState().expandedTaskId).toBeNull();
+  });
+
   test("a dismissal the daemon refused does not put the modal back", async () => {
     dismissStatus = 500;
     const { getByRole, queryByRole } = renderSurfaces();
