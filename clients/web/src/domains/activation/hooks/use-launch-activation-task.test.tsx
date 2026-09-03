@@ -120,8 +120,9 @@ function installFetch(): void {
     init?: RequestInit,
   ): Promise<Response> => {
     const url = input instanceof Request ? input.url : String(input);
-    const method = (
-      input instanceof Request ? input.method : (init?.method ?? "GET")
+    const method = (input instanceof Request
+      ? input.method
+      : init?.method ?? "GET"
     ).toUpperCase();
     let bodyText: string | undefined;
     if (input instanceof Request) {
@@ -608,6 +609,31 @@ describe("useLaunchActivationTask progress cache", () => {
       }),
     },
   };
+
+  // Two rows launched together answer with snapshots from different points;
+  // the older answer must keep the task the newer one already seeded.
+  test("keeps tasks seeded by a concurrent start when an older snapshot answers", async () => {
+    queryClient.setQueryData(PROGRESS_KEY, {
+      ...startedProgress,
+      tasks: {
+        ...startedProgress.tasks,
+        "weekly-report": startedTaskProgress({
+          conversationId: "conv-2",
+          stepCount: null,
+        }),
+      },
+    });
+    startBody = startedProgress;
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(Object.keys(cachedProgress()?.tasks ?? {}).sort()).toEqual([
+      "pdf-proposal",
+      "weekly-report",
+    ]);
+  });
 
   test("writes the progress the daemon answered the start with", async () => {
     startBody = startedProgress;

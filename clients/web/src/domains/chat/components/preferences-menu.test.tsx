@@ -226,7 +226,11 @@ mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
 // The funnel emitter posts to the telemetry ingest, which has nowhere to go
 // in a test process. What the menu owns is that the event is emitted with the
 // arm and list it opened, so the emitter is captured rather than run.
-const activationEvents: Array<{ event: string; arm: string; listId: string | null }> = [];
+const activationEvents: Array<{
+  event: string;
+  arm: string;
+  listId: string | null;
+}> = [];
 mock.module("@/utils/activation-telemetry", () => ({
   emitActivationEvent: (
     event: string,
@@ -254,8 +258,9 @@ mock.module("@/domains/chat/components/credits-card", () => ({
     ),
 }));
 
-const { PreferencesMenu, showsMenuCredits } =
-  await import("@/domains/chat/components/preferences-menu");
+const { PreferencesMenu, showsMenuCredits } = await import(
+  "@/domains/chat/components/preferences-menu"
+);
 
 /** Opens the menu the way a touch user does, and returns the open surface. */
 async function openMenu(
@@ -584,6 +589,23 @@ describe("PreferencesMenu Inspiration List", () => {
   // re-bucketed after that. The funnel keys its `screen` dimension off this
   // event, so an arm-derived id would file the open under a list the user was
   // never shown.
+  // A frozen id from a newer client that this bundle has no catalog for must
+  // not enable an empty list; the entry point stays hidden.
+  test("hides the entry point when the frozen list is unknown here", async () => {
+    enableActivationList("parent");
+    activationProgressRef.data = {
+      version: 1,
+      listId: "mystery-list",
+      modalDismissedAt: null,
+      allDoneShownAt: null,
+      tasks: {},
+    };
+    await openMenu();
+
+    expect(screen.queryByText("Inspiration List")).toBeNull();
+    expect(activationEvents).toEqual([]);
+  });
+
   test("records the frozen list, not the arm the user was re-bucketed into", async () => {
     enableActivationList("parent");
     activationProgressRef.data = {

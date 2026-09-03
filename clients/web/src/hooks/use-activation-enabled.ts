@@ -19,6 +19,7 @@
 
 import { useActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 import {
+  ACTIVATION_LIST_IDS,
   resolveActivationListId,
   useActivationChecklistArm,
   type ActivationListId,
@@ -48,6 +49,10 @@ function useActivationEnabledListId(
  * name different lists. `null` whenever the gates are off, which the freeze
  * cannot override: a frozen list says which checklist, never whether.
  */
+function isActivationListId(value: string): value is ActivationListId {
+  return (ACTIVATION_LIST_IDS as readonly string[]).includes(value);
+}
+
 export function useEffectiveActivationListId(
   assistantId: string | null | undefined,
 ): string | null {
@@ -56,5 +61,11 @@ export function useEffectiveActivationListId(
   if (armListId === null) {
     return null;
   }
-  return progress?.listId ?? armListId;
+  const frozen = progress?.listId;
+  if (frozen === null || frozen === undefined) {
+    return armListId;
+  }
+  // A frozen id this bundle has no catalog for (written by a newer client)
+  // hides the surfaces rather than enabling an empty list.
+  return isActivationListId(frozen) ? frozen : null;
 }

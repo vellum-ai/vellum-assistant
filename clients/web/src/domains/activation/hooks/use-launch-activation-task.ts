@@ -122,7 +122,11 @@ function seedStartedTask(
     { path: { assistant_id: assistantId } },
     (cached) => {
       if (answered) {
-        return answered;
+        // Concurrent starts answer with snapshots taken at different points,
+        // so an older answer must not erase a task a newer one already seeded.
+        return cached
+          ? { ...answered, tasks: { ...cached.tasks, ...answered.tasks } }
+          : answered;
       }
       if (!cached) {
         return cached;
