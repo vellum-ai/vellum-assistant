@@ -115,6 +115,22 @@ export const ACTIVATION_PROGRESS_ALL_DONE: ActivationProgress = progress({
   }),
 });
 
+/**
+ * The Inspiration List showing every row treatment at once: a finished task
+ * with its file, one still working, one finished with nothing to show for it,
+ * and the untouched rest of the catalog.
+ */
+export const ACTIVATION_PROGRESS_LIST_MIXED: ActivationProgress = progress({
+  [FIXTURE_STARTER_IDS[0]]: doneWithArtifactProgress(),
+  [FIXTURE_STARTER_IDS[1]]: startedTaskProgress({
+    conversationId: "conv-started-2",
+    stepCount: 2,
+  }),
+  [FIXTURE_STARTER_IDS[2]]: doneTaskProgress({
+    conversationId: "conv-done-3",
+  }),
+});
+
 /** The modal dismissed with less than three starters done: the pill state. */
 export const ACTIVATION_PROGRESS_DISMISSED: ActivationProgress = progress(
   {

@@ -192,6 +192,14 @@ export const routes = {
 
   connect: r("/assistant/connect"),
 
+  /**
+   * The Inspiration List: every activation task of the active persona list,
+   * reachable from the Preferences menu. A standalone page rather than an
+   * About Assistant section, so it carries no `ABOUT_ASSISTANT_SECTIONS`
+   * entry and inherits none of that drill-down chrome.
+   */
+  activationList: r("/assistant/suggestions"),
+
   channels: r("/assistant/channels"),
 
   contacts: {

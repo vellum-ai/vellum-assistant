@@ -30,6 +30,7 @@
     "openConversation": "Open conversation"
   },
   "page": {
-    "title": "Your first {count} things"
+    "title": "Your first {count} things",
+    "loading": "Loading suggestions"
   }
 }

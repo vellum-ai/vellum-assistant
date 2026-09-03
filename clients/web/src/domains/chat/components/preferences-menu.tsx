@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleUser,
+  List,
   MessageSquareText,
   Settings as SettingsIcon,
   Shield,
@@ -26,13 +27,17 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
+import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { openUrl } from "@/runtime/browser";
+import { emitActivationEvent } from "@/utils/activation-telemetry";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
@@ -259,9 +264,17 @@ function PreferencesMenuContent({
   activeConversationId,
 }: PreferencesMenuContentProps) {
   const { t } = useTranslation("chat");
+  const { t: tActivation } = useTranslation("activation");
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
+  /* The Inspiration List entry rides the same gate as every other activation
+     surface, resolved in the one place that owns it. The arm is read beside it
+     for the telemetry the entry emits, not as a second gate. */
+  const activationArm = useActivationChecklistArm();
+  const activationAssistantId =
+    useResolvedAssistantsStore.use.activeAssistantId();
+  const activationListId = useEffectiveActivationListId(activationAssistantId);
   const {
     enabled: showBillingRows,
     balance: effectiveBalance,
@@ -302,6 +315,21 @@ function PreferencesMenuContent({
             }}
           />
         </div>
+      ) : null}
+
+      {activationListId !== null ? (
+        <PanelItem
+          icon={List}
+          label={tActivation("menu.inspirationList")}
+          onSelect={() => {
+            onClose();
+            emitActivationEvent("activation_list_opened", {
+              arm: activationArm,
+              listId: activationListId,
+            });
+            navigate(routes.activationList);
+          }}
+        />
       ) : null}
 
       {(platformGate === "full" || isElectron()) && (

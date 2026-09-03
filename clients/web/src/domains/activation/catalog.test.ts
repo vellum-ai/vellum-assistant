@@ -209,6 +209,7 @@ describe("activation copy contract", () => {
         "launch.failed",
         "launch.openConversation",
         "page.title",
+        "page.loading",
       ].sort(),
     );
   });

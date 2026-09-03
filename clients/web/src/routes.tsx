@@ -1099,6 +1099,18 @@ export const routeTree = [
                             ),
                         },
                       },
+                      // The Inspiration List renders its own serif title and
+                      // stays outside IntelligenceLayout: it is not an About
+                      // Assistant section and must not inherit that chrome.
+                      {
+                        path: "suggestions",
+                        lazy: {
+                          Component: () =>
+                            import("@/domains/activation/pages/activation-list-route").then(
+                              (m) => m.ActivationListRoute,
+                            ),
+                        },
+                      },
                       {
                         path: "connect",
                         lazy: {
