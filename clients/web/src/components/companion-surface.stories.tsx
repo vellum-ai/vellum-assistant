@@ -397,6 +397,18 @@ export const Hover: Story = {
 };
 
 /**
+ * The creature's name for a press, drawn the way the Dock names an icon: a
+ * small label centred above it, with a beak pointing back down at it rather
+ * than any shape borrowed from the pill.
+ *
+ * `spotlight="talk"` forces the label open with no dwell or pointer needed,
+ * so it sits still for review instead of only appearing on a real hover.
+ */
+export const TalkName: Story = {
+  args: { phase: "hover", spotlight: "talk" },
+};
+
+/**
  * A session reading the screen, with the pointer nowhere near the surface.
  *
  * `hovered` is off on purpose: this is the state the phase exists for. The pill

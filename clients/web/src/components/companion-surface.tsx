@@ -281,16 +281,6 @@ const RESTING_BOX = {
 export const INNER_GAP = 8;
 
 /**
- * The room the call bar keeps between the creature inside it and its first
- * word, in the units the layout is stated in.
- *
- * Tighter than the gap the pill keeps from the creature beside it: there the
- * gap is daylight between two objects, here the creature is on the bar and
- * this is the bar's own rhythm.
- */
-export const CALL_SLOT_GAP = 4;
-
-/**
  * How long a hand rests on the creature before it is told what a press does.
  *
  * Long enough that a pointer passing through is told nothing, short enough
@@ -714,39 +704,36 @@ export function CompanionSurface({
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
   // `CompanionIntro`, whose card hangs off the same creature.
-  const { scale, avatarRel, avatarHalf, baseline, gap, lineAt, edgeAt } =
-    companionLayoutFor(avatarBox, optionsBox);
+  const {
+    scale,
+    avatarRel,
+    avatarHalf,
+    baseline,
+    gap,
+    inUnits,
+    lineAt,
+    edgeAt,
+  } = companionLayoutFor(avatarBox, optionsBox);
 
   /**
    * Whether the pill is the call's bar.
    *
    * **The call is clearly not the pill, but a form of it.** Every other phase
-   * is the pill hanging off the creature's side; on a call the bar closes
-   * around the creature instead, centred on the point the host put the window
-   * around, lit at its edge in the assistant's colour, and the host takes the
-   * whole thing to the bottom of the display the way a meeting's controls sit.
-   * One object changing shape rather than a second object: the creature, the
-   * controls and the measured width are all the pill's own.
+   * is the pill hanging off the creature's side; on a call the bar is centred
+   * on the point the host put the window around instead, lit at its edge in
+   * the assistant's colour, and the host takes the whole thing to the bottom
+   * of the display the way a meeting's controls sit. The creature stands
+   * beside the bar across the gap it keeps from every other pill: the
+   * controls are the call's and the creature is the one on the call, and two
+   * objects with daylight between them is how that reads.
    */
   const inCall = phase === "call";
 
-  /**
-   * The creature's box in the units the layout is stated in, which is the
-   * width the call bar leaves for it at its leading end.
-   */
-  const creatureSlot = COMPANION_BASE_AVATAR_BOX * avatarRel;
-
-  // The clearance ahead of the body: the pill's own at either end, and on the
-  // call bar the creature's slot too, since the creature is inside the bar
-  // rather than beside it.
-  const leading = inCall ? INNER_GAP + creatureSlot + CALL_SLOT_GAP : INNER_GAP;
-
   // The body and the clearance at either end of it, and nothing else: the
-  // avatar has a box of its own beside the pill rather than a column inside it,
-  // except on the call bar, where its slot is part of the clearance.
+  // avatar has a box of its own beside the pill rather than a column inside it.
   const width = !expanded
     ? 0
-    : (contentWidth ?? FALLBACK_WIDTHS[phase]) + leading + INNER_GAP;
+    : (contentWidth ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
 
   // **The avatar never moves.** It holds one spot in the canvas, which is the
   // spot the host positions this window around, and the pill hangs off one side
@@ -774,11 +761,11 @@ export function CompanionSurface({
   const style: CSSProperties = inCall
     ? {
         width,
-        // **Centred on the creature's own point.** The bar closes around the
-        // creature, so it is centred where the creature is and on its centre
-        // line rather than standing on its baseline, and the canvas is
-        // symmetric about that point, so the host centring the canvas on the
-        // display centres the bar.
+        // **Centred on the creature's own point.** The bar takes the point
+        // the creature holds everywhere else and stands on its centre line
+        // rather than on its baseline, and the canvas is symmetric about
+        // that point, so the host centring the canvas on the display centres
+        // the bar.
         left: "50%",
         top: lineAt(cardGrowth, 0),
         transform: "translate(-50%, -50%)",
@@ -802,16 +789,17 @@ export function CompanionSurface({
 
   /**
    * Where the creature is drawn: on the point the host put the window around,
-   * or, on the call bar, in the slot at the bar's leading end.
+   * or, on a call, beside the bar's leading end.
    *
-   * The bar is centred on that point and its width is known here, so the slot
-   * is a fixed step back from the centre: half the bar, less the bar's own
-   * clearance and half the slot. The creature slides there as the bar unfurls
-   * and slides back as it collapses, over the pill's own duration, so the two
-   * read as one object changing shape.
+   * The bar is centred on that point and its width is known here, so the
+   * creature is a fixed step back from the centre: half the bar, then the gap
+   * and its own half box, which are the distances the pill steps off the
+   * creature by everywhere else, read the other way round. The creature slides
+   * out as the bar unfurls and back as it collapses, over the pill's own
+   * duration, so the two read as one object changing shape.
    */
   const creatureLeft = inCall
-    ? `calc(50% - ${width / 2 - INNER_GAP - creatureSlot / 2}px)`
+    ? `calc(50% - ${width / 2 + inUnits(avatarHalf + gap)}px)`
     : "50%";
 
   return (
@@ -878,7 +866,7 @@ export function CompanionSurface({
           measured. */}
         <div
           className="relative flex h-11 shrink-0 items-center"
-          style={{ paddingInlineStart: leading, paddingInlineEnd: INNER_GAP }}
+          style={{ paddingInline: INNER_GAP }}
         >
           <div
             className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
@@ -919,31 +907,32 @@ export function CompanionSurface({
           </div>
         </div>
       </div>
-      {/* The creature's name for a press, beside it where the pill would be.
+      {/* The creature's name for a press, the way the Dock names an icon: a
+          small label centred above it rather than a control standing beside
+          it.
 
-          A name and not a control: it takes no pointer, and the press it
+          Above and centred rather than beside, unlike the pill: this is the
+          shape of a name a Mac user already reads as "what this icon is
+          called", not "something to press", so it does not have to invent a
+          visual language of its own to avoid looking pressable. A name and
+          not a control either way: it takes no pointer, and the press it
           names is the creature's. `aria-hidden` because the creature carries
           the same word as its accessible name, and a reader told it twice is
           told about two things. Mounted throughout and faded, so its arrival
-          after the dwell is a fade rather than a pop. Hung off the creature's
-          edge the way the pill is, on the creature's own centre line rather
-          than its baseline, since it is the creature being named and not a
-          row being stood beside it. */}
-      <span
-        className={`pointer-events-none absolute flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-[#17181b]/95 px-2.5 text-[12px] whitespace-nowrap text-white/85 shadow-lg shadow-black/40 transition-opacity duration-200 ${
-          named ? "opacity-100" : "opacity-0"
-        }`}
+          after the dwell is a fade rather than a pop. */}
+      <CompanionNameCaption
+        named={named}
         style={{
-          ...edgeAt(growth, avatarHalf + gap),
+          left: "50%",
           top: lineAt(cardGrowth, 0),
-          transform: "translateY(-50%)",
+          // Pulled up by the avatar's own half-box (a true point value, so it
+          // goes through `inUnits` the way `edgeAt`/`lineAt` do) plus a few
+          // flat pixels in the caption's own authored scale: enough that the
+          // beak lands on the avatar's edge rather than short of it.
+          transform: `translate(-50%, calc(-100% - ${inUnits(avatarHalf)}px - 4px))`,
         }}
-        data-companion-name={named ? "shown" : "hidden"}
-        aria-hidden
-      >
-        <AudioLines className="size-4" />
-        {t("companionSurface.talk")}
-      </span>
+        label={t("companionSurface.talk")}
+      />
       {/* Drawn after the pill so the creature lands over the pill's leading
         edge rather than under it. */}
       <Avatar
@@ -991,9 +980,10 @@ export function CompanionSurface({
           transform: `translate(-50%, -50%)${
             avatarRel === 1 ? "" : ` scale(${avatarRel})`
           }`,
-          // The slide into and out of the call bar's slot, on the pill's own
+          // The slide out beside the call bar and back, on the pill's own
           // easing and duration so the two move as one. Nothing travels for a
-          // reader who asked for stillness: the creature arrives in the slot.
+          // reader who asked for stillness: the creature arrives beside the
+          // bar.
           transition: reduce
             ? undefined
             : "left 300ms cubic-bezier(.2,.8,.2,1)",
@@ -1005,6 +995,85 @@ export function CompanionSurface({
       />
       {intro}
     </div>
+  );
+}
+
+/**
+ * The name's fill, named once and shared by the rectangle and its beak.
+ *
+ * A shared constant rather than the same literal typed twice. Translucent
+ * rather than the flat fill this had before `backdrop-filter` was added:
+ * the blur only has something to show once the fill lets it through. The
+ * beak sits flush against the rectangle's bottom edge rather than
+ * overlapping it (`top-full`, not a negative offset), so the two panes of
+ * blurred backdrop meet edge to edge instead of compositing on top of each
+ * other, which is what kept the flat-fill version seam-free and keeps this
+ * one seam-free too.
+ */
+const NAME_CAPTION_FILL = "rgba(28, 28, 30, 0.55)";
+
+/**
+ * The blur and saturation boost shared by the rectangle and its beak, so the
+ * one pane of "glass" reads as one material rather than two.
+ *
+ * An approximation of macOS's own vibrancy material, not the real thing: a
+ * genuine `NSGlassEffectView` is a native layer, and this is HTML painted
+ * inside the window's own transparent content, so the closest available
+ * tool is Chromium's `backdrop-filter` sampling the desktop showing through
+ * that transparency.
+ */
+const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
+
+/**
+ * The creature's name for a press, the way the Dock names an icon: a small
+ * rectangle above it with a beak pointing down at it.
+ *
+ * Text only, no icon: the avatar beneath it is the icon already, and the
+ * Dock's own tooltip carries nothing but the name. A small rectangle rather
+ * than the pill's stadium shape, so the two never share a silhouette.
+ */
+function CompanionNameCaption({
+  named,
+  style,
+  label,
+}: {
+  named: boolean;
+  style: CSSProperties;
+  label: string;
+}) {
+  return (
+    <span
+      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${
+        named ? "opacity-100" : "opacity-0"
+      }`}
+      style={{ ...style, backgroundColor: NAME_CAPTION_FILL }}
+      data-companion-name={named ? "shown" : "hidden"}
+      aria-hidden
+    >
+      {label}
+      {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
+          nudged down to meet it, so the two blurred panes meet at a seam
+          rather than compositing on top of each other. Centred under the
+          text rather than under the whole padded box for the same reason a
+          Dock label's beak centres on the name: it is pointing at the icon
+          below, and the icon is what the horizontal centre of this box was
+          already placed over.
+
+          Clipped to a triangle rather than drawn with the border trick:
+          `backdrop-filter` blurs an element's whole border box, transparent
+          border colour or not, so the border trick left a hazy rectangular
+          smudge around the visible point. `clip-path` removes those corners
+          from the element entirely, so there is nothing left there for the
+          blur to show through. */}
+      <span
+        className={`absolute top-full left-1/2 h-1.5 w-2.5 -translate-x-1/2 ${NAME_CAPTION_GLASS}`}
+        style={{
+          backgroundColor: NAME_CAPTION_FILL,
+          clipPath: "polygon(0 0, 100% 0, 50% 100%)",
+        }}
+        aria-hidden
+      />
+    </span>
   );
 }
 

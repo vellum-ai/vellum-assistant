@@ -224,6 +224,17 @@ describe("resolvePricing", () => {
       );
     });
 
+    test("returns priced for gemini-3.8-flash", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.8-flash",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(1.5 + 7.5);
+    });
+
     test("returns priced for gemini-3-flash-preview", () => {
       const result = resolvePricing(
         "gemini",

@@ -21,13 +21,8 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const {
-  CompanionSurface,
-  FALLBACK_WIDTHS,
-  INNER_GAP,
-  CALL_SLOT_GAP,
-  NAME_DWELL_MS,
-} = await import("./companion-surface");
+const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP, NAME_DWELL_MS } =
+  await import("./companion-surface");
 
 afterEach(() => {
   cleanup();
@@ -306,9 +301,9 @@ describe("the companion surface's anchor in the canvas", () => {
    * every state the surface can be in.
    */
   test("keeps the avatar's own point in every phase but the call", () => {
-    // The call bar is the one exception, and a deliberate one: the creature
-    // moves into the bar's slot, and the bar is what stays on the point. See
-    // "the companion surface's call bar".
+    // The call bar is the one exception, and a deliberate one: the bar is
+    // what stays on the point, and the creature steps aside to stand beside
+    // it. See "the companion surface's call bar".
     for (const phase of PHASES.filter((candidate) => candidate !== "call")) {
       const { container } = render(<CompanionSurface phase={phase} />);
       expect(avatarOf(container).style.left).toBe("50%");
@@ -921,11 +916,30 @@ describe("the companion surface's call bar", () => {
     expect(pill.style.transform).toBe("translateY(-100%)");
   });
 
-  test("takes the creature into its leading slot", () => {
+  /**
+   * Half the bar back from the centre, then the gap and the creature's own
+   * half box: 12 and 22 at the base pair, the same step the pill takes off the
+   * creature in every other phase, read from the bar's side.
+   */
+  test("stands the creature beside the bar's leading end, across the gap", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
-    expect(creatureOf(container).style.left).toMatch(/^calc\(50% - /);
+    const half = parseFloat(pillOf(container).style.width) / 2;
+    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half + 34}px)`);
+  });
+
+  test("steps the creature off the bar by the gap the pair earns", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        avatarBox={110}
+        optionsBox={44}
+      />,
+    );
+    const half = parseFloat(pillOf(container).style.width) / 2;
+    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half + 67}px)`);
   });
 
   test("leaves the creature on its own point outside a call", () => {
@@ -933,15 +947,12 @@ describe("the companion surface's call bar", () => {
     expect(creatureOf(container).style.left).toBe("50%");
   });
 
-  test("keeps the creature's slot clear ahead of the body", () => {
+  test("keeps the same clearance ahead of the body as every other pill", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     const row = pillOf(container).querySelector<HTMLElement>(".h-11.shrink-0");
-    expect(row?.style.paddingInlineStart).toBe(
-      `${INNER_GAP + 44 + CALL_SLOT_GAP}px`,
-    );
-    expect(row?.style.paddingInlineEnd).toBe(`${INNER_GAP}px`);
+    expect(row?.style.paddingInline).toBe(`${INNER_GAP}px`);
   });
 
   /**
@@ -1267,12 +1278,8 @@ describe("the companion surface's width ceiling", () => {
    * with the clearance at either end left off is not one that fits.
    */
   test("holds for every measured body once the pill's own clearance is on it", () => {
-    // The call bar's clearance includes the creature's slot at its leading
-    // end, since the creature is inside that bar rather than beside it.
-    const clearance = (phase: string): number =>
-      phase === "call" ? 2 * INNER_GAP + 44 + CALL_SLOT_GAP : 2 * INNER_GAP;
     const over = Object.entries(FALLBACK_WIDTHS).filter(
-      ([phase, width]) => width + clearance(phase) > CANVAS_CEILING,
+      ([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
   });
