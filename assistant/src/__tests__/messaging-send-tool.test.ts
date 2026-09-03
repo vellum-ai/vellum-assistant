@@ -42,6 +42,17 @@ function makeProvider(id: string, displayName: string): MessagingProvider {
 const phoneProvider = makeProvider("phone", "Phone");
 const telegramProvider = makeProvider("telegram", "Telegram");
 const outlookProvider = makeProvider("outlook", "Outlook");
+// Slack's provider threads exactly where it is told and reports that thread
+// on the result; Telegram's ignores a requested thread and reports none.
+const slackProvider: MessagingProvider = {
+  ...makeProvider("slack", "Slack"),
+  sendMessage: async (_connection, conversationId, _text, options) => ({
+    id: "1700000000.000100",
+    timestamp: 123,
+    conversationId,
+    ...(options?.threadId ? { threadId: options.threadId } : {}),
+  }),
+};
 let provider: MessagingProvider = phoneProvider;
 
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
@@ -90,19 +101,7 @@ mock.module("../notifications/conversation-pairing.js", () => ({
   resolveProactiveHomeConversation: resolveProactiveHomeConversationMock,
 }));
 
-/** The sending conversation's own external binding, when it has one. */
-const getBindingByConversationMock = mock(
-  (_conversationId: string) =>
-    null as {
-      conversationId: string;
-      sourceChannel: string;
-      externalChatId: string;
-      externalThreadId?: string | null;
-    } | null,
-);
-
 mock.module("../persistence/external-conversation-store.js", () => ({
-  getBindingByConversation: getBindingByConversationMock,
   normalizeExternalThreadId: (value: string | null | undefined) => {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
@@ -130,8 +129,6 @@ describe("messaging-send tool", () => {
     recordDeliveredChannelPostMock.mockImplementation(async () => ({
       messageId: "row-1",
     }));
-    getBindingByConversationMock.mockClear();
-    getBindingByConversationMock.mockImplementation(() => null);
   });
 
   test("passes assistantId from tool context to provider send options", async () => {
@@ -324,22 +321,89 @@ describe("messaging-send tool", () => {
     expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
   });
 
-  test("records nothing when the target is the sender's own thread, even though the home is elsewhere", async () => {
+  test("records nothing when the post landed in the turn's own thread, even though the home is elsewhere", async () => {
     // A Slack agent-style DM keys one conversation per thread. Its home
     // resolves to the chat's notification conversation, so the home test
     // alone would record this send as a cross-post away from the thread it
-    // was made in. The sender's binding decides instead.
-    provider = telegramProvider;
-    getBindingByConversationMock.mockImplementation((conversationId) =>
-      conversationId === "conv-A"
-        ? {
-            conversationId: "conv-A",
-            sourceChannel: "telegram",
-            externalChatId: "123456789",
-            externalThreadId: "777",
-          }
-        : null,
+    // was made in. The turn's own snapshot (channel, chat, thread) decides
+    // instead, against the thread the provider says it delivered into.
+    provider = slackProvider;
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        thread_id: "1700000000.000001",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "slack",
+        requesterChatId: "D0123456789",
+        sourceThreadId: "1700000000.000001",
+      },
     );
+
+    expect(resolveProactiveHomeConversationMock).not.toHaveBeenCalled();
+    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
+  });
+
+  test("records a send into the turn's chat but a different thread as a cross-post", async () => {
+    provider = slackProvider;
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        thread_id: "1700000000.000002",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "slack",
+        requesterChatId: "D0123456789",
+        sourceThreadId: "1700000000.000001",
+      },
+    );
+
+    expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
+    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a thread-less delivery never matches a turn that arrived in a thread", async () => {
+    provider = slackProvider;
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "slack",
+        requesterChatId: "D0123456789",
+        sourceThreadId: "1700000000.000001",
+      },
+    );
+
+    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("decides by where the provider delivered, not by the thread requested", async () => {
+    // Telegram's provider ignores a requested thread and reports none, so a
+    // turn that arrived in a topic and asked for that topic still gets a
+    // post in the thread-less chat; that post is recorded, not suppressed.
+    provider = telegramProvider;
 
     await run(
       {
@@ -353,28 +417,26 @@ describe("messaging-send tool", () => {
         conversationId: "conv-A",
         assistantId: "ast-1",
         trustClass: "guardian" as const,
+        executionChannel: "telegram",
+        requesterChatId: "123456789",
+        sourceThreadId: "777",
       },
     );
 
-    expect(getBindingByConversationMock).toHaveBeenCalledWith("conv-A");
-    expect(resolveProactiveHomeConversationMock).not.toHaveBeenCalled();
-    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
+    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
   });
 
-  test("records a send into the sender's chat but a different thread as a cross-post", async () => {
-    provider = telegramProvider;
-    getBindingByConversationMock.mockImplementation(() => ({
+  test("a turn that arrived through no channel falls back to the home comparison", async () => {
+    provider = slackProvider;
+    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
       conversationId: "conv-A",
-      sourceChannel: "telegram",
-      externalChatId: "123456789",
-      externalThreadId: "777",
+      createdNewConversation: false,
     }));
 
     await run(
       {
-        platform: "telegram",
-        conversation_id: "123456789",
-        thread_id: "778",
+        platform: "slack",
+        conversation_id: "D0123456789",
         text: "hello",
       },
       {
@@ -386,33 +448,7 @@ describe("messaging-send tool", () => {
     );
 
     expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
-    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("a thread-less target never matches a thread-bound sender", async () => {
-    provider = telegramProvider;
-    getBindingByConversationMock.mockImplementation(() => ({
-      conversationId: "conv-A",
-      sourceChannel: "telegram",
-      externalChatId: "123456789",
-      externalThreadId: "777",
-    }));
-
-    await run(
-      {
-        platform: "telegram",
-        conversation_id: "123456789",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
+    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
   });
 
   test("records nothing for a provider that is not a channel", async () => {
