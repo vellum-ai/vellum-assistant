@@ -365,6 +365,44 @@ describe("contacts create --channel", () => {
     expect(process.exitCode).toBeFalsy();
   });
 
+  test("notes a write says nothing about are reported as unconfirmed", async () => {
+    // A gateway older than notesSaved ignores the parked notes and reports no
+    // field, which would otherwise read as a clean save.
+    promptResult = { ...boundChannel };
+
+    const { stdout, stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+      "--address",
+      "alice@example.com",
+    );
+
+    expect(stdout).toContain("Registered email channel: alice@example.com");
+    expect(stderr).toContain("did not confirm its notes");
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  test("a create proposing no notes says nothing about them", async () => {
+    promptResult = { ...boundChannel };
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--channel",
+      "email",
+    );
+
+    expect(stderr).toBe("");
+  });
+
   test("saved notes are reported by saying nothing about them", async () => {
     promptResult = { ...boundChannel, notesSaved: true };
 

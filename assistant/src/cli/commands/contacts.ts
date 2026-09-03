@@ -394,11 +394,15 @@ async function runAddressPrompt(
 
   // Notes are stored apart from the contact and the channel, so they can be
   // the one part that does not land. The bind stands either way, so this is a
-  // partial outcome to report rather than a failed command.
-  if (result.notesSaved === false) {
+  // partial outcome to report rather than a failed command. Proposed notes the
+  // write says nothing about are the same outcome: a gateway that does not
+  // report on them is one that did not carry them.
+  if (opts.notes !== undefined && result.notesSaved !== true) {
     writeError(
       cmd,
-      "The contact and channel were saved, but its notes were not",
+      result.notesSaved === false
+        ? "The contact and channel were saved, but its notes were not"
+        : "The contact and channel were saved, but the write did not confirm its notes. Check them with 'assistant contacts get', and set them with 'assistant contacts update' if they are missing.",
     );
   }
 }
