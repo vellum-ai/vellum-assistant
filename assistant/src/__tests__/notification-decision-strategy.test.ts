@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  accessRequestCardTitle,
   buildAccessRequestContextText,
   buildAccessRequestIdentityLine,
   buildAccessRequestReplyMechanics,
@@ -851,7 +852,8 @@ describe("notification decision strategy", () => {
       expect(stripped.body).toBe(context);
       expect(stripped.deliveryText).toBe(context);
       expect(stripped.conversationSeedMessage).toBe("Alice wants access.");
-      expect(stripped.title).toBe("Request code: A1B2C3");
+      // A mechanics-only title becomes the card's own title.
+      expect(stripped.title).toBe(accessRequestCardTitle(false));
     });
 
     test("hasInviteFlowDirective accepts only a positive reply directive", () => {

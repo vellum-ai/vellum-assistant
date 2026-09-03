@@ -237,6 +237,47 @@ describe("notification decision fallback copy", () => {
     expect(decision.renderedCopy.vellum?.body).toBe("Allow running host_bash?");
   });
 
+  test("a model title that is only mechanics becomes the kind's headline", async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "LLM decision",
+        renderedCopy: {
+          vellum: {
+            title: "Reply A1B2C3 approve",
+            body: "Allow running host_bash?",
+          },
+        },
+        dedupeKey: "guardian-question-title-mechanics-test",
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: "req-grant-title",
+        questionText: "Allow running host_bash?",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        toolName: "host_bash",
+      },
+    });
+
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    // The banner shows the title, so the code cannot survive there either.
+    expect(decision.renderedCopy.vellum?.title).toBe("Guardian Question");
+    expect(decision.renderedCopy.vellum?.body).toBe("Allow running host_bash?");
+  });
+
   test("copy that was nothing but mechanics becomes the request's own question", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),

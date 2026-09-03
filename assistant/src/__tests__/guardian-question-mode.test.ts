@@ -281,7 +281,7 @@ describe("guardian-question-mode", () => {
     ).toEqual(stripped);
   });
 
-  test("stripGuardianReplyMechanicsFromCopy replaces an instruction-only field with the question, and keeps a code-only title", () => {
+  test("stripGuardianReplyMechanicsFromCopy replaces an instruction-only field with the question and a code-only title with the headline", () => {
     const instructionOnly = {
       title: "Tool Grant Request. Approval code: A1B2C3",
       body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
@@ -297,13 +297,16 @@ describe("guardian-question-mode", () => {
     expect(stripped.deliveryText).toBe("Allow bash to run ls /tmp?");
     // A title is a headline, so a code-only one keeps its text; a body with
     // no question to fall back on keeps its text rather than going empty.
+    // A title is a headline, so a mechanics-only one becomes the kind's
+    // deterministic title; a body with no question to fall back on keeps
+    // its text rather than going empty.
     for (const ask of [undefined, ""]) {
       const bare = stripGuardianReplyMechanicsFromCopy(
         { ...instructionOnly, title: "Approval code: A1B2C3" },
         "A1B2C3",
         ask,
       );
-      expect(bare.title).toBe("Approval code: A1B2C3");
+      expect(bare.title).toBe("Guardian Question");
       expect(bare.body).toBe(instructionOnly.body);
     }
   });

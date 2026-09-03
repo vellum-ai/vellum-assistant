@@ -647,8 +647,16 @@ export function stripGuardianReplyMechanicsFromCopy(
     copy,
     (text) => stripGuardianRequestCodeInstructions(text, requestCode),
     questionText,
+    GUARDIAN_QUESTION_TITLE,
   );
 }
+
+/**
+ * The deterministic title for a `guardian.question` notification: the
+ * template composer's own, and what a title that was nothing but reply
+ * mechanics becomes.
+ */
+export const GUARDIAN_QUESTION_TITLE = "Guardian Question";
 
 /**
  * Resolve guardian reply instruction mode from a raw context payload.

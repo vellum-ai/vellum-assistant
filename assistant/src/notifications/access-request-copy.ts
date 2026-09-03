@@ -406,6 +406,7 @@ export function stripAccessRequestReplyMechanicsFromCopy(
     (text) =>
       requestCode ? stripRequestCodeDirectives(text, requestCode) : text,
     buildAccessRequestContextText(payload),
+    accessRequestCardTitle(isAdmittedIntroduction(payload)),
   );
 }
 

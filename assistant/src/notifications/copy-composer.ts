@@ -20,7 +20,10 @@ import {
   buildAccessRequestSeedContentBlocks,
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
-import { parseGuardianQuestionPayload } from "./guardian-question-mode.js";
+import {
+  GUARDIAN_QUESTION_TITLE,
+  parseGuardianQuestionPayload,
+} from "./guardian-question-mode.js";
 import {
   nonEmpty,
   NOTIFICATION_TITLE_MAX_LENGTH,
@@ -229,7 +232,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     // No reply mechanics here: the broadcaster's plainTextFallback carries
     // them for the channels that need them.
     return {
-      title: "Guardian Question",
+      title: GUARDIAN_QUESTION_TITLE,
       body: question,
       conversationSeedMessage,
       seedContentBlocks,
