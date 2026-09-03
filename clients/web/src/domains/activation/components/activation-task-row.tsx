@@ -115,7 +115,11 @@ export function ActivationTaskRow({
   const status = activationRowStatus(progress);
   const done = status === "done";
   const working = status === "working" || (list && pending);
-  const conversationId = progress?.conversationId;
+  // A finished task keeps its record when the conversation it ran in is
+  // deleted, and the daemon clears the link it can no longer open. An empty
+  // link is no link: the row keeps its badge and its artifact card, and stops
+  // presenting itself as something to click.
+  const conversationId = progress?.conversationId || undefined;
   const customId = `activation-custom-${task.id}`;
 
   // A count of zero is a turn that called no tools, which the pill has nothing

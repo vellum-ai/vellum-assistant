@@ -141,6 +141,23 @@ describe("ActivationTaskRow", () => {
     expect(opened).toEqual(["conv-done-2"]);
   });
 
+  // The daemon clears the link when the conversation a finished task ran in is
+  // deleted. The row keeps what it earned and stops offering to open nothing.
+  test("a finished row whose conversation is gone opens nothing", () => {
+    const opened: string[] = [];
+    const { getByText, queryByRole } = render(
+      <ActivationTaskRow
+        task={TASK}
+        progress={doneTaskProgress({ conversationId: "" })}
+        onOpenConversation={(conversationId) => opened.push(conversationId)}
+      />,
+    );
+    expect(getByText("Done")).not.toBeNull();
+    expect(getByText("4 steps")).not.toBeNull();
+    expect(queryByRole("button", { name: `Open ${TASK.title}` })).toBeNull();
+    expect(opened).toEqual([]);
+  });
+
   test("a finished task with a file hands the file back instead of a pill", () => {
     const { getByText, queryByText } = render(
       <ActivationTaskRow
