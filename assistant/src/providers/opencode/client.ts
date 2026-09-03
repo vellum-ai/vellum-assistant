@@ -26,13 +26,18 @@ export function resolveOpenCodeBaseURL(configuredBaseURL?: string): string {
  * OpenCode-owned request headers for support lookup. Sends session and
  * request ids only when they exist. Never sets `session_id` (zen/go
  * returns 500 when that header is present).
+ *
+ * `conversationId` wins for the session header; `fallbackSessionId` (a
+ * stable per-device ID supplied by the caller) covers non-conversation
+ * background calls so they still identify a session to zen/go.
  */
 export function buildOpenCodeRequestHeaders(opts: {
   conversationId?: string;
+  fallbackSessionId?: string;
   requestId?: string;
 }): Record<string, string> {
   const headers: Record<string, string> = {};
-  const session = opts.conversationId?.trim();
+  const session = opts.conversationId?.trim() || opts.fallbackSessionId?.trim();
   if (session) {
     headers[OPENCODE_SESSION_HEADER] = session;
   }

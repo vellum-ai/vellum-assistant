@@ -47,6 +47,30 @@ describe("buildOpenCodeRequestHeaders", () => {
     expect(headers).not.toHaveProperty("session_id");
   });
 
+  test("falls back to the stable device id when there is no conversation", () => {
+    expect(
+      buildOpenCodeRequestHeaders({ fallbackSessionId: "dev-123" }),
+    ).toEqual({ [OPENCODE_SESSION_HEADER]: "dev-123" });
+  });
+
+  test("conversation id wins over the fallback session id", () => {
+    expect(
+      buildOpenCodeRequestHeaders({
+        conversationId: "conv-xyz",
+        fallbackSessionId: "dev-123",
+      }),
+    ).toEqual({ [OPENCODE_SESSION_HEADER]: "conv-xyz" });
+  });
+
+  test("blank conversation id falls through to the fallback session id", () => {
+    expect(
+      buildOpenCodeRequestHeaders({
+        conversationId: "   ",
+        fallbackSessionId: "dev-123",
+      }),
+    ).toEqual({ [OPENCODE_SESSION_HEADER]: "dev-123" });
+  });
+
   test("sets only the ids that are present", () => {
     expect(
       buildOpenCodeRequestHeaders({ conversationId: "conv-xyz" }),
