@@ -594,7 +594,7 @@ describe("history-restored surface completion: scan cost", () => {
 describe("surface action queue rejection", () => {
   beforeEach(resetSurfaceState);
 
-  test("a rejected history-restored action is logged with queue depth", async () => {
+  test("a rejected history-restored action is refused and logged with queue depth", async () => {
     const surfaceId = "surface-rejected-1";
     seedSurfaceRow(surfaceId, "choice");
     const ctx = makeContext(
@@ -602,7 +602,17 @@ describe("surface action queue rejection", () => {
       { queueDepth: 7 },
     );
 
-    await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
+    const result = await handleSurfaceAction(
+      ctx,
+      surfaceId,
+      "inbox",
+      CHOICE_PAYLOAD,
+    );
+
+    // The route turns a refusal into an error response, which is what keeps
+    // the client from optimistically completing a card whose action was never
+    // queued. A bare return here would read as accepted.
+    expect(result).toEqual({ accepted: false, error: "queue_full" });
 
     const rejection = loggedWarnings.find((w) =>
       w.msg.startsWith("Surface action rejected by the message queue"),
@@ -616,7 +626,7 @@ describe("surface action queue rejection", () => {
     });
   });
 
-  test("a rejected pending action is logged with queue depth", async () => {
+  test("a rejected pending action is refused and logged with queue depth", async () => {
     const surfaceId = "surface-rejected-2";
     seedSurfaceRow(surfaceId, "choice");
     const ctx = makeContext(
@@ -625,7 +635,14 @@ describe("surface action queue rejection", () => {
     );
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "choice" });
 
-    await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
+    const result = await handleSurfaceAction(
+      ctx,
+      surfaceId,
+      "inbox",
+      CHOICE_PAYLOAD,
+    );
+
+    expect(result).toEqual({ accepted: false, error: "queue_full" });
 
     const rejection = loggedWarnings.find((w) =>
       w.msg.startsWith("Surface action rejected by the message queue"),

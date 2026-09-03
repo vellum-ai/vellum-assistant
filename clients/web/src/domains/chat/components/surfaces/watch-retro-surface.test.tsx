@@ -163,8 +163,7 @@ describe("WatchRetroSurface", () => {
       screen.getByText("You set this one to High. What decides that?"),
     ).toBeDefined();
 
-    // Nothing is preselected: a highlighted default under a Skip button was
-    // what users reached for when they meant to move on.
+    // Nothing is preselected: the recommendation is marked, not chosen.
     const options = screen.getAllByRole("button", { pressed: false });
     expect(options.map((option) => option.textContent)).toEqual([
       expect.stringContaining("Over 100 events"),

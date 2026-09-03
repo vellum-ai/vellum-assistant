@@ -58,10 +58,9 @@ import { cn } from "@/utils/misc";
  * No option starts selected. The first one is marked as recommended, which is
  * what the payload contract makes it: the model's own reading on a pick and
  * the cautious answer on a gate. A tap commits and advances in one gesture,
- * so the page carries no Skip: a preselected default under a Skip button was
- * the thing users reached for when they meant to go forward. A page revisited
- * with an answer already standing shows Next instead, so moving on does not
- * mean tapping the same option twice.
+ * and until the user has tapped, the page has no forward action at all: no
+ * Skip, no Next. A page revisited with an answer already standing shows Next,
+ * so moving on does not mean tapping the same option twice.
  *
  * **A fill is skippable and the skip is safe.** It starts on its suggestion,
  * so skipping keeps a working phrase. `defaultAnswerFor` also supplies the
@@ -71,12 +70,11 @@ import { cn } from "@/utils/misc";
  * **One submission, at the end.** Answers accumulate in local state and go out
  * as a single action payload rather than one turn per question.
  *
- * **The card says when it is done.** A `card` never collapses on its own: the
- * router only folds the inherently interactive types, and the card's own
- * renderer redrew the same page after Save, so the only feedback was the
- * spinner. Once the surface is completed, the whole card gives way to one row
- * naming what happened, with a summary sent along in the action so history
- * and the daemon's completion event say the same thing.
+ * **The card draws its own completed state.** The router folds only the
+ * inherently interactive surface types, and a `card` is not one of them, so
+ * once the surface is completed this renderer gives the whole card over to
+ * one row naming what happened. The summary for that row is sent along in the
+ * action, so history and the daemon's completion event say the same thing.
  */
 
 interface WatchRetroSurfaceProps {
@@ -709,8 +707,8 @@ function QuestionPage({
   const { t } = useTranslation("chat");
   const promptId = `watch-retro-q-${question.id}`;
   // Only a tapped answer is marked. The answer of record before any tap is
-  // the first option, but drawing it selected is what put users one Skip away
-  // from an answer they never gave.
+  // the first option, and it stays unmarked so the recommendation is visible
+  // without reading as a choice already made.
   const selectedOptionId =
     answer && !answer.skipped ? answer.optionId : undefined;
 
