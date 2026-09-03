@@ -242,9 +242,9 @@ Scheduled messages run without user interaction. If the task produces output tha
 
 Choose the right delivery tool based on the content:
 
-- **Rich content** (digests, summaries, reports): For Gmail, use `messaging_send` with the target platform and conversation ID. For Slack, use the Slack Web API directly via CLI (`chat.postMessage`). This preserves the full content and posts directly.
+- **Rich content** (digests, summaries, reports): For Gmail, use `messaging_send` with the target platform and conversation ID. For Slack, call `chat.postMessage` through `assistant oauth request --provider slack_channel` (see the **slack** skill), never through `curl` or a revealed token. This preserves the full content and posts directly.
 - **Short alerts** (status updates, completion notices): Use `assistant notifications send` via `bash` to let the notification router pick the best channel. Note: the router's decision engine rewrites content into short alerts, so it is not suitable for rich content.
 
 Example schedule message for a Slack digest:
 
-> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to the channel the user named."
+> "Scan my Slack channels for the last 24 hours using `assistant oauth request --provider slack_channel` for every Slack Web API call, then post the summary with `chat.postMessage` through the same command to the channel the user named."
