@@ -571,6 +571,345 @@ paths:
                   - protocolSessionId
                   - agent
                 additionalProperties: false
+  /v1/activation/dismiss:
+    post:
+      operationId: activation_dismiss_post
+      summary: Dismiss an activation surface
+      description: Record that the welcome modal or the celebration modal was dismissed.
+      tags:
+        - activation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    - modal
+                    - all-done
+                  description: Which surface was dismissed
+                listId:
+                  description: List the surface showed, stored only while no list is frozen
+                  type: string
+                  pattern: ^[a-z0-9-]{1,64}$
+              required:
+                - kind
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                    description: Schema version
+                  listId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Task list frozen on the first write, null before then
+                  modalDismissedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the welcome modal was dismissed
+                  allDoneShownAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the celebration modal was dismissed
+                  tasks:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum:
+                            - started
+                            - done
+                          description: "`started` while the linked conversation is working the task"
+                        conversationId:
+                          type: string
+                          description: Conversation the task was launched into
+                        startedAt:
+                          type: string
+                          description: ISO timestamp of the launch
+                        completedAt:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: ISO timestamp of the completing turn, null while started
+                        stepCount:
+                          anyOf:
+                            - type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            - type: "null"
+                          description: Tool calls observed in the linked conversation so far
+                        artifacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              workspacePath:
+                                type: string
+                                description: Path of the produced file, as the assistant attached it
+                              displayName:
+                                type: string
+                                description: Human-readable file name for the card
+                            required:
+                              - workspacePath
+                              - displayName
+                            additionalProperties: false
+                          description: Files the completing turn attached
+                      required:
+                        - status
+                        - conversationId
+                        - startedAt
+                        - completedAt
+                        - stepCount
+                        - artifacts
+                      additionalProperties: false
+                    description: Progress keyed by task id
+                required:
+                  - version
+                  - listId
+                  - modalDismissedAt
+                  - allDoneShownAt
+                  - tasks
+                additionalProperties: false
+        "400":
+          description: Malformed dismiss kind or list id
+  /v1/activation/progress:
+    get:
+      operationId: activation_progress_get
+      summary: Get activation progress
+      description: "Return the activation checklist progress: the frozen list, dismissed surfaces, and per-task state."
+      tags:
+        - activation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                    description: Schema version
+                  listId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Task list frozen on the first write, null before then
+                  modalDismissedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the welcome modal was dismissed
+                  allDoneShownAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the celebration modal was dismissed
+                  tasks:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum:
+                            - started
+                            - done
+                          description: "`started` while the linked conversation is working the task"
+                        conversationId:
+                          type: string
+                          description: Conversation the task was launched into
+                        startedAt:
+                          type: string
+                          description: ISO timestamp of the launch
+                        completedAt:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: ISO timestamp of the completing turn, null while started
+                        stepCount:
+                          anyOf:
+                            - type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            - type: "null"
+                          description: Tool calls observed in the linked conversation so far
+                        artifacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              workspacePath:
+                                type: string
+                                description: Path of the produced file, as the assistant attached it
+                              displayName:
+                                type: string
+                                description: Human-readable file name for the card
+                            required:
+                              - workspacePath
+                              - displayName
+                            additionalProperties: false
+                          description: Files the completing turn attached
+                      required:
+                        - status
+                        - conversationId
+                        - startedAt
+                        - completedAt
+                        - stepCount
+                        - artifacts
+                      additionalProperties: false
+                    description: Progress keyed by task id
+                required:
+                  - version
+                  - listId
+                  - modalDismissedAt
+                  - allDoneShownAt
+                  - tasks
+                additionalProperties: false
+  /v1/activation/tasks/{taskId}/start:
+    post:
+      operationId: activation_tasks_by_taskId_start_post
+      summary: Start an activation task
+      description:
+        Link an activation task to the conversation its prompt was sent to. Idempotent per task; a different
+        conversation replaces the link only while the task is not done.
+      tags:
+        - activation
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                  description: Conversation the task prompt was sent to
+                listId:
+                  description: List the task came from, stored only while no list is frozen
+                  type: string
+                  pattern: ^[a-z0-9-]{1,64}$
+              required:
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                    description: Schema version
+                  listId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Task list frozen on the first write, null before then
+                  modalDismissedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the welcome modal was dismissed
+                  allDoneShownAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the celebration modal was dismissed
+                  tasks:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum:
+                            - started
+                            - done
+                          description: "`started` while the linked conversation is working the task"
+                        conversationId:
+                          type: string
+                          description: Conversation the task was launched into
+                        startedAt:
+                          type: string
+                          description: ISO timestamp of the launch
+                        completedAt:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: ISO timestamp of the completing turn, null while started
+                        stepCount:
+                          anyOf:
+                            - type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            - type: "null"
+                          description: Tool calls observed in the linked conversation so far
+                        artifacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              workspacePath:
+                                type: string
+                                description: Path of the produced file, as the assistant attached it
+                              displayName:
+                                type: string
+                                description: Human-readable file name for the card
+                            required:
+                              - workspacePath
+                              - displayName
+                            additionalProperties: false
+                          description: Files the completing turn attached
+                      required:
+                        - status
+                        - conversationId
+                        - startedAt
+                        - completedAt
+                        - stepCount
+                        - artifacts
+                      additionalProperties: false
+                    description: Progress keyed by task id
+                required:
+                  - version
+                  - listId
+                  - modalDismissedAt
+                  - allDoneShownAt
+                  - tasks
+                additionalProperties: false
+        "400":
+          description: Malformed task id, list id, or conversation id
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post

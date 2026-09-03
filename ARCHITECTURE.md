@@ -790,6 +790,42 @@ graph LR
     WAKE -->|"assistant report only"| CONV
 ```
 
+## Activation Progress
+
+The activation checklist is a first-run nudge: a short list of starter tasks the client offers, and a record of how far each one got. The catalog (copy, icons, ordering) lives in `clients/web`; the daemon stores only opaque task and list identifiers, so the list can change without a migration. State lives in one file, `<workspace>/data/activation-progress.json`, owned by `assistant/src/activation/progress-store.ts`.
+
+Launching a task sends its prompt into a **background conversation** and then calls `POST /v1/activation/tasks/:taskId/start`, which links the task to that conversation. A conversation belongs to at most one task: starting a second task into a conversation another `started` task points at unlinks the first in the same write, so the lookups that follow always resolve exactly one record. While the conversation works, every `tool_use` bumps that task's `stepCount` (throttled, with a trailing flush, so a burst of tool calls is one write and one broadcast). At the turn boundary a completed turn marks the task `done` and records the files it attached, taken from the attachments that actually resolved and persisted rather than from the raw directives, capped and de-duplicated by path. The completion fires ahead of the turn-boundary Git commit, so a commit that fails or is deferred cannot leave a finished task showing as still running.
+
+Reads degrade: a missing or corrupt file is "nothing started yet". Writes do not: a write that cannot land rejects, so `POST` answers 500 rather than echoing state the next `GET` would contradict. The turn hooks are the exception by design; they are fire-and-forget and log instead. Every write that changes visible state publishes the `activation:progress` sync tag, and sibling clients refetch `GET /v1/activation/progress`.
+
+```mermaid
+graph LR
+    CLIENT["Web client<br/>task catalog + pill"]
+    CONV["Background conversation<br/>(task prompt)"]
+    START["POST /v1/activation/tasks/:id/start<br/>links task to conversation"]
+    LOOP["Agent loop"]
+    TOOL["onActivationToolCall<br/>throttled stepCount bump"]
+    DONE["onActivationTurnComplete<br/>status=done + artifacts"]
+    ATT["resolveAssistantAttachments<br/>persisted files only"]
+    STORE["activation-progress.json<br/>serialized atomic writes"]
+    SYNC["sync_changed<br/>activation:progress"]
+    GET["GET /v1/activation/progress"]
+
+    CLIENT -->|"launch"| CONV
+    CLIENT --> START
+    CONV --> LOOP
+    START --> STORE
+    LOOP -->|"tool_use"| TOOL
+    LOOP -->|"turn completed"| DONE
+    ATT --> DONE
+    TOOL --> STORE
+    DONE --> STORE
+    STORE --> SYNC
+    SYNC -->|"invalidate"| CLIENT
+    CLIENT --> GET
+    GET --> STORE
+```
+
 ## Maintenance Rule
 
 When architecture changes, update the relevant domain architecture document(s) above and keep this index aligned.

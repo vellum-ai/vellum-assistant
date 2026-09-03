@@ -9,6 +9,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { onActivationTurnComplete } from "../activation/turn-hooks.js";
 import { repairHistoryForRun } from "../agent/history-repair/history-repair.js";
 import type {
   AgentEvent,
@@ -101,6 +102,7 @@ import {
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
+  type PersistedAttachmentFile,
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
@@ -779,6 +781,11 @@ export async function runAgentLoopImpl(
   // provider-error turn's only assistant row is the synthetic error text, so
   // the deferred tail must not treat either as a final reply.
   let turnCompleted = false;
+  // Files this turn attached that survived resolution and persistence, in
+  // the shape the activation hook records as artifacts. Rejected directives
+  // never reach it, so a checklist card can never point at a file the turn
+  // failed to attach.
+  let persistedAttachmentFiles: readonly PersistedAttachmentFile[] = [];
   // True once `releaseTurn` has run. The happy path releases as soon as the
   // turn's content is settled; the `finally` calls it again as the backstop for
   // the cancel/error paths that never reached the early release.
@@ -1837,6 +1844,7 @@ export async function runAgentLoopImpl(
         state.toolContentBlockToolNames,
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
+      persistedAttachmentFiles = attachmentResult.persistedFiles;
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
@@ -2002,6 +2010,27 @@ export async function runAgentLoopImpl(
     try {
       if (turnStarted) {
         ctx.turnCount++;
+
+        // Activation checklist: a completed turn in a conversation an
+        // activation task was launched into finishes that task. Cancelled
+        // turns and handoffs deliberately fall through: the task is still
+        // running. No-op for every conversation no task points at.
+        //
+        // Ahead of the turn-boundary commit, and fire-and-forget: a commit
+        // that fails, times out, or is deferred to the next turn must not
+        // leave the task showing as still running while the client is
+        // already free to restart it.
+        if (turnCompleted) {
+          onActivationTurnComplete({
+            conversationId: ctx.conversationId,
+            toolCallCount: state.toolUseIdToName.size,
+            attachedFiles: persistedAttachmentFiles.map((file) => ({
+              path: file.sourcePath,
+              filename: file.displayName,
+            })),
+          });
+        }
+
         const runTurnCommit = async (): Promise<void> => {
           const config = getConfig();
           const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
