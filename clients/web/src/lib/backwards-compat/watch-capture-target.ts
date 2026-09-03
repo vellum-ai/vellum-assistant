@@ -27,13 +27,16 @@
  * is told to read.
  *
  * MIN_VERSION is a dev floor rather than a predicted release number, per
- * `docs/BACKWARDS_COMPAT.md`. It names the commit that lands the parameters on
- * the daemon on top of the then-current base `0.11.8`.
+ * `docs/BACKWARDS_COMPAT.md`. It names the commit that made the gateway
+ * forward the parameters, not the earlier one that taught the daemon to read
+ * them: a build in between parses them and never receives them, which is
+ * exactly the whole-screen-behind-a-window-frame this gate exists to prevent.
+ * On top of the then-current base `0.11.8`.
  */
 
 import { assistantScopedSupports } from "@/lib/backwards-compat/utils";
 
-export const MIN_VERSION = "0.11.8-dev.202609022136.f075664";
+export const MIN_VERSION = "0.11.8-dev.202609031252.8641564";
 
 /**
  * Whether `assistantId` scopes a watch session to the target on its stream.
