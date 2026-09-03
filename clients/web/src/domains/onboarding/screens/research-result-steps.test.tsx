@@ -11,14 +11,50 @@
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { createElement, type ReactElement, type ReactNode } from "react";
 
-import { ResearchResultsStep } from "@/domains/onboarding/screens/research-result-steps";
 import onboardingEn from "@/i18n/locales/en/onboarding.json";
 import {
   parseResearchResultStreaming,
   type ResearchFact,
 } from "@/utils/research-facts";
+
+// Presence exit holds removed rows in happy-dom for the animation duration.
+// The agreement under test is copy vs the surviving list, so mount/unmount
+// has to be synchronous.
+mock.module("motion/react", () => {
+  const MOTION_ONLY_PROPS = new Set([
+    "initial",
+    "animate",
+    "exit",
+    "transition",
+    "variants",
+    "layout",
+    "layoutId",
+  ]);
+  return {
+    motion: new Proxy(
+      {} as Record<string, (props: Record<string, unknown>) => ReactElement>,
+      {
+        get: (_target, tag) => (props: Record<string, unknown>) => {
+          const domProps: Record<string, unknown> = {};
+          for (const key in props) {
+            if (!MOTION_ONLY_PROPS.has(key)) {
+              domProps[key] = props[key];
+            }
+          }
+          return createElement(String(tag), domProps);
+        },
+      },
+    ),
+    AnimatePresence: ({ children }: { children?: ReactNode }) => children,
+    useReducedMotion: () => true,
+  };
+});
+
+const { ResearchResultsStep } =
+  await import("@/domains/onboarding/screens/research-result-steps");
 
 const COPY = onboardingEn.researchResultsStep;
 
@@ -74,9 +110,7 @@ describe("ResearchResultsStep copy / list agreement", () => {
     expect(screen.queryByText(COPY.bodyReadyWithClaims)).toBeNull();
     expect(screen.queryByText("Lives in Dallas")).toBeNull();
     expect(screen.queryByText("Works at Acme")).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: COPY.notMe }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: COPY.notMe })).toBeNull();
   });
 
   test("visible claims use the results copy and stay in the document", () => {
@@ -113,8 +147,6 @@ describe("ResearchResultsStep copy / list agreement", () => {
     expect(screen.getByText(COPY.bodyReadyEmpty)).toBeTruthy();
     expect(screen.queryByText(COPY.bodyReadyWithClaims)).toBeNull();
     expect(screen.queryByText(KEPT_CLAIM.claim)).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: COPY.notMe }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: COPY.notMe })).toBeNull();
   });
 });

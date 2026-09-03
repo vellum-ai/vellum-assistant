@@ -415,6 +415,11 @@ export function ResearchResultsStep({
   const { t } = useTranslation("onboarding");
   const tone = DARK_TONE;
   const reduce = useReducedMotion();
+  // `useReducedMotion` is `null` until the media query resolves. Treat that
+  // unknown window like reduced motion: do not mount rows at opacity 0. Copy
+  // already counts them as visible, so a stuck enter would show results copy
+  // over a blank list.
+  const animatePresence = reduce === false;
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
@@ -461,17 +466,16 @@ export function ResearchResultsStep({
           </p>
 
           <div className="flex shrink-0 flex-col gap-3">
-            {/* `initial={false}` so claims already present when this step
-                mounts paint immediately. A y-offset enter inside overflow-y-auto
-                can sit clipped at opacity 0 if the animation never settles. */}
             <AnimatePresence initial={false}>
               {visible.map((fact) => (
                 <motion.div
                   key={fact.claim}
-                  layout
-                  initial={reduce ? false : { opacity: 0 }}
+                  layout={animatePresence}
+                  initial={animatePresence ? { opacity: 0 } : false}
                   animate={{ opacity: 1 }}
-                  exit={reduce ? undefined : { opacity: 0, scale: 0.95 }}
+                  exit={
+                    animatePresence ? { opacity: 0, scale: 0.95 } : undefined
+                  }
                   className="flex shrink-0 items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
                   style={{
                     backgroundColor: tone.isLight
