@@ -18,6 +18,7 @@ Spend on the user's behalf using the [Stripe Link CLI](https://github.com/stripe
 
 - `bash` for all `link-cli` invocations.
 - Use `assistant browser` to open returned Link approval URLs in an available user-browser session. If that route is unavailable but the user has an authenticated desktop client, use `host_bash` only to run `open "<verification_url>"` on that client. Do not use the sandbox browser for approval unless the user explicitly asks for it.
+- **Never block the chat while awaiting approval.** Run every `auth status --interval ...` or `spend-request retrieve --interval ...` polling command through the `bash` tool with `background: true`, then handle its completion wake. This works in cloud, web, desktop, and mobile contexts because polling remains in the assistant workspace; only opening the approval URL needs a user-browser route.
 
 ## Hard constraints
 
@@ -86,7 +87,7 @@ Use your own assistant name for `--client-name` — read it from `IDENTITY.md`. 
 
 1. First check `assistant browser --json status`. Prefer an available user-browser backend. If one is connected, open the returned `verification_url` using `assistant browser --browser-mode <available-mode> navigate --url "<verification_url>"`.
 2. If the browser integration is unavailable but an authenticated Mac client is connected, use `host_bash` with `open "<verification_url>"` on that client. This is one of the narrow cases where host execution is appropriate: the approval must open in the user's browser, not the sandbox browser.
-3. Start `auth status --interval 5 --max-attempts 60 --format json` immediately after navigation. Do not wait for another message. Stop when `authenticated` is true or the request reaches a terminal failure.
+3. Start `auth status --interval 5 --max-attempts 60 --format json` **immediately after navigation** via the `bash` tool with `background: true`. Do not wait for another message and do not keep the chat blocked. On the background completion wake, stop when `authenticated` is true or report the terminal failure.
 
 ```bash
 link-cli auth login \
@@ -165,7 +166,7 @@ link-cli spend-request retrieve <id> \
   --format json
 ```
 
-Polls every 3 seconds, up to 3 minutes. Terminal statuses: `approved`, `denied`, `expired`, `canceled`. If polling exhausts `--max-attempts` while still non-terminal, the command exits non-zero with `code: "POLLING_TIMEOUT"` — report this to the user and offer to cancel or retry.
+Run this command through the `bash` tool with `background: true` immediately after requesting approval, so chat stays available while the user approves. Polls every 3 seconds, up to 3 minutes. Terminal statuses: `approved`, `denied`, `expired`, `canceled`. On the completion wake, if polling exhausts `--max-attempts` while still non-terminal, it exits non-zero with `code: "POLLING_TIMEOUT"` — report that and offer to cancel or retry.
 
 **4. Pay the URL**
 
@@ -212,7 +213,7 @@ link-cli spend-request create \
 
 Omit `--credential-type` (or use the default). With `--format json`, returns immediately — proceed to polling.
 
-**2. Poll for approval** (same as Flow A step 3)
+**2. Poll for approval** (same as Flow A step 3, using a `background: true` `bash` invocation)
 
 **3. Retrieve card credentials securely**
 
