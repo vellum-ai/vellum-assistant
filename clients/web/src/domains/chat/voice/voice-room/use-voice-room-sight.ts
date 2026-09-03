@@ -778,6 +778,64 @@ export function useVoiceRoomSight(
     videoRef,
   ]);
 
+  /**
+   * Whether the user is part-way through saying something, as the session
+   * reports it.
+   *
+   * Two sessions, two signals, and no third opinion about either: hands-free
+   * runs on the server VAD, whose boundary the store publishes as
+   * `utteranceOpen`, and a manual session has no VAD at all, so the thing that
+   * opens the user's turn is the session reaching `listening`, which is where
+   * push-to-talk starts forwarding audio. The same fields the status pill's dot
+   * is read from, because there is one answer to "is the user talking" and it
+   * is the session's.
+   */
+  const sessionState = useLiveVoiceStore.use.state();
+  const handsFree = useLiveVoiceStore.use.handsFree();
+  const utteranceOpen = useLiveVoiceStore.use.utteranceOpen();
+  const muted = useLiveVoiceStore.use.muted();
+  // Named for the user rather than the session, whose own `speaking` phase is
+  // the assistant's voice and the opposite of this.
+  const userSpeaking = handsFree ? utteranceOpen : sessionState === "listening";
+
+  /**
+   * Ask the gate for a frame of the scene the user is starting to talk about.
+   *
+   * The keep the gate would make on its own is of whatever it last thought was
+   * worth sending, and the daemon snapshots the conversation the instant the
+   * utterance closes. So a question asked right after the camera moved is
+   * answered about the scene before it, every time: the frame of the new one
+   * either has not been kept yet or is still uploading. Arming at the START of
+   * the question gives that frame the whole spoken sentence to land in.
+   *
+   * The rising edge only, so one keep per utterance however many store writes
+   * land inside it. The keep itself goes through the sampler's own
+   * `onDecision`, so consent, capture order, the upload and the thumbnail are
+   * the ones every other keep gets rather than a second path beside them.
+   *
+   * The last reading is tracked whether or not Live is running, which is what
+   * makes entering Live mid-sentence quiet: the edge already happened, and the
+   * fresh gate's first keep covers that scene anyway.
+   */
+  const userSpeakingRef = useRef(false);
+  useEffect(() => {
+    const wasSpeaking = userSpeakingRef.current;
+    userSpeakingRef.current = userSpeaking;
+    if (!active || wasSpeaking || !userSpeaking) {
+      return;
+    }
+    // A muted mic is a session hearing silence, so nothing is being asked and
+    // a frame kept for it would answer nobody. Checked here rather than folded
+    // into the reading above, so unmuting mid-sentence is not a second edge.
+    if (muted) {
+      return;
+    }
+    gateRef.current?.armForcedKeep(performance.now());
+    // The browser sampler needs no nudge: its next candidate frame is one
+    // video frame away and will consume the arm on its own.
+    nativeSourceRef.current?.sampleNow();
+  }, [active, muted, userSpeaking]);
+
   // A flip points the camera somewhere else entirely and mirrors it, so every
   // score against the old baseline is meaningless and every capture still
   // encoding belongs to the camera that is gone. The source keeps running: on

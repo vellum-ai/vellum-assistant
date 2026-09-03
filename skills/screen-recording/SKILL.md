@@ -15,43 +15,8 @@ Capture screen recordings as video files attached to the conversation.
 
 ## Activation
 
-This skill activates when the user asks to record their screen. Common phrases:
-
-**Start recording:**
-
-- "record my screen"
-- "start recording"
-- "begin recording"
-- "capture my screen"
-- "capture my display"
-- "make a recording"
-- "Nova, record my screen" (where Nova is the assistant's identity name)
-- "hey Nova, start recording"
-
-**Stop recording:**
-
-- "stop recording"
-- "end recording"
-- "finish recording"
-- "halt recording"
-
-**Restart recording:**
-
-- "restart recording"
-- "redo the recording"
-- "stop recording and start a new one"
-- "stop recording and start a new recording"
-- "stop and restart the recording"
-
-**Pause recording:**
-
-- "pause recording"
-- "pause the recording"
-
-**Resume recording:**
-
-- "resume recording"
-- "unpause the recording"
+The user asks to start, stop, pause, resume, or restart a screen recording.
+Routing does not depend on matching phrases: see Routing below.
 
 ## Routing
 

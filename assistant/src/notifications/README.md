@@ -57,8 +57,7 @@ Hard invariants that the LLM cannot override:
 
 **Post-generation enforcement** (`decision-engine.ts`):
 
-- **Guardian question reply mechanics**: `enforceGuardianRequestCode()` applies one per-channel rule, `guardianCopyCarriesReplyMechanics()` in `guardian-question-mode.ts`, to every channel's `guardian.question` copy. A channel the guardian answers by typing (Telegram, Discord, Slack answer-mode questions) gets the request-code instruction (approve/reject or free-text answer) **enforced in**, even when the LLM omitted it. A channel that acts through the request card gets it **stripped**, bare code mentions included: the vellum copy (read by the bell detail, the OS banner, and the delivery audit row), the platform push, and Slack approval-mode cards with Approve/Reject buttons. The template composer applies the same rule, so copy reaches the same shape on the fallback path.
-- **Access-request copy**: `enforceAccessRequestCopy()` strips a model's echo of the request-code directive (`Reply "X trust"`, `Reply "X verify"`, and the rest) from every channel's `ingress.access_request` copy, as whole sentences, so the directive lives only in the card's `plainTextFallback` (`buildAccessRequestReplyMechanics`), appended by a transport when it sends text without buttons. The invite-flow directive is context, not mechanics: no surface has a button for it, so it stays in `buildAccessRequestContextText` and is ensured into model-composed copy that leaves it out.
+- **Reply mechanics never ride in copy**: `stripReplyMechanics()` removes request-code reply instructions the model wrote into any channel's `guardian.question` or `ingress.access_request` copy, as whole sentences (`Reference code: X`, `Reply "X approve"`, a paraphrase or negation of either, `Reply "X trust"`, `Use reference code X`). The mechanics live in exactly one place, the broadcaster's `plainTextFallback` (`buildGuardianRequestCodeInstruction` for questions and approvals, `buildAccessRequestReplyMechanics` for access requests), and a transport appends it only when it sends text without buttons: a rich delivery that failed, or a request with no actions to draw (an option-less voice question, or a coded question that failed strict parsing). The bell, the banner, the push, and every card with buttons therefore show the ask alone. The access-request invite-flow directive is context, not mechanics: no surface has a button for it, so it stays in `buildAccessRequestContextText` on every surface and is ensured into model-composed copy that leaves it out (`ensureAccessRequestInviteDirectiveInCopy`).
 
 **Pre-send gate checks** (`deterministic-checks.ts`) — these all depend on the decision, so they run here, after it:
 
@@ -377,7 +376,7 @@ When the decision engine routes multiple guardian questions to the **same** conv
 
 ### How Request Codes Work
 
-Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time, generated gateway-side during `guardian_requests_create` (`generateRequestCode()` in `gateway/src/db/guardian-request-store.ts`). The code is included in the notification copy delivered to the guardian.
+Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time, generated gateway-side during `guardian_requests_create` (`generateRequestCode()` in `gateway/src/db/guardian-request-store.ts`). The guardian sees the code only where they need to type it: in the plain-text fallback a transport appends when it sends a request without buttons, and in the router's disambiguation reply when several requests are pending.
 
 ### Disambiguation Flow
 

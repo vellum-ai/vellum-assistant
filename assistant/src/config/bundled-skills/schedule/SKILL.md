@@ -247,4 +247,4 @@ Choose the right delivery tool based on the content:
 
 Example schedule message for a Slack digest:
 
-> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to #alex-agent-messages (C0A7STRJ4G5)."
+> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to the channel the user named."

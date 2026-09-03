@@ -375,14 +375,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "desktop-presence-suppression",
-      "scope": "assistant",
-      "key": "desktop-presence-suppression",
-      "label": "Desktop Presence Suppression",
-      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
-      "defaultEnabled": true
-    },
-    {
       "id": "web-presence-suppression",
       "scope": "assistant",
       "key": "web-presence-suppression",

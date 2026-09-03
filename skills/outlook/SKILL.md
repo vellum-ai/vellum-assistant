@@ -222,12 +222,3 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 1. Run `bun run scripts/outlook-scan.ts outreach-scan` to find senders without unsubscribe headers
 2. Present results for review - these are likely cold outreach or unsolicited emails
 3. User can choose to archive, create rules to block, or ignore
-
-## Confidence Scores
-
-Medium and high risk operations require a confidence score between 0 and 1:
-
-- **0.9-1.0**: User explicitly requested this exact action
-- **0.7-0.8**: Action is strongly implied by context
-- **0.5-0.6**: Reasonable inference but some ambiguity
-- **Below 0.5**: Ask the user to confirm before proceeding

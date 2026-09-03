@@ -37,6 +37,13 @@ export interface DeliveredChannelPost {
   text: string;
   /** The message id the channel assigned when it acknowledged the post. */
   providerMessageId: string;
+  /**
+   * The conversation whose turn made the post, when a different one from
+   * the home it is recorded in (the messaging tool sending from a scheduled
+   * run, for instance). Stamped as `crossPostedFrom` so the row says where
+   * it came from.
+   */
+  crossPostedFrom?: string;
 }
 
 /**
@@ -60,6 +67,9 @@ export async function recordDeliveredChannelPost(
       sentAt: Date.now(),
       automated: true,
       providerMeta: JSON.stringify(envelope),
+      ...(post.crossPostedFrom
+        ? { crossPostedFrom: post.crossPostedFrom }
+        : {}),
     },
   });
   await makeSentMessageIdReconciler(row.id)(post.providerMessageId);

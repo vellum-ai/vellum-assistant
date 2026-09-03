@@ -21,7 +21,7 @@ import {
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
 import {
-  applyGuardianReplyMechanics,
+  GUARDIAN_QUESTION_TITLE,
   parseGuardianQuestionPayload,
 } from "./guardian-question-mode.js";
 import {
@@ -229,11 +229,10 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
         ? buildToolApprovalSeedContentBlocks(parsed)
         : buildToolApprovalSeedContentBlocks(payload)) ?? undefined;
 
-    // The request-code reply instruction is not part of the template: whether
-    // a channel's copy carries it is decided per channel by
-    // `applyGuardianReplyMechanics` when the copy is composed.
+    // No reply mechanics here: the broadcaster's plainTextFallback carries
+    // them for the channels that need them.
     return {
-      title: "Guardian Question",
+      title: GUARDIAN_QUESTION_TITLE,
       body: question,
       conversationSeedMessage,
       seedContentBlocks,
@@ -414,12 +413,7 @@ export function composeFallbackCopy(
 
   const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
   for (const ch of channels) {
-    // Mechanics first, so a chat channel's derived deliveryText inherits the
-    // instruction the rule adds to the body.
-    result[ch] = applyChannelDefaults(
-      ch,
-      applyGuardianReplyMechanics(baseCopy, ch, signal),
-    );
+    result[ch] = applyChannelDefaults(ch, baseCopy);
   }
   return result;
 }

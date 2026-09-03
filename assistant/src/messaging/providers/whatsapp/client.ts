@@ -9,6 +9,12 @@ import { sendWhatsAppTextMessage } from "./api.js";
 /** Result returned by sendMessage. */
 export interface WhatsAppSendResult {
   ok: boolean;
+  /**
+   * The id the Cloud API assigned to the message (`messages[0].id`). Meta
+   * returns it on every accepted send, so this is absent only when the API
+   * answered with an unexpected shape.
+   */
+  messageId?: string;
 }
 
 /**
@@ -18,6 +24,6 @@ export async function sendMessage(
   to: string,
   text: string,
 ): Promise<WhatsAppSendResult> {
-  await sendWhatsAppTextMessage(to, text);
-  return { ok: true };
+  const result = await sendWhatsAppTextMessage(to, text);
+  return { ok: true, messageId: result.messages?.[0]?.id };
 }
