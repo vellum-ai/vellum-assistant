@@ -23,6 +23,7 @@ import {
   ActivationTaskStartRequestSchema,
 } from "../../api/responses/activation.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { getOriginClientId } from "../sync/resource-sync-events.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -46,23 +47,28 @@ function handleGetActivationProgress() {
 async function handleStartActivationTask({
   pathParams = {},
   body,
+  headers,
 }: RouteHandlerArgs) {
   const { conversationId, listId } = parseBody(
     ActivationTaskStartRequestSchema,
     body,
   );
+  const originClientId = getOriginClientId(headers);
   return startActivationTask({
     taskId: pathParams.taskId ?? "",
     conversationId,
     ...(listId !== undefined ? { listId } : {}),
+    ...(originClientId !== undefined ? { originClientId } : {}),
   });
 }
 
-async function handleDismissActivation({ body }: RouteHandlerArgs) {
+async function handleDismissActivation({ body, headers }: RouteHandlerArgs) {
   const { kind, listId } = parseBody(ActivationDismissRequestSchema, body);
+  const originClientId = getOriginClientId(headers);
   return dismissActivation({
     kind,
     ...(listId !== undefined ? { listId } : {}),
+    ...(originClientId !== undefined ? { originClientId } : {}),
   });
 }
 
@@ -102,6 +108,10 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleStartActivationTask,
     additionalResponses: {
       "400": { description: "Malformed task id, list id, or conversation id" },
+      "409": {
+        description:
+          "Stored progress was written by a newer build; the link was not recorded",
+      },
     },
   },
   {
@@ -121,6 +131,10 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleDismissActivation,
     additionalResponses: {
       "400": { description: "Malformed dismiss kind or list id" },
+      "409": {
+        description:
+          "Stored progress was written by a newer build; the dismissal was not recorded",
+      },
     },
   },
 ];

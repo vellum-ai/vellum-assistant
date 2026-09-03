@@ -639,6 +639,7 @@ paths:
                           description: "`started` while the linked conversation is working the task"
                         conversationId:
                           type: string
+                          maxLength: 128
                           description: Conversation the task was launched into
                         startedAt:
                           type: string
@@ -689,6 +690,8 @@ paths:
                 additionalProperties: false
         "400":
           description: Malformed dismiss kind or list id
+        "409":
+          description: Stored progress was written by a newer build; the dismissal was not recorded
   /v1/activation/progress:
     get:
       operationId: activation_progress_get
@@ -738,6 +741,7 @@ paths:
                           description: "`started` while the linked conversation is working the task"
                         conversationId:
                           type: string
+                          maxLength: 128
                           description: Conversation the task was launched into
                         startedAt:
                           type: string
@@ -811,6 +815,7 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                  maxLength: 128
                   description: Conversation the task prompt was sent to
                 listId:
                   description: List the task came from, stored only while no list is frozen
@@ -860,6 +865,7 @@ paths:
                           description: "`started` while the linked conversation is working the task"
                         conversationId:
                           type: string
+                          maxLength: 128
                           description: Conversation the task was launched into
                         startedAt:
                           type: string
@@ -910,6 +916,8 @@ paths:
                 additionalProperties: false
         "400":
           description: Malformed task id, list id, or conversation id
+        "409":
+          description: Stored progress was written by a newer build; the link was not recorded
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post

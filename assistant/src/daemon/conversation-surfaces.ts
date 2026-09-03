@@ -163,6 +163,24 @@ const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
 ]);
 
 /**
+ * Whether a surface this conversation showed is still waiting on the user.
+ *
+ * The one-interactive-surface-at-a-time gate reads it to reject a second
+ * card, and the turn boundary reads it to tell a turn that delivered from a
+ * turn that posed a question and handed control back.
+ */
+export function hasBlockingPendingSurface(ctx: {
+  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
+}): boolean {
+  for (const entry of ctx.pendingSurfaceActions.values()) {
+    if (!NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Surface types that carry no terminal action: the card settles when the user
  * interacts with it, so no click could ever satisfy an attached `actions`
  * entry or an explicit `await_action`. Both are generic ui_show params though,
@@ -3399,10 +3417,7 @@ export async function surfaceProxyResolver(
     // content rather than a question posed to the user, so a pending one
     // never blocks the next surface.
     if (awaitAction) {
-      const hasExistingPending = [...ctx.pendingSurfaceActions.values()].some(
-        (entry) => !NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType),
-      );
-      if (hasExistingPending) {
+      if (hasBlockingPendingSurface(ctx)) {
         return {
           content:
             "Another interactive surface is already awaiting user input. Present one at a time — wait for the user to respond to the current surface before showing the next.",

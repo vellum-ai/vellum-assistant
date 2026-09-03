@@ -7,7 +7,8 @@
  * live in the daemon). A worker hands the notification here instead and the
  * daemon republishes it to real subscribers (see
  * `ipc/routes/conversation-sync-ipc-routes.ts`,
- * `ipc/routes/documents-sync-ipc-routes.ts`).
+ * `ipc/routes/documents-sync-ipc-routes.ts`,
+ * `ipc/routes/activation-sync-ipc-routes.ts`).
  */
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
@@ -29,6 +30,14 @@ export const NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD =
  */
 export const NOTIFY_DOCUMENTS_CHANGED_IPC_METHOD =
   "notify_documents_changed_externally";
+
+/**
+ * IPC method the daemon exposes for the activation-progress hand-off. Shared
+ * by the worker caller and the daemon route registration so the wire name
+ * cannot drift.
+ */
+export const NOTIFY_ACTIVATION_PROGRESS_CHANGED_IPC_METHOD =
+  "notify_activation_progress_changed_externally";
 
 /**
  * Short timeout: this is a fire-and-forget invalidation, not a request whose
@@ -97,5 +106,34 @@ export async function notifyDaemonDocumentsChanged(): Promise<void> {
     }
   } catch (err) {
     log.debug({ err }, "daemon documents-changed notify failed");
+  }
+}
+
+/**
+ * Ask the daemon to republish the activation-progress invalidation.
+ *
+ * A scheduled or background turn working a checklist task moves that task's
+ * step count and finishes it, but the worker's own broadcast reaches nobody.
+ * This is the path that lets the checklist row stop showing Working.
+ *
+ * Best-effort by design, like the other hand-offs: an unreachable daemon is
+ * logged at debug and swallowed, and the client picks the change up on its
+ * next progress fetch.
+ */
+export async function notifyDaemonActivationProgressChanged(): Promise<void> {
+  try {
+    const result = await cliIpcCall(
+      NOTIFY_ACTIVATION_PROGRESS_CHANGED_IPC_METHOD,
+      { body: {} },
+      { timeoutMs: NOTIFY_TIMEOUT_MS },
+    );
+    if (!result.ok) {
+      log.debug(
+        { error: result.error },
+        "daemon activation-progress notify was not acknowledged",
+      );
+    }
+  } catch (err) {
+    log.debug({ err }, "daemon activation-progress notify failed");
   }
 }
