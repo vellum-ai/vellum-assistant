@@ -47,6 +47,8 @@ function legOf(url: string, method: string): Leg | null {
 const calls: Leg[] = [];
 
 let createStatus = 200;
+/** The `detail` the create leg answers with; `null` for a body carrying none. */
+let createDetail: string | null = "no conversation for you";
 let startStatus = 200;
 let sendStatus = 200;
 let sendThrows = false;
@@ -108,7 +110,10 @@ function installFetch(): void {
     switch (leg) {
       case "create":
         if (createStatus !== 200) {
-          return json(createStatus, { detail: "no conversation for you" });
+          return json(
+            createStatus,
+            createDetail === null ? {} : { detail: createDetail },
+          );
         }
         return json(200, {
           id: `conv-${++mintCounter}`,
@@ -175,6 +180,7 @@ beforeEach(() => {
   requests.length = 0;
   mintCounter = 0;
   createStatus = 200;
+  createDetail = "no conversation for you";
   startStatus = 200;
   sendStatus = 200;
   sendThrows = false;
@@ -232,9 +238,9 @@ describe("useLaunchActivationTask", () => {
     expect(requestFor("send").body.content).toContain("PDF proposal");
   });
 
-  // The prompt is generated, not typed, so activation analytics has to be able
-  // to exclude the turn. An omitted marker reads as unknown, not false.
-  test("marks the generated turn as scripted on the wire", async () => {
+  // The catalog prompt is generated, not typed, so activation analytics has to
+  // be able to exclude the turn. An omitted marker reads as unknown, not false.
+  test("marks the catalog turn as scripted on the wire", async () => {
     const result = launcher();
     await act(async () => {
       await result.current.launch("pdf-proposal");
@@ -252,6 +258,30 @@ describe("useLaunchActivationTask", () => {
     expect(requestFor("send").body.content).toBe("quote for Bob");
   });
 
+  // The user wrote these words into the row's Custom field, so the turn is
+  // real engagement; marking it scripted would delete it from the experiment.
+  test("marks a custom prompt as typed on the wire", async () => {
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal", "  quote for Bob  ");
+    });
+
+    expect(requestFor("send").body.scripted).toBe(false);
+  });
+
+  // A blank Custom field is not a custom prompt: the catalog one is sent, so
+  // the turn is scripted like any other catalog launch.
+  test("marks a blank override as scripted, sending the catalog prompt", async () => {
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal", "   ");
+    });
+
+    const send = requestFor("send");
+    expect(send.body.content).toContain("PDF proposal");
+    expect(send.body.scripted).toBe(true);
+  });
+
   test("never links or sends when the conversation cannot be created", async () => {
     createStatus = 500;
     const result = launcher();
@@ -264,6 +294,23 @@ describe("useLaunchActivationTask", () => {
     expect(outcome).toMatchObject({
       ok: false,
       error: "no conversation for you",
+    });
+  });
+
+  // The create leg's own fallback is the translated launch copy, not the
+  // generic English string the shared error helper defaults to.
+  test("reports a create failure that carries no message in the launch copy", async () => {
+    createStatus = 500;
+    createDetail = null;
+    const result = launcher();
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.launch("pdf-proposal");
+    });
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: "Could not start the task. Please try again.",
     });
   });
 

@@ -38,6 +38,16 @@ export type CreateBackgroundConversationResult =
   | { ok: true; conversationId: string }
   | { ok: false; error: string };
 
+export interface CreateBackgroundConversationArgs {
+  assistantId: string;
+  /**
+   * Copy to show when the failure carried no message of its own. Supplied by
+   * the caller because the error is displayed by a feature surface and this
+   * seam sits in `utils/`, below any locale namespace a domain owns.
+   */
+  fallback: string;
+}
+
 /**
  * Create the conversation a background turn will run in.
  *
@@ -49,9 +59,10 @@ export type CreateBackgroundConversationResult =
  * Never throws: a transport failure comes back as `ok: false` so a caller's
  * result contract holds on every path.
  */
-export async function createBackgroundConversation(
-  assistantId: string,
-): Promise<CreateBackgroundConversationResult> {
+export async function createBackgroundConversation({
+  assistantId,
+  fallback,
+}: CreateBackgroundConversationArgs): Promise<CreateBackgroundConversationResult> {
   try {
     const { data, error, response } = await conversationsPost({
       path: { assistant_id: assistantId },
@@ -62,12 +73,15 @@ export async function createBackgroundConversation(
     if (!response?.ok || !conversationId) {
       return {
         ok: false,
-        error: extractErrorMessage(error, response, "Request failed."),
+        error: extractErrorMessage(error, response, fallback),
       };
     }
     return { ok: true, conversationId };
   } catch (error) {
-    return { ok: false, error: extractErrorMessage(error) };
+    return {
+      ok: false,
+      error: extractErrorMessage(error, undefined, fallback),
+    };
   }
 }
 
@@ -101,6 +115,18 @@ export interface SendBackgroundPromptArgs {
   /** A conversation from {@link createBackgroundConversation}. */
   conversationId: string;
   prompt: string;
+  /**
+   * Whether the words are generated rather than typed. `true` for a prompt a
+   * surface supplies, where the user chose the button and not the sentence;
+   * `false` for text the user wrote into a field, which is typed engagement
+   * however it is sent.
+   *
+   * Required rather than defaulted: the marker is what activation analytics
+   * excludes on, and an omitted marker reads as unknown rather than false, so
+   * a caller that forgets it either loses a real turn from the numbers or
+   * leaves a generated one counted as engagement.
+   */
+  scripted: boolean;
 }
 
 /**
@@ -109,18 +135,12 @@ export interface SendBackgroundPromptArgs {
  * The id names a row the daemon already holds, so the strict `conversationId`
  * wire field resolves it on assistants that use it and the legacy
  * `conversationKey` lookup finds it on assistants that do not.
- *
- * `scripted: true` because the prompt is generated: the user picked a surface
- * that sends it, not the words. The marker is what activation analytics
- * excludes on, and an omitted marker reads as unknown rather than false, so a
- * background turn left unmarked can be counted as typed engagement.
  */
 export async function sendBackgroundPrompt({
   assistantId,
   conversationId,
   prompt,
+  scripted,
 }: SendBackgroundPromptArgs): Promise<PostMessageResult> {
-  return postChatMessage(assistantId, conversationId, prompt, {
-    scripted: true,
-  });
+  return postChatMessage(assistantId, conversationId, prompt, { scripted });
 }

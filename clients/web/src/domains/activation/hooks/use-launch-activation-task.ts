@@ -120,7 +120,8 @@ export interface UseLaunchActivationTask {
   /**
    * Launch `taskId` into a fresh background conversation, sending its catalog
    * prompt. `promptOverride` carries whatever the user typed into the row's
-   * "Custom:" field and replaces it.
+   * "Custom:" field and replaces it; a nonblank one is sent as a typed turn
+   * rather than a scripted one.
    */
   launch: (
     taskId: string,
@@ -155,10 +156,17 @@ export function useLaunchActivationTask(
       if (!prompt) {
         return { ok: false, error: t("launch.unknownTask") };
       }
+      // A nonblank override is what the user typed into the row's Custom
+      // field, so the turn is typed engagement and activation analytics has to
+      // count it. Only the catalog prompt is scripted.
+      const scripted = !override;
 
       setPendingTaskId(taskId);
       try {
-        const created = await createBackgroundConversation(assistantId);
+        const created = await createBackgroundConversation({
+          assistantId,
+          fallback: t("launch.failed"),
+        });
         if (!created.ok) {
           return { ok: false, error: created.error };
         }
@@ -185,6 +193,7 @@ export function useLaunchActivationTask(
             assistantId,
             conversationId,
             prompt,
+            scripted,
           });
         } catch (error) {
           // The link already stands, so the conversation is the task's; the

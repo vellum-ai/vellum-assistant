@@ -39,6 +39,8 @@ describe("useSupportsActivationProgress", () => {
     expect(check("")).toBe(false);
   });
 
+  // The 0.11.8 release predates the routes, and a non-build pre-release of it
+  // is that same release, so neither may light the surface up.
   test("returns false for release lines without the routes", () => {
     expect(check("0.11.8")).toBe(false);
     expect(check("0.11.8-staging.2")).toBe(false);
@@ -46,14 +48,24 @@ describe("useSupportsActivationProgress", () => {
     expect(check("0.10.12")).toBe(false);
   });
 
-  // Pre-0.11.9 dev builds are excluded even when cut after the routes landed:
-  // the floor trades them away for zero 404 noise against the 0.11.8 line.
-  test("returns false for dev builds below the release floor", () => {
+  // Builds cut from the same base before the route commit do not carry it,
+  // which is why the floor names a minute rather than `dev.0`.
+  test("returns false for builds stamped before the routes landed", () => {
     expect(check("0.11.8-dev.202609010000.d77d014")).toBe(false);
+    expect(check("0.11.8-dev.202609030106.aaaaaaa")).toBe(false);
+    expect(check("0.11.8-local.20260903010600.aaaaaaa")).toBe(false);
   });
 
-  test("returns true at the floor and beyond", () => {
+  // Dogfood and same-source builds are the whole point of a dev floor: they
+  // carry the routes while `assistant/package.json` still reads 0.11.8.
+  test("returns true for builds carrying the routes on the 0.11.8 base", () => {
     expect(check(MIN_VERSION)).toBe(true);
+    expect(check("0.11.8-dev.202609030700.abcdef1")).toBe(true);
+    expect(check("0.11.8-local.20260903120000.abcdef1")).toBe(true);
+  });
+
+  test("returns true for every later release", () => {
+    expect(check("0.11.9")).toBe(true);
     expect(check("0.11.9-dev.202609020000.fedcba9")).toBe(true);
     expect(check("0.11.10")).toBe(true);
     expect(check("0.12.0")).toBe(true);

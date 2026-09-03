@@ -12,10 +12,16 @@
  * render, and a completed turn flips a row through the `activation:progress`
  * sync tag.
  *
- * MIN_VERSION invariant: 0.11.9 is the first version carrying the routes and
- * the agent-loop hooks that mark a task done. `versionSupports` compares base
- * versions first, so a lower floor would admit routeless 0.11.8 builds and
- * 404 against them on every mount.
+ * MIN_VERSION invariant: a dev floor rather than a release number, per
+ * `docs/BACKWARDS_COMPAT.md`. The routes and the agent-loop hooks that mark a
+ * task done landed on top of 0.11.8, so every build that carries them is
+ * stamped `0.11.8-dev.*` or `0.11.8-local.*` until the next cut. The floor
+ * names the minute the route commit merged (`d5d996d`), which is the earliest
+ * a build can carry it: dev and local pre-releases compare AHEAD of the stable
+ * release with the same base and order by their stamp, so a same-source local
+ * build and every dev build cut after that minute pass, released 0.11.8 and
+ * dev builds from before it do not, and later releases pass on the base
+ * comparison alone with nothing predicted.
  *
  * Scoped to the assistant the surface reads for via
  * `useAssistantScopedSupports` (see its JSDoc in `./utils.ts`). Switching from
@@ -26,7 +32,7 @@
  */
 import { useAssistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.9";
+export const MIN_VERSION = "0.11.8-dev.202609030107.d5d996d";
 
 /**
  * Render-path gate for every activation surface. `false` while the version is
