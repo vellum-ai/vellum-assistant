@@ -55,7 +55,7 @@ import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
-import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import { toggleLocalFile } from "@/components/local-file/open-local-file";
 import { useTranslation } from "@/i18n";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */

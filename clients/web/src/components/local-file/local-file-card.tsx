@@ -4,6 +4,12 @@
  * daemon cannot serve, or media too large to buffer.
  *
  * Rendered inside a markdown paragraph, so every element is inline-level.
+ *
+ * Shared: the chat transcript renders it for a file the assistant referenced,
+ * and the activation checklist renders it for a file a task produced. The
+ * classification helpers it reads (`mime-sniff`, `chat-attachments/utils`) are
+ * owned by the chat domain, and the menu's copy lives in the `chat` catalog
+ * because chat surfaces share those keys; moving either is its own change.
  */
 
 import { ExternalLink, PanelRight } from "lucide-react";
@@ -15,14 +21,14 @@ import {
   formatAttachmentSize,
   middleTruncate,
 } from "@/domains/chat/components/chat-attachments/utils";
-import { LocalFileIcon } from "@/domains/chat/components/local-file/local-file-icon";
-import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
+import { LocalFileIcon } from "@/components/local-file/local-file-icon";
+import { LocalFileMenu } from "@/components/local-file/local-file-menu";
 import {
   localFileDestination,
   toggleLocalFile,
   useIsWorkspaceFileOpen,
   type LocalFileDestination,
-} from "@/domains/chat/components/local-file/open-local-file";
+} from "@/components/local-file/open-local-file";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
 
 export interface LocalFileCardProps {

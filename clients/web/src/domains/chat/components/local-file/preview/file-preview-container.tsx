@@ -23,7 +23,7 @@ import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments
 import {
   LocalFileIcon,
   localFileKindFromFilename,
-} from "@/domains/chat/components/local-file/local-file-icon";
+} from "@/components/local-file/local-file-icon";
 import { previewByteCapFor } from "@/domains/chat/components/local-file/local-file-limits";
 import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
