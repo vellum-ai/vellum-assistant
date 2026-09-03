@@ -281,16 +281,6 @@ const RESTING_BOX = {
 export const INNER_GAP = 8;
 
 /**
- * The room the call bar keeps between the creature inside it and its first
- * word, in the units the layout is stated in.
- *
- * Tighter than the gap the pill keeps from the creature beside it: there the
- * gap is daylight between two objects, here the creature is on the bar and
- * this is the bar's own rhythm.
- */
-export const CALL_SLOT_GAP = 4;
-
-/**
  * How long a hand rests on the creature before it is told what a press does.
  *
  * Long enough that a pointer passing through is told nothing, short enough
@@ -714,39 +704,36 @@ export function CompanionSurface({
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
   // `CompanionIntro`, whose card hangs off the same creature.
-  const { scale, avatarRel, avatarHalf, baseline, gap, lineAt, edgeAt } =
-    companionLayoutFor(avatarBox, optionsBox);
+  const {
+    scale,
+    avatarRel,
+    avatarHalf,
+    baseline,
+    gap,
+    inUnits,
+    lineAt,
+    edgeAt,
+  } = companionLayoutFor(avatarBox, optionsBox);
 
   /**
    * Whether the pill is the call's bar.
    *
    * **The call is clearly not the pill, but a form of it.** Every other phase
-   * is the pill hanging off the creature's side; on a call the bar closes
-   * around the creature instead, centred on the point the host put the window
-   * around, lit at its edge in the assistant's colour, and the host takes the
-   * whole thing to the bottom of the display the way a meeting's controls sit.
-   * One object changing shape rather than a second object: the creature, the
-   * controls and the measured width are all the pill's own.
+   * is the pill hanging off the creature's side; on a call the bar is centred
+   * on the point the host put the window around instead, lit at its edge in
+   * the assistant's colour, and the host takes the whole thing to the bottom
+   * of the display the way a meeting's controls sit. The creature stands
+   * beside the bar across the gap it keeps from every other pill: the
+   * controls are the call's and the creature is the one on the call, and two
+   * objects with daylight between them is how that reads.
    */
   const inCall = phase === "call";
 
-  /**
-   * The creature's box in the units the layout is stated in, which is the
-   * width the call bar leaves for it at its leading end.
-   */
-  const creatureSlot = COMPANION_BASE_AVATAR_BOX * avatarRel;
-
-  // The clearance ahead of the body: the pill's own at either end, and on the
-  // call bar the creature's slot too, since the creature is inside the bar
-  // rather than beside it.
-  const leading = inCall ? INNER_GAP + creatureSlot + CALL_SLOT_GAP : INNER_GAP;
-
   // The body and the clearance at either end of it, and nothing else: the
-  // avatar has a box of its own beside the pill rather than a column inside it,
-  // except on the call bar, where its slot is part of the clearance.
+  // avatar has a box of its own beside the pill rather than a column inside it.
   const width = !expanded
     ? 0
-    : (contentWidth ?? FALLBACK_WIDTHS[phase]) + leading + INNER_GAP;
+    : (contentWidth ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
 
   // **The avatar never moves.** It holds one spot in the canvas, which is the
   // spot the host positions this window around, and the pill hangs off one side
@@ -774,11 +761,11 @@ export function CompanionSurface({
   const style: CSSProperties = inCall
     ? {
         width,
-        // **Centred on the creature's own point.** The bar closes around the
-        // creature, so it is centred where the creature is and on its centre
-        // line rather than standing on its baseline, and the canvas is
-        // symmetric about that point, so the host centring the canvas on the
-        // display centres the bar.
+        // **Centred on the creature's own point.** The bar takes the point
+        // the creature holds everywhere else and stands on its centre line
+        // rather than on its baseline, and the canvas is symmetric about
+        // that point, so the host centring the canvas on the display centres
+        // the bar.
         left: "50%",
         top: lineAt(cardGrowth, 0),
         transform: "translate(-50%, -50%)",
@@ -802,16 +789,17 @@ export function CompanionSurface({
 
   /**
    * Where the creature is drawn: on the point the host put the window around,
-   * or, on the call bar, in the slot at the bar's leading end.
+   * or, on a call, beside the bar's leading end.
    *
-   * The bar is centred on that point and its width is known here, so the slot
-   * is a fixed step back from the centre: half the bar, less the bar's own
-   * clearance and half the slot. The creature slides there as the bar unfurls
-   * and slides back as it collapses, over the pill's own duration, so the two
-   * read as one object changing shape.
+   * The bar is centred on that point and its width is known here, so the
+   * creature is a fixed step back from the centre: half the bar, then the gap
+   * and its own half box, which are the distances the pill steps off the
+   * creature by everywhere else, read the other way round. The creature slides
+   * out as the bar unfurls and back as it collapses, over the pill's own
+   * duration, so the two read as one object changing shape.
    */
   const creatureLeft = inCall
-    ? `calc(50% - ${width / 2 - INNER_GAP - creatureSlot / 2}px)`
+    ? `calc(50% - ${width / 2 + inUnits(avatarHalf + gap)}px)`
     : "50%";
 
   return (
@@ -878,7 +866,7 @@ export function CompanionSurface({
           measured. */}
         <div
           className="relative flex h-11 shrink-0 items-center"
-          style={{ paddingInlineStart: leading, paddingInlineEnd: INNER_GAP }}
+          style={{ paddingInline: INNER_GAP }}
         >
           <div
             className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
@@ -991,9 +979,10 @@ export function CompanionSurface({
           transform: `translate(-50%, -50%)${
             avatarRel === 1 ? "" : ` scale(${avatarRel})`
           }`,
-          // The slide into and out of the call bar's slot, on the pill's own
+          // The slide out beside the call bar and back, on the pill's own
           // easing and duration so the two move as one. Nothing travels for a
-          // reader who asked for stillness: the creature arrives in the slot.
+          // reader who asked for stillness: the creature arrives beside the
+          // bar.
           transition: reduce
             ? undefined
             : "left 300ms cubic-bezier(.2,.8,.2,1)",
