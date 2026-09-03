@@ -40,7 +40,7 @@ import {
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import {
   ToolDetailBody,
-  toolDetailHeaderTitle,
+  ToolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
 import {
   WebSearchErrorRow,
@@ -114,12 +114,6 @@ export function ActivityStepsPanel({
 
   // Level-2 header title: the step's own label, prefixed by the back
   // chevron. Mirrors `ToolDetailPanel`'s activity-first title for tools.
-  const stepDetailTitle = stepDetail
-    ? stepDetail.kind === "thinking"
-      ? "Thinking"
-      : toolDetailHeaderTitle(stepDetail)
-    : "";
-
   return (
     <DetailShell
       // Drilled into a step, the back control takes the leading slot the glyph
@@ -141,12 +135,16 @@ export function ActivityStepsPanel({
         stepDetail ? (
           // Drilled into a step: the step's title replaces the run summary, so
           // the header always names what the body shows.
-          <Typography
-            variant="title-medium"
-            className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-          >
-            {stepDetailTitle}
-          </Typography>
+          stepDetail.kind === "thinking" ? (
+            <Typography
+              variant="title-medium"
+              className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
+            >
+              {t("activityStepsPanel.thinkingTitle")}
+            </Typography>
+          ) : (
+            <ToolDetailHeaderTitle detail={stepDetail} />
+          )
         ) : (
           // Timeline level, per Figma: title · N steps — inline at the same
           // size, separated by a 3px midline dot, count in the secondary tone.

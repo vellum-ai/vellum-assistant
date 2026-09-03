@@ -112,7 +112,7 @@ afterEach(() => {
 
 describe("ToolDetailPanel", () => {
   test("renders the activity title, friendly tool name, input JSON and output", () => {
-    const { getByText, getAllByText, container } = render(
+    const { getAllByText, container } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
@@ -120,8 +120,8 @@ describe("ToolDetailPanel", () => {
     expect(
       getAllByText("Spawning subagent to research Toronto's location"),
     ).toHaveLength(1);
-    // Friendly tool name (title-cased from snake_case).
-    expect(getByText("Subagent Spawn")).toBeDefined();
+    // The tool is named once, in the header beneath the activity.
+    expect(getAllByText("Subagent Spawn")).toHaveLength(1);
     // Input JSON + output appear inside <pre> blocks.
     const text = container.textContent ?? "";
     expect(text).toContain('"toronto-location"');
@@ -136,38 +136,37 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Technical details")).toBeNull();
   });
 
-  test("renders the Risk Level notice with the tolerance hint but not the raw reason", () => {
-    const { getByTestId, getByText, queryByText } = render(
+  test("shows the risk level as a pill, without the raw classifier reason", () => {
+    const { getByTestId, queryByText } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskReason: "File edit (default)" })}
         onClose={noop}
       />,
     );
 
-    expect(getByText("Risk Level")).toBeDefined();
-    expect(getByTestId("risk-notice").getAttribute("data-risk-level")).toBe(
+    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
       "low",
     );
-    // Level and tolerance read as one sentence inside the notice.
+    expect(getByTestId("risk-badge").textContent).toBe("Low");
+    // The tolerance sentence is the pill's tooltip, not standing copy.
     expect(
-      getByText("Low → Auto-approved at Conservative tolerance or higher"),
-    ).toBeDefined();
-    // The classifier's rule-match string is internal jargon — never shown.
+      queryByText("Auto-approved at Conservative tolerance or higher"),
+    ).toBeNull();
+    // The classifier's rule-match string is internal jargon, never shown.
     expect(queryByText("File edit (default)")).toBeNull();
     // The trust-rule affordance was removed from the drawer.
     expect(queryByText("Create Trust Rule")).toBeNull();
   });
 
-  test("hides the Risk Level section when the call has no risk level", () => {
-    const { queryByText, queryByTestId } = render(
+  test("shows no pill when the call has no risk level", () => {
+    const { queryByTestId } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskLevel: undefined })}
         onClose={noop}
       />,
     );
 
-    expect(queryByText("Risk Level")).toBeNull();
-    expect(queryByTestId("risk-notice")).toBeNull();
+    expect(queryByTestId("risk-badge")).toBeNull();
   });
 
   test("does not render a Create Trust Rule button even when the call resolves live", () => {
@@ -194,6 +193,41 @@ describe("ToolDetailPanel", () => {
     expect(getByTestId("tool-output-notice").textContent).toBe(
       "The tool returned no output.",
     );
+  });
+
+  test("collapses whitespace in the header title", () => {
+    // The activity sentence is model-written; a newline in it would render as
+    // a gap in a single-line header.
+    const { container } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          activity: "  Reading the risk helpers\n  and the badge styles  ",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // Asserted on the raw node rather than through `getByText`, whose default
+    // normalizer collapses whitespace itself and so cannot tell a sanitized
+    // title from an unsanitized one.
+    const heading = container.querySelector("[title]");
+    expect(heading?.getAttribute("title")).toBe(
+      "Reading the risk helpers and the badge styles",
+    );
+    expect(heading?.textContent).toBe(
+      "Reading the risk helpers and the badge styles",
+    );
+  });
+
+  test("falls back to the phase title when there is no activity", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ activity: "", title: "Spawning subagent" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Spawning subagent")).toBeDefined();
   });
 
   test("says a denied call did not run", () => {
@@ -316,39 +350,77 @@ describe("ToolDetailPanel", () => {
     expect(getByText("Running…")).toBeDefined();
   });
 
-  test("collapses whitespace in the header title", () => {
-    // The activity sentence is model-written; a newline in it would render as
-    // a gap in a single-line header.
-    const { container } = render(
+  test("labels a denied edit as requested, not applied", () => {
+    const { getByText, queryByText } = render(
       <ToolDetailPanel
         detail={makeDetail({
-          activity: "  Reading the risk helpers\n  and the badge styles  ",
+          toolName: "file_edit",
+          input: { path: "a.ts", old_string: "one", new_string: "two" },
+          result: undefined,
+          status: "denied",
         })}
         onClose={noop}
       />,
     );
 
-    // Asserted on the raw node rather than through `getByText`, whose default
-    // normalizer collapses whitespace itself and so cannot tell a sanitized
-    // title from an unsanitized one.
-    const heading = container.querySelector("[title]");
-    expect(heading?.getAttribute("title")).toBe(
-      "Reading the risk helpers and the badge styles",
-    );
-    expect(heading?.textContent).toBe(
-      "Reading the risk helpers and the badge styles",
-    );
+    // The diff describes what was asked for; only a call that succeeded had it
+    // applied, so a denied one must not read as a change that happened.
+    expect(getByText("Requested changes")).toBeDefined();
+    expect(queryByText("Changes")).toBeNull();
   });
 
-  test("falls back to the phase title when there is no activity", () => {
+  test("labels a successful edit as applied", () => {
     const { getByText } = render(
       <ToolDetailPanel
-        detail={makeDetail({ activity: "", title: "Spawning subagent" })}
+        detail={makeDetail({
+          toolName: "file_edit",
+          input: { path: "a.ts", old_string: "one", new_string: "two" },
+          result: "Applied 1 edit",
+          status: "completed",
+        })}
         onClose={noop}
       />,
     );
 
-    expect(getByText("Spawning subagent")).toBeDefined();
+    expect(getByText("Changes")).toBeDefined();
+  });
+
+  test("shows the edited path when it arrives as file_path", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_edit",
+          // The daemon's alias table rewrites `file_path` to `path` only for
+          // aliased tool names, so a direct `file_edit` call still carries this
+          // spelling. The chip and the step label both read it; the panel that
+          // read only `path` showed a diff with no file attached to it.
+          input: {
+            file_path: "src/deep/module.ts",
+            old_string: "one",
+            new_string: "two",
+          },
+          result: "Applied 1 edit",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("src/deep/module.ts")).toBeDefined();
+  });
+
+  test("reads a bash command stored under the legacy cmd key", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "bash",
+          input: { cmd: "git status --short" },
+          result: "clean",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("git status --short")).toBeDefined();
   });
 
   test("clicking close fires onClose", () => {

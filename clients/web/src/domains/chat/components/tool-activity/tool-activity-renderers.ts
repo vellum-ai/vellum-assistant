@@ -12,6 +12,8 @@
  * Everything not listed keeps the generic treatment.
  */
 
+import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
+import { FileEditDetail } from "@/domains/chat/components/tool-activity/file-edit-detail";
 import { SkillExecuteDetail } from "@/domains/chat/components/tool-activity/skill-execute-detail";
 import { SkillLoadDetail } from "@/domains/chat/components/tool-activity/skill-load-detail";
 import type { ToolActivityRenderer } from "@/domains/chat/components/tool-activity/types";
@@ -20,6 +22,12 @@ import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-se
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const RENDERERS: Record<string, ToolActivityRenderer> = {
+  // A command and what it printed, rather than a JSON object quoting one.
+  bash: { Component: BashDetail, ownsOutput: true },
+  host_bash: { Component: BashDetail, ownsOutput: true },
+  // `old_string` / `new_string` is a diff, so it renders as one.
+  file_edit: { Component: FileEditDetail, ownsOutput: false },
+  host_file_edit: { Component: FileEditDetail, ownsOutput: false },
   // `skill_load`'s result *is* the skill body, so it owns the Output section
   // rather than letting the generic one dump the same text again as a `<pre>`.
   skill_load: { Component: SkillLoadDetail, ownsOutput: true },

@@ -128,6 +128,7 @@ function renderView(detail: ReturnType<typeof payload>) {
       streamedOutput={undefined}
       isRunning={detail.status === "running"}
       isError={detail.status === "error"}
+      isDenied={detail.status === "denied"}
     />,
   );
 }
@@ -188,6 +189,7 @@ describe("WebFetchDetailView", () => {
         streamedOutput={undefined}
         isRunning={false}
         isError={false}
+        isDenied={false}
       />,
     );
 
