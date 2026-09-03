@@ -6682,6 +6682,8 @@ paths:
                     type: string
                   verified:
                     type: boolean
+                  notesSaved:
+                    type: boolean
                   cancelled:
                     type: boolean
                 required:

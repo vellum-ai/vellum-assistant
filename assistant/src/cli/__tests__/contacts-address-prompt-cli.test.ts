@@ -1,7 +1,7 @@
 /**
- * Tests for the two commands that open an address form, `contacts prompt` and
- * `contacts channels add`: what they put in front of the guardian, and how they
- * report the answer that comes back.
+ * Tests for the commands that open an address form, `contacts prompt`,
+ * `contacts channels add` and `contacts create --channel`: what they put in
+ * front of the guardian, and how they report the answer that comes back.
  *
  * The form is seeded from the request body and the guardian submits what it
  * shows, so the body is pinned here alongside the outcomes the commands have to
@@ -98,8 +98,8 @@ function addressPromptBody(): Record<string, unknown> {
   return (call!.options as { body: Record<string, unknown> }).body;
 }
 
-function promptWasOpened(): boolean {
-  return calls.some((c) => c.operationId === "contacts_prompt");
+function wasCalled(operationId: string): boolean {
+  return calls.some((c) => c.operationId === operationId);
 }
 
 beforeEach(() => {
@@ -188,6 +188,79 @@ describe("contacts address prompt", () => {
     expect(process.exitCode).toBe(130);
   });
 
+  test("--contact-id aims the form at that contact, not at the address", async () => {
+    await runAssistantCommandFull(
+      "contacts",
+      "prompt",
+      "--contact-id",
+      "ct_1",
+      "--channel",
+      "email",
+    );
+
+    // The read comes first: the form names the contact it is binding to.
+    expect(calls[0]!.operationId).toBe("getContact");
+
+    const body = addressPromptBody();
+    expect(body.contactId).toBe("ct_1");
+    expect(body.contactDisplayName).toBe("Alice");
+    expect(body.label).toBe("Add email channel for Alice");
+    // The target is fixed by the id, so the role hint has nothing to select.
+    expect(body.role).toBeUndefined();
+  });
+
+  test("--contact-id and --role guardian are refused before any form opens", async () => {
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "prompt",
+      "--contact-id",
+      "ct_1",
+      "--role",
+      "guardian",
+      "--channel",
+      "email",
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(stderr).toContain("--contact-id");
+    expect(stderr).toContain("--role guardian");
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("a targeted bind warns when the pre-filled address looks taken", async () => {
+    addressHolders = [{ id: "ct_2", displayName: "Bob" }];
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "prompt",
+      "--contact-id",
+      "ct_1",
+      "--channel",
+      "email",
+      "--default-value",
+      "bob@example.com",
+    );
+
+    expect(stderr).toContain('already bound to "Bob" (ct_2)');
+    expect(wasCalled("contacts_prompt")).toBe(true);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  test("an untargeted prompt has no contact to check the address against", async () => {
+    await runAssistantCommandFull(
+      "contacts",
+      "prompt",
+      "--channel",
+      "email",
+      "--default-value",
+      "alice@example.com",
+    );
+
+    expect(wasCalled("getContact")).toBe(false);
+    expect(wasCalled("listContacts")).toBe(false);
+    expect(addressPromptBody().contactId).toBeUndefined();
+  });
+
   test("a form that failed still reports an error and exits nonzero", async () => {
     promptResult = { ok: false, error: "Channel resolution failed" };
 
@@ -199,6 +272,145 @@ describe("contacts address prompt", () => {
     );
 
     expect(stderr).toContain("Channel resolution failed");
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+describe("contacts create --channel", () => {
+  test("the create and the channel bind are one address form", async () => {
+    await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+      "--address",
+      "alice@example.com",
+    );
+
+    const body = addressPromptBody();
+    expect(body.displayName).toBe("Alice");
+    expect(body.notes).toBe("Dentist");
+    expect(body.channel).toBe("email");
+    expect(body.defaultValue).toBe("alice@example.com");
+    // A proposed name and a target contact contradict each other, and the
+    // daemon refuses the pair: this form creates the contact it names.
+    expect(body.contactId).toBeUndefined();
+    // One form, so the record form is never opened.
+    expect(wasCalled("contacts_record_prompt")).toBe(false);
+  });
+
+  test("--verify proposes the attest", async () => {
+    await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--channel",
+      "email",
+      "--verify",
+    );
+
+    expect(addressPromptBody().verify).toBe(true);
+  });
+
+  test("notes the mirror never took are reported, and the bind still stands", async () => {
+    promptResult = { ...boundChannel, notesSaved: false };
+
+    const { stdout, stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+      "--address",
+      "alice@example.com",
+    );
+
+    expect(stdout).toContain("Registered email channel: alice@example.com");
+    expect(stderr).toContain(
+      "The contact and channel were saved, but its notes were not",
+    );
+    // The contact and the channel are written, so this is a partial outcome
+    // rather than a failed command.
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  test("saved notes are reported by saying nothing about them", async () => {
+    promptResult = { ...boundChannel, notesSaved: true };
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+    );
+
+    expect(stderr).toBe("");
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  test("without --channel the record form is still what opens", async () => {
+    await runAssistantCommandFull("contacts", "create", "--name", "Alice");
+
+    expect(wasCalled("contacts_record_prompt")).toBe(true);
+    expect(wasCalled("contacts_prompt")).toBe(false);
+  });
+
+  test("--address without --channel is refused, naming both flags", async () => {
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--address",
+      "alice@example.com",
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(stderr).toContain("--address");
+    expect(stderr).toContain("--channel");
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("--verify without --channel is refused, naming both flags", async () => {
+    // The record form has no verify field, so accepting this would create a
+    // channel-less contact while reporting the flag as honored.
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--verify",
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(stderr).toContain("--verify");
+    expect(stderr).toContain("--channel");
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("--channel without --name is refused: the contact needs a name", async () => {
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--channel",
+      "email",
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(stderr).toContain("--channel");
+    expect(stderr).toContain("--name");
     expect(process.exitCode).toBe(1);
   });
 });
@@ -255,7 +467,7 @@ describe("contacts channels add", () => {
       "email",
     );
 
-    expect(promptWasOpened()).toBe(false);
+    expect(wasCalled("contacts_prompt")).toBe(false);
     expect(stderr).toContain('Contact "ct_missing" not found');
     // The id came from somewhere, so the failure has to say where to get a
     // good one.
@@ -280,7 +492,7 @@ describe("contacts channels add", () => {
 
     expect(stderr).toContain('already bound to "Bob" (ct_2)');
     expect(stderr).toContain("assistant contacts merge");
-    expect(promptWasOpened()).toBe(true);
+    expect(wasCalled("contacts_prompt")).toBe(true);
     expect(process.exitCode).toBeFalsy();
   });
 
@@ -298,7 +510,7 @@ describe("contacts channels add", () => {
       "alice@example.com",
     );
 
-    expect(promptWasOpened()).toBe(true);
+    expect(wasCalled("contacts_prompt")).toBe(true);
     expect(process.exitCode).toBeFalsy();
   });
 
@@ -312,7 +524,7 @@ describe("contacts channels add", () => {
       "email",
     );
 
-    expect(calls.some((c) => c.operationId === "listContacts")).toBe(false);
+    expect(wasCalled("listContacts")).toBe(false);
     expect(addressPromptBody().defaultValue).toBeUndefined();
   });
 

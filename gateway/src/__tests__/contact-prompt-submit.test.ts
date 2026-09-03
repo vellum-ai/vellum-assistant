@@ -38,11 +38,50 @@ const ipcThrowOn = new Map<string, Error>();
 let parkedFlags: Record<string, unknown> = {};
 
 /**
+ * The notes each contact holds in the assistant mirror, keyed by contact id.
+ *
+ * Notes live only there, so the mirror write op fills this and the info read
+ * serves from it. A mirror write a test makes throw leaves no entry, which is
+ * what an unreachable mirror looks like to a read-back.
+ */
+const mirrorNotes = new Map<string, string | null>();
+
+function recordMirrorWrite(payload: unknown): void {
+  const body = (payload as { body?: Record<string, unknown> } | undefined)
+    ?.body;
+  const contactId = body?.contactId;
+  if (typeof contactId === "string") {
+    const notes = body?.notes;
+    mirrorNotes.set(contactId, typeof notes === "string" ? notes : null);
+  }
+}
+
+function mirrorInfoBatch(payload: unknown): Record<string, unknown> {
+  const ids = (payload as { body?: { contactIds?: unknown } } | undefined)?.body
+    ?.contactIds;
+  const contactIds = Array.isArray(ids) ? (ids as string[]) : [];
+  return {
+    infos: contactIds
+      .filter((id) => mirrorNotes.has(id))
+      .map((id) => ({
+        contactId: id,
+        notes: mirrorNotes.get(id) ?? null,
+        userFile: null,
+        contactType: null,
+        assistantMetadata: null,
+      })),
+  };
+}
+
+/**
  * The gateway claims a form before writing, so every submission in this suite
  * needs the claim granted unless the test is about losing it. Shared with the
  * per-test overrides below so none of them can drop it by omission.
  */
-function defaultIpcResponse(method: string): Record<string, unknown> {
+function defaultIpcResponse(
+  method: string,
+  payload?: unknown,
+): Record<string, unknown> {
   if (method === "contact_prompt_claim") {
     return { claimed: true, settleMs: 180_000 };
   }
@@ -51,16 +90,26 @@ function defaultIpcResponse(method: string): Record<string, unknown> {
     // parked. A test overrides it to stand in for one that has forgotten it.
     return { known: true, ...parkedFlags };
   }
+  if (
+    method === "contacts_mirror_upsert_full" ||
+    method === "contacts_mirror_upsert_contact"
+  ) {
+    recordMirrorWrite(payload);
+    return { ok: true };
+  }
+  if (method === "contacts_info_batch") {
+    return mirrorInfoBatch(payload);
+  }
   return { resolved: true };
 }
 
-const ipcMock = mock(async (method: string) => {
+const ipcMock = mock(async (method: string, payload?: unknown) => {
   const err = ipcThrowOn.get(method);
   if (err) {
     ipcThrowOn.delete(method);
     throw err;
   }
-  return defaultIpcResponse(method);
+  return defaultIpcResponse(method, payload);
 });
 
 // Spread the actual module so untouched exports (IpcHandlerError,
@@ -145,16 +194,17 @@ afterAll(() => {
 
 beforeEach(() => {
   ipcMock.mockClear();
-  ipcMock.mockImplementation(async (method: string) => {
+  ipcMock.mockImplementation(async (method: string, payload?: unknown) => {
     const err = ipcThrowOn.get(method);
     if (err) {
       ipcThrowOn.delete(method);
       throw err;
     }
-    return defaultIpcResponse(method);
+    return defaultIpcResponse(method, payload);
   });
   ipcThrowOn.clear();
   parkedFlags = {};
+  mirrorNotes.clear();
 
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
@@ -1437,6 +1487,52 @@ describe("handleContactPromptSubmit", () => {
     expect(mirror).toHaveLength(1);
     expect(mirror[0].body.displayName).toBe("Alice");
     expect(mirror[0].body.notes).toBe("Neighbour");
+
+    // The mirror took them, so the CLI is told they landed.
+    expect(resolveCall(ipcMock).body.notesSaved).toBe(true);
+  });
+
+  test("named create: notes the mirror never took are reported as unsaved", async () => {
+    parkedFlags = { displayName: "Alice", notes: "Neighbour" };
+    // Notes live only in the assistant mirror and upsertContact swallows a
+    // failed write to it, so the read-back is the only thing that can tell.
+    ipcThrowOn.set("contacts_mirror_upsert_full", new Error("mirror down"));
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-named-create-no-mirror",
+        address: "alice.nomirror@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // The gateway contact and its channel still committed.
+    const contacts = getGatewayDb().select().from(gwContacts).all();
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].displayName).toBe("Alice");
+
+    // A resolution, not a failure: the bind stands and the CLI is told which
+    // part of it did not.
+    const resolved = resolveCall(ipcMock).body;
+    expect(resolved.error).toBeUndefined();
+    expect(resolved.contactId).toBe(contacts[0].id);
+    expect(resolved.notesSaved).toBe(false);
+  });
+
+  test("a create proposing no notes reports nothing about them", async () => {
+    parkedFlags = { displayName: "Alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-named-create-no-notes",
+        address: "alice.nonotes@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(resolveCall(ipcMock).body.notesSaved).toBeUndefined();
   });
 
   test("parked notes are kept when the form proposes no name", async () => {

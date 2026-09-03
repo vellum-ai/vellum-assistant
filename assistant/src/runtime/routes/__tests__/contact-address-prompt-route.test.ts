@@ -167,6 +167,23 @@ describe("contacts_prompt binding target", () => {
     expect(broadcasts).toHaveLength(0);
   });
 
+  test("a second address form is refused while one is unanswered", async () => {
+    // Clients hold one contact card, so a second broadcast would replace the
+    // first and strand the command parked on it.
+    void addressPrompt.handler({ body: { channel: "email" } });
+    expect(broadcasts).toHaveLength(1);
+
+    const result = (await addressPrompt.handler({
+      body: { channel: "phone" },
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toContain(
+      "Another contact form is already open",
+    );
+    expect(broadcasts).toHaveLength(1);
+  });
+
   test("naming a contact and proposing notes is refused, and opens no form", async () => {
     // A targeted bind writes no record, so notes riding along would be
     // reported as saved and dropped.
