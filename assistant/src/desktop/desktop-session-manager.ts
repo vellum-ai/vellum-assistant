@@ -1,9 +1,9 @@
 /**
  * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
  * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
- * tint2 dock, the tigervncconfig clipboard bridge and Playwright's Chromium,
- * started by the first viewer and lingering after the last one leaves so a
- * reconnect is instant.
+ * xcompmgr compositor, the tint2 dock, the tigervncconfig clipboard bridge and
+ * Playwright's Chromium, started by the first viewer and lingering after the
+ * last one leaves so a reconnect is instant.
  */
 
 import { mkdirSync } from "node:fs";
@@ -79,9 +79,16 @@ const BUSY_LOSS: DesktopLoss = {
 export type DesktopChildRole =
   | "x-server"
   | "window-manager"
+  | "compositor"
   | "panel"
   | "clipboard"
   | "browser";
+
+/** Children whose death costs the dock's looks, not the desktop. */
+const COSMETIC_ROLES: ReadonlySet<DesktopChildRole> = new Set([
+  "compositor",
+  "panel",
+]);
 
 /** The slice of `Bun.Subprocess` the manager drives, so tests can fake it. */
 export interface DesktopChild {
@@ -165,6 +172,7 @@ interface DesktopSessionManagerOptions {
 interface DesktopBinaries {
   readonly xServer: string;
   readonly windowManager: string;
+  readonly compositor: string;
   readonly panel: string;
   readonly clipboard: string;
   readonly terminal: string;
@@ -302,6 +310,9 @@ export class DesktopSessionManager {
         );
       }
       this.launch("window-manager", [this.binaries.windowManager], env);
+      // Before the dock, which only gets the ARGB visual its rounded corners
+      // and translucency need if a compositor is already running.
+      this.launchCosmetic("compositor", [this.binaries.compositor], env);
       this.launch("clipboard", [this.binaries.clipboard, "-nowin"], env);
     } catch (err) {
       if (this.generation === generation) {
@@ -318,13 +329,22 @@ export class DesktopSessionManager {
   private resolveBinaries(): DesktopBinaries {
     const xServer = this.which("Xtigervnc");
     const windowManager = this.which("openbox");
+    const compositor = this.which("xcompmgr");
     const panel = this.which("tint2");
     const clipboard = this.which("tigervncconfig") ?? this.which("vncconfig");
     const terminal = this.which("xterm");
-    if (!xServer || !windowManager || !panel || !clipboard || !terminal) {
+    if (
+      !xServer ||
+      !windowManager ||
+      !compositor ||
+      !panel ||
+      !clipboard ||
+      !terminal
+    ) {
       const missing = [
         xServer ? null : "Xtigervnc",
         windowManager ? null : "openbox",
+        compositor ? null : "xcompmgr",
         panel ? null : "tint2",
         clipboard ? null : "tigervncconfig",
         terminal ? null : "xterm",
@@ -333,7 +353,14 @@ export class DesktopSessionManager {
         `Desktop binaries missing from PATH: ${missing.join(", ")}`,
       );
     }
-    return { xServer, windowManager, panel, clipboard, terminal };
+    return {
+      xServer,
+      windowManager,
+      compositor,
+      panel,
+      clipboard,
+      terminal,
+    };
   }
 
   private async waitForVnc(generation: number): Promise<boolean> {
@@ -384,9 +411,8 @@ export class DesktopSessionManager {
 
   /**
    * Bring the dock up once per tree. It waits on Chromium because its launcher
-   * points at that executable, and its window manager is long up by then. A
-   * dock that cannot be written or spawned costs the taskbar, not the desktop,
-   * so the failure is only logged.
+   * points at that executable, and its window manager and compositor are long
+   * up by then.
    */
   private startPanel(chromiumPath: string, env: Record<string, string>): void {
     const binaries = this.binaries;
@@ -394,16 +420,31 @@ export class DesktopSessionManager {
       return;
     }
     this.panelStarted = true;
+    let configPath: string;
     try {
-      const configPath = writeDesktopPanelConfig({
+      configPath = writeDesktopPanelConfig({
         configDir: this.panelConfigDir,
         chromiumPath,
         chromiumProfileDir: this.profileDir,
         terminalPath: binaries.terminal,
       });
-      this.launch("panel", [binaries.panel, "-c", configPath], env);
     } catch (err) {
-      log.warn({ err }, "Desktop panel failed to start");
+      log.warn({ err }, "Desktop dock config could not be written");
+      return;
+    }
+    this.launchCosmetic("panel", [binaries.panel, "-c", configPath], env);
+  }
+
+  /** Spawn a child the desktop looks worse without but works fine without. */
+  private launchCosmetic(
+    role: DesktopChildRole,
+    cmd: readonly string[],
+    env: Record<string, string>,
+  ): void {
+    try {
+      this.launch(role, cmd, env);
+    } catch (err) {
+      log.warn({ err, role }, "Desktop child failed to start");
     }
   }
 
@@ -439,9 +480,9 @@ export class DesktopSessionManager {
       this.onBrowserExit();
       return;
     }
-    if (role === "panel") {
-      // A dead panel costs the taskbar, not the desktop.
-      log.warn({ outcome }, "Desktop panel exited");
+    if (COSMETIC_ROLES.has(role)) {
+      // A dead dock or compositor costs the desktop its looks, not its use.
+      log.warn({ role, outcome }, "Desktop child exited");
       return;
     }
     log.warn({ role, outcome }, "Desktop process exited, tearing down");

@@ -66,6 +66,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.roles()).toEqual([
       "x-server",
       "window-manager",
+      "compositor",
       "clipboard",
       "panel",
       "browser",
@@ -79,6 +80,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(x[x.indexOf("-geometry") + 1]).toBe("1440x900");
     for (const role of [
       "window-manager",
+      "compositor",
       "clipboard",
       "panel",
       "browser",
@@ -92,6 +94,9 @@ describe("DesktopSessionManager process tree", () => {
       });
     }
     expect(h.child("window-manager").request.cmd).toEqual(["/usr/bin/openbox"]);
+    // The compositor precedes the dock: without one already running, tint2
+    // gets no ARGB visual and the rounded translucent dock renders square.
+    expect(h.child("compositor").request.cmd).toEqual(["/usr/bin/xcompmgr"]);
     expect(h.child("panel").request.cmd).toEqual([
       "/usr/bin/tint2",
       "-c",
@@ -127,6 +132,7 @@ describe("DesktopSessionManager process tree", () => {
     const h = newManager({
       missingBinaries: [
         "Xtigervnc",
+        "xcompmgr",
         "tint2",
         "tigervncconfig",
         "vncconfig",
@@ -134,7 +140,7 @@ describe("DesktopSessionManager process tree", () => {
       ],
     });
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(
-      "Desktop binaries missing from PATH: Xtigervnc, tint2, tigervncconfig, xterm",
+      "Desktop binaries missing from PATH: Xtigervnc, xcompmgr, tint2, tigervncconfig, xterm",
     );
     expect(h.spawned).toEqual([]);
   });
@@ -255,24 +261,25 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["window-manager", "x-server"]);
+    ).toEqual(["compositor", "window-manager", "x-server"]);
     expect(lost).toEqual([{ code: 4011, reason: "Desktop failed to start" }]);
 
     failSpawn.length = 0;
     await h.manager.ensureDesktopRunning();
     await settle();
-    expect(h.roles().slice(2)).toEqual([
+    expect(h.roles().slice(3)).toEqual([
       "x-server",
       "window-manager",
+      "compositor",
       "clipboard",
       "panel",
       "browser",
     ]);
-    expect(h.terminated()).toHaveLength(2);
+    expect(h.terminated()).toHaveLength(3);
   });
 
-  test("a dock that will not spawn leaves the rest of the desktop up", async () => {
-    const h = newManager({ failSpawn: ["panel"] });
+  test("a dock or compositor that will not spawn leaves the desktop up", async () => {
+    const h = newManager({ failSpawn: ["compositor", "panel"] });
     const { viewer, lost } = newViewer();
     h.manager.acquireViewerSlot(viewer);
 
@@ -307,7 +314,13 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["browser", "clipboard", "panel", "window-manager"]);
+    ).toEqual([
+      "browser",
+      "clipboard",
+      "compositor",
+      "panel",
+      "window-manager",
+    ]);
     // The slot is free and the next start builds a fresh tree.
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual({
       ok: true,
@@ -375,7 +388,13 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["clipboard", "panel", "window-manager", "x-server"]);
+    ).toEqual([
+      "clipboard",
+      "compositor",
+      "panel",
+      "window-manager",
+      "x-server",
+    ]);
   });
 
   test("a browser that cannot be installed takes the desktop down", async () => {
@@ -398,7 +417,7 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["clipboard", "window-manager", "x-server"]);
+    ).toEqual(["clipboard", "compositor", "window-manager", "x-server"]);
   });
 
   test("destroy terminates, hard-kills stragglers after the grace, and refuses what comes after", async () => {
@@ -416,8 +435,8 @@ describe("DesktopSessionManager process tree", () => {
       { code: 1001, reason: "The assistant is shutting down" },
     ]);
     expect(h.killed.map((k) => k.signal)).toEqual([
-      ...Array(5).fill("SIGTERM"),
-      ...Array(5).fill("SIGKILL"),
+      ...Array(6).fill("SIGTERM"),
+      ...Array(6).fill("SIGKILL"),
     ]);
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual(
       SHUTTING_DOWN,
@@ -433,7 +452,7 @@ describe("DesktopSessionManager process tree", () => {
     await settle();
 
     await h.manager.destroy();
-    expect(h.killed.map((k) => k.signal)).toEqual(Array(5).fill("SIGTERM"));
+    expect(h.killed.map((k) => k.signal)).toEqual(Array(6).fill("SIGTERM"));
   });
 });
 
@@ -464,7 +483,7 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.killed).toEqual([]);
 
     await sleep(LINGER_MS * 2);
-    expect(h.terminated()).toHaveLength(5);
+    expect(h.terminated()).toHaveLength(6);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(2);
   });

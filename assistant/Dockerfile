@@ -112,6 +112,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     xauth \
     xclip \
+    xcompmgr \
     xdg-utils \
     xfonts-base \
     xterm \
