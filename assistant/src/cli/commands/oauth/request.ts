@@ -248,8 +248,6 @@ export async function runAuthenticatedRequest(params: {
         // exit code comes from the route's status.
         writeError(`Error: ${err.message}\n\n${params.diagnosticsHint}`);
         process.exitCode = exitCodeFromIpcResult({
-          ok: false,
-          error: err.message,
           statusCode: err.statusCode,
         });
         return;
