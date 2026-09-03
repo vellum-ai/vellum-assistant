@@ -33,7 +33,7 @@ import {
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
-import { isHoldDictation } from "@/utils/hold-to-dictate";
+import { isHoldDictation } from "@/utils/voice-key";
 import { Button, cn } from "@vellumai/design-library";
 
 const RECORDING_GLYPH_CLASS = "[&_svg]:size-5 touch-mobile:[&_svg]:size-5";

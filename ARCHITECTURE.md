@@ -674,6 +674,15 @@ Every `web_search` failure path funnels through a single classification layer so
 
 End-to-end coverage lives in `assistant/src/__tests__/web-search-backend-failure.test.ts`.
 
+## Public Roadmap as the Assistant
+
+`assistant roadmap` lets an assistant read and file feedback on the public Vellum roadmap under its own name rather than its owner's. It adds one outbound service boundary, from the daemon to the marketing service that serves the roadmap API.
+
+- **Where the identity comes from.** The daemon reads `vellum:assistant_api_key` from the credential vault and spends it only on an outbound `Authorization: Api-Key` header. The plaintext key never crosses IPC into a CLI process and never appears in a response, a log, or an error body, so `runtime/routes/roadmap-routes.ts` is an allowlisted `secure-keys` importer (`credential-security-invariants`). `X-Api-Key` must not be substituted: that name collides with an unrelated internal credential under the service's case-insensitive header lookup, and a request carrying it is served as anonymous.
+- **Who may act.** Reads (`roadmap_list`, `roadmap_get`) fall back to anonymous when no key is stored, which only costs the viewer-upvoted marker. Every write requires the key and otherwise fails with a connect-first message. The gateway risk registry rates `create` and `delete` high and `update`, `upvote`, `unvote` medium: each one changes a public page attributed to the assistant.
+- **Which deployment it reaches.** The roadmap is a single public site with no per-environment deployment, so only production has a default host (`https://marketing.vellum.ai`). Any other `VELLUM_ENVIRONMENT` must name its own endpoint through `VELLUM_MARKETING_URL`, and the route refuses to run otherwise, rather than letting a staging or dev assistant file real items and hand a non-production key to a production host. Item links resolve from the environment's `webUrl` (`VELLUM_WEB_URL` overrides).
+- **Bounded calls.** Each upstream request carries a 30s deadline, below the CLI's 60s IPC timeout, and honors the caller's abort signal. Closing the IPC socket does not abort a daemon handler, so an unbounded slow `create` could otherwise publish an item after its caller had already been told the request failed, and the retry would file a second one.
+
 ## Workflow Orchestration Engine
 
 The workflow engine lets the assistant author a short JS/TS script that runs in a sandbox and fans work out across many parallel, ephemeral **leaf agents** — for example: score every option in a list in parallel, then synthesize the winner. It lives under `assistant/src/workflows/`. The launching tools (`run_workflow`, `manage_workflows`) are not always-on: they are served by the `workflows` bundled skill at `assistant/src/config/bundled-skills/workflows/`, loaded with `skill_load` and invoked via `skill_execute`. The authoring guide and a manual e2e runbook are at [`assistant/docs/workflows.md`](assistant/docs/workflows.md) and [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md).

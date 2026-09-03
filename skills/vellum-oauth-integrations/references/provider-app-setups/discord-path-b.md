@@ -78,9 +78,17 @@ Tell the user:
 
 Wait for the Client ID. Then ask for the secret:
 
-> Now click **Reset Secret** on the OAuth2 page. Confirm the reset when prompted. Copy the revealed secret and send it here as a standalone message with no other text.
+> Click **Reset Secret** on the OAuth2 page and confirm the reset when prompted to reveal the **app secret**. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: Discord app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service discord --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the app secret from the app settings page."
+```
+
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
 
 ## Path B Step 7: Authorize and Verify
 

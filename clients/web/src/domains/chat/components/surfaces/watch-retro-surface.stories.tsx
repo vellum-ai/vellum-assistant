@@ -63,10 +63,21 @@ function retroSurface(templateData: RetroTemplateData): Surface {
 /**
  * The card with its answers wired up, so tapping through the pages behaves the
  * way it does in a conversation. The submitted payload is logged rather than
- * sent, and the card marks itself completed so the end of the flow is visible.
+ * sent, and the surface is completed with the summary the card asked for,
+ * which is what the daemon echoes back, so the collapsed row is visible.
  */
-function RetroPreview({ templateData }: { templateData: RetroTemplateData }) {
-  const [surface, setSurface] = useState(() => retroSurface(templateData));
+function RetroPreview({
+  templateData,
+  completed = false,
+}: {
+  templateData: RetroTemplateData;
+  /** Open on the collapsed row, as a restored conversation would. */
+  completed?: boolean;
+}) {
+  const [surface, setSurface] = useState(() => ({
+    ...retroSurface(templateData),
+    ...(completed ? { completed: true, completionSummary: "Skill saved" } : {}),
+  }));
   const [submitted, setSubmitted] = useState<unknown>(null);
 
   return (
@@ -79,7 +90,9 @@ function RetroPreview({ templateData }: { templateData: RetroTemplateData }) {
             ...current,
             completed: true,
             completionSummary:
-              actionId === "discard" ? "Cancelled" : "Skill saved",
+              typeof data?._completionSummary === "string"
+                ? data._completionSummary
+                : undefined,
           }));
         }}
       />
@@ -199,7 +212,11 @@ export const BoundedRecording: Story = {
   ),
 };
 
-/** A `pick`: named alternatives, the recording's own reading marked and first. */
+/**
+ * A `pick`: named alternatives, the recording's own reading first and marked
+ * as recommended. Nothing is selected until the user taps, and the tap is
+ * what moves the card on.
+ */
 export const PickQuestion: Story = {
   render: () => (
     <RetroPreview
@@ -215,8 +232,8 @@ export const PickQuestion: Story = {
 };
 
 /**
- * A `gate`: a destructive step, with the cautious answer first because a
- * skipped question takes it.
+ * A `gate`: a destructive step, with the cautious answer first because that
+ * is the one shown as recommended.
  */
 export const GateQuestion: Story = {
   render: () => (
@@ -336,6 +353,14 @@ export const UnusableQuestionDropped: Story = {
       }}
     />
   ),
+};
+
+/**
+ * What the card becomes once it has been answered, as a restored conversation
+ * would show it: the task and one line saying what happened to it.
+ */
+export const Saved: Story = {
+  render: () => <RetroPreview templateData={FULL_REPORT} completed />,
 };
 
 /**

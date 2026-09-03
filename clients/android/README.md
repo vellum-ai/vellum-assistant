@@ -51,11 +51,10 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-The launch screen follows the saved app appearance, falling back to the Android
-light or dark setting until the web app has stored a preference. Android's app
-night mode keeps the OS splash and native overlay on the same theme. Android 11
-and older skip the OS preview window so the themed native overlay is the first
-app frame.
+The launch screen uses a centered white Vellum wordmark on black. The Android
+12 system splash stays visible until the native loading overlay is attached.
+Both surfaces share the same drawable and colors. Android 11 and older skip the
+OS preview window so the native overlay is the first app frame.
 
 ## Launcher Icons
 
@@ -64,9 +63,15 @@ The default launcher icon is the `quirky` eye pair from the avatar library in
 in `app/src/main/res/drawable/ic_launcher_foreground.xml` and in the
 pre-adaptive `app/src/main/res/mipmap-anydpi/ic_launcher*.xml` fallbacks are
 copied verbatim from that table and only repositioned by a VectorDrawable
-`<group>`, so the icon stays in sync with the in-app avatars. Launcher
-background colors distinguish production (`#4C9B50`, the avatar palette green),
-staging, and dev installs.
+`<group>`, so the icon stays in sync with the in-app avatars.
+
+Each flavor's `launcher_background` in
+`app/src/<flavor>/res/values/colors.xml` distinguishes the installs: production
+`#4C9B50` (the avatar palette green), staging `#E9C91A`, and dev `#FF88C9`.
+Those three are the shared cross-platform standard: a flavor and the iOS
+`AppIcon-*.icon` bundle for the same environment sit on the same color, which
+the web app names once as `APP_ICON_GROUNDS`. Change one and change the rest
+with it.
 
 ### Alternate Icons
 

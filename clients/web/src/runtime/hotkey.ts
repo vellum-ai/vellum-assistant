@@ -1,4 +1,5 @@
 import type {
+  HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
   VoiceModeChord,
@@ -7,14 +8,6 @@ import type {
 import { isElectron, type HotkeyEvent } from "@/runtime/is-electron";
 
 export type { HotkeyEvent };
-
-export function supportsFnPushToTalk(): boolean {
-  return (
-    isElectron() &&
-    typeof window.vellum?.helper?.hotkey?.fnPushToTalk === "function" &&
-    typeof window.vellum?.helper?.hotkey?.onEvent === "function"
-  );
-}
 
 export function supportsVoiceModeChord(): boolean {
   return (
@@ -33,20 +26,6 @@ export async function setNativeVoiceModeChord(
   try {
     const result =
       await window.vellum!.helper!.hotkey!.setVoiceModeChord!(activator);
-    return result.ok;
-  } catch {
-    return false;
-  }
-}
-
-export async function setFnPushToTalkEnabled(
-  enable: boolean,
-): Promise<boolean> {
-  if (!supportsFnPushToTalk()) {
-    return false;
-  }
-  try {
-    const result = await window.vellum!.helper!.hotkey!.fnPushToTalk!(enable);
     return result.ok;
   } catch {
     return false;
@@ -81,6 +60,24 @@ export async function setModifierHold(
     return { ok: false, reason: "host cannot watch a held modifier set" };
   }
   return set(hold);
+}
+
+/**
+ * What is highlighted in the application in front, or `null` when nothing is.
+ *
+ * `null` too off a host that cannot read one, since a hold that finds no
+ * selection lands its words at the cursor, which is the right answer there.
+ */
+export async function readFrontSelection(): Promise<HotkeySelection | null> {
+  const read = window.vellum?.helper?.hotkey?.readFrontSelection;
+  if (!isElectron() || typeof read !== "function") {
+    return null;
+  }
+  try {
+    return await read();
+  } catch {
+    return null;
+  }
 }
 
 export function subscribeToHotkeyEvents(

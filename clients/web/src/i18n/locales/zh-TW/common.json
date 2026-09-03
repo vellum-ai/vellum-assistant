@@ -70,6 +70,10 @@
     "updateFailed": "無法更新「{label}」。您的變更已還原。"
   },
   "avatarManagementModal": {
+    "accent": "強調色",
+    "accentAutomatic": "自動",
+    "accentPickerLabel": "強調色",
+    "accentReset": "重設",
     "body": "身體",
     "color": "顏色",
     "eyes": "眼睛",
@@ -154,6 +158,12 @@
     "allow": "允許",
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
+    "captureNothing": "沒有可顯示的內容",
+    "capturePicker": "教學來源",
+    "captureScreen": "螢幕 {n}",
+    "captureScreens": "螢幕",
+    "captureTabs": "Chrome 分頁",
+    "captureWindows": "視窗",
     "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",

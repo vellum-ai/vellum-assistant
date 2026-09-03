@@ -10,6 +10,7 @@
     "./conversation-handle": "./src/conversation-handle.ts",
     "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
+    "./desktop-presence": "./src/desktop-presence.ts",
     "./ingress": "./src/ingress.ts",
     "./no-response": "./src/no-response.ts",
     "./remote-web-pairing": "./src/remote-web-pairing.ts",

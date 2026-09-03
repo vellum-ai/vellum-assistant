@@ -351,30 +351,29 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
-/* One capture on the display's frame: a single breath of light over the
- * frame that is already lit. Opacity and nothing else, with no travel, no
- * scale, and nothing on screen displaced, so there is no reduced-motion
- * fallback: holding it still would delete the only signal that the screen
- * was read at that moment. */
-@keyframes companion-watch-glow-flash {
+/* One capture on the frame: a single brightening of the edge that is already
+ * drawn. Opacity and nothing else, with no travel, no scale, and nothing on
+ * screen displaced, so there is no reduced-motion fallback: holding it still
+ * would delete the only signal that the surface was read at that moment. */
+@keyframes companion-watch-frame-flash {
   0% { opacity: 0; }
   15% { opacity: 1; }
   100% { opacity: 0; }
 }
 
-.companion-watch-glow-flash {
-  box-shadow:
-    inset 0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #ff9f45) 90%, transparent),
-    inset 0 0 60px 8px color-mix(in srgb, var(--companion-ring-accent, #ff9f45) 60%, transparent);
+.companion-watch-frame-flash {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, white 70%, var(--companion-ring-accent, #ff9f45));
   opacity: 0;
-  animation: companion-watch-glow-flash 700ms ease-out 1;
+  animation: companion-watch-frame-flash 700ms ease-out 1;
 }
 
-/* The display's edge, lit in the capture colour while a watch session reads
- * the screen the way a shared screen is framed. `--companion-ring-accent` is
- * set per instance by the companion's windows. The call bar's own light is the
+/* The edge of what a watch session reads, drawn in the capture colour the way
+ * a shared screen is framed. A border and only a border: nothing bleeds
+ * inward, so the boundary of the read is a line and the work inside it is
+ * left exactly as bright as it was. `--companion-ring-accent` is set per
+ * instance by the companion's windows. The call bar's own light is the
  * working ring above, travelling the bar's edge. */
-@keyframes companion-watch-glow-in {
+@keyframes companion-watch-frame-in {
   from { opacity: 0; }
 }
 
@@ -383,19 +382,16 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   50% { opacity: 1; }
 }
 
-.companion-watch-glow {
-  box-shadow:
-    inset 0 0 0 2px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
-    inset 0 0 40px 4px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 45%, transparent),
-    inset 0 0 120px 20px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 18%, transparent);
+.companion-watch-frame {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 85%, transparent);
   animation:
-    companion-watch-glow-in 600ms ease-out 1,
+    companion-watch-frame-in 300ms ease-out 1,
     companion-call-breathe 3s ease-in-out infinite;
 }
 
-/* Held lit rather than dropped: the frame is what says the screen is read. */
+/* Held drawn rather than dropped: the frame is what says the surface is read. */
 @media (prefers-reduced-motion: reduce) {
-  .companion-watch-glow {
+  .companion-watch-frame {
     animation: none;
   }
 }

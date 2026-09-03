@@ -15,8 +15,9 @@ import { useTranslation } from "@/i18n";
  *   the body springs from its on-screen size to BE the screen, the color fades
  *   in behind it, the giant eyes grow into the center. See
  *   {@link VoiceRoomColorLook}.
- * - Custom-image avatars have no palette color and no eyes, so the room samples
- *   a field color out of the uploaded image ({@link useCustomAvatarFieldHex})
+ * - Custom-image avatars have no eyes and no palette color, so the room paints
+ *   the accent the daemon read out of the uploaded image (sampled here instead
+ *   on an assistant that predates accents, {@link useSampledAvatarAccentHex})
  *   and the image itself takes the center. Everything else is the character
  *   room, which is the point: a session reads the same whichever avatar the
  *   assistant wears.
@@ -180,7 +181,6 @@ import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
 import { useVoiceRoomSight } from "./use-voice-room-sight";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
-import { resolveWaveAccentHex } from "./wave-accent";
 
 import {
   SAFE_AREA_BOTTOM,
@@ -198,7 +198,8 @@ import {
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
-import { useCustomAvatarFieldHex } from "./use-custom-avatar-field";
+import { normalizeFieldHex } from "@/utils/avatar-image-color";
+import { useSampledAvatarAccentHex } from "./use-sampled-avatar-accent";
 // Every circular icon control in the room is one of these: the corner
 // minimize, the two mutes, the camera toggle, flip camera and end session. See
 // that module for the toning, and for why the design library's `Button` is not
@@ -829,17 +830,29 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // The sample resolves a frame or more after the query does, and can fail
   // outright, so the room paints the void until it lands rather than holding
   // its first frame on a decode.
-  const { components, traits, customImageUrl } =
-    useAssistantAvatar(assistantId);
-  const customFieldHex = useCustomAvatarFieldHex(customImageUrl);
+  const {
+    components,
+    traits,
+    customImageUrl,
+    accentHex: avatarAccentHex,
+  } = useAssistantAvatar(assistantId);
+  // An uploaded image on an assistant that predates accents carries none, so
+  // its colour is sampled here instead; the daemon's accent wins when there
+  // is one, and a character never needs the sample.
+  const sampledAccentHex = useSampledAvatarAccentHex(
+    avatarAccentHex === null ? customImageUrl : null,
+  );
+  // The accent var, published for the void state's bands and mirrored by the
+  // iOS Live Activity so island and room agree. Null for still-loading
+  // avatars and images with no colour to read, where those bands keep their
+  // own fallback.
+  const accentHex = avatarAccentHex ?? sampledAccentHex;
   const look =
     resolveVoiceRoomLook(components, traits, customImageUrl) ??
-    (customFieldHex ? voiceRoomImageLook(customFieldHex) : null);
+    (customImageUrl && accentHex
+      ? voiceRoomImageLook(normalizeFieldHex(accentHex))
+      : null);
   const tone = look ? toneForBg(look.bgHex) : null;
-  // The accent var, published for the void state's bands and mirrored by the
-  // iOS Live Activity so island and room agree. Null for custom-image / "none"
-  // / still-loading avatars, where those bands keep their own fallback.
-  const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.

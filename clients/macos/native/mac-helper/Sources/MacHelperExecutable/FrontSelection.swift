@@ -4,19 +4,19 @@ import Carbon
 
 /// The text selected in the application in front.
 ///
-/// Read at the moment a hold begins, so a hold made with something highlighted
-/// carries what was highlighted. Accessibility first: the focused element's
-/// selected text, or its selected range picked out of its value. Where that
-/// yields nothing and there is a focused element, a copy keystroke is sent to
-/// the application in front and the pasteboard read and put back. The keystroke
-/// is posted to that application's process rather than the HID stream, so the
-/// raw key monitor that watches the hold never sees it as a chord.
+/// Read when the app asks (`selection.read`), which it does once a hold has
+/// armed, so a hold made with something highlighted is about what was
+/// highlighted. Accessibility first: the focused element's selected text, or
+/// its selected range picked out of its value. Where that yields nothing and
+/// there is a focused element, a copy keystroke is sent to the application in
+/// front and the pasteboard read and put back. The keystroke is posted to that
+/// application's process rather than the HID stream, so the raw key monitor
+/// that watches the hold never sees it as a chord.
 ///
-/// The read happens on the keyboard event's own thread, ahead of the edge it
-/// travels on, so it is held to short waits: an application that does not
-/// answer costs the edge at most a few of `requestTimeoutSeconds` and, when the
-/// copy runs, `copyWaitSeconds`. The edge carries how long it was held so the
-/// far side can take that off its own clock.
+/// The read runs on the main thread, which also carries the keyboard monitor,
+/// so it is held to short waits: an application that does not answer costs at
+/// most a few of `requestTimeoutSeconds` and, when the copy runs,
+/// `copyWaitSeconds`.
 enum FrontSelection {
     /// How much of a selection travels. The rest is dropped and flagged.
     static let maxChars = 4000

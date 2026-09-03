@@ -230,6 +230,29 @@ export const LLMCallSiteEnum = z.enum([
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
+const KNOWN_CALL_SITE_IDS = new Set<string>(LLMCallSiteEnum.options);
+
+/**
+ * Drop call-site keys the running enum does not know. A different assistant
+ * version may have written them. Rejecting those keys fails the whole
+ * `callSites` record and skips sibling `superRefine` checks, so the loader's
+ * strip-and-retry can then mis-report defined profiles as missing. GET /v1/config
+ * and `saveRawConfig` read the raw file, so the dropped keys stay on disk for
+ * a version that recognizes them.
+ */
+export function dropUnknownCallSiteKeys(value: unknown): unknown {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (KNOWN_CALL_SITE_IDS.has(key)) {
+      out[key] = entry;
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Effort, Speed & Verbosity
 // ---------------------------------------------------------------------------
@@ -897,13 +920,17 @@ export const LLMSchema = z
     // Presentation-only order for named profiles. The resolver ignores this;
     // clients use it to render profile pickers consistently.
     profileOrder: z.array(z.string().min(1)).default([]),
-    // `partialRecord` (vs `record`) makes call-site keys optional while still
-    // rejecting keys that aren't members of `LLMCallSiteEnum` — exactly the
-    // behavior we want (typo detection without requiring callers to declare
-    // every call site). Latency-optimized defaults for background call sites
-    // are seeded into the user's on-disk config by migration 040, not at
-    // schema level, so `LLMSchema.parse({})` yields an empty map.
-    callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
+    // `partialRecord` keeps call-site keys optional. Unknown keys (written by
+    // another assistant version, or a typo) are dropped first so they do not
+    // fail the record parse. Fail-closing on those keys is how version skew
+    // takes down an otherwise valid `llm` block. Latency-optimized defaults
+    // for background call sites are seeded into the user's on-disk config by
+    // migration 040, not at schema level, so `LLMSchema.parse({})` yields an
+    // empty map.
+    callSites: z.preprocess(
+      dropUnknownCallSiteKeys,
+      z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
+    ),
     activeProfile: z.string().min(1).optional(),
     // The profile the advisor role consults when spawned as a subagent (chosen
     // under Models & Services). It is excluded from the chat-profile pickers so

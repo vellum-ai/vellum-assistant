@@ -13,6 +13,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionContext,
   CompanionIntroAction,
   CompanionSurfaceState,
@@ -24,10 +26,10 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
@@ -56,6 +58,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_READ_FRONT_SELECTION,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
@@ -65,6 +68,7 @@ import {
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
+  createWindowAttentionSubscriber,
 } from "@vellumai/electron-desktop/preload";
 
 export type {
@@ -77,7 +81,6 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -178,11 +181,6 @@ const bridge: VellumBridge = {
       };
     },
     hotkey: {
-      fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
-        ipcRenderer.invoke(
-          "vellum:helper:hotkey:fnPushToTalk",
-          enable,
-        ) as Promise<FnPushToTalkResult>,
       setModifierHold: (
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult> =>
@@ -190,6 +188,10 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_MODIFIER_HOLD,
           hold,
         ) as Promise<ModifierHoldRegistrationResult>,
+      readFrontSelection: (): Promise<HotkeySelection | null> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_READ_FRONT_SELECTION,
+        ) as Promise<HotkeySelection | null>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
@@ -284,8 +286,12 @@ const bridge: VellumBridge = {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
     },
-    setCharacter: (character): void => {
-      ipcRenderer.send("vellum:icon:setCharacter", character);
+    setCharacter: (character, accentHex): void => {
+      ipcRenderer.send(
+        "vellum:icon:setCharacter",
+        character,
+        accentHex ?? null,
+      );
     },
   },
   dock: {
@@ -385,6 +391,7 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
     },
+    onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
   },
   bundleConfirm: createBundleConfirmBridge(ipcRenderer),
   quickInput: {
@@ -495,9 +502,19 @@ const bridge: VellumBridge = {
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },
-    toggleWatch: (): void => {
-      ipcRenderer.send("vellum:companion:toggleWatch");
+    toggleWatch: (pick?: CompanionCapturePick): void => {
+      // Sent with no argument at all when there is no pick, so a main that
+      // predates the picker still sees the empty tuple its schema expects.
+      if (pick === undefined) {
+        ipcRenderer.send("vellum:companion:toggleWatch");
+        return;
+      }
+      ipcRenderer.send("vellum:companion:toggleWatch", pick);
     },
+    listCaptureSources: (): Promise<CompanionCaptureSources> =>
+      ipcRenderer.invoke(
+        "vellum:companion:listCaptureSources",
+      ) as Promise<CompanionCaptureSources>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },

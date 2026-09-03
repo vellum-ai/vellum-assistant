@@ -2,10 +2,10 @@
  * Zod schemas for IPC payload types that main validates at the channel
  * boundary.
  *
- * Only types that flow renderer→main and are `.parse()`d / `.safeParse()`d
- * in a `handle()` or `on()` registration have schemas here. Types that
- * flow main→renderer (commands, hotkey catalogs, power events, etc.) are
- * plain TypeScript types in `./types.ts` — the renderer trusts main.
+ * Types that flow renderer→main and are `.parse()`d / `.safeParse()`d in a
+ * `handle()` or `on()` registration have schemas here. Most types that flow
+ * main→renderer (commands, hotkey catalogs, power events, etc.) are plain
+ * TypeScript types in `./types.ts`; the renderer trusts main.
  *
  * Consumers:
  *   - Main: `import { assistantStatusSchema } from "@vellumai/ipc-contract"`
@@ -43,6 +43,16 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Window attention
+// ---------------------------------------------------------------------------
+
+export const windowAttentionPayloadSchema = z.object({
+  visible: z.boolean(),
+  focused: z.boolean(),
+  minimized: z.boolean(),
 });
 
 // ---------------------------------------------------------------------------
@@ -85,6 +95,42 @@ export const voiceActivityControlSchema = z.object({
 // Companion surface
 // ---------------------------------------------------------------------------
 
+/**
+ * A display or a window, by the ids the window server names them. Whole
+ * numbers, since both ids are unsigned integers on the host and anything else
+ * names nothing.
+ */
+export const watchCaptureTargetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("display"),
+    displayId: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("window"),
+    windowId: z.number().int().nonnegative(),
+  }),
+]);
+
+/**
+ * A row of the companion's picker, pressed. The two target shapes plus a tab,
+ * which main resolves to a window before anything downstream sees it.
+ */
+export const companionCapturePickSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("display"),
+    displayId: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("window"),
+    windowId: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("tab"),
+    chromeWindowId: z.number().int().nonnegative(),
+    tabIndex: z.number().int().positive(),
+  }),
+]);
+
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),
@@ -105,6 +151,13 @@ export const companionContextSchema = z.object({
   // capture having happened, and the only shape that can say that is a whole
   // number that goes up.
   captureCount: z.number().int().nonnegative().default(0),
+  // Optional rather than defaulted, for the reason `watchRetro` is: every shape
+  // it can hold names something the session is reading, and absence is the
+  // only way to say it reads the whole screen.
+  captureTarget: watchCaptureTargetSchema.optional(),
+  // Defaulted for the reason `watching` is: a publisher that does not say
+  // whether its sessions can be aimed is one whose sessions cannot.
+  watchTargets: z.boolean().default(false),
   // Optional rather than defaulted, for the reason `watchRetro` is: both values
   // claim a microphone is doing something, and absence is the only way to say
   // none is.

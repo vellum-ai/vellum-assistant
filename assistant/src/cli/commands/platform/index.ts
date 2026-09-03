@@ -12,6 +12,10 @@ import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import { registerPlatformConnectCommand } from "./connect.js";
+import {
+  formatCreditsLines,
+  type PlatformCreditsResult,
+} from "./credits-format.js";
 import { registerPlatformDisconnectCommand } from "./disconnect.js";
 import { platformHelp } from "./index.help.js";
 import { registerPlatformInvoicesCommands } from "./invoices.js";
@@ -25,15 +29,6 @@ interface PlatformStatusResult {
   available: boolean;
   organizationId: string | null;
   userId: string | null;
-}
-
-interface PlatformCreditsResult {
-  remaining: number;
-  settled: number;
-  pending: number;
-  unit: "USD";
-  stale: boolean;
-  as_of: string;
 }
 
 interface PlatformSubscriptionResult {
@@ -138,15 +133,9 @@ export function registerPlatformCommand(program: Command): void {
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, result);
           } else {
-            const staleNote = result.stale
-              ? " (pending data may be stale)"
-              : "";
-            log.info(
-              `Remaining: $${result.remaining.toFixed(2)} ${result.unit} (as of ${result.as_of})${staleNote}`,
-            );
-            log.info(
-              `Settled:   $${result.settled.toFixed(2)}   Pending: $${result.pending.toFixed(2)}`,
-            );
+            for (const line of formatCreditsLines(result)) {
+              log.info(line);
+            }
           }
         },
       );

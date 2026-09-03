@@ -199,7 +199,7 @@ export function RootLayout() {
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
   // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
   // (and any future accent-tinted UI) can read it from plain CSS.
-  useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
+  useAvatarAccentVar(avatar.accentHex);
   // Publish the same avatar for the iOS Live Activity, which cannot fetch an
   // image at render time and needs the bytes to travel with the activity.
   useIslandAvatarSource(
@@ -210,7 +210,12 @@ export function RootLayout() {
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
-  useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
+  useElectronIconSync(
+    avatar.customImageUrl,
+    avatar.components,
+    avatar.traits,
+    avatar.accentHex,
+  );
   useElectronStatusSync();
   useElectronIdentitySync();
   useLockfileIdentitySync();
@@ -393,8 +398,13 @@ export function RootLayout() {
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so
     // its refusal is worth being able to test, and a module is what makes that
-    // possible. It takes no arguments, which the handler signature allows.
-    toggleWatch: handleToggleWatchCommand,
+    // possible. The command carries the picker's target on a start, and the
+    // handler is handed exactly that and nothing else of the command.
+    toggleWatch: (command) => {
+      handleToggleWatchCommand(
+        command.kind === "toggleWatch" ? command.target : undefined,
+      );
+    },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);
     },

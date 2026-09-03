@@ -84,6 +84,7 @@ const SNAPSHOT: FrameGateDebugSnapshot = {
     heartbeat: 0,
     novel: 2,
     unchanged: 11,
+    forced: 0,
   },
   keeps: [
     { url: KEPT_FRAME, atMs: 2_400 },

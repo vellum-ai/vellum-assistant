@@ -26,6 +26,7 @@ import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 import {
   NATIVE_ORIGIN_CHANNEL,
   SYSTEM_ALL_GROUP_ID,
+  SYSTEM_ASSISTANT_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
   sidebarSectionsQueryKey,
   type ConversationListPage,
@@ -42,6 +43,32 @@ import {
   isConversationPinned,
   isCustomGroupId,
 } from "@/utils/conversation-predicates";
+
+/**
+ * The assistant-initiated section's membership mark: the client twin of the
+ * daemon's frozen `ASSISTANT_INITIATED_SOURCE` in
+ * `assistant/src/persistence/conversation-types.ts`. A row is stamped at
+ * creation and the value never changes, which is why `source` is not in
+ * {@link MEMBERSHIP_FIELDS} (the same reasoning already keeps the subagent
+ * source out).
+ */
+const ASSISTANT_INITIATED_SOURCE = "assistant_initiated";
+
+/**
+ * Whether this row is a member of the assistant-initiated section: stamped
+ * with the section's source and still in the ungrouped set. The daemon's
+ * `assistantInitiatedSql` twin - pinning or filing a member moves it out, so
+ * both conditions are required, and their absence is what routes the row back
+ * through the pinned/custom/Chats arms below.
+ */
+function isAssistantInitiatedMember(conversation: Conversation): boolean {
+  return (
+    conversation.source === ASSISTANT_INITIATED_SOURCE &&
+    !isConversationPinned(conversation) &&
+    (conversation.groupId == null ||
+      conversation.groupId === SYSTEM_ALL_GROUP_ID)
+  );
+}
 
 /**
  * The fields a section filter reads. A patch touching none of them cannot
@@ -147,13 +174,28 @@ export function isSidebarVisible(
 export function matchesSectionFilter(
   conversation: Conversation,
   filter: ConversationListFilter,
+  options?: {
+    /**
+     * Whether the daemon's section split is live, which the client only ever
+     * learns from the presence of the `assistant` row in the section index.
+     * When true, Chats gives up its assistant-initiated members the same way
+     * the daemon's list withholds them; when false there is no section for
+     * them and Chats keeps them, so a wrong default loses rows - hence
+     * explicit at the call sites that can read the index.
+     */
+    assistantSplitActive?: boolean;
+  },
 ): boolean {
   if (!isSidebarVisible(conversation)) {
     return false;
   }
   const { groupId, originChannel } = filter;
 
-  if (groupId === SYSTEM_PINNED_GROUP_ID) {
+  if (groupId === SYSTEM_ASSISTANT_GROUP_ID) {
+    if (!isAssistantInitiatedMember(conversation)) {
+      return false;
+    }
+  } else if (groupId === SYSTEM_PINNED_GROUP_ID) {
     if (!isConversationPinned(conversation)) {
       return false;
     }
@@ -161,6 +203,12 @@ export function matchesSectionFilter(
     if (
       isConversationPinned(conversation) ||
       isCustomGroupId(conversation.groupId)
+    ) {
+      return false;
+    }
+    if (
+      options?.assistantSplitActive === true &&
+      isAssistantInitiatedMember(conversation)
     ) {
       return false;
     }
@@ -241,12 +289,27 @@ export function matchesSectionFilter(
 export function matchesIndexBucket(
   conversation: Conversation,
   row: SidebarIndexSection,
+  options?: {
+    /** See {@link matchesSectionFilter} - derived from the same index the
+     *  caller is scanning, so the Chats arm cannot claim a row the daemon
+     *  has withheld into the assistant section. */
+    assistantSplitActive?: boolean;
+  },
 ): boolean {
+  if (row.kind === "assistant") {
+    return isAssistantInitiatedMember(conversation);
+  }
   if (isConversationPinned(conversation)) {
     return row.kind === "pinned";
   }
   if (isCustomGroupId(conversation.groupId)) {
     return row.kind === "group" && row.groupId === conversation.groupId;
+  }
+  if (
+    options?.assistantSplitActive === true &&
+    isAssistantInitiatedMember(conversation)
+  ) {
+    return false;
   }
   const channel = conversation.originChannel;
   if (channel == null || channel === NATIVE_ORIGIN_CHANNEL) {
@@ -267,9 +330,14 @@ export function ensureSectionInIndex(
   const index = queryClient.getQueryData<SidebarIndexSection[] | null>(
     queryKey,
   );
+  const splitActive = index?.some((row) => row.kind === "assistant") === true;
   if (
     index == null ||
-    index.some((row) => matchesIndexBucket(conversation, row))
+    index.some((row) =>
+      matchesIndexBucket(conversation, row, {
+        assistantSplitActive: splitActive,
+      }),
+    )
   ) {
     return;
   }
@@ -330,6 +398,14 @@ export function reconcileSectionMembership(
     return [];
   }
   const needsRefetch: (readonly unknown[])[] = [];
+  /* The split's on-signal is the daemon-emitted index row (there is no client
+     flag by design), so the index cache answers whether Chats should give up
+     its assistant-initiated members. */
+  const sectionIndex = queryClient.getQueryData<SidebarIndexSection[] | null>(
+    sidebarSectionsQueryKey(assistantId),
+  );
+  const assistantSplitActive =
+    sectionIndex?.some((row) => row.kind === "assistant") === true;
   const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
@@ -349,7 +425,9 @@ export function reconcileSectionMembership(
     const index = rows.findIndex(
       (c) => c.conversationId === conversation.conversationId,
     );
-    const belongs = matchesSectionFilter(conversation, filter);
+    const belongs = matchesSectionFilter(conversation, filter, {
+      assistantSplitActive,
+    });
 
     if (belongs === (index !== -1)) {
       /* Membership agrees. The row is still replaced in place when it is a

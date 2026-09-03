@@ -58,5 +58,11 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(list?.helpText).toBeDefined();
     expect(indexed).toContain("assistant plugins search <name>");
     expect(indexed).toContain("not listed");
+    expect(channelsHelp.description).toBe(
+      "Inspect and repair messaging channels",
+    );
+    expect(channelsHelp.description.toLowerCase()).not.toContain("slack");
+    expect(channelsHelp.description.toLowerCase()).not.toContain("telegram");
+    expect(channelsHelp.description.toLowerCase()).not.toContain("email");
   });
 });

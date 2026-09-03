@@ -28,6 +28,14 @@ struct WindowInfo: Sendable {
 protocol AccessibilityTreeProviding: Sendable {
     func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) async -> [WindowInfo]
+    func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+}
+
+extension AccessibilityTreeProviding {
+    /// A provider that knows nothing of window ids has no tree to offer for one.
+    func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        nil
+    }
 }
 
 /// Enumerates macOS accessibility trees for the focused window and any
@@ -60,7 +68,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// probe multiple apps, while staying generous enough for slow/heavy
     /// targets (Chrome with many tabs, Electron during GC) where individual
     /// attribute reads can momentarily take upwards of 1s.
-    private static let axMessagingTimeoutSeconds: Float = 3.0
+    static let axMessagingTimeoutSeconds: Float = 3.0
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -297,6 +305,134 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
 
         guard !elements.isEmpty else { return nil }
+        lastTargetPid = pid
+        return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
+    }
+
+    /// Enumerate one window by its window server id, focused or not.
+    ///
+    /// The watch session's capture target: the user picked a window and the
+    /// screenshot is scoped to it, so the tree has to describe that window
+    /// rather than whichever one has focus. AX has no lookup by `CGWindowID`,
+    /// so the window is described through the window server first and then
+    /// matched among its owner's AX windows by frame, or by a title no other
+    /// window of the app shares when the frame does not line up (a sheet, a
+    /// window mid-resize). Anything less certain yields no tree.
+    func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        await Task.detached { [self] in
+            enumerateWindowSync(windowId: windowId)
+        }.value
+    }
+
+    /// A window as the window server describes it: who owns it, what it is
+    /// called, and where it is. Nil for an id the window server does not know.
+    struct ServerWindow {
+        let pid: pid_t
+        let name: String?
+        let bounds: CGRect
+    }
+
+    func serverWindow(for windowId: CGWindowID) -> ServerWindow? {
+        // Asked of the window list with the id as the filter rather than of
+        // `CGWindowListCreateDescriptionFromArray`: that call wants its ids as
+        // raw values in the array, and an array bridged from Swift carries
+        // numbers instead, so it answers with nothing for a window that is
+        // plainly there. The list call takes the id directly. The option
+        // promises only that the window is in the answer, not that it is
+        // alone there, so the entry is picked by its window number rather
+        // than taken from the front of the list.
+        guard
+            let descriptions = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowId) as? [[String: Any]],
+            let description = descriptions.first(where: { entry in
+                (entry[kCGWindowNumber as String] as? Int).map { CGWindowID($0) } == windowId
+            }),
+            let ownerPID = description[kCGWindowOwnerPID as String] as? Int
+        else {
+            return nil
+        }
+        var bounds = CGRect.zero
+        if let boundsDict = description[kCGWindowBounds as String] as? NSDictionary,
+           let rect = CGRect(dictionaryRepresentation: boundsDict) {
+            bounds = rect
+        }
+        return ServerWindow(pid: pid_t(ownerPID), name: description[kCGWindowName as String] as? String, bounds: bounds)
+    }
+
+    /// The one AX window of `pid` that is `window`: the single window at its
+    /// frame, or else the single window with its title. Two windows at one
+    /// frame (two maximized browser windows) or titled alike (two "Untitled"
+    /// documents) would otherwise let the wrong one be read or raised beside
+    /// the right one's screenshot, so a frame or title that fits more than
+    /// one window decides nothing. Nil when neither fits exactly one.
+    ///
+    /// The app element is handed back with the match because a caller that
+    /// wants to read the tree marks it first, and one that only wants to raise
+    /// the window does not.
+    func axWindow(for window: ServerWindow, in appElement: AXUIElement) -> AXUIElement? {
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement],
+              !windows.isEmpty else {
+            log.warning("axWindow: pid \(window.pid) exposes no AX windows")
+            return nil
+        }
+        // A minimized window is still in both lists: the window server keeps
+        // describing it, with the bounds it had on screen, and the app keeps
+        // reporting that same frame through AX, so the frame match holds for
+        // a window that is in the Dock.
+        let framed = windows.filter { candidate in
+            let frame = getFrameAttribute(candidate)
+            return abs(frame.origin.x - window.bounds.origin.x) <= 2
+                && abs(frame.origin.y - window.bounds.origin.y) <= 2
+                && abs(frame.width - window.bounds.width) <= 2
+                && abs(frame.height - window.bounds.height) <= 2
+        }
+        if framed.count == 1 {
+            return framed[0]
+        }
+        // No window at that frame (a sheet, a window mid-resize) or several
+        // (stacked windows of one size): the title settles it, among the
+        // windows at the frame when there are any, since a title shared with
+        // a window elsewhere still names one window here.
+        let candidates = framed.isEmpty ? windows : framed
+        return window.name.flatMap { name in
+            let titled = candidates.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
+            return titled.count == 1 ? titled[0] : nil
+        }
+    }
+
+    private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        guard let server = serverWindow(for: windowId) else {
+            log.warning("enumerateWindow: window \(windowId) is not known to the window server")
+            return nil
+        }
+        let pid = server.pid
+        let cgName = server.name
+
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
+
+        if Self.markEnhancedAXIfNeeded(pid: pid) {
+            let result = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+            log.info("Set AXEnhancedUserInterface on \(appName, privacy: .public) (pid \(pid)): \(result == .success ? "success" : "failed (\(result.rawValue))")")
+        }
+
+        guard let windowElement = axWindow(for: server, in: appElement) else {
+            log.warning("enumerateWindow: no AX window of \(appName, privacy: .public) matches window \(windowId)")
+            return nil
+        }
+
+        let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? cgName ?? "Untitled"
+
+        nextId = 1
+        totalElementsEnumerated = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+
+        let flat = AccessibilityTreeEnumerator.flattenElements(elements)
+        let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
+        log.info("Enumerated window \(windowId) of \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1)")
+
         lastTargetPid = pid
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }

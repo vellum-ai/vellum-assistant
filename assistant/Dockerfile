@@ -143,6 +143,14 @@ COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.jso
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
     chmod +x /usr/local/bin/assistant
 
+# The image ships no Node, so `bunx <pkg>` follows a bin's `#!/usr/bin/env node`
+# shebang into this launcher. It hands off to a real Node when one is installed
+# later and otherwise runs the bin under Bun with the auto-serve shim preloaded,
+# so a CLI whose bundle default-exports an object with `fetch` exits instead of
+# being turned into an HTTP server by `bun:main`. Installing it here also stops
+# Bun synthesizing its own `node` shim in /tmp/bun-node-<hash> at daemon launch.
+RUN ln -s /app/assistant/docker-node-launcher.sh /usr/local/bin/node
+
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
@@ -237,6 +245,7 @@ RUN chmod +x \
     /app/assistant/docker-kata-chroot-exec.sh \
     /app/assistant/docker-kata-pip.sh \
     /app/assistant/docker-kata-runtime-family.sh \
+    /app/assistant/docker-node-launcher.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \
     /usr/local/bin/vellum-block-volume-mount.sh \

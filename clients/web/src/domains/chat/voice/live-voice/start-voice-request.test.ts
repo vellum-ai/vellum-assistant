@@ -70,6 +70,7 @@ const {
   drainPendingVoiceStart,
   requestVoiceStart,
   startVoiceFromSurface,
+  toggleVoiceFromSurface,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { isLiveVoiceSessionOwnedBy, useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
@@ -947,5 +948,35 @@ describe("state read before the preflight is re-read after it", () => {
     await drain;
 
     expect(useLiveVoiceStore.getState().configNotice).toBeNull();
+  });
+});
+
+describe("toggling from a surface", () => {
+  test("with no session running, asks for one the way Talk does", () => {
+    toggleVoiceFromSurface(navigate);
+
+    expect(navigate).toHaveBeenCalledWith(routes.assistant);
+    expect(isParked()).toBe(true);
+  });
+
+  test("with a session running, ends it and asks for nothing", () => {
+    const stop = mock(() => undefined);
+    useLiveVoiceStore.getState().setControls({
+      stop,
+      release: () => {},
+      interrupt: () => {},
+      setMuted: () => {},
+      setOutputMuted: () => {},
+      updateConfig: () => {},
+    } as unknown as Parameters<
+      ReturnType<typeof useLiveVoiceStore.getState>["setControls"]
+    >[0]);
+    useLiveVoiceStore.getState().setState("listening");
+
+    toggleVoiceFromSurface(navigate);
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(isParked()).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

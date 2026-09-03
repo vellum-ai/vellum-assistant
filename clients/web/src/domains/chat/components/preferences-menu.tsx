@@ -70,9 +70,17 @@ const AddCreditsModal = lazy(() =>
  * With no reading to hide behind, the row stays: the panel renders nothing
  * without one, and hiding the row too would leave the menu with no balance and
  * no way to buy more.
+ *
+ * `settled` is what keeps that last clause from firing early. The row needs
+ * only the summary while the panel needs the subscription too, so an unguarded
+ * `usage == null` shows the row in the gap between the two and then swaps it
+ * for the panel. Waiting means the menu picks one of them and keeps it.
  */
-export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
-  return usage == null;
+export function showsMenuCredits(
+  usage: PreferencesUsage | null,
+  settled: boolean,
+): boolean {
+  return settled && usage == null;
 }
 
 export interface PreferencesMenuProps {
@@ -280,8 +288,10 @@ function PreferencesMenuContent({
   } = useBillingBalanceStatus();
   /* The same reading the usage panel below draws, composed once so the row and
      the bar can never disagree about how much of the bundle is left. */
-  const usage = usePreferencesUsage({ conversationId: activeConversationId });
-  const showCredits = showsMenuCredits(usage);
+  const { usage, settled } = usePreferencesUsage({
+    conversationId: activeConversationId,
+  });
+  const showCredits = showsMenuCredits(usage, settled);
 
   return (
     <>

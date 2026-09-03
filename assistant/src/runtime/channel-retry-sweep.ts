@@ -655,7 +655,7 @@ export async function sweepFailedEvents(
           assistantId,
           replyMessageId,
           userMessageId,
-          slackReplySession: undefined,
+          replySession: undefined,
           priorStreamMessageTs,
         });
       } catch (err) {

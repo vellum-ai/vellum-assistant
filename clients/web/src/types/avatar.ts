@@ -37,6 +37,14 @@ export type CharacterComponents = CharacterComponentsResponse;
 
 export type CharacterTraits = NonNullable<AvatarStateResponse["traits"]>;
 
+/**
+ * The accent the daemon resolved for the avatar: a character's palette
+ * colour, the colour read out of an uploaded image, or one the user set.
+ */
+export type AvatarAccent = NonNullable<AvatarStateResponse["accent"]>;
+
+export type AvatarAccentSource = AvatarAccent["source"];
+
 /** A resolved avatar render mode: character traits, a custom image url, or neither. */
 export interface AvatarRead {
   traits: CharacterTraits | null;
@@ -84,6 +92,18 @@ function isAvatarImageMeta(value: unknown): value is AvatarImageMeta {
   return typeof obj.updatedAt === "string" && typeof obj.etag === "string";
 }
 
+function isAvatarAccentSource(value: unknown): value is AvatarAccentSource {
+  return value === "palette" || value === "derived" || value === "custom";
+}
+
+function isAvatarAccent(value: unknown): value is AvatarAccent {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return typeof obj.hex === "string" && isAvatarAccentSource(obj.source);
+}
+
 export function isAvatarState(value: unknown): value is AvatarState {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -93,6 +113,11 @@ export function isAvatarState(value: unknown): value is AvatarState {
     isAvatarKind(obj.kind) &&
     (obj.traits === null || isCharacterTraits(obj.traits)) &&
     (obj.source === null || isAvatarSource(obj.source)) &&
-    (obj.image === null || isAvatarImageMeta(obj.image))
+    (obj.image === null || isAvatarImageMeta(obj.image)) &&
+    // Absent on assistants that predate accents; `fetchAvatarState` fills
+    // in the null.
+    (obj.accent === undefined ||
+      obj.accent === null ||
+      isAvatarAccent(obj.accent))
   );
 }

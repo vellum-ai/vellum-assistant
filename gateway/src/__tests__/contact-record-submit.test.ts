@@ -5,8 +5,9 @@
  * parks a CLI call and broadcasts a proposal, and nothing lands until the
  * guardian's client posts here. The suite pins that contract:
  * - create / update / delete write what was submitted, not what was proposed
- * - the record surface never touches channels
- * - a guardian contact cannot be deleted through it
+ * - the record surface never touches channels, except a merge, which moves the
+ *   donor's channels to the survivor
+ * - a guardian contact cannot be deleted or merged away through it
  * - a dismissal unblocks the parked call without writing
  * - every outcome resolves the parked call, so the CLI never hangs
  */
@@ -17,6 +18,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -57,12 +59,16 @@ const ipcMock = mock(
       resolveFailures -= 1;
       throw new Error("socket closed");
     }
+    if (method === "contacts_mirror_merge_contact" && mirrorMergeFails) {
+      throw new Error("mirror unavailable");
+    }
     if (method === "contacts_mirror_upsert_full") {
       if (mirrorWritesFail) {
         throw new Error("mirror unavailable");
       }
       const body = options?.body as
-        { contactId?: string; notes?: string | null } | undefined;
+        | { contactId?: string; notes?: string | null }
+        | undefined;
       if (body?.contactId && body.notes !== undefined) {
         mirroredNotes.set(body.contactId, body.notes);
       }
@@ -108,6 +114,13 @@ let mirroredNotes = new Map<string, string | null>();
 /** Drop mirror writes, as an unreachable mirror op would. */
 let mirrorWritesFail = false;
 
+/**
+ * Drop the merge's mirror op. The gateway half of a merge commits first, so
+ * this is the window where the donor is gone here and still alive, notes and
+ * all, on the assistant side.
+ */
+let mirrorMergeFails = false;
+
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
   ...actualAssistantClient,
@@ -125,6 +138,7 @@ const { initGatewayDb, getGatewayDb, resetGatewayDb } =
 const { contactChannels: gwContactChannels, contacts: gwContacts } =
   await import("../db/schema.js");
 const { eq } = await import("drizzle-orm");
+const { ContactStore } = await import("../db/contact-store.js");
 
 function makeRequest(body: Record<string, unknown>): Request {
   return new Request("http://localhost:7830/v1/contacts/record/submit", {
@@ -190,6 +204,7 @@ beforeEach(() => {
   resolveFailures = 0;
   mirroredNotes = new Map<string, string | null>();
   mirrorWritesFail = false;
+  mirrorMergeFails = false;
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
@@ -868,5 +883,351 @@ describe("contact record submit", () => {
 
     expect(res.status).toBe(400);
     expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+  });
+
+  test("merge moves the donor's channels to the survivor and deletes the donor", async () => {
+    seedContact("c-keep", "Alice");
+    seedChannel("c-keep", "email", "alice@example.com");
+    seedContact("c-donor", "Alice (work)");
+    seedChannel("c-donor", "telegram", "12345");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge"),
+        operation: "merge",
+        contactId: "c-keep",
+        donorContactId: "c-donor",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor"))
+        .get(),
+    ).toBeUndefined();
+    const survivorChannels = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.contactId, "c-keep"))
+      .all();
+    expect(survivorChannels.map((ch) => ch.type).sort()).toEqual([
+      "email",
+      "telegram",
+    ]);
+
+    const resolved = resolveCall();
+    expect(resolved.body.contactId).toBe("c-keep");
+    expect(resolved.body.merged).toBe(true);
+  });
+
+  test("a merge carrying a display name renames the survivor", async () => {
+    seedContact("c-keep-named", "Alice");
+    seedContact("c-donor-named", "Alice Chen");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-rename"),
+        operation: "merge",
+        contactId: "c-keep-named",
+        donorContactId: "c-donor-named",
+        displayName: "Alice Chen",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-keep-named"))
+      .get();
+    expect(row!.displayName).toBe("Alice Chen");
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+  });
+
+  test("a merge whose rename cannot land still reports the merge", async () => {
+    seedContact("c-keep-gone", "Alice");
+    seedContact("c-donor-gone", "Alice Chen");
+    seedChannel("c-donor-gone", "email", "alice.chen@example.com");
+
+    // The survivor disappears between the merge and the rename, which is the
+    // window the rename's own transaction cannot cover.
+    const originalMerge = ContactStore.prototype.mergeContacts;
+    const spy = spyOn(
+      ContactStore.prototype,
+      "mergeContacts",
+    ).mockImplementation(async function (
+      this: InstanceType<typeof ContactStore>,
+      keepId: string,
+      mergeId: string,
+    ) {
+      const merged = await originalMerge.call(this, keepId, mergeId);
+      getGatewayDb().delete(gwContacts).where(eq(gwContacts.id, keepId)).run();
+      return merged;
+    });
+
+    try {
+      const res = await handleContactRecordSubmit(
+        makeRequest({
+          requestId: openForm("req-merge-rename-gone"),
+          operation: "merge",
+          contactId: "c-keep-gone",
+          donorContactId: "c-donor-gone",
+          displayName: "Alice C",
+        }),
+      );
+
+      // The donor is already gone, so reporting failure would describe a merge
+      // that happened as one that did not.
+      expect(res.status).toBe(200);
+      const resolved = resolveCall();
+      expect(resolved?.body.merged).toBe(true);
+      expect(resolved?.body.renamed).toBe(false);
+      expect(resolved?.body.error).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("a merge whose mirror op fails reports the half that did not land", async () => {
+    seedContact("c-keep-mirror", "Alice");
+    seedContact("c-donor-mirror", "Alice Chen");
+    seedChannel("c-donor-mirror", "email", "alice.chen@example.com");
+    mirrorMergeFails = true;
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-mirror"),
+        operation: "merge",
+        contactId: "c-keep-mirror",
+        donorContactId: "c-donor-mirror",
+      }),
+    );
+
+    // The gateway half committed, so this is a partial outcome, not a failure.
+    expect(res.status).toBe(200);
+    const resolved = resolveCall();
+    expect(resolved.body.merged).toBe(true);
+    expect(resolved.body.mirrored).toBe(false);
+    expect(resolved.body.error).toBeUndefined();
+
+    // Donor gone here, which is what leaves its notes stranded on the
+    // assistant-side row the mirror op never reached.
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor-mirror"))
+        .get(),
+    ).toBeUndefined();
+  });
+
+  test("a merge whose mirror op lands says nothing about it", async () => {
+    seedContact("c-keep-clean", "Alice");
+    seedContact("c-donor-clean", "Alice Chen");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-clean"),
+        operation: "merge",
+        contactId: "c-keep-clean",
+        donorContactId: "c-donor-clean",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(resolveCall().body.mirrored).toBeUndefined();
+  });
+
+  test("merge refuses to absorb the guardian contact", async () => {
+    seedContact("c-survivor", "Alice");
+    seedContact("g-donor", "Owner", "guardian");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-guardian"),
+        operation: "merge",
+        contactId: "c-survivor",
+        donorContactId: "g-donor",
+        displayName: "Alice Chen",
+      }),
+    );
+
+    // The store's own message, not a generic 500: the guardian can be the
+    // survivor instead, and the command can say so.
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      accepted: false,
+      error:
+        "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
+    });
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(2);
+    // The submitted rename is part of the merge, so a refused merge leaves it
+    // unwritten rather than renaming a contact that absorbed nobody.
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-survivor"))
+        .get()!.displayName,
+    ).toBe("Alice");
+    expect(resolveCall().body.error).toBe(
+      "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
+    );
+  });
+
+  test("merge naming an unknown donor is refused and writes nothing", async () => {
+    seedContact("c-lonely", "Alice");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-ghost"),
+        operation: "merge",
+        contactId: "c-lonely",
+        donorContactId: "does-not-exist",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      accepted: false,
+      error: 'Contact "does-not-exist" not found',
+    });
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+  });
+
+  test("merge without a donor is rejected before the form is claimed", async () => {
+    seedContact("c-no-donor", "Alice");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-nodonor"),
+        operation: "merge",
+        contactId: "c-no-donor",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    // The form is still open, so the guardian can answer it properly.
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(callsFor("resolve_contact_prompt")).toHaveLength(0);
+  });
+
+  test("a merge carrying notes is rejected before the form is claimed", async () => {
+    seedContact("c-keep", "Alice");
+    seedContact("c-donor", "Alice C");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-notes"),
+        operation: "merge",
+        contactId: "c-keep",
+        donorContactId: "c-donor",
+        notes: "Same person",
+      }),
+    );
+
+    // The merge combines both sets of notes, so accepting a submitted set
+    // would either drop it or overwrite the combination.
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(false);
+    expect(String(body.error)).toContain("combines both contacts' notes");
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor"))
+        .get(),
+    ).toBeDefined();
+  });
+
+  test("a merge carrying an explicit notes clear is rejected too", async () => {
+    seedContact("c-keep-null", "Alice");
+    seedContact("c-donor-null", "Alice C");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-notes-null"),
+        operation: "merge",
+        contactId: "c-keep-null",
+        donorContactId: "c-donor-null",
+        notes: null,
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor-null"))
+        .get(),
+    ).toBeDefined();
+  });
+
+  test("a merge renaming the survivor to blank is rejected before anything commits", async () => {
+    seedContact("c-keep-blank", "Alice");
+    seedContact("c-donor-blank", "Alice C");
+    seedChannel("c-donor-blank", "email", "alice.c@example.com");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-blank-name"),
+        operation: "merge",
+        contactId: "c-keep-blank",
+        donorContactId: "c-donor-blank",
+        displayName: "   ",
+      }),
+    );
+
+    // The rename runs after the merge commits, so accepting this would delete
+    // the donor and then report the whole submission as failed.
+    expect(res.status).toBe(400);
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor-blank"))
+        .get(),
+    ).toBeDefined();
+    const donorChannel = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.id, "c-donor-blank-email"))
+      .get();
+    expect(donorChannel?.contactId).toBe("c-donor-blank");
+  });
+
+  test("a merge of a contact with itself is rejected", async () => {
+    seedContact("c-self", "Alice");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-self"),
+        operation: "merge",
+        contactId: "c-self",
+        donorContactId: "c-self",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      accepted: false,
+      error: "Cannot merge a contact with itself",
+    });
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-self"))
+        .get(),
+    ).toBeDefined();
   });
 });

@@ -87,7 +87,7 @@ stubModule(
 stubModule(
   "@/hooks/use-byok-credit-banner-gate",
   await import("@/hooks/use-byok-credit-banner-gate"),
-  { useSuppressCreditBannersForByok: () => false },
+  { useByokCreditRouteVerdict: () => ({ suppress: false, settled: true }) },
 );
 
 const authRef: {
@@ -275,8 +275,13 @@ stubModule(
 // partial `@tanstack/react-query` mock cannot host, and is covered by
 // `preferences-usage-panel.test.tsx`. What the menu owns is the rule it
 // applies to the reading, so only the data is stubbed here.
-const usageRef: { value: PreferencesUsage | null; opts: unknown } = {
+const usageRef: {
+  value: PreferencesUsage | null;
+  settled: boolean;
+  opts: unknown;
+} = {
   value: null,
+  settled: true,
   opts: undefined,
 };
 stubModule(
@@ -285,7 +290,7 @@ stubModule(
   {
     usePreferencesUsage: (opts?: unknown) => {
       usageRef.opts = opts;
-      return usageRef.value;
+      return { usage: usageRef.value, settled: usageRef.settled };
     },
   },
 );
@@ -395,6 +400,7 @@ beforeEach(() => {
   };
   billingRef.data = undefined;
   usageRef.value = null;
+  usageRef.settled = true;
   usageRef.opts = undefined;
   panelPropsRef.conversationId = undefined;
   feedbackRef.prefetches = 0;
@@ -775,12 +781,19 @@ describe("PreferencesMenu credits row", () => {
 
 describe("showsMenuCredits", () => {
   test("hides the row whenever there is a reading", () => {
-    expect(showsMenuCredits(usage(0.99))).toBe(false);
-    expect(showsMenuCredits(usage(1))).toBe(false);
-    expect(showsMenuCredits(usage(1, true))).toBe(false);
+    expect(showsMenuCredits(usage(0.99), true)).toBe(false);
+    expect(showsMenuCredits(usage(1), true)).toBe(false);
+    expect(showsMenuCredits(usage(1, true), true)).toBe(false);
   });
 
   test("an unmeasurable reading falls back to showing the row", () => {
-    expect(showsMenuCredits(null)).toBe(true);
+    expect(showsMenuCredits(null, true)).toBe(true);
+  });
+
+  test("an unsettled null holds the row back rather than flashing it", () => {
+    // The row needs only the summary; the panel that replaces it also needs
+    // the subscription. Showing the row in that gap swaps one surface for
+    // another a beat later.
+    expect(showsMenuCredits(null, false)).toBe(false);
   });
 });

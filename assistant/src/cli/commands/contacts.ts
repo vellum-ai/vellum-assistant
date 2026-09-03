@@ -1,6 +1,8 @@
 import type { Command } from "commander";
 
+import type { ChannelId } from "../../channels/types.js";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import {
   GUARDIAN_FORM_DEFAULT_TIMEOUT_MS,
   GUARDIAN_FORM_MAX_TIMEOUT_MS,
@@ -60,6 +62,13 @@ interface ContactPromptResult {
   contactId?: string;
   /** Whether the channel is attested, as the guardian's checkbox left it. */
   verified?: boolean;
+  /**
+   * Whether submitted notes reached storage. Absent when none were submitted.
+   * False means the contact and its channel were written without them.
+   */
+  notesSaved?: boolean;
+  /** The guardian dismissed the form. Nothing was written. */
+  cancelled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,11 +210,16 @@ function parseFormTimeout(
 }
 
 interface ContactRecordPromptBody {
-  operation: "create" | "update" | "delete";
+  operation: "create" | "update" | "delete" | "merge";
+  /** The contact the write lands on. On a merge, the survivor. */
   contactId?: string;
   currentDisplayName?: string;
   currentNotes?: string;
   channels?: Array<{ type: string; address: string }>;
+  /** The contact being merged away. Present only on a merge. */
+  donorContactId?: string;
+  donorDisplayName?: string;
+  donorChannels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
   notesProposed?: boolean;
@@ -250,11 +264,239 @@ async function readContactForPrompt(
     };
   }
 
+  const failure = r as { ok: false; error?: string; statusCode?: number };
   exitFromIpcResult(
-    r as { ok: false; error?: string; statusCode?: number },
+    failure.statusCode === 404
+      ? {
+          ...failure,
+          error: `Contact "${id}" not found. Run 'assistant contacts list' to find contact ids.`,
+        }
+      : failure,
     cmd,
   );
   return null;
+}
+
+/**
+ * The guardian closed the form without answering it. Nothing was written and
+ * nothing went wrong, so this reports a plain line rather than an error
+ * envelope a caller would read as a failed write.
+ *
+ * Exit 130 is the conventional user-interrupt code, and the same one
+ * `credentials request` uses for a declined prompt, so a caller can tell a
+ * deliberate dismissal from a genuine failure without parsing output.
+ */
+function reportFormDismissal(cmd: Command): void {
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { ok: true, cancelled: true });
+  } else {
+    process.stdout.write("Cancelled: nothing was written\n");
+  }
+  process.exitCode = 130;
+}
+
+interface AddressPromptOptions {
+  channel?: string;
+  placeholder?: string;
+  defaultValue?: string;
+  role?: string;
+  label?: string;
+  description?: string;
+  timeout?: string;
+  verify?: boolean;
+  contactId?: string;
+  contactDisplayName?: string;
+  displayName?: string;
+  notes?: string;
+}
+
+/**
+ * Park on the guardian's answer to an address form, then report the channel it
+ * bound. The guardian edits the address before submitting, so the report comes
+ * from the result rather than from what was proposed.
+ */
+async function runAddressPrompt(
+  opts: AddressPromptOptions,
+  cmd: Command,
+): Promise<void> {
+  const timeoutMs = parseFormTimeout(opts.timeout, cmd);
+  if (timeoutMs === null) {
+    return;
+  }
+  const r = await cliIpcCall<ContactPromptResult>(
+    "contacts_prompt",
+    {
+      body: {
+        channel: opts.channel,
+        placeholder: opts.placeholder,
+        defaultValue: opts.defaultValue,
+        role: opts.role,
+        label: opts.label,
+        description: opts.description,
+        verify: opts.verify === true,
+        contactId: opts.contactId,
+        contactDisplayName: opts.contactDisplayName,
+        displayName: opts.displayName,
+        notes: opts.notes,
+        timeoutMs,
+      },
+    },
+    { timeoutMs: guardianFormCallBudgetMs(timeoutMs) },
+  );
+
+  if (!r.ok) {
+    return exitFromIpcResult(
+      r as { ok: false; error?: string; statusCode?: number },
+      cmd,
+    );
+  }
+
+  if (r.result?.cancelled === true) {
+    return reportFormDismissal(cmd);
+  }
+
+  if (!r.result?.ok) {
+    writeError(cmd, r.result?.error ?? "Contact prompt failed");
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = r.result;
+  // A gateway that does not honor the target binds by address instead, which
+  // is the duplicate this command exists to avoid. It reports success, so the
+  // mismatch is the only evidence.
+  if (
+    opts.contactId &&
+    result.contactId &&
+    result.contactId !== opts.contactId
+  ) {
+    writeError(
+      cmd,
+      `The channel was bound to contact ${result.contactId}, not the ${opts.contactId} this command named. The gateway is older than this CLI and cannot target a contact; upgrade it, then run 'assistant contacts merge ${opts.contactId} ${result.contactId}' to combine the two records.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // Proposed notes the write said nothing about are neither saved nor known to
+  // be lost, so the field carries null rather than an answer it does not have.
+  const notesUnconfirmed =
+    opts.notes !== undefined && result.notesSaved === undefined;
+
+  if (shouldOutputJson(cmd)) {
+    writeOutput(
+      cmd,
+      notesUnconfirmed ? { ...result, notesSaved: null } : result,
+    );
+    return;
+  }
+
+  process.stdout.write(
+    `Registered ${result.channelType} channel: ${result.address}\n` +
+      `  Channel ID: ${result.channelId}\n` +
+      `  Contact ID: ${result.contactId}\n` +
+      // The guardian's checkbox decides this, so report what the
+      // channel is rather than what the flag asked for.
+      `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
+  );
+
+  // Notes are stored apart from the contact and the channel, so they can be
+  // the one part that does not land. The bind stands either way, so this is a
+  // partial outcome to report rather than a failed command. Proposed notes the
+  // write says nothing about are the same outcome: a gateway that does not
+  // report on them is one that did not carry them.
+  if (result.notesSaved === false) {
+    writeError(
+      cmd,
+      "The contact and channel were saved, but its notes were not",
+    );
+  } else if (notesUnconfirmed) {
+    writeError(
+      cmd,
+      "The contact and channel were saved, but the write did not confirm its notes. Check them with 'assistant contacts get', and set them with 'assistant contacts update' if they are missing.",
+    );
+  }
+}
+
+/**
+ * Say so when the address looks like somebody else's, without refusing.
+ *
+ * This search reads the assistant mirror rather than the gateway, so a contact
+ * write whose mirror update failed can name a holder the gateway no longer has.
+ * The gateway checks again against its own rows and refuses there, so warning
+ * here surfaces the likely conflict without a stale read blocking a bind that
+ * would succeed.
+ */
+async function warnIfAddressLooksTaken(
+  channelType: string,
+  address: string,
+  targetContactId: string,
+): Promise<void> {
+  const r = await cliIpcCall<{ ok: boolean; contacts: ContactWithChannels[] }>(
+    "listContacts",
+    { queryParams: { channelAddress: address, channelType } },
+  );
+  if (!r.ok) {
+    return;
+  }
+
+  // The search matches an address as a substring, so a returned contact may
+  // hold a longer address that merely contains this one. Warning on that would
+  // name a stranger and point at an irreversible merge. The comparison
+  // canonicalizes the way the gateway's own check does, so a phone number
+  // written differently still counts as the same address.
+  const canonical = (value: string) =>
+    canonicalizeInboundIdentity(channelType as ChannelId, value) ??
+    value.trim().toLowerCase();
+  const wanted = canonical(address);
+  const holder = (r.result?.contacts ?? []).find(
+    (c) =>
+      c.id !== targetContactId &&
+      c.channels.some(
+        (ch) => ch.type === channelType && canonical(ch.address) === wanted,
+      ),
+  );
+  if (!holder) {
+    return;
+  }
+
+  process.stderr.write(
+    `Warning: that ${channelType} address looks like it is already bound to "${holder.displayName}" (${holder.id}). ` +
+      `Submitting the form will be refused if it still is. Run 'assistant contacts merge <keepId> <donorId>' if they are the same person.\n`,
+  );
+}
+
+/**
+ * Bind an address to a contact the caller named. The contact is read first, so
+ * a bad id fails here rather than in front of the guardian, and the form names
+ * it so they can see where the channel is going.
+ */
+async function runTargetedAddressPrompt(
+  contactId: string,
+  opts: AddressPromptOptions,
+  cmd: Command,
+): Promise<void> {
+  const current = await readContactForPrompt(contactId, cmd);
+  if (!current) {
+    return;
+  }
+  if (opts.channel !== undefined && opts.defaultValue !== undefined) {
+    await warnIfAddressLooksTaken(opts.channel, opts.defaultValue, contactId);
+  }
+  const defaultLabel = opts.channel
+    ? `Add ${opts.channel} channel for ${current.displayName}`
+    : undefined;
+  await runAddressPrompt(
+    {
+      ...opts,
+      contactId,
+      contactDisplayName: current.displayName,
+      // The target is fixed by the id, so the role hint has nothing to select.
+      role: undefined,
+      label: opts.label ?? defaultLabel,
+    },
+    cmd,
+  );
 }
 
 /**
@@ -277,6 +519,19 @@ async function runRecordPrompt(
     contactId?: string;
     notesSaved?: boolean;
     nothingWritten?: boolean;
+    /**
+     * Whether a merge's surviving contact took the submitted name. Absent
+     * unless a rename was submitted. False means the merge committed and the
+     * survivor kept its old name.
+     */
+    renamed?: boolean;
+    /**
+     * Whether a merge reached the assistant's own copy of the contacts. False
+     * means the merge committed and the donor is still there, its notes on it
+     * rather than combined onto the survivor.
+     */
+    mirrored?: boolean;
+    cancelled?: boolean;
   }>(
     "contacts_record_prompt",
     { body: { ...body, timeoutMs } },
@@ -288,6 +543,10 @@ async function runRecordPrompt(
       r as { ok: false; error?: string; statusCode?: number },
       cmd,
     );
+  }
+
+  if (r.result?.cancelled === true) {
+    return reportFormDismissal(cmd);
   }
 
   if (!r.result?.ok) {
@@ -303,6 +562,12 @@ async function runRecordPrompt(
   // what this command proposed is no guide to what was written.
   const notesLost = r.result.notesSaved === false;
   const nothingWritten = r.result.nothingWritten === true;
+  // A merge that could not apply the submitted name still merged, so this is a
+  // partial outcome to report rather than a failed command.
+  const renameLost = r.result.renamed === false;
+  // Same shape: the merge committed, and only the assistant's own half of it
+  // is outstanding.
+  const mirrorLost = r.result.mirrored === false;
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
@@ -320,7 +585,12 @@ async function runRecordPrompt(
     return;
   }
 
-  const verb = body.operation === "create" ? "Created" : "Updated";
+  // A merge names both contacts, so it leads with its own line instead of a
+  // verb in front of "contact".
+  const headline =
+    body.operation === "merge"
+      ? `Merged "${body.donorDisplayName}" into "${body.currentDisplayName}":`
+      : `${body.operation === "create" ? "Created" : "Updated"} contact:`;
 
   // The write is already done and the guardian has already answered. This read
   // is only for what to print, so a failure here reports the write with less
@@ -356,19 +626,32 @@ async function runRecordPrompt(
       ok: true,
       ...(written ? { contact: written } : { contactId }),
       ...(notesLost ? { notesSaved: false } : {}),
+      ...(renameLost ? { renamed: false } : {}),
+      ...(mirrorLost ? { mirrored: false } : {}),
     });
     return;
   }
 
   if (written) {
-    process.stdout.write(`${verb} contact:\n`);
-    process.stdout.write(formatContactDetail(written) + "\n");
+    process.stdout.write(`${headline}\n${formatContactDetail(written)}\n`);
   } else {
-    process.stdout.write(`${verb} contact: ${contactId}\n`);
+    process.stdout.write(`${headline} ${contactId}\n`);
     writeError(cmd, "Could not read the contact back to display it");
   }
   if (notesLost) {
     writeError(cmd, "The contact was saved, but its notes were not");
+  }
+  if (renameLost) {
+    writeError(
+      cmd,
+      "The contacts were merged, but the surviving contact was not renamed",
+    );
+  }
+  if (mirrorLost) {
+    writeError(
+      cmd,
+      "The contacts were merged, but the assistant's copy of the duplicate was not cleaned up, so its notes were not combined",
+    );
   }
 }
 
@@ -467,7 +750,7 @@ export function registerContactsCommand(program: Command): void {
       );
 
       // -----------------------------------------------------------------------
-      // create / update / delete
+      // create / update / delete / merge
       //
       // Each opens a form in the guardian's app and blocks on their answer.
       // The daemon writes nothing: the guardian's client posts the confirmed
@@ -480,12 +763,57 @@ export function registerContactsCommand(program: Command): void {
           opts: {
             name?: string;
             notes?: string;
+            channel?: string;
+            address?: string;
+            verify?: boolean;
             label?: string;
             description?: string;
             timeout?: string;
           },
           cmd: Command,
         ) => {
+          if (opts.address !== undefined && !opts.channel) {
+            writeError(
+              cmd,
+              "--address needs --channel: an address binds as a (channel type, address) pair. Pass --channel, or drop --address.",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          if (opts.verify && !opts.channel) {
+            writeError(
+              cmd,
+              "--verify needs --channel: there is no channel to attest without one. Pass --channel, or drop --verify.",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          // A channel makes this the address form, which writes the record and
+          // binds the channel under one confirmation.
+          if (opts.channel) {
+            if (!opts.name) {
+              writeError(
+                cmd,
+                "--channel needs --name: the contact is created under that name. Pass --name, or run 'assistant contacts prompt' to create a contact named after the address.",
+              );
+              process.exitCode = 1;
+              return;
+            }
+            await runAddressPrompt(
+              {
+                displayName: opts.name,
+                notes: opts.notes,
+                channel: opts.channel,
+                defaultValue: opts.address,
+                verify: opts.verify,
+                label: opts.label,
+                description: opts.description,
+                timeout: opts.timeout,
+              },
+              cmd,
+            );
+            return;
+          }
           await runRecordPrompt(
             {
               operation: "create",
@@ -583,6 +911,71 @@ export function registerContactsCommand(program: Command): void {
         },
       );
 
+      subcommand(contacts, "merge").action(
+        async (
+          survivorId: string,
+          donorId: string,
+          opts: {
+            keepDonorName?: boolean;
+            label?: string;
+            description?: string;
+            timeout?: string;
+          },
+          cmd: Command,
+        ) => {
+          if (survivorId === donorId) {
+            writeError(
+              cmd,
+              `Cannot merge contact "${survivorId}" into itself. Pass the surviving id and a different donor id. Run 'assistant contacts list' to find contact ids.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const survivor = await readContactForPrompt(survivorId, cmd);
+          if (!survivor) {
+            return;
+          }
+          const donor = await readContactForPrompt(donorId, cmd);
+          if (!donor) {
+            return;
+          }
+          if (donor.role === "guardian") {
+            // The gateway refuses this, so opening the form would spend a
+            // confirmation on a write that cannot land.
+            writeError(
+              cmd,
+              `Cannot merge away the guardian contact "${donor.displayName}" (${donorId}). Run 'assistant contacts merge ${donorId} ${survivorId}' to keep the guardian as the survivor instead.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          await runRecordPrompt(
+            {
+              operation: "merge",
+              contactId: survivorId,
+              currentDisplayName: survivor.displayName,
+              donorContactId: donorId,
+              donorDisplayName: donor.displayName,
+              // Two contacts can share a name, so the confirmation lists both
+              // sides: what moves, and what the survivor already holds.
+              donorChannels: donor.channels.map((ch) => ({
+                type: ch.type,
+                address: ch.address,
+              })),
+              channels: survivor.channels.map((ch) => ({
+                type: ch.type,
+                address: ch.address,
+              })),
+              displayName: opts.keepDonorName ? donor.displayName : undefined,
+              label: opts.label,
+              description: opts.description,
+            },
+            opts.timeout,
+            cmd,
+          );
+        },
+      );
+
       // -----------------------------------------------------------------------
       // prompt
       // -----------------------------------------------------------------------
@@ -598,56 +991,30 @@ export function registerContactsCommand(program: Command): void {
             description?: string;
             timeout?: string;
             verify?: boolean;
+            contactId?: string;
           },
           cmd: Command,
         ) => {
-          const timeoutMs = parseFormTimeout(opts.timeout, cmd);
-          if (timeoutMs === null) {
-            return;
-          }
-          const r = await cliIpcCall<ContactPromptResult>(
-            "contacts_prompt",
-            {
-              body: {
-                channel: opts.channel,
-                placeholder: opts.placeholder,
-                defaultValue: opts.defaultValue,
-                role: opts.role ?? "unknown",
-                label: opts.label,
-                description: opts.description,
-                verify: opts.verify === true,
-                timeoutMs,
-              },
-            },
-            { timeoutMs: guardianFormCallBudgetMs(timeoutMs) },
-          );
-
-          if (!r.ok) {
-            return exitFromIpcResult(
-              r as { ok: false; error?: string; statusCode?: number },
+          if (opts.contactId && opts.role === "guardian") {
+            writeError(
               cmd,
+              "--contact-id and --role guardian cannot be combined: --role guardian binds to the guardian contact, so there is no target to choose. Drop --contact-id, or drop --role.",
             );
-          }
-
-          if (!r.result?.ok) {
-            writeError(cmd, r.result?.error ?? "Contact prompt failed");
             process.exitCode = 1;
             return;
           }
 
-          const result = r.result;
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, result);
-          } else {
-            process.stdout.write(
-              `Registered ${result.channelType} channel: ${result.address}\n` +
-                `  Channel ID: ${result.channelId}\n` +
-                `  Contact ID: ${result.contactId}\n` +
-                // The guardian's checkbox decides this, so report what the
-                // channel is rather than what the flag asked for.
-                `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
-            );
+          if (opts.contactId) {
+            await runTargetedAddressPrompt(opts.contactId, opts, cmd);
+            return;
           }
+
+          // The form seeds a role either way, so an unstated one is stated
+          // here rather than left for the daemon to pick.
+          await runAddressPrompt(
+            { ...opts, role: opts.role ?? "unknown" },
+            cmd,
+          );
         },
       );
 
@@ -656,6 +1023,34 @@ export function registerContactsCommand(program: Command): void {
       // -----------------------------------------------------------------------
 
       const channelsCmds = subcommand(contacts, "channels");
+
+      subcommand(channelsCmds, "add").action(
+        async (
+          contactId: string,
+          opts: {
+            channel: string;
+            address?: string;
+            verify?: boolean;
+            label?: string;
+            description?: string;
+            timeout?: string;
+          },
+          cmd: Command,
+        ) => {
+          await runTargetedAddressPrompt(
+            contactId,
+            {
+              channel: opts.channel,
+              defaultValue: opts.address,
+              verify: opts.verify,
+              label: opts.label,
+              description: opts.description,
+              timeout: opts.timeout,
+            },
+            cmd,
+          );
+        },
+      );
 
       subcommand(channelsCmds, "update-status").action(
         async (

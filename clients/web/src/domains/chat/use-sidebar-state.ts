@@ -58,9 +58,11 @@ import {
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import {
+  ASSISTANT_SECTION_KEY,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
+  pinAssistantSectionLast,
 } from "@/domains/chat/utils/sidebar-section-order";
 import {
   saveViewMode,
@@ -70,7 +72,10 @@ import {
 import { useSidebarSectionsQuery } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
-import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
+import {
+  ASSISTANT_SECTION_LABEL,
+  RECENTS_SECTION_LABEL,
+} from "@/domains/chat/utils/sidebar-section-icon";
 
 // ---------------------------------------------------------------------------
 // Public constants
@@ -118,6 +123,13 @@ interface SidebarSectionBase {
  */
 export type SidebarSection =
   | (SidebarSectionBase & { type: "pinned" })
+  /* The threads the assistant started on its own. Index-only: membership is
+     decided by a conversation's `source`, and the derived fallback below
+     cannot know it without the complete list a windowed list never drains.
+     An assistant too old to serve the index therefore shows no section, and
+     its threads stay in Chats — the same degradation as every other
+     index-only fact, and the safe direction. */
+  | (SidebarSectionBase & { type: "assistant" })
   /* `holdsChannels` is what the view switch means for this section: with
      channel grouping off there are no channel sections, so Chats holds those
      conversations too. Carried on the section rather than read from the view
@@ -344,6 +356,30 @@ export function useSidebarState({
           });
         }
       }
+      /* Last, and pinned there — it sits at the foot of the list, directly
+         above the Preferences footer, wherever the user has arranged
+         everything else (see `pinAssistantSectionLast`). Pushed last here so
+         the default order needs no separate rule; the pin is what holds it
+         against a stored order that says otherwise.
+
+         The daemon emits the row only under the flag, and only one of it, so
+         its presence is the whole gate. Unlike every section but Chats it
+         renders at zero, because its empty state is what explains the section
+         to someone who has no threads yet.
+
+         `all` is empty rather than derived: these rows are withheld from the
+         foreground list the fallback buckets are built from, so there is no
+         derived bucket to fall back to. The section's own query fills it. */
+      const assistantRow = indexSections.find((s) => s.kind === "assistant");
+      if (assistantRow) {
+        list.push({
+          type: "assistant",
+          key: ASSISTANT_SECTION_KEY,
+          label: ASSISTANT_SECTION_LABEL,
+          all: [],
+          unread: assistantRow.unread,
+        });
+      }
       return list;
     }
 
@@ -410,27 +446,50 @@ export function useSidebarState({
         ? defaultKeys
         : mergeSectionOrder(defaultKeys, sectionOrder);
     const byKey = new Map(defaultSections.map((s) => [s.key, s]));
-    return ordered.map((key) => byKey.get(key)!);
+    /* The pin is applied to the rendered order rather than to the stored
+       preference, so a stored list written before this section existed — or
+       one a drag left saying something else — still renders it last. */
+    return pinAssistantSectionLast(ordered).map((key) => byKey.get(key)!);
   }, [defaultSections, sectionOrder]);
 
   const onReorderSections = useCallback(
     (orderedKeys: string[]) => {
-      setSectionOrder(nextStoredOrder(sectionOrder, orderedKeys));
+      // A drag can drop something below the pinned section; normalizing here
+      // means the stored order never disagrees with what renders.
+      setSectionOrder(
+        nextStoredOrder(sectionOrder, pinAssistantSectionLast(orderedKeys)),
+      );
     },
     [sectionOrder, setSectionOrder],
   );
 
   // The order `key` would land in after a nudge, or null when the nudge
-  // changes nothing, which now means only one thing: `key` is already at
-  // that end of the list. Sections reorder freely otherwise.
+  // changes nothing: `key` is already at that end of the orderable list, or
+  // it is the bottom-pinned assistant section, which does not move.
   const orderAfterMove = useCallback(
     (key: string, delta: -1 | 1): string[] | null => {
-      const current = sections.map((s) => s.key);
+      if (key === ASSISTANT_SECTION_KEY) {
+        return null;
+      }
+      /* Nudges run over the orderable keys alone, so the section below the
+         pinned one is at the end of the list as far as a move is concerned —
+         "down" from there is a no-op rather than a swap that the pin would
+         silently undo. */
+      const current = sections
+        .map((s) => s.key)
+        .filter((k) => k !== ASSISTANT_SECTION_KEY);
       const moved = moveSectionKey(current, key, delta);
       if (!moved) {
         return null;
       }
-      return moved.join("\0") === current.join("\0") ? null : moved;
+      if (moved.join("\0") === current.join("\0")) {
+        return null;
+      }
+      // Re-append the pinned key (when the section exists at all) so the
+      // stored order this produces already agrees with what renders.
+      return sections.some((s) => s.key === ASSISTANT_SECTION_KEY)
+        ? [...moved, ASSISTANT_SECTION_KEY]
+        : moved;
     },
     [sections],
   );

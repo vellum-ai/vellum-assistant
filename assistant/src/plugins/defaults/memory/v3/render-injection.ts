@@ -1,5 +1,9 @@
 import { wrapMemoryBlock } from "../memory-marker.js";
+import { SKILLS_INJECTION_CATALOG_HINT } from "../substrate/skill-content.js";
 import { Section, Slug } from "./types.js";
+
+/** Own `# ` chunk so prune treats the catalog hint as a non-card piece. */
+const SKILLS_CATALOG_HINT_CHUNK = `# Skills\n${SKILLS_INJECTION_CATALOG_HINT}`;
 
 /**
  * Leading instruction line of the frozen card block — byte-identical to v2's
@@ -23,7 +27,12 @@ export function renderCardsBlockInner(cards: string[]): string {
   if (cards.length === 0) {
     return "";
   }
-  return [V3_CARDS_INJECTION_HEADER, ...cards].join("\n\n");
+  const parts = [V3_CARDS_INJECTION_HEADER];
+  if (cards.some((card) => card.startsWith("# Skill:"))) {
+    parts.push(SKILLS_CATALOG_HINT_CHUNK);
+  }
+  parts.push(...cards);
+  return parts.join("\n\n");
 }
 
 /**

@@ -73,26 +73,77 @@ export function SidebarSectionCard({
      card to `fit-content` to read its true hug width, then restores both -
      synchronously, in the same layout-effect pass, so nothing paints in
      between and there's no visible flash. Re-measures whenever the header
-     content that determines that width could have changed. */
+     content that determines that width could have changed.
+
+     The collapsed-only indicator gets the inverse treatment for the same
+     reason the row list gets hidden: the measurement runs in whatever state
+     the card is in, but the value it produces is spent in the collapsed
+     state. An open card holds its indicator at `display:none` (the rows
+     carry their own dots), so measuring around it under-reports the hug
+     width by the dot's cell, and the collapsed header pays that deficit out
+     of its label - "From Ada" rendered as "From ...". Forcing it visible for
+     the measurement makes the measured configuration the one the pill will
+     actually show. */
+  const hasCollapsedIndicator = section.collapsedIndicator != null;
   useLayoutEffect(() => {
-    const card = cardRef.current;
-    if (!card) {
-      return;
-    }
-    const content = card.querySelector<HTMLElement>(".sidebar-section-list");
-    const prevContentDisplay = content?.style.display;
-    const prevCardWidth = card.style.width;
-    if (content) {
-      content.style.display = "none";
-    }
-    card.style.width = "fit-content";
-    const width = card.getBoundingClientRect().width;
-    card.style.width = prevCardWidth;
-    if (content) {
-      content.style.display = prevContentDisplay ?? "";
-    }
-    card.style.setProperty("--section-collapsed-width", `${width}px`);
-  }, [section.icon, section.label]);
+    const measure = () => {
+      const card = cardRef.current;
+      if (!card) {
+        return;
+      }
+      const content = card.querySelector<HTMLElement>(".sidebar-section-list");
+      const indicator = card.querySelector<HTMLElement>(
+        '[data-slot="collapsible-nav-section-indicator"]',
+      );
+      const prevContentDisplay = content?.style.display;
+      const prevIndicatorDisplay = indicator?.style.display;
+      const prevCardWidth = card.style.width;
+      if (content) {
+        content.style.display = "none";
+      }
+      if (indicator) {
+        indicator.style.display = "flex";
+      }
+      card.style.width = "fit-content";
+      const width = card.getBoundingClientRect().width;
+      card.style.width = prevCardWidth;
+      if (content) {
+        content.style.display = prevContentDisplay ?? "";
+      }
+      if (indicator) {
+        indicator.style.display = prevIndicatorDisplay ?? "";
+      }
+      /* Ceiled: the hug width is fractional and republishing it exactly
+         leaves the label with exactly its own fractional width, where
+         sub-pixel rounding still trips `text-overflow` into an ellipsis on
+         the last glyph. A whole pixel of headroom costs nothing visible and
+         keeps the label whole. */
+      card.style.setProperty(
+        "--section-collapsed-width",
+        `${Math.ceil(width)}px`,
+      );
+    };
+
+    measure();
+
+    /* The hug width is text metrics, and on a cold load this effect runs
+       before the webfont has: measured under the fallback face, every pill
+       is a few pixels off and every label ellipsizes on its first collapse.
+       One corrective pass when the fonts settle; on later runs the promise
+       is already resolved and the extra pass is an idempotent no-op. */
+    let cancelled = false;
+    document.fonts?.ready.then(
+      () => {
+        if (!cancelled) {
+          measure();
+        }
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [section.icon, section.label, hasCollapsedIndicator]);
 
   /* The card is what drags, not the header inside it. A section is a card
      now, so grabbing one should pick up the whole object; with the handle on
