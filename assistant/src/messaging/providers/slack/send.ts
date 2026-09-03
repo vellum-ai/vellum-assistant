@@ -18,7 +18,6 @@ import type { AssistantActivityPhase } from "../../../api/index.js";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
-import { shortcodeForEmojiCharacter } from "../../reaction-emoji.js";
 import {
   appendSlackStream,
   callSlackApi,
@@ -387,28 +386,18 @@ function imageBlocksFor(text: string): KnownBlock[] | undefined {
  *
  * Non-throwing: failures are logged and reported through the result so a
  * tool-driven react can tell the model the truth, while the activity
- * fallback is free to ignore it. `reactions.add` takes Slack's bare emoji
- * name, so colons are stripped from a name and a unicode character (what
- * the model reads in history) is mapped back to the name Slack knows it
- * by; a character Slack has no name for is reported as rejected without a
- * call. `already_reacted` / `no_reaction` count as success: the requested
- * end state already holds.
+ * fallback is free to ignore it. Colons are stripped from the name because
+ * `reactions.add` takes the bare emoji name, and `already_reacted` /
+ * `no_reaction` count as success: the requested end state already holds.
  */
 export async function sendSlackReaction(
   channel: string,
-  emoji: string,
+  name: string,
   messageTs: string,
   action: "add" | "remove",
 ): Promise<ChannelDeliveryResult> {
   const method = action === "add" ? "reactions.add" : "reactions.remove";
-  const bareName = slackReactionName(emoji);
-  if (bareName === undefined) {
-    log.warn(
-      { channel, method, emoji },
-      "Slack has no emoji name for this reaction",
-    );
-    return { ok: false };
-  }
+  const bareName = name.replace(/^:+|:+$/g, "");
   try {
     await callSlackApi(method, {
       channel,
@@ -431,16 +420,6 @@ export async function sendSlackReaction(
     );
     return { ok: false };
   }
-}
-
-/** Slack's emoji name grammar: a bare name, optionally toned. */
-const SLACK_EMOJI_NAME = /^[\w+'-]+(::skin-tone-[2-6])?$/;
-
-function slackReactionName(emoji: string): string | undefined {
-  const bareName = emoji.replace(/^:+|:+$/g, "");
-  return SLACK_EMOJI_NAME.test(bareName)
-    ? bareName
-    : shortcodeForEmojiCharacter(emoji);
 }
 
 /** How Slack spells each activity phase on an agent session. */

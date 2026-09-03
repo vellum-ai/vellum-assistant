@@ -4668,8 +4668,8 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(focusBlock).not.toBeNull();
     // Both reactions surface in the block (parent + reply targets).
     expect(focusBlock!).toContain("reacted");
-    expect(focusBlock!).toContain("👍");
-    expect(focusBlock!).toContain("👀");
+    expect(focusBlock!).toContain("thumbsup");
+    expect(focusBlock!).toContain("eyes");
     // Reactions reference the parent alias for visual grounding.
     expect(focusBlock!).toContain(ALIAS_T0);
   });
@@ -5188,7 +5188,7 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).toContain("</active_thread>");
     expect(result!).toContain("Parent");
     expect(result!).toContain("Reply");
-    expect(result!).toContain("🎉");
+    expect(result!).toContain("tada");
     // Sibling content is NOT pulled in.
     expect(result!).not.toContain("Sibling top-level");
   });

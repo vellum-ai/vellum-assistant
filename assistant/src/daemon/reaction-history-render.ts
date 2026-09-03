@@ -24,13 +24,22 @@
  * format references targets by alias rather than by quote.
  */
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
-import { resolveReactionEmoji } from "../messaging/reaction-emoji.js";
 import {
   unwrapExternalContentForDisplay,
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 
+/**
+ * Slack-style emoji names render in colon form. Anything else (a unicode
+ * emoji, Discord's `<:name:id>` mention form) is already self-delimiting.
+ */
+const EMOJI_NAME_PATTERN = /^[\w+'-]+$/;
+
 const TARGET_SNIPPET_MAX_CHARS = 120;
+
+function formatEmoji(emoji: string): string {
+  return EMOJI_NAME_PATTERN.test(emoji) ? `:${emoji}:` : emoji;
+}
 
 /**
  * Flatten a quoted target to one line: the ingress fence is markup around
@@ -70,18 +79,15 @@ export function renderReactionHistoryText(
   if (meta.eventKind !== "reaction" || !meta.reaction) {
     return null;
   }
-  const { op, targetMessageId } = meta.reaction;
-  // The model reads the channel form: what it can hand back to
-  // `react_to_message`, which for a resolved name is the character itself.
-  const emoji = resolveReactionEmoji(meta.reaction).channelForm;
+  const { emoji, op, targetMessageId } = meta.reaction;
   const target = resolveTargetText(targetMessageId);
   const snippet = target ? snippetOf(target) : "";
 
   if (options?.selfAuthored) {
     const verb =
       op === "removed"
-        ? `removed your ${emoji} reaction from`
-        : `reacted with ${emoji} to`;
+        ? `removed your ${formatEmoji(emoji)} reaction from`
+        : `reacted with ${formatEmoji(emoji)} to`;
     if (!snippet) {
       return `You ${verb} an earlier message`;
     }
@@ -97,8 +103,8 @@ export function renderReactionHistoryText(
   const actor = meta.reaction.actorDisplayName ?? meta.displayName ?? "Someone";
   const verb =
     op === "removed"
-      ? `removed their ${emoji} reaction from`
-      : `reacted with ${emoji} to`;
+      ? `removed their ${formatEmoji(emoji)} reaction from`
+      : `reacted with ${formatEmoji(emoji)} to`;
   const line = snippet
     ? `${actor} ${verb} the message "${snippet}"`
     : `${actor} ${verb} an earlier message`;

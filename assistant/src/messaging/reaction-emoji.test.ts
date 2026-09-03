@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   emojiCharacterForShortcode,
   resolveReactionEmoji,
-  shortcodeForEmojiCharacter,
 } from "./reaction-emoji.js";
 
 describe("resolveReactionEmoji", () => {
@@ -14,7 +13,7 @@ describe("resolveReactionEmoji", () => {
         emojiKind: "unicode",
         emojiName: "🎉",
       }),
-    ).toEqual({ display: "🎉", channelForm: "🎉" });
+    ).toEqual({ display: "🎉" });
   });
 
   test("a shortcode in the table resolves to its character for both readers", () => {
@@ -24,14 +23,14 @@ describe("resolveReactionEmoji", () => {
         emojiKind: "shortcode",
         emojiName: "tada",
       }),
-    ).toEqual({ display: "🎉", channelForm: "🎉" });
+    ).toEqual({ display: "🎉" });
     expect(
       resolveReactionEmoji({
         emoji: "+1",
         emojiKind: "shortcode",
         emojiName: "+1",
       }),
-    ).toEqual({ display: "👍", channelForm: "👍" });
+    ).toEqual({ display: "👍" });
   });
 
   test("a skin tone suffix resolves to the toned variant", () => {
@@ -51,10 +50,10 @@ describe("resolveReactionEmoji", () => {
         emojiKind: "shortcode",
         emojiName: "blob_wave",
       }),
-    ).toEqual({ display: ":blob_wave:", channelForm: ":blob_wave:" });
+    ).toEqual({ display: ":blob_wave:" });
   });
 
-  test("a custom emoji shows its name and hands the model the mention form", () => {
+  test("a custom emoji shows its name; its image is the channel's to serve", () => {
     expect(
       resolveReactionEmoji({
         emoji: "<:vex:12345>",
@@ -62,16 +61,7 @@ describe("resolveReactionEmoji", () => {
         emojiName: "vex",
         emojiId: "12345",
       }),
-    ).toEqual({ display: ":vex:", channelForm: "<:vex:12345>" });
-    expect(
-      resolveReactionEmoji({
-        emoji: "<:vex:12345>",
-        emojiKind: "custom",
-        emojiName: "vex",
-        emojiId: "12345",
-        emojiAnimated: true,
-      }).channelForm,
-    ).toBe("<a:vex:12345>");
+    ).toEqual({ display: ":vex:" });
   });
 
   test("a row carrying only its spelling is classified before resolving", () => {
@@ -82,7 +72,6 @@ describe("resolveReactionEmoji", () => {
     ).toBe("👍🏼");
     expect(resolveReactionEmoji({ emoji: "<:vex:12345>" })).toEqual({
       display: ":vex:",
-      channelForm: "<:vex:12345>",
     });
     expect(resolveReactionEmoji({ emoji: "blob_wave" }).display).toBe(
       ":blob_wave:",
@@ -105,25 +94,5 @@ describe("emojiCharacterForShortcode", () => {
     expect(
       emojiCharacterForShortcode("blob_wave::skin-tone-2"),
     ).toBeUndefined();
-  });
-});
-
-describe("shortcodeForEmojiCharacter", () => {
-  test("a character maps back to its primary name", () => {
-    expect(shortcodeForEmojiCharacter("🎉")).toBe("tada");
-    expect(shortcodeForEmojiCharacter("👍")).toBe("+1");
-  });
-
-  test("a toned variant maps back with Slack's suffix", () => {
-    expect(shortcodeForEmojiCharacter("👍🏼")).toBe("+1::skin-tone-3");
-  });
-
-  test("a character without its variation selector still resolves", () => {
-    expect(shortcodeForEmojiCharacter("☂️")).toBe("umbrella");
-    expect(shortcodeForEmojiCharacter("☂")).toBe("umbrella");
-  });
-
-  test("a character outside the table resolves to nothing", () => {
-    expect(shortcodeForEmojiCharacter("a")).toBeUndefined();
   });
 });

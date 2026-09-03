@@ -33,7 +33,7 @@ describe("renderReactionHistoryText", () => {
       () => "Deploy is done",
     );
     expect(rendered).toContain(
-      'Alice reacted with 👍 to the message "Deploy is done"',
+      'Alice reacted with :thumbsup: to the message "Deploy is done"',
     );
   });
 
@@ -43,7 +43,7 @@ describe("renderReactionHistoryText", () => {
       noTarget,
     );
     expect(rendered).toContain(
-      "Alice removed their 👍 reaction from an earlier message",
+      "Alice removed their :thumbsup: reaction from an earlier message",
     );
   });
 
@@ -123,7 +123,7 @@ describe("renderReactionHistoryText", () => {
       () => "Deploy is done",
       { selfAuthored: true },
     );
-    expect(rendered).toContain("You reacted with 👍 to this message:");
+    expect(rendered).toContain("You reacted with :thumbsup: to this message:");
     expect(rendered).toContain('<external_content source="webhook"');
     expect(rendered).toContain("Deploy is done");
     expect(rendered).toContain("</external_content>");
@@ -135,7 +135,7 @@ describe("renderReactionHistoryText", () => {
       noTarget,
       { selfAuthored: true },
     );
-    expect(rendered).toBe("You reacted with 👍 to an earlier message");
+    expect(rendered).toBe("You reacted with :thumbsup: to an earlier message");
     expect(rendered).not.toContain("<external_content");
   });
 
@@ -146,7 +146,7 @@ describe("renderReactionHistoryText", () => {
       { selfAuthored: true },
     );
     expect(rendered).toContain(
-      "You removed your 👍 reaction from an earlier message",
+      "You removed your :thumbsup: reaction from an earlier message",
     );
   });
 
