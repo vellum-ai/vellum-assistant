@@ -13,7 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { useSuppressCreditBannersForByok } from "@/hooks/use-byok-credit-banner-gate";
+import { useByokCreditRouteVerdict } from "@/hooks/use-byok-credit-banner-gate";
 import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
 
 export interface PreferencesUsage {
@@ -34,10 +34,23 @@ export interface PreferencesUsage {
   usingExtraCredits: boolean;
 }
 
+export interface PreferencesUsageReading {
+  /** The reading, or null when there is nothing honest to say. */
+  usage: PreferencesUsage | null;
+  /**
+   * The reading is final. While false, `usage` is still being worked out: a
+   * null may yet become a bar, and a bar's `usingExtraCredits` may yet become
+   * true. Colour carries meaning on this panel, so a caller that paints an
+   * alarm colour waits for this rather than reading a not-yet as a no.
+   */
+  settled: boolean;
+}
+
 /**
- * Null while the org has no managed billing to read and before an honest
- * number lands, so every caller renders exactly what it always has until
- * there is something real to say.
+ * A null `usage` while the org has no managed billing to read and before an
+ * honest number lands, so every caller renders exactly what it always has
+ * until there is something real to say, paired with the `settled` flag that
+ * separates the two: a null that is still landing from one that is the answer.
  *
  * `conversationId` is the chat the reading is for. It reaches the wallet
  * status so a managed per-conversation profile pin classifies `exhausted`
@@ -46,13 +59,14 @@ export interface PreferencesUsage {
  */
 export function usePreferencesUsage(
   opts: { conversationId?: string | null } = {},
-): PreferencesUsage | null {
+): PreferencesUsageReading {
   const {
     isExhausted,
     balance,
     availableUsageBalance,
     totalUsageBalance,
     enabled,
+    settled: balanceSettled,
   } = useBillingBalanceStatus({ conversationId: opts.conversationId ?? null });
   // The sub is only worth fetching when the org actually has managed billing;
   // the reading itself comes off the summary the wallet status already read.
@@ -76,20 +90,36 @@ export function usePreferencesUsage(
   // dispatches the next turn on the user's own key. The classifier's queries
   // stay idle until the claim is otherwise live, and while it classifies (or
   // when it proves BYOK with no recent managed burn) the claim is withheld.
-  const routeSkipsWallet = useSuppressCreditBannersForByok(
-    enabled && spent && hasWalletCredit,
-    opts.conversationId ?? null,
-  );
+  const { suppress: routeSkipsWallet, settled: claimSettled } =
+    useByokCreditRouteVerdict(
+      enabled && spent && hasWalletCredit,
+      opts.conversationId ?? null,
+    );
+
+  // The reading is final once the summary and the subscription behind it have
+  // both answered and the route classification has stopped moving. The
+  // subscription is the second half of `usage`: without it there is no plan to
+  // read the grants against, so a null here is pending rather than none.
+  const settled =
+    balanceSettled && !subscriptionQuery.isLoading && claimSettled;
 
   if (!enabled || !usage) {
-    return null;
+    return { usage: null, settled };
   }
   return {
-    ratio: usage.ratio,
-    spent,
-    // Using up the grants only alarms once the wallet behind them is empty
-    // too.
-    exhausted: spent && isExhausted,
-    usingExtraCredits: spent && hasWalletCredit && !routeSkipsWallet,
+    usage: {
+      ratio: usage.ratio,
+      spent,
+      // Using up the grants only alarms once the wallet behind them is empty
+      // too, and only once that is settled: the strip and the bar's colour
+      // then arrive on the same render instead of the strip growing the
+      // popover a beat later.
+      exhausted: settled && spent && isExhausted,
+      // Withheld until the classification settles, so the claim is never made
+      // on the strength of a query that has not answered.
+      usingExtraCredits:
+        settled && spent && hasWalletCredit && !routeSkipsWallet,
+    },
+    settled,
   };
 }
