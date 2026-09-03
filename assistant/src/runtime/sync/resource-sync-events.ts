@@ -10,6 +10,7 @@ import { broadcastMessage } from "../assistant-event-hub.js";
 import { isStreamSeqStampingDisabled } from "../assistant-stream-state.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
 import {
+  notifyDaemonActivationProgressChanged,
   notifyDaemonConversationPersisted,
   notifyDaemonDocumentsChanged,
 } from "./worker-daemon-notify.js";
@@ -148,6 +149,28 @@ export function publishDocumentsChanged(originClientId?: string): void {
 
 export function publishPluginsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.pluginsList], originClientId);
+}
+
+/**
+ * Invalidate the activation-checklist progress resource on every client.
+ *
+ * Reached from the routes the client writes through and from the turn hooks
+ * that count a launched task's steps. Those hooks run inside whichever
+ * process is driving the turn, and a scheduled or background turn runs in a
+ * sidecar worker (seq stamping disabled) whose local hub has no SSE
+ * subscribers, so a local publish would reach nobody and the checklist row
+ * would sit on Working until the client refetched for another reason. Hand
+ * off to the daemon there, as the documents list does. A worker turn has no
+ * originating client, so no `originClientId` is forwarded.
+ */
+export function publishActivationProgressChanged(
+  originClientId?: string,
+): void {
+  if (isStreamSeqStampingDisabled()) {
+    void notifyDaemonActivationProgressChanged();
+    return;
+  }
+  void publishSyncInvalidation([SYNC_TAGS.activationProgress], originClientId);
 }
 
 /**

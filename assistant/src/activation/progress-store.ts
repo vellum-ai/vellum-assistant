@@ -11,37 +11,50 @@
  *
  * Reads are synchronous and degrade to the empty default: a missing or
  * corrupt file means "nothing started yet", which is the same state a
- * fresh assistant is in. Writes are atomic (temp file + rename) and
- * serialized through a single in-process promise chain so concurrent
- * route calls and turn hooks cannot interleave a read-modify-write. A
- * write that cannot land rejects, so a route never answers with state the
- * next read would contradict; the fire-and-forget turn hooks catch and log
- * instead.
+ * fresh assistant is in. A file stamped with a schema version this build
+ * does not know is the one case that does not degrade to a rewrite: the
+ * store turns read-only so a rollback cannot erase the newer document.
+ * Writes are atomic (temp file + rename) and serialized through a single
+ * in-process promise chain so concurrent route calls and turn hooks cannot
+ * interleave a read-modify-write. A write that cannot land rejects, so a
+ * route never answers with state the next read would contradict; the
+ * fire-and-forget turn hooks catch and log instead.
  *
  * A conversation belongs to at most one task: {@link startActivationTask}
  * unlinks any other `started` task pointing at the same conversation, so
  * the step and completion lookups can resolve one record and never strand
- * another.
+ * another. Which conversations are linked is mirrored in memory
+ * ({@link linkIndex}) so the per-tool-call hooks answer for the
+ * overwhelmingly common unlinked conversation without touching disk.
  *
  * Every write that changes visible state publishes the
- * `activation:progress` sync tag so sibling clients refetch.
+ * `activation:progress` sync tag so sibling clients refetch, carrying the
+ * client that made it so that client can suppress its own echo.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
+  ACTIVATION_CONVERSATION_ID_MAX_LENGTH,
   ACTIVATION_ID_PATTERN,
+  ACTIVATION_PROGRESS_VERSION,
   type ActivationArtifact,
   ActivationArtifactSchema,
   type ActivationDismissKind,
   type ActivationProgress,
   ActivationProgressSchema,
+  ActivationTaskProgressSchema,
   emptyActivationProgress,
 } from "../api/responses/activation.js";
-import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { BadRequestError, InternalError } from "../runtime/routes/errors.js";
-import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { publishActivationProgressChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 
@@ -81,35 +94,184 @@ function assertActivationId(value: string, label: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reading
+// ---------------------------------------------------------------------------
+
+/**
+ * A snapshot plus what the file said about itself. `readOnly` marks a
+ * document written by a schema version this build does not understand: its
+ * fields are read as far as they still parse, and nothing is written back.
+ */
+interface ActivationSnapshot {
+  progress: ActivationProgress;
+  readOnly: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Read what a newer document still has in common with this schema, field by
+ * field, so a client on an older build shows the progress it can understand
+ * rather than an empty checklist. Anything that does not parse is dropped.
+ */
+function parseForwardCompatible(document: unknown): ActivationProgress {
+  const progress = emptyActivationProgress();
+  if (!isRecord(document)) {
+    return progress;
+  }
+  if (typeof document.listId === "string") {
+    progress.listId = document.listId;
+  }
+  if (typeof document.modalDismissedAt === "string") {
+    progress.modalDismissedAt = document.modalDismissedAt;
+  }
+  if (typeof document.allDoneShownAt === "string") {
+    progress.allDoneShownAt = document.allDoneShownAt;
+  }
+  if (isRecord(document.tasks)) {
+    for (const [taskId, task] of Object.entries(document.tasks)) {
+      const parsed = ActivationTaskProgressSchema.safeParse(task);
+      if (parsed.success) {
+        progress.tasks[taskId] = parsed.data;
+      }
+    }
+  }
+  return progress;
+}
+
+function readActivationSnapshot(): ActivationSnapshot {
+  const path = getActivationProgressPath();
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf-8");
+  } catch {
+    return refreshLinkIndex({
+      progress: emptyActivationProgress(),
+      readOnly: false,
+    });
+  }
+
+  let document: unknown;
+  try {
+    document = JSON.parse(raw);
+  } catch (err) {
+    log.warn(
+      { err, path },
+      "Unreadable activation-progress.json; treating as empty",
+    );
+    return refreshLinkIndex({
+      progress: emptyActivationProgress(),
+      readOnly: false,
+    });
+  }
+
+  // The version is read before the shape is, so a document this build cannot
+  // parse is still recognized as one it must not overwrite.
+  const version = isRecord(document) ? document.version : undefined;
+  if (typeof version === "number" && version > ACTIVATION_PROGRESS_VERSION) {
+    log.warn(
+      { path, version, supported: ACTIVATION_PROGRESS_VERSION },
+      "activation-progress.json was written by a newer build; serving it read-only",
+    );
+    return refreshLinkIndex({
+      progress: parseForwardCompatible(document),
+      readOnly: true,
+    });
+  }
+
+  const parsed = ActivationProgressSchema.safeParse(document);
+  if (!parsed.success) {
+    log.warn(
+      { err: parsed.error, path },
+      "Unreadable activation-progress.json; treating as empty",
+    );
+    return refreshLinkIndex({
+      progress: emptyActivationProgress(),
+      readOnly: false,
+    });
+  }
+  return refreshLinkIndex({ progress: parsed.data, readOnly: false });
+}
+
 /**
  * Read the progress snapshot. A missing file, unreadable file, or one that
  * fails schema validation all degrade to the empty default rather than
  * throwing: the checklist is an onboarding nicety, never a hard failure.
  */
 export function readActivationProgress(): ActivationProgress {
-  let raw: string;
-  try {
-    raw = readFileSync(getActivationProgressPath(), "utf-8");
-  } catch {
-    return emptyActivationProgress();
-  }
-  try {
-    return ActivationProgressSchema.parse(JSON.parse(raw));
-  } catch (err) {
-    log.warn(
-      { err, path: getActivationProgressPath() },
-      "Unreadable activation-progress.json; treating as empty",
-    );
-    return emptyActivationProgress();
-  }
+  return readActivationSnapshot().progress;
 }
 
 function writeActivationProgress(progress: ActivationProgress): void {
   const path = getActivationProgressPath();
   mkdirSync(getDataDir(), { recursive: true });
   const tmpPath = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmpPath, JSON.stringify(progress, null, 2), "utf-8");
-  renameSync(tmpPath, path);
+  try {
+    writeFileSync(tmpPath, JSON.stringify(progress, null, 2), "utf-8");
+    renameSync(tmpPath, path);
+  } catch (err) {
+    // A temp file left behind by a failed write is never picked up again
+    // (the next attempt writes its own), so it would only accumulate.
+    rmSync(tmpPath, { force: true });
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Linked-conversation index
+// ---------------------------------------------------------------------------
+
+/**
+ * Conversation id → the `started` task it belongs to, for the conversations
+ * one exists for at all.
+ *
+ * The step hook runs on every tool call in every conversation, so the
+ * "nothing points at this conversation" answer has to be free: without this
+ * index each of those calls pays a `readFileSync`, a `JSON.parse`, and a
+ * schema validation for a snapshot it then discards. Consulting the index
+ * costs one map lookup and no filesystem access.
+ *
+ * This module is the file's only writer, and every read and every mutation
+ * rebuilds the index from what it just saw, so the index cannot drift from
+ * disk. A writer added outside this module has to call
+ * {@link invalidateLinkIndex}, or the hooks keep answering from the links
+ * it replaced. `linkIndexPath` pins the index to the workspace it was built
+ * from: a process that switches workspaces (tests do) falls back to a read
+ * rather than answering from another workspace's links.
+ */
+let linkIndex: Map<string, string> | null = null;
+let linkIndexPath: string | null = null;
+
+function refreshLinkIndex(snapshot: ActivationSnapshot): ActivationSnapshot {
+  const next = new Map<string, string>();
+  for (const [taskId, task] of Object.entries(snapshot.progress.tasks)) {
+    if (task.status === "started") {
+      next.set(task.conversationId, taskId);
+    }
+  }
+  linkIndex = next;
+  linkIndexPath = getActivationProgressPath();
+  return snapshot;
+}
+
+/** Drop the index, so the next lookup rebuilds it from disk. */
+function invalidateLinkIndex(): void {
+  linkIndex = null;
+  linkIndexPath = null;
+}
+
+/**
+ * The `started` task this conversation belongs to, or `null`, answered from
+ * the in-memory index. Reads the file only when the index is cold.
+ */
+function linkedTaskIdFor(conversationId: string): string | null {
+  if (linkIndex === null || linkIndexPath !== getActivationProgressPath()) {
+    readActivationSnapshot();
+  }
+  return linkIndex?.get(conversationId) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,23 +287,38 @@ let writeChain: Promise<unknown> = Promise.resolve();
  * clobber each other.
  *
  * Rejects when the snapshot cannot be persisted, so a route answers 500
- * rather than echoing state that only ever existed in memory.
+ * rather than echoing state that only ever existed in memory. A snapshot a
+ * newer build wrote is left alone entirely: the mutation is dropped with a
+ * warning rather than rewriting the document in this build's shape.
  */
 async function mutateActivationProgress(
   mutate: (progress: ActivationProgress) => boolean,
+  originClientId?: string,
 ): Promise<ActivationProgress> {
   const run = async (): Promise<ActivationProgress> => {
-    const progress = readActivationProgress();
+    const snapshot = readActivationSnapshot();
+    const { progress } = snapshot;
+    if (snapshot.readOnly) {
+      log.warn(
+        { path: getActivationProgressPath() },
+        "Skipping activation progress write: the stored document is from a newer build",
+      );
+      return progress;
+    }
     if (!mutate(progress)) {
       return progress;
     }
     try {
       writeActivationProgress(progress);
     } catch (err) {
+      // The index was built from what was on disk before the mutation, and
+      // the in-memory document has moved on from both. Drop it.
+      invalidateLinkIndex();
       log.warn({ err }, "Failed to write activation-progress.json");
       throw new InternalError("Failed to persist activation progress");
     }
-    await publishSyncInvalidation([SYNC_TAGS.activationProgress]);
+    refreshLinkIndex(snapshot);
+    publishActivationProgressChanged(originClientId);
     return progress;
   };
   const next = writeChain.then(run, run);
@@ -214,7 +391,8 @@ function unlinkOtherTasks(
  *
  * Idempotent: re-starting a task in the same conversation changes nothing.
  * A different conversation replaces the link (and restarts the counters)
- * only while the task is not `done`. A finished task keeps its record.
+ * only while the task is not `done`. A finished task keeps its record, and
+ * keeps its hands off the conversation: a task still running there owns it.
  *
  * A conversation carries one task at a time. Launching a second task into
  * a conversation another `started` task points at drops that stale record
@@ -225,11 +403,17 @@ export async function startActivationTask(params: {
   taskId: string;
   conversationId: string;
   listId?: string;
+  originClientId?: string;
 }): Promise<ActivationProgress> {
-  const { taskId, conversationId, listId } = params;
+  const { taskId, conversationId, listId, originClientId } = params;
   assertActivationId(taskId, "taskId");
   if (conversationId.trim().length === 0) {
     throw new BadRequestError("conversationId is required");
+  }
+  if (conversationId.length > ACTIVATION_CONVERSATION_ID_MAX_LENGTH) {
+    throw new BadRequestError(
+      `conversationId must be at most ${ACTIVATION_CONVERSATION_ID_MAX_LENGTH} characters`,
+    );
   }
   if (listId !== undefined) {
     assertActivationId(listId, "listId");
@@ -254,7 +438,7 @@ export async function startActivationTask(params: {
       artifacts: [],
     };
     return true;
-  });
+  }, originClientId);
 }
 
 /**
@@ -266,8 +450,9 @@ export async function startActivationTask(params: {
 export async function dismissActivation(params: {
   kind: ActivationDismissKind;
   listId?: string;
+  originClientId?: string;
 }): Promise<ActivationProgress> {
-  const { kind, listId } = params;
+  const { kind, listId, originClientId } = params;
   if (listId !== undefined) {
     assertActivationId(listId, "listId");
   }
@@ -280,7 +465,7 @@ export async function dismissActivation(params: {
       changed = true;
     }
     return changed;
-  });
+  }, originClientId);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +476,13 @@ export async function dismissActivation(params: {
 const pendingStepBumps = new Map<string, number>();
 const stepBumpTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastStepFlushAt = new Map<string, number>();
+
+function addPendingStepBumps(conversationId: string, delta: number): void {
+  pendingStepBumps.set(
+    conversationId,
+    (pendingStepBumps.get(conversationId) ?? 0) + delta,
+  );
+}
 
 async function flushStepBumps(conversationId: string): Promise<void> {
   const timer = stepBumpTimers.get(conversationId);
@@ -304,41 +496,47 @@ async function flushStepBumps(conversationId: string): Promise<void> {
     return;
   }
   lastStepFlushAt.set(conversationId, Date.now());
-  await mutateActivationProgress((progress) => {
-    const taskId = findLinkedTaskId(progress, conversationId);
-    if (!taskId) {
-      return false;
-    }
-    const task = progress.tasks[taskId];
-    task.stepCount = (task.stepCount ?? 0) + delta;
-    return true;
-  });
+  try {
+    await mutateActivationProgress((progress) => {
+      const taskId = findLinkedTaskId(progress, conversationId);
+      if (!taskId) {
+        return false;
+      }
+      const task = progress.tasks[taskId];
+      task.stepCount = (task.stepCount ?? 0) + delta;
+      return true;
+    });
+  } catch (err) {
+    // The write did not land, so the tool calls it carried are still
+    // uncounted. Put them back (behind anything that arrived meanwhile) so
+    // the next flush persists them instead of losing the count.
+    addPendingStepBumps(conversationId, delta);
+    throw err;
+  }
 }
 
 /**
  * Count one tool call against the task linked to this conversation.
  *
- * A no-op for conversations that no `started` task points at, so the hot
- * path costs one small read for every other conversation. Flushes are
+ * A no-op for conversations that no `started` task points at, and free for
+ * them: the link is answered from the in-memory index, so a conversation
+ * outside the checklist never touches the progress file. Flushes are
  * throttled to one per {@link ACTIVATION_STEP_BUMP_THROTTLE_MS} per
  * conversation, with a trailing flush so the final count still lands.
  */
 export async function bumpActivationStepCount(
   conversationId: string,
 ): Promise<void> {
-  // A pending bump already proved the link, so a burst reads the file once.
-  // `flushStepBumps` re-checks before writing, so a link that disappears
-  // mid-burst degrades to a no-op flush.
+  // A pending bump already proved the link, so a burst skips the lookup
+  // entirely. `flushStepBumps` re-checks against the snapshot it writes,
+  // so a link that disappears mid-burst degrades to a no-op flush.
   if (
     !pendingStepBumps.has(conversationId) &&
-    !findLinkedTaskId(readActivationProgress(), conversationId)
+    !linkedTaskIdFor(conversationId)
   ) {
     return;
   }
-  pendingStepBumps.set(
-    conversationId,
-    (pendingStepBumps.get(conversationId) ?? 0) + 1,
-  );
+  addPendingStepBumps(conversationId, 1);
 
   const now = Date.now();
   const lastFlush = lastStepFlushAt.get(conversationId) ?? 0;
@@ -386,6 +584,12 @@ function normalizeArtifacts(
 /**
  * Mark the task linked to this conversation `done`.
  *
+ * A turn only finishes a task when it did something: a turn with no tool
+ * calls and no attached files is the assistant asking a clarifying
+ * question, and the task stays `started` so the answer's turn can finish
+ * it. Without that rule the first question would strand the task as `done`
+ * with nothing to show, and a `done` task refuses to relink.
+ *
  * A no-op for unlinked conversations and idempotent for linked ones: a
  * second terminal turn in the same conversation finds no `started` task
  * and changes nothing. `stepCount` never moves backwards, so the number
@@ -397,7 +601,16 @@ export async function markActivationTurnComplete(params: {
   artifacts: readonly ActivationArtifact[];
 }): Promise<void> {
   const { conversationId, toolCallCount, artifacts } = params;
+  if (
+    !pendingStepBumps.has(conversationId) &&
+    !linkedTaskIdFor(conversationId)
+  ) {
+    return;
+  }
   await flushStepBumps(conversationId);
+  if (toolCallCount <= 0 && artifacts.length === 0) {
+    return;
+  }
   await mutateActivationProgress((progress) => {
     const taskId = findLinkedTaskId(progress, conversationId);
     if (!taskId) {
@@ -413,8 +626,9 @@ export async function markActivationTurnComplete(params: {
 }
 
 /**
- * Drop the in-process step-bump throttle state, optionally shortening the
- * window. Test-only seam: production code lets the trailing timers run at
+ * Drop the in-process step-bump throttle state and the linked-conversation
+ * index, optionally shortening the throttle window. Test-only seam:
+ * production code lets the trailing timers run at
  * {@link ACTIVATION_STEP_BUMP_THROTTLE_MS}.
  */
 export function resetActivationStepThrottleForTesting(
@@ -426,5 +640,6 @@ export function resetActivationStepThrottleForTesting(
   stepBumpTimers.clear();
   pendingStepBumps.clear();
   lastStepFlushAt.clear();
+  invalidateLinkIndex();
   stepThrottleMs = overrideMs ?? ACTIVATION_STEP_BUMP_THROTTLE_MS;
 }

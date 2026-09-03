@@ -9,13 +9,25 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ActivationProgress } from "../../api/responses/activation.js";
-import { ROUTES as ACTIVATION_ROUTES } from "./activation-routes.js";
 import { RouteError } from "./errors.js";
-import { ROUTES as ALL_ROUTES } from "./index.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// Capture invalidations without standing up SSE infrastructure, and read the
+// origin client the handlers thread through from the request headers.
+const publishedOrigins: (string | undefined)[] = [];
+
+mock.module("../sync/sync-publisher.js", () => ({
+  publishSyncInvalidation: async (tags: string[], originClientId?: string) => {
+    publishedOrigins.push(originClientId);
+    return { type: "sync_changed", tags };
+  },
+}));
+
+const { ROUTES: ACTIVATION_ROUTES } = await import("./activation-routes.js");
+const { ROUTES: ALL_ROUTES } = await import("./index.js");
 
 function findRoute(operationId: string): RouteDefinition {
   const route = ACTIVATION_ROUTES.find((r) => r.operationId === operationId);
@@ -43,6 +55,7 @@ beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "vellum-activation-routes-"));
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  publishedOrigins.length = 0;
 });
 
 afterEach(() => {
@@ -107,6 +120,40 @@ describe("activation routes", () => {
 
     expect(err).toBeInstanceOf(RouteError);
     expect((err as RouteError).statusCode).toBe(400);
+  });
+
+  test("POST start rejects an oversized conversation id with a 400", async () => {
+    const err = await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "c".repeat(129) },
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(400);
+  });
+
+  test("a write carries the client that made it, so it can suppress its own echo", async () => {
+    await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-1" },
+      headers: { "x-vellum-client-id": "client-a" },
+    });
+    await call(dismissRoute, {
+      body: { kind: "modal" },
+      headers: { "x-vellum-client-id": "client-b" },
+    });
+
+    expect(publishedOrigins).toEqual(["client-a", "client-b"]);
+  });
+
+  test("a write from a client that named none carries none", async () => {
+    await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-1" },
+      headers: { "x-vellum-client-id": "  " },
+    });
+
+    expect(publishedOrigins).toEqual([undefined]);
   });
 
   test("POST dismiss rejects an unknown kind with a 400", async () => {

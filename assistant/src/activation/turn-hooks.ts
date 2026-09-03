@@ -8,10 +8,12 @@
  * importable (and testable) on its own.
  */
 
-import { basename } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 
 import type { ActivationArtifact } from "../api/responses/activation.js";
+import type { AttachmentSourceType } from "../daemon/assistant-attachments.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import {
   bumpActivationStepCount,
   markActivationTurnComplete,
@@ -21,26 +23,65 @@ const log = getLogger("activation-turn-hooks");
 
 /**
  * A file the assistant attached this turn, in the shape the loop already
- * has on hand (`DirectiveRequest`): the path it named plus the display
- * name it asked for, if any.
+ * has on hand (`PersistedAttachmentFile`): where it was read from, the
+ * display name it was stored under, and which boundary the path belongs to.
  */
 export interface ActivationAttachedFile {
   path: string;
   filename?: string | undefined;
+  sourceType: AttachmentSourceType;
 }
 
 /**
- * Normalize this turn's attached files into checklist artifacts. Blank
- * paths are dropped and the display name falls back to the path's
- * basename, which is what the client renders on the file card.
+ * The workspace-relative form of `path`, or `null` when it does not name a
+ * file inside the workspace. Relative paths are read as workspace-relative
+ * already. Separators are normalized to `/` so the stored path is the same
+ * on every platform the clients render it on.
+ */
+function toWorkspacePath(workspaceDir: string, path: string): string | null {
+  const trimmed = path.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const absolute = isAbsolute(trimmed)
+    ? trimmed
+    : resolve(workspaceDir, trimmed);
+  const relativePath = relative(workspaceDir, absolute);
+  if (
+    relativePath.length === 0 ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    return null;
+  }
+  return relativePath.split(sep).join("/");
+}
+
+/**
+ * Normalize this turn's attached files into checklist artifacts.
+ *
+ * Only files the assistant produced in its own workspace are recorded. A
+ * host file the user approved a read of is dropped outright: its path names
+ * a location on the user's machine, and the progress file is a synced
+ * resource every client of this assistant reads. Everything kept is stored
+ * workspace-relative for the same reason, so no absolute host path reaches
+ * `GET /v1/activation/progress`.
+ *
+ * The display name falls back to the path's basename, which is what the
+ * client renders on the file card.
  */
 export function collectActivationArtifacts(
   attached: readonly ActivationAttachedFile[],
 ): ActivationArtifact[] {
+  const workspaceDir = getWorkspaceDir();
   const artifacts: ActivationArtifact[] = [];
   for (const file of attached) {
-    const workspacePath = file.path.trim();
-    if (workspacePath.length === 0) {
+    if (file.sourceType !== "sandbox_file") {
+      continue;
+    }
+    const workspacePath = toWorkspacePath(workspaceDir, file.path);
+    if (workspacePath === null) {
       continue;
     }
     const displayName =

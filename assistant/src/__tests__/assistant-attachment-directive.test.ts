@@ -218,6 +218,9 @@ describe("resolveSandboxDirective", () => {
     expect(result.draft!.mimeType).toBe("text/plain");
     expect(result.draft!.sizeBytes).toBe(11);
     expect(result.draft!.kind).toBe("document");
+    // The resolved path, not the named one: callers that surface the file
+    // need to know where it actually is.
+    expect(result.draft!.sourcePath).toBe(filePath);
   });
 
   test("uses directive filename override when provided", () => {
@@ -360,6 +363,7 @@ describe("resolveHostDirective", () => {
     expect(result.draft!.filename).toBe("doc.txt");
     expect(result.draft!.mimeType).toBe("text/plain");
     expect(result.draft!.sizeBytes).toBe(12);
+    expect(result.draft!.sourcePath).toBe(filePath);
   });
 
   test("skips when user denies", async () => {

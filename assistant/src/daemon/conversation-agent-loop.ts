@@ -2012,7 +2012,9 @@ export async function runAgentLoopImpl(
         ctx.turnCount++;
 
         // Activation checklist: a completed turn in a conversation an
-        // activation task was launched into finishes that task. Cancelled
+        // activation task was launched into finishes that task, as long as
+        // the turn did something (a turn that only asked a question leaves
+        // the task running, see `markActivationTurnComplete`). Cancelled
         // turns and handoffs deliberately fall through: the task is still
         // running. No-op for every conversation no task points at.
         //
@@ -2027,6 +2029,7 @@ export async function runAgentLoopImpl(
             attachedFiles: persistedAttachmentFiles.map((file) => ({
               path: file.sourcePath,
               filename: file.displayName,
+              sourceType: file.sourceType,
             })),
           });
         }
