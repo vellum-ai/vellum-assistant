@@ -6,7 +6,7 @@
  * depend on.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -188,6 +188,52 @@ describe("activation routes", () => {
 
     expect(err).toBeInstanceOf(RouteError);
     expect((err as RouteError).statusCode).toBe(500);
+  });
+
+  describe("a progress document from a newer build", () => {
+    function writeNewerProgress(): void {
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      writeFileSync(
+        join(workspaceDir, "data", "activation-progress.json"),
+        JSON.stringify({
+          version: 99,
+          listId: "smb",
+          modalDismissedAt: null,
+          allDoneShownAt: null,
+          tasks: {},
+        }),
+        "utf-8",
+      );
+    }
+
+    test("GET still serves what this build understands", async () => {
+      writeNewerProgress();
+
+      expect((await call(getProgressRoute)).listId).toBe("smb");
+    });
+
+    test("POST start answers 409 rather than a write that never landed", async () => {
+      writeNewerProgress();
+
+      const err = await call(startTaskRoute, {
+        pathParams: { taskId: "draft-email" },
+        body: { conversationId: "conv-1" },
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(409);
+    });
+
+    test("POST dismiss answers 409 rather than a write that never landed", async () => {
+      writeNewerProgress();
+
+      const err = await call(dismissRoute, { body: { kind: "modal" } }).catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(409);
+    });
   });
 
   test("POST start hands the conversation to the latest task", async () => {

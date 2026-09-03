@@ -108,6 +108,10 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleStartActivationTask,
     additionalResponses: {
       "400": { description: "Malformed task id, list id, or conversation id" },
+      "409": {
+        description:
+          "Stored progress was written by a newer build; the link was not recorded",
+      },
     },
   },
   {
@@ -127,6 +131,10 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleDismissActivation,
     additionalResponses: {
       "400": { description: "Malformed dismiss kind or list id" },
+      "409": {
+        description:
+          "Stored progress was written by a newer build; the dismissal was not recorded",
+      },
     },
   },
 ];

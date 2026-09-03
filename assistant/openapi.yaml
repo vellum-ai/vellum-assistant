@@ -690,6 +690,8 @@ paths:
                 additionalProperties: false
         "400":
           description: Malformed dismiss kind or list id
+        "409":
+          description: Stored progress was written by a newer build; the dismissal was not recorded
   /v1/activation/progress:
     get:
       operationId: activation_progress_get
@@ -914,6 +916,8 @@ paths:
                 additionalProperties: false
         "400":
           description: Malformed task id, list id, or conversation id
+        "409":
+          description: Stored progress was written by a newer build; the link was not recorded
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post

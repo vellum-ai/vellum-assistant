@@ -103,17 +103,20 @@ export function onActivationToolCall(conversationId: string): void {
 
 /**
  * Mark the activation task linked to this conversation done. A no-op when
- * no task points at it, and idempotent once one is done.
+ * no task points at it, and when the turn ended waiting on the user
+ * (`endedAwaitingUser`). Idempotent once a task is done.
  */
 export function onActivationTurnComplete(params: {
   conversationId: string;
   toolCallCount: number;
   attachedFiles: readonly ActivationAttachedFile[];
+  endedAwaitingUser: boolean;
 }): void {
   void markActivationTurnComplete({
     conversationId: params.conversationId,
     toolCallCount: params.toolCallCount,
     artifacts: collectActivationArtifacts(params.attachedFiles),
+    endedAwaitingUser: params.endedAwaitingUser,
   }).catch((err: unknown) => {
     log.warn(
       { err, conversationId: params.conversationId },

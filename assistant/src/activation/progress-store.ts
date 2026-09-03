@@ -12,8 +12,10 @@
  * Reads are synchronous and degrade to the empty default: a missing or
  * corrupt file means "nothing started yet", which is the same state a
  * fresh assistant is in. A file stamped with a schema version this build
- * does not know is the one case that does not degrade to a rewrite: the
- * store turns read-only so a rollback cannot erase the newer document.
+ * does not know is the one case that does not degrade to a rewrite: it is
+ * served read-only so a rollback cannot erase the newer document, and a
+ * write against it fails with a 409 rather than reporting a success that
+ * never touched disk.
  * Writes are atomic (temp file + rename) and serialized through a single
  * in-process promise chain so concurrent route calls and turn hooks cannot
  * interleave a read-modify-write. A write that cannot land rejects, so a
@@ -25,7 +27,7 @@
  * the step and completion lookups can resolve one record and never strand
  * another. Which conversations are linked is mirrored in memory
  * ({@link linkIndex}) so the per-tool-call hooks answer for the
- * overwhelmingly common unlinked conversation without touching disk.
+ * overwhelmingly common unlinked conversation without reading the file.
  *
  * Every write that changes visible state publishes the
  * `activation:progress` sync tag so sibling clients refetch, carrying the
@@ -37,6 +39,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +56,11 @@ import {
   ActivationTaskProgressSchema,
   emptyActivationProgress,
 } from "../api/responses/activation.js";
-import { BadRequestError, InternalError } from "../runtime/routes/errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+} from "../runtime/routes/errors.js";
 import { publishActivationProgressChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
@@ -115,24 +122,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Read what a newer document still has in common with this schema, field by
  * field, so a client on an older build shows the progress it can understand
- * rather than an empty checklist. Anything that does not parse is dropped.
+ * rather than an empty checklist.
+ *
+ * Every field this build knows is validated by the same schema the strict
+ * read uses, and every task key by the same {@link ACTIVATION_ID_PATTERN}
+ * the write path enforces: a newer document is still a document a client
+ * renders, so it may not smuggle a value past the bounds an ordinary read
+ * applies. Anything else is passed over rather than guessed at.
  */
 function parseForwardCompatible(document: unknown): ActivationProgress {
   const progress = emptyActivationProgress();
   if (!isRecord(document)) {
     return progress;
   }
-  if (typeof document.listId === "string") {
-    progress.listId = document.listId;
+  const { listId, modalDismissedAt, allDoneShownAt } =
+    ActivationProgressSchema.shape;
+  const parsedListId = listId.safeParse(document.listId);
+  if (parsedListId.success) {
+    progress.listId = parsedListId.data;
   }
-  if (typeof document.modalDismissedAt === "string") {
-    progress.modalDismissedAt = document.modalDismissedAt;
+  const parsedModalDismissedAt = modalDismissedAt.safeParse(
+    document.modalDismissedAt,
+  );
+  if (parsedModalDismissedAt.success) {
+    progress.modalDismissedAt = parsedModalDismissedAt.data;
   }
-  if (typeof document.allDoneShownAt === "string") {
-    progress.allDoneShownAt = document.allDoneShownAt;
+  const parsedAllDoneShownAt = allDoneShownAt.safeParse(
+    document.allDoneShownAt,
+  );
+  if (parsedAllDoneShownAt.success) {
+    progress.allDoneShownAt = parsedAllDoneShownAt.data;
   }
   if (isRecord(document.tasks)) {
     for (const [taskId, task] of Object.entries(document.tasks)) {
+      if (!ACTIVATION_ID_PATTERN.test(taskId)) {
+        continue;
+      }
       const parsed = ActivationTaskProgressSchema.safeParse(task);
       if (parsed.success) {
         progress.tasks[taskId] = parsed.data;
@@ -232,18 +257,43 @@ function writeActivationProgress(progress: ActivationProgress): void {
  * "nothing points at this conversation" answer has to be free: without this
  * index each of those calls pays a `readFileSync`, a `JSON.parse`, and a
  * schema validation for a snapshot it then discards. Consulting the index
- * costs one map lookup and no filesystem access.
+ * costs one map lookup, and at worst one `statSync`.
  *
- * This module is the file's only writer, and every read and every mutation
- * rebuilds the index from what it just saw, so the index cannot drift from
- * disk. A writer added outside this module has to call
- * {@link invalidateLinkIndex}, or the hooks keep answering from the links
- * it replaced. `linkIndexPath` pins the index to the workspace it was built
- * from: a process that switches workspaces (tests do) falls back to a read
- * rather than answering from another workspace's links.
+ * Within one process every read and every mutation rebuilds the index from
+ * what it just saw, so the index cannot drift from its own writes. The file
+ * has more than one writer though: the daemon, the schedule worker, and the
+ * memory worker each load this module against the same workspace, so a link
+ * the daemon records is invisible to a worker that already cached its
+ * absence. `linkIndexStamp` closes that gap for the answer that would
+ * otherwise be wrong forever. It records the file's size and mtime as of the
+ * read the index was built from, and a *miss* is confirmed against a fresh
+ * `statSync` before it is believed. A hit still costs one map lookup and no
+ * syscall, and a miss costs one stat rather than a read, a parse, and a
+ * schema validation.
+ *
+ * `linkIndexPath` pins the index to the workspace it was built from: a
+ * process that switches workspaces (tests do) falls back to a read rather
+ * than answering from another workspace's links.
  */
 let linkIndex: Map<string, string> | null = null;
 let linkIndexPath: string | null = null;
+let linkIndexStamp: string | null = null;
+
+/**
+ * Cheap identity of the progress file as it is on disk right now: its size
+ * and modification time, or `absent` when there is no file. Two writes
+ * inside one filesystem timestamp tick that also land on the same byte
+ * length are indistinguishable, which costs a worker one stale miss until
+ * the next write; every other rewrite changes the stamp.
+ */
+function progressFileStamp(): string {
+  try {
+    const stats = statSync(getActivationProgressPath());
+    return `${stats.size}:${stats.mtimeMs}`;
+  } catch {
+    return "absent";
+  }
+}
 
 function refreshLinkIndex(snapshot: ActivationSnapshot): ActivationSnapshot {
   const next = new Map<string, string>();
@@ -254,6 +304,7 @@ function refreshLinkIndex(snapshot: ActivationSnapshot): ActivationSnapshot {
   }
   linkIndex = next;
   linkIndexPath = getActivationProgressPath();
+  linkIndexStamp = progressFileStamp();
   return snapshot;
 }
 
@@ -261,16 +312,28 @@ function refreshLinkIndex(snapshot: ActivationSnapshot): ActivationSnapshot {
 function invalidateLinkIndex(): void {
   linkIndex = null;
   linkIndexPath = null;
+  linkIndexStamp = null;
 }
 
 /**
  * The `started` task this conversation belongs to, or `null`, answered from
- * the in-memory index. Reads the file only when the index is cold.
+ * the in-memory index. Reads the file when the index is cold, and when the
+ * index has no link for this conversation but the file has changed since the
+ * index was built (another process may have written the link).
  */
 function linkedTaskIdFor(conversationId: string): string | null {
   if (linkIndex === null || linkIndexPath !== getActivationProgressPath()) {
     readActivationSnapshot();
+    return linkIndex?.get(conversationId) ?? null;
   }
+  const linked = linkIndex?.get(conversationId);
+  if (linked !== undefined) {
+    return linked;
+  }
+  if (progressFileStamp() === linkIndexStamp) {
+    return null;
+  }
+  readActivationSnapshot();
   return linkIndex?.get(conversationId) ?? null;
 }
 
@@ -288,8 +351,12 @@ let writeChain: Promise<unknown> = Promise.resolve();
  *
  * Rejects when the snapshot cannot be persisted, so a route answers 500
  * rather than echoing state that only ever existed in memory. A snapshot a
- * newer build wrote is left alone entirely: the mutation is dropped with a
- * warning rather than rewriting the document in this build's shape.
+ * newer build wrote rejects too, with a 409: the document is left byte for
+ * byte alone, and the caller is told the write did not land rather than
+ * being handed a snapshot that looks like it did. That distinction is
+ * load-bearing for the client: it sends the task's prompt only once the
+ * link is recorded, and a silent 200 here would start a conversation no
+ * task points at.
  */
 async function mutateActivationProgress(
   mutate: (progress: ActivationProgress) => boolean,
@@ -301,9 +368,11 @@ async function mutateActivationProgress(
     if (snapshot.readOnly) {
       log.warn(
         { path: getActivationProgressPath() },
-        "Skipping activation progress write: the stored document is from a newer build",
+        "Refusing activation progress write: the stored document is from a newer build",
       );
-      return progress;
+      throw new ConflictError(
+        "Activation progress was written by a newer version of this assistant and cannot be updated by this build",
+      );
     }
     if (!mutate(progress)) {
       return progress;
@@ -472,16 +541,61 @@ export async function dismissActivation(params: {
 // Step counting
 // ---------------------------------------------------------------------------
 
+/**
+ * Attempts a restored delta gets before the count is abandoned. A turn can
+ * end without another tool call, so nothing else would drive the retry; the
+ * bound is what keeps a permanently unwritable file from arming a timer per
+ * window forever.
+ */
+const MAX_STEP_FLUSH_ATTEMPTS = 3;
+
 /** Tool calls seen since the last flush, keyed by conversation. */
 const pendingStepBumps = new Map<string, number>();
 const stepBumpTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastStepFlushAt = new Map<string, number>();
+/** Consecutive failed flushes per conversation, cleared by the first success. */
+const stepFlushAttempts = new Map<string, number>();
 
 function addPendingStepBumps(conversationId: string, delta: number): void {
   pendingStepBumps.set(
     conversationId,
     (pendingStepBumps.get(conversationId) ?? 0) + delta,
   );
+}
+
+/** Arm the trailing flush timer, unless one is already armed. */
+function armStepFlushTimer(conversationId: string, delayMs: number): void {
+  if (stepBumpTimers.has(conversationId)) {
+    return;
+  }
+  const timer = setTimeout(() => {
+    // The timer owns the only reference to this flush, so it swallows the
+    // rejection the awaiting callers would otherwise have handled.
+    void flushStepBumps(conversationId).catch(() => {});
+  }, delayMs);
+  timer.unref?.();
+  stepBumpTimers.set(conversationId, timer);
+}
+
+/**
+ * Re-arm a flush for a delta a failed write put back. Bounded: once a
+ * conversation has burned its attempts the count is dropped, because a
+ * completing turn re-establishes `stepCount` from its own tool-call total
+ * anyway and an unbounded retry would outlive the conversation.
+ */
+function retryStepFlush(conversationId: string): void {
+  const attempts = (stepFlushAttempts.get(conversationId) ?? 0) + 1;
+  if (attempts >= MAX_STEP_FLUSH_ATTEMPTS) {
+    log.warn(
+      { conversationId, attempts },
+      "Giving up on persisting activation step counts after repeated write failures",
+    );
+    pendingStepBumps.delete(conversationId);
+    stepFlushAttempts.delete(conversationId);
+    return;
+  }
+  stepFlushAttempts.set(conversationId, attempts);
+  armStepFlushTimer(conversationId, stepThrottleMs);
 }
 
 async function flushStepBumps(conversationId: string): Promise<void> {
@@ -506,11 +620,21 @@ async function flushStepBumps(conversationId: string): Promise<void> {
       task.stepCount = (task.stepCount ?? 0) + delta;
       return true;
     });
+    stepFlushAttempts.delete(conversationId);
   } catch (err) {
+    if (err instanceof ConflictError) {
+      // The stored document belongs to a newer build, so no later flush can
+      // land either. Drop the count rather than retrying a write this build
+      // is not allowed to make.
+      stepFlushAttempts.delete(conversationId);
+      throw err;
+    }
     // The write did not land, so the tool calls it carried are still
-    // uncounted. Put them back (behind anything that arrived meanwhile) so
-    // the next flush persists them instead of losing the count.
+    // uncounted. Put them back (behind anything that arrived meanwhile) and
+    // arm a bounded retry: a turn can end here, with no later tool call to
+    // drive the flush.
     addPendingStepBumps(conversationId, delta);
+    retryStepFlush(conversationId);
     throw err;
   }
 }
@@ -545,14 +669,7 @@ export async function bumpActivationStepCount(
     await flushStepBumps(conversationId);
     return;
   }
-  if (stepBumpTimers.has(conversationId)) {
-    return;
-  }
-  const timer = setTimeout(() => {
-    void flushStepBumps(conversationId).catch(() => {});
-  }, stepThrottleMs - elapsed);
-  timer.unref?.();
-  stepBumpTimers.set(conversationId, timer);
+  armStepFlushTimer(conversationId, stepThrottleMs - elapsed);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,11 +701,19 @@ function normalizeArtifacts(
 /**
  * Mark the task linked to this conversation `done`.
  *
- * A turn only finishes a task when it did something: a turn with no tool
- * calls and no attached files is the assistant asking a clarifying
- * question, and the task stays `started` so the answer's turn can finish
- * it. Without that rule the first question would strand the task as `done`
- * with nothing to show, and a `done` task refuses to relink.
+ * A terminal turn finishes the task unless it ended waiting on the user:
+ * an open question card or an interactive surface still awaiting an action
+ * means the assistant handed the turn back rather than delivering, so the
+ * task stays `started` and the answer's turn finishes it. Everything else
+ * completes, including a turn that answered entirely in prose with no tool
+ * call and no attached file, which is a perfectly ordinary way to finish a
+ * checklist task.
+ *
+ * The signal is structural, so a clarifying question the assistant asks in
+ * plain prose rather than through a question card still reads as a
+ * completed turn. That is a known v1 limitation: telling the two apart is a
+ * judgement call, and the fix is an assistant-judged outcome at the turn
+ * boundary rather than a heuristic here.
  *
  * A no-op for unlinked conversations and idempotent for linked ones: a
  * second terminal turn in the same conversation finds no `started` task
@@ -599,8 +724,10 @@ export async function markActivationTurnComplete(params: {
   conversationId: string;
   toolCallCount: number;
   artifacts: readonly ActivationArtifact[];
+  endedAwaitingUser: boolean;
 }): Promise<void> {
-  const { conversationId, toolCallCount, artifacts } = params;
+  const { conversationId, toolCallCount, artifacts, endedAwaitingUser } =
+    params;
   if (
     !pendingStepBumps.has(conversationId) &&
     !linkedTaskIdFor(conversationId)
@@ -608,7 +735,7 @@ export async function markActivationTurnComplete(params: {
     return;
   }
   await flushStepBumps(conversationId);
-  if (toolCallCount <= 0 && artifacts.length === 0) {
+  if (endedAwaitingUser) {
     return;
   }
   await mutateActivationProgress((progress) => {
@@ -640,6 +767,7 @@ export function resetActivationStepThrottleForTesting(
   stepBumpTimers.clear();
   pendingStepBumps.clear();
   lastStepFlushAt.clear();
+  stepFlushAttempts.clear();
   invalidateLinkIndex();
   stepThrottleMs = overrideMs ?? ACTIVATION_STEP_BUMP_THROTTLE_MS;
 }

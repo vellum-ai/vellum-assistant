@@ -165,6 +165,7 @@ describe("onActivationTurnComplete", () => {
     onActivationTurnComplete({
       conversationId: "conv-1",
       toolCallCount: 3,
+      endedAwaitingUser: false,
       attachedFiles: [
         {
           path: join(workspaceDir, "notes", "plan.md"),
@@ -187,10 +188,30 @@ describe("onActivationTurnComplete", () => {
     onActivationTurnComplete({
       conversationId: "conv-unlinked",
       toolCallCount: 2,
+      endedAwaitingUser: false,
       attachedFiles: [],
     });
     await Bun.sleep(10);
     expect(readActivationProgress().tasks).toEqual({});
+  });
+
+  test("a turn that ended waiting on the user leaves the task running", async () => {
+    await startActivationTask({
+      taskId: "draft-email",
+      conversationId: "conv-1",
+    });
+
+    onActivationTurnComplete({
+      conversationId: "conv-1",
+      toolCallCount: 1,
+      endedAwaitingUser: true,
+      attachedFiles: [],
+    });
+    await Bun.sleep(10);
+
+    expect(readActivationProgress().tasks["draft-email"].status).toBe(
+      "started",
+    );
   });
 
   test("a second terminal turn changes nothing", async () => {
@@ -201,6 +222,7 @@ describe("onActivationTurnComplete", () => {
     await markActivationTurnComplete({
       conversationId: "conv-1",
       toolCallCount: 2,
+      endedAwaitingUser: false,
       artifacts: [],
     });
     const done = readActivationProgress().tasks["draft-email"];
@@ -208,6 +230,7 @@ describe("onActivationTurnComplete", () => {
     onActivationTurnComplete({
       conversationId: "conv-1",
       toolCallCount: 7,
+      endedAwaitingUser: false,
       attachedFiles: [
         {
           path: join(workspaceDir, "notes", "other.md"),

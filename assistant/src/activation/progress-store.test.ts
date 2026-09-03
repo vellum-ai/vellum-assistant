@@ -222,6 +222,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 2,
+        endedAwaitingUser: false,
         artifacts: [],
       });
       await startActivationTask({
@@ -329,6 +330,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-unlinked",
         toolCallCount: 3,
+        endedAwaitingUser: false,
         artifacts: [{ workspacePath: "a.md", displayName: "a.md" }],
       });
       expect(readActivationProgress().tasks).toEqual({});
@@ -343,6 +345,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 4,
+        endedAwaitingUser: false,
         artifacts: [
           { workspacePath: "notes/plan.md", displayName: "plan.md" },
           { workspacePath: "notes/plan.md", displayName: "duplicate" },
@@ -362,6 +365,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 9,
+        endedAwaitingUser: false,
         artifacts: [],
       });
       expect(readActivationProgress().tasks["draft-email"]).toEqual(done);
@@ -379,6 +383,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 1,
+        endedAwaitingUser: false,
         artifacts: [],
       });
 
@@ -387,14 +392,35 @@ describe("activation progress store", () => {
   });
 
   describe("linked-conversation index", () => {
-    test("an unlinked conversation never reads the progress file", async () => {
+    test.skipIf(process.getuid?.() === 0)(
+      "an unchanged file is not re-read for an unlinked conversation",
+      async () => {
+        await startActivationTask({
+          taskId: "draft-email",
+          conversationId: "conv-1",
+        });
+
+        // Unreadable but still stat-able, and neither size nor mtime moved:
+        // a lookup that re-read here would degrade to empty progress and
+        // lose the link the next bump depends on.
+        chmodSync(getActivationProgressPath(), 0o000);
+        await bumpActivationStepCount("conv-unlinked");
+        chmodSync(getActivationProgressPath(), 0o600);
+
+        await bumpActivationStepCount("conv-1");
+        expect(readRawProgress().tasks["draft-email"].stepCount).toBe(1);
+      },
+    );
+
+    test("a link another process wrote is picked up by the next bump", async () => {
       await startActivationTask({
         taskId: "draft-email",
         conversationId: "conv-1",
       });
+      // Warm a negative entry for the conversation, the way a long-lived
+      // schedule or memory worker does before the daemon links it.
+      await bumpActivationStepCount("conv-2");
 
-      // A link only a reader could find: the store did not make it, so an
-      // index-answered lookup cannot see it.
       const external = readRawProgress();
       external.tasks["book-travel"] = startedTask("conv-2");
       writeProgressBehindStore(external);
@@ -403,12 +429,13 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-2",
         toolCallCount: 3,
+        endedAwaitingUser: false,
         artifacts: [],
       });
 
       expect(readRawProgress().tasks["book-travel"]).toMatchObject({
-        status: "started",
-        stepCount: 0,
+        status: "done",
+        stepCount: 3,
       });
     });
 
@@ -448,16 +475,18 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 2,
+        endedAwaitingUser: false,
         artifacts: [],
       });
 
-      const external = readRawProgress();
-      external.tasks["book-travel"] = startedTask("conv-1");
-      writeProgressBehindStore(external);
-
       await bumpActivationStepCount("conv-1");
 
-      expect(readRawProgress().tasks["book-travel"].stepCount).toBe(0);
+      // No `started` task points at the conversation any more, so the bump
+      // has nothing to count against.
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "done",
+        stepCount: 2,
+      });
     });
 
     test("the test-only reset drops the index", async () => {
@@ -533,28 +562,84 @@ describe("activation progress store", () => {
       expect(stored.tasks["book-travel"]).toBeUndefined();
     });
 
+    test("drops a task key this build would never have written", () => {
+      writeRawProgress(
+        JSON.stringify({
+          version: 2,
+          listId: null,
+          modalDismissedAt: null,
+          allDoneShownAt: null,
+          tasks: {
+            "draft-email": startedTask("conv-1"),
+            [`x-${"y".repeat(200)}`]: startedTask("conv-2"),
+            "Not A Task": startedTask("conv-3"),
+          },
+        }),
+      );
+
+      expect(Object.keys(readActivationProgress().tasks)).toEqual([
+        "draft-email",
+      ]);
+    });
+
+    test("drops a known field whose value does not validate", () => {
+      writeRawProgress(
+        JSON.stringify({
+          version: 2,
+          listId: 17,
+          modalDismissedAt: { at: "yesterday" },
+          allDoneShownAt: "2026-01-01T00:00:00.000Z",
+          tasks: {},
+        }),
+      );
+
+      const stored = readActivationProgress();
+      expect(stored.listId).toBeNull();
+      expect(stored.modalDismissedAt).toBeNull();
+      expect(stored.allDoneShownAt).toBe("2026-01-01T00:00:00.000Z");
+    });
+
     test("is never written back, so a rollback cannot erase it", async () => {
       writeNewerProgress();
       const before = readFileSync(getActivationProgressPath(), "utf-8");
 
-      await dismissActivation({ kind: "modal" });
-      await startActivationTask({
-        taskId: "book-travel",
-        conversationId: "conv-2",
+      await expect(dismissActivation({ kind: "modal" })).rejects.toMatchObject({
+        statusCode: 409,
       });
-      await markActivationTurnComplete({
-        conversationId: "conv-1",
-        toolCallCount: 4,
-        artifacts: [],
-      });
+      await expect(
+        startActivationTask({
+          taskId: "book-travel",
+          conversationId: "conv-2",
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      await expect(
+        markActivationTurnComplete({
+          conversationId: "conv-1",
+          toolCallCount: 4,
+          endedAwaitingUser: false,
+          artifacts: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
 
       expect(readFileSync(getActivationProgressPath(), "utf-8")).toBe(before);
       expect(syncPublishCount()).toBe(0);
     });
+
+    test("a refused step flush is not retried against a document it may not write", async () => {
+      writeNewerProgress();
+
+      await expect(bumpActivationStepCount("conv-1")).rejects.toMatchObject({
+        statusCode: 409,
+      });
+
+      // Nothing is left armed to rewrite the newer document later.
+      await Bun.sleep(THROTTLE_MS * 3);
+      expect(syncPublishCount()).toBe(0);
+    });
   });
 
-  describe("a turn that did nothing", () => {
-    test("leaves the task started so a later turn can finish it", async () => {
+  describe("what finishes a task", () => {
+    test("a turn that answered in prose alone still finishes it", async () => {
       await startActivationTask({
         taskId: "draft-email",
         conversationId: "conv-1",
@@ -563,6 +648,23 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 0,
+        endedAwaitingUser: false,
+        artifacts: [],
+      });
+
+      expect(readActivationProgress().tasks["draft-email"].status).toBe("done");
+    });
+
+    test("a turn that ended waiting on the user does not, and the next turn does", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 1,
+        endedAwaitingUser: true,
         artifacts: [],
       });
       expect(readActivationProgress().tasks["draft-email"].status).toBe(
@@ -572,11 +674,32 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 2,
+        endedAwaitingUser: false,
         artifacts: [],
       });
       expect(readActivationProgress().tasks["draft-email"]).toMatchObject({
         status: "done",
         stepCount: 2,
+      });
+    });
+
+    test("a turn that ended waiting on the user still persists its step count", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await bumpActivationStepCount("conv-1");
+
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 1,
+        endedAwaitingUser: true,
+        artifacts: [],
+      });
+
+      expect(readActivationProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+        stepCount: 1,
       });
     });
 
@@ -589,6 +712,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 0,
+        endedAwaitingUser: false,
         artifacts: [{ workspacePath: "notes/plan.md", displayName: "plan.md" }],
       });
 
@@ -656,6 +780,49 @@ describe("activation progress store", () => {
       },
     );
 
+    test.skipIf(process.getuid?.() === 0)(
+      "a failed step flush retries itself, with no later bump to drive it",
+      async () => {
+        await startActivationTask({
+          taskId: "draft-email",
+          conversationId: "conv-1",
+        });
+
+        chmodSync(join(workspaceDir, "data"), 0o500);
+        await expect(bumpActivationStepCount("conv-1")).rejects.toThrow(
+          /Failed to persist activation progress/,
+        );
+        chmodSync(join(workspaceDir, "data"), 0o700);
+
+        // Nothing else touches the conversation: the armed retry is the only
+        // thing left that can land the count.
+        await waitFor(
+          () => readRawProgress().tasks["draft-email"].stepCount === 1,
+        );
+      },
+    );
+
+    test.skipIf(process.getuid?.() === 0)(
+      "a step flush that keeps failing gives up instead of retrying forever",
+      async () => {
+        await startActivationTask({
+          taskId: "draft-email",
+          conversationId: "conv-1",
+        });
+
+        chmodSync(join(workspaceDir, "data"), 0o500);
+        await expect(bumpActivationStepCount("conv-1")).rejects.toThrow(
+          /Failed to persist activation progress/,
+        );
+        // Long enough for every attempt the bound allows.
+        await Bun.sleep(THROTTLE_MS * 10);
+        chmodSync(join(workspaceDir, "data"), 0o700);
+        await Bun.sleep(THROTTLE_MS * 4);
+
+        expect(readRawProgress().tasks["draft-email"].stepCount).toBe(0);
+      },
+    );
+
     test("a rejected write leaves later mutations working", async () => {
       breakDataDir();
       await startActivationTask({
@@ -709,6 +876,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 3,
+        endedAwaitingUser: false,
         artifacts: [{ workspacePath: "trips/plan.md", displayName: "plan.md" }],
       });
 
@@ -729,6 +897,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 1,
+        endedAwaitingUser: false,
         artifacts: [],
       });
       await startActivationTask({
@@ -759,6 +928,7 @@ describe("activation progress store", () => {
       await markActivationTurnComplete({
         conversationId: "conv-1",
         toolCallCount: 1,
+        endedAwaitingUser: false,
         artifacts: [],
       });
       await startActivationTask({
