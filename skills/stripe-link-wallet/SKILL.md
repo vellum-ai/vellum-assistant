@@ -86,7 +86,7 @@ Use your own assistant name for `--client-name`, read from `IDENTITY.md`. This i
 **1. Start the device flow**
 
 ```bash
-link-cli auth login --client-name "<your assistant name>" --format json
+link-cli auth login --client-name "<your name, not your human's name>" --format json
 ```
 
 Returns immediately with `verification_url` and `phrase`. It does not wait for approval.
