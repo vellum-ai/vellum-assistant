@@ -223,6 +223,13 @@ export interface CaptureSourceDeps {
     chromeWindowId: number,
     tabIndex: number,
   ) => Promise<ChromeWindowPlacement | null>;
+  /**
+   * Bring the window to the front: out of the Dock if it is there, its app
+   * activated, and the window raised above the app's others. Resolves to
+   * whether the window itself was raised; an app that would not take the
+   * request is still activated.
+   */
+  raiseWindow: (windowId: number) => Promise<boolean>;
   /** The icon of the app at `appPath` as a data URL, or nothing. */
   iconFor: (appPath: string) => Promise<string | undefined>;
 }
@@ -264,6 +271,16 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
     parseChromeWindowPlacement(
       await runAppleScript(activateChromeTabScript(chromeWindowId, tabIndex)),
     ),
+  raiseWindow: async (windowId) => {
+    const answer = await getSharedCuHelper().call("captureSources.raise", {
+      windowId,
+    });
+    return (
+      typeof answer === "object" &&
+      answer !== null &&
+      (answer as { raised?: unknown }).raised === true
+    );
+  },
   iconFor: readIcon,
 };
 
@@ -397,14 +414,38 @@ export function chromeWindowFor(
 }
 
 /**
+ * Bring a picked window to the front, and carry on either way.
+ *
+ * The pick is what the user is about to talk about, so it belongs in front
+ * of whatever they were looking at when they picked it. The capture does not
+ * depend on it: a window the helper could not raise (an app refusing the
+ * request, a helper that is down) is still read where it is, so this never
+ * decides whether the pick resolves.
+ */
+const bringForward = async (
+  windowId: number,
+  deps: Pick<CaptureSourceDeps, "raiseWindow">,
+): Promise<void> => {
+  try {
+    if (!(await deps.raiseWindow(windowId))) {
+      log.warn(`[companion] window ${windowId} would not come to the front`);
+    }
+  } catch (err) {
+    log.warn("[companion] could not bring the picked window forward:", err);
+  }
+};
+
+/**
  * Turn a pressed row into the target the session is told to read, or nothing
  * when it cannot be: a tab whose window Chrome no longer has, or a Chrome
  * that would not take the request.
  *
- * A display and a window are already targets. A tab is the window showing
- * it, which takes an activation round trip through Chrome and a fresh list
- * from the helper, since the window that shows it may not have been in front
- * (or on screen at all, if minimized) when the picker was drawn.
+ * A display is already a target. A window is one too, and comes to the front
+ * on the way. A tab is the window showing it, which takes an activation round
+ * trip through Chrome and a fresh list from the helper, since the window that
+ * shows it may not have been in front (or on screen at all, if minimized)
+ * when the picker was drawn; that window comes to the front as well, since
+ * Chrome's own activation is of the app and not always of the window.
  */
 export async function resolveCapturePick(
   pick: CompanionCapturePick,
@@ -414,6 +455,7 @@ export async function resolveCapturePick(
     return { kind: "display", displayId: pick.displayId };
   }
   if (pick.kind === "window") {
+    await bringForward(pick.windowId, deps);
     return { kind: "window", windowId: pick.windowId };
   }
   let title = "";
@@ -449,6 +491,7 @@ export async function resolveCapturePick(
     log.warn("[companion] no Chrome window on screen for the picked tab");
     return null;
   }
+  await bringForward(window.windowId, deps);
   return { kind: "window", windowId: window.windowId };
 }
 

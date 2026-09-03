@@ -1,6 +1,9 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import os
+
+private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "CaptureSources")
 
 /// The windows a watch session could be scoped to, as the window server sees
 /// them right now.
@@ -65,6 +68,40 @@ enum CaptureSources {
         }
 
         return ["windows": windows]
+    }
+
+    /// Bring `windowId` to the front: restore it if it is in the Dock, make its
+    /// app the active one, and raise that window above the app's others.
+    ///
+    /// What a pick in the Teach picker does to the window it names, so the
+    /// session reads what the user is looking at rather than something framed
+    /// behind their work. Best effort at every step: an app that refuses the
+    /// AX request still gets activated, and the pick goes ahead either way,
+    /// since the capture does not depend on the window being in front.
+    ///
+    /// Reads and writes window state through Accessibility, which is the
+    /// permission a watch session already holds for the tree it files.
+    static func raise(windowId: CGWindowID) -> [String: Any] {
+        let enumerator = AccessibilityTreeEnumerator()
+        guard let server = enumerator.serverWindow(for: windowId) else {
+            log.warning("raise: window \(windowId) is not known to the window server")
+            return ["raised": false]
+        }
+        let appElement = AXUIElementCreateApplication(server.pid)
+        let window = enumerator.axWindow(for: server, in: appElement)
+        var raised = false
+        if let window {
+            var minimized: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimized) == .success,
+               (minimized as? Bool) == true {
+                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            }
+            raised = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+        } else {
+            log.warning("raise: no AX window matches window \(windowId); activating its app only")
+        }
+        NSRunningApplication(processIdentifier: server.pid)?.activate()
+        return ["raised": raised]
     }
 
     /// The frontmost ordinary window lying wholly on `displayId`, by the

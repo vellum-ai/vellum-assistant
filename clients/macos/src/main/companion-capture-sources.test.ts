@@ -56,8 +56,9 @@ const chrome = (over: Partial<HelperWindow>): HelperWindow =>
 /** Deps that answer with what a case hands in and record what was asked. */
 const deps = (
   over: Partial<CaptureSourceDeps> = {},
-): CaptureSourceDeps & { activated: [number, number][] } => {
+): CaptureSourceDeps & { activated: [number, number][]; raised: number[] } => {
   const activated: [number, number][] = [];
+  const raised: number[] = [];
   return {
     listWindows: async () => [],
     listDisplays: () => [],
@@ -66,9 +67,14 @@ const deps = (
       activated.push([chromeWindowId, tabIndex]);
       return null;
     },
+    raiseWindow: async (windowId) => {
+      raised.push(windowId);
+      return true;
+    },
     iconFor: async () => undefined,
     ...over,
     activated,
+    raised,
   };
 };
 
@@ -393,7 +399,7 @@ describe("the Chrome window for a tab", () => {
 });
 
 describe("resolving a pick", () => {
-  test("a display and a window are already targets", async () => {
+  test("a display is already a target, and nothing is brought forward", async () => {
     const d = deps();
     expect(
       await resolveCapturePick({ kind: "display", displayId: 5 }, d),
@@ -401,13 +407,34 @@ describe("resolving a pick", () => {
       kind: "display",
       displayId: 5,
     });
+    expect(d.activated).toEqual([]);
+    expect(d.raised).toEqual([]);
+  });
+
+  test("a window is already a target, and comes to the front", async () => {
+    const d = deps();
     expect(
       await resolveCapturePick({ kind: "window", windowId: 8 }, d),
     ).toEqual({
       kind: "window",
       windowId: 8,
     });
+    expect(d.raised).toEqual([8]);
     expect(d.activated).toEqual([]);
+  });
+
+  test("a window the helper cannot raise is still the target", async () => {
+    for (const raiseWindow of [
+      async () => false,
+      async () => {
+        throw new Error("helper down");
+      },
+    ]) {
+      const d = deps({ raiseWindow });
+      expect(
+        await resolveCapturePick({ kind: "window", windowId: 8 }, d),
+      ).toEqual({ kind: "window", windowId: 8 });
+    }
   });
 
   test("a tab is shown, brought forward, and then is its window", async () => {
@@ -427,6 +454,9 @@ describe("resolving a pick", () => {
       ),
     ).toEqual({ kind: "window", windowId: 2 });
     expect(d.activated).toEqual([[101, 2]]);
+    // The window it resolved to, after Chrome's own activation, so the tab
+    // is in front of the user's work and not only in front of Chrome's.
+    expect(d.raised).toEqual([2]);
   });
 
   test("a tab Chrome no longer has resolves to nothing", async () => {

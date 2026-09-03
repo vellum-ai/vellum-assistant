@@ -124,6 +124,20 @@ final class MacHelper: @unchecked Sendable {
         router.register("captureSources.list") { _ in
             CaptureSources.list()
         }
+        // The window a pick named, brought to the front before the session
+        // that reads it starts.
+        router.register("captureSources.raise") { params in
+            guard
+                let object = params as? [String: Any],
+                let windowId = object["windowId"] as? Int,
+                windowId >= 0
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "captureSources.raise requires windowId"
+                )
+            }
+            return CaptureSources.raise(windowId: CGWindowID(windowId))
+        }
         router.register("hotkey.fnPushToTalk") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
