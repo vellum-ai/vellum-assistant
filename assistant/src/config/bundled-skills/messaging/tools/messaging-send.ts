@@ -14,6 +14,10 @@ import { resolveProactiveHomeConversation } from "../../../../notifications/conv
 import { recordDeliveredChannelPost } from "../../../../notifications/delivered-post-record.js";
 import { getConversation } from "../../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../../persistence/conversation-disk-view.js";
+import {
+  getBindingByConversation,
+  normalizeExternalThreadId,
+} from "../../../../persistence/external-conversation-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -57,17 +61,25 @@ const ATTACHMENT_CAPABLE_PLATFORMS = new Set(["gmail", "outlook"]);
  * envelope and in `channel_outbound_posts` like every other post the daemon
  * makes.
  *
- * A send made from inside the home conversation itself writes no row: its
- * tool call and result already sit in that conversation's history, and a
- * second assistant row beside the tool pair would break history repair. The
- * post is then in the outbound index only through no path, which is the
- * same class as a raw API send and is deferred with it.
+ * A send into the sending conversation's own chat writes no row: its tool
+ * call and result already sit in that conversation's history, and a second
+ * assistant row beside the tool pair would break history repair. Whether the
+ * send is "its own" is decided by the target, not by the home: the sender's
+ * external binding names the channel, chat, and thread the conversation is
+ * bound to, and a send addressed to exactly that place is a same-conversation
+ * send even when the chat's home resolves elsewhere, as it does for a
+ * thread-scoped chat whose home is the chat's notification conversation. The
+ * home comparison stays as the second test, for a sender that has no binding
+ * of its own but is the home. The post is then in the outbound index only
+ * through no path, which is the same class as a raw API send and is deferred
+ * with it.
  *
  * Failures here never fail the send: the message is already out.
  */
 async function recordSentChannelPost(params: {
   providerId: string;
   externalChatId: string;
+  threadId: string | undefined;
   text: string;
   providerMessageId: string;
   senderConversationId: string;
@@ -77,6 +89,16 @@ async function recordSentChannelPost(params: {
     return;
   }
   try {
+    if (
+      isSendIntoOwnChat(
+        params.senderConversationId,
+        providerId,
+        externalChatId,
+        params.threadId,
+      )
+    ) {
+      return;
+    }
     const home = await resolveProactiveHomeConversation({
       sourceChannel: providerId,
       externalChatId,
@@ -109,6 +131,30 @@ async function recordSentChannelPost(params: {
       "Failed to record the sent message in the chat's conversation",
     );
   }
+}
+
+/**
+ * True when the target chat and thread are the ones the sending conversation
+ * is bound to. Thread ids compare in their normalized form, so an absent
+ * thread on both sides matches and a thread-less target never matches a
+ * thread-bound sender.
+ */
+function isSendIntoOwnChat(
+  senderConversationId: string,
+  channel: string,
+  externalChatId: string,
+  threadId: string | undefined,
+): boolean {
+  const binding = getBindingByConversation(senderConversationId);
+  if (!binding) {
+    return false;
+  }
+  return (
+    binding.sourceChannel === channel &&
+    binding.externalChatId === externalChatId &&
+    normalizeExternalThreadId(binding.externalThreadId) ===
+      normalizeExternalThreadId(threadId)
+  );
 }
 
 export async function run(
@@ -306,6 +352,7 @@ export async function run(
     await recordSentChannelPost({
       providerId: provider.id,
       externalChatId: conversationId,
+      threadId,
       text,
       providerMessageId: result.id,
       senderConversationId: context.conversationId,
