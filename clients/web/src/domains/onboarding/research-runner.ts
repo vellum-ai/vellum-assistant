@@ -62,19 +62,24 @@ export const MAX_RESEARCH_WAIT_MS = 45_000;
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-const RESEARCH_TIMED_OUT = Symbol("research-timeout");
+type ResearchDeadlineResult<T> =
+  { timedOut: true } | { timedOut: false; value: T };
 
 async function raceResearchDeadline<T>(
   promise: Promise<T>,
   deadline: number,
-): Promise<T | typeof RESEARCH_TIMED_OUT> {
+): Promise<ResearchDeadlineResult<T>> {
   const remaining = deadline - Date.now();
   if (remaining <= 0) {
-    return RESEARCH_TIMED_OUT;
+    return { timedOut: true };
   }
   return Promise.race([
-    promise,
-    sleep(remaining).then(() => RESEARCH_TIMED_OUT),
+    promise.then((value): ResearchDeadlineResult<T> => {
+      return { timedOut: false, value };
+    }),
+    sleep(remaining).then((): ResearchDeadlineResult<T> => {
+      return { timedOut: true };
+    }),
   ]);
 }
 
@@ -564,11 +569,11 @@ export function useResearchRunner(): UseResearchRunner {
             awaitAssistantId(),
             deadline,
           );
-          if (hatchResult === RESEARCH_TIMED_OUT) {
+          if (hatchResult.timedOut) {
             settleTimeout();
             return;
           }
-          const assistantId = hatchResult;
+          const assistantId = hatchResult.value;
           resolvedAssistantId = assistantId;
           if (isStale()) {
             return;
@@ -583,11 +588,11 @@ export function useResearchRunner(): UseResearchRunner {
             fetchAvailableCapabilities(assistantId),
             deadline,
           );
-          if (catalogResult === RESEARCH_TIMED_OUT) {
+          if (catalogResult.timedOut) {
             settleTimeout();
             return;
           }
-          const { capabilities, validNames } = catalogResult;
+          const { capabilities, validNames } = catalogResult.value;
           if (isStale()) {
             return;
           }
@@ -704,32 +709,32 @@ export function useResearchRunner(): UseResearchRunner {
               }),
               deadline,
             );
-            if (existing === RESEARCH_TIMED_OUT) {
+            if (existing.timedOut) {
               settleTimeout();
               return;
             }
             if (isStale()) {
               return;
             }
-            if (existing.response?.ok) {
+            if (existing.value.response?.ok) {
               conversationId = resumeConversationId;
               createdConversationId = resumeConversationId;
               // The hidden prompt row is filtered out of `/messages`, so a
               // started turn shows as the daemon still processing or as a row
               // it has already produced, never as a user message.
               const turnAlreadyStarted =
-                existing.data?.processing === true ||
-                (existing.data?.messages ?? []).length > 0;
+                existing.value.data?.processing === true ||
+                (existing.value.data?.messages ?? []).length > 0;
               if (!turnAlreadyStarted) {
                 const posted = await raceResearchDeadline(
                   postResearchPrompt(conversationId),
                   deadline,
                 );
-                if (posted === RESEARCH_TIMED_OUT) {
+                if (posted.timedOut) {
                   settleTimeout();
                   return;
                 }
-                if (!posted) {
+                if (!posted.value) {
                   setState((s) => ({ ...s, status: "error" }));
                   return;
                 }
@@ -747,11 +752,11 @@ export function useResearchRunner(): UseResearchRunner {
               startFreshConversation(),
               deadline,
             );
-            if (minted === RESEARCH_TIMED_OUT) {
+            if (minted.timedOut) {
               settleTimeout();
               return;
             }
-            conversationId = minted;
+            conversationId = minted.value;
             if (isStale()) {
               return;
             }
@@ -763,11 +768,11 @@ export function useResearchRunner(): UseResearchRunner {
               postResearchPrompt(conversationId),
               deadline,
             );
-            if (posted === RESEARCH_TIMED_OUT) {
+            if (posted.timedOut) {
               settleTimeout();
               return;
             }
-            if (!posted) {
+            if (!posted.value) {
               setState((s) => ({ ...s, status: "error" }));
               return;
             }
@@ -824,13 +829,13 @@ export function useResearchRunner(): UseResearchRunner {
               }),
               deadline,
             );
-            if (listed === RESEARCH_TIMED_OUT) {
+            if (listed.timedOut) {
               break;
             }
             if (isStale()) {
               return;
             }
-            const messages = listed.data?.messages ?? [];
+            const messages = listed.value.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
               const {
