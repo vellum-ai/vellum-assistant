@@ -67,7 +67,7 @@ assistant credentials prompt --service github --field client_secret \
   --description "Paste the client secret from the app settings page."
 ```
 
-Never solicit the secret in chat or store a chat-pasted value with `assistant credentials set`. Always collect it through the secure `assistant credentials prompt` flow so it never transits the conversation.
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
 
 ## Path B Step 5: Authorize and Verify
 
