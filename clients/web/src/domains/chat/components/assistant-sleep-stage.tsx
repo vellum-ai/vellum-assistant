@@ -212,10 +212,14 @@ export function AssistantSleepStage() {
     }
   }, [phase, dismissedAssistantId, assistantId, reset]);
 
+  const setForcedScene = useAssistantSleepStageStore.use.setForcedScene();
   const dismiss = useCallback(() => {
     setWoke(false);
+    // A pinned scene outranks the sleep itself, so a click has to clear the
+    // pin as well or the stage cannot be dismissed while it is on.
+    setForcedScene(null);
     dismissStage(assistantId);
-  }, [dismissStage, assistantId]);
+  }, [dismissStage, setForcedScene, assistantId]);
 
   // Traits from the assistant when it is reachable, else the last ones this
   // device saw it wearing. On a cold load the thing that serves them is the

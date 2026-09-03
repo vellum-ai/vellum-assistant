@@ -259,13 +259,17 @@ describe("AssistantSleepStage", () => {
     expect(screen.queryByText("Mel just woke up")).toBeNull();
   });
 
-  test("the dev override pins a scene with no sleep at all", () => {
+  test("the dev override pins a scene with no sleep at all, and a click clears it", () => {
     phaseMock = null;
     useAssistantSleepStageStore.setState({ forcedScene: "sleeping" });
 
     renderAt("/assistant/conversations/c1");
-
     expect(screen.getByText("Mel is asleep")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Mel is asleep"));
+
+    expect(screen.queryByText("Mel is asleep")).toBeNull();
+    expect(useAssistantSleepStageStore.getState().forcedScene).toBeNull();
   });
 
   test("a dismissal does not carry over to another sleeping assistant", () => {

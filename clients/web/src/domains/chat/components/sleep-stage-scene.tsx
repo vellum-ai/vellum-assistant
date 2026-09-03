@@ -138,7 +138,7 @@ export function SleepStageView({
       type="button"
       onClick={onDismiss}
       data-scene={scene}
-      className="group absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
+      className="group absolute inset-0 z-30 flex cursor-pointer flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
       initial={reduce ? false : { opacity: 0 }}
       // Waking runs the whole exit here: the eyes hold open for a beat and
       // then the stage itself fades, so the conversation arrives behind a
@@ -174,13 +174,16 @@ export function SleepStageView({
         />
       ) : null}
 
-      {/* What a click does, shown only under the pointer: the stage is one
+      {/* What a click does, shown only under the pointer. The stage is one
           big button, so this is an affordance rather than a control of its
-          own (a nested button would be invalid, and would take the click). */}
+          own: a nested button would be invalid, and a click anywhere on the
+          stage (this corner included) already dismisses it. It stays
+          `pointer-events-none` so the click always lands on the stage
+          itself. */}
       {woke ? null : (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-4 top-4 flex size-8 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--content-secondary)_25%,transparent)] bg-[color-mix(in_srgb,var(--surface-overlay)_70%,transparent)] text-[color:var(--content-secondary)] opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="pointer-events-none absolute right-4 top-4 flex size-8 scale-90 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--content-secondary)_25%,transparent)] bg-[color-mix(in_srgb,var(--surface-overlay)_70%,transparent)] text-[color:var(--content-secondary)] opacity-0 transition duration-200 group-hover:scale-100 group-hover:border-[color-mix(in_srgb,var(--content-secondary)_45%,transparent)] group-hover:text-[color:var(--content-default)] group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100 group-active:scale-95"
         >
           <X className="size-4" aria-hidden="true" />
         </span>
