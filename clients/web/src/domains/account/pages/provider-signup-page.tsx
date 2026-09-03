@@ -130,9 +130,6 @@ export function ProviderSignupPage() {
 
   const onPersonalPageSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!occupation.trim()) {
-      return;
-    }
     setError(null);
     setIsSubmitting(true);
     try {
@@ -164,7 +161,7 @@ export function ProviderSignupPage() {
   // editable form so the user can complete signup rather than hit an
   // uncorrectable validation error.
   if (email && username) {
-    const canSubmit = occupation.trim().length > 0 && !isSubmitting;
+    const canSubmit = !isSubmitting;
     return (
       <SignupShell>
         <form
@@ -211,8 +208,7 @@ export function ProviderSignupPage() {
 
           <div className="signup-details__step">
             <span className="signup-details__label">
-              {t("providerSignupPage.roleQuestion")}{" "}
-              <span className="signup-details__req">*</span>
+              {t("providerSignupPage.roleQuestion")}
             </span>
             <input
               className="signup-details__input"
