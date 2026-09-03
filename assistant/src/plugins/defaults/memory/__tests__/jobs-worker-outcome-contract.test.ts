@@ -186,6 +186,22 @@ describe("job outcome truthfulness", () => {
     expect(row?.lastError).toContain("mid-turn");
   });
 
+  test("retrospective skipped_after_failures completes so the sweep does not re-enqueue", async () => {
+    retrospectiveOutcome = {
+      kind: "skipped_after_failures",
+      cutoffMessageId: "msg-cutoff",
+    };
+    const jobId = enqueueMemoryJob("memory_retrospective", {
+      conversationId: "conv-1",
+    });
+
+    await runMemoryJobsOnce();
+
+    const row = jobRow(jobId);
+    expect(row?.status).toBe("completed");
+    expect(row?.lastError).toBeNull();
+  });
+
   test("retrospective success and benign no-ops still complete", async () => {
     retrospectiveOutcome = { kind: "no_new_messages" };
     const jobId = enqueueMemoryJob("memory_retrospective", {

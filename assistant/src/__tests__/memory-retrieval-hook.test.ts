@@ -202,6 +202,21 @@ beforeEach(() => {
 });
 
 describe("user-prompt-submit hook (memory retrieval)", () => {
+  test("memory retrospective skips retrieval and runtime injection", async () => {
+    const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
+      makeFakeGraphMemory();
+    const conversation = installConversation(memory, { trusted: true });
+    conversation.currentCallSite = "memoryRetrospective";
+    const ctx = makeHookCtx({ conversationId: "conv-retro" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(prepareMemoryMock).not.toHaveBeenCalled();
+    expect(recordPkbQueryVectorsMock).not.toHaveBeenCalled();
+    expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
+    expect(updateMessageMetadataMock).not.toHaveBeenCalled();
+  });
+
   test("voice front door skips serial legacy retrieval", async () => {
     const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
       makeFakeGraphMemory();

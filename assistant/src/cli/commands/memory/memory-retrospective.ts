@@ -92,6 +92,7 @@ interface RetrospectiveStateRow {
   lastProcessedMessageId: string;
   lastRunAt: number;
   rememberedLog: string[];
+  consecutiveFailures: number;
 }
 
 function renderList(rows: RetrospectiveStateRow[]): void {
@@ -165,6 +166,12 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
           `. The window stays retryable.`,
       );
       process.exitCode = 1;
+      break;
+    case "skipped_after_failures":
+      log.info(
+        `Skipped this window after repeated unusable attempts. ` +
+          `Cursor advanced to ${outcome.cutoffMessageId}.`,
+      );
       break;
     case "invoked":
       log.info(
