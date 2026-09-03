@@ -13,7 +13,15 @@
  * corrupt file means "nothing started yet", which is the same state a
  * fresh assistant is in. Writes are atomic (temp file + rename) and
  * serialized through a single in-process promise chain so concurrent
- * route calls and turn hooks cannot interleave a read-modify-write.
+ * route calls and turn hooks cannot interleave a read-modify-write. A
+ * write that cannot land rejects, so a route never answers with state the
+ * next read would contradict; the fire-and-forget turn hooks catch and log
+ * instead.
+ *
+ * A conversation belongs to at most one task: {@link startActivationTask}
+ * unlinks any other `started` task pointing at the same conversation, so
+ * the step and completion lookups can resolve one record and never strand
+ * another.
  *
  * Every write that changes visible state publishes the
  * `activation:progress` sync tag so sibling clients refetch.
@@ -32,7 +40,7 @@ import {
   emptyActivationProgress,
 } from "../api/responses/activation.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import { BadRequestError } from "../runtime/routes/errors.js";
+import { BadRequestError, InternalError } from "../runtime/routes/errors.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
@@ -115,6 +123,9 @@ let writeChain: Promise<unknown> = Promise.resolve();
  * only when it reports a change. Every mutation queues behind the previous
  * one, so a route call and a turn hook can never read the same snapshot and
  * clobber each other.
+ *
+ * Rejects when the snapshot cannot be persisted, so a route answers 500
+ * rather than echoing state that only ever existed in memory.
  */
 async function mutateActivationProgress(
   mutate: (progress: ActivationProgress) => boolean,
@@ -128,7 +139,7 @@ async function mutateActivationProgress(
       writeActivationProgress(progress);
     } catch (err) {
       log.warn({ err }, "Failed to write activation-progress.json");
-      return progress;
+      throw new InternalError("Failed to persist activation progress");
     }
     await publishSyncInvalidation([SYNC_TAGS.activationProgress]);
     return progress;
@@ -150,6 +161,10 @@ function applyListId(progress: ActivationProgress, listId?: string): boolean {
   return true;
 }
 
+/**
+ * The `started` task this conversation belongs to, or `null`. At most one
+ * exists: {@link startActivationTask} unlinks the others as it links.
+ */
 function findLinkedTaskId(
   progress: ActivationProgress,
   conversationId: string,
@@ -162,6 +177,34 @@ function findLinkedTaskId(
   return null;
 }
 
+/**
+ * Drop every `started` task other than `taskId` that points at this
+ * conversation. Returns whether anything was dropped.
+ *
+ * The record is removed rather than kept with a dead link: a task whose
+ * conversation now belongs to another task has no progress left to report,
+ * and leaving it `started` is exactly the state the transition lookups
+ * would ignore. A `done` task keeps its record; its history is finished.
+ */
+function unlinkOtherTasks(
+  progress: ActivationProgress,
+  conversationId: string,
+  taskId: string,
+): boolean {
+  let unlinked = false;
+  for (const [otherId, other] of Object.entries(progress.tasks)) {
+    if (
+      otherId !== taskId &&
+      other.status === "started" &&
+      other.conversationId === conversationId
+    ) {
+      delete progress.tasks[otherId];
+      unlinked = true;
+    }
+  }
+  return unlinked;
+}
+
 // ---------------------------------------------------------------------------
 // Transitions
 // ---------------------------------------------------------------------------
@@ -172,6 +215,11 @@ function findLinkedTaskId(
  * Idempotent: re-starting a task in the same conversation changes nothing.
  * A different conversation replaces the link (and restarts the counters)
  * only while the task is not `done`. A finished task keeps its record.
+ *
+ * A conversation carries one task at a time. Launching a second task into
+ * a conversation another `started` task points at drops that stale record
+ * in the same write, so the step and completion lookups never resolve one
+ * task while silently ignoring another.
  */
 export async function startActivationTask(params: {
   taskId: string;
@@ -190,11 +238,12 @@ export async function startActivationTask(params: {
   return mutateActivationProgress((progress) => {
     const listChanged = applyListId(progress, listId);
     const existing = progress.tasks[taskId];
-    if (
-      existing?.status === "done" ||
-      existing?.conversationId === conversationId
-    ) {
+    if (existing?.status === "done") {
       return listChanged;
+    }
+    const unlinked = unlinkOtherTasks(progress, conversationId, taskId);
+    if (existing?.conversationId === conversationId) {
+      return listChanged || unlinked;
     }
     progress.tasks[taskId] = {
       status: "started",

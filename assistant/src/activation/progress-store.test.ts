@@ -62,6 +62,14 @@ function writeRawProgress(contents: string): void {
   writeFileSync(getActivationProgressPath(), contents, "utf-8");
 }
 
+/**
+ * Make every write fail by occupying the data directory's path with a
+ * regular file, so `mkdirSync` cannot create it.
+ */
+function breakDataDir(): void {
+  writeFileSync(join(workspaceDir, "data"), "not a directory", "utf-8");
+}
+
 function syncPublishCount(): number {
   return publishedTags.filter((tags) => tags.includes("activation:progress"))
     .length;
@@ -331,6 +339,111 @@ describe("activation progress store", () => {
       });
 
       expect(readActivationProgress().tasks["draft-email"].stepCount).toBe(2);
+    });
+  });
+
+  describe("persistence failures", () => {
+    test("a failed write rejects instead of reporting saved progress", async () => {
+      breakDataDir();
+
+      await expect(
+        startActivationTask({
+          taskId: "draft-email",
+          conversationId: "conv-1",
+        }),
+      ).rejects.toThrow(/Failed to persist activation progress/);
+      await expect(dismissActivation({ kind: "modal" })).rejects.toThrow(
+        /Failed to persist activation progress/,
+      );
+      expect(syncPublishCount()).toBe(0);
+    });
+
+    test("a rejected write leaves later mutations working", async () => {
+      breakDataDir();
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      }).catch(() => {});
+
+      rmSync(join(workspaceDir, "data"));
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      expect(readActivationProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+        conversationId: "conv-1",
+      });
+    });
+  });
+
+  describe("one task per conversation", () => {
+    test("a second task takes the conversation and the first is unlinked", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await startActivationTask({
+        taskId: "book-travel",
+        conversationId: "conv-1",
+      });
+
+      const tasks = readActivationProgress().tasks;
+      expect(Object.keys(tasks)).toEqual(["book-travel"]);
+      expect(tasks["book-travel"]).toMatchObject({
+        status: "started",
+        conversationId: "conv-1",
+      });
+    });
+
+    test("completion reaches the latest task, not a stranded one", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await startActivationTask({
+        taskId: "book-travel",
+        conversationId: "conv-1",
+      });
+
+      await bumpActivationStepCount("conv-1");
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 3,
+        artifacts: [{ workspacePath: "trips/plan.md", displayName: "plan.md" }],
+      });
+
+      const tasks = readActivationProgress().tasks;
+      expect(tasks["draft-email"]).toBeUndefined();
+      expect(tasks["book-travel"]).toMatchObject({
+        status: "done",
+        stepCount: 3,
+        artifacts: [{ workspacePath: "trips/plan.md", displayName: "plan.md" }],
+      });
+    });
+
+    test("a done task keeps its record when a new task takes the conversation", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 1,
+        artifacts: [],
+      });
+      await startActivationTask({
+        taskId: "book-travel",
+        conversationId: "conv-1",
+      });
+
+      const tasks = readActivationProgress().tasks;
+      expect(tasks["draft-email"]).toMatchObject({
+        status: "done",
+        conversationId: "conv-1",
+      });
+      expect(tasks["book-travel"]).toMatchObject({ status: "started" });
     });
   });
 });

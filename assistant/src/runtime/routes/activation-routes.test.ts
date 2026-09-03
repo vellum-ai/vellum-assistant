@@ -6,7 +6,7 @@
  * depend on.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -116,6 +116,45 @@ describe("activation routes", () => {
 
     expect(err).toBeInstanceOf(RouteError);
     expect((err as RouteError).statusCode).toBe(400);
+  });
+
+  test("POST start rejects when the write cannot be persisted", async () => {
+    // Occupy the data directory's path with a regular file, so the store
+    // cannot create it and the write fails.
+    writeFileSync(join(workspaceDir, "data"), "not a directory", "utf-8");
+
+    const err = await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-1" },
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(500);
+  });
+
+  test("POST dismiss rejects when the write cannot be persisted", async () => {
+    writeFileSync(join(workspaceDir, "data"), "not a directory", "utf-8");
+
+    const err = await call(dismissRoute, { body: { kind: "modal" } }).catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(500);
+  });
+
+  test("POST start hands the conversation to the latest task", async () => {
+    await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-1" },
+    });
+    const result = await call(startTaskRoute, {
+      pathParams: { taskId: "book-travel" },
+      body: { conversationId: "conv-1" },
+    });
+
+    expect(Object.keys(result.tasks)).toEqual(["book-travel"]);
+    expect(await call(getProgressRoute)).toEqual(result);
   });
 
   test("routes declare their policy, tags, and response body", () => {

@@ -63,10 +63,24 @@ export async function approveHostAttachmentRead(
   return response.decision === "allow";
 }
 
+/**
+ * A file the assistant named that survived resolution, validation, and
+ * persistence. Rejected directives (missing, oversized, denied) and drafts
+ * whose upload was skipped never appear here, so a caller pointing a user
+ * at "the files this turn produced" cannot offer a broken one.
+ */
+export interface PersistedAttachmentFile {
+  /** Path the assistant named in the directive. */
+  sourcePath: string;
+  /** Name the attachment was persisted under. */
+  displayName: string;
+}
+
 export interface AttachmentResolutionResult {
   assistantAttachments: AssistantAttachmentDraft[];
   emittedAttachments: UserMessageAttachment[];
   directiveWarnings: string[];
+  persistedFiles: PersistedAttachmentFile[];
 }
 
 /**
@@ -84,6 +98,16 @@ export async function resolveAssistantAttachments(
 ): Promise<AttachmentResolutionResult> {
   let assistantAttachments: AssistantAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
+  const persistedFiles: PersistedAttachmentFile[] = [];
+
+  const recordPersistedFile = (draft: AssistantAttachmentDraft): void => {
+    if (draft.sourcePath) {
+      persistedFiles.push({
+        sourcePath: draft.sourcePath,
+        displayName: draft.filename,
+      });
+    }
+  };
 
   log.info(
     {
@@ -208,6 +232,7 @@ export async function resolveAssistantAttachments(
         }
       }
 
+      recordPersistedFile(draft);
       emittedAttachments.push({
         id: stored.id,
         filename: draft.filename,
@@ -221,6 +246,7 @@ export async function resolveAssistantAttachments(
     }
   } else if (assistantAttachments.length > 0) {
     for (const draft of assistantAttachments) {
+      recordPersistedFile(draft);
       emittedAttachments.push({
         filename: draft.filename,
         mimeType: draft.mimeType,
@@ -230,5 +256,10 @@ export async function resolveAssistantAttachments(
     }
   }
 
-  return { assistantAttachments, emittedAttachments, directiveWarnings };
+  return {
+    assistantAttachments,
+    emittedAttachments,
+    directiveWarnings,
+    persistedFiles,
+  };
 }
