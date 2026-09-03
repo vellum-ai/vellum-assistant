@@ -22,6 +22,7 @@
 import { SEEDS } from "@vellumai/environments";
 import { z } from "zod";
 
+import { getPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -58,6 +59,28 @@ function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+const PRODUCTION_PLATFORM_HOST = "platform.vellum.ai";
+
+/**
+ * Whether this assistant belongs to the production deployment, judged by the
+ * platform it authenticates against.
+ *
+ * `VELLUM_ENVIRONMENT` cannot answer this. Unset, it means dev to
+ * `getPlatformBaseUrl` and local to every launcher, but it would have to mean
+ * production for a roadmap default to be safe, and it is blind to the config
+ * file and `VELLUM_PLATFORM_URL`, either of which can point a differently
+ * labelled assistant at production. The platform base URL is the one signal
+ * that already accounts for all three, and it names the deployment that issued
+ * the very key these calls are signed with.
+ */
+function isProductionAssistant(): boolean {
+  try {
+    return new URL(getPlatformBaseUrl()).hostname === PRODUCTION_PLATFORM_HOST;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Marketing service that serves the roadmap API. Reached directly rather than
  * through the `www.vellum.ai/api/marketing` proxy the user-facing CLI uses:
@@ -65,25 +88,28 @@ function stripTrailingSlashes(url: string): string {
  * this surface exists to avoid.
  *
  * Only production has a default, and deliberately so. The roadmap is a single
- * public site, so an unconfigured staging or dev assistant that fell back to
- * it would file real items under its own name and hand a non-production key to
- * a production host. Outside production the endpoint has to be named.
+ * public site, so a non-production assistant that fell back to it would file
+ * real items under its own name and hand a key the production service never
+ * issued to a production host. Everywhere else the endpoint has to be named.
  */
 function marketingBaseUrl(): string {
   const override = process.env.VELLUM_MARKETING_URL?.trim();
   if (override) {
     return stripTrailingSlashes(override);
   }
-  const env = process.env.VELLUM_ENVIRONMENT?.trim();
-  if (env && env !== "production") {
+  if (!isProductionAssistant()) {
     throw new UnprocessableEntityError(
-      `The Vellum roadmap has no ${env} deployment. Set VELLUM_MARKETING_URL to the roadmap service for this environment, or run the assistant in production.`,
+      `The Vellum roadmap has no deployment for a ${getPlatformBaseUrl()} assistant. Set VELLUM_MARKETING_URL to the roadmap service for this environment.`,
     );
   }
   return DEFAULT_MARKETING_URL;
 }
 
-/** Site that renders roadmap items, for the human-facing item links. */
+/**
+ * Site that renders roadmap items, for the human-facing item links. Reached
+ * only once {@link marketingBaseUrl} has settled, so the seed lookup answers
+ * for a named non-production endpoint too.
+ */
 function webBaseUrl(): string {
   const override = process.env.VELLUM_WEB_URL?.trim();
   if (override) {

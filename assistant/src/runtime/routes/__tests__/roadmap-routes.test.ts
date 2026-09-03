@@ -10,6 +10,15 @@ import { UnprocessableEntityError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 let storedApiKey: string | undefined = "assistant-key";
+let platformBaseUrl = "https://platform.vellum.ai";
+
+// Spread the real module: replacing it wholesale strips the other exports the
+// route graph pulls in.
+const actualEnv = await import("../../../config/env.js");
+mock.module("../../../config/env.js", () => ({
+  ...actualEnv,
+  getPlatformBaseUrl: () => platformBaseUrl,
+}));
 
 const actualSecureKeys = await import("../../../security/secure-keys.js");
 mock.module("../../../security/secure-keys.js", () => ({
@@ -83,6 +92,7 @@ const UPSTREAM_ITEM = {
 
 beforeEach(() => {
   storedApiKey = "assistant-key";
+  platformBaseUrl = "https://platform.vellum.ai";
   calls = [];
   process.env.VELLUM_MARKETING_URL = "https://marketing.test";
   process.env.VELLUM_WEB_URL = "https://web.test";
@@ -96,9 +106,8 @@ afterEach(() => {
 });
 
 describe("which deployment the roadmap calls reach", () => {
-  test("production needs no configuration", async () => {
+  test("a production assistant needs no configuration", async () => {
     delete process.env.VELLUM_MARKETING_URL;
-    process.env.VELLUM_ENVIRONMENT = "production";
     stubFetch({ items: [], total: 0 });
 
     await list({});
@@ -106,19 +115,39 @@ describe("which deployment the roadmap calls reach", () => {
     expect(calls[0].url).toBe("https://marketing.vellum.ai/v1/roadmap");
   });
 
-  test("an unconfigured non-production assistant refuses rather than writing to the public roadmap", async () => {
+  // The deployment is judged by the platform that issued the key, never by
+  // VELLUM_ENVIRONMENT: unset, that variable means dev to getPlatformBaseUrl
+  // and local to every launcher, so trusting it would let exactly the assistant
+  // with no label post to the real roadmap.
+  test.each([
+    ["https://staging-platform.vellum.ai", "staging"],
+    ["https://dev-platform.vellum.ai", "dev"],
+    ["http://localhost:8000", "local"],
+  ])(
+    "an unconfigured %s assistant refuses to touch the public roadmap",
+    async (baseUrl) => {
+      platformBaseUrl = baseUrl;
+      delete process.env.VELLUM_MARKETING_URL;
+      delete process.env.VELLUM_ENVIRONMENT;
+      stubFetch({ items: [], total: 0 });
+
+      await expect(list({})).rejects.toThrow("The Vellum roadmap has no");
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  test("VELLUM_ENVIRONMENT=production does not by itself unlock the real roadmap", async () => {
+    platformBaseUrl = "https://dev-platform.vellum.ai";
     delete process.env.VELLUM_MARKETING_URL;
-    process.env.VELLUM_ENVIRONMENT = "staging";
+    process.env.VELLUM_ENVIRONMENT = "production";
     stubFetch({ items: [], total: 0 });
 
-    await expect(list({})).rejects.toThrow(
-      "The Vellum roadmap has no staging deployment",
-    );
+    await expect(list({})).rejects.toThrow("The Vellum roadmap has no");
     expect(calls).toHaveLength(0);
   });
 
-  test("a named endpoint is honored in any environment", async () => {
-    process.env.VELLUM_ENVIRONMENT = "dev";
+  test("a named endpoint is honored on any deployment", async () => {
+    platformBaseUrl = "https://dev-platform.vellum.ai";
     stubFetch({ items: [], total: 0 });
 
     await list({});
