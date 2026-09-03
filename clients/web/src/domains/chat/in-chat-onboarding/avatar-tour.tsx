@@ -224,8 +224,12 @@ export function AvatarTour({
   onDone,
   ref,
 }: AvatarTourProps) {
-  const { components, traits, customImageUrl } =
-    useAssistantAvatar(assistantId);
+  const {
+    components,
+    traits,
+    customImageUrl,
+    accentHex: accent,
+  } = useAssistantAvatar(assistantId);
   const setNavTourActive = useInChatOnboardingStore.use.setNavTourActive();
   const setTourSidebarRevealed =
     useInChatOnboardingStore.use.setTourSidebarRevealed();
@@ -263,12 +267,6 @@ export function AvatarTour({
   useEffect(() => {
     assistantIdRef.current = assistantId;
   }, [assistantId]);
-
-  const accent =
-    (components &&
-      traits &&
-      components.colors.find((c) => c.id === traits.color)?.hex) ||
-    null;
 
   const eye = useMemo<TourEyeArt | null>(() => {
     if (!components || !traits) {

@@ -9,6 +9,11 @@
  * buffer in Swift, and the two must agree byte for byte or a threshold tuned in
  * a browser means something different on a phone.
  *
+ * The downscale chain is exposed on its own as {@link createFrameGridProducer},
+ * because agreement is only guaranteed by sharing the code: any JS frame
+ * source, whatever hands it pixels, draws through that one producer and so
+ * hands the gate the same bytes a `<video>` would.
+ *
  * ## Why the downscale happens twice
  *
  * A 1280x720 frame reduced straight to 16x16 is a factor of roughly 120 in one
@@ -48,6 +53,7 @@ import {
   FRAME_GRID_SIZE,
   type FrameGate,
   type FrameGateDecision,
+  type FrameGrid,
 } from "./frame-gate";
 
 /**
@@ -126,13 +132,6 @@ export interface FrameSamplerOptions {
   readonly frameStride?: number;
 }
 
-/** The two canvases a tick draws through, kept for the life of the sampler. */
-interface SamplingSurface {
-  readonly intermediateCanvas: HTMLCanvasElement;
-  readonly intermediateContext: CanvasRenderingContext2D;
-  readonly gridContext: CanvasRenderingContext2D;
-}
-
 /** How a sampler asks to be woken for the next frame. */
 interface FrameLoop {
   /**
@@ -173,12 +172,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   const { gate, onDecision } = options;
   const stride = Math.max(1, Math.floor(options.frameStride ?? 1));
 
-  // One buffer for every frame this sampler will ever take. The gate reads a
-  // grid synchronously and never retains it, so there is nothing to copy.
-  const scratchGrid = new Uint8Array(FRAME_GRID_CELLS);
-
-  let surface: SamplingSurface | null = null;
-  let surfaceResolved = false;
+  const grids = createFrameGridProducer();
 
   let video: HTMLVideoElement | null = null;
   let loop: FrameLoop | null = null;
@@ -188,74 +182,6 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   // animation-frame fallback. NaN compares equal to nothing, so the first tick
   // after a start always samples.
   let lastSampledTime = Number.NaN;
-
-  /**
-   * Build the canvases on first use and keep them, or record that a 2D context
-   * is unavailable so the attempt is made once rather than on every frame.
-   */
-  function ensureSurface(): SamplingSurface | null {
-    if (surfaceResolved) {
-      return surface;
-    }
-    surfaceResolved = true;
-
-    const intermediateCanvas = document.createElement("canvas");
-    intermediateCanvas.width = INTERMEDIATE_SIZE;
-    intermediateCanvas.height = INTERMEDIATE_SIZE;
-    const gridCanvas = document.createElement("canvas");
-    gridCanvas.width = FRAME_GRID_SIZE;
-    gridCanvas.height = FRAME_GRID_SIZE;
-
-    const intermediateContext = intermediateCanvas.getContext("2d");
-    // The grid canvas is read back on every sampled frame, which is the case
-    // `willReadFrequently` exists for: it asks for a software-backed surface
-    // and avoids a GPU readback stall per tick.
-    const gridContext = gridCanvas.getContext("2d", {
-      willReadFrequently: true,
-    });
-    if (!intermediateContext || !gridContext) {
-      return null;
-    }
-
-    // Both steps must average rather than point sample. See the module header:
-    // this is the setting the whole two-canvas chain exists to keep in effect.
-    intermediateContext.imageSmoothingEnabled = true;
-    intermediateContext.imageSmoothingQuality = "high";
-    gridContext.imageSmoothingEnabled = true;
-    gridContext.imageSmoothingQuality = "high";
-
-    surface = { intermediateCanvas, intermediateContext, gridContext };
-    return surface;
-  }
-
-  function readGridPixels(source: HTMLVideoElement): Uint8ClampedArray | null {
-    const canvases = ensureSurface();
-    if (!canvases) {
-      return null;
-    }
-    canvases.intermediateContext.drawImage(
-      source,
-      0,
-      0,
-      INTERMEDIATE_SIZE,
-      INTERMEDIATE_SIZE,
-    );
-    canvases.gridContext.drawImage(
-      canvases.intermediateCanvas,
-      0,
-      0,
-      FRAME_GRID_SIZE,
-      FRAME_GRID_SIZE,
-    );
-    // The one allocation a tick cannot avoid: `getImageData` hands back a fresh
-    // buffer every call and the canvas API offers no way to read into one.
-    return canvases.gridContext.getImageData(
-      0,
-      0,
-      FRAME_GRID_SIZE,
-      FRAME_GRID_SIZE,
-    ).data;
-  }
 
   function sampleFrame(): void {
     const source = video;
@@ -286,15 +212,14 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
       }
     }
 
-    const pixels = readGridPixels(source);
-    if (!pixels) {
+    const grid = grids.gridFrom(source);
+    if (!grid) {
       return;
     }
     lastSampledTime = source.currentTime;
-    lumaGridFromRgba(pixels, scratchGrid);
 
     const nowMs = performance.now();
-    onDecision(gate.offer(scratchGrid, nowMs), nowMs);
+    onDecision(gate.offer(grid, nowMs), nowMs);
   }
 
   function tick(): void {
@@ -352,4 +277,121 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   }
 
   return { start, stop };
+}
+
+/**
+ * A frame the downscale chain can draw: a playing `<video>` on the browser
+ * path, a decoded still on any other.
+ */
+export type FrameSource = CanvasImageSource;
+
+/** The two canvases a draw goes through, kept for the life of the producer. */
+interface SamplingSurface {
+  readonly intermediateCanvas: HTMLCanvasElement;
+  readonly intermediateContext: CanvasRenderingContext2D;
+  readonly gridContext: CanvasRenderingContext2D;
+}
+
+/** The shared tail of every JS frame source: pixels in, one luma grid out. */
+export interface FrameGridProducer {
+  /**
+   * Reduce `source` to the gate's grid, or null when no 2D context exists.
+   *
+   * The grid is one buffer reused across calls, which is what keeps a sampled
+   * frame allocation free. The gate reads it synchronously and never retains
+   * it, so there is nothing to copy.
+   */
+  gridFrom(source: FrameSource): FrameGrid | null;
+}
+
+/**
+ * Create the two-canvas downscale chain.
+ *
+ * Nothing is allocated beyond the scratch grid until the first
+ * {@link FrameGridProducer.gridFrom}, so a producer can be built during render.
+ */
+export function createFrameGridProducer(): FrameGridProducer {
+  const scratchGrid = new Uint8Array(FRAME_GRID_CELLS);
+
+  let surface: SamplingSurface | null = null;
+  let surfaceResolved = false;
+
+  /**
+   * Build the canvases on first use and keep them, or record that a 2D context
+   * is unavailable so the attempt is made once rather than on every frame.
+   */
+  function ensureSurface(): SamplingSurface | null {
+    if (surfaceResolved) {
+      return surface;
+    }
+    surfaceResolved = true;
+
+    const intermediateCanvas = document.createElement("canvas");
+    intermediateCanvas.width = INTERMEDIATE_SIZE;
+    intermediateCanvas.height = INTERMEDIATE_SIZE;
+    const gridCanvas = document.createElement("canvas");
+    gridCanvas.width = FRAME_GRID_SIZE;
+    gridCanvas.height = FRAME_GRID_SIZE;
+
+    const intermediateContext = intermediateCanvas.getContext("2d");
+    // The grid canvas is read back on every sampled frame, which is the case
+    // `willReadFrequently` exists for: it asks for a software-backed surface
+    // and avoids a GPU readback stall per tick.
+    const gridContext = gridCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    if (!intermediateContext || !gridContext) {
+      return null;
+    }
+
+    // Both steps must average rather than point sample. See the module header:
+    // this is the setting the whole two-canvas chain exists to keep in effect.
+    intermediateContext.imageSmoothingEnabled = true;
+    intermediateContext.imageSmoothingQuality = "high";
+    gridContext.imageSmoothingEnabled = true;
+    gridContext.imageSmoothingQuality = "high";
+
+    surface = { intermediateCanvas, intermediateContext, gridContext };
+    return surface;
+  }
+
+  function readGridPixels(source: FrameSource): Uint8ClampedArray | null {
+    const canvases = ensureSurface();
+    if (!canvases) {
+      return null;
+    }
+    canvases.intermediateContext.drawImage(
+      source,
+      0,
+      0,
+      INTERMEDIATE_SIZE,
+      INTERMEDIATE_SIZE,
+    );
+    canvases.gridContext.drawImage(
+      canvases.intermediateCanvas,
+      0,
+      0,
+      FRAME_GRID_SIZE,
+      FRAME_GRID_SIZE,
+    );
+    // The one allocation a tick cannot avoid: `getImageData` hands back a fresh
+    // buffer every call and the canvas API offers no way to read into one.
+    return canvases.gridContext.getImageData(
+      0,
+      0,
+      FRAME_GRID_SIZE,
+      FRAME_GRID_SIZE,
+    ).data;
+  }
+
+  return {
+    gridFrom(source) {
+      const pixels = readGridPixels(source);
+      if (!pixels) {
+        return null;
+      }
+      lumaGridFromRgba(pixels, scratchGrid);
+      return scratchGrid;
+    },
+  };
 }

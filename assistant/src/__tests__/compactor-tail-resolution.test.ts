@@ -3,6 +3,9 @@ import { describe, expect, it } from "bun:test";
 import {
   adjustTailIndexForToolPairing,
   canonicalDateTimeKey,
+  parseCompactionResult,
+  type ParsedCompactionResult,
+  resolveTailStartIndex,
 } from "../context/compactor.js";
 import type { Message } from "../providers/types.js";
 
@@ -143,5 +146,118 @@ describe("adjustTailIndexForToolPairing", () => {
   it("returns tailIndex unchanged when tailIndex is 0", () => {
     const messages: Message[] = [userText("only one")];
     expect(adjustTailIndexForToolPairing(messages, 0)).toBe(0);
+  });
+});
+
+function parsedTail(
+  timestamp: string,
+  preview: string,
+): ParsedCompactionResult {
+  return {
+    summary: "summary",
+    keyState: "",
+    retainedImageFilenames: [],
+    tailStartTimestamp: timestamp,
+    tailStartPreview: preview,
+  };
+}
+
+describe("resolveTailStartIndex", () => {
+  const storedTs = "2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)";
+  const userWithTs: Message = {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: `<turn_context>\ncurrent_time: ${storedTs}\n</turn_context>\nACK received. Continue.`,
+      },
+    ],
+  };
+
+  it("matches a user preview", () => {
+    const messages: Message[] = [
+      userText("setup"),
+      assistantText("ok"),
+      userWithTs,
+      assistantText("working"),
+    ];
+    const timestamps = messages.map((m) =>
+      m.role === "user" && m === userWithTs ? storedTs : null,
+    );
+    expect(
+      resolveTailStartIndex(
+        messages,
+        timestamps,
+        parsedTail("", "ACK received. Continue."),
+      ),
+    ).toBe(2);
+  });
+
+  it("matches an assistant preview when the timestamp misses", () => {
+    const assistant = assistantText(
+      "Found the duplicate. Let me fix it - replace one duplicate with a single entry.",
+    );
+    const messages: Message[] = [
+      userText("setup"),
+      assistantText("earlier reply"),
+      userText("please dedupe"),
+      assistant,
+      userText("thanks"),
+    ];
+    const timestamps = messages.map(() => null);
+    expect(
+      resolveTailStartIndex(
+        messages,
+        timestamps,
+        parsedTail(
+          "1999-01-01 00:00:00",
+          "Found the duplicate. Let me fix it - replace one duplicate w",
+        ),
+      ),
+    ).toBe(3);
+  });
+
+  it("returns null when neither timestamp nor preview matches", () => {
+    const messages: Message[] = [
+      userText("hello"),
+      assistantText("hi there"),
+    ];
+    expect(
+      resolveTailStartIndex(
+        messages,
+        [null, null],
+        parsedTail("1999-01-01 00:00:00", "no such text in this history"),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("parseCompactionResult tail_start", () => {
+  const summaryBlock = `<compaction_result>
+<summary>
+Earlier work, in my voice.
+</summary>
+<key_state>
+- pending
+</key_state>
+`;
+
+  it("accepts a preview-only tail_start", () => {
+    const parsed = parseCompactionResult(
+      `${summaryBlock}<tail_start preview="Found the duplicate. Let me fix it" />
+</compaction_result>`,
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.tailStartTimestamp).toBe("");
+    expect(parsed?.tailStartPreview).toBe(
+      "Found the duplicate. Let me fix it",
+    );
+  });
+
+  it("rejects a tail_start with neither timestamp nor preview", () => {
+    expect(
+      parseCompactionResult(`${summaryBlock}<tail_start />
+</compaction_result>`),
+    ).toBeNull();
   });
 });

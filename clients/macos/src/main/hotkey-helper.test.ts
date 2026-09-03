@@ -500,6 +500,32 @@ describe("installHotkeyHelper", () => {
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down","selection":{"text":"the powerhouse","truncated":false,"editable":true}}}\n',
+      ),
+    );
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
+    );
+
+    expect(await pending).toEqual({ ok: true, enabled: true });
+    expect(defaultSender.send).toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      {
+        kind: "modifierHold",
+        state: "down",
+        selection: { text: "the powerhouse", truncated: false, editable: true },
+      },
+    );
+  });
+
+  test("reads a selection that says nothing about editability as read-only", async () => {
+    installHotkeyHelper();
+
+    const pending = invokeFnPushToTalk(true);
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
         '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down","selection":{"text":"the powerhouse","truncated":false}}}\n',
       ),
     );
@@ -514,7 +540,11 @@ describe("installHotkeyHelper", () => {
       {
         kind: "modifierHold",
         state: "down",
-        selection: { text: "the powerhouse", truncated: false },
+        selection: {
+          text: "the powerhouse",
+          truncated: false,
+          editable: false,
+        },
       },
     );
   });

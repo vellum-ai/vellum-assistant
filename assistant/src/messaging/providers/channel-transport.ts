@@ -189,4 +189,32 @@ export interface ChannelTransport {
     chatId: string,
     op: StreamOp,
   ): Promise<ChannelDeliveryResult>;
+
+  /**
+   * The most text one stream operation may carry, for a channel that caps it.
+   *
+   * Declared rather than applied here because the caller is what knows how
+   * much of the reply a channel has actually accepted: it must advance that
+   * mark once per operation the channel confirms. A transport that split a
+   * wide delta into several calls of its own would leave the caller unable to
+   * tell a partial delivery from a whole one, and a retry would then re-send
+   * the part that already landed. Omitted by a channel with no cap.
+   */
+  readonly maxStreamTextChars?: number;
+
+  /**
+   * Whether what `streamReply` leaves behind is the reply itself.
+   *
+   * True for a channel that finalizes the streamed message in place, so the
+   * reply is already delivered once the stream ends and durable delivery must
+   * not send it again. Omitted by a channel whose stream is only a preview:
+   * the draft evaporates and the reply is still owed, so durable delivery
+   * sends it as it would for a channel that never streamed.
+   *
+   * Omission is the safe default on purpose. A channel that forgets to
+   * declare it posts the reply through the ordinary path, which at worst
+   * repeats what a persisting stream already showed; the opposite mistake
+   * loses the reply entirely.
+   */
+  readonly streamPersists?: boolean;
 }

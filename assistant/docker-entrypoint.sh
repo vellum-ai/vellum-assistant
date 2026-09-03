@@ -11,7 +11,11 @@ KATA_APT_INIT_PID=""
 if vellum_is_kata_family_runtime && [ -x /app/assistant/docker-init-apt-root.sh ]; then
   export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
   # Warm the chroot used by Kata-family apt wrappers without blocking assistant readiness.
-  /app/assistant/docker-init-apt-root.sh &
+  (
+    /app/assistant/docker-init-apt-root.sh
+    # Refresh persisted wrapper-script shims before commands use the overlay.
+    /app/assistant/docker-kata-apt-shims.sh || true
+  ) &
   KATA_APT_INIT_PID="$!"
 fi
 

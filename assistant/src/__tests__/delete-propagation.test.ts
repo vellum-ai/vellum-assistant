@@ -16,6 +16,18 @@ mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
+// A client showing the conversation learns of the deletion through the
+// messages-changed invalidation; capture it rather than opening the SSE hub.
+const publishedConversationIds: string[] = [];
+const actualSyncEvents =
+  await import("../runtime/sync/resource-sync-events.js");
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  ...actualSyncEvents,
+  publishConversationMessagesChanged: (conversationId: string) => {
+    publishedConversationIds.push(conversationId);
+  },
+}));
+
 import { eq } from "drizzle-orm";
 
 import {
@@ -44,6 +56,7 @@ const SLACK_DELETE_ACTOR_ID = "U_DELETE_ACTOR";
 const SLACK_DELETE_ACTOR_DISPLAY_NAME = "Delete Actor";
 
 function resetState(): void {
+  publishedConversationIds.length = 0;
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM messages");
@@ -291,6 +304,7 @@ describe("Discord delete propagation (unattributed)", () => {
     const neutral = readProviderMetadata(row!.metadata);
     expect(neutral!.deletedAt).toBeDefined();
     expect(neutral!.messageId).toBe(sentId);
+    expect(publishedConversationIds).toEqual([minted.conversationId]);
   });
 
   test("deleting one post of a split reply keeps the surviving posts live", async () => {
@@ -614,6 +628,8 @@ describe("Slack delete propagation", () => {
     expect(slackMeta!.channelTs).toBe("1234.5678");
     expect(slackMeta!.eventKind).toBe("message");
     expect(slackMeta!.displayName).toBe("Test User");
+    // A client showing the conversation is told to refetch.
+    expect(publishedConversationIds).toEqual([seeded.conversationId]);
   });
 
   test("deleting the assistant's own Slack post is recorded without an actor", async () => {

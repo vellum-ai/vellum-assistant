@@ -32,6 +32,7 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
@@ -497,8 +498,9 @@ export function isProviderErrorMetadata(
 }
 
 /**
- * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
+ * True when an assistant row is a standalone display turn: a system card, a
+ * provider-error notice, a deliberate-silence marker, a reaction, or a row
+ * deleted on its channel. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
@@ -516,11 +518,26 @@ export function isStandaloneAssistantMessage(
       isSystemCardMetadata(parsed) ||
       isProviderErrorMetadata(parsed) ||
       isNoResponseMetadata(parsed) ||
-      isReactionMessageMetadata(parsed)
+      isReactionMessageMetadata(parsed) ||
+      isChannelDeletedMetadata(metadata)
     );
   } catch {
     return false;
   }
+}
+
+/**
+ * True when the row was deleted on its channel after it was stored. The
+ * marker lives in the provider envelope rather than in `messageKind`, so a
+ * merged run would take the anchor's envelope and either drop the deletion
+ * or claim it over text that is still visible. The substring guard keeps the
+ * envelope parse off rows that cannot carry it.
+ */
+function isChannelDeletedMetadata(metadata: string): boolean {
+  return (
+    metadata.includes("deletedAt") &&
+    readProviderMetadata(metadata)?.deletedAt !== undefined
+  );
 }
 
 /**

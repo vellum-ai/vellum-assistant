@@ -201,6 +201,9 @@ export function mapRuntimeToDisplayMessage(
   if (m.slackMessage) {
     msg.slackMessage = m.slackMessage;
   }
+  if (m.deletedAt != null) {
+    msg.deletedAt = m.deletedAt;
+  }
   if (toolCalls) {
     msg.toolCalls = toolCalls;
   }

@@ -13,7 +13,7 @@ import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
-import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
+import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
   answerCompanionWatchRetro,
@@ -83,7 +83,13 @@ export function CompanionSurfacePage() {
   const [optionsBox, setOptionsBox] = useState(COMPANION_BASE_AVATAR_BOX);
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
+  const [publishedAccentHex, setPublishedAccentHex] = useState<
+    string | undefined
+  >();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
+  // Whether Talk has been pressed and nothing has answered it yet. Main's, like
+  // the call it waits for: the press left this window the moment it was made.
+  const [dialing, setDialing] = useState(false);
   const [dictating, setDictating] = useState<CompanionDictating | undefined>(
     undefined,
   );
@@ -102,9 +108,6 @@ export function CompanionSurfacePage() {
   const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
     undefined,
   );
-  // The running session's screen reads, counted. A step is the surface's only
-  // evidence a capture happened, so it arrives with the flag it belongs to.
-  const [captureCount, setCaptureCount] = useState(0);
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -150,7 +153,11 @@ export function CompanionSurfacePage() {
           : `data:image/png;base64,${state.avatarBase64}`,
       );
       setCharacter(state.character);
+      setPublishedAccentHex(state.accentHex);
       setCall(state.call);
+      // Off unless positively on, the way `watching` is read: a shell that
+      // predates the field is not dialing.
+      setDialing(state.dialing === true);
       setAssistantName(state.assistantName);
       setWorking(state.working);
       // Absence is not a session: every state that is not a positive answer
@@ -160,10 +167,6 @@ export function CompanionSurfacePage() {
       setDictating(state.dictating);
       setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
-      // Absence is no reads, for the same reason absence is no session: a
-      // state that cannot say how much of the screen was taken has not
-      // established that any of it was.
-      setCaptureCount(state.captureCount ?? 0);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -202,7 +205,7 @@ export function CompanionSurfacePage() {
   // Whether the introduction's card is actually on screen. The beat alone does
   // not settle it: a call withdraws the card while main is still holding the
   // run.
-  const introShown = intro !== null && call === null;
+  const introShown = intro !== null && call === null && !dialing;
 
   /**
    * Give the desktop back when the introduction's card goes away.
@@ -233,6 +236,11 @@ export function CompanionSurfacePage() {
   // microphone the user cannot see. So the call holds the pill open, and
   // hovering it changes nothing: the controls it wants are already there.
   //
+  // A dial is the call's own first beat and ranks with it. The press that
+  // made it leaves this window at once, and a pill that closed behind the
+  // hand while the session it asked for was still on its way would read as
+  // a press that did nothing.
+  //
   // A watch session holds the pill open for the same reason the call does, and
   // ranks below it: the call is something the user is in the middle of, where
   // this one runs beside whatever they are doing. Being outranked costs the
@@ -250,7 +258,7 @@ export function CompanionSurfacePage() {
   // user's own business and this is a caption.
   const introHeld = introPhase(intro);
   const phase: CompanionSurfacePhase =
-    call !== null
+    call !== null || dialing
       ? "call"
       : dictating !== undefined
         ? "dictating"
@@ -357,26 +365,9 @@ export function CompanionSurfacePage() {
     setInteractive(onSurface || onIntro);
   };
 
-  // The avatar's own colour. A running call publishes one, and it wins: it is
-  // the colour the call surfaces elsewhere are already tinted with. Outside a
-  // call the character's palette id resolves to the same hex the app draws the
-  // creature in, so the resting capsule is the assistant's colour rather than
-  // the component's teal default.
-  //
-  // The call's hex is `""` until the avatar resolves and the contract makes no
-  // promise it parses, so anything that is not an obvious `#RRGGBB` falls
-  // through rather than being handed to CSS, where an invalid value silently
-  // drops the custom property and takes the glyph's colour with it. The
-  // resolver is handed `null` components on purpose: this window has no daemon
-  // query, so the bundled palette is the only one it can read.
-  const callAccentHex =
-    call !== null && /^#[0-9a-f]{6}$/i.test(call.accentHex)
-      ? call.accentHex
-      : undefined;
-  const accentHex =
-    callAccentHex ??
-    resolveAvatarAccentHex(null, character ?? null) ??
-    undefined;
+  // The avatar's own colour, shared with the display's edge glow so the two
+  // lights cannot come apart. See `companionAccentHexFor`.
+  const accentHex = companionAccentHexFor(call, publishedAccentHex, character);
 
   return (
     <div
@@ -428,6 +419,9 @@ export function CompanionSurfacePage() {
         hovered={hovered}
         accentHex={accentHex}
         call={call ?? undefined}
+        // For the dial, which names who is being called. The call itself
+        // carries its own name once it arrives.
+        assistantName={assistantName}
         dictating={dictating}
         dictationText={dictationText}
         // Whether the assistant is busy, on whatever conversation the app has
@@ -453,7 +447,6 @@ export function CompanionSurfacePage() {
         // The reads that session has taken, which is what turns a running
         // session into something the user can see happening rather than
         // something they are told is on.
-        captureCount={captureCount}
         // The flag, from main. It hides the way into a session and leaves
         // everything a running one draws alone, so a session already going
         // when the flag turns off can still be seen and still be stopped.
@@ -535,19 +528,23 @@ export function CompanionSurfacePage() {
           // is the only thing that makes this window interactive at all.
           showCompanionContextMenu();
         }}
-        // A press that never became a drag. The window comes forward on the
-        // conversation this surface belongs to; main decides what that means.
+        // A press that never became a drag. **The creature is the call
+        // button.** Idle, the press asks for a session: it leaves this window
+        // immediately, since the session lives in the renderer holding the
+        // chat layout, and what comes back is `call` once that renderer has
+        // one to report. On a call, or dialing one, the press brings Vellum
+        // forward on the conversation the call is in, which is where the room
+        // and the transcript are; main decides what that means.
         onAvatarClick={() => {
           if (draggedRef.current) {
             return;
           }
-          activateCompanionApp();
+          if (call !== null || dialing) {
+            activateCompanionApp();
+            return;
+          }
+          startCompanionVoice();
         }}
-        // The press leaves this window immediately: the session lives in the
-        // renderer holding the chat layout, and this page only asks for one.
-        // What comes back is `call`, once that renderer has a session to
-        // report.
-        onTalk={startCompanionVoice}
         // One press for both edges, and it leaves this window the way Talk
         // does: the session lives in the renderer holding the chat layout,
         // and this page only asks for it. What comes back is `watching`.

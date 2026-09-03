@@ -32,6 +32,7 @@ import {
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { endVoiceActivity } from "@/runtime/desktop-voice-activity";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -39,6 +40,7 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import { toast } from "@vellumai/design-library/components/toast";
+import { VOICE_START_REQUEST_TTL_MS } from "@vellumai/ipc-contract";
 
 /**
  * How long a parked start-voice request stays live.
@@ -50,8 +52,12 @@ import { toast } from "@vellumai/design-library/components/toast";
  * until some unrelated `ChatLayout` mount drains it and a full-screen voice
  * session opens out of nowhere. A minute is far longer than any legitimate
  * cold launch and far shorter than "later".
+ *
+ * The contract's number, because the companion's dial is drawn against it:
+ * the shell holds the dial for longer than this, so a request that could
+ * still become a session is never one the pill has stopped showing.
  */
-export const PENDING_VOICE_START_TTL_MS = 60_000;
+export const PENDING_VOICE_START_TTL_MS = VOICE_START_REQUEST_TTL_MS;
 
 /**
  * The navigation a start needs from its caller: a path, and whether it
@@ -155,6 +161,23 @@ export function startVoiceFromSurface(
   }
   void navigate(routes.assistant);
   requestVoiceStart(navigate, options);
+}
+
+/**
+ * Take back a start that has been asked for and not yet served.
+ *
+ * What ending the companion's dial means: the request behind it is either
+ * still parked or partway through its preflight, and spending it here is what
+ * stops that preflight from opening the room a second after the user closed
+ * the pill. Reached through the `cancelVoiceStart` command, which the root
+ * layout consumes on every route, so the press lands whether or not the
+ * layout that owns sessions is mounted yet. The companion itself closes on
+ * the press; this is the half it cannot reach.
+ */
+export function cancelPendingVoiceStart(): void {
+  usePendingDeepLinkStore
+    .getState()
+    .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
 }
 
 /**
@@ -273,10 +296,22 @@ export async function drainPendingVoiceStart(
   // been dropped, and the user who asked it from another application is
   // watching the companion for an answer, so the drop is said where they can
   // see it.
+  //
+  // Either way the companion is told. Its Talk draws a dial the moment it is
+  // pressed and holds it until a session answers, and a refusal is the answer
+  // "none is coming": with no session running, `end` is exactly that, and the
+  // pill closes on it rather than on a timeout. Only for a request actually
+  // spent here: the drain runs on every mount and every switch of assistant,
+  // and a refusal of nothing is not an answer to anything.
   const refuse = () => {
-    if (consume()?.ask != null) {
+    const consumed = consume();
+    if (consumed === null) {
+      return;
+    }
+    if (consumed.ask !== null) {
       announceAskRefused();
     }
+    endVoiceActivity();
   };
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the

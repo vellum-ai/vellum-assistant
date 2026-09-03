@@ -48,6 +48,7 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
+import { createChannelReplySession } from "../../channel-reply-session.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
@@ -55,7 +56,6 @@ import type {
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
 import { hasDeliverableAssistantText } from "../../no-response.js";
-import { createSlackReplySession } from "../../slack-reply-session.js";
 import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
@@ -247,9 +247,7 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
-      const slackReplySession = createSlackReplySession({
-        sourceChannel,
-        chatType,
+      const replySession = createChannelReplySession({
         replyCallbackUrl,
         chatId: externalChatId,
         recipientUserId: slackInbound?.actorExternalUserId,
@@ -267,7 +265,7 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
-        slackReplySession?.observeEvent(msg);
+        replySession?.observeEvent(msg);
         channelActivity?.observeEvent(msg);
       };
 
@@ -315,7 +313,7 @@ export function processChannelMessageInBackground(
         // Stop any live Slack stream cleanly. Its `ts` is already durably
         // recorded via `onStreamOpen`, so the retry sweep can reconcile
         // against that message rather than posting a duplicate.
-        await slackReplySession?.finish();
+        await replySession?.finish();
         if (isConversationBusyError(err)) {
           if (onTurnLostToBusy) {
             // The sweep's processing lane cannot rebuild this turn (see the
@@ -410,7 +408,7 @@ export function processChannelMessageInBackground(
             assistantId,
             replyMessageId,
             userMessageId,
-            slackReplySession,
+            replySession,
             ...(recoveredStreamMessageTs
               ? { priorStreamMessageTs: recoveredStreamMessageTs }
               : {}),

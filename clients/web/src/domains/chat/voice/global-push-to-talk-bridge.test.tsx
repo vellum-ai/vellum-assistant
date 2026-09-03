@@ -1,5 +1,5 @@
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { forwardRef, useImperativeHandle } from "react";
 import { MemoryRouter } from "react-router";
 
@@ -22,7 +22,15 @@ type VoiceInputButtonProps = {
 let latestVoiceInputProps: VoiceInputButtonProps | null = null;
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
-let nextDictationResult: { mode: "dictation"; text: string } | null = null;
+let nextDictationResult: { mode: string; text: string } | null = null;
+/** How long the daemon takes to answer, for the cases about the deadline. */
+let nextDictationDelayMs = 0;
+type DictationCall = {
+  transcription: string;
+  assistantId: string;
+  context: Record<string, unknown>;
+};
+const dictationCalls: DictationCall[] = [];
 let overlayStopCallback: (() => void) | null = null;
 const voiceStopMock = mock(() => undefined);
 const voiceStartMock = mock(() => true);
@@ -43,7 +51,7 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 }));
 
 type HoldStart = {
-  selection: { text: string; truncated: boolean } | null;
+  selection: { text: string; truncated: boolean; editable?: boolean } | null;
 };
 let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
@@ -106,7 +114,19 @@ mock.module("@/domains/chat/voice/keyboard-activation-host", () => ({
 }));
 
 mock.module("@/domains/chat/voice/dictation-api", () => ({
-  postDictation: async () => nextDictationResult,
+  postDictation: async (
+    transcription: string,
+    assistantId: string,
+    context: Record<string, unknown>,
+  ) => {
+    dictationCalls.push({ transcription, assistantId, context });
+    if (nextDictationDelayMs > 0) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, nextDictationDelayMs);
+      });
+    }
+    return nextDictationResult;
+  },
 }));
 
 mock.module("@/runtime/text-insertion", () => ({
@@ -132,6 +152,8 @@ const { useVoiceRecordingStore } =
   await import("@/domains/chat/voice/voice-recording-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 const renderBridge = (assistantId: string | null = "assistant-1") => {
   // The bridge's voice mode shortcut navigates to the conversation surface
@@ -158,6 +180,8 @@ afterEach(() => {
   voiceStartMock.mockReturnValue(true);
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
+  nextDictationDelayMs = 0;
+  dictationCalls.length = 0;
   insertedTexts.length = 0;
   askedTexts.length = 0;
   nextAskTaken = true;
@@ -168,6 +192,7 @@ afterEach(() => {
   useComposerStore.getState().fullReset();
   useConversationStore.getState().reset();
   useViewerStore.getState().reset();
+  useAssistantIdentityStore.getState().clearIdentity();
   localStorage.clear();
 });
 
@@ -425,5 +450,202 @@ describe("a hold over a selection", () => {
 
     expect(insertedTexts).toEqual([]);
     expect(announceAskRefusedMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A hold over an editable selection may be asking for it changed. The
+ * selection goes to the daemon with the words: an edit is pasted over the
+ * selection, and a question goes to the assistant the way any selection's
+ * does.
+ */
+describe("a hold over an editable selection", () => {
+  const passage = {
+    text: "Please send me the files.",
+    truncated: false,
+    editable: true,
+  };
+  const holdOver = (selection: HoldStart["selection"]) => {
+    act(() => {
+      holdHandlers?.onHoldStart({ selection });
+    });
+  };
+  const withAssistantThatTellsEditsFromQuestions = () => {
+    useAssistantIdentityStore.getState().setIdentity("asst", "0.11.9", "a1");
+  };
+
+  test("pastes the edit over the selection", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = {
+      mode: "command",
+      text: "Could you send the files over?",
+    };
+    const voiceInput = renderBridge("a1");
+
+    holdOver(passage);
+    await act(async () => {
+      await voiceInput.onTranscript("make this friendlier");
+    });
+
+    expect(dictationCalls).toEqual([
+      {
+        transcription: "make this friendlier",
+        assistantId: "a1",
+        context: { cursorInTextField: true, selectedText: passage.text },
+      },
+    ]);
+    expect(insertedTexts).toEqual(["Could you send the files over?"]);
+    expect(askedTexts).toEqual([]);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A rewrite writes back as much as it was handed, so a paragraph's edit
+   * takes longer than the cleanup's bound, and under that bound it was dropped
+   * at the deadline and read aloud as an answer instead. The rewrite waits on
+   * a bound of its own.
+   */
+  test("waits past the cleanup's bound for a paragraph's edit", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = {
+      mode: "command",
+      text: "Could you send the files over?",
+    };
+    nextDictationDelayMs = 8000;
+    const voiceInput = renderBridge("a1");
+    holdOver(passage);
+
+    jest.useFakeTimers();
+    try {
+      const run = voiceInput.onTranscript("make this friendlier");
+      jest.advanceTimersByTime(8000);
+      await act(async () => {
+        await run;
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(insertedTexts).toEqual(["Could you send the files over?"]);
+    expect(askedTexts).toEqual([]);
+  });
+
+  test("gives up on an edit the daemon never finishes and asks instead", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "command", text: "never seen" };
+    nextDictationDelayMs = 60_000;
+    const voiceInput = renderBridge("a1");
+    holdOver(passage);
+
+    jest.useFakeTimers();
+    try {
+      const run = voiceInput.onTranscript("make this friendlier");
+      jest.advanceTimersByTime(20_000);
+      await act(async () => {
+        await run;
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toHaveLength(1);
+  });
+
+  test("takes a question to the assistant instead", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "question", text: "what does this mean" };
+    const voiceInput = renderBridge("a1");
+
+    holdOver(passage);
+    await act(async () => {
+      await voiceInput.onTranscript("what does this mean");
+    });
+
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toEqual([
+      "> Please send me the files.\n\nwhat does this mean",
+    ]);
+  });
+
+  test("a selection handed back as it was is asked about", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "command", text: passage.text };
+    const voiceInput = renderBridge("a1");
+
+    holdOver(passage);
+    await act(async () => {
+      await voiceInput.onTranscript("is this right");
+    });
+
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toHaveLength(1);
+  });
+
+  test("a selection the helper cut short is never rewritten", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextDictationResult = { mode: "command", text: "shorter" };
+    const voiceInput = renderBridge("a1");
+
+    holdOver({ ...passage, truncated: true });
+    await act(async () => {
+      await voiceInput.onTranscript("shorten this");
+    });
+
+    expect(dictationCalls).toEqual([]);
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toHaveLength(1);
+  });
+
+  test("a selection nothing can be typed into is asked about", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextDictationResult = { mode: "command", text: "shorter" };
+    const voiceInput = renderBridge("a1");
+
+    holdOver({ ...passage, editable: false });
+    await act(async () => {
+      await voiceInput.onTranscript("shorten this");
+    });
+
+    expect(dictationCalls).toEqual([]);
+    expect(askedTexts).toHaveLength(1);
+  });
+
+  test("an assistant that cannot tell an edit from a question is not sent the selection", async () => {
+    useAssistantIdentityStore.getState().setIdentity("asst", "0.11.8", "a1");
+    nextDictationResult = { mode: "command", text: "shorter" };
+    const voiceInput = renderBridge("a1");
+
+    holdOver(passage);
+    await act(async () => {
+      await voiceInput.onTranscript("shorten this");
+    });
+
+    expect(dictationCalls).toEqual([]);
+    expect(askedTexts).toHaveLength(1);
+  });
+
+  test("an edit the system will not paste lands in the composer", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "blocked";
+    nextDictationResult = { mode: "command", text: "Send the files." };
+    const voiceInput = renderBridge("a1");
+
+    holdOver(passage);
+    await act(async () => {
+      await voiceInput.onTranscript("shorten this");
+    });
+
+    expect(askedTexts).toEqual([]);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      formatVoiceError("dictation-paste-blocked"),
+      { id: "voice-error:dictation-paste-blocked" },
+    );
+    expect(useComposerStore.getState().input).toBe("Send the files.");
   });
 });

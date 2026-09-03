@@ -23,6 +23,14 @@ on:
       # The web LLM catalog parity test reads this file, so daemon-side catalog
       # regenerations must run the web tests on the PR that introduces drift.
       - 'meta/llm-provider-catalog.json'
+      # The app icon row test reads these native color sources off disk, so a
+      # native-only color edit still has to run the web tests.
+      - 'clients/android/app/src/dev/res/values/colors.xml'
+      - 'clients/android/app/src/staging/res/values/colors.xml'
+      - 'clients/android/app/src/production/res/values/colors.xml'
+      - 'clients/ios/App/App/AppIcon.icon/**'
+      - 'clients/ios/App/App/AppIcon-Dev.icon/**'
+      - 'clients/ios/App/App/AppIcon-Staging.icon/**'
       - '.github/workflows/pr-web.yaml'
 
 concurrency:

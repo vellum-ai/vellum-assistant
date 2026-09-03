@@ -264,6 +264,7 @@ final class MacHelper: @unchecked Sendable {
                 params["selection"] = [
                     "text": selection.text,
                     "truncated": selection.truncated,
+                    "editable": selection.editable,
                 ]
             }
             log("modifier hold down: selection \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(heldMs)")
@@ -1185,6 +1186,7 @@ if CommandLine.arguments.contains("--front-selection") {
     ]
     payload["text"] = outcome.selection?.text ?? NSNull()
     payload["truncated"] = outcome.selection?.truncated ?? false
+    payload["editable"] = outcome.selection?.editable ?? false
     let data = try! JSONSerialization.data(withJSONObject: payload, options: [])
     FileHandle.standardOutput.write(data)
     FileHandle.standardOutput.write(Data("\n".utf8))

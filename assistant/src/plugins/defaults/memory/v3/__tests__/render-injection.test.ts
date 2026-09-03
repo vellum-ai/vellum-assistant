@@ -36,6 +36,28 @@ describe("renderCardsBlockInner", () => {
   test("empty card list renders the empty string (no header-only block)", () => {
     expect(renderCardsBlockInner([])).toBe("");
   });
+
+  test("skill cards get a one-shot catalog hint that is not a concept card", () => {
+    const inner = renderCardsBlockInner([
+      "# Skill: telegram-setup\nSet up Telegram.",
+      "# memory/concepts/page-a.md\nhead a",
+    ]);
+    expect(inner).toContain(V3_CARDS_INJECTION_HEADER);
+    expect(inner).toContain("# Skills\n");
+    expect(inner).toContain("assistant plugins search <name>");
+    expect(inner).toContain("assistant skills search <name>");
+    expect(inner).toContain("currently in the workspace");
+    expect(inner.indexOf("# Skills")).toBeLessThan(inner.indexOf("# Skill:"));
+    expect(inner.startsWith(`${V3_CARDS_INJECTION_HEADER}\n\n# Skills\n`)).toBe(
+      true,
+    );
+  });
+
+  test("concept-only cards omit the skill catalog hint", () => {
+    const inner = renderCardsBlockInner(["# memory/concepts/page-a.md\nhead a"]);
+    expect(inner).not.toContain("# Skills\n");
+    expect(inner).not.toContain("assistant plugins search");
+  });
 });
 
 describe("renderSpotlightInner", () => {

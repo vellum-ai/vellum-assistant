@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -19,15 +19,19 @@ function Divider() {
   );
 }
 
-const PRESET_OPTIONS = THRESHOLD_PRESETS.map((p) => ({
-  value: p.id,
-  label: p.label,
-  icon: <p.icon className="h-3.5 w-3.5" />,
-}));
-
 export function RiskToleranceSettings() {
   const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
+
+  const presetOptions = useMemo(
+    () =>
+      THRESHOLD_PRESETS.map((p) => ({
+        value: p.id,
+        label: t(p.labelKey, p.label),
+        icon: <p.icon className="h-3.5 w-3.5" />,
+      })),
+    [t],
+  );
 
   const queryClient = useQueryClient();
   const { data: thresholds, isError: loadError } = useQuery({
@@ -178,13 +182,13 @@ export function RiskToleranceSettings() {
             <Select
               value={interactivePresetId}
               onChange={handleInteractiveChange}
-              options={PRESET_OPTIONS}
+              options={presetOptions}
               disabled={dropdownsDisabled}
             />
           </div>
           {interactivePreset && (
             <p className="mt-2 text-body-small-default text-[var(--content-tertiary)]">
-              {interactivePreset.description}
+              {t(interactivePreset.descriptionKey, interactivePreset.description)}
             </p>
           )}
         </div>
@@ -220,13 +224,13 @@ export function RiskToleranceSettings() {
                 <Select
                   value={autonomousPresetId}
                   onChange={handleAutonomousChange}
-                  options={PRESET_OPTIONS}
+                  options={presetOptions}
                   disabled={dropdownsDisabled}
                 />
               </div>
               {autonomousPreset && (
                 <p className="mt-2 text-body-small-default text-[var(--content-tertiary)]">
-                  {autonomousPreset.description}
+                  {t(autonomousPreset.descriptionKey, autonomousPreset.description)}
                 </p>
               )}
             </div>
@@ -244,13 +248,13 @@ export function RiskToleranceSettings() {
                 <Select
                   value={headlessPresetId}
                   onChange={handleHeadlessChange}
-                  options={PRESET_OPTIONS}
+                  options={presetOptions}
                   disabled={dropdownsDisabled}
                 />
               </div>
               {headlessPreset && (
                 <p className="mt-2 text-body-small-default text-[var(--content-tertiary)]">
-                  {headlessPreset.description}
+                  {t(headlessPreset.descriptionKey, headlessPreset.description)}
                 </p>
               )}
             </div>

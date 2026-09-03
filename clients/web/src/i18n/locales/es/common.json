@@ -70,6 +70,10 @@
     "updateFailed": "No se pudo actualizar \"{label}\". Se revirtió el cambio."
   },
   "avatarManagementModal": {
+    "accent": "Acento",
+    "accentAutomatic": "Automático",
+    "accentPickerLabel": "Color de acento",
+    "accentReset": "Restablecer",
     "body": "Cuerpo",
     "color": "Color",
     "eyes": "Ojos",
@@ -152,11 +156,14 @@
   },
   "companionSurface": {
     "allow": "Permitir",
+    "calling": "Llamando…",
+    "callingNamed": "Llamando a {name}…",
     "deny": "Denegar",
     "endSession": "Finalizar sesión",
     "muteAssistant": "Silenciar asistente",
     "muteMicrophone": "Silenciar micrófono",
     "notNow": "Ahora no",
+    "openVellum": "Abrir Vellum",
     "showSummary": "Mostrar resumen",
     "stopTeaching": "Dejar de enseñar",
     "summarizing": "Resumiendo",

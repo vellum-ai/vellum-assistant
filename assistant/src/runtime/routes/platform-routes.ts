@@ -5,8 +5,9 @@
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, and webhook secret. (Velay tunnel status
  *     lives on the gateway — see gateway_status.)
- *   - platform_connect (POST platform/connect): checks existing credentials
- *     and emits the show_platform_login signal to connected clients.
+ *   - platform_connect (POST platform/connect): reports whether the stored
+ *     credentials still connect, and when the stored key has been rejected,
+ *     says so, so the caller can tell the user what replaces it.
  *   - platform_disconnect (POST platform/disconnect): deletes stored platform
  *     credentials and emits platform_disconnected signal.
  *   - platform_callback_routes_register (POST platform/callback-routes/register):
@@ -14,7 +15,8 @@
  *   - platform_callback_routes_list (GET platform/callback-routes): lists
  *     registered callback routes for this assistant.
  *   - platform_credits (GET platform/credits): fetches the org's remaining
- *     credit balance from the platform billing summary.
+ *     credit balance, today's spend, and daily-limit / low-balance state from
+ *     the platform billing summary.
  *   - platform_subscription (GET platform/subscription): fetches the org's
  *     current plan, subscription status, and entitlements.
  *   - platform_plans (GET platform/plans): fetches the plan catalog with pricing.
@@ -24,6 +26,11 @@
  *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
+import {
+  type PlatformCredentialVerificationStatus,
+  type PlatformVerifyCredentialResponse,
+  PlatformVerifyCredentialResponseSchema,
+} from "@vellumai/service-contracts/platform-credential";
 import { z } from "zod";
 
 import { isPlatformRemote } from "../../config/env-registry.js";
@@ -80,8 +87,16 @@ const PlatformConnectResponseSchema = z.object({
   alreadyConnected: z.boolean().optional(),
   baseUrl: z.string().optional(),
   showPlatformLogin: z.boolean().optional(),
+  /**
+   * The stored managed credential exists but the platform rejects it. Distinct
+   * from "nothing stored": the user is not setting up, they are recovering,
+   * and what replaces the key is a fresh sign-in, not a first one.
+   */
+  credentialRejected: z.boolean().optional(),
 });
-type PlatformConnectResponse = z.infer<typeof PlatformConnectResponseSchema>;
+export type PlatformConnectResponse = z.infer<
+  typeof PlatformConnectResponseSchema
+>;
 
 const PlatformDisconnectResponseSchema = z.object({
   disconnected: z.literal(true),
@@ -128,6 +143,35 @@ const PlatformCreditsResponseSchema = z.object({
   unit: z.literal("USD"),
   stale: z.boolean(),
   as_of: z.string(),
+  daily_spend: z
+    .number()
+    .nullable()
+    .describe(
+      "Today's (UTC) spend counted against the daily credit limit, in USD. Excludes spend covered by plan-included credits (initial credit, Pro credit bundle), so it is not total spend. Null when the platform did not report it.",
+    ),
+  daily_limit: z
+    .number()
+    .nullable()
+    .describe("Daily credit limit in USD, or null when none is set."),
+  daily_limit_reached: z
+    .boolean()
+    .describe(
+      "True when today's spend has reached the daily limit and the limit is being enforced.",
+    ),
+  daily_limit_snoozed: z
+    .boolean()
+    .describe(
+      "True when the daily limit has been skipped for the rest of the current UTC day.",
+    ),
+  low_balance_threshold: z
+    .number()
+    .nullable()
+    .describe("Low-balance alert threshold in USD."),
+  low_balance_warning: z
+    .boolean()
+    .describe(
+      "True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.",
+    ),
 });
 type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
 
@@ -249,17 +293,72 @@ async function handlePlatformConnect(
     ),
   ]);
 
+  // Stored credentials only count as a connection while they still
+  // authenticate. Answering "already connected" for a key the platform has
+  // rejected would report nothing to do about the one thing that needs doing,
+  // and no client would get the signal to rotate it.
+  //
+  // Checked here rather than read from a cache: connect is a deliberate user
+  // action, so one request is affordable, and an answer computed now cannot go
+  // stale between the check and the answer. An unreachable platform leaves the
+  // stored credentials counting as a connection, so a network problem never
+  // strands a working install by reporting it disconnected.
+  let credentialRejected = false;
   if (existingUrl && existingApiKey) {
-    return {
-      alreadyConnected: true,
-      baseUrl: existingUrl,
-    };
+    const verified = await verifyStoredCredential();
+    if (verified !== "rejected") {
+      return {
+        alreadyConnected: true,
+        baseUrl: existingUrl,
+      };
+    }
+    credentialRejected = true;
   }
 
-  // Emit signal for connected clients to show the platform login UI
+  // The outcome travels in the response, where the CLI reads it and tells the
+  // user what to do. Nothing shipped consumes the signal below, so the
+  // response is the only path the answer reaches anyone by.
   broadcastMessage({ type: "show_platform_login" });
 
-  return { showPlatformLogin: true };
+  return credentialRejected
+    ? { showPlatformLogin: true, credentialRejected: true }
+    : { showPlatformLogin: true };
+}
+
+/**
+ * Ask the platform whether the stored managed credential authenticates.
+ * Nothing is stored: each caller that needs the answer asks, so there is no
+ * verdict to go stale.
+ *
+ * Shared by the verification route and by connect, so the two cannot disagree
+ * about what "connected" means. Never throws: an unsettled answer is
+ * `"unknown"`, which no caller treats as evidence of a dead credential.
+ */
+async function verifyStoredCredential(): Promise<PlatformCredentialVerificationStatus> {
+  try {
+    const { checkAssistantApiKey } =
+      await import("../../credential-health/credential-health-service.js");
+    const result = await checkAssistantApiKey();
+    if (result === null) {
+      // No platform identity at all, so there is nothing to verify.
+      return "unknown";
+    }
+    if (result.status === "healthy") {
+      return "valid";
+    }
+    if (result.status === "revoked" || result.status === "missing_token") {
+      return "rejected";
+    }
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function handlePlatformVerifyCredential(
+  _args: RouteHandlerArgs,
+): Promise<PlatformVerifyCredentialResponse> {
+  return { status: await verifyStoredCredential() };
 }
 
 async function handlePlatformDisconnect(
@@ -385,6 +484,18 @@ async function handleCallbackRoutesList(
   return { routes };
 }
 
+/**
+ * Null when the billing summary omits the field (older platform builds) or it
+ * is not a finite number, so the daemon never reports a made-up figure.
+ */
+function parseUsd(value: string | null | undefined): number | null {
+  if (value == null || value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function handlePlatformCredits(
   _args: RouteHandlerArgs,
 ): Promise<PlatformCreditsResponse> {
@@ -396,6 +507,12 @@ async function handlePlatformCredits(
     pending_compute_usd: string;
     effective_balance_usd: string;
     is_degraded: boolean;
+    daily_spend_usd?: string;
+    daily_credit_limit_usd?: string | null;
+    daily_limit_reached?: boolean;
+    daily_limit_snoozed?: boolean;
+    low_balance_threshold_usd?: string;
+    low_balance_warning?: boolean;
   };
 
   return {
@@ -407,6 +524,12 @@ async function handlePlatformCredits(
     // as_of is response receipt time; add a server as_of field if the billing
     // summary endpoint ever returns one.
     as_of: new Date().toISOString(),
+    daily_spend: parseUsd(summary.daily_spend_usd),
+    daily_limit: parseUsd(summary.daily_credit_limit_usd),
+    daily_limit_reached: summary.daily_limit_reached === true,
+    daily_limit_snoozed: summary.daily_limit_snoozed === true,
+    low_balance_threshold: parseUsd(summary.low_balance_threshold_usd),
+    low_balance_warning: summary.low_balance_warning === true,
   };
 }
 
@@ -711,10 +834,30 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Connect to the Vellum Platform",
     description:
-      "Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.",
+      "Checks whether the stored platform credentials still connect. Reports a stored key the platform rejects as credentialRejected, so the caller can direct the user to sign in again and replace it.",
     tags: ["platform"],
     handler: handlePlatformConnect,
     responseBody: PlatformConnectResponseSchema,
+  },
+  {
+    operationId: "platform_verify_credential",
+    endpoint: "platform/verify-credential",
+    method: "POST",
+    // The in-app repair calls this through the gateway with an actor token,
+    // the same caller shape as platform_status, so it takes that route's
+    // principal bundle. A local-only policy would 403 every browser repair
+    // after it had already rotated and stored the replacement. Read scope:
+    // the route performs a check and mutates nothing.
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Verify the Vellum-managed credential against the platform",
+    description:
+      "Asks the platform whether the stored assistant API key authenticates. POST because it performs a check; the result is returned, not stored.",
+    tags: ["platform"],
+    handler: handlePlatformVerifyCredential,
+    responseBody: PlatformVerifyCredentialResponseSchema,
   },
   {
     operationId: "platform_disconnect",
@@ -770,9 +913,10 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Get the organization's remaining credit balance",
+    summary:
+      "Get the organization's remaining credit balance and daily-limit state",
     description:
-      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary.",
+      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the low-balance warning state.",
     tags: ["platform"],
     handler: handlePlatformCredits,
     responseBody: PlatformCreditsResponseSchema,

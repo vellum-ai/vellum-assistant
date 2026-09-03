@@ -313,12 +313,12 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   width. The six paths in `Assets/eyes.svg` are copied verbatim out of
   `getCharacterComponents().eyeStyles`, keeping the icon and the in-app
   avatars in sync.
-- `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) carry the
-  same eyes; only the `fill.solid` colour differs.
-- `fill.solid` is a **Display P3** value, so an sRGB hex has to be
-  converted before it goes in. Pasting the raw sRGB components straight
-  through renders noticeably more saturated than the hex you started
-  from.
+- `AppIcon-Staging.icon` (`#E9C91A`) and `AppIcon-Dev.icon` (`#FF88C9`)
+  carry the same eyes; only the `fill-specializations` colour differs.
+- A bundle's `fill-specializations` solid is a **Display P3** value, so an
+  sRGB hex has to be converted before it goes in. All three bundles carry a
+  true conversion of their hex. Pasting the raw sRGB components straight
+  through renders noticeably more saturated than the hex you started from.
 - `App/App/AvatarIcons.xcassets` holds the alternate icons, one
   `.appiconset` per eye style and color, named `avatar-eyes-<eye>-<color>`.
   Every combination ships: 9 eye styles × 6 colors, so 54 sets. Each set is a

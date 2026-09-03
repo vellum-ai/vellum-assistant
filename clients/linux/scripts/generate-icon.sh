@@ -12,6 +12,42 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Display P3 to sRGB: linearize with the sRGB EOTF (both spaces share it),
+# rotate P3-to-XYZ then XYZ-to-sRGB at D65, re-encode with the sRGB OETF, and
+# clamp the out-of-gamut residue the wider P3 primaries can produce. Both the
+# render path below and `--print-srgb` call this, so there is one conversion.
+p3_to_srgb() {
+  awk -v components="${1#display-p3:}" '
+    function eotf(c) { return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ^ 2.4 }
+    function oetf(c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * (c ^ (1 / 2.4)) - 0.055 }
+    function clamp(c) { return c < 0 ? 0 : (c > 1 ? 1 : c) }
+    function quantize(c) { return int(clamp(oetf(c)) * 255 + 0.5) }
+    BEGIN {
+      split(components, p, ",")
+      r = eotf(p[1] + 0); g = eotf(p[2] + 0); b = eotf(p[3] + 0)
+      x = 0.4865709486482162 * r + 0.26566769316909306 * g + 0.19821728523436250 * b
+      y = 0.2289745640697488 * r + 0.69173852183650640 * g + 0.07928691409374500 * b
+      z = 0.0000000000000000 * r + 0.04511338185890264 * g + 1.04394436890097600 * b
+      sr =  3.24096994190452260 * x + -1.53738317757009400 * y + -0.49861076029300340 * z
+      sg = -0.96924363628087960 * x +  1.87596750150772020 * y +  0.04155505740717559 * z
+      sb =  0.05563007969699366 * x + -0.20397695888897652 * y +  1.05697151424287860 * z
+      printf "rgb(%d,%d,%d)", quantize(sr), quantize(sg), quantize(sb)
+    }
+  '
+}
+
+# `--print-srgb display-p3:<r>,<g>,<b>,<a>` prints the ground the render path
+# would composite and exits, so the drift guard exercises the shipped awk
+# instead of a second copy of it. It needs none of the rendering toolchain.
+if [ "${1:-}" = "--print-srgb" ]; then
+  if [ -z "${2:-}" ]; then
+    echo "generate-icon: --print-srgb needs a display-p3 fill" >&2
+    exit 1
+  fi
+  printf '%s\n' "$(p3_to_srgb "$2")"
+  exit 0
+fi
+
 VELLUM_ENVIRONMENT="${VELLUM_ENVIRONMENT:-local}"
 ICONS_DIR="$APP_DIR/build-resources/icons"
 
@@ -48,17 +84,16 @@ FOREGROUND_SVG="$ICON_SOURCE_DIR/Assets/white-V.svg"
 ICON_SIZE=1024
 
 # Parse the `fill.solid` background from icon.json. Format
-# `display-p3:<r>,<g>,<b>,<a>` with components in 0..1. The narrow-gamut Linux
-# icon renders the components straight into sRGB; the small gamut shift on a
-# flat brand colour is imperceptible at icon scale.
+# `display-p3:<r>,<g>,<b>,<a>` with components in 0..1. macOS hands the same
+# components to CoreGraphics in the Display P3 space, so Linux converts them to
+# sRGB rather than reading them as sRGB, which would desaturate every ground.
 FILL_COMPONENTS="$(grep -o 'display-p3:[0-9.,]*' "$ICON_JSON" | head -n1 | cut -d: -f2)"
 if [ -z "$FILL_COMPONENTS" ]; then
   echo "generate-icon: could not read fill.solid from $ICON_JSON" >&2
   exit 1
 fi
-IFS=',' read -r FR FG FB _FA <<<"$FILL_COMPONENTS"
-to255() { awk -v v="$1" 'BEGIN { printf "%d", (v * 255) + 0.5 }'; }
-BG_COLOR="rgb($(to255 "$FR"),$(to255 "$FG"),$(to255 "$FB"))"
+
+BG_COLOR="$(p3_to_srgb "$FILL_COMPONENTS")"
 
 OUTPUT_DIR="$APP_DIR/build"
 mkdir -p "$OUTPUT_DIR"

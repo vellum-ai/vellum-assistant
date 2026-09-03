@@ -525,22 +525,24 @@ describe("access-request instruction enforcement", () => {
     };
   }
 
-  test("fallback copy includes access-request contract elements", async () => {
+  test("fallback copy carries the requester context and no reply mechanics", async () => {
     const signal = makeAccessRequestSignal();
     const decision = await evaluateSignal(signal, [
       "vellum",
+      "telegram",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(true);
-    // Directive form, not prose mentions: the guardian must be able to reply
-    // with these exact code+verb tokens.
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 trust"');
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 block"');
-    expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
+    for (const channel of ["vellum", "telegram"] as const) {
+      const body = decision.renderedCopy[channel]?.body ?? "";
+      expect(body).toContain("Alice");
+      expect(body).not.toContain("A1B2C3");
+      // Context, not mechanics: no surface offers an invite button.
+      expect(body).toContain('Reply "open invite flow"');
+    }
   });
 
-  test("enforcement appends contract when LLM copy is missing request code", async () => {
+  test("model copy with no mechanics keeps its text and gains the invite sentence", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -567,13 +569,12 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 trust"');
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 block"');
-    expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      'Someone wants access to your assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
   });
 
-  test("enforcement appends contract when LLM copy has code but missing invite flow", async () => {
+  test("model-authored code directives are stripped, leaving the ask", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -600,10 +601,12 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
   });
 
-  test("enforcement does not duplicate when LLM copy already has all required elements", async () => {
+  test("the code directive is stripped from model copy and the invite directive stays", async () => {
     const fullBody =
       'Alice wants access.\nReply "A1B2C3 verify" to send them a verification code, "A1B2C3 trust" to trust them without one, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start Trusted Contacts invite flow.';
     configuredProvider = {
@@ -632,11 +635,14 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    // Body should remain unchanged when all required elements are present
-    expect(decision.renderedCopy.vellum?.body).toBe(fullBody);
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
   });
 
-  test("enforcement also applies to deliveryText and conversationSeedMessage", async () => {
+  test("the strip covers deliveryText and conversationSeedMessage too", async () => {
+    const withMechanics =
+      'Someone wants access.\nReply "A1B2C3 trust" to trust them, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.';
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -649,9 +655,9 @@ describe("access-request instruction enforcement", () => {
         renderedCopy: {
           telegram: {
             title: "Access Request",
-            body: "Someone wants access.",
-            deliveryText: "Someone wants access.",
-            conversationSeedMessage: "Someone wants access.",
+            body: withMechanics,
+            deliveryText: withMechanics,
+            conversationSeedMessage: withMechanics,
           },
         },
         dedupeKey: "access-req-multi-field",
@@ -664,19 +670,16 @@ describe("access-request instruction enforcement", () => {
       "telegram",
     ] as NotificationChannel[]);
 
-    expect(decision.renderedCopy.telegram?.deliveryText).toContain("A1B2C3");
-    expect(decision.renderedCopy.telegram?.deliveryText).toContain(
-      "open invite flow",
-    );
-    expect(decision.renderedCopy.telegram?.conversationSeedMessage).toContain(
-      "A1B2C3",
-    );
-    expect(decision.renderedCopy.telegram?.conversationSeedMessage).toContain(
-      "open invite flow",
+    const expected =
+      'Someone wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+    expect(decision.renderedCopy.telegram?.body).toBe(expected);
+    expect(decision.renderedCopy.telegram?.deliveryText).toBe(expected);
+    expect(decision.renderedCopy.telegram?.conversationSeedMessage).toBe(
+      expected,
     );
   });
 
-  test("enforcement appends contract when LLM copy contains conflicting instructions", async () => {
+  test("model copy that leaves the invite sentence out gets it appended", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -684,31 +687,33 @@ describe("access-request instruction enforcement", () => {
       name: "record_notification_decision",
       input: {
         shouldNotify: true,
-        selectedChannels: ["vellum"],
+        selectedChannels: ["telegram"],
         reasoningSummary: "LLM decision",
         renderedCopy: {
-          vellum: {
+          telegram: {
             title: "Access Request",
-            body: 'Alice wants access. Just reply "yes" or "no" to decide.',
+            body: "Alice wants access.",
+            deliveryText: "Alice wants access.",
           },
         },
-        dedupeKey: "access-req-conflicting",
+        dedupeKey: "access-req-invite-ensured",
         confidence: 0.9,
       },
     };
 
-    const signal = makeAccessRequestSignal();
-    const decision = await evaluateSignal(signal, [
-      "vellum",
+    const decision = await evaluateSignal(makeAccessRequestSignal(), [
+      "telegram",
     ] as NotificationChannel[]);
 
-    // Must contain the proper contract instructions despite conflicting LLM copy
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3 verify");
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3 reject");
-    expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
+    expect(decision.fallbackUsed).toBe(false);
+    const expected =
+      'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+    expect(decision.renderedCopy.telegram?.body).toBe(expected);
+    expect(decision.renderedCopy.telegram?.deliveryText).toBe(expected);
+    expect(decision.renderedCopy.telegram?.title).toBe("Access Request");
   });
 
-  test("enforcement appends invite directive when requestCode is absent", async () => {
+  test("the invite directive stays even when the request has no code", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -721,7 +726,7 @@ describe("access-request instruction enforcement", () => {
         renderedCopy: {
           vellum: {
             title: "Access Request",
-            body: "Someone wants access to your assistant.",
+            body: 'Someone wants access to your assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
           },
         },
         dedupeKey: "access-req-no-code-invite",
@@ -741,11 +746,9 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    // Invite directive should still be enforced even without requestCode
-    expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
-    // Approve/reject should NOT be present since there is no requestCode
-    expect(decision.renderedCopy.vellum?.body).not.toContain("approve");
-    expect(decision.renderedCopy.vellum?.body).not.toContain("reject");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      'Someone wants access to your assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
   });
 });
 

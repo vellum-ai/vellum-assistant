@@ -71,20 +71,26 @@ Examples:
     },
     {
       name: "credits",
-      description: "Show the organization's remaining credit balance",
+      description:
+        "Show the organization's remaining credit balance and daily-limit state",
       helpText: `
-Fetches the org's credit balance from the platform billing summary.
+Fetches the org's credit balance, today's spend, and daily-limit state from
+the platform billing summary.
 
 Fields:
-  remaining   Effective balance (settled minus pending charges) in USD
-  settled     On-ledger balance in USD
-  pending     Estimated pending compute charges not yet settled, in USD
-  unit        Balance currency (USD)
-  stale       True when pending-charge data may be stale or unavailable
-  as_of       When this balance was read (response receipt time)
-
-Combine with 'assistant usage daily' to compute runway (remaining divided
-by rolling daily average) and warn before credits run out.
+  remaining              Effective balance (settled minus pending charges) in USD
+  settled                On-ledger balance in USD
+  pending                Estimated pending compute charges not yet settled, in USD
+  unit                   Balance currency (USD)
+  stale                  True when pending-charge data may be stale or unavailable
+  as_of                  When this balance was read (response receipt time)
+  daily_spend            Today's (UTC) spend counted against the daily limit, in USD
+                         (excludes spend covered by plan-included credits)
+  daily_limit            Daily credit limit in USD, or null when none is set
+  daily_limit_reached    True when today's spend has hit the limit and it is enforced
+  daily_limit_snoozed    True when the limit is skipped for the rest of today
+  low_balance_threshold  Low-balance alert threshold in USD
+  low_balance_warning    True when the balance is below the threshold and auto top-up is off
 
 Requires platform credentials (run 'assistant platform connect' first or
 ensure VELLUM_PLATFORM_URL is set and credentials are stored).

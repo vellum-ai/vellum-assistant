@@ -444,3 +444,96 @@ export async function sendTelegramTypingIndicator(
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Live message drafts (sendMessageDraft)
+// ---------------------------------------------------------------------------
+
+/**
+ * Telegram caps a message, and so a draft's text, at 4096 characters.
+ *
+ * A draft is a preview rather than the reply, so an over-long partial keeps
+ * its tail rather than being split across drafts: splitting would animate the
+ * reader back to the start of the reply every time it grew past the cap. The
+ * tail is also the live end of the draft, so a reply past the cap keeps
+ * moving instead of freezing on a prefix, and anything drawn beneath it
+ * stays visible.
+ */
+export const TELEGRAM_DRAFT_TEXT_LIMIT = 4096;
+
+/**
+ * The tail of a draft that Telegram will accept, cut on a character boundary.
+ *
+ * The cap counts UTF-16 code units, so slicing to it can land between the two
+ * halves of an astral character (an emoji, which a plan's status glyphs and a
+ * reply's own text both carry) and send a lone surrogate. Dropping a leading
+ * low surrogate costs one character and keeps the text well-formed.
+ */
+function draftTail(text: string): string {
+  if (text.length <= TELEGRAM_DRAFT_TEXT_LIMIT) {
+    return text;
+  }
+  const tail = text.slice(-TELEGRAM_DRAFT_TEXT_LIMIT);
+  const first = tail.charCodeAt(0);
+  return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+}
+
+/**
+ * How long a draft survives without being re-sent: Telegram describes it as
+ * "a temporary 30-second preview". A draft that stops being advanced
+ * disappears rather than lingering with stale text.
+ */
+export const TELEGRAM_DRAFT_TTL_MS = 30_000;
+
+/**
+ * Show, or advance, the live draft of a reply still being written.
+ *
+ * `sendMessageDraft` takes the whole partial reply rather than a delta and
+ * lets Telegram's clients animate the difference, which is why every call
+ * passes the full text. Reusing one `draft_id` is what makes those calls read
+ * as one growing draft: a different id replaces the draft without animation.
+ * Empty text is meaningful, rendering Telegram's own "Thinking..." placeholder,
+ * so it is passed through rather than skipped.
+ *
+ * The draft is a preview and never the reply. Telegram's own words: "once the
+ * output is finalized, you must call sendMessage with the complete message to
+ * persist it". It also clears the moment the bot sends a real message, so
+ * nothing has to clear it, and it survives only {@link TELEGRAM_DRAFT_TTL_MS}
+ * without being re-sent.
+ *
+ * Private chats only, and `chat_id` here is an Integer rather than the
+ * "Integer or String" most methods accept, so a non-numeric chat id cannot
+ * address a draft at all and is refused rather than sent to be rejected.
+ *
+ * @see https://core.telegram.org/bots/api#sendmessagedraft
+ */
+export async function sendTelegramMessageDraft(
+  chatId: string,
+  draftId: number,
+  text: string,
+  opts?: TelegramSendOptions,
+): Promise<boolean> {
+  const numericChatId = Number(chatId);
+  if (!Number.isSafeInteger(numericChatId)) {
+    log.debug(
+      { chatId, draftId },
+      "Telegram drafts address a chat by integer id; skipping draft",
+    );
+    return false;
+  }
+  try {
+    await callTelegramBotApi("sendMessageDraft", {
+      chat_id: numericChatId,
+      draft_id: draftId,
+      text: draftTail(text),
+      ...threadIdPayloadFields(opts),
+    });
+    return true;
+  } catch (err) {
+    log.debug(
+      { err, chatId, draftId },
+      "Failed to send Telegram message draft",
+    );
+    return false;
+  }
+}

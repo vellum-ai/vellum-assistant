@@ -100,34 +100,6 @@ const {
 } = await import("./watch-controller");
 const { clearWatchRetro, useWatchRetroStore } = await import("./watch-retro");
 
-/**
- * Live-voice subscriptions, counted.
- *
- * A leaked one is invisible against the real store: teardown is idempotent, so
- * a stale listener fires harmlessly and accumulates one listener per session
- * for the life of the page. Spying on the real `subscribe` rather than mocking
- * the module keeps the real `isLiveVoiceSessionActive` and the real state
- * machine, which are the things these cases are actually driving.
- */
-let liveVoiceListeners = 0;
-const realLiveVoiceSubscribe = useLiveVoiceStore.subscribe.bind(
-  useLiveVoiceStore,
-) as typeof useLiveVoiceStore.subscribe;
-useLiveVoiceStore.subscribe = ((
-  listener: Parameters<typeof realLiveVoiceSubscribe>[0],
-) => {
-  liveVoiceListeners += 1;
-  const unsubscribe = realLiveVoiceSubscribe(listener);
-  let released = false;
-  return () => {
-    if (!released) {
-      released = true;
-      liveVoiceListeners -= 1;
-    }
-    unsubscribe();
-  };
-}) as typeof useLiveVoiceStore.subscribe;
-
 /** The assistant every session in this file is started against. */
 const ASSISTANT_ID = "asst-owner";
 
@@ -360,7 +332,6 @@ beforeEach(() => {
   sockets = [];
   capture = createCaptureFake();
   useLiveVoiceStore.setState({ state: "idle" });
-  liveVoiceListeners = 0;
   // The watch store is module state shared by every case in this file, and the
   // session's own writes are the only thing that ever moves it. Cleared here so
   // a case reads its own session's counts rather than inheriting the previous
@@ -460,27 +431,17 @@ describe("toggling a watch session", () => {
   });
 
   /**
-   * One microphone, one owner. Both sessions capture from the device the
-   * machine has exactly one of, and the call is the one the user is already
-   * in, so the press is spent rather than queued behind it.
+   * A call is not in the way. The session opens its own capture beside the
+   * call's, so the narration reaches both: the call answers it and the watch
+   * records it.
    */
-  test("refuses to start while a live-voice call is running", async () => {
+  test("starts beside a live-voice call", async () => {
     useLiveVoiceStore.setState({ state: "listening" });
-
-    await toggle();
-
-    expect(sockets).toHaveLength(0);
-    expect(capture.calls.started).toBe(0);
-    expect(useWatchStore.getState().watching).toBe(false);
-  });
-
-  test("starts once the call has ended", async () => {
-    useLiveVoiceStore.setState({ state: "listening" });
-    await toggle();
-    useLiveVoiceStore.setState({ state: "idle" });
 
     await startRunning();
 
+    expect(sockets).toHaveLength(1);
+    expect(capture.calls.started).toBe(1);
     expect(useWatchStore.getState().watching).toBe(true);
   });
 
@@ -984,7 +945,6 @@ describe("the flush window after the user stops", () => {
 
     expect(useWatchStore.getState().watching).toBe(false);
     expect(capture.calls.shutdown).toBe(1);
-    expect(liveVoiceListeners).toBe(0);
     expect(assistantListeners.size).toBe(0);
     expect(socket().closeCalls).toEqual([]);
   });
@@ -1083,14 +1043,6 @@ describe("the flush window after the user stops", () => {
    * Only a deliberate stop owes the runtime a flush. Every other ending is
    * already over, so waiting would hold a socket open for nothing.
    */
-  test("does not wait when a call takes the microphone", async () => {
-    await startRunning();
-
-    useLiveVoiceStore.setState({ state: "listening" });
-
-    expect(socket().closeCalls).toEqual([1000]);
-  });
-
   test("does not wait when the assistant changes", async () => {
     await startRunning();
 
@@ -1257,7 +1209,7 @@ describe("the summary a stopped session leaves behind", () => {
 
   /**
    * Every ending that is not the user's own press is something going wrong: a
-   * socket that dropped, a call taking the microphone, the layout going away.
+   * socket that dropped, the layout going away.
    * None of them is a request for a summary, and a runtime that is gone is not
    * going to write one.
    */
@@ -1392,73 +1344,39 @@ describe("a watch session between the socket and the runtime", () => {
 });
 
 /**
- * A call takes the microphone from a watch session.
+ * A watch session and a call share the user, not a microphone.
  *
- * The refusal in `toggleWatch` only covers Watch pressed during a call. Live
- * voice has its own doors, and they do not consult this module, so the session
- * has to give the microphone up rather than every one of those doors having to
- * learn to refuse.
+ * Each opens its own capture, so a call arriving mid-session changes nothing
+ * here: the screen goes on being read, the narration goes on being recorded,
+ * and the call answers it as it is said. That is the point of the pairing, a
+ * user teaching the assistant who can ask it questions as they go.
  */
 describe("a watch session when a call starts", () => {
   const startCall = () => {
     useLiveVoiceStore.setState({ state: "listening" });
   };
 
-  test("ends a running session", async () => {
+  test("keeps a running session running", async () => {
     await startRunning();
 
     startCall();
 
-    expect(capture.calls.shutdown).toBe(1);
-    expect(socket().closeCalls).toEqual([1000]);
-    expect(useWatchStore.getState().watching).toBe(false);
+    expect(capture.calls.shutdown).toBe(0);
+    expect(socket().closeCalls).toEqual([]);
+    expect(useWatchStore.getState().watching).toBe(true);
   });
 
-  /**
-   * A session still waiting on `ready` has a socket the call knows nothing
-   * about, and a microphone about to open the moment the runtime answers.
-   */
-  test("ends a session still pending, before it can open the microphone", async () => {
-    const seen = await flagEmissions(async () => {
-      await startPending();
-      startCall();
-      await serverReady();
-    });
+  test("lets a session still pending open its microphone", async () => {
+    await startPending();
+    startCall();
+    await serverReady();
 
-    expect(capture.calls.started).toBe(0);
-    expect(capture.calls.shutdown).toBe(1);
-    expect(seen).toEqual([]);
-  });
-
-  test("leaves one owner of the microphone", async () => {
-    await startRunning();
     expect(capture.calls.started).toBe(1);
-
-    startCall();
-
-    expect(capture.calls.shutdown).toBe(1);
-    expect(sockets).toHaveLength(1);
+    expect(capture.calls.shutdown).toBe(0);
+    expect(useWatchStore.getState().watching).toBe(true);
   });
 
-  /**
-   * The other direction, which was already guarded and has to stay guarded:
-   * pressing Watch during a call opens nothing.
-   */
-  test("still refuses a press that lands during a call", async () => {
-    startCall();
-
-    await toggle();
-
-    expect(sockets).toHaveLength(0);
-    expect(useWatchStore.getState().watching).toBe(false);
-  });
-
-  /**
-   * A call starting while the version gate resolves. Guarded by the re-read
-   * after the await rather than by the subscription, since there is no session
-   * yet to subscribe on its behalf.
-   */
-  test("cancels a start that is still resolving the version gate", async () => {
+  test("lets a start still resolving the version gate go on to open", async () => {
     activate(ASSISTANT_ID, null);
     const pressed = toggle();
 
@@ -1466,31 +1384,16 @@ describe("a watch session when a call starts", () => {
     activate(ASSISTANT_ID);
     await pressed;
 
-    expect(sockets).toHaveLength(0);
-    expect(useWatchStore.getState().watching).toBe(false);
+    expect(sockets).toHaveLength(1);
   });
 
-  /**
-   * The subscription lives exactly as long as the session does. Left behind it
-   * fires harmlessly, because teardown is idempotent, and accumulates one
-   * listener per session for the life of the page.
-   */
-  test("stops listening for calls once the session is over", async () => {
+  test("still ends on the user's own press", async () => {
     await startRunning();
-    expect(liveVoiceListeners).toBe(1);
+    startCall();
 
     stopWatch();
 
-    expect(liveVoiceListeners).toBe(0);
-  });
-
-  test("leaves nothing behind across repeated sessions", async () => {
-    await startRunning();
-    await stopAndSettle();
-    await startRunning();
-    await stopAndSettle();
-
-    expect(liveVoiceListeners).toBe(0);
+    expect(useWatchStore.getState().watching).toBe(false);
   });
 });
 

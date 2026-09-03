@@ -17,7 +17,7 @@ import {
   accessRequestCardSubtitle,
   accessRequestCardTitle,
   buildAccessRequestCardView,
-  buildAccessRequestContractText,
+  buildAccessRequestTextFallback,
   buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
@@ -238,7 +238,10 @@ function resolveAccessRequestCard(
     metadata,
     requestId: view.requestId,
     actions,
-    fallbackText: buildAccessRequestContractText(payload),
+    // The card's text sibling is what a client without buttons sees (the
+    // CLI, search, the model), so it is the one place the card itself
+    // carries the typed directive beside the context.
+    fallbackText: buildAccessRequestTextFallback(payload),
   };
 }
 

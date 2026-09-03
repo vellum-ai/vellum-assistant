@@ -38,6 +38,7 @@ const CHARACTER_STATE: AvatarState = {
   traits: CHARACTER_TRAITS,
   source: "builder",
   image: null,
+  accent: null,
 };
 
 const IMAGE_STATE: AvatarState = {
@@ -45,6 +46,7 @@ const IMAGE_STATE: AvatarState = {
   traits: null,
   source: "upload",
   image: { updatedAt: "2026-05-29T00:00:00Z", etag: "abc123" },
+  accent: null,
 };
 
 const NONE_STATE: AvatarState = {
@@ -52,6 +54,7 @@ const NONE_STATE: AvatarState = {
   traits: null,
   source: null,
   image: null,
+  accent: null,
 };
 
 describe("isAvatarState", () => {
