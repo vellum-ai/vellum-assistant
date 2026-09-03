@@ -6,6 +6,10 @@
     "showFullList": "Show me the full list",
     "later": "Do it Later"
   },
+  "celebration": {
+    "title": "You did it!",
+    "subtitle": "Three tasks down. The full list is here whenever you want more."
+  },
   "row": {
     "customLabel": "Custom:",
     "customPlaceholder": "Type whatever you want",

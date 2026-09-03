@@ -24,8 +24,6 @@ export interface ProcessStatusPillProps {
   label: string;
   /** Pre-formatted count, e.g. "6 steps". Omitted when there is nothing to count. */
   count?: string;
-  /** Overrides the state's default glyph. */
-  icon?: ReactNode;
   className?: string;
 }
 
@@ -33,7 +31,6 @@ export function ProcessStatusPill({
   state,
   label,
   count,
-  icon,
   className,
 }: ProcessStatusPillProps): ReactNode {
   return (
@@ -53,14 +50,13 @@ export function ProcessStatusPill({
             : "text-[var(--content-secondary)]",
         )}
       >
-        {icon ??
-          (state === "working" ? (
-            // `motion-safe` keeps the spin out of a reduced-motion session;
-            // the glyph still reads as the working state without it.
-            <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
-          ) : (
-            <CircleCheck className="h-4 w-4" />
-          ))}
+        {state === "working" ? (
+          // `motion-safe` keeps the spin out of a reduced-motion session; the
+          // glyph still reads as the working state without it.
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
+        ) : (
+          <CircleCheck className="h-4 w-4" />
+        )}
       </span>
       <Typography
         as="span"

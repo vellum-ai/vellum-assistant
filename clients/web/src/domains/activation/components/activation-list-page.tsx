@@ -2,31 +2,27 @@
  * The Inspiration List: every task the active persona list offers, in catalog
  * order, with the daemon's progress on each (Figma Light 796 / Light 797).
  *
- * Flat and unsectioned by design (PLAN A10): the list is browsed, not
- * navigated, and category headers would ask the reader to pick a bucket
- * before picking a task.
+ * Flat and unsectioned by design: the list is browsed, not navigated, and
+ * category headers would ask the reader to pick a bucket before picking a
+ * task.
  *
  * Presentational. Every read and write is a prop, so the page renders the same
  * against a story fixture as against the daemon, and the route beside it owns
  * the catalog, the progress query and the launch.
  *
- * The rows are `ActivationTaskRow` in its `list` surface, the same component
- * the welcome modal draws, so a task reads the same in both places.
- *
- * Progress that has not landed yet is `undefined`, not an empty map, and the
- * rows are placeholders until it does. A missing record reads as "never
- * started", so rendering the real rows early would offer a finished task back
- * to the user and run its prompt a second time.
+ * The rows are `ActivationTaskList` in its `list` surface, the same group the
+ * welcome modal draws, so a task reads the same in both places and the
+ * placeholders match the rows that replace them.
  */
 
-import { Skeleton } from "@vellumai/design-library/components/skeleton";
+import type { ReactNode } from "react";
 
 import { PageShell } from "@/components/page-shell";
 import { useTranslation } from "@/i18n";
 
 import type { ActivationTask } from "../catalog";
 import type { ActivationProgress } from "../hooks/use-activation-progress";
-import { ActivationTaskRow } from "./activation-task-row";
+import { ActivationTaskList } from "./activation-task-list";
 
 export interface ActivationListPageProps {
   /** Starters first, then the rest, exactly as the list orders them. */
@@ -44,19 +40,6 @@ export interface ActivationListPageProps {
   assistantId?: string;
 }
 
-/** One row's worth of placeholder: the disc, the title and the description. */
-function ActivationListRowSkeleton() {
-  return (
-    <li className="flex items-start gap-3 border-b border-[var(--border-base)] px-3 py-4 last:border-b-0">
-      <Skeleton className="h-[26px] w-[26px] shrink-0 rounded-full" />
-      <div className="flex w-full flex-col gap-2">
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-4 w-3/4" />
-      </div>
-    </li>
-  );
-}
-
 export function ActivationListPage({
   tasks,
   progress,
@@ -64,7 +47,7 @@ export function ActivationListPage({
   onLaunch,
   onOpenConversation,
   assistantId,
-}: ActivationListPageProps) {
+}: ActivationListPageProps): ReactNode {
   const { t } = useTranslation("activation");
   const loading = progress === undefined;
 
@@ -72,7 +55,7 @@ export function ActivationListPage({
     <PageShell className="overflow-y-auto">
       <div className="mx-auto w-full max-w-[600px] px-4 md:px-0">
         {/* The serif brand headline, the same treatment the chat's empty
-            state gives its greeting, a step down on mobile (PLAN A24). */}
+            state gives its greeting, a step down on mobile. */}
         <h1
           className="text-center text-[40px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[48px]"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -80,32 +63,26 @@ export function ActivationListPage({
           {t("page.title", { count: tasks.length })}
         </h1>
         {/* The placeholders are the only signal the page is loading, so the
-            list carries the loading semantics while they stand. */}
-        <ul
-          className="mt-10 mb-6 overflow-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)]"
+            wrapper carries the loading semantics while they stand. It wraps
+            rather than sits on the list itself: a `status` role on a `ul`
+            replaces its list semantics, and the row count is what a reader
+            navigating by list is here for. */}
+        <div
+          className="mt-10 mb-6"
           aria-busy={loading || undefined}
           role={loading ? "status" : undefined}
           aria-label={loading ? t("page.loading") : undefined}
         >
-          {loading
-            ? tasks.map((task) => <ActivationListRowSkeleton key={task.id} />)
-            : tasks.map((task) => (
-                <li
-                  key={task.id}
-                  className="border-b border-[var(--border-base)] last:border-b-0"
-                >
-                  <ActivationTaskRow
-                    task={task}
-                    surface="list"
-                    progress={progress[task.id]}
-                    pending={pendingTaskIds?.has(task.id) ?? false}
-                    onLaunch={() => onLaunch(task.id)}
-                    onOpenConversation={onOpenConversation}
-                    assistantId={assistantId}
-                  />
-                </li>
-              ))}
-        </ul>
+          <ActivationTaskList
+            tasks={tasks}
+            surface="list"
+            progress={progress}
+            pendingTaskIds={pendingTaskIds}
+            onLaunch={onLaunch}
+            onOpenConversation={onOpenConversation}
+            assistantId={assistantId}
+          />
+        </div>
       </div>
     </PageShell>
   );

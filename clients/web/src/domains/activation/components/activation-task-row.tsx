@@ -47,11 +47,11 @@ import { useTranslation } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 
 import type { ActivationTask } from "../catalog";
-import type { ActivationTaskProgress } from "../hooks/use-activation-progress";
+import {
+  activationRowStatus,
+  type ActivationTaskProgress,
+} from "../hooks/use-activation-progress";
 import { ActivationTaskIcon } from "./activation-task-icon";
-
-/** What the row shows, derived from the daemon's record for the task. */
-export type ActivationRowStatus = "todo" | "working" | "done";
 
 /**
  * Which surface the row draws for.
@@ -65,18 +65,6 @@ export type ActivationRowStatus = "todo" | "working" | "done";
  * to carry a locked control instead.
  */
 export type ActivationRowSurface = "modal" | "list";
-
-export function activationRowStatus(
-  progress: ActivationTaskProgress | null | undefined,
-): ActivationRowStatus {
-  if (progress?.status === "done") {
-    return "done";
-  }
-  if (progress?.status === "started") {
-    return "working";
-  }
-  return "todo";
-}
 
 /**
  * The body's inset, lining it up with the row's title rather than the row's
@@ -206,14 +194,10 @@ export function ActivationTaskRow({
         {callToAction}
         <ConversationStarterChip
           label={task.chip}
+          variant="compact"
           disabled={pending}
           onSelect={() => onLaunch?.()}
-          className={cn(
-            // A pill that hugs its words, not the dock's full-width card.
-            "min-h-0 w-auto rounded-[var(--radius-pill)] px-1.5 py-1",
-            "text-label-medium-default sm:text-label-medium-default",
-            "bg-[var(--feed-digest-weak)] [--vbtn-fg:var(--feed-digest-strong)]",
-          )}
+          className="bg-[var(--feed-digest-weak)] [--vbtn-fg:var(--feed-digest-strong)]"
         />
         <div className="flex w-full flex-col gap-1">
           <Typography

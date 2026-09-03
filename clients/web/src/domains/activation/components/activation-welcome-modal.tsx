@@ -17,7 +17,7 @@
  * The header is full bleed and inverts against the body, which one set of
  * tokens cannot express: in light the band is the primary ink with inset text
  * on it, and in dark that ink is the page itself, so the band becomes the
- * sunken surface with ordinary content colours (PLAN A16/A25).
+ * sunken surface with ordinary content colours.
  *
  * The shell is a modal on a pointer surface and a bottom sheet on a phone,
  * chosen by the design library's touch-surface signal rather than by width.
@@ -43,7 +43,6 @@ import {
   useTouchSurface,
 } from "@vellumai/design-library";
 
-import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -53,10 +52,13 @@ import { routes } from "@/utils/routes";
 import { useActivationUiStore } from "../activation-ui-store";
 import { useAvailableActivationList } from "../capabilities";
 import type { ActivationTask } from "../catalog";
-import type { ActivationProgress } from "../hooks/use-activation-progress";
+import {
+  activationProgressQueryKey,
+  activationRowStatus,
+  type ActivationProgress,
+} from "../hooks/use-activation-progress";
 import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
 import { ActivationTaskList } from "./activation-task-list";
-import { activationRowStatus } from "./activation-task-row";
 
 /**
  * `welcome` is the first-run modal with its dismiss button; `all-done` is the
@@ -106,14 +108,14 @@ export function ActivationWelcomeModal({
   // Filtered, so a row whose prerequisite is missing is never offered, seeded
   // as the open one, or counted by Show More (`../capabilities.ts`).
   const { starters, items } = useAvailableActivationList(listId);
-  const { launch, isPending } = useLaunchActivationTask(listId);
+  const { launch, pendingTaskIds } = useLaunchActivationTask(listId);
   const queryClient = useQueryClient();
   // Launch completions read the pending set as it is when they settle, not as
   // it was when the launch began.
-  const isPendingRef = useRef(isPending);
+  const pendingRef = useRef(pendingTaskIds);
   useEffect(() => {
-    isPendingRef.current = isPending;
-  }, [isPending]);
+    pendingRef.current = pendingTaskIds;
+  }, [pendingTaskIds]);
 
   const expandedTaskId = useActivationUiStore.use.expandedTaskId();
   const setExpandedTaskId = useActivationUiStore.use.setExpandedTaskId();
@@ -166,13 +168,11 @@ export function ActivationWelcomeModal({
             const current =
               (assistantId
                 ? queryClient.getQueryData<ActivationProgress>(
-                    activationProgressGetQueryKey({
-                      path: { assistant_id: assistantId },
-                    }),
+                    activationProgressQueryKey(assistantId),
                   )
                 : undefined) ?? progress;
             const candidates = tasks.filter(
-              (task) => !isPendingRef.current(task.id),
+              (task) => !pendingRef.current.has(task.id),
             );
             setExpandedTaskId(firstTodoTaskId(candidates, current, taskId));
           }
@@ -238,12 +238,12 @@ export function ActivationWelcomeModal({
     <>
       <ActivationTaskList
         tasks={tasks}
-        progress={progress}
+        progress={progress.tasks}
         expandedTaskId={expandedTaskId}
         onToggleTask={toggleTask}
         onLaunch={handleLaunch}
         onOpenConversation={handleOpenConversation}
-        isPending={isPending}
+        pendingTaskIds={pendingTaskIds}
         assistantId={assistantId ?? undefined}
       />
       {disclosure ? <div className="pt-6">{disclosure}</div> : null}
@@ -272,7 +272,7 @@ export function ActivationWelcomeModal({
           padded={false}
           className="max-h-[85dvh] overflow-hidden"
         >
-          <ActivationWelcomeHeader sheet />
+          <ActivationWelcomeHeader sheet variant={variant} />
           <div
             className={cn("min-h-0 flex-1 overflow-y-auto pt-6", PANEL_INSET)}
           >
@@ -292,7 +292,7 @@ export function ActivationWelcomeModal({
         hideCloseButton
         className="max-w-[440px] overflow-hidden"
       >
-        <ActivationWelcomeHeader sheet={false} />
+        <ActivationWelcomeHeader sheet={false} variant={variant} />
         <div className={cn("min-h-0 flex-1 overflow-y-auto pt-6", PANEL_INSET)}>
           {body}
         </div>
@@ -307,11 +307,27 @@ export function ActivationWelcomeModal({
  * The full-bleed band: the serif greeting, the two-line subtitle, and the
  * mascot strip the band's bottom edge cuts off.
  *
+ * The copy follows the variant. The celebration is the end of the checklist,
+ * so greeting someone who has just finished it with "Welcome!" and an offer to
+ * try the tasks they have already done reads as a surface that was not
+ * watching.
+ *
  * The title element differs by shell because each dialog primitive owns its
  * own, and Radix needs the one belonging to the dialog it is inside.
  */
-function ActivationWelcomeHeader({ sheet }: { sheet: boolean }): ReactNode {
+function ActivationWelcomeHeader({
+  sheet,
+  variant,
+}: {
+  sheet: boolean;
+  variant: ActivationModalVariant;
+}): ReactNode {
   const { t } = useTranslation("activation");
+  const celebration = variant === "all-done";
+  const title = celebration ? t("celebration.title") : t("welcome.title");
+  const subtitle = celebration
+    ? t("celebration.subtitle")
+    : t("welcome.subtitle");
   const titleClassName = cn(
     "w-full justify-center px-4 text-center text-[32px] tracking-[0.02em]",
     "text-[var(--content-inset)] dark:text-[var(--content-emphasised)]",
@@ -327,11 +343,11 @@ function ActivationWelcomeHeader({ sheet }: { sheet: boolean }): ReactNode {
     >
       {sheet ? (
         <BottomSheet.Title className={titleClassName} style={titleStyle}>
-          {t("welcome.title")}
+          {title}
         </BottomSheet.Title>
       ) : (
         <Modal.Title className={titleClassName} style={titleStyle}>
-          {t("welcome.title")}
+          {title}
         </Modal.Title>
       )}
       <Typography
@@ -343,7 +359,7 @@ function ActivationWelcomeHeader({ sheet }: { sheet: boolean }): ReactNode {
           "dark:text-[var(--content-secondary)]",
         )}
       >
-        {t("welcome.subtitle")}
+        {subtitle}
       </Typography>
       {/* Exported at the size the band clips it to, so the characters read as
           standing behind the band's bottom edge. */}

@@ -12,7 +12,15 @@
  */
 
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -28,21 +36,22 @@ import {
   doneTaskProgress,
   startedTaskProgress,
 } from "@/domains/activation/activation-test-fixtures";
+import {
+  installActivationFetchStub,
+  resetActivationFlagStore,
+  seedActivationIdentity,
+  setActivationArm,
+  type ActivationFetchStub,
+  type RecordedRequest,
+} from "@/domains/activation/activation-test-helpers";
 import { getActivationList } from "@/domains/activation/catalog";
 import { ActivationListPage } from "@/domains/activation/components/activation-list-page";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-interface CapturedRequest {
-  url: string;
-  method: string;
-  body: Record<string, unknown>;
-}
-
-const requests: CapturedRequest[] = [];
+let fetchStub: ActivationFetchStub;
 
 /** Which leg of the launch a request belongs to. */
 type Leg = "create" | "start" | "send" | "discard";
@@ -94,18 +103,29 @@ const emitMock = mock(() => {});
 // every test file sharing this process, so returning only the mocked exports
 // would erase the rest for anything that loads it later.
 const telemetry = await import("@/utils/activation-telemetry");
+// Captured by value: a module namespace's bindings are live, so reading the
+// export back after the mock is installed would hand out the mock.
+const { emitActivationEvent: realEmitActivationEvent } = telemetry;
 mock.module("@/utils/activation-telemetry", () => ({
   ...telemetry,
   emitActivationEvent: emitMock,
 }));
+
+// The mock outlives this file otherwise, and `preferences-menu.test.tsx`
+// asserts on the same emitter.
+afterAll(() => {
+  mock.module("@/utils/activation-telemetry", () => ({
+    ...telemetry,
+    emitActivationEvent: realEmitActivationEvent,
+  }));
+  resetActivationFlagStore();
+});
 
 const { useLaunchActivationTask } =
   await import("@/domains/activation/hooks/use-launch-activation-task");
 type LaunchActivationTaskResult = Awaited<
   ReturnType<ReturnType<typeof useLaunchActivationTask>["launch"]>
 >;
-
-const originalFetch = globalThis.fetch;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -114,72 +134,57 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-function installFetch(): void {
-  globalThis.fetch = (async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const url = input instanceof Request ? input.url : String(input);
-    const method = (
-      input instanceof Request ? input.method : (init?.method ?? "GET")
-    ).toUpperCase();
-    let bodyText: string | undefined;
-    if (input instanceof Request) {
-      bodyText = await input.clone().text();
-    } else if (typeof init?.body === "string") {
-      bodyText = init.body;
-    }
-    const leg = legOf(url, method);
-    if (leg === null) {
-      return json(200, {});
-    }
-    calls.push(leg);
-    requests.push({
-      url,
-      method,
-      body: bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {},
-    });
-    switch (leg) {
-      case "create":
-        if (holdCreates) {
-          await new Promise<void>((resolve) => parkedCreates.push(resolve));
-        }
-        if (createStatus !== 200) {
-          return json(
-            createStatus,
-            createDetail === null ? {} : { detail: createDetail },
-          );
-        }
-        return json(200, {
-          id: `conv-${++mintCounter}`,
-          conversationKey: "",
-          conversationType: "standard",
-          created: true,
-        });
-      case "start":
-        if (startThrows) {
-          throw new TypeError("network down");
-        }
-        if (startStatus !== 200) {
-          return json(startStatus, { detail: "task id rejected" });
-        }
-        return json(200, startBody);
-      case "send":
-        if (sendThrows) {
-          throw new TypeError("network down");
-        }
-        if (sendStatus !== 200) {
-          return json(sendStatus, { detail: "daemon said no" });
-        }
-        return json(200, {
-          accepted: true,
-          messageId: "m1",
-          conversationId: `conv-${mintCounter}`,
-        });
-      case "discard":
-        return json(200, { success: true });
-    }
-  }) as typeof fetch;
+/**
+ * Every leg answers for itself, because each one is a different failure the
+ * launch has to survive: a parked create, a link that throws instead of
+ * answering, a send the daemon refuses. The shared stub records; this decides.
+ */
+async function answerLeg(request: RecordedRequest): Promise<Response> {
+  const leg = legOf(request.url, request.method);
+  if (leg === null) {
+    return json(200, {});
+  }
+  calls.push(leg);
+  switch (leg) {
+    case "create":
+      if (holdCreates) {
+        await new Promise<void>((resolve) => parkedCreates.push(resolve));
+      }
+      if (createStatus !== 200) {
+        return json(
+          createStatus,
+          createDetail === null ? {} : { detail: createDetail },
+        );
+      }
+      return json(200, {
+        id: `conv-${++mintCounter}`,
+        conversationKey: "",
+        conversationType: "standard",
+        created: true,
+      });
+    case "start":
+      if (startThrows) {
+        throw new TypeError("network down");
+      }
+      if (startStatus !== 200) {
+        return json(startStatus, { detail: "task id rejected" });
+      }
+      return json(200, startBody);
+    case "send":
+      if (sendThrows) {
+        throw new TypeError("network down");
+      }
+      if (sendStatus !== 200) {
+        return json(sendStatus, { detail: "daemon said no" });
+      }
+      return json(200, {
+        accepted: true,
+        messageId: "m1",
+        conversationId: `conv-${mintCounter}`,
+      });
+    case "discard":
+      return json(200, { success: true });
+  }
 }
 
 let queryClient = new QueryClient();
@@ -205,22 +210,22 @@ function cachedProgress(): ActivationProgress | undefined {
   return queryClient.getQueryData<ActivationProgress>(PROGRESS_KEY);
 }
 
-function launcher() {
-  const { result } = renderHook(() => useLaunchActivationTask("smb"), {
+function launcher(listId: string = "smb") {
+  const { result } = renderHook(() => useLaunchActivationTask(listId), {
     wrapper,
   });
   return result;
 }
 
 /** Every request belonging to one leg of the launch. */
-function requestsFor(leg: Leg): CapturedRequest[] {
-  return requests.filter(
+function requestsFor(leg: Leg): RecordedRequest[] {
+  return fetchStub.requests.filter(
     (request) => legOf(request.url, request.method) === leg,
   );
 }
 
 /** The single request for one leg of the launch. */
-function requestFor(leg: Leg): CapturedRequest {
+function requestFor(leg: Leg): RecordedRequest {
   const matches = requestsFor(leg);
   expect(matches).toHaveLength(1);
   return matches[0]!;
@@ -228,7 +233,6 @@ function requestFor(leg: Leg): CapturedRequest {
 
 beforeEach(() => {
   calls.length = 0;
-  requests.length = 0;
   mintCounter = 0;
   createStatus = 200;
   createDetail = "no conversation for you";
@@ -241,16 +245,14 @@ beforeEach(() => {
   parkedCreates = [];
   queryClient = newQueryClient();
   emitMock.mockClear();
-  installFetch();
-  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
-  useAssistantIdentityStore
-    .getState()
-    .setIdentity("Vel", MIN_VERSION, "asst-1");
+  fetchStub = installActivationFetchStub({ respond: answerLeg });
+  setActivationArm("smb");
+  seedActivationIdentity("asst-1");
 });
 
 afterEach(() => {
   cleanup();
-  globalThis.fetch = originalFetch;
+  fetchStub.restore();
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -420,7 +422,7 @@ describe("useLaunchActivationTask", () => {
     expect(requestsFor("discard")).toHaveLength(0);
     expect(outcome).toMatchObject({ ok: false, conversationId: "conv-1" });
     expect(outcome?.error).toBeTruthy();
-    expect(result.current.isPending("pdf-proposal")).toBe(false);
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(false);
   });
 
   test("reports a failed send against the conversation it linked", async () => {
@@ -452,7 +454,7 @@ describe("useLaunchActivationTask", () => {
     expect(outcome).toMatchObject({ ok: false, conversationId: "conv-1" });
     expect(outcome?.error).toBeTruthy();
     expect(emitMock).not.toHaveBeenCalled();
-    expect(result.current.isPending("pdf-proposal")).toBe(false);
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(false);
   });
 
   test("creates a fresh conversation for every launch", async () => {
@@ -502,11 +504,37 @@ describe("useLaunchActivationTask", () => {
       await result.current.launch("pdf-proposal");
     });
 
-    expect(emitMock).toHaveBeenCalledWith("activation_task_started", {
-      arm: expect.any(String) as never,
-      listId: "smb",
-      taskId: "pdf-proposal",
+    expect(emitMock).toHaveBeenCalledWith(
+      "activation_task_started",
+      { taskId: "pdf-proposal" },
+      { arm: "smb", listId: "smb" },
+    );
+  });
+
+  // Three round trips separate the click from the event, and the user can
+  // switch assistants across them. The funnel has to keep the launch under the
+  // checklist it was started from, not whichever one they landed on.
+  test("keeps the started event on the list the launch began from", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let launched: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      launched = result.current.launch("pdf-proposal");
     });
+
+    await act(async () => {
+      setActivationArm("parent");
+      seedActivationIdentity("asst-2");
+      releaseCreates();
+      await launched;
+    });
+
+    expect(emitMock).toHaveBeenCalledWith(
+      "activation_task_started",
+      { taskId: "pdf-proposal" },
+      { arm: "smb", listId: "smb" },
+    );
   });
 });
 
@@ -527,8 +555,8 @@ describe("useLaunchActivationTask concurrency", () => {
       second = result.current.launch("weekly-report");
     });
 
-    expect(result.current.isPending("pdf-proposal")).toBe(true);
-    expect(result.current.isPending("weekly-report")).toBe(true);
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(true);
+    expect(result.current.pendingTaskIds.has("weekly-report")).toBe(true);
     expect([...result.current.pendingTaskIds].sort()).toEqual([
       "pdf-proposal",
       "weekly-report",
@@ -565,7 +593,7 @@ describe("useLaunchActivationTask concurrency", () => {
     // The refusal has nothing to tell the user: the row is already working.
     expect(duplicate?.error).toBeUndefined();
     expect(calls.filter((leg) => leg === "create")).toHaveLength(2);
-    expect(result.current.isPending("pdf-proposal")).toBe(true);
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(true);
 
     await act(async () => {
       releaseCreates();
@@ -580,7 +608,7 @@ describe("useLaunchActivationTask concurrency", () => {
       await result.current.launch("pdf-proposal");
     });
 
-    expect(result.current.isPending("pdf-proposal")).toBe(false);
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(false);
 
     let again: LaunchActivationTaskResult | undefined;
     await act(async () => {

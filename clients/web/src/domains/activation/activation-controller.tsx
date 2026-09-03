@@ -6,22 +6,22 @@
  * read the same gate stack, so they cannot disagree about whether the feature
  * is on or how far along the user is, and the store's reopen flag is what lets
  * the pill hand control back to this one.
+ *
+ * The completion step of the funnel is watched from here too. The controller
+ * is mounted for as long as the chat layout is, which is the whole session a
+ * background task can finish in.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-
-import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
 
 import { useActivationUiStore } from "./activation-ui-store";
 import { ActivationWelcomeModal } from "./components/activation-welcome-modal";
+import { useActivationCompletionTelemetry } from "./hooks/use-activation-completion-telemetry";
 import { useActivationProgress } from "./hooks/use-activation-progress";
-import {
-  useActivationVisibility,
-  type ActivationSurface,
-} from "./hooks/use-activation-visibility";
+import { useActivationVisibility } from "./hooks/use-activation-visibility";
 import { useDismissActivation } from "./hooks/use-dismiss-activation";
 
 /**
@@ -33,43 +33,22 @@ import { useDismissActivation } from "./hooks/use-dismiss-activation";
  */
 export function ActivationController(): ReactNode {
   const { surface, listId } = useActivationVisibility();
-  const arm = useActivationChecklistArm();
   const { data: progress } = useActivationProgress();
   const modalReopened = useActivationUiStore.use.modalReopened();
   const closeModal = useActivationUiStore.use.closeModal();
-  const { dismiss } = useDismissActivation(listId);
-  /**
-   * The surface the user has closed here, ahead of the daemon.
-   *
-   * `surface` is derived from a server-backed read, so without this the
-   * blocking dialog would stay on screen until the write and its refetch
-   * landed, and a write that failed would leave it there for good. Naming the
-   * surface rather than holding a bare flag keeps the celebration reachable
-   * after the welcome modal has been closed: they are different surfaces and
-   * only one of them is closed at a time.
-   */
-  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const closedSurface = useActivationUiStore.use.closedSurface();
+  const setClosedSurface = useActivationUiStore.use.setClosedSurface();
   const resetTransientState = useActivationUiStore.use.resetTransientState();
-  // Expanded row, Show More and a pill reopen belong to one assistant's
-  // checklist; the next assistant starts from the default view.
+  const { dismiss } = useDismissActivation(listId);
+  useActivationCompletionTelemetry();
+
+  // An expanded row, Show More, a pill reopen and a dismissal made ahead of
+  // the daemon all belong to one assistant's checklist. Switching assistants
+  // without remounting starts the next one from the default view.
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   useEffect(() => {
     resetTransientState();
   }, [activeAssistantId, resetTransientState]);
-  const [closedFor, setClosedFor] = useState<{
-    assistantId: string | null;
-    surface: ActivationSurface;
-  } | null>(null);
-  // A dismissal belongs to the assistant it was made on; switching assistants
-  // without remounting must not carry it over to the next one's welcome.
-  const closedSurface =
-    closedFor !== null && closedFor.assistantId === activeAssistantId
-      ? closedFor.surface
-      : null;
-  const setClosedSurface = (next: ActivationSurface | null): void => {
-    setClosedFor(
-      next === null ? null : { assistantId: activeAssistantId, surface: next },
-    );
-  };
 
   // The celebration is a distinct dismissal: it records that the user has seen
   // it, which is what retires the checklist for good.
@@ -90,8 +69,8 @@ export function ActivationController(): ReactNode {
       return;
     }
     shownFor.current = variant;
-    emitActivationEvent("activation_modal_shown", { arm, listId });
-  }, [arm, listId, open, variant]);
+    emitActivationEvent("activation_modal_shown");
+  }, [open, variant]);
 
   if (!open || listId === null || !progress) {
     return null;

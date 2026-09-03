@@ -7,16 +7,39 @@
  * takes the row above the header on a phone rather than a seat in it.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { usePageSurfaceStore } from "@/stores/page-surface-store";
 
 let mockIsElectron = false;
+const isElectronModule = await import("@/runtime/is-electron");
+// Captured by value: a module namespace's bindings are live, so reading the
+// export back after the mock is installed would hand out the mock.
+const { isElectron: realIsElectron } = isElectronModule;
 mock.module("@/runtime/is-electron", () => ({
+  ...isElectronModule,
   isElectron: () => mockIsElectron,
 }));
+
+// `mock.module` replaces a module for every file sharing this process, and a
+// desktop answer left standing hides every surface that drops a web link
+// inside the app.
+afterAll(() => {
+  mock.module("@/runtime/is-electron", () => ({
+    ...isElectronModule,
+    isElectron: realIsElectron,
+  }));
+});
 
 const toggleCommandPaletteSpy = mock(() => {});
 mock.module("@/stores/command-palette-store", () => ({
@@ -86,6 +109,25 @@ describe("ChatLayoutHeader — right cluster", () => {
     expect(screen.getByText("Notifications")).toBeTruthy();
     // Nothing folds the cluster away: no overflow menu to open.
     expect(screen.queryByRole("button", { name: "More controls" })).toBeNull();
+  });
+
+  // The pill takes its own slot rather than riding beside the bell, because
+  // the bell's slot is restated in the mobile drawer's glyph row and a full
+  // pill has no seat there. In the top bar the two sit together, pill first.
+  test("seats the pill ahead of the route slot", () => {
+    renderHeader({
+      topBarRightSlot: (
+        <>
+          <div data-testid="suggestions-pill" />
+          <button type="button">Notifications</button>
+        </>
+      ),
+    });
+    const pill = screen.getByTestId("suggestions-pill");
+    const bell = screen.getByText("Notifications");
+    expect(
+      pill.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test("search reaches the command palette", () => {

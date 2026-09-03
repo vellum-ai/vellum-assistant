@@ -80,17 +80,17 @@ function AdvancedSettingsRedirect() {
  * which the chat page's own header registration already owns: two effects
  * writing one slot erase each other on every conversation change. It renders
  * null unless the activation checklist has been put off with starters left.
+ *
+ * It takes the layout's pill slot rather than riding beside the bell in the
+ * accessory one, because the accessory is restated in the mobile drawer's
+ * glyph row and a full pill has no seat there.
  */
 function ChatLayoutRoute() {
   return (
     <>
       <ChatLayout
-        topBarAccessory={
-          <>
-            <ActivationSuggestionsPillHost />
-            <NotificationsBell />
-          </>
-        }
+        topBarPill={<ActivationSuggestionsPillHost />}
+        topBarAccessory={<NotificationsBell />}
       />
       {/* In-chat onboarding tour orchestrator. Renders only portals
           (stage panel, avatar tour, narration takeover) over the real

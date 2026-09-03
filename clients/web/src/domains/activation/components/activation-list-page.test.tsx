@@ -64,7 +64,8 @@ describe("ActivationListPage", () => {
 
     const rows = screen.getAllByRole("listitem");
     expect(rows.length).toBe(TASKS.length);
-    // Catalog order, which puts the three starters at the top (PLAN A10).
+    // Catalog order, which puts the three starters at the top: the list is
+    // browsed rather than navigated, so it is flat and unsectioned.
     expect(rows[0]?.textContent).toContain(starters[0]?.title ?? "");
     expect(rows[3]?.textContent).toContain(items[0]?.title ?? "");
   });
@@ -99,7 +100,7 @@ describe("ActivationListPage", () => {
     renderPage(ACTIVATION_PROGRESS_LIST_MIXED);
 
     // A turn that attached a file shows the file; one that did not falls back
-    // to the "Done · N steps" pill (PLAN A6).
+    // to the "Done · N steps" pill.
     expect(screen.getByText("proposal-aug2026.pdf")).toBeTruthy();
     expect(screen.getByText("Done")).toBeTruthy();
     expect(screen.getByText("4 steps")).toBeTruthy();

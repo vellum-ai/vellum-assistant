@@ -17,6 +17,11 @@
  * That mirrors the boundary `local/no-cross-domain-imports` already enforces,
  * so a string never has to move because the code did not.
  *
+ * One exception stands: `src/components/local-file/` keeps the `chat`
+ * namespace. Its siblings still live under `src/domains/chat/components/
+ * local-file/`, and splitting one file card's copy across two catalogs while
+ * the move is half done would leave the same card reading from both.
+ *
  * **Key naming inside a namespace** is `<component>.<slot>`, camelCase, where
  * `<component>` is the component's own name, lowercased at the first letter:
  * `notFound.title`, `conversationAssets.ariaLabel`. Do not repeat the

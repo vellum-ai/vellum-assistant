@@ -5,7 +5,7 @@
  * pill's left edge and be cut by the rounded corner rather than sitting inside
  * the padding; and at phone width the word "Suggestions" has to go while the
  * count stays, because the count is the part carrying information and the top
- * bar has a search control and a bell to seat beside it (PLAN A7).
+ * bar has a search control and a bell to seat beside it.
  *
  * `InTopBarCluster` is the one that answers "does it fit": the pill lands in
  * the chat layout's top-bar accessory next to the notification bell, and the

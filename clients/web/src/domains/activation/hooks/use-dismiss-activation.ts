@@ -19,14 +19,12 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import {
-  activationProgressGetQueryKey,
-  activationProgressGetSetQueryData,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { activationProgressGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
 import { activationDismissPost } from "@/generated/daemon/sdk.gen";
-import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
+
+import { invalidateActivationProgress } from "./use-activation-progress";
 
 /** Which surface the user closed. Mirrors the daemon's `kind`. */
 export type ActivationDismissKind = "modal" | "all-done";
@@ -44,7 +42,6 @@ export function useDismissActivation(
   listId: string | null,
 ): UseDismissActivation {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const arm = useActivationChecklistArm();
   const queryClient = useQueryClient();
 
   const dismiss = useCallback(
@@ -52,7 +49,9 @@ export function useDismissActivation(
       if (!assistantId || listId === null) {
         return;
       }
-      emitActivationEvent("activation_modal_dismissed", { arm, listId });
+      // Which surface was put away rides the event: closing the celebration
+      // retires the checklist, and closing the welcome modal only defers it.
+      emitActivationEvent("activation_modal_dismissed", { kind });
       // The daemon stamps the same two fields, and freezes the list when
       // nothing has frozen one yet. An absent cache is left absent: a progress
       // document the client invented would turn on surfaces the missing read
@@ -84,16 +83,12 @@ export function useDismissActivation(
           if (!response?.ok) {
             return;
           }
-          void queryClient.invalidateQueries({
-            queryKey: activationProgressGetQueryKey({
-              path: { assistant_id: assistantId },
-            }),
-          });
+          invalidateActivationProgress(queryClient, assistantId);
         },
         () => {},
       );
     },
-    [arm, assistantId, listId, queryClient],
+    [assistantId, listId, queryClient],
   );
 
   return { dismiss };
