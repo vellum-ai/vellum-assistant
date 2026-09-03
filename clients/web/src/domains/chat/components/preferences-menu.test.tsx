@@ -22,7 +22,11 @@ import {
 import { SideMenu } from "@vellumai/design-library";
 
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-activation-progress";
 import type { AuthUser } from "@/stores/auth-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 const isTouchMobileRef = { value: false };
@@ -33,7 +37,12 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
+// Spread the real module: `mock.module` replaces it for every file sharing
+// this process, and other exports of it (browser detection) are reached
+// through the stores this suite now touches.
+const actualPlatformDetection = await import("@/runtime/platform-detection");
 mock.module("@/runtime/platform-detection", () => ({
+  ...actualPlatformDetection,
   useIsNativeAndroid: () => nativeAndroidRef.value,
 }));
 
@@ -85,21 +94,14 @@ mock.module("@/stores/auth-store", () => {
   };
 });
 
-const flagsRef = {};
-
-mock.module("@/stores/client-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    velvet: () => false,
-  };
-  store.getState = () => flagsRef;
-  return { useClientFeatureFlagStore: store };
-});
-
+// The real client flag store: a plain zustand store with no transport of its
+// own, and the only version that carries the string-flag surface the
+// activation arm is read through. A stub here would also replace it for every
+// test file sharing this process.
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {};
-  store.getState = () => flagsRef;
+  store.getState = () => ({});
   return { useAssistantFeatureFlagStore: store };
 });
 
@@ -130,7 +132,9 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
 // Capture navigate() targets so the menu's destinations can be asserted
 // without a live Router.
 let navigateArgs: unknown[] = [];
+const actualReactRouter = await import("react-router");
 mock.module("react-router", () => ({
+  ...actualReactRouter,
   useNavigate: () => (to: unknown) => {
     navigateArgs.push(to);
   },
@@ -202,6 +206,19 @@ mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
   },
 }));
 
+// The funnel emitter posts to the telemetry ingest, which has nowhere to go
+// in a test process. What the menu owns is that the event is emitted with the
+// arm and list it opened, so the emitter is captured rather than run.
+const activationEvents: Array<{ event: string; arm: string; listId: string | null }> = [];
+mock.module("@/utils/activation-telemetry", () => ({
+  emitActivationEvent: (
+    event: string,
+    context: { arm: string; listId: string | null },
+  ) => {
+    activationEvents.push({ event, ...context });
+  },
+}));
+
 mock.module("@/domains/chat/components/credits-card", () => ({
   CreditsCard: ({
     balance,
@@ -246,8 +263,31 @@ function usage(ratio: number, walletEmpty = false): PreferencesUsage {
   };
 }
 
+const ACTIVATION_ASSISTANT_ID = "asst-1";
+
+function setActivationArm(arm: string): void {
+  useClientFeatureFlagStore
+    .getState()
+    .setStringFlags({ activationChecklist: arm }, null);
+}
+
+/** Puts the client on `arm` with a daemon new enough to serve the list. */
+function enableActivationList(arm = "smb"): void {
+  setActivationArm(arm);
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: ACTIVATION_ASSISTANT_ID,
+  });
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Vel", MIN_VERSION, ACTIVATION_ASSISTANT_ID);
+}
+
 beforeEach(() => {
   navigateArgs = [];
+  activationEvents.length = 0;
+  setActivationArm("off");
+  useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
   isTouchMobileRef.value = false;
   nativeAndroidRef.value = false;
   authRef.isAuthenticated = true;
@@ -481,6 +521,56 @@ describe("PreferencesMenu", () => {
 
     expect(screen.getByTestId("credits-card")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add credits" })).toBeTruthy();
+  });
+});
+
+describe("PreferencesMenu Inspiration List", () => {
+  test("stays hidden while the activation arm is off", async () => {
+    await openMenu();
+
+    expect(screen.queryByText("Inspiration List")).toBeNull();
+  });
+
+  test("stays hidden against a daemon with no activation routes", async () => {
+    setActivationArm("smb");
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: ACTIVATION_ASSISTANT_ID,
+    });
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Vel", "0.11.0", ACTIVATION_ASSISTANT_ID);
+    await openMenu();
+
+    // The page reads a resource that daemon does not serve, so the entry
+    // point to it goes too.
+    expect(screen.queryByText("Inspiration List")).toBeNull();
+  });
+
+  test("opens the list, records the visit, and closes the menu", async () => {
+    enableActivationList();
+    await openMenu();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Inspiration List"));
+      await Promise.resolve();
+    });
+
+    expect(navigateArgs).toEqual([routes.activationList]);
+    expect(activationEvents).toEqual([
+      { event: "activation_list_opened", arm: "smb", listId: "smb" },
+    ]);
+    expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("sits above Share Feedback, as Figma orders the menu", async () => {
+    enableActivationList();
+    await openMenu();
+
+    const list = screen.getByText("Inspiration List");
+    const feedback = screen.getByText("Share Feedback");
+    expect(
+      list.compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 

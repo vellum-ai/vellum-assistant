@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleUser,
+  List,
   MessageSquareText,
   Settings as SettingsIcon,
   Shield,
@@ -26,13 +27,20 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import {
+  resolveActivationListId,
+  useActivationChecklistArm,
+} from "@/hooks/use-activation-checklist-flag";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useSupportsActivationProgress } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { openUrl } from "@/runtime/browser";
+import { emitActivationEvent } from "@/utils/activation-telemetry";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
@@ -259,9 +267,20 @@ function PreferencesMenuContent({
   activeConversationId,
 }: PreferencesMenuContentProps) {
   const { t } = useTranslation("chat");
+  const { t: tActivation } = useTranslation("activation");
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
+  /* The Inspiration List entry rides the same two gates as every other
+     activation surface: an arm that names a list, and a daemon carrying the
+     progress routes the page reads. */
+  const activationArm = useActivationChecklistArm();
+  const activationListId = resolveActivationListId(activationArm);
+  const activationAssistantId =
+    useResolvedAssistantsStore.use.activeAssistantId();
+  const supportsActivation = useSupportsActivationProgress(
+    activationAssistantId,
+  );
   const {
     enabled: showBillingRows,
     balance: effectiveBalance,
@@ -302,6 +321,21 @@ function PreferencesMenuContent({
             }}
           />
         </div>
+      ) : null}
+
+      {activationListId !== null && supportsActivation ? (
+        <PanelItem
+          icon={List}
+          label={tActivation("menu.inspirationList")}
+          onSelect={() => {
+            onClose();
+            emitActivationEvent("activation_list_opened", {
+              arm: activationArm,
+              listId: activationListId,
+            });
+            navigate(routes.activationList);
+          }}
+        />
       ) : null}
 
       {(platformGate === "full" || isElectron()) && (
