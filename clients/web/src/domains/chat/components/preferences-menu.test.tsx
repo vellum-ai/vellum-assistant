@@ -87,7 +87,13 @@ stubModule(
 stubModule(
   "@/hooks/use-byok-credit-banner-gate",
   await import("@/hooks/use-byok-credit-banner-gate"),
-  { useByokCreditRouteVerdict: () => ({ suppress: false, settled: true }) },
+  {
+    useByokCreditRouteVerdict: () => ({
+      suppress: false,
+      settled: true,
+      routeBurnsManaged: false,
+    }),
+  },
 );
 
 const authRef: {
