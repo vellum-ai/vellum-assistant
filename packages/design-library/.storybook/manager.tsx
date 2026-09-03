@@ -6,9 +6,10 @@ import { addons, types } from "storybook/manager-api";
 import { create } from "storybook/theming";
 
 import {
-  SIBLING_STORYBOOK_LABEL,
-  resolveSiblingStorybookUrl,
-} from "./sibling-storybook";
+  STORYBOOKS,
+  resolveStorybookUrl,
+  siblingOf,
+} from "../src/storybook-links";
 
 // Storybook 10 only applies the manager theme once at bootup — calling
 // `addons.setConfig` again after init does not swap the theme live. So we
@@ -48,17 +49,19 @@ addons.setConfig({
   },
 });
 
+const SIBLING = siblingOf("design-library");
+
 addons.add("vellum/sibling-storybook", {
   type: types.TOOL,
-  title: SIBLING_STORYBOOK_LABEL,
+  title: STORYBOOKS[SIBLING].label,
   render: () => (
     <Button asChild ariaLabel={false}>
       <a
-        href={resolveSiblingStorybookUrl(window.location)}
+        href={resolveStorybookUrl(SIBLING, window.location)}
         target="_blank"
         rel="noreferrer noopener"
       >
-        {SIBLING_STORYBOOK_LABEL} ↗
+        {STORYBOOKS[SIBLING].label} ↗
       </a>
     </Button>
   ),

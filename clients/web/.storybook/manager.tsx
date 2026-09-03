@@ -6,9 +6,10 @@ import { addons, types } from "storybook/manager-api";
 import { create } from "storybook/theming";
 
 import {
-  SIBLING_STORYBOOK_LABEL,
-  resolveSiblingStorybookUrl,
-} from "./sibling-storybook";
+  STORYBOOKS,
+  resolveStorybookUrl,
+  siblingOf,
+} from "@vellumai/design-library/storybook-links";
 
 const lightManagerTheme = create({
   base: "light",
@@ -43,17 +44,19 @@ addons.setConfig({
   },
 });
 
+const SIBLING = siblingOf("web");
+
 addons.add("vellum/sibling-storybook", {
   type: types.TOOL,
-  title: SIBLING_STORYBOOK_LABEL,
+  title: STORYBOOKS[SIBLING].label,
   render: () => (
     <Button asChild ariaLabel={false}>
       <a
-        href={resolveSiblingStorybookUrl(window.location)}
+        href={resolveStorybookUrl(SIBLING, window.location)}
         target="_blank"
         rel="noreferrer noopener"
       >
-        {SIBLING_STORYBOOK_LABEL} ↗
+        {STORYBOOKS[SIBLING].label} ↗
       </a>
     </Button>
   ),
