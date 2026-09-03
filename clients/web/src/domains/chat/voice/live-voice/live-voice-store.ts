@@ -1123,6 +1123,11 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
         const assistantId = s.assistantId;
         return {
           sightFramesUnsupported: true,
+          // The share ends with the latch rather than merely pausing behind
+          // it. The latch resets on a reconnect, which can land on an
+          // upgraded assistant, and a target kept across that gap would
+          // resume a share the surface had already drawn as stopped.
+          screenShareTarget: null,
           outstandingSightFrames: [],
           prunedSightFrames: [],
           sightFramesToReclaim:

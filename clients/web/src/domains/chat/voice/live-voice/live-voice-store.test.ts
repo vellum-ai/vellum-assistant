@@ -1360,3 +1360,18 @@ describe("isLiveVoiceUserSpeaking", () => {
     ).toBe(false);
   });
 });
+
+describe("useLiveVoiceStore — a refused sight frame ends the share", () => {
+  afterEach(() => {
+    useLiveVoiceStore.getState().reset();
+  });
+
+  test("clears the target with the latch, so a reconnect cannot resume it", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+});
