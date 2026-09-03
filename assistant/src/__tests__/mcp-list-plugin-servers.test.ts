@@ -74,16 +74,10 @@ setConfig("mcp", {
   servers: {
     "from-workspace": {
       transport: { type: "streamable-http", url: "https://config.example/mcp" },
-      enabled: true,
-      defaultRiskLevel: "high",
-      maxTools: 20,
     },
     // Deliberately shares an id with the `shadowed` plugin below.
     shadowed: {
       transport: { type: "streamable-http", url: "https://wins.example/mcp" },
-      enabled: true,
-      defaultRiskLevel: "low",
-      maxTools: 20,
     },
   },
 });
@@ -100,7 +94,6 @@ interface ListedServer {
   status: string;
   source?: "workspace" | "plugin";
   pluginName?: string;
-  defaultRiskLevel: string;
   hasOAuth: boolean;
   hasStaticAuth: boolean;
   authType: string;
@@ -202,15 +195,6 @@ describe("internal_mcp_list, plugin-declared servers", () => {
     )!;
     expect(workspace.hasOAuth).toBe(true);
     expect(workspace.hasStaticAuth).toBe(true);
-  });
-
-  test("plugin servers default to low risk", async () => {
-    writePlugin("unabyss", unabyssManifest());
-
-    const servers = await listServers();
-    expect(servers.find((s) => s.id === "unabyss")!.defaultRiskLevel).toEqual(
-      "low",
-    );
   });
 
   test("a directory with no valid package.json is not advertised", async () => {

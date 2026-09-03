@@ -20,10 +20,6 @@ interface McpServerEntry {
     command?: string;
     args?: string[];
   };
-  enabled: boolean;
-  defaultRiskLevel: string;
-  allowedTools?: string[];
-  blockedTools?: string[];
   /** Workspace `config.json` or a plugin's `mcp.json`. */
   source?: "workspace" | "plugin";
   /** Plugin that declared the server, when `source` is `plugin`. */
@@ -100,13 +96,6 @@ function printServerEntry(entry: McpServerEntry): void {
   } else if (entry.transport && "url" in entry.transport) {
     log.info(`    URL:       ${entry.transport.url}`);
   }
-  log.info(`    Risk:      ${entry.defaultRiskLevel}`);
-  if (entry.allowedTools) {
-    log.info(`    Allowed:   ${entry.allowedTools.join(", ")}`);
-  }
-  if (entry.blockedTools) {
-    log.info(`    Blocked:   ${entry.blockedTools.join(", ")}`);
-  }
   log.info("");
 }
 
@@ -173,9 +162,8 @@ export function registerMcpCommand(program: Command): void {
       });
 
       // `-H, --header` uses an array-accumulating collector, which the
-      // declarative help contract cannot express — it is registered
-      // imperatively here (with the trailing `--disabled` after it,
-      // preserving option order).
+      // declarative help contract cannot express, so it is registered
+      // imperatively here.
       subcommand(mcp, "add")
         .option(
           "-H, --header <key:value>",
@@ -186,7 +174,6 @@ export function registerMcpCommand(program: Command): void {
           },
           [] as string[],
         )
-        .option("--disabled", "Add as disabled")
         .action(
           async (
             name: string,
@@ -195,9 +182,7 @@ export function registerMcpCommand(program: Command): void {
               url?: string;
               command?: string;
               args?: string[];
-              risk?: string;
               header: string[];
-              disabled?: boolean;
             },
           ) => {
             let headers: Record<string, string> | undefined;
@@ -227,8 +212,6 @@ export function registerMcpCommand(program: Command): void {
                   url: opts.url,
                   command: opts.command,
                   args: opts.args,
-                  risk: opts.risk,
-                  disabled: opts.disabled,
                   headers,
                 },
               },

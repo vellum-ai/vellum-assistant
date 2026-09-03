@@ -81,9 +81,7 @@ export function augmentMcpSetupDescription(
   if (!servers) {
     return input;
   }
-  const names = Object.keys(servers).filter(
-    (name) => servers[name]?.enabled !== false,
-  );
+  const names = Object.keys(servers);
   if (names.length === 0) {
     return input;
   }

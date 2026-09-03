@@ -15,11 +15,7 @@
 import { z } from "zod";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import {
-  DEFAULT_MCP_RISK_LEVEL,
-  type McpConfig,
-  type McpServerConfig,
-} from "../../config/schemas/mcp.js";
+import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
@@ -55,11 +51,6 @@ const McpServerIdParams = z.object({ serverId: z.string() });
 
 const McpUpdateParams = z.object({
   name: z.string(),
-  enabled: z.boolean().optional(),
-  defaultRiskLevel: z.string().optional(),
-  maxTools: z.number().optional(),
-  allowedTools: z.array(z.string()).nullable().optional(),
-  blockedTools: z.array(z.string()).nullable().optional(),
   headers: z.record(z.string(), z.string()).nullable().optional(),
 });
 
@@ -69,8 +60,6 @@ const McpAddParams = z.object({
   url: z.string().optional(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  risk: z.string().optional(),
-  disabled: z.boolean().optional(),
   headers: z.record(z.string(), z.string()).optional(),
 });
 
@@ -222,14 +211,10 @@ interface McpServerEntry {
   id: string;
   status: string;
   transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
-  enabled: boolean;
-  defaultRiskLevel: string;
   hasOAuth: boolean;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
-  allowedTools?: string[];
-  blockedTools?: string[];
   /**
    * Where the definition came from: the workspace `config.json` or a
    * plugin's `mcp.json`. A plugin server is read-only from the CLI's
@@ -277,13 +262,7 @@ async function handleMcpList(_args: {
 
   const workspaceEntries: McpServerEntry[] = await Promise.all(
     configEntries.map(async ([id, config]) => {
-      const enabled = config.enabled !== false;
-      let status: string;
-      if (!enabled) {
-        status = "disabled";
-      } else {
-        status = await checkMachineReadableHealth(id, config);
-      }
+      const status = await checkMachineReadableHealth(id, config);
       const hasOAuth =
         config.transport.type !== "stdio" ? await hasMcpOAuthTokens(id) : false;
 
@@ -315,14 +294,10 @@ async function handleMcpList(_args: {
         id,
         status,
         transport: safeTransport as McpServerEntry["transport"],
-        enabled,
-        defaultRiskLevel: config.defaultRiskLevel ?? DEFAULT_MCP_RISK_LEVEL,
         hasOAuth,
         hasStaticAuth,
         authType,
         ...(authHeaderName && { authHeaderName }),
-        ...(config.allowedTools && { allowedTools: config.allowedTools }),
-        ...(config.blockedTools && { blockedTools: config.blockedTools }),
         source: "workspace" as const,
       };
     }),
@@ -382,8 +357,6 @@ function listPluginServerEntries(
           ? "connected"
           : PLUGIN_SERVER_STATUS,
         transport: safeTransport as McpServerEntry["transport"],
-        enabled: true,
-        defaultRiskLevel: server.config.defaultRiskLevel,
         // A plugin server has no assistant-owned credentials. Resolving
         // these against `mcp:<id>:*` would report, and could disclose, a
         // workspace credential that happens to share the id.
@@ -459,15 +432,7 @@ async function handleMcpUpdate({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ updated: true }> {
-  const {
-    name,
-    enabled,
-    defaultRiskLevel,
-    maxTools,
-    allowedTools,
-    blockedTools,
-    headers,
-  } = parseBody(McpUpdateParams, body);
+  const { name, headers } = parseBody(McpUpdateParams, body);
 
   const raw = loadRawConfig();
   const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
@@ -481,34 +446,6 @@ async function handleMcpUpdate({
 
   const server = serverMap[name];
 
-  if (enabled !== undefined) {
-    server.enabled = enabled;
-  }
-  if (defaultRiskLevel !== undefined) {
-    if (!["low", "medium", "high"].includes(defaultRiskLevel)) {
-      throw new BadRequestError(
-        `Invalid risk level: ${defaultRiskLevel}. Must be low, medium, or high`,
-      );
-    }
-    server.defaultRiskLevel = defaultRiskLevel;
-  }
-  if (maxTools !== undefined) {
-    server.maxTools = maxTools;
-  }
-  if (allowedTools !== undefined) {
-    if (allowedTools === null) {
-      delete server.allowedTools;
-    } else {
-      server.allowedTools = allowedTools;
-    }
-  }
-  if (blockedTools !== undefined) {
-    if (blockedTools === null) {
-      delete server.blockedTools;
-    } else {
-      server.blockedTools = blockedTools;
-    }
-  }
   if (headers !== undefined) {
     const transport = server.transport as Record<string, unknown> | undefined;
     if (
@@ -552,14 +489,10 @@ async function handleMcpAdd({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ added: true }> {
-  const { name, transportType, url, command, args, risk, disabled, headers } =
-    parseBody(McpAddParams, body);
-
-  if (risk !== undefined && !["low", "medium", "high"].includes(risk)) {
-    throw new BadRequestError(
-      `Invalid risk level: ${risk}. Must be low, medium, or high`,
-    );
-  }
+  const { name, transportType, url, command, args, headers } = parseBody(
+    McpAddParams,
+    body,
+  );
 
   let transport: Record<string, unknown>;
   switch (transportType) {
@@ -600,13 +533,8 @@ async function handleMcpAdd({
     );
   }
 
-  // Writing no `defaultRiskLevel` when the caller named none leaves the level
-  // to `McpServerConfigSchema`, so the entry tracks the shipped default
-  // instead of freezing whichever level was current on the day it was added.
   serverMap[name] = {
     transport,
-    enabled: !disabled,
-    ...(risk === undefined ? {} : { defaultRiskLevel: risk }),
   };
 
   // Store auth headers in credential store, not config
@@ -767,7 +695,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List MCP servers with health status",
     description:
-      "Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).",
+      "Returns configured MCP servers with live health-check results (connected, needs auth, error).",
     tags: ["internal"],
     responseBody: z.object({
       servers: z.array(
@@ -779,11 +707,7 @@ export const ROUTES: RouteDefinition[] = [
               type: z.enum(["stdio", "sse", "streamable-http"]),
             })
             .passthrough(),
-          enabled: z.boolean(),
-          defaultRiskLevel: z.string(),
           hasOAuth: z.boolean(),
-          allowedTools: z.array(z.string()).optional(),
-          blockedTools: z.array(z.string()).optional(),
         }),
       ),
     }),

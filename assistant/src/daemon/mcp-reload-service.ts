@@ -22,8 +22,6 @@ const log = getLogger("mcp-reload-service");
 export interface McpReloadServerResult {
   id: string;
   connected: boolean;
-  /** True when the server is explicitly disabled in config. */
-  disabled?: boolean;
   toolCount: number;
   tools: string[];
 }
@@ -132,15 +130,12 @@ async function doReload(): Promise<McpReloadResult> {
           tools: acceptedNames,
         });
       }
-      // Include servers that were configured but failed to connect or are disabled
+      // Include servers that were configured but failed to connect
       for (const id of serverIds) {
         if (!servers.some((s) => s.id === id)) {
-          const serverConfig = mcpConfig.servers[id];
-          const isDisabled = serverConfig?.enabled === false;
           servers.push({
             id,
             connected: false,
-            disabled: isDisabled || undefined,
             toolCount: 0,
             tools: [],
           });

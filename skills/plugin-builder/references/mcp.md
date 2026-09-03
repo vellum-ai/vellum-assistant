@@ -67,9 +67,9 @@ Two plugins claiming the same id is a skip, not a shadow. The second declaration
 
 A plugin cannot ship a credential. The spec defines no portable OAuth or credential-reference fields, and any `headers` in the file are literal package data. Plugin servers also never resolve the assistant's stored `mcp:<serverId>:*` credentials: a plugin controls both its server key and its URL, so honoring them would send a workspace credential to an endpoint the plugin chose.
 
-Risk defaults to `low`, so the tools run without prompting under the default auto-approve threshold. `mcp.json` has no risk field (the spec defines none). The review is the marketplace whitelist plus the user's decision to install. A user who wants a different bar sets `defaultRiskLevel` on a workspace `config.json` entry of the same id, which outranks the plugin's declaration and replaces it wholesale (transport included).
+Risk defaults to `low`, so the tools run without prompting under the default auto-approve threshold. `mcp.json` has no risk field (the spec defines none). The review is the marketplace whitelist plus the user's decision to install. A workspace entry of the same id replaces the plugin server wholesale (transport included) and uses the workspace origin risk (`medium`).
 
-Each server is capped at 20 tools (`maxTools`). That is the same default a workspace MCP entry ships with.
+Each server is capped at 20 tools. That cap is code-owned, not a config field.
 
 ## Lifecycle
 

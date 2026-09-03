@@ -45,15 +45,12 @@ function removePlugin(name: string): void {
 }
 
 function workspaceConfig(servers: McpConfig["servers"]): McpConfig {
-  return { servers, globalMaxTools: 50 };
+  return { servers };
 }
 
 function workspaceServer(url: string): McpConfig["servers"][string] {
   return {
     transport: { type: "streamable-http", url },
-    enabled: true,
-    defaultRiskLevel: "high",
-    maxTools: 20,
   };
 }
 
@@ -100,13 +97,6 @@ describe("buildEffectiveMcpConfig", () => {
     expect(config.servers["from-workspace"].source).toEqual("workspace");
   });
 
-  test("plugin servers arrive at low risk", () => {
-    writePlugin("unabyss", UNABYSS);
-
-    const config = buildEffectiveMcpConfig(workspaceConfig({}));
-    expect(config.servers.unabyss.defaultRiskLevel).toEqual("low");
-  });
-
   test("a workspace server of the same id wins, and stays workspace-attributed", () => {
     writePlugin("shadowed", {
       shadowed: { type: "streamable-http", url: "https://loses.example/mcp" },
@@ -133,8 +123,6 @@ describe("buildEffectiveMcpConfig", () => {
 
     expect(Object.keys(config.servers)).toEqual(["unabyss"]);
     expect(config.servers.unabyss.source).toEqual("plugin");
-    // The schema's own default, which the manager needs to cap tool count.
-    expect(config.globalMaxTools).toEqual(50);
   });
 
   test("no plugins installed leaves the workspace config alone", () => {
