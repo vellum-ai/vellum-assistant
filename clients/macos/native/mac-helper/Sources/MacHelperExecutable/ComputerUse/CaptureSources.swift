@@ -102,10 +102,9 @@ enum CaptureSources {
             log.warning("raise: Accessibility is not granted; activating the app of window \(windowId) only")
         } else {
             let appElement = AXUIElementCreateApplication(server.pid)
-            // This runs on the helper's command thread, where every later
-            // command waits behind it. Bounded per call like the tree walk,
-            // so an app that has stopped answering costs seconds, not the
-            // default six per attribute.
+            // Bounded per call like the tree walk, so an app that has stopped
+            // answering costs seconds, not the default six per attribute;
+            // main.swift keeps this off the main queue for the same reason.
             AXUIElementSetMessagingTimeout(appElement, AccessibilityTreeEnumerator.axMessagingTimeoutSeconds)
             if let window = enumerator.axWindow(for: server, in: appElement) {
                 var minimized: CFTypeRef?
@@ -118,11 +117,31 @@ enum CaptureSources {
                 log.warning("raise: no AX window matches window \(windowId); activating its app only")
             }
         }
-        // AppKit work belongs on the main thread, which is where app control
-        // activates from too; the answer does not wait on it, since whether
-        // the app took focus is not something the pick acts on.
+        // Through Launch Services, the way the Dock brings a running app
+        // forward, rather than `NSRunningApplication.activate()`. Since macOS
+        // 14 activation is cooperative: a process that is not itself in
+        // front, which this helper never is, gets `true` back from
+        // `activate()` and nothing happens, and the AX raise above only
+        // reorders the window among its app's own. Opening the running app
+        // with `activates` is what the system does for a Dock click, and it
+        // also switches to the Space the app's windows are on when none are
+        // on this one. AppKit work belongs on the main thread, and the answer
+        // does not wait on it: whether the app took focus is not something
+        // the pick acts on.
         if let app = NSRunningApplication(processIdentifier: server.pid) {
-            DispatchQueue.main.async { app.activate() }
+            DispatchQueue.main.async {
+                guard let bundleURL = app.bundleURL else {
+                    app.activate()
+                    return
+                }
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = true
+                NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { _, error in
+                    if let error {
+                        log.warning("raise: could not bring \(app.localizedName ?? "the app", privacy: .public) forward: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            }
         }
         return ["raised": raised]
     }
