@@ -13,8 +13,8 @@ import {
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
   stripGuardianReplyMechanicsFromCopy,
-  stripGuardianRequestCodeInstructions,
 } from "../notifications/guardian-question-mode.js";
+import { stripRequestCodeDirectives } from "../notifications/notification-utils.js";
 
 describe("guardian-question-mode", () => {
   test("parses pending_question payload as discriminated union", () => {
@@ -215,7 +215,7 @@ describe("guardian-question-mode", () => {
     );
   });
 
-  test("stripGuardianRequestCodeInstructions removes both-mode directives and bare code mentions", () => {
+  test("stripRequestCodeDirectives removes both-mode directives and bare code mentions", () => {
     const text = [
       "Alice is asking to run ls /tmp.",
       "Approval code: A1B2C3",
@@ -223,14 +223,14 @@ describe("guardian-question-mode", () => {
       'Reply "A1B2C3 <your answer>".',
     ].join("\n");
 
-    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(
+    expect(stripRequestCodeDirectives(text, "A1B2C3")).toBe(
       "Alice is asking to run ls /tmp.",
     );
   });
 
-  test("stripGuardianRequestCodeInstructions leaves other codes intact and strips a paraphrased directive for ours", () => {
+  test("stripRequestCodeDirectives leaves other codes intact and strips a paraphrased directive for ours", () => {
     const text = 'Approval code: ZZZZZZ. Reply "A1B2C3 approve" if you agree.';
-    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(
+    expect(stripRequestCodeDirectives(text, "A1B2C3")).toBe(
       "Approval code: ZZZZZZ.",
     );
   });
@@ -311,35 +311,33 @@ describe("guardian-question-mode", () => {
     }
   });
 
-  test("stripGuardianRequestCodeInstructions matches the code and verb whatever the quoting", () => {
+  test("stripRequestCodeDirectives matches the code and verb whatever the quoting", () => {
     for (const body of [
       "Allow bash? Reply `A1B2C3 approve` to allow it.",
       "Allow bash? Reply \u201cA1B2C3 approve\u201d to allow it.",
       "Allow bash? Reply A1B2C3 approve to allow it.",
       "Allow bash? Reply 'A1B2C3 <your answer>' when ready.",
     ]) {
-      expect(stripGuardianRequestCodeInstructions(body, "A1B2C3")).toBe(
-        "Allow bash?",
-      );
+      expect(stripRequestCodeDirectives(body, "A1B2C3")).toBe("Allow bash?");
     }
     // The code alone, or beside a word that is not a reply verb, is content.
     expect(
-      stripGuardianRequestCodeInstructions(
+      stripRequestCodeDirectives(
         "Ticket A1B2C3 approves the budget.",
         "A1B2C3",
       ),
     ).toBe("Ticket A1B2C3 approves the budget.");
   });
 
-  test("stripGuardianRequestCodeInstructions removes paraphrased and negated directives as whole sentences", () => {
+  test("stripRequestCodeDirectives removes paraphrased and negated directives as whole sentences", () => {
     expect(
-      stripGuardianRequestCodeInstructions(
+      stripRequestCodeDirectives(
         'Allow bash? Reply "A1B2C3 approve" to allow it, or do not reply "A1B2C3 reject". Thanks.',
         "A1B2C3",
       ),
     ).toBe("Allow bash? Thanks.");
     expect(
-      stripGuardianRequestCodeInstructions(
+      stripRequestCodeDirectives(
         "Use reference code A1B2C3 for this request.\nThe code ZZ9999 is a ticket.",
         "A1B2C3",
       ),

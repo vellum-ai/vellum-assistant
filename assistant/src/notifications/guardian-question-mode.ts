@@ -596,18 +596,6 @@ export function buildGuardianDisambiguationExample(
 }
 
 /**
- * Remove every request-code reply instruction (both modes), paraphrased or
- * negated, plus code mentions, from a guardian question's copy. One
- * vocabulary with the access-request strip: {@link stripRequestCodeDirectives}.
- */
-export function stripGuardianRequestCodeInstructions(
-  text: string,
-  requestCode: string,
-): string {
-  return stripRequestCodeDirectives(text, requestCode);
-}
-
-/**
  * Parse a guardian.question payload that renders channel-native
  * Approve/Reject actions on button-capable channels: it parses strictly,
  * resolves to approval mode, and carries the requestId the action
@@ -643,12 +631,11 @@ export function stripGuardianReplyMechanicsFromCopy(
   requestCode: string,
   questionText: string | undefined,
 ): RenderedChannelCopy {
-  return stripReplyMechanicsFromCopy(
-    copy,
-    (text) => stripGuardianRequestCodeInstructions(text, requestCode),
-    questionText,
-    GUARDIAN_QUESTION_TITLE,
-  );
+  return stripReplyMechanicsFromCopy(copy, {
+    strip: (text) => stripRequestCodeDirectives(text, requestCode),
+    ask: questionText,
+    headline: GUARDIAN_QUESTION_TITLE,
+  });
 }
 
 /**

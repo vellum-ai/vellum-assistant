@@ -367,9 +367,15 @@ export function stripRequestCodeDirectives(
  */
 export function stripReplyMechanicsFromCopy(
   copy: RenderedChannelCopy,
-  strip: (text: string) => string,
-  ask: string | undefined,
-  headline: string,
+  {
+    strip,
+    ask,
+    headline,
+  }: {
+    strip: (text: string) => string;
+    ask: string | undefined;
+    headline: string;
+  },
 ): RenderedChannelCopy {
   const fallback = ask === undefined ? undefined : nonEmpty(ask);
   const stripField = (text: string): string => {

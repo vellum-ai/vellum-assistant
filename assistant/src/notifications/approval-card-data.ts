@@ -325,22 +325,18 @@ function extractToolApprovalCard(
       ? bodyParts.join("\n\n")
       : "No additional context available.";
 
-  // The card's text sibling is what a client without buttons sees (the
-  // CLI, search, the model), so it is the one place the card itself
-  // carries the typed instruction beside the ask.
   const baseFallback =
     p.questionText ??
     `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
   const requestCode = nonEmpty(p.requestCode);
-  const fallbackText = requestCode
-    ? `${baseFallback}\n\n${buildGuardianRequestCodeInstruction(
-        requestCode.trim().toUpperCase(),
-        resolveGuardianInstructionModeFromFields(
-          p.requestKind,
-          "toolName" in p ? (p.toolName ?? undefined) : undefined,
-        )?.mode ?? "approval",
-      )}`
-    : baseFallback;
+  const fallbackText = withTypedInstruction(
+    baseFallback,
+    requestCode,
+    resolveGuardianInstructionModeFromFields(
+      p.requestKind,
+      "toolName" in p ? (p.toolName ?? undefined) : undefined,
+    )?.mode ?? "approval",
+  );
 
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
@@ -352,6 +348,24 @@ function extractToolApprovalCard(
     requestId: nonEmpty(p.requestId),
     fallbackText,
   };
+}
+
+/**
+ * The card's text sibling: the ask, then the typed instruction when the
+ * request carries a code. A client that cannot draw the card sees only this
+ * block, so it is the one place the card itself carries the instruction.
+ */
+function withTypedInstruction(
+  text: string,
+  requestCode: string | undefined,
+  mode: "approval" | "answer",
+): string {
+  return requestCode
+    ? `${text}\n\n${buildGuardianRequestCodeInstruction(
+        requestCode.trim().toUpperCase(),
+        mode,
+      )}`
+    : text;
 }
 
 /**
@@ -410,14 +424,11 @@ function extractQuestionCard(
     // button on this card would be inert; channel buttons come from the
     // broadcaster, whose taps the guardian reply router does resolve.
     actions: [],
-    // The text sibling carries the answer instruction: it is the rendering
-    // for a client that cannot draw the card.
-    fallbackText: nonEmpty(p.requestCode)
-      ? `${buildQuestionDeliveryText(p)}\n\n${buildGuardianRequestCodeInstruction(
-          p.requestCode.trim().toUpperCase(),
-          "answer",
-        )}`
-      : buildQuestionDeliveryText(p),
+    fallbackText: withTypedInstruction(
+      buildQuestionDeliveryText(p),
+      nonEmpty(p.requestCode),
+      "answer",
+    ),
   };
 }
 
