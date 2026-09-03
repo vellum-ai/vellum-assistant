@@ -38,7 +38,7 @@ The CLI is the single source of truth for anything about the running assistant's
 | Available/installed skills                                        | `assistant skills list --json`                                             |
 | Platform connection                                               | `assistant platform status --json`                                         |
 | Balance, plan credit left/used, extra credit, expiry, daily limit | `assistant platform credits --json`                                        |
-| Plan, subscription status, period end (when plan credit resets)   | `assistant platform subscription --json`                                   |
+| Plan, subscription status, billing cycle boundary                 | `assistant platform subscription --json`                                   |
 | Plan catalog and pricing                                          | `assistant platform plans --json`                                          |
 | Invoices                                                          | `assistant platform invoices list --json`                                  |
 | Auth/identity                                                     | `assistant auth info --json`                                               |
@@ -82,8 +82,11 @@ from an estimate. "How much of my allowance is left" is the plan-credit
 reading, the same one the in-app usage meter shows: `plan_credit_remaining`
 of `plan_credit_total`, with `plan_credit_used_fraction` as the percentage.
 When `plan_credits_spent` is true, further managed usage draws on
-`extra_credit_remaining`. The reset date is `currentPeriodEnd` from
-`platform subscription`. When the grant fields are null, say the platform
+`extra_credit_remaining`. Plan credit mixes grants with different lifetimes
+(only the Pro bundle turns over with the billing cycle), so it has no single
+reset date: give `next_credit_expiry_at` and `credits_expiring_soon` for what
+expires next, and `currentPeriodEnd` from `platform subscription` only as the
+billing cycle boundary. When the grant fields are null, say the platform
 reports no plan-credit figures rather than deriving them. The only spend
 figure `platform credits` reports is `daily_spend`: today's (UTC)
 spend counted against the daily credit limit, which excludes spend covered by

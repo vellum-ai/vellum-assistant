@@ -16,7 +16,7 @@ export interface PlatformCreditsResult {
   plan_credit_remaining: number | null;
   plan_credit_total: number | null;
   plan_credit_used_fraction: number | null;
-  plan_credits_spent: boolean;
+  plan_credits_spent: boolean | null;
   extra_credit_remaining: number | null;
   credits_expiring_soon: number | null;
   next_credit_expiry_at: string | null;
@@ -33,10 +33,9 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
     result.plan_credit_remaining !== null &&
     result.plan_credit_total !== null
   ) {
-    const granted = formatCostUsd(result.plan_credit_total);
-    if (result.plan_credits_spent) {
+    if (result.plan_credits_spent === true) {
       lines.push(
-        `Plan:      plan credit used up (${granted} granted); managed usage now draws on extra credit`,
+        "Plan:      plan credit used up or expired; managed usage now draws on extra credit",
       );
     } else {
       const pct =
@@ -44,7 +43,7 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
           ? ""
           : ` (${Math.round(result.plan_credit_used_fraction * 100)}% used)`;
       lines.push(
-        `Plan:      ${formatCostUsd(result.plan_credit_remaining)} of ${granted} plan credit left${pct}`,
+        `Plan:      ${formatCostUsd(result.plan_credit_remaining)} of ${formatCostUsd(result.plan_credit_total)} plan credit left${pct}`,
       );
     }
   }

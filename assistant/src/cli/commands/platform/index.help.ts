@@ -96,14 +96,17 @@ Fields:
   plan_credit_total      What those plan-included grants were worth in total, in USD
   plan_credit_used_fraction
                          Share of plan credit used, 0 to 1 (the in-app usage meter)
-  plan_credits_spent     True when plan credit is used up and managed usage draws on extra credit
+  plan_credits_spent     True when plan credit is used up or expired and managed usage draws
+                         on extra credit; null when there is no plan-credit reading
   extra_credit_remaining Credit bought or earned on top of plan credit, in USD
   credits_expiring_soon  Credit on grants expiring within 30 days, in USD
   next_credit_expiry_at  Earliest upcoming grant expiry (ISO 8601), or null
 
-Grant fields are null when the platform does not report grant figures. For
-the plan period end (when plan credit resets) see 'assistant platform
-subscription'.
+Grant fields are null when the platform does not report grant figures. Plan
+credit mixes grants with different lifetimes (only the Pro bundle turns over
+with the billing cycle), so it has no single reset date: next_credit_expiry_at
+is the earliest expiry, and 'assistant platform subscription' gives the
+billing cycle boundary.
 
 Requires platform credentials (run 'assistant platform connect' first or
 ensure VELLUM_PLATFORM_URL is set and credentials are stored).

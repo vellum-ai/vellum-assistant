@@ -193,8 +193,9 @@ const PlatformCreditsResponseSchema = z.object({
     ),
   plan_credits_spent: z
     .boolean()
+    .nullable()
     .describe(
-      "True when the plan-included credit is fully used, so further managed usage draws on extra_credit_remaining.",
+      "True when the plan-included credit is used up or expired, so further managed usage draws on extra_credit_remaining. Null when there is no plan-credit reading.",
     ),
   extra_credit_remaining: z
     .number()
@@ -538,19 +539,30 @@ function parseUsd(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+type BillingPlanId = "base" | "pro";
+
 /**
- * Share of the plan-included credit grants already used, clamped to 0..1, or
- * null when the platform reports no usable grant figures. Mirrors the web
- * client's usageGrantRatio so the CLI and the in-app meter agree.
+ * Share of the plan-included credit already used, clamped to 0..1, or null
+ * when there is no honest reading. Mirrors the web client's
+ * usePlanUsageBalance: the grant figures count only unexpired grants, so a
+ * Pro subscription whose grants total nothing has used or expired everything
+ * it was granted (a full bar), while a base plan in that position was never
+ * granted anything (no reading). Unlike the web hook, an unknown plan still
+ * yields the ratio when the figures allow one: the daemon fetches the plan
+ * best-effort, and a computable ratio is honest without it.
  */
 function planCreditUsedFraction(
   total: number | null,
   remaining: number | null,
+  planId: BillingPlanId | null,
 ): number | null {
-  if (total === null || remaining === null || total <= 0) {
-    return null;
+  if (total !== null && remaining !== null && total > 0) {
+    return Math.min(1, Math.max(0, (total - remaining) / total));
   }
-  return Math.min(1, Math.max(0, (total - remaining) / total));
+  if (planId === "pro" && total !== null && total <= 0) {
+    return 1;
+  }
+  return null;
 }
 
 function roundToCents(value: number): number {
@@ -560,25 +572,33 @@ function roundToCents(value: number): number {
 async function handlePlatformCredits(
   _args: RouteHandlerArgs,
 ): Promise<PlatformCreditsResponse> {
-  const summary = (await fetchPlatformJson(
-    "/v1/organizations/billing/summary/",
-    "credit balance",
-  )) as {
-    settled_balance_usd: string;
-    pending_compute_usd: string;
-    effective_balance_usd: string;
-    is_degraded: boolean;
-    daily_spend_usd?: string;
-    daily_credit_limit_usd?: string | null;
-    daily_limit_reached?: boolean;
-    daily_limit_snoozed?: boolean;
-    low_balance_threshold_usd?: string;
-    low_balance_warning?: boolean;
-    available_usage_balance?: string;
-    total_usage_balance?: string;
-    credits_expiring_soon_usd?: string;
-    next_credit_expiry_at?: string | null;
-  };
+  const [summary, planId] = await Promise.all([
+    fetchPlatformJson(
+      "/v1/organizations/billing/summary/",
+      "credit balance",
+    ) as Promise<{
+      settled_balance_usd: string;
+      pending_compute_usd: string;
+      effective_balance_usd: string;
+      is_degraded: boolean;
+      daily_spend_usd?: string;
+      daily_credit_limit_usd?: string | null;
+      daily_limit_reached?: boolean;
+      daily_limit_snoozed?: boolean;
+      low_balance_threshold_usd?: string;
+      low_balance_warning?: boolean;
+      available_usage_balance?: string;
+      total_usage_balance?: string;
+      credits_expiring_soon_usd?: string;
+      next_credit_expiry_at?: string | null;
+    }>,
+    // The plan only decides the zero-grant edge case, so a failed
+    // subscription read degrades that one reading to null rather than
+    // failing the balance.
+    fetchBillingSubscription()
+      .then((subscription) => subscription.plan_id)
+      .catch((): BillingPlanId | null => null),
+  ]);
 
   const remaining = Number(summary.effective_balance_usd);
   const planCreditRemaining = parseUsd(summary.available_usage_balance);
@@ -586,6 +606,7 @@ async function handlePlatformCredits(
   const usedFraction = planCreditUsedFraction(
     planCreditTotal,
     planCreditRemaining,
+    planId,
   );
 
   return {
@@ -606,7 +627,7 @@ async function handlePlatformCredits(
     plan_credit_remaining: planCreditRemaining,
     plan_credit_total: planCreditTotal,
     plan_credit_used_fraction: usedFraction,
-    plan_credits_spent: usedFraction !== null && usedFraction >= 1,
+    plan_credits_spent: usedFraction === null ? null : usedFraction >= 1,
     extra_credit_remaining:
       planCreditRemaining === null
         ? null
@@ -710,28 +731,34 @@ async function fetchPlatformJson(
   return response.json();
 }
 
+interface BillingSubscriptionData {
+  plan_id: BillingPlanId;
+  status: string | null;
+  renewal_date: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  cancel_at: string | null;
+  selected_credit_tier: string | null;
+  package: {
+    key: string;
+    name: string;
+    version: number;
+    customized: boolean;
+  } | null;
+  entitlements: { managed_email: boolean; phone_number: boolean };
+}
+
+function fetchBillingSubscription(): Promise<BillingSubscriptionData> {
+  return fetchPlatformJson(
+    "/v1/organizations/billing/subscription/",
+    "subscription",
+  ) as Promise<BillingSubscriptionData>;
+}
+
 async function handlePlatformSubscription(
   _args: RouteHandlerArgs,
 ): Promise<PlatformSubscriptionResponse> {
-  const data = (await fetchPlatformJson(
-    "/v1/organizations/billing/subscription/",
-    "subscription",
-  )) as {
-    plan_id: "base" | "pro";
-    status: string | null;
-    renewal_date: string | null;
-    current_period_end: string | null;
-    cancel_at_period_end: boolean;
-    cancel_at: string | null;
-    selected_credit_tier: string | null;
-    package: {
-      key: string;
-      name: string;
-      version: number;
-      customized: boolean;
-    } | null;
-    entitlements: { managed_email: boolean; phone_number: boolean };
-  };
+  const data = await fetchBillingSubscription();
 
   return {
     planId: data.plan_id,

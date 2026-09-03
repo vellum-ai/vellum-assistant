@@ -32,7 +32,7 @@ const NO_GRANTS: PlatformCreditsResult = {
   plan_credit_remaining: null,
   plan_credit_total: null,
   plan_credit_used_fraction: null,
-  plan_credits_spent: false,
+  plan_credits_spent: null,
   extra_credit_remaining: null,
   credits_expiring_soon: null,
   next_credit_expiry_at: null,
@@ -99,7 +99,7 @@ describe("formatCreditsLines", () => {
     });
 
     expect(lines[2]).toBe(
-      "Plan:      plan credit used up ($20.00 granted); managed usage now draws on extra credit",
+      "Plan:      plan credit used up or expired; managed usage now draws on extra credit",
     );
     expect(lines[3]).toBe(
       "Extra:     $42.17 bought or earned on top of plan credit",

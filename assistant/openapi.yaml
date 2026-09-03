@@ -24704,8 +24704,12 @@ paths:
                       "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter.
                       Null when grant figures are missing or the total is zero."
                   plan_credits_spent:
-                    type: boolean
-                    description: True when the plan-included credit is fully used, so further managed usage draws on extra_credit_remaining.
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      True when the plan-included credit is used up or expired, so further managed usage draws on
+                      extra_credit_remaining. Null when there is no plan-credit reading.
                   extra_credit_remaining:
                     anyOf:
                       - type: number
