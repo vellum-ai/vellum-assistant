@@ -29,30 +29,28 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
     `Remaining: ${formatCostUsd(result.remaining)} ${result.unit} (as of ${result.as_of})${staleNote}`,
     `Settled:   ${formatCostUsd(result.settled)}   Pending: ${formatCostUsd(result.pending)}`,
   ];
-  if (
+  if (result.plan_credits_spent === true) {
+    // Mirrors the web usage panel: extra credit is only said to fund usage
+    // once the wallet provably holds some.
+    const hasExtra =
+      result.extra_credit_remaining !== null &&
+      result.extra_credit_remaining > 0;
+    lines.push(
+      hasExtra
+        ? "Plan:      plan credit used up or expired; managed usage now draws on extra credit"
+        : "Plan:      plan credit used up or expired, and no extra credit remains",
+    );
+  } else if (
     result.plan_credit_remaining !== null &&
     result.plan_credit_total !== null
   ) {
-    if (result.plan_credits_spent === true) {
-      // Mirrors the web usage panel: extra credit is only said to fund usage
-      // once the wallet provably holds some.
-      const hasExtra =
-        result.extra_credit_remaining !== null &&
-        result.extra_credit_remaining > 0;
-      lines.push(
-        hasExtra
-          ? "Plan:      plan credit used up or expired; managed usage now draws on extra credit"
-          : "Plan:      plan credit used up or expired, and no extra credit remains",
-      );
-    } else {
-      const pct =
-        result.plan_credit_used_fraction === null
-          ? ""
-          : ` (${Math.round(result.plan_credit_used_fraction * 100)}% used)`;
-      lines.push(
-        `Plan:      ${formatCostUsd(result.plan_credit_remaining)} of ${formatCostUsd(result.plan_credit_total)} plan credit left${pct}`,
-      );
-    }
+    const pct =
+      result.plan_credit_used_fraction === null
+        ? ""
+        : ` (${Math.round(result.plan_credit_used_fraction * 100)}% used)`;
+    lines.push(
+      `Plan:      ${formatCostUsd(result.plan_credit_remaining)} of ${formatCostUsd(result.plan_credit_total)} plan credit left${pct}`,
+    );
   }
   if (result.extra_credit_remaining !== null) {
     lines.push(
