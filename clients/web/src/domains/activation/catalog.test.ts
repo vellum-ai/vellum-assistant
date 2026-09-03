@@ -67,6 +67,18 @@ describe("activation list contract", () => {
         expect(items.length).toBeGreaterThanOrEqual(MIN_ITEM_COUNT);
       });
 
+      // The pill counts starters and the celebration retires the checklist on
+      // them without resolving a capability signal, while the modal filters
+      // every row it draws. The two can only agree while no starter carries a
+      // prerequisite, which is what a starter is for: the opener that needs
+      // nothing connected.
+      test("no starter is gated behind a capability", () => {
+        const gated = starters.filter(
+          (id) => (TASKS[id]?.requires ?? []).length > 0,
+        );
+        expect(gated).toEqual([]);
+      });
+
       test("names no id twice", () => {
         const ids = [...starters, ...items];
         expect(new Set(ids).size).toBe(ids.length);
@@ -145,9 +157,10 @@ describe("activation task pool", () => {
       expect(task.link.label.length, `${id} link has no label`).toBeGreaterThan(
         0,
       );
-      expect(task.link.url.startsWith("https://"), `${id} link is not https`).toBe(
-        true,
-      );
+      expect(
+        task.link.url.startsWith("https://"),
+        `${id} link is not https`,
+      ).toBe(true);
     }
   });
 
@@ -198,8 +211,11 @@ describe("activation copy contract", () => {
         "row.working",
         "row.done",
         "row.steps",
+        "row.send",
+        "row.openTask",
         "pill.label",
         "pill.progress",
+        "pill.aria",
         "menu.inspirationList",
         "launch.noAssistant",
         "launch.unknownTask",

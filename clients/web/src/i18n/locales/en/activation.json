@@ -11,11 +11,14 @@
     "customPlaceholder": "Type whatever you want",
     "working": "Working",
     "done": "Done",
-    "steps": "{count, plural, one {# step} other {# steps}}"
+    "steps": "{count, plural, one {# step} other {# steps}}",
+    "send": "Send",
+    "openTask": "Open {title}"
   },
   "pill": {
     "label": "Suggestions",
-    "progress": "{done} of {total}"
+    "progress": "{done} of {total}",
+    "aria": "Suggestions, {done} of {total} done"
   },
   "menu": {
     "inspirationList": "Inspiration List"

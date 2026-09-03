@@ -8,7 +8,15 @@
  * React Testing Library.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -150,12 +158,25 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
 // without a live Router.
 let navigateArgs: unknown[] = [];
 const actualReactRouter = await import("react-router");
+// Captured by value: a module namespace's bindings are live, so reading the
+// export back after the mock is installed would hand out the mock.
+const { useNavigate: realUseNavigate } = actualReactRouter;
 mock.module("react-router", () => ({
   ...actualReactRouter,
   useNavigate: () => (to: unknown) => {
     navigateArgs.push(to);
   },
 }));
+
+// `mock.module` replaces the module for every file sharing this process, and
+// a router that never navigates would silently break any suite after this one
+// that asserts on where a click took the user.
+afterAll(() => {
+  mock.module("react-router", () => ({
+    ...actualReactRouter,
+    useNavigate: realUseNavigate,
+  }));
+});
 
 // The menu owns when the chunk is warmed and when the dialog is mounted; the
 // dialog's own lazy wiring is covered by `share-feedback-modal-lazy.test.tsx`.

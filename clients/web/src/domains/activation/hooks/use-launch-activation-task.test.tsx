@@ -25,6 +25,7 @@ import {
 
 import {
   ACTIVATION_PROGRESS_EMPTY,
+  doneTaskProgress,
   startedTaskProgress,
 } from "@/domains/activation/activation-test-fixtures";
 import { getActivationList } from "@/domains/activation/catalog";
@@ -631,6 +632,39 @@ describe("useLaunchActivationTask progress cache", () => {
       "pdf-proposal",
       "weekly-report",
     ]);
+  });
+
+  // The snapshot a start answers with was taken while the daemon handled it,
+  // so a task another launch has since finished can come back as `started`.
+  // Taking that wholesale would un-finish the row and offer the task again.
+  test("keeps a finished task finished when an older snapshot calls it started", async () => {
+    queryClient.setQueryData(PROGRESS_KEY, {
+      ...startedProgress,
+      tasks: {
+        "pdf-proposal": doneTaskProgress({ conversationId: "conv-1" }),
+      },
+    });
+    startBody = {
+      ...startedProgress,
+      tasks: {
+        "pdf-proposal": startedTaskProgress({
+          conversationId: "conv-1",
+          stepCount: null,
+        }),
+        "weekly-report": startedTaskProgress({
+          conversationId: "conv-2",
+          stepCount: null,
+        }),
+      },
+    };
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("weekly-report");
+    });
+
+    const tasks = cachedProgress()?.tasks ?? {};
+    expect(tasks["pdf-proposal"]?.status).toBe("done");
+    expect(tasks["weekly-report"]?.status).toBe("started");
   });
 
   test("writes the progress the daemon answered the start with", async () => {
