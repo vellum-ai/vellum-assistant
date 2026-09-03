@@ -74,11 +74,14 @@ function ThinkingDetailBody({
 }
 
 /**
- * Tool-variant detail sections — the tool name, activity, input `CodeBlock`,
- * and "Output" — with no surrounding shell, header, or close button. Composed
- * by `ToolDetailPanel` inside its own `DetailShell`, and reused by
- * `SubagentDetailPanel` to show a nested tool call under the subagent's own
- * header.
+ * The body of a tool detail: whatever the tool's registered renderer shows, or
+ * the generic Input and Output sections when it has none. No shell, header or
+ * close button, so every panel that hosts a tool call frames it its own way:
+ * `ToolDetailPanel`, `ActivityStepsPanel` and `SubagentDetailPanel` all compose
+ * this, which is what makes a call read the same wherever it is opened.
+ *
+ * The tool that ran and its risk level belong to `ToolDetailHeaderTitle`, so
+ * nothing here repeats them.
  *
  * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
  * streams `tool_output_chunk` output while the call runs and flips to the final

@@ -385,6 +385,29 @@ describe("ToolDetailPanel", () => {
     expect(getByText("Changes")).toBeDefined();
   });
 
+  test("shows the edited path when it arrives as file_path", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_edit",
+          // The daemon's alias table rewrites `file_path` to `path` only for
+          // aliased tool names, so a direct `file_edit` call still carries this
+          // spelling. The chip and the step label both read it; the panel that
+          // read only `path` showed a diff with no file attached to it.
+          input: {
+            file_path: "src/deep/module.ts",
+            old_string: "one",
+            new_string: "two",
+          },
+          result: "Applied 1 edit",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("src/deep/module.ts")).toBeDefined();
+  });
+
   test("reads a bash command stored under the legacy cmd key", () => {
     const { getByText } = render(
       <ToolDetailPanel

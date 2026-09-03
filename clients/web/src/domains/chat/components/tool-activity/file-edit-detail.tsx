@@ -14,9 +14,18 @@ import { Typography } from "@vellumai/design-library";
 import { SectionLabel } from "@/components/detail-primitives";
 import { FileDiffView } from "@/domains/chat/components/file-diff-view";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
+import {
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 import { useTranslation } from "@/i18n";
 
-function str(value: unknown): string {
+/**
+ * Read a side of the edit verbatim. Deliberately not `readToolInputString`:
+ * an edit's whitespace is the edit, and a `new_string` of `"\n\n"` is content,
+ * not an absent field.
+ */
+function editText(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
@@ -27,32 +36,30 @@ export function FileEditDetail({
   isDenied,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
-  const path = str(detail.input.path);
+  const path = readToolInputString(detail.input, ...FILE_PATH_KEYS);
   const applied = !isRunning && !isError && !isDenied;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <SectionLabel>
-          {applied
-            ? t("toolDetailPanel.changes")
-            : t("toolDetailPanel.requestedChanges")}
-        </SectionLabel>
-        {path && (
-          <Typography
-            variant="body-small-lighter"
-            as="div"
-            className="mb-1.5 truncate font-mono text-[var(--content-tertiary)]"
-          >
-            {path}
-          </Typography>
-        )}
-        <FileDiffView
-          path={path}
-          oldText={str(detail.input.old_string)}
-          newText={str(detail.input.new_string)}
-        />
-      </div>
+    <div>
+      <SectionLabel>
+        {applied
+          ? t("toolDetailPanel.changes")
+          : t("toolDetailPanel.requestedChanges")}
+      </SectionLabel>
+      {path && (
+        <Typography
+          variant="body-small-lighter"
+          as="div"
+          className="mb-1.5 truncate font-mono text-[var(--content-tertiary)]"
+        >
+          {path}
+        </Typography>
+      )}
+      <FileDiffView
+        path={path}
+        oldText={editText(detail.input.old_string)}
+        newText={editText(detail.input.new_string)}
+      />
     </div>
   );
 }

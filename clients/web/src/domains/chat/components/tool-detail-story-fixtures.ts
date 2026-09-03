@@ -473,8 +473,9 @@ export const minimalDetail: ToolDetailPayload = payload({
 // ---------------------------------------------------------------------------
 // Risk levels
 //
-// `getRiskNoticeTone` and `getRiskBadgeWeakStyle` recognise low, medium, high
-// and workspace, and fall through to a neutral "Unknown" for anything else.
+// `getRiskBadgeWeakStyle` recognises low, medium, high and workspace, and falls
+// through to a neutral "Unknown" for anything else. Only the first three have a
+// tolerance sentence, so the rest render as a bare pill.
 // ---------------------------------------------------------------------------
 
 /** A `bashDetail` at one risk level, keyed so each level is its own call. */

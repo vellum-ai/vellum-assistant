@@ -114,12 +114,6 @@ export function ActivityStepsPanel({
 
   // Level-2 header title: the step's own label, prefixed by the back
   // chevron. Mirrors `ToolDetailPanel`'s activity-first title for tools.
-  const stepDetailTitle = stepDetail
-    ? stepDetail.kind === "thinking"
-      ? "Thinking"
-      : ""
-    : "";
-
   return (
     <DetailShell
       // Drilled into a step, the back control takes the leading slot the glyph
@@ -146,7 +140,7 @@ export function ActivityStepsPanel({
               variant="title-medium"
               className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
             >
-              {stepDetailTitle}
+              {t("activityStepsPanel.thinkingTitle")}
             </Typography>
           ) : (
             <ToolDetailHeaderTitle detail={stepDetail} />
