@@ -84,10 +84,15 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
  *
  * The content layer sits in a `transform: translateX()` beside two absolutely
  * positioned action layers. Each action layer is translated by its own width
- * away from the edge it hangs off, so at rest it sits wholly outside the layer
- * box and `overflow: hidden` clips it. A swipe walks that translation back in
- * step with the content, so an action is visible exactly across the strip the
+ * away from the edge it hangs off, so at rest it sits wholly outside the row
+ * and the action clip hides it. A swipe walks that translation back in step
+ * with the content, so an action is visible exactly across the strip the
  * content has vacated and never anywhere else.
+ *
+ * Only the actions are clipped. The content is free to slide, and the surface
+ * that has an edge is what clips at that edge, the way a list clips the row
+ * sliding inside it: a section card clips its rows. A clip here would instead
+ * cut the content at the row's own edge, wherever that happens to fall.
  *
  * Which is why the content layer paints nothing of its own. Nothing here
  * depends on it covering an action, so a row carries whatever surface its own
@@ -198,59 +203,67 @@ export const SwipeActionReveal = forwardRef<
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
-      {/* The layer box. `rounded-[inherit]` takes whatever radius the caller
-          put on the root, so a revealed action is cut to the row's corners.
-          This is also the clip that parks the action layers outside the row
-          until a swipe walks them in. */}
-      <div className="relative overflow-hidden rounded-[inherit]">
-        {/* Trailing actions (right side, revealed on swipe-left) */}
-        {trailingActions && trailingActions.length > 0 ? (
-          <div
-            className={cn("absolute inset-y-0 right-0 flex", layerTransition)}
-            aria-hidden={offset >= 0}
-            style={{
-              transform: `translateX(${trailingShift}px)`,
-              // A parked layer is clipped and so already unhittable; this
-              // covers the closing transition, where `offset` is back to 0
-              // while the layer is still sliding out and a tap would otherwise
-              // land on an action on its way off screen. Tab order is the
-              // button's own `tabIndex`, not this.
-              pointerEvents: offset >= 0 ? "none" : undefined,
-            }}
-          >
-            {trailingActions.map((action) => (
-              <SwipeActionButton
-                key={action.id}
-                action={action}
-                onAfterSelect={close}
-                hidden={offset >= 0}
-              />
-            ))}
-          </div>
-        ) : null}
+      {/* The positioning box. It does not clip: the content below is free to
+          travel past it, and the action clip inside it is the only clip. */}
+      <div className="relative">
+        {/* The action clip. `rounded-[inherit]` takes whatever radius the
+            caller put on the root, so a revealed action is cut to the row's
+            corners. This parks the action layers outside the row until a
+            swipe walks them in. The content is painted over it, so at rest
+            it takes no taps; where the content has slid away, the revealed
+            action is what stands in the strip. */}
+        <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
+          {/* Trailing actions (right side, revealed on swipe-left) */}
+          {trailingActions && trailingActions.length > 0 ? (
+            <div
+              className={cn("absolute inset-y-0 right-0 flex", layerTransition)}
+              aria-hidden={offset >= 0}
+              style={{
+                transform: `translateX(${trailingShift}px)`,
+                // A parked layer is clipped and so already unhittable; this
+                // covers the closing transition, where `offset` is back to 0
+                // while the layer is still sliding out and a tap would
+                // otherwise land on an action on its way off screen. Tab
+                // order is the button's own `tabIndex`, not this.
+                pointerEvents: offset >= 0 ? "none" : undefined,
+              }}
+            >
+              {trailingActions.map((action) => (
+                <SwipeActionButton
+                  key={action.id}
+                  action={action}
+                  onAfterSelect={close}
+                  hidden={offset >= 0}
+                />
+              ))}
+            </div>
+          ) : null}
 
-        {/* Leading actions (left side, revealed on swipe-right) */}
-        {leadingActions && leadingActions.length > 0 ? (
-          <div
-            className={cn("absolute inset-y-0 left-0 flex", layerTransition)}
-            aria-hidden={offset <= 0}
-            style={{
-              transform: `translateX(${leadingShift}px)`,
-              pointerEvents: offset <= 0 ? "none" : undefined,
-            }}
-          >
-            {leadingActions.map((action) => (
-              <SwipeActionButton
-                key={action.id}
-                action={action}
-                onAfterSelect={close}
-                hidden={offset <= 0}
-              />
-            ))}
-          </div>
-        ) : null}
+          {/* Leading actions (left side, revealed on swipe-right) */}
+          {leadingActions && leadingActions.length > 0 ? (
+            <div
+              className={cn("absolute inset-y-0 left-0 flex", layerTransition)}
+              aria-hidden={offset <= 0}
+              style={{
+                transform: `translateX(${leadingShift}px)`,
+                pointerEvents: offset <= 0 ? "none" : undefined,
+              }}
+            >
+              {leadingActions.map((action) => (
+                <SwipeActionButton
+                  key={action.id}
+                  action={action}
+                  onAfterSelect={close}
+                  hidden={offset <= 0}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
 
-        {/* Content layer, sliding aside to admit the action layers. */}
+        {/* Content layer, sliding aside to admit the action layers. Unclipped,
+            so a row slides into the space beside it rather than under its own
+            edge. */}
         <div
           className={cn("relative", layerTransition)}
           style={{ transform: `translateX(${offset}px)` }}

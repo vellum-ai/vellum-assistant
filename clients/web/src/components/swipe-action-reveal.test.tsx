@@ -111,25 +111,37 @@ describe("SwipeActionReveal", () => {
     expect(html).not.toContain("--surface-overlay");
   });
 
-  test("the row a list lays out is not the element that clips", () => {
+  test("only the actions are clipped, never the root or the content", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
-        <div>Row content</div>
+        <div data-testid="content">Row content</div>
       </SwipeActionReveal>,
     );
 
     // A flex or grid item whose overflow is not `visible` has its automatic
     // minimum size resolved to zero rather than to its content, so a container
-    // that is out of room squashes it away entirely: to a border in a capped
-    // column, to nothing at all in a row. The root is what a list lays out, so
-    // the clip that hides the action layers has to sit inside it.
+    // that is out of room squashes it away entirely. The root is what a list
+    // lays out, so it must not clip.
+    //
+    // Nor may anything between the root and the content: a clip there cuts a
+    // row at its own edge as it slides, which for a `w-fit` pill is the middle
+    // of the open rail beside it. The surface that has an edge (a card) is what
+    // clips at that edge. The action clip is the one clip, and it holds only
+    // the action layers.
     const host = document.createElement("div");
     host.innerHTML = html;
-    const root = host.firstElementChild;
+    const root = host.firstElementChild!;
+    expect(root.hasAttribute("data-swipe-action-row")).toBe(true);
 
-    expect(root?.hasAttribute("data-swipe-action-row")).toBe(true);
-    expect(root?.className).not.toContain("overflow-hidden");
-    expect(root?.firstElementChild?.className).toContain("overflow-hidden");
+    const actionClip = host.querySelector('button[aria-label="Test"]')!
+      .parentElement!.parentElement!;
+    expect(actionClip.className).toContain("overflow-hidden");
+
+    let node = host.querySelector('[data-testid="content"]')!.parentElement;
+    while (node && node !== root.parentElement) {
+      expect(node.className).not.toContain("overflow-hidden");
+      node = node.parentElement;
+    }
   });
 
   test("keeps its mark when a parent hands the row a slot name", () => {

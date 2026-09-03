@@ -1,11 +1,9 @@
 import { PinOff, Rocket } from "lucide-react";
 
-import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
-import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -40,16 +38,17 @@ export interface PinnedAppNavItemProps {
  * most: it has no hover button and nothing to swipe, so the menu is its only
  * route to an unpin, reached by right click or by long press.
  *
- * On touch, the expanded row additionally reveals an Unpin button on a left
- * swipe. The tile omits that: it has nowhere to swipe to, and the actions a
- * swipe reveals are sized for a full-width row.
+ * The expanded row carries an unpin button on its trailing edge, revealed with
+ * the row where the device can hover and standing there where it cannot. The
+ * row has one command, so hiding it would leave a screen reader and a switch
+ * control nothing to announce, and a long press is not a control anything can
+ * name.
  *
- * A third path on the expanded row: an unpin button on its trailing edge,
- * revealed with the row where the device can hover and standing there where it
- * cannot. The row has one command, so hiding it would leave a screen reader and
- * a switch control nothing to announce: a swipe's buttons are outside the
- * accessibility tree until the swipe reveals them, and neither a swipe nor a
- * long press is a control anything can name.
+ * No swipe. Swipe-to-reveal is a list-row gesture: the row slides toward the
+ * list's edge and the action fills the strip it vacated. A pill is a chip, and
+ * a chip carries its one action as a trailing control, which is the button
+ * above. On the rail a pill has a few pixels to its left and open space to its
+ * right, so a swipe would move it away from the only room it has.
  */
 export function PinnedAppNavItem({
   app,
@@ -164,33 +163,9 @@ export function PinnedAppNavItem({
     />
   );
 
-  /* Ungated: `SwipeActionReveal` arms the gesture only where a swipe is the
-     input, and passes through untouched everywhere else. */
-  const trailingActions: SwipeAction[] = [
-    {
-      id: "unpin",
-      label: t("pinnedAppNavItem.unpin"),
-      icon: PinOff,
-      variant: "destructive",
-      onSelect: () => onUnpin(app.id),
-    },
-  ];
-
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger>
-        <SwipeActionReveal
-          /* The swipe box is the pill, not the rail. A swipe row is otherwise
-             as wide as its container, which puts the revealed action at the
-             rail's edge rather than beside the pill it acts on, arms the
-             gesture across the empty rail, and cuts the action square against
-             a capsule. */
-          className="w-fit rounded-full"
-          trailingActions={trailingActions}
-        >
-          {item}
-        </SwipeActionReveal>
-      </ContextMenu.Trigger>
+      <ContextMenu.Trigger>{item}</ContextMenu.Trigger>
       {menu}
     </ContextMenu.Root>
   );
