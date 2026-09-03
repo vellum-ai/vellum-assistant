@@ -5,7 +5,8 @@ import { cn } from "@/utils/misc";
 import { Button } from "@vellumai/design-library";
 
 /**
- * Suggestion-pill primitive used in the chat empty state's bottom dock
+ * Suggestion-pill primitive used in the chat empty state's bottom dock and by
+ * the activation checklist's expanded task row
  * (Figma: New-App 7471-25035). Wraps the `Button` primitive
  * (`variant="ghost"`, `fullWidth`) so interactive surface tokens stay
  * owned by `Button`. Overrides cover layout only — Button's default

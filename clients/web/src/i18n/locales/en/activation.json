@@ -1,0 +1,26 @@
+{
+  "welcome": {
+    "title": "Welcome!",
+    "subtitle": "Try out some hand picked tasks to help you discover the full capabilities of your assistant.",
+    "showMore": "Show More ({count})",
+    "showFullList": "Show me the full list",
+    "later": "Do it Later"
+  },
+  "row": {
+    "customLabel": "Custom:",
+    "customPlaceholder": "Type whatever you want",
+    "working": "Working",
+    "done": "Done",
+    "steps": "{count, plural, one {# step} other {# steps}}"
+  },
+  "pill": {
+    "label": "Suggestions",
+    "progress": "{done} of {total}"
+  },
+  "menu": {
+    "inspirationList": "Inspiration List"
+  },
+  "page": {
+    "title": "Your first {count} things"
+  }
+}

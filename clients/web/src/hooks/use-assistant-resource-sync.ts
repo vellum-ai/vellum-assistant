@@ -2,7 +2,7 @@
  * Bus consumer for assistant-level resource cache invalidation.
  *
  * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
- * apps, documents, plugins) and discrete SSE events (`home_feed_updated`,
+ * apps, documents, plugins, activation progress) and discrete SSE events (`home_feed_updated`,
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
@@ -35,6 +35,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
+  activationProgressGetQueryKey,
   configGetQueryKey,
   configLlmCallsitesGetQueryKey,
   identityGetQueryKey,
@@ -187,6 +188,11 @@ export function useAssistantResourceSync(
             case SYNC_TAGS.pluginsList:
               invalidatePluginQueries(queryClient, assistantId);
               break;
+            case SYNC_TAGS.activationProgress:
+              void queryClient.invalidateQueries({
+                queryKey: activationProgressGetQueryKey(pathOpts),
+              });
+              break;
           }
         }
         return;
@@ -337,6 +343,10 @@ function refreshAssistantResources(
   invalidatePluginQueries(queryClient, assistantId, undefined, refetchType);
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+    refetchType,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: activationProgressGetQueryKey(pathOpts),
     refetchType,
   });
 }

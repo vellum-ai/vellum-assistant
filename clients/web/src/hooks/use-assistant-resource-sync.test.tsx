@@ -12,6 +12,7 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import {
+  activationProgressGetQueryKey,
   appsGetQueryKey,
   configGetQueryKey,
   documentsGetQueryKey,
@@ -359,6 +360,33 @@ describe("useAssistantResourceSync", () => {
       expect(claims(LIBRARY_DOCUMENTS_KEY)).toBe(true);
     });
     expect(claims(CONVERSATION_DOCUMENTS_KEY)).toBe(true);
+  });
+
+  test("invalidates activation progress on the activation:progress sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(
+      syncEvent([SYNC_TAGS.activationProgress]) as unknown as AssistantEvent,
+    );
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          activationProgressGetQueryKey({
+            path: { assistant_id: "asst-1" },
+          }),
+        ]) as never,
+      );
+    });
   });
 
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {

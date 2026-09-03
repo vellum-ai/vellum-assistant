@@ -11,9 +11,9 @@ import { toast } from "@vellumai/design-library";
 import {
   LocalFileIcon,
   localFileKindFromFilename,
-} from "@/domains/chat/components/local-file/local-file-icon";
+} from "@/components/local-file/local-file-icon";
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
-import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import { toggleLocalFile } from "@/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 import { t } from "@/i18n";
 
