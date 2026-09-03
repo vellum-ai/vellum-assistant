@@ -10,6 +10,7 @@ import { SENTINEL_REDACTION_VERSION } from "@vellumai/service-contracts/redacted
 import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
+import { onActivationToolCall } from "../activation/turn-hooks.js";
 import type { AgentEvent } from "../agent/loop.js";
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { AssistantEvent } from "../api/index.js";
@@ -1589,6 +1590,10 @@ export function handleToolUse(
   event: Extract<AgentEvent, { type: "tool_use" }>,
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
+  // Activation checklist: keep the launched task's live step count moving.
+  // Fire-and-forget and throttled inside the hook; a no-op for every
+  // conversation no activation task points at.
+  onActivationToolCall(deps.ctx.conversationId);
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }

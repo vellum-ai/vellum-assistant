@@ -9,6 +9,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { onActivationTurnComplete } from "../activation/turn-hooks.js";
 import { repairHistoryForRun } from "../agent/history-repair/history-repair.js";
 import type {
   AgentEvent,
@@ -2050,6 +2051,18 @@ export async function runAgentLoopImpl(
         // here so a regression in the writer can never bubble out of the
         // agent loop and reject an otherwise-complete turn.
         void writeRelationshipState().catch(() => {});
+
+        // Activation checklist: a completed turn in a conversation an
+        // activation task was launched into finishes that task. Cancelled
+        // turns and handoffs deliberately fall through: the task is still
+        // running. No-op for every conversation no task points at.
+        if (turnCompleted) {
+          onActivationTurnComplete({
+            conversationId: ctx.conversationId,
+            toolCallCount: state.toolUseIdToName.size,
+            attachedFiles: state.accumulatedDirectives,
+          });
+        }
       }
 
       // Consolidation deferred to compaction: keeping assistant + tool_result
