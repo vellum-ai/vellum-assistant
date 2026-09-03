@@ -146,6 +146,19 @@ describe("which deployment the roadmap calls reach", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("item links point at the deployment the item was read from", async () => {
+    // Labelled staging, but authenticating against production: the link has to
+    // follow the platform, or it points at a staging page for a real item.
+    process.env.VELLUM_ENVIRONMENT = "staging";
+    delete process.env.VELLUM_WEB_URL;
+    delete process.env.VELLUM_MARKETING_URL;
+    stubFetch({ items: [UPSTREAM_ITEM], total: 1 });
+
+    const result = (await list({})) as { items: { url: string }[] };
+
+    expect(result.items[0].url).toBe("https://www.vellum.ai/roadmap/dark-mode");
+  });
+
   test("a named endpoint is honored on any deployment", async () => {
     platformBaseUrl = "https://dev-platform.vellum.ai";
     stubFetch({ items: [], total: 0 });

@@ -19,7 +19,7 @@
  *   DELETE /v1/roadmap/:slug/upvote : remove the upvote
  */
 
-import { SEEDS } from "@vellumai/environments";
+import { type EnvironmentDefinition, SEEDS } from "@vellumai/environments";
 import { z } from "zod";
 
 import { getPlatformBaseUrl } from "../../config/env.js";
@@ -59,12 +59,17 @@ function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/** Derived from the seed table so it cannot drift from the canonical URL. */
-const PRODUCTION_PLATFORM_HOST = new URL(SEEDS.production.platformUrl).hostname;
+function hostnameOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
- * Whether this assistant belongs to the production deployment, judged by the
- * platform it authenticates against.
+ * The deployment this assistant belongs to, judged by the platform it
+ * authenticates against.
  *
  * `VELLUM_ENVIRONMENT` cannot answer this. Unset, it means dev to
  * `getPlatformBaseUrl` and local to every launcher, but it would have to mean
@@ -73,13 +78,18 @@ const PRODUCTION_PLATFORM_HOST = new URL(SEEDS.production.platformUrl).hostname;
  * labelled assistant at production. The platform base URL is the one signal
  * that already accounts for all three, and it names the deployment that issued
  * the very key these calls are signed with.
+ *
+ * Undefined for a platform outside the seed table (a self-hosted one, say),
+ * which is not production and whose roadmap and web origins must be named.
  */
-function isProductionAssistant(): boolean {
-  try {
-    return new URL(getPlatformBaseUrl()).hostname === PRODUCTION_PLATFORM_HOST;
-  } catch {
-    return false;
+function resolveDeployment(): EnvironmentDefinition | undefined {
+  const host = hostnameOf(getPlatformBaseUrl());
+  if (!host) {
+    return undefined;
   }
+  return Object.values(SEEDS).find(
+    (seed) => hostnameOf(seed.platformUrl) === host,
+  );
 }
 
 /**
@@ -98,7 +108,7 @@ function marketingBaseUrl(): string {
   if (override) {
     return stripTrailingSlashes(override);
   }
-  if (!isProductionAssistant()) {
+  if (resolveDeployment()?.name !== "production") {
     throw new UnprocessableEntityError(
       `The Vellum roadmap has no deployment for a ${getPlatformBaseUrl()} assistant. Set VELLUM_MARKETING_URL to the roadmap service for this environment.`,
     );
@@ -107,18 +117,18 @@ function marketingBaseUrl(): string {
 }
 
 /**
- * Site that renders roadmap items, for the human-facing item links. Reached
- * only once {@link marketingBaseUrl} has settled, so the seed lookup answers
- * for a named non-production endpoint too.
+ * Site that renders roadmap items, for the human-facing item links.
+ *
+ * Resolved from the same deployment the roadmap call itself reaches. Reading
+ * `VELLUM_ENVIRONMENT` here instead would hand a staging-labelled assistant
+ * whose platform is production a staging link to a production item.
  */
 function webBaseUrl(): string {
   const override = process.env.VELLUM_WEB_URL?.trim();
   if (override) {
     return stripTrailingSlashes(override);
   }
-  const env = process.env.VELLUM_ENVIRONMENT?.trim();
-  const seed = (env ? SEEDS[env] : undefined) ?? SEEDS.production;
-  return stripTrailingSlashes(seed.webUrl);
+  return stripTrailingSlashes((resolveDeployment() ?? SEEDS.production).webUrl);
 }
 
 function itemUrl(slug: string): string {
