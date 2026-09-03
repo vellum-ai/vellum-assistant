@@ -33,6 +33,13 @@ export interface AssistantAttachmentDraft {
   dataBase64: string;
   sizeBytes: number;
   kind: "image" | "video" | "document";
+  /**
+   * Path the assistant named in the directive this draft came from.
+   * Absent for drafts derived from tool content blocks, which have no file
+   * of their own. Callers that need to point a user back at the produced
+   * file (the activation checklist's artifact cards) read it.
+   */
+  sourcePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -600,6 +607,7 @@ export function resolveSandboxDirective(
       dataBase64,
       sizeBytes: data.length,
       kind: classifyKind(mimeType),
+      sourcePath: directive.path,
     },
     warning: null,
   };
@@ -716,6 +724,7 @@ export async function resolveHostDirective(
       dataBase64,
       sizeBytes: data.length,
       kind: classifyKind(mimeType),
+      sourcePath: directive.path,
     },
     warning: null,
   };
