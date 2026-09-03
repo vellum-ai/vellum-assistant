@@ -294,8 +294,10 @@ channels that move. Nothing is merged unless they confirm.
 
 The donor's channels move to the survivor, both sets of notes are combined, and
 the donor record is deleted. Nobody loses access: every address that reached the
-donor reaches the survivor afterwards. The survivor keeps its own interaction
-count; the donor's is not carried over. A guardian contact cannot be the donor.
+donor reaches the survivor afterwards. A contact's interaction count is the sum
+over its channels, so a moved channel brings its history with it; an address the
+survivor already holds is left where it is, and its donor-side history goes with
+the deleted record. A guardian contact cannot be the donor.
 
 The survivor keeps its own name unless the guardian edits it on the form.
 --keep-donor-name seeds that field with the donor's name, for when the donor is

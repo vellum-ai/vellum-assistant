@@ -884,9 +884,13 @@ export function registerContactsCommand(program: Command): void {
               currentDisplayName: survivor.displayName,
               donorContactId: donorId,
               donorDisplayName: donor.displayName,
-              // The confirmation says which access moves, so the guardian can
-              // see what the survivor ends up reachable at.
+              // Two contacts can share a name, so the confirmation lists both
+              // sides: what moves, and what the survivor already holds.
               donorChannels: donor.channels.map((ch) => ({
+                type: ch.type,
+                address: ch.address,
+              })),
+              channels: survivor.channels.map((ch) => ({
                 type: ch.type,
                 address: ch.address,
               })),

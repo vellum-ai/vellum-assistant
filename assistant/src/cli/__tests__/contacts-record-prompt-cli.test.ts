@@ -389,9 +389,14 @@ describe("contacts record prompts", () => {
       expect(body.currentDisplayName).toBe("Alice");
       expect(body.donorContactId).toBe("ct_2");
       expect(body.donorDisplayName).toBe("Bob");
-      // The guardian confirms which access moves, not just which ids.
+      // The guardian confirms which access moves, not just which ids, and the
+      // card lists the survivor's own channels beside it: two contacts can
+      // share a name, so the addresses are what tell them apart.
       expect(body.donorChannels).toEqual([
         { type: "phone", address: "+15555550142" },
+      ]);
+      expect(body.channels).toEqual([
+        { type: "email", address: "alice@example.com" },
       ]);
       // No name is proposed, so the survivor keeps its own.
       expect(body.displayName).toBeUndefined();
