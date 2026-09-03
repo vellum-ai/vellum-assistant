@@ -161,6 +161,31 @@ describe("ActivationTaskRow", () => {
     expect(getByText("4 steps")).not.toBeNull();
   });
 
+  // A turn that called no tools has no count worth reporting, and "0 steps"
+  // reads as if nothing happened.
+  test("a task that used no tools says only how it ended", () => {
+    const { getByText, queryByText } = render(
+      <ActivationTaskRow
+        task={TASK}
+        progress={doneTaskProgress({ stepCount: 0 })}
+      />,
+    );
+    expect(getByText("Done")).not.toBeNull();
+    expect(queryByText("0 steps")).toBeNull();
+  });
+
+  test("a working row with no tool calls yet shows no count", () => {
+    const { getByText, queryByText } = render(
+      <ActivationTaskRow
+        task={TASK}
+        progress={startedTaskProgress({ stepCount: 0 })}
+        onOpenConversation={() => {}}
+      />,
+    );
+    expect(getByText("Working")).not.toBeNull();
+    expect(queryByText("0 steps")).toBeNull();
+  });
+
   test("an expanded task with a link renders its call to action", () => {
     const { getByText } = render(
       <ActivationTaskRow task={LINKED_TASK} expanded />,

@@ -13,7 +13,9 @@
  * shares, rather than the flag arm alone: the page is reachable by a bookmark,
  * and against an assistant too old for the `/v1/activation/*` routes every row
  * would offer a launch the daemon cannot link. Gated off, the route hands the
- * user back to chat.
+ * user back to chat, and it waits for `useActivationGatesSettled` before
+ * deciding that, because both gates read as off while they are still
+ * resolving.
  *
  * Mounted under `ActiveAssistantGate`, so `activeAssistantId` is resolved by
  * the time this renders and needs no second guard.
@@ -24,14 +26,16 @@ import { Navigate, useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
+import {
+  useActivationGatesSettled,
+  useEffectiveActivationListId,
+} from "@/hooks/use-activation-enabled";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
-import { taskIsAvailable, useAvailableCapabilityTags } from "../capabilities";
-import { useActivationList } from "../catalog";
+import { useAvailableActivationList } from "../capabilities";
 import { ActivationListPage } from "../components/activation-list-page";
 import { useActivationProgress } from "../hooks/use-activation-progress";
 import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
@@ -41,19 +45,13 @@ export function ActivationListRoute() {
   const { t } = useTranslation("activation");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const listId = useEffectiveActivationListId(assistantId);
+  const gatesSettled = useActivationGatesSettled(assistantId);
   const { data: progress } = useActivationProgress();
 
-  const { starters, items } = useActivationList(listId ?? "");
-  const availableTags = useAvailableCapabilityTags();
+  const { starters, items } = useAvailableActivationList(listId ?? "");
   const { launch, pendingTaskIds } = useLaunchActivationTask(listId ?? "");
 
-  const tasks = useMemo(
-    () =>
-      [...starters, ...items].filter((task) =>
-        taskIsAvailable(task, availableTags),
-      ),
-    [starters, items, availableTags],
-  );
+  const tasks = useMemo(() => [...starters, ...items], [starters, items]);
 
   // The page is the point of the launch, so the user stays on it and the row
   // flips to Working; the conversation runs in the background. A failure has
@@ -84,7 +82,11 @@ export function ActivationListRoute() {
   );
 
   if (listId === null) {
-    return <Navigate to={routes.assistant} replace />;
+    // A gate that has not answered yet is not a gate that said no: on a cold
+    // load the flag values and the assistant's version are both still in
+    // flight, and redirecting on that would bounce every bookmark, reload and
+    // new tab straight back to chat.
+    return gatesSettled ? <Navigate to={routes.assistant} replace /> : null;
   }
 
   return (

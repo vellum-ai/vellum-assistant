@@ -10,8 +10,8 @@
  * support gate and the daemon's frozen list, the three every activation
  * surface shares), then the server read, then
  * the surfaces this one must not fight with: onboarding routes and the in-chat
- * tour own the screen while they run, and a banner already occupies the slot
- * the pill would take.
+ * tour own the screen while they run, the Inspiration List is already the whole
+ * checklist, and a banner occupies the slot the pill would take.
  */
 
 import { useLocation } from "react-router";
@@ -57,6 +57,22 @@ function isOnboardingRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * The Inspiration List is this checklist, in full and already launchable. A
+ * modal over it hides what the user opened, and a pill beside it points at the
+ * page they are on.
+ *
+ * Matched on the segment boundary rather than by prefix, so a sibling route
+ * that happens to share the first characters of this one (a
+ * `/assistant/suggestions-archive`) keeps the surfaces it is entitled to.
+ */
+function isActivationListRoute(pathname: string): boolean {
+  return (
+    pathname === routes.activationList ||
+    pathname.startsWith(`${routes.activationList}/`)
+  );
+}
+
 /** How many of a list's three starters the daemon has marked done. */
 export function doneStarterCount(
   progress: ActivationProgress,
@@ -78,7 +94,12 @@ export function useActivationVisibility(): ActivationVisibility {
   if (listId === null || !progress) {
     return HIDDEN;
   }
-  if (isOnboardingRoute(pathname) || tourActive || bannerVisible) {
+  if (
+    isOnboardingRoute(pathname) ||
+    isActivationListRoute(pathname) ||
+    tourActive ||
+    bannerVisible
+  ) {
     return HIDDEN;
   }
 

@@ -40,7 +40,7 @@ import { whenStoreState } from "@/utils/when-store-state";
  *   patch version bumps.
  * - `dev` pre-releases (e.g. `0.10.0-dev.202606211252.5cf8576`) are
  *   treated as AHEAD of the stable release with the same base version
- *   (the opposite of strict semver) — they contain unreleased commits.
+ *   (the opposite of strict semver): they contain unreleased commits.
  *   Two dev builds with the same base compare by their pre-release
  *   string (which encodes a timestamp). This lets gates target a
  *   specific dev build by passing the exact version string as
@@ -55,15 +55,15 @@ export function useAssistantSupports(minVersion: string): boolean {
 /**
  * Assistant-scoped variant of `useAssistantSupports`: returns `true` only
  * when the active assistant's version meets `minVersion` AND the identity
- * store's version was fetched for `ownerAssistantId` — the assistant that
+ * store's version was fetched for `ownerAssistantId`, the assistant that
  * owns whatever the caller is gating (a transcript, a live voice session).
  *
- * Both the version and its owner are read from the identity store — a
+ * Both the version and its owner are read from the identity store, a
  * single atomic snapshot (`setIdentity` writes them in the same store
- * update) — so the version can never be checked against a different
+ * update), so the version can never be checked against a different
  * assistant's feature surface, even transiently during an assistant
- * switch. Comparing against the identity store's own `assistantId` —
- * rather than `activeAssistantId` from the resolved-assistants store —
+ * switch. Comparing against the identity store's own `assistantId`,
+ * rather than `activeAssistantId` from the resolved-assistants store,
  * keeps the check race-free: the two stores update at different times, so
  * a cross-store pairing could briefly validate against the previous
  * assistant's version.
@@ -88,6 +88,61 @@ export function useAssistantScopedSupports(
 }
 
 /**
+ * Whether the identity store holds a version fetched for `ownerAssistantId`.
+ *
+ * The gates above collapse "older than the floor" and "not known yet" into one
+ * `false`, which is the right answer for a surface that hides and the wrong one
+ * for a surface that navigates: a redirect fired on the unresolved answer sends
+ * a deep link somewhere else before the version has landed. This is the second
+ * bit, so such a caller can wait instead of acting on a gate that has not
+ * spoken.
+ *
+ * Owner-scoped for the same reason {@link useAssistantScopedSupports} is: a
+ * version still held for the assistant the user just left says nothing about
+ * this one.
+ */
+export function useAssistantVersionKnownFor(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const version = useAssistantIdentityStore.use.version();
+  return (
+    version !== null &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
+/**
+ * Whether the identity fetch for `ownerAssistantId` has finished asking,
+ * whatever it came back with: a version landed, or the fetch reached a dead
+ * end (it errored, or `fetchAssistantIdentity` swallowed an unreachable
+ * runtime into a `null`).
+ *
+ * {@link useAssistantVersionKnownFor} is the wait a caller wants while the
+ * answer is still coming. It is not the wait a caller wants when the answer
+ * never comes: a fetch that exhausted its retries leaves the version `null`
+ * forever, and a surface that navigates on the resolved gate would hold a deep
+ * link on a blank page for the rest of the session. This says "stop waiting"
+ * for both endings, so such a caller can act on the conservative `false` the
+ * version gates report rather than sit on it.
+ *
+ * A null owner has nothing to wait for and reports `true`, matching
+ * {@link whenAssistantVersionKnownFor}: the scoped gates answer `false` for
+ * one regardless.
+ */
+export function useAssistantIdentitySettledFor(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  const versionKnown = useAssistantVersionKnownFor(ownerAssistantId);
+  const unavailableFor = useAssistantIdentityStore.use.unavailableFor();
+  if (ownerAssistantId == null) {
+    return true;
+  }
+  return versionKnown || unavailableFor === ownerAssistantId;
+}
+
+/**
  * Non-hook variant of `useAssistantSupports`: reads the version
  * snapshot via `useAssistantIdentityStore.getState()` so it's safe to
  * call from non-hook contexts (event handlers, async ops, request
@@ -105,7 +160,7 @@ export function assistantSupports(minVersion: string): boolean {
 
 /**
  * Non-hook variant of {@link useAssistantScopedSupports}, for imperative
- * callers (event handlers, async ops) — same owner-scoping rule, read off a
+ * callers (event handlers, async ops): same owner-scoping rule, read off a
  * `getState()` snapshot.
  *
  * Narrows `ownerAssistantId` to `string`: a null/undefined owner is never
@@ -160,7 +215,7 @@ export function versionSupports(
   }
   // Base versions are equal. Build pre-releases (`0.10.0-dev.…` from CI,
   // `0.11.8-local.…` from a `vel up` image) are development builds AHEAD
-  // of the stable release with the same base — they contain unreleased
+  // of the stable release with the same base: they contain unreleased
   // commits on top of it. So a dev build of 0.10.0 is newer than the
   // 0.10.0 stable release, not older (the opposite of strict semver).
   const versionBuild = parseBuildPreRelease(parsed.pre);
@@ -176,7 +231,7 @@ export function versionSupports(
     // A build is ahead of stable with the same base.
     return versionBuild !== null;
   }
-  // Neither is a build — existing convention: strip pre-release
+  // Neither is a build. Existing convention: strip pre-release
   // suffixes, equal base versions count as supported (rc/beta/alpha
   // testers get the new path the moment the patch version bumps).
   return true;
@@ -218,7 +273,7 @@ export const VERSION_RESOLUTION_TIMEOUT_MS = 5_000;
  * after `timeoutMs` if it never hydrates.
  *
  * The version snapshot starts `null` and is hydrated asynchronously by
- * the identity fetch (`useAssistantIdentityInit`) — onboarding even
+ * the identity fetch (`useAssistantIdentityInit`); onboarding even
  * seeds a usable assistant with a still-`null` version. The sync
  * `assistantSupports` snapshot collapses "unknown" and "known-old" into
  * a single `false`, which is safe for read paths that fall back to a

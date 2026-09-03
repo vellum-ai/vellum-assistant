@@ -667,6 +667,48 @@ describe("useLaunchActivationTask progress cache", () => {
     expect(tasks["weekly-report"]?.status).toBe("started");
   });
 
+  // The user closes the modal while a launch is in flight, so the snapshot the
+  // start answers with predates the dismissal. Taking it wholesale would
+  // reopen the modal over the chat the user just went back to.
+  test("keeps a dismissal the answered snapshot was taken before", async () => {
+    queryClient.setQueryData(PROGRESS_KEY, {
+      ...startedProgress,
+      modalDismissedAt: "2026-09-03T10:00:00.000Z",
+      allDoneShownAt: "2026-09-03T10:05:00.000Z",
+    });
+    startBody = {
+      ...startedProgress,
+      modalDismissedAt: null,
+      allDoneShownAt: null,
+    };
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()?.modalDismissedAt).toBe("2026-09-03T10:00:00.000Z");
+    expect(cachedProgress()?.allDoneShownAt).toBe("2026-09-03T10:05:00.000Z");
+  });
+
+  // Another client dismissed it, and the daemon's answer is the newer of the
+  // two records.
+  test("takes the later of two dismissal stamps", async () => {
+    queryClient.setQueryData(PROGRESS_KEY, {
+      ...startedProgress,
+      modalDismissedAt: "2026-09-03T10:00:00.000Z",
+    });
+    startBody = {
+      ...startedProgress,
+      modalDismissedAt: "2026-09-03T11:00:00.000Z",
+    };
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()?.modalDismissedAt).toBe("2026-09-03T11:00:00.000Z");
+  });
+
   test("writes the progress the daemon answered the start with", async () => {
     startBody = startedProgress;
     const result = launcher();
