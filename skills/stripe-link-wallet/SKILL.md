@@ -50,34 +50,38 @@ Whenever **any** flow (MCP tool, API call, web request, or otherwise) produces a
 
 ---
 
-## Step 0: Check installation and auth
+## Fast path — authentication only
+
+When the user asks to connect, log in, or check Link, **do exactly this before any other command or investigation**:
 
 ```bash
-if command -v link-cli >/dev/null; then
-  link-cli auth status --format json
-else
-  bunx @stripe/link-cli auth status --format json
-fi
+bunx @stripe/link-cli auth status --format json
 ```
 
-- `link-cli` missing — use `bunx @stripe/link-cli` for Step 0 and every command below.
-- Exit 0 but `"authenticated": false` — fall to **Setup: login**.
-- Authenticated — proceed to the requested flow.
-- `"update"` key present in auth status — mention the update to the user but don't block on it.
+**Do not** separately check whether `link-cli`, `bunx`, Node, npm, `node_modules`, caches, processes, CLI docs, or browser status first. `bunx` resolves the CLI on demand, and this command is both the installation check and the authentication check. Do not retry it with a different launcher unless it returns a concrete executable or network error.
+
+- `"authenticated": true` — say it is connected and stop; do not inspect payment methods or run further setup.
+- `"authenticated": false` — run exactly one `auth login` command, then open its returned `verification_url` and start background polling as described in **Setup**.
+- A concrete command error — report that exact error, then take only the recovery step it calls for.
+- `"update"` key present — mention it after the result, but never block setup on it.
+
+### No diagnostic parade
+
+A normal connection request is a two-command flow: **one `auth status`, then one `auth login` only if needed**. The only additional actions are opening the returned URL and the background poll. Never launch exploratory commands, repeat auth status through multiple launchers, read Link’s source/docs, or investigate local runtime state unless the fast-path command itself returns an actionable error.
+
+---
+
+## Step 0: Check installation and auth
+
+Use the **Fast path** above. For payment flows, repeat `bunx @stripe/link-cli auth status --format json` only when there is reason to believe authentication state may have changed since the current conversation.
 
 ---
 
 ## Setup
 
-### If `link-cli` is missing
+### CLI launcher
 
-Invoke the CLI on demand with `bunx`:
-
-```bash
-bunx @stripe/link-cli <subcommand>
-```
-
-In every example below, substitute `bunx @stripe/link-cli` wherever you see `link-cli`.
+Use `bunx @stripe/link-cli` for every command in this skill. It avoids a separate global-install check and works whether or not the executable is already cached.
 
 ### If installed but not authenticated
 
