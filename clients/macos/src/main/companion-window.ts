@@ -741,14 +741,16 @@ const refreshGrowth = (): void => {
   });
   const { workArea } = display;
   // A frame around the whole screen follows the surface from display to
-  // display; one around a picked display or window stays on it. Before the
-  // early return below, since a drag across displays need not change either
-  // growth.
+  // display, and one around a picked display is placed again from that
+  // display's bounds, which the same events (a display arriving, leaving,
+  // rotating or rescaling) can move under it. One around a picked window
+  // follows the window instead. Before the early return below, since a drag
+  // across displays need not change either growth.
   if (
     getFloatingWindow(WATCH_FRAME_KIND) !== null &&
-    context.captureTarget === undefined
+    context.captureTarget?.kind !== "window"
   ) {
-    placeWatchFrame(display.bounds);
+    syncWatchFrame();
   }
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);

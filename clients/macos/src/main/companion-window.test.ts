@@ -112,9 +112,23 @@ mock.module("electron", () => ({
     }),
     getAllDisplays: () => displays,
     getPrimaryDisplay: () => displays[0],
-    on: () => undefined,
+    on: (event: string, listener: () => void) => {
+      screenListeners.push({ event, listener });
+    },
   },
 }));
+
+/** Main's display listeners, so a case can rearrange the displays. */
+const screenListeners: { event: string; listener: () => void }[] = [];
+
+/** Fire the display event main registered, as the window server would. */
+const fireDisplayEvent = (event: string): void => {
+  for (const entry of [...screenListeners]) {
+    if (entry.event === event) {
+      entry.listener();
+    }
+  }
+};
 
 /**
  * The displays the window server has, by id, for a session framing one of
@@ -967,6 +981,22 @@ describe("the light a watch session puts on the display", () => {
       }),
     );
     expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+  });
+
+  test("is placed again when the picked display changes shape", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    displays[1] = {
+      ...displays[1],
+      bounds: { x: 1440, y: 0, width: 1080, height: 1920 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1080, height: 1920 });
   });
 
   test("falls back to the surface's display for one that is gone", () => {

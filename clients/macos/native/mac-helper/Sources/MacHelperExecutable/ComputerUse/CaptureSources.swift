@@ -76,7 +76,10 @@ enum CaptureSources {
     /// tree from there would describe something the frame never showed.
     /// Wholly on the display rather than mostly, because a tree has no crop:
     /// a window straddling two displays would file the text of the part the
-    /// frame never showed. Such a window is left to the screenshot.
+    /// frame never showed. Such a window is left to the screenshot, and so is
+    /// everything behind it: a straddling window in front covers part of
+    /// the display, and the tree of a window under it would describe text
+    /// the screenshot does not show.
     static func topmostWindowId(onDisplay displayId: CGDirectDisplayID) -> CGWindowID? {
         let displayBounds = CGDisplayBounds(displayId)
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
@@ -95,9 +98,8 @@ enum CaptureSources {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict),
                   bounds.width >= 50, bounds.height >= 50
             else { continue }
-            if displayBounds.contains(bounds) {
-                return CGWindowID(windowNumber)
-            }
+            if !bounds.intersects(displayBounds) { continue }
+            return displayBounds.contains(bounds) ? CGWindowID(windowNumber) : nil
         }
         return nil
     }
