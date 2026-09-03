@@ -14,10 +14,9 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   act,
@@ -35,41 +34,61 @@ import type { AuthUser } from "@/stores/auth-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 import { routes } from "@/utils/routes";
 
 const isTouchMobileRef = { value: false };
 const nativeAndroidRef = { value: false };
 
-mock.module("@/hooks/use-touch-mobile", () => ({
-  useTouchMobile: () => isTouchMobileRef.value,
-  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
-}));
+// Every module below is replaced through `stubModule`, which spreads the real
+// one and registers the undo `afterAll` runs: `mock.module` is process-global
+// in bun, so a partial shape erases a module's other exports for whatever file
+// loads it next, and a replacement left standing outlives this file.
+afterAll(restoreStubbedModules);
 
-// Spread the real module: `mock.module` replaces it for every file sharing
-// this process, and other exports of it (browser detection) are reached
-// through the stores this suite now touches.
-const actualPlatformDetection = await import("@/runtime/platform-detection");
-mock.module("@/runtime/platform-detection", () => ({
-  ...actualPlatformDetection,
-  useIsNativeAndroid: () => nativeAndroidRef.value,
-}));
+stubModule(
+  "@/hooks/use-touch-mobile",
+  await import("@/hooks/use-touch-mobile"),
+  {
+    useTouchMobile: () => isTouchMobileRef.value,
+  },
+);
 
-mock.module("@/hooks/use-platform-gate", () => ({
-  usePlatformGate: () => "full",
-  useActiveAssistantIsPlatformHosted: () => true,
-}));
+stubModule(
+  "@/runtime/platform-detection",
+  await import("@/runtime/platform-detection"),
+  { useIsNativeAndroid: () => nativeAndroidRef.value },
+);
 
-mock.module("@/hooks/use-is-org-ready", () => ({
-  useIsOrgReady: () => true,
-}));
+stubModule(
+  "@/hooks/use-platform-gate",
+  await import("@/hooks/use-platform-gate"),
+  {
+    usePlatformGate: () => "full",
+    useActiveAssistantIsPlatformHosted: () => true,
+  },
+);
+
+stubModule(
+  "@/hooks/use-is-org-ready",
+  await import("@/hooks/use-is-org-ready"),
+  {
+    useIsOrgReady: () => true,
+  },
+);
 
 // The BYOK gate pulls the daemon generated client (and its real
 // `queryOptions` import) into the graph; this suite's partial
 // `@tanstack/react-query` mock cannot host that, and the menu only reads
 // `enabled`/`balance`, which the gate never touches.
-mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
-  useSuppressCreditBannersForByok: () => false,
-}));
+stubModule(
+  "@/hooks/use-byok-credit-banner-gate",
+  await import("@/hooks/use-byok-credit-banner-gate"),
+  { useSuppressCreditBannersForByok: () => false },
+);
 
 const authRef: {
   isAuthenticated: boolean;
@@ -89,29 +108,39 @@ const authRef: {
   logout: async () => {},
 };
 
-mock.module("@/stores/auth-store", () => {
-  const store = () => null;
-  store.use = {
+const authStoreModule = await import("@/stores/auth-store");
+// The menu reads two selectors and `getState()`; the rest of the zustand
+// surface has no consumer here, so the stub asserts the store's type rather
+// than reproducing it.
+const authStoreStub = Object.assign(() => null, {
+  use: {
     user: () => authRef.user,
     logout: () => authRef.logout,
-  };
-  store.getState = () => authRef;
-  return {
-    useAuthStore: store,
-    useIsAuthenticated: () => authRef.isAuthenticated,
-  };
+  },
+  getState: () => authRef,
+}) as unknown as typeof authStoreModule.useAuthStore;
+stubModule("@/stores/auth-store", authStoreModule, {
+  useAuthStore: authStoreStub,
+  useIsAuthenticated: () => authRef.isAuthenticated,
 });
 
 // The real client flag store: a plain zustand store with no transport of its
 // own, and the only version that carries the string-flag surface the
 // activation arm is read through. A stub here would also replace it for every
 // test file sharing this process.
-mock.module("@/stores/assistant-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {};
-  store.getState = () => ({});
-  return { useAssistantFeatureFlagStore: store };
-});
+const assistantFeatureFlagStoreModule =
+  await import("@/stores/assistant-feature-flag-store");
+// Nothing the menu renders reads a flag off this store, so the stub answers
+// with an empty surface and asserts the store's type.
+const featureFlagStoreStub = Object.assign(() => null, {
+  use: {},
+  getState: () => ({}),
+}) as unknown as typeof assistantFeatureFlagStoreModule.useAssistantFeatureFlagStore;
+stubModule(
+  "@/stores/assistant-feature-flag-store",
+  assistantFeatureFlagStoreModule,
+  { useAssistantFeatureFlagStore: featureFlagStoreStub },
+);
 
 const billingRef = {
   data: undefined as
@@ -136,98 +165,111 @@ function isActivationProgressQuery(options: unknown): boolean {
 // (e.g. `isCancelledError` via `captureError`) keep resolving; only the
 // hook under test's read is overridden. The menu makes two reads, so the
 // stub answers by query key rather than handing both the same body.
-const actualReactQuery = await import("@tanstack/react-query");
-mock.module("@tanstack/react-query", () => ({
-  ...actualReactQuery,
-  useQuery: (options: unknown) =>
+const reactQueryModule = await import("@tanstack/react-query");
+stubModule("@tanstack/react-query", reactQueryModule, {
+  // The menu reads `data`, `isLoading` and `isError` only, so the answer is
+  // asserted against `useQuery`'s type rather than built out to its full
+  // result shape.
+  useQuery: ((options: unknown) =>
     isActivationProgressQuery(options)
       ? { data: activationProgressRef.data, isLoading: false, isError: false }
-      : { data: billingRef.data, isLoading: false, isError: false },
-}));
+      : {
+          data: billingRef.data,
+          isLoading: false,
+          isError: false,
+        }) as unknown as typeof reactQueryModule.useQuery,
+});
 
-mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
-  organizationsBillingSummaryRetrieveOptions: () => ({
-    queryKey: [{ _id: "organizationsBillingSummaryRetrieve" }],
-  }),
-  referralCodesMeRetrieveOptions: () => ({
-    queryKey: [{ _id: "referralCodesMeRetrieve" }],
-  }),
-}));
+const generatedQueriesModule =
+  await import("@/generated/api/@tanstack/react-query.gen");
+// Only the query key is read (the stubbed `useQuery` answers by key), so each
+// factory answers with the key alone and asserts the generated signature.
+stubModule(
+  "@/generated/api/@tanstack/react-query.gen",
+  generatedQueriesModule,
+  {
+    organizationsBillingSummaryRetrieveOptions: (() => ({
+      queryKey: [{ _id: "organizationsBillingSummaryRetrieve" }],
+    })) as unknown as typeof generatedQueriesModule.organizationsBillingSummaryRetrieveOptions,
+    referralCodesMeRetrieveOptions: (() => ({
+      queryKey: [{ _id: "referralCodesMeRetrieve" }],
+    })) as unknown as typeof generatedQueriesModule.referralCodesMeRetrieveOptions,
+  },
+);
 
 // Capture navigate() targets so the menu's destinations can be asserted
 // without a live Router.
 let navigateArgs: unknown[] = [];
-const actualReactRouter = await import("react-router");
-// Captured by value: a module namespace's bindings are live, so reading the
-// export back after the mock is installed would hand out the mock.
-const { useNavigate: realUseNavigate } = actualReactRouter;
-mock.module("react-router", () => ({
-  ...actualReactRouter,
+stubModule("react-router", await import("react-router"), {
   useNavigate: () => (to: unknown) => {
     navigateArgs.push(to);
   },
-}));
-
-// `mock.module` replaces the module for every file sharing this process, and
-// a router that never navigates would silently break any suite after this one
-// that asserts on where a click took the user.
-afterAll(() => {
-  mock.module("react-router", () => ({
-    ...actualReactRouter,
-    useNavigate: realUseNavigate,
-  }));
 });
 
 // The menu owns when the chunk is warmed and when the dialog is mounted; the
 // dialog's own lazy wiring is covered by `share-feedback-modal-lazy.test.tsx`.
 const feedbackRef = { prefetches: 0 };
-mock.module("@/components/share-feedback-modal-lazy", () => ({
-  ShareFeedbackModalLazy: ({ open }: { open: boolean }) =>
-    open
-      ? createElement("div", { "data-testid": "share-feedback-modal" })
-      : null,
-  prefetchShareFeedbackModal: () => {
-    feedbackRef.prefetches += 1;
+stubModule(
+  "@/components/share-feedback-modal-lazy",
+  await import("@/components/share-feedback-modal-lazy"),
+  {
+    ShareFeedbackModalLazy: ({ open }: { open: boolean }) =>
+      open
+        ? createElement("div", { "data-testid": "share-feedback-modal" })
+        : createElement(Fragment),
+    prefetchShareFeedbackModal: () => {
+      feedbackRef.prefetches += 1;
+    },
   },
-}));
+);
 
 // The panel owns its own reads (subscription, plan catalog, usage totals),
 // which this suite's partial `@tanstack/react-query` mock cannot host. Its
 // rendering is covered by `preferences-usage-panel.test.tsx`; what the menu
 // owns is where the panel sits and what its two actions do.
 const panelPropsRef: { conversationId?: string | null } = {};
-mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
-  PreferencesUsagePanel: ({
-    onOpenBilling,
-    onAddCredits,
-    conversationId,
-  }: {
-    onOpenBilling: () => void;
-    onAddCredits?: () => void;
-    conversationId?: string | null;
-  }) => {
-    panelPropsRef.conversationId = conversationId;
-    return createElement(
-      "div",
-      { "data-testid": "preferences-usage" },
-      createElement("button", { onClick: onOpenBilling }, "Usage settings"),
-      // The real panel drops the strip's button with the handler, so the stub
-      // has to as well.
-      onAddCredits
-        ? createElement(
-            "button",
-            { onClick: onAddCredits },
-            "Add usage credits",
-          )
-        : null,
-    );
+stubModule(
+  "@/domains/chat/components/preferences-usage-panel",
+  await import("@/domains/chat/components/preferences-usage-panel"),
+  {
+    PreferencesUsagePanel: ({
+      onOpenBilling,
+      onAddCredits,
+      conversationId,
+    }: {
+      onOpenBilling: () => void;
+      onAddCredits?: () => void;
+      conversationId?: string | null;
+    }) => {
+      panelPropsRef.conversationId = conversationId;
+      return createElement(
+        "div",
+        { "data-testid": "preferences-usage" },
+        createElement("button", { onClick: onOpenBilling }, "Usage settings"),
+        // The real panel drops the strip's button with the handler, so the
+        // stub has to as well.
+        onAddCredits
+          ? createElement(
+              "button",
+              { onClick: onAddCredits },
+              "Add usage credits",
+            )
+          : null,
+      );
+    },
   },
-}));
+);
 
-mock.module("@/components/add-credits-modal", () => ({
-  AddCreditsModal: ({ open }: { open: boolean }) =>
-    open ? createElement("div", { "data-testid": "add-credits-modal" }) : null,
-}));
+stubModule(
+  "@/components/add-credits-modal",
+  await import("@/components/add-credits-modal"),
+  {
+    AddCreditsModal: ({ open }: { open: boolean }) =>
+      open
+        ? createElement("div", { "data-testid": "add-credits-modal" })
+        : createElement(Fragment),
+  },
+);
 
 // The reading itself is composed from three billing queries this suite's
 // partial `@tanstack/react-query` mock cannot host, and is covered by
@@ -237,56 +279,55 @@ const usageRef: { value: PreferencesUsage | null; opts: unknown } = {
   value: null,
   opts: undefined,
 };
-mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
-  usePreferencesUsage: (opts?: unknown) => {
-    usageRef.opts = opts;
-    return usageRef.value;
+stubModule(
+  "@/domains/chat/hooks/use-preferences-usage",
+  await import("@/domains/chat/hooks/use-preferences-usage"),
+  {
+    usePreferencesUsage: (opts?: unknown) => {
+      usageRef.opts = opts;
+      return usageRef.value;
+    },
   },
-}));
+);
 
 // The funnel emitter posts to the telemetry ingest, which has nowhere to go
 // in a test process. What the menu owns is that opening the list emits the
 // event at all, so the emitter is captured rather than run.
 //
-// Spread and restored like every other module mock here: `mock.module`
-// replaces a module for the whole process, and `use-launch-activation-task
-// .test.tsx` asserts on the same emitter.
+// `use-launch-activation-task.test.tsx` asserts on the same emitter, so this
+// one has to be put back when the file is done with it.
 const activationEvents: string[] = [];
-const telemetryModule = await import("@/utils/activation-telemetry");
-// Captured by value: a module namespace's bindings are live, so reading the
-// export back after the mock is installed would hand out the mock.
-const { emitActivationEvent: realEmitActivationEvent } = telemetryModule;
-mock.module("@/utils/activation-telemetry", () => ({
-  ...telemetryModule,
-  emitActivationEvent: (event: string) => {
-    activationEvents.push(event);
+stubModule(
+  "@/utils/activation-telemetry",
+  await import("@/utils/activation-telemetry"),
+  {
+    emitActivationEvent: (event: string) => {
+      activationEvents.push(event);
+    },
   },
-}));
+);
 
-afterAll(() => {
-  mock.module("@/utils/activation-telemetry", () => ({
-    ...telemetryModule,
-    emitActivationEvent: realEmitActivationEvent,
-  }));
-});
-
-mock.module("@/domains/chat/components/credits-card", () => ({
-  CreditsCard: ({
-    balance,
-    onAddCredits,
-  }: {
-    balance: string;
-    onAddCredits?: () => void;
-  }) =>
-    createElement(
-      "div",
-      { "data-testid": "credits-card" },
+stubModule(
+  "@/domains/chat/components/credits-card",
+  await import("@/domains/chat/components/credits-card"),
+  {
+    CreditsCard: ({
       balance,
-      onAddCredits
-        ? createElement("button", { onClick: onAddCredits }, "Add credits")
-        : null,
-    ),
-}));
+      onAddCredits,
+    }: {
+      balance: string | null;
+      onAddCredits?: () => void;
+    }) =>
+      createElement(
+        "div",
+        { "data-testid": "credits-card" },
+        balance,
+        onAddCredits
+          ? createElement("button", { onClick: onAddCredits }, "Add credits")
+          : null,
+      ),
+  },
+);
 
 const { PreferencesMenu, showsMenuCredits } =
   await import("@/domains/chat/components/preferences-menu");

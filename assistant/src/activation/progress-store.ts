@@ -169,14 +169,18 @@ function parseForwardCompatible(document: unknown): ActivationProgress {
 
 function readActivationSnapshot(): ActivationSnapshot {
   const path = getActivationProgressPath();
+  // Stamped before the bytes are read, so a write that lands between the two
+  // leaves the index looking stale rather than fresh: the next miss sees a
+  // changed stamp and re-reads.
+  const stamp = progressFileStamp();
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
   } catch {
-    return refreshLinkIndex({
-      progress: emptyActivationProgress(),
-      readOnly: false,
-    });
+    return refreshLinkIndex(
+      { progress: emptyActivationProgress(), readOnly: false },
+      stamp,
+    );
   }
 
   let document: unknown;
@@ -187,10 +191,10 @@ function readActivationSnapshot(): ActivationSnapshot {
       { err, path },
       "Unreadable activation-progress.json; treating as empty",
     );
-    return refreshLinkIndex({
-      progress: emptyActivationProgress(),
-      readOnly: false,
-    });
+    return refreshLinkIndex(
+      { progress: emptyActivationProgress(), readOnly: false },
+      stamp,
+    );
   }
 
   // The version is read before the shape is, so a document this build cannot
@@ -201,10 +205,10 @@ function readActivationSnapshot(): ActivationSnapshot {
       { path, version, supported: ACTIVATION_PROGRESS_VERSION },
       "activation-progress.json was written by a newer build; serving it read-only",
     );
-    return refreshLinkIndex({
-      progress: parseForwardCompatible(document),
-      readOnly: true,
-    });
+    return refreshLinkIndex(
+      { progress: parseForwardCompatible(document), readOnly: true },
+      stamp,
+    );
   }
 
   const parsed = ActivationProgressSchema.safeParse(document);
@@ -213,12 +217,12 @@ function readActivationSnapshot(): ActivationSnapshot {
       { err: parsed.error, path },
       "Unreadable activation-progress.json; treating as empty",
     );
-    return refreshLinkIndex({
-      progress: emptyActivationProgress(),
-      readOnly: false,
-    });
+    return refreshLinkIndex(
+      { progress: emptyActivationProgress(), readOnly: false },
+      stamp,
+    );
   }
-  return refreshLinkIndex({ progress: parsed.data, readOnly: false });
+  return refreshLinkIndex({ progress: parsed.data, readOnly: false }, stamp);
 }
 
 /**
@@ -230,6 +234,7 @@ export function readActivationProgress(): ActivationProgress {
   return readActivationSnapshot().progress;
 }
 
+/** Writes the document atomically, replacing whatever was at the path. */
 function writeActivationProgress(progress: ActivationProgress): void {
   const path = getActivationProgressPath();
   mkdirSync(getDataDir(), { recursive: true });
@@ -269,7 +274,10 @@ function writeActivationProgress(progress: ActivationProgress): void {
  * read the index was built from, and a *miss* is confirmed against a fresh
  * `statSync` before it is believed. A hit still costs one map lookup and no
  * syscall, and a miss costs one stat rather than a read, a parse, and a
- * schema validation.
+ * schema validation. An index rebuilt from a mutation carries no stamp,
+ * because nothing observable after the rename is provably that mutation's
+ * bytes; the first miss after a write therefore re-reads once and stamps the
+ * index from that read.
  *
  * `linkIndexPath` pins the index to the workspace it was built from: a
  * process that switches workspaces (tests do) falls back to a read rather
@@ -295,7 +303,20 @@ function progressFileStamp(): string {
   }
 }
 
-function refreshLinkIndex(snapshot: ActivationSnapshot): ActivationSnapshot {
+/**
+ * Rebuild the index from `snapshot`, filed under the stamp of the bytes that
+ * snapshot came from, or under `null` when no stamp is provably tied to those
+ * bytes. The caller supplies the stamp because only the caller knows which
+ * bytes those were: a read stamps before it reads, and a write passes `null`
+ * because any stat it takes after its rename may describe another writer's
+ * file. A `null` stamp matches no stat, so the first miss against the index
+ * re-reads once and files the result under a real stamp; hits answer from the
+ * map with no syscall either way.
+ */
+function refreshLinkIndex(
+  snapshot: ActivationSnapshot,
+  stamp: string | null,
+): ActivationSnapshot {
   const next = new Map<string, string>();
   for (const [taskId, task] of Object.entries(snapshot.progress.tasks)) {
     if (task.status === "started") {
@@ -304,7 +325,7 @@ function refreshLinkIndex(snapshot: ActivationSnapshot): ActivationSnapshot {
   }
   linkIndex = next;
   linkIndexPath = getActivationProgressPath();
-  linkIndexStamp = progressFileStamp();
+  linkIndexStamp = stamp;
   return snapshot;
 }
 
@@ -386,7 +407,7 @@ async function mutateActivationProgress(
       log.warn({ err }, "Failed to write activation-progress.json");
       throw new InternalError("Failed to persist activation progress");
     }
-    refreshLinkIndex(snapshot);
+    refreshLinkIndex(snapshot, null);
     publishActivationProgressChanged(originClientId);
     return progress;
   };
@@ -734,7 +755,10 @@ export async function markActivationTurnComplete(params: {
   ) {
     return;
   }
-  await flushStepBumps(conversationId);
+  // A failed flush must not strand the row on Working. The completion
+  // mutation re-establishes `stepCount` from `toolCallCount` via `Math.max`,
+  // and the flush has already re-queued its delta for a bounded retry.
+  await flushStepBumps(conversationId).catch(() => {});
   if (endedAwaitingUser) {
     return;
   }
