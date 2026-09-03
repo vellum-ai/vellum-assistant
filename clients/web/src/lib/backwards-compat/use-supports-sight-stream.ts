@@ -62,10 +62,11 @@
  * Scoped to the assistant that owns the live voice session, so a version held
  * for the outgoing assistant cannot authorize a frame against the incoming one.
  *
- * Delete this gate, and the `MIN_VERSION` branch in `use-voice-room-sight.ts`,
- * once the minimum supported assistant is >= MIN_VERSION.
+ * Delete this gate, and the `MIN_VERSION` branches in `use-voice-room-sight.ts`,
+ * `use-live-voice-camera.ts` and `use-live-activity-mirror.ts`, once the
+ * minimum supported assistant is >= MIN_VERSION.
  */
-import { useAssistantScopedSupports } from "./utils";
+import { assistantScopedSupports, useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.7-dev.202609010224.44cd29e";
 
@@ -82,4 +83,15 @@ export function useSupportsSightStream(
   sessionAssistantId: string | null | undefined,
 ): boolean {
   return useAssistantScopedSupports(MIN_VERSION, sessionAssistantId);
+}
+
+/**
+ * Non-hook {@link useSupportsSightStream}, for a caller outside render: the
+ * live-activity mirror, which composes the session surface's content inside a
+ * store subscription. Same owner scoping, read off a snapshot.
+ */
+export function supportsSightStream(
+  sessionAssistantId: string | null | undefined,
+): boolean {
+  return assistantScopedSupports(MIN_VERSION, sessionAssistantId);
 }

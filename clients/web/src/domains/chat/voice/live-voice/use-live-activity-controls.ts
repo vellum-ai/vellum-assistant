@@ -25,7 +25,9 @@
  * presses and the macOS floating panel's button presses carry the same action
  * vocabulary and mean the same thing, so they are applied by the same function
  * rather than each growing its own handling. The drift this avoids is two
- * surfaces disagreeing about what "mute" does mid-call.
+ * surfaces disagreeing about what "mute" does mid-call. The vocabulary is the
+ * desktop contract's, of which the island's is a subset: the two camera
+ * actions have no button on the island, and the island's own type says so.
  *
  * No-ops off iOS, off Electron, and on a shell too old to send the events,
  * through each subscription's skew contract.
@@ -36,17 +38,16 @@ import { useEffect } from "react";
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  setLiveVoiceCameraRequested,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { handleConfirmationSubmit } from "@/domains/chat/confirmation-actions";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import {
-  subscribeVoiceLiveActivityControl,
-  type VoiceLiveActivityControlAction,
-} from "@/runtime/native-live-activity";
+import { subscribeVoiceLiveActivityControl } from "@/runtime/native-live-activity";
 import { subscribeVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import type { VoiceActivityControlAction } from "@/runtime/is-electron";
 import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
@@ -98,7 +99,7 @@ function answerFromIsland(
  * Exported for its tests; the hook is the only caller.
  */
 export function applyLiveActivityControl(
-  action: VoiceLiveActivityControlAction,
+  action: VoiceActivityControlAction,
   requestId?: string,
 ): void {
   const session = useLiveVoiceStore.getState();
@@ -133,6 +134,15 @@ export function applyLiveActivityControl(
     case "denyRequest":
       answerFromIsland("deny", requestId);
       return;
+    // Absolute like the mutes: the control sends the state its own glyph
+    // promised, so a press against a stale surface asks for what is already
+    // so and changes nothing.
+    case "startCamera":
+      setLiveVoiceCameraRequested(true);
+      return;
+    case "stopCamera":
+      setLiveVoiceCameraRequested(false);
+      return;
     default:
       // An action from a shell newer than this bundle. Ignoring it is the only
       // safe reading: these are commands against a live call, and guessing at
@@ -147,7 +157,7 @@ export function useLiveActivityControls(): void {
       action,
       requestId,
     }: {
-      action: VoiceLiveActivityControlAction;
+      action: VoiceActivityControlAction;
       requestId?: string;
     }): void => {
       applyLiveActivityControl(action, requestId);

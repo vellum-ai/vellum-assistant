@@ -562,6 +562,31 @@ describe("frame sampler animation frame fallback", () => {
     expect(animationFrame.pendingCount()).toBe(0);
   });
 
+  test("rides the animation frame on display pacing even where the video could drive the loop", () => {
+    // A `<video>` nothing renders never presents a frame, so its per-frame
+    // callback would never fire. The display loop reads it regardless, with
+    // the same repeat guards.
+    const animationFrame = stubAnimationFrame();
+    const { gate, offers } = createRecordingGate();
+    const video = createFakeVideo({ drivesLoop: true });
+    const sampler = createFrameSampler({
+      gate,
+      onDecision: () => {},
+      pacing: "display",
+    });
+
+    sampler.start(video.element);
+    expect(video.pendingCount()).toBe(0);
+    expect(animationFrame.pendingCount()).toBe(1);
+    video.presentFrame();
+    animationFrame.fireFrame();
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(1);
+
+    sampler.stop();
+    expect(animationFrame.pendingCount()).toBe(0);
+  });
+
   test("skips a paused stream instead of resampling a frozen picture", () => {
     const animationFrame = stubAnimationFrame();
     const { gate, offers } = createRecordingGate();

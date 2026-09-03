@@ -192,7 +192,11 @@ export function isVoiceCameraSupported(): boolean {
   );
 }
 
-function classifyError(cause: unknown): VoiceCameraError {
+/**
+ * Name what `getUserMedia` refused with, in the vocabulary a surface can act
+ * on. Anything that is not a `DOMException` is `unknown`.
+ */
+export function classifyVoiceCameraError(cause: unknown): VoiceCameraError {
   if (cause instanceof DOMException) {
     switch (cause.name) {
       case "NotAllowedError":
@@ -208,6 +212,39 @@ function classifyError(cause: unknown): VoiceCameraError {
     }
   }
   return "unknown";
+}
+
+/**
+ * Ask the browser for the camera facing `facing`, as a video-only stream.
+ *
+ * Video only. See the module docstring: adding `audio` here would renegotiate
+ * the microphone the call is already streaming from. `facingMode` is a plain
+ * (non-`exact`) constraint so a device with one camera (most laptops) still
+ * opens it instead of failing with `OverconstrainedError`.
+ *
+ * Rejects with what `getUserMedia` rejects with, for
+ * {@link classifyVoiceCameraError} to name, and with a `DOMException` named
+ * `NotSupportedError` where the media API is absent, so that case reads as
+ * `unknown` through the same classifier. Every acquisition of a browser
+ * camera goes through here, the viewfinder's and the headless session
+ * camera's alike, so the two negotiate the same picture.
+ */
+export async function requestVideoStream(
+  facing: VoiceCameraFacing,
+): Promise<MediaStream> {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices?.getUserMedia
+  ) {
+    throw new DOMException("camera unsupported", "NotSupportedError");
+  }
+  return navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: facing,
+      width: { ideal: VIEWFINDER_IDEAL_WIDTH },
+      height: { ideal: VIEWFINDER_IDEAL_HEIGHT },
+    },
+  });
 }
 
 /**
@@ -538,19 +575,7 @@ export function useVoiceCamera(
 
       let stream: MediaStream;
       try {
-        // Video only. See the module docstring: adding `audio` here would
-        // renegotiate the microphone the call is already streaming from.
-        //
-        // `facingMode` is a plain (non-`exact`) constraint so a device with
-        // one camera (most laptops) still opens it instead of failing with
-        // OverconstrainedError.
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: nextFacing,
-            width: { ideal: VIEWFINDER_IDEAL_WIDTH },
-            height: { ideal: VIEWFINDER_IDEAL_HEIGHT },
-          },
-        });
+        stream = await requestVideoStream(nextFacing);
       } catch (cause) {
         // Superseded requests report as superseded whether they succeeded or
         // failed. A rejection that lands after a close is not news the user
@@ -559,7 +584,7 @@ export function useVoiceCamera(
         if (epoch !== acquireEpochRef.current) {
           return "aborted";
         }
-        return classifyError(cause);
+        return classifyVoiceCameraError(cause);
       }
 
       if (epoch !== acquireEpochRef.current) {

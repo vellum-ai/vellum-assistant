@@ -33,8 +33,9 @@ import {
 /**
  * A session for the demo reel to draw.
  *
- * Listening and unmuted with nothing waiting on a decision: the ordinary middle
- * of a call, which is what the reel is showing.
+ * Listening and unmuted with nothing waiting on a decision, and a camera it
+ * could be given but has not been: the ordinary middle of a call, which is
+ * what the reel is showing.
  */
 const DEMO_CALL: VoiceActivityState = {
   phase: "listening",
@@ -44,6 +45,7 @@ const DEMO_CALL: VoiceActivityState = {
   outputMuted: false,
   detail: "",
   approvalRequestId: "",
+  camera: "off",
   assistantName: "Ziggy",
 };
 
@@ -581,6 +583,51 @@ export const InCallAssistantTurn: Story = {
       ...DEMO_CALL,
       phase: "thinking",
       label: "Thinking\u2026",
+    },
+  },
+};
+
+/**
+ * Mid-call with the Mac's camera lent to the call: the control held down and
+ * spelling its name, the way Teach does, beside a crossed camera's worth of
+ * nothing. Frames are flowing; the transcript is where they land.
+ */
+export const InCallWithCamera: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      camera: "on",
+    },
+  },
+};
+
+/**
+ * The widest the call row draws: Teach and the camera both held down, both
+ * spelling their names, with the line and the three controls beside them. The
+ * fallback width and the canvas ceiling are sized against this row.
+ */
+export const InCallWithCameraWhileWatching: Story = {
+  args: {
+    phase: "call",
+    watching: true,
+    call: {
+      ...DEMO_CALL,
+      camera: "on",
+    },
+  },
+};
+
+/**
+ * A session the assistant cannot be shown anything through: no camera control
+ * at all, rather than one that refuses. The row comes out narrower.
+ */
+export const InCallWithoutCamera: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      camera: undefined,
     },
   },
 };

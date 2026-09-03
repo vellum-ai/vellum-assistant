@@ -15,6 +15,10 @@
  *   the buttons can be answered, time out, or be superseded, and the next one
  *   would inherit the press.
  *
+ * The camera pair, which only the desktop's surface sends, is absolute the
+ * way the mutes are: it sets the ask the glyph promised on the session it was
+ * pressed against, and nothing on a session that has ended.
+ *
  * The bridge subscription itself (off-iOS and older-shell no-ops) is pinned by
  * `runtime/native-live-activity.test.ts`.
  */
@@ -142,6 +146,31 @@ describe("applyLiveActivityControl", () => {
     pendingConfirmation("req-1");
     applyLiveActivityControl("approveRequest");
     expect(handleConfirmationSubmit).not.toHaveBeenCalled();
+  });
+
+  test("the camera button asks the session for its camera", () => {
+    session("listening");
+    applyLiveActivityControl("startCamera");
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(true);
+  });
+
+  test("the camera button takes the ask back, and a stale stop is a no-op", () => {
+    session("listening");
+    applyLiveActivityControl("startCamera");
+    applyLiveActivityControl("stopCamera");
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+    // The surface drew "on" over a session whose camera had since closed.
+    // The press asks for what is already so.
+    applyLiveActivityControl("stopCamera");
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+  });
+
+  test("a camera press against no session asks nothing", () => {
+    // The ask is session state: raised here it would sit waiting for whichever
+    // session starts next, which nobody asked to be seen.
+    useLiveVoiceStore.setState({ state: "idle", controls: null });
+    applyLiveActivityControl("startCamera");
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
   });
 
   test("a decision with nothing pending is dropped", () => {

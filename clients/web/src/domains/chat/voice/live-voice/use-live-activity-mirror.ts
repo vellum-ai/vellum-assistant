@@ -38,7 +38,8 @@
  * the same comparison anyway: two sinks diverging on *when* they update is how
  * the two surfaces would come to show different things.
  * The mirror therefore reads only what a `ContentState` is built from (phase,
- * reconnecting, `assistantAudioActive` for the label remap, muted, accent) and
+ * reconnecting, `assistantAudioActive` for the label remap, muted, accent, the
+ * camera) and
  * compares each candidate against the last payload it pushed. `inputAmplitude`
  * is never read: it changes per animation frame and would exhaust the budget
  * within a second. `activityLabel` is read and is safe to: the daemon emits it
@@ -60,6 +61,7 @@ import {
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { currentLocale, useTranslation, type TFunction } from "@/i18n";
+import { supportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { getPublishedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
@@ -136,6 +138,18 @@ function toActivityContent(
     // answerable. `""` for a turn that is not waiting, which is the state a
     // session spends nearly all of its time in.
     approvalRequestId: session.pendingApprovalRequestId ?? "",
+    // Offered only where a frame can land: an assistant that predates the
+    // frame, or one that has refused it this session, gets no control rather
+    // than one that opens a camera nothing can be shown. What it reads is the
+    // fact that frames are flowing, never the ask, so the control cannot claim
+    // to see before the camera does.
+    camera:
+      supportsSightStream(session.assistantId) &&
+      !session.sightFramesUnsupported
+        ? session.cameraStreaming
+          ? "on"
+          : "off"
+        : undefined,
   };
 }
 
@@ -215,7 +229,8 @@ function sameContent(
     // Compared as well as pushed: a wait can be entered and left without the
     // rest of the content moving at all, and an island whose buttons outlive
     // the decision behind them is worse than one that never had any.
-    a.approvalRequestId === b.approvalRequestId
+    a.approvalRequestId === b.approvalRequestId &&
+    a.camera === b.camera
   );
 }
 

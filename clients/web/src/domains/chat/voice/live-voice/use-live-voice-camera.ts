@@ -1,0 +1,190 @@
+/**
+ * The session's own camera: the device's camera opened by the window holding
+ * the live-voice session, with no viewfinder anywhere, for as long as the user
+ * asks the session to see and the session can be shown anything.
+ *
+ * What the companion's camera control on macOS drives. That surface is a
+ * separate window that draws the call and holds none of it, and the voice room
+ * is not open during a companion call, so the viewfinder the room's Live would
+ * sample is nowhere. The camera is therefore opened here, beside the session,
+ * and sampled the way the room samples its viewfinder: the gate
+ * (`lib/camera/frame-gate.ts`) says which frames are worth keeping, and every
+ * keep goes through `sight-capture.ts`, which the room shares, to be uploaded
+ * and sent to the session as `sight_frame`. The daemon persists each as its
+ * own user message, so the transcript is the record of what the call saw.
+ *
+ * ## No viewfinder, on purpose
+ *
+ * The `<video>` the sampler reads is created here and attached to nothing. It
+ * plays, and `drawImage` reads its current picture, but the compositor never
+ * presents a frame of it, which is why the sampler is paced by the display
+ * rather than by the video (see `FrameSamplerOptions.pacing`). The main
+ * window runs with background throttling off, so the animation frame keeps
+ * firing while the window sits behind whatever the user is working in, which
+ * during a companion call is where it is.
+ *
+ * ## What the control reads
+ *
+ * `cameraRequested` is the ask; `cameraStreaming` is the fact, raised once the
+ * stream is open and the sampler running and lowered with it, and the fact is
+ * what the companion's control draws as on. A camera that is refused (denied,
+ * absent, in use) lowers the ask as well, so the control reads as off rather
+ * than as an ask nothing is answering, and a later press asks afresh, which is
+ * what raises the permission prompt again where the OS allows it.
+ *
+ * ## Consent
+ *
+ * Only a press on the control opens the camera, and the control shows the
+ * camera as on for exactly as long as frames flow. The camera closes when the
+ * user presses again, when the session ends or reconnects (the ask is session
+ * state), when the assistant refuses the frame for the session, and when this
+ * hook unmounts, which is the chat layout going away. Each keep lands in the
+ * transcript, where the user can see it and delete it.
+ */
+
+import { useEffect, useState } from "react";
+
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import { createSightCapture } from "@/domains/chat/voice/live-voice/sight-capture";
+import {
+  captureVideoFrame,
+  classifyVoiceCameraError,
+  requestVideoStream,
+} from "@/domains/chat/voice/voice-room/voice-camera";
+import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
+import { createFrameGate } from "@/lib/camera/frame-gate";
+import {
+  FRAME_GATE_LIVE_OPTIONS,
+  recordFrameGateDecision,
+} from "@/lib/camera/frame-gate-debug";
+import { createFrameSampler } from "@/lib/camera/frame-sampler";
+
+/** Where a failure is filed, so the tag says which source it came from. */
+const ERROR_CONTEXT = "live-voice camera: sample/upload frame";
+
+export function useLiveVoiceCamera(): void {
+  const requested = useLiveVoiceStore.use.cameraRequested();
+  const state = useLiveVoiceStore.use.state();
+  const assistantId = useLiveVoiceStore.use.assistantId();
+  const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
+  const supportsFrames = useSupportsSightStream(assistantId);
+  // Every term, so the camera is absent rather than half-present: the ask,
+  // a session for the frames to land in, an assistant that understands the
+  // frame, and a session that has not latched the frame as unsupported. The
+  // last two are also what the mirror offers the control on, so a term going
+  // false mid-run closes a camera whose control is about to disappear.
+  const active =
+    requested &&
+    isLiveVoiceSessionActive(state) &&
+    supportsFrames &&
+    assistantId !== null &&
+    !sightFramesUnsupported;
+
+  // One for the mount: the assistant is handed to each capture by the run
+  // that kept the frame, and each run re-bases the order on its way out.
+  const [sight] = useState(() => createSightCapture(ERROR_CONTEXT));
+
+  useEffect(() => {
+    // `active` already has an assistant in it; the second test is for the
+    // narrowing.
+    if (!active || assistantId === null) {
+      return;
+    }
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    let video: HTMLVideoElement | null = null;
+    let stopSampling: (() => void) | null = null;
+
+    const run = async (): Promise<void> => {
+      let acquired: MediaStream;
+      try {
+        // The front camera, which on a laptop is the only one, and on a
+        // desktop with several is the one looking at the user.
+        acquired = await requestVideoStream("user");
+      } catch (cause) {
+        if (cancelled) {
+          return;
+        }
+        // Not filed: a denied or missing camera is the user's or the
+        // machine's answer, not a fault. Lowering the ask is what tells the
+        // control, which reads as off, and a later press asks again.
+        console.warn(
+          `[live-voice camera] camera not opened: ${classifyVoiceCameraError(cause)}`,
+        );
+        useLiveVoiceStore.getState().setCameraRequested(false);
+        return;
+      }
+      // Released by a stop that landed during the request. The cleanup ran
+      // against nothing, so this is the one place the stream can be closed.
+      if (cancelled) {
+        for (const track of acquired.getTracks()) {
+          track.stop();
+        }
+        return;
+      }
+      stream = acquired;
+      video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      try {
+        await video.play();
+      } catch {
+        // A stream-backed element plays without a gesture; a refusal here is
+        // an element that is going away, which the cancellation check covers.
+      }
+      if (cancelled) {
+        return;
+      }
+      sight.grantConsent();
+      // The live options record rather than the defaults, so the tuning
+      // readout can move a threshold without this effect rebuilding the gate.
+      const gate = createFrameGate(FRAME_GATE_LIVE_OPTIONS);
+      gate.reset(performance.now());
+      const element = video;
+      const sampler = createFrameSampler({
+        gate,
+        pacing: "display",
+        onDecision: (decision, nowMs) => {
+          recordFrameGateDecision("voice", decision, nowMs);
+          if (!decision.keep) {
+            return;
+          }
+          void sight.capture({
+            assistantId,
+            produceFrame: (filename) => captureVideoFrame(element, filename),
+            // Nothing to show: there is no viewfinder to put a pulse on. The
+            // transcript is where a keep is seen.
+            onShared: () => undefined,
+          });
+        },
+      });
+      sampler.start(element);
+      stopSampling = sampler.stop;
+      useLiveVoiceStore.getState().setCameraStreaming(true);
+    };
+    void run();
+
+    return () => {
+      cancelled = true;
+      // The revocation is the bump that voids every capture in flight; the
+      // re-base gives back what was parked behind them.
+      sight.revokeConsent();
+      sight.rebaseSendOrder();
+      stopSampling?.();
+      if (video) {
+        video.pause();
+        video.srcObject = null;
+      }
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+      }
+      useLiveVoiceStore.getState().setCameraStreaming(false);
+    };
+  }, [active, assistantId, sight]);
+}

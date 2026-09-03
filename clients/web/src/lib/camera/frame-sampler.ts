@@ -37,6 +37,13 @@
  * rather than the camera sees the same picture repeatedly, and a repeat is a
  * zero-motion frame that makes a moving camera look settled.
  *
+ * The animation frame is also what a `<video>` nothing renders is sampled on,
+ * by {@link FrameSamplerOptions.pacing}. The per-frame callback fires for a
+ * frame the compositor presented, and a detached element has no frame to
+ * present: it plays, and `drawImage` reads its current picture, but nothing
+ * composites it. The display loop reads it anyway, and the same two guards
+ * keep that loop honest about repeats.
+ *
  * ## What this module does not do
  *
  * - It does not acquire or release the camera. It is handed a `<video>` that is
@@ -130,6 +137,17 @@ export interface FrameSamplerOptions {
    * costs more than the decision is worth. Values below 1 are clamped.
    */
   readonly frameStride?: number;
+  /**
+   * What wakes the loop for the next frame.
+   *
+   * `video`, the default, is one callback per presented frame wherever the
+   * browser offers it, with the animation frame standing in where it does not.
+   * `display` rides the animation frame regardless, for a `<video>` that is
+   * playing but drawn nowhere: a frame the compositor never presents earns no
+   * per-frame callback, so a loop paced by the video would wait forever on an
+   * element sampled for a call rather than for a viewfinder.
+   */
+  readonly pacing?: "video" | "display";
 }
 
 /** How a sampler asks to be woken for the next frame. */
@@ -143,8 +161,12 @@ interface FrameLoop {
   cancel(handle: number): void;
 }
 
-function frameLoopFor(video: HTMLVideoElement): FrameLoop {
+function frameLoopFor(
+  video: HTMLVideoElement,
+  pacing: "video" | "display",
+): FrameLoop {
   if (
+    pacing === "video" &&
     typeof video.requestVideoFrameCallback === "function" &&
     typeof video.cancelVideoFrameCallback === "function"
   ) {
@@ -171,6 +193,7 @@ function frameLoopFor(video: HTMLVideoElement): FrameLoop {
 export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   const { gate, onDecision } = options;
   const stride = Math.max(1, Math.floor(options.frameStride ?? 1));
+  const pacing = options.pacing ?? "video";
 
   const grids = createFrameGridProducer();
 
@@ -269,7 +292,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   function start(next: HTMLVideoElement): void {
     stop();
     video = next;
-    loop = frameLoopFor(next);
+    loop = frameLoopFor(next, pacing);
     frameIndex = 0;
     lastSampledTime = Number.NaN;
     document.addEventListener("visibilitychange", handleVisibilityChange);

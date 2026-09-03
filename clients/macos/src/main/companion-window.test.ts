@@ -97,8 +97,20 @@ const register =
     into.set(channel, (args) => fn(schema.parse(args) as never));
   };
 
+/**
+ * The renderers a press on the surface is delivered to: every window but the
+ * surface itself. A case that needs one pushes it here.
+ */
+const rendererWindows: {
+  isDestroyed: () => boolean;
+  webContents: {
+    isDestroyed: () => boolean;
+    send: (channel: string, payload: unknown) => void;
+  };
+}[] = [];
+
 mock.module("electron", () => ({
-  BrowserWindow: { getAllWindows: () => [] },
+  BrowserWindow: { getAllWindows: () => [surface, ...rendererWindows] },
   // Stubbed for the same reason as the rest of this mock: the module under
   // test imports it, and an export missing from a whole-module mock fails the
   // file at load rather than in the case that uses it.
@@ -789,6 +801,36 @@ describe("the dial", () => {
 
     send("vellum:voiceActivity:control", { action: "endSession" });
 
+    expect(dispatched).toEqual([]);
+  });
+
+  /**
+   * Main does not know which renderer owns the session, so a press is
+   * broadcast to every window but the surface that sent it. The camera pair
+   * travels the same way the mutes do; nothing here acts on it.
+   */
+  test("relays a camera press to the windows that can hold the session", () => {
+    const relayed: [string, unknown][] = [];
+    rendererWindows.push({
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: (channel, payload) => {
+          relayed.push([channel, payload]);
+        },
+      },
+    });
+    try {
+      send("vellum:voiceActivity:control", { action: "startCamera" });
+      send("vellum:voiceActivity:control", { action: "stopCamera" });
+    } finally {
+      rendererWindows.length = 0;
+    }
+
+    expect(relayed).toEqual([
+      ["vellum:voiceActivity:controlEvent", { action: "startCamera" }],
+      ["vellum:voiceActivity:controlEvent", { action: "stopCamera" }],
+    ]);
     expect(dispatched).toEqual([]);
   });
 });

@@ -41,6 +41,15 @@ const LISTENING_CALL: VoiceActivityState = {
   assistantName: "Ziggy",
 };
 
+/** The same call, with a camera the session could be given but has not been. */
+const CAMERA_OFF_CALL: VoiceActivityState = {
+  ...LISTENING_CALL,
+  camera: "off",
+};
+
+/** The same call, seeing: frames are flowing from the Mac's camera. */
+const CAMERA_ON_CALL: VoiceActivityState = { ...LISTENING_CALL, camera: "on" };
+
 /** A control on the pill, found by the name a reader is given for it. */
 const buttonOf = (
   container: HTMLElement,
@@ -1314,6 +1323,104 @@ describe("the summary a finished watch session leaves on the surface", () => {
   });
 });
 
+/**
+ * The camera on the call row: the way to lend the call the Mac's webcam, and
+ * the way to take it back. Its presses are absolute, like the mutes', and it
+ * is drawn only for a session that can be given a camera at all.
+ */
+describe("the companion surface's camera control", () => {
+  test("is absent for a session that cannot be given a camera", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(buttonOf(container, "Camera")).toBeNull();
+  });
+
+  test("is absent on the dial, which has no session to see for", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(buttonOf(container, "Camera")).toBeNull();
+  });
+
+  test("asks for the camera from off, and reads as off", () => {
+    const actions: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={CAMERA_OFF_CALL}
+        onControl={(action) => {
+          actions.push(action);
+        }}
+      />,
+    );
+    const camera = buttonOf(container, "Camera")!;
+    expect(camera.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(camera);
+    expect(actions).toEqual(["startCamera"]);
+  });
+
+  test("takes the camera back from on, and reads as on with its name pinned", () => {
+    const actions: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={CAMERA_ON_CALL}
+        onControl={(action) => {
+          actions.push(action);
+        }}
+      />,
+    );
+    const camera = buttonOf(container, "Camera")!;
+    expect(camera.getAttribute("aria-pressed")).toBe("true");
+    expect(camera.querySelector('[data-label="pinned"]')?.textContent).toBe(
+      "Camera",
+    );
+    fireEvent.click(camera);
+    expect(actions).toEqual(["stopCamera"]);
+  });
+
+  test("reveals its name on the pointer only while off", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={CAMERA_OFF_CALL} />,
+    );
+    expect(
+      buttonOf(container, "Camera")!.querySelector('[data-label="hover"]'),
+    ).not.toBeNull();
+  });
+
+  /**
+   * A confirmation takes the row. The turn is reading nothing while it waits,
+   * and answering it lands back on the row that carries the camera.
+   */
+  test("yields the row to a confirmation", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...CAMERA_ON_CALL, approvalRequestId: "req-1" }}
+      />,
+    );
+    expect(buttonOf(container, "Camera")).toBeNull();
+    expect(buttonOf(container, "Allow")).not.toBeNull();
+  });
+
+  test("sits beside Teach, ahead of the mutes", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={CAMERA_OFF_CALL} watchEnabled />,
+    );
+    const names = Array.from(container.querySelectorAll("button")).map(
+      (button) => button.getAttribute("aria-label"),
+    );
+    expect(names).toEqual([
+      "Teach",
+      "Camera",
+      "Mute microphone",
+      "Mute assistant",
+      "End session",
+    ]);
+  });
+});
+
 describe("the companion surface's width ceiling", () => {
   /**
    * The widest the pill may draw, which is what the canvas is sized for.
@@ -1338,15 +1445,15 @@ describe("the companion surface's width ceiling", () => {
   });
 
   /**
-   * The call row is the one the stop control grew, so the bound above is only
-   * worth anything if the entry it checks is the width of the row *with* the
-   * control on it. Five controls is what that row draws.
+   * The call row is the one the stop control and the camera grew, so the
+   * bound above is only worth anything if the entry it checks is the width of
+   * the row *with* both on it. Five controls is what that row draws.
    */
-  test("sizes the call entry for the row that carries the stop control", () => {
+  test("sizes the call entry for the row that carries the stop control and the camera", () => {
     const { container } = render(
-      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+      <CompanionSurface phase="call" watching call={CAMERA_ON_CALL} />,
     );
-    expect(container.querySelectorAll("button")).toHaveLength(4);
+    expect(container.querySelectorAll("button")).toHaveLength(5);
     expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.watching);
   });
 });
