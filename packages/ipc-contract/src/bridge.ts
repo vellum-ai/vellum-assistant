@@ -31,6 +31,8 @@ import type {
   CompanionCaptureSources,
   CompanionSurfaceState,
   ConnectivityState,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
@@ -163,7 +165,8 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  { ok: true } | { ok: false; error: string };
+  | { ok: true }
+  | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -583,6 +586,26 @@ export interface VellumBridge {
      * having nothing to offer and starts the whole-screen session instead.
      */
     listCaptureSources?(): Promise<CompanionCaptureSources>;
+    /**
+     * Show the running call a display, a window or a Chrome tab, or stop.
+     *
+     * `pick` is the row of the picker the press came from; a press with none
+     * is the stop. Main resolves a tab the way `toggleWatch` does and hands
+     * the target to the window holding the session as the `setScreenShare`
+     * command; what comes back is `screenShare` on `onState`. Absent on a
+     * shell that predates the share, which the surface reads as having
+     * nothing to offer.
+     */
+    setScreenShare?(pick?: CompanionCapturePick): void;
+    /**
+     * One frame of `target`, as the helper takes it, for the window holding a
+     * shared call to hand to the session. Resolves to null when no frame
+     * could be taken: the window has gone, the display was unplugged, or
+     * Screen Recording is not granted.
+     */
+    captureScreen?(
+      target: WatchCaptureTarget,
+    ): Promise<ScreenCaptureFrame | null>;
     /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.

@@ -80,7 +80,10 @@ import {
   useState,
 } from "react";
 
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  isLiveVoiceUserSpeaking,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { createSightCapture } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
@@ -537,9 +540,11 @@ export function useVoiceRoomSight(
   const handsFree = useLiveVoiceStore.use.handsFree();
   const utteranceOpen = useLiveVoiceStore.use.utteranceOpen();
   const muted = useLiveVoiceStore.use.muted();
-  // Named for the user rather than the session, whose own `speaking` phase is
-  // the assistant's voice and the opposite of this.
-  const userSpeaking = handsFree ? utteranceOpen : sessionState === "listening";
+  const userSpeaking = isLiveVoiceUserSpeaking({
+    state: sessionState,
+    handsFree,
+    utteranceOpen,
+  });
 
   /**
    * Ask the gate for a frame of the scene the user is starting to talk about.

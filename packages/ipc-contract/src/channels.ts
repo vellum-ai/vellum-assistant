@@ -191,6 +191,8 @@ export const COMPANION_START_VOICE = "vellum:companion:startVoice";
 export const COMPANION_TOGGLE_WATCH = "vellum:companion:toggleWatch";
 export const COMPANION_LIST_CAPTURE_SOURCES =
   "vellum:companion:listCaptureSources";
+export const COMPANION_SET_SCREEN_SHARE = "vellum:companion:setScreenShare";
+export const COMPANION_CAPTURE_SCREEN = "vellum:companion:captureScreen";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";

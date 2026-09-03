@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   companionCapturePickSchema,
   companionContextSchema,
+  watchCaptureTargetSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
@@ -37,6 +38,7 @@ import {
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
+  type WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 import {
@@ -67,6 +69,7 @@ import {
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
 import {
+  captureTargetFrame,
   listCaptureSources,
   resolveCapturePick,
   windowBoundsFor,
@@ -562,6 +565,12 @@ const currentState = (): CompanionSurfaceState => {
     // Settled to a boolean the way `watching` is, since a picker offered on
     // an unknown answer is a promise nothing downstream can keep.
     watchTargets: context.watchTargets === true,
+    // Passed through as it arrived, for the reason `captureTarget` is: every
+    // shape it can hold names something being shared, and absence is nothing.
+    screenShare: context.screenShare,
+    // Settled to a boolean the way `watchTargets` is: the control this decides
+    // starts capturing the user's screen, so not knowing reads as not offering.
+    screenShareEnabled: context.screenShareEnabled === true,
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -1064,10 +1073,12 @@ const followWindow = (windowId: number): void => {
       .then((bounds) => {
         // The session may have ended, or moved to another target, while the
         // helper was answering. A frame placed for it would be for nothing.
+        const framed = framedTarget();
         if (
-          context.watching !== true ||
-          context.captureTarget?.kind !== "window" ||
-          context.captureTarget.windowId !== windowId
+          framed === null ||
+          framed === "screen" ||
+          framed.kind !== "window" ||
+          framed.windowId !== windowId
         ) {
           return;
         }
@@ -1106,13 +1117,30 @@ const followWindow = (windowId: number): void => {
  * off every screen, so framing where the user is looking says the session is
  * still open, which is the one thing the frame must always say.
  */
+/**
+ * What the frame is drawn around: a watch session's target, the whole screen
+ * when it has none, else what the call is being shared, else nothing.
+ *
+ * The watch session first, because its frame is the one thing on the desktop
+ * that says a machine is being read, and the two rarely disagree: a session
+ * and a share started from the same picker are almost always the same
+ * target.
+ */
+const framedTarget = (): WatchCaptureTarget | "screen" | null => {
+  if (context.watching === true) {
+    return context.captureTarget ?? "screen";
+  }
+  return context.screenShare ?? null;
+};
+
 const syncWatchFrame = (): void => {
-  if (context.watching !== true) {
+  const framed = framedTarget();
+  if (framed === null) {
     stopFollowingWindow();
     closeWatchFrame();
     return;
   }
-  const target = context.captureTarget;
+  const target = framed === "screen" ? undefined : framed;
   if (target?.kind === "window") {
     followWindow(target.windowId);
     return;
@@ -1486,6 +1514,49 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * Share, delivered to the renderer holding the session the way Watch is.
+   *
+   * The same two shapes as `toggleWatch`, and the same resolution of a tab
+   * before the command leaves; the difference is what the shapes mean. A pick
+   * is the start, or a move to a new target, and a press with none is the
+   * stop, since the surface can see a share is on and says so. The pick
+   * generation is shared with Watch's: both come from the one picker, and a
+   * pick still resolving when the other control is pressed belonged to a
+   * choice the user has left.
+   */
+  on(
+    "vellum:companion:setScreenShare",
+    z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
+    ([pick]) => {
+      if (pick === undefined) {
+        pickGeneration += 1;
+        dispatchWithoutRaising({ kind: "setScreenShare" });
+        return;
+      }
+      const generation = ++pickGeneration;
+      void resolveCapturePick(pick).then((target) => {
+        if (target === null || generation !== pickGeneration) {
+          return;
+        }
+        dispatchWithoutRaising({ kind: "setScreenShare", target });
+      });
+    },
+  );
+
+  /**
+   * One frame of what is being shared, for the renderer holding the session
+   * to hand to it. Asked by that renderer on its own cadence, so this does
+   * nothing but reach the helper: the target is whatever the renderer was
+   * told it is sharing, and a refusal comes back as null rather than as an
+   * error, since one missed frame is not something the call should notice.
+   */
+  handle(
+    "vellum:companion:captureScreen",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => captureTargetFrame(target),
+  );
+
+  /**
    * The answer to the summary question, delivered to the window that asked it.
    *
    * The one companion press that may raise the app, and only on a yes. Watch's
@@ -1719,7 +1790,10 @@ export const installCompanionWindow = (): void => {
     // A dial is a claim on that window too: the request it carries is gone
     // with the renderer that parked it.
     const claiming =
-      context.watching === true || context.dictating !== undefined || dialing;
+      context.watching === true ||
+      context.screenShare !== undefined ||
+      context.dictating !== undefined ||
+      dialing;
     if (!claiming) {
       return;
     }
@@ -1730,6 +1804,8 @@ export const installCompanionWindow = (): void => {
       ...context,
       watching: false,
       captureTarget: undefined,
+      screenShare: undefined,
+      screenShareEnabled: false,
       dictating: undefined,
       dictationText: undefined,
     };

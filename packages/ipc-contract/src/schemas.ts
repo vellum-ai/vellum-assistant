@@ -158,6 +158,13 @@ export const companionContextSchema = z.object({
   // Defaulted for the reason `watching` is: a publisher that does not say
   // whether its sessions can be aimed is one whose sessions cannot.
   watchTargets: z.boolean().default(false),
+  // Optional rather than defaulted, for the reason `captureTarget` is: every
+  // shape it can hold names something being shared, and absence is the only
+  // way to say nothing is.
+  screenShare: watchCaptureTargetSchema.optional(),
+  // Defaulted for the reason `watchTargets` is: a publisher that does not say
+  // whether its call can be shown the screen is one whose call cannot.
+  screenShareEnabled: z.boolean().default(false),
   // Optional rather than defaulted, for the reason `watchRetro` is: both values
   // claim a microphone is doing something, and absence is the only way to say
   // none is.

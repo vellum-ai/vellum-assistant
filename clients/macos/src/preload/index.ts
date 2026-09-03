@@ -16,6 +16,8 @@ import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
   CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
@@ -515,6 +517,22 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:companion:listCaptureSources",
       ) as Promise<CompanionCaptureSources>,
+    setScreenShare: (pick?: CompanionCapturePick): void => {
+      // Two shapes rather than an optional element, the way `toggleWatch` is
+      // sent: a stop carries nothing at all.
+      if (pick === undefined) {
+        ipcRenderer.send("vellum:companion:setScreenShare");
+        return;
+      }
+      ipcRenderer.send("vellum:companion:setScreenShare", pick);
+    },
+    captureScreen: (
+      target: WatchCaptureTarget,
+    ): Promise<ScreenCaptureFrame | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:captureScreen",
+        target,
+      ) as Promise<ScreenCaptureFrame | null>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },

@@ -630,3 +630,85 @@ test("mounts and publishes without throwing", () => {
 
   expect(published.length).toBeGreaterThan(0);
 });
+
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { seedLiveVoiceSession } =
+  await import("@/domains/chat/voice/live-voice/live-voice-fakes.test-helper");
+const { MIN_VERSION: SIGHT_MIN_VERSION } =
+  await import("@/lib/backwards-compat/use-supports-sight-stream");
+
+/**
+ * What the call is being shown, and whether it can be shown anything. Both
+ * ride the live-voice store, which moves on every amplitude sample, so the
+ * cases here are also about the mirror publishing only when one of the two
+ * actually changed.
+ */
+describe("the screen share the companion mirror publishes", () => {
+  afterEach(() => {
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+  });
+
+  test("offers nothing with no call, and a share once a session runs on an assistant that takes the frame", async () => {
+    render(<Mirror />);
+    expect(latest().screenShareEnabled).toBe(false);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(false);
+    });
+  });
+
+  test("carries the target only while frames can flow", async () => {
+    render(<Mirror />);
+    act(() => {
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+      useLiveVoiceStore
+        .getState()
+        .setScreenShareTarget({ kind: "window", windowId: 7 });
+    });
+    // An assistant that predates the frame: the share is held in the store
+    // and never reaches the surface.
+    await Promise.resolve();
+    expect(latest().screenShare).toBeUndefined();
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toEqual({ kind: "window", windowId: 7 });
+    });
+    const pushes = published.length;
+    // An amplitude sample moves the store and nothing the surface draws.
+    act(() => {
+      useLiveVoiceStore.getState().setInputAmplitude(0.4);
+    });
+    await Promise.resolve();
+    expect(published.length).toBe(pushes);
+    act(() => {
+      useLiveVoiceStore.getState().setScreenShareTarget(null);
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toBeUndefined();
+    });
+  });
+});

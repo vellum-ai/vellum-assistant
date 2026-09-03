@@ -28,6 +28,7 @@ import type {
   CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
+  ScreenCaptureFrame,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
@@ -76,6 +77,7 @@ import type {
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  WatchCaptureTarget,
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 
@@ -389,6 +391,10 @@ declare global {
         startVoice?(): void;
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;
+        setScreenShare?(pick?: CompanionCapturePick): void;
+        captureScreen?(
+          target: WatchCaptureTarget,
+        ): Promise<ScreenCaptureFrame | null>;
         answerWatchRetro?(open: boolean): void;
         activate?(): void;
         setContext?(context: CompanionContext): void;

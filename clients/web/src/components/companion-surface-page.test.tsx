@@ -22,6 +22,7 @@ const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
 const startVoiceMock = mock(() => undefined);
 const toggleWatchMock = mock((_pick?: unknown) => undefined);
+const setScreenShareMock = mock((_pick?: unknown) => undefined);
 /**
  * What the shell lists for the picker. Null is a shell with no picker to
  * offer, which is what a bridge that predates it answers.
@@ -85,6 +86,8 @@ const resetState = () => {
   delete STATE.captureCount;
   delete STATE.watchTargets;
   delete STATE.captureTarget;
+  delete STATE.screenShare;
+  delete STATE.screenShareEnabled;
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
@@ -129,6 +132,7 @@ mock.module("@/runtime/companion-surface", () => ({
   activateCompanionApp: activateMock,
   startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
+  setCompanionScreenShare: setScreenShareMock,
   listCompanionCaptureSources: listSourcesMock,
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
@@ -152,6 +156,7 @@ afterEach(() => {
   activateMock.mockClear();
   startVoiceMock.mockClear();
   toggleWatchMock.mockClear();
+  setScreenShareMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
   advanceIntroMock.mockClear();
@@ -1607,5 +1612,151 @@ describe("the companion's accent colour", () => {
     const { container } = render(<CompanionSurfacePage />);
 
     await expectAccent(container, "#5eead4");
+  });
+});
+
+/**
+ * Share opens the same picker Teach does, and its pick leaves as the share
+ * rather than as the toggle. The two pickers are one card with two questions,
+ * and each closes on its own answer.
+ */
+describe("the picker behind Share", () => {
+  const shareOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Share"]',
+    );
+    if (!found) {
+      throw new Error("Expected Share to render");
+    }
+    return found;
+  };
+  const teachOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    if (!found) {
+      throw new Error("Expected Teach to render");
+    }
+    return found;
+  };
+  const pickerOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("[data-companion-capture-picker]");
+  const rowOf = (container: HTMLElement) =>
+    waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Groceries (Notes)"]',
+      );
+      if (!found) {
+        throw new Error("Expected the window row");
+      }
+      return found;
+    });
+
+  const SOURCES = {
+    displays: [
+      { kind: "display" as const, displayId: 1, index: 0, primary: true },
+    ],
+    tabs: [],
+    windows: [
+      {
+        kind: "window" as const,
+        windowId: 9,
+        title: "Groceries",
+        app: "Notes",
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    STATE.call = LISTENING_CALL;
+    STATE.watchTargets = true;
+    STATE.screenShareEnabled = true;
+    captureSources = SOURCES;
+  });
+
+  test("opens on Share, named for the share, and holds Share down", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(shareOf(container));
+
+    await waitFor(() => {
+      expect(pickerOf(container)?.getAttribute("aria-label")).toBe(
+        "What to share",
+      );
+    });
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+    expect(teachOf(container).getAttribute("aria-pressed")).toBe("false");
+    expect(setScreenShareMock).not.toHaveBeenCalled();
+  });
+
+  test("a pick leaves as the share, not the toggle, and closes the picker", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(shareOf(container));
+    const row = await rowOf(container);
+
+    fireEvent.click(row);
+
+    expect(setScreenShareMock).toHaveBeenCalledWith({
+      kind: "window",
+      windowId: 9,
+    });
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("a press while sharing is the stop, carrying nothing", async () => {
+    STATE.screenShare = { kind: "window", windowId: 9 };
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(shareOf(container));
+
+    expect(setScreenShareMock.mock.calls).toEqual([[]]);
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("closes when the share starts, and leaves Teach's picker alone", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(shareOf(container));
+    await rowOf(container);
+
+    pushState({ ...STATE, screenShare: { kind: "window", windowId: 9 } });
+    expect(pickerOf(container)).toBeNull();
+
+    fireEvent.click(teachOf(container));
+    await rowOf(container);
+    pushState({ ...STATE, screenShare: undefined });
+    expect(pickerOf(container)).not.toBeNull();
+    expect(pickerOf(container)?.getAttribute("aria-label")).toBe(
+      "What to teach from",
+    );
+  });
+
+  test("a Teach press replaces Share's question with its own", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(shareOf(container));
+    await rowOf(container);
+
+    fireEvent.click(teachOf(container));
+
+    await waitFor(() => {
+      expect(pickerOf(container)?.getAttribute("aria-label")).toBe(
+        "What to teach from",
+      );
+    });
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("false");
+    expect(teachOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("is absent when the call cannot be shown anything", async () => {
+    STATE.screenShareEnabled = false;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(container.querySelector('button[aria-label="Share"]')).toBeNull();
   });
 });

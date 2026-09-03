@@ -17,6 +17,7 @@ import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-set
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
@@ -403,6 +404,14 @@ export function RootLayout() {
     toggleWatch: (command) => {
       handleToggleWatchCommand(
         command.kind === "toggleWatch" ? command.target : undefined,
+      );
+    },
+    // The share the companion's control asks for, or its stop. Straight to
+    // the session's store: the frames are taken by a hook mounted beside the
+    // session, and a target with no session to show it to is dropped there.
+    setScreenShare: (command) => {
+      setLiveVoiceScreenShare(
+        command.kind === "setScreenShare" ? (command.target ?? null) : null,
       );
     },
     replayOnboarding: () => {

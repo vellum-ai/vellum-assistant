@@ -1899,3 +1899,98 @@ describe("the resting capsule's peek", () => {
     expect(peekOf(container)).toBeNull();
   });
 });
+
+describe("the companion surface's Share action", () => {
+  const shareOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Share"]',
+    );
+    if (!found) {
+      throw new Error("Expected Share to render");
+    }
+    return found;
+  };
+  const labelsOf = (container: HTMLElement): (string | null)[] =>
+    [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+
+  test("sits on the call row beside Teach", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        watchEnabled
+        shareEnabled
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(labelsOf(container)).toEqual([
+      "Teach",
+      "Share",
+      "Mute microphone",
+      "Mute assistant",
+      "End session",
+    ]);
+  });
+
+  test("is absent, not disabled, when the call cannot be shown anything", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
+    );
+    expect(labelsOf(container)).not.toContain("Share");
+  });
+
+  test("is not on the dial, where there is no session to show", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled shareEnabled />,
+    );
+    expect(labelsOf(container)).toEqual(["Teach", "End session"]);
+  });
+
+  test("keeps its stop for a share running after the answer turned negative", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing call={LISTENING_CALL} />,
+    );
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("hands the way in to the page, and the stop to the session", () => {
+    const presses: string[] = [];
+    const surface = (sharing: boolean) => (
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharing={sharing}
+        onShare={() => {
+          presses.push("share");
+        }}
+        onStopShare={() => {
+          presses.push("stop");
+        }}
+      />
+    );
+    const { container, rerender } = render(surface(false));
+    fireEvent.click(shareOf(container));
+    rerender(surface(true));
+    fireEvent.click(shareOf(container));
+    expect(presses).toEqual(["share", "stop"]);
+  });
+
+  test("is held down for the choice before the share, and spells its name", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharePicking
+      />,
+    );
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+    expect(
+      shareOf(container)
+        .querySelector("[data-label]")
+        ?.getAttribute("data-label"),
+    ).toBe("pinned");
+  });
+});

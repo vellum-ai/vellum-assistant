@@ -23,12 +23,14 @@ import {
   listCompanionCaptureSources,
   moveCompanionBy,
   setCompanionInteractive,
+  setCompanionScreenShare,
   showCompanionContextMenu,
   startCompanionVoice,
   subscribeCompanionState,
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import { useTranslation } from "@/i18n";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
   CompanionCapturePick,
@@ -41,6 +43,7 @@ import type {
   CompanionWatchRetro,
   CompanionDictating,
   VoiceActivityState,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -74,6 +77,7 @@ const DRAG_SLOP = 3;
  * That is what lets this window reload mid-call without the call noticing.
  */
 export function CompanionSurfacePage() {
+  const { t } = useTranslation();
   const [growth, setGrowth] = useState<CompanionGrowth>("right");
   // Which side of the avatar the canvas reserves the card's height on, and so
   // which canvas edge the avatar is anchored to. Main's call: it owns the
@@ -118,10 +122,22 @@ export function CompanionSurfacePage() {
   // read, which is that window's answer about its assistant's version. It
   // decides whether Teach asks first or starts at once.
   const [watchTargets, setWatchTargets] = useState(false);
+  // What the call is being shown, or undefined when nothing is. Main's, like
+  // the call: the press left this window as a pick, and this is what the
+  // window holding the session did with it.
+  const [screenShare, setScreenShare] = useState<
+    WatchCaptureTarget | undefined
+  >(undefined);
+  // Whether the call can be shown the screen at all, which is that window's
+  // answer about its session and its assistant's version.
+  const [shareEnabled, setShareEnabled] = useState(false);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
   const [picking, setPicking] = useState(false);
+  // Which control the open picker answers: Teach starts a session on the
+  // pick, Share shows the call it. Meaningless while `picking` is false.
+  const [pickingFor, setPickingFor] = useState<"teach" | "share">("teach");
   // What the host listed for it, or null while the host is still being asked.
   const [captureSources, setCaptureSources] =
     useState<CompanionCaptureSources | null>(null);
@@ -199,6 +215,9 @@ export function CompanionSurfacePage() {
       // from the user is a promise about what will be read, and a window that
       // has not said its assistant can keep it is one that cannot.
       setWatchTargets(state.watchTargets === true);
+      setScreenShare(state.screenShare);
+      // Off unless positively on, for the reason `watchTargets` is.
+      setShareEnabled(state.screenShareEnabled === true);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -229,12 +248,29 @@ export function CompanionSurfacePage() {
    * bar that is gone would be asking a question nobody can act on.
    */
   const inCall = call !== null || dialing;
+  const sharing = screenShare !== undefined;
   useEffect(() => {
-    if (watching || !inCall) {
+    if (!inCall) {
       sourcesRequestRef.current += 1;
       setPicking(false);
     }
-  }, [watching, inCall]);
+  }, [inCall]);
+  // Each control's picker closes on its own answer: Teach's on a session
+  // starting, Share's on a share starting. Not the other's, since a share
+  // beginning while the user is choosing what to teach from is not an answer
+  // to that question.
+  useEffect(() => {
+    if (watching && pickingFor === "teach") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+    }
+  }, [watching, pickingFor]);
+  useEffect(() => {
+    if (sharing && pickingFor === "share") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+    }
+  }, [sharing, pickingFor]);
 
   /**
    * Teach, with no session running.
@@ -244,17 +280,16 @@ export function CompanionSurfacePage() {
    * cannot, or where the shell has no list to offer, the press starts the
    * whole-screen session it always started, so Teach never does nothing.
    */
-  const onTeach = () => {
-    if (!watchTargets) {
-      toggleCompanionWatch();
-      return;
-    }
-    if (picking) {
-      sourcesRequestRef.current += 1;
-      setPicking(false);
-      return;
-    }
+  /**
+   * Open the picker for `control`, asking the host what there is to pick,
+   * or hand the control its no-picker answer when the host has no list.
+   */
+  const openPicker = (
+    control: "teach" | "share",
+    withoutPicker: () => void,
+  ) => {
     setCaptureSources(null);
+    setPickingFor(control);
     setPicking(true);
     const request = ++sourcesRequestRef.current;
     void listCompanionCaptureSources().then((listed) => {
@@ -268,10 +303,41 @@ export function CompanionSurfacePage() {
         return;
       }
       // A shell that predates the picker. The question cannot be asked, so
-      // it is not left on screen; the session starts the old way instead.
+      // it is not left on screen.
       setPicking(false);
-      toggleCompanionWatch();
+      withoutPicker();
     });
+  };
+
+  const onTeach = () => {
+    if (!watchTargets) {
+      toggleCompanionWatch();
+      return;
+    }
+    // A second press closes it unanswered. A press while Share's picker is
+    // open replaces its question with this one.
+    if (picking && pickingFor === "teach") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+      return;
+    }
+    // The session starts the old way instead, reading the whole screen.
+    openPicker("teach", toggleCompanionWatch);
+  };
+
+  /**
+   * Share, with nothing being shared: open the picker. A second press closes
+   * it unanswered. Unlike Teach there is no whole-screen fallback, since a
+   * share is of something in particular; a shell with no list has nothing to
+   * offer and the press does nothing.
+   */
+  const onShare = () => {
+    if (picking && pickingFor === "share") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+      return;
+    }
+    openPicker("share", () => undefined);
   };
 
   // A row pressed under a still pointer removes the card and nothing moves,
@@ -288,6 +354,10 @@ export function CompanionSurfacePage() {
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
     setPicking(false);
+    if (pickingFor === "share") {
+      setCompanionScreenShare(pick);
+      return;
+    }
     toggleCompanionWatch(pick);
   };
 
@@ -661,7 +731,16 @@ export function CompanionSurfacePage() {
         // The way in, when there is a choice to make first. The stop stays on
         // `onWatch`; this is only ever the press with no session running.
         onTeach={onTeach}
-        picking={picking}
+        picking={picking && pickingFor === "teach"}
+        // The share, from main, and the two presses that move it. The stop
+        // leaves this window the way a pick does, carrying nothing.
+        sharing={sharing}
+        shareEnabled={shareEnabled}
+        sharePicking={picking && pickingFor === "share"}
+        onShare={onShare}
+        onStopShare={() => {
+          setCompanionScreenShare();
+        }}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every
         // press does; the frame that answers it is main's.
@@ -673,6 +752,11 @@ export function CompanionSurfacePage() {
               avatarBox={avatarBox}
               optionsBox={optionsBox}
               cardRef={pickerRef}
+              label={
+                pickingFor === "share"
+                  ? t("companionSurface.sharePicker")
+                  : undefined
+              }
               onPick={onPick}
             />
           ) : null

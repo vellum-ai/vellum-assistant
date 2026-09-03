@@ -30,6 +30,7 @@ import {
   setCompanionContext,
   setCompanionDictation,
 } from "@/runtime/companion-surface";
+import { supportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { supportsWatchCaptureTarget } from "@/lib/backwards-compat/watch-capture-target";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -40,6 +41,10 @@ import {
   stopWatch,
   useWatchStore,
 } from "@/domains/chat/watch/watch-controller";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
 import { COMPANION_DICTATION_TAIL } from "@vellumai/ipc-contract";
@@ -122,12 +127,43 @@ function currentContext(): CompanionContext {
     watchTargets: supportsWatchCaptureTarget(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ),
+    // What the call is being shown, and whether it can be shown anything.
+    // Published from here for the reason `captureTarget` is: the session the
+    // frames land in lives in this window, and the surface draws the share as
+    // on only once that session is one that takes them.
+    screenShare: screenShareTarget(),
+    screenShareEnabled: screenShareEnabled(),
     // What a keyboard dictation has got to. Published from here for the reason
     // `watching` is: the recording runs in this window, and while it runs the
     // surface is the only thing on screen to say so.
     dictating: dictatingPhase(),
     dictationText: dictationTail(),
   };
+}
+
+/**
+ * Whether the running call can be shown the screen: a session is up, on an
+ * assistant that understands `sight_frame`, and has not latched the frame as
+ * unsupported. The same conjunction the share hook runs, read as a snapshot.
+ */
+function screenShareEnabled(): boolean {
+  const session = useLiveVoiceStore.getState();
+  return (
+    isLiveVoiceSessionActive(session.state) &&
+    !session.sightFramesUnsupported &&
+    supportsSightStream(session.assistantId)
+  );
+}
+
+/**
+ * What the call is being shown, or nothing. Withheld unless the share can
+ * flow, so the surface never draws a share of a session that takes no frames.
+ */
+function screenShareTarget(): CompanionContext["screenShare"] {
+  if (!screenShareEnabled()) {
+    return undefined;
+  }
+  return useLiveVoiceStore.getState().screenShareTarget ?? undefined;
 }
 
 /**
@@ -171,6 +207,13 @@ function dictationTail(): string {
   return interim.slice(-COMPANION_DICTATION_TAIL);
 }
 
+/** The share as the surface would draw it, as one comparable value. */
+function screenShareKey(): string {
+  const target = screenShareTarget();
+  const enabled = screenShareEnabled();
+  return `${enabled ? "on" : "off"}:${target === undefined ? "" : `${target.kind}:${target.kind === "display" ? target.displayId : target.windowId}`}`;
+}
+
 /** Whether two targets name the same display or window, absence included. */
 function sameTarget(
   a: CompanionContext["captureTarget"],
@@ -194,6 +237,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.captureCount === b.captureCount &&
     sameTarget(a.captureTarget, b.captureTarget) &&
     a.watchTargets === b.watchTargets &&
+    sameTarget(a.screenShare, b.screenShare) &&
+    a.screenShareEnabled === b.screenShareEnabled &&
     a.dictating === b.dictating &&
     a.dictationText === b.dictationText
   );
@@ -268,6 +313,19 @@ export function useCompanionMirror(): void {
     // moves on the stop edge, on the runtime's announcement, and on the user
     // answering, and nothing else here reports any of those.
     const unsubscribeWatchRetro = useWatchRetroStore.subscribe(sync);
+    // The call the share belongs to. Gated on what the surface draws of it
+    // rather than on the store being written, since the store moves on every
+    // amplitude sample while a call runs.
+    let shareKey = screenShareKey();
+    const onShareMaybeFlipped = (): void => {
+      const next = screenShareKey();
+      if (next === shareKey) {
+        return;
+      }
+      shareKey = next;
+      sync();
+    };
+    const unsubscribeShare = useLiveVoiceStore.subscribe(onShareMaybeFlipped);
     // The microphone a held key opened. Nothing above reports it: the
     // recording is this window's, it starts and stops from the keyboard rather
     // than from anything the conversation knows about, and while it runs the
@@ -314,6 +372,7 @@ export function useCompanionMirror(): void {
       unsubscribeIdentity();
       unsubscribeWatch();
       unsubscribeWatchRetro();
+      unsubscribeShare();
       unsubscribeDictation();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The name is left standing: it is a record

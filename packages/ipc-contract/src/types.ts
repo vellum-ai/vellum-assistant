@@ -118,6 +118,20 @@ export type VellumCommand =
    */
   | { kind: "toggleWatch"; target?: WatchCaptureTarget }
   /**
+   * Show the running call what the user is looking at, or stop.
+   *
+   * `target` is what to share, as the companion's picker resolved it: a
+   * display or a window. A command carrying one starts the share, or moves a
+   * running one to the new target; a command carrying none is the stop. The
+   * window holding the session takes frames of the target and hands each to
+   * the session as a `sight_frame`, so the transcript is the record of what
+   * the call was shown.
+   *
+   * Like `toggleWatch`, this does not raise the app: what is shared is the
+   * user's own work, and raising Vellum would cover it.
+   */
+  | { kind: "setScreenShare"; target?: WatchCaptureTarget }
+  /**
    * Answer the question the surface asks once a watch session's summary is
    * written: open it now, or not.
    *
@@ -181,7 +195,11 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  "function" | "control" | "shift" | "option" | "command";
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -244,7 +262,8 @@ export interface HotkeyEvent {
 
 /** Whether a helper took a binding, or why it did not. */
 export type HotkeyRegistrationResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
@@ -253,7 +272,8 @@ export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
@@ -331,7 +351,11 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  "suspend" | "resume" | "lock" | "unlock" | "active";
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -409,7 +433,8 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -431,7 +456,8 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  DictationOverlayState | { kind: "dismiss" };
+  | DictationOverlayState
+  | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -687,7 +713,12 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -751,7 +782,8 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
+  | { ok: true; lockfile: Lockfile }
+  | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -1170,6 +1202,17 @@ export type WatchCaptureTarget =
   | { kind: "window"; windowId: number };
 
 /**
+ * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
+ * with the size it was encoded at. Base64 rather than bytes because it
+ * crosses the bridge as JSON.
+ */
+export interface ScreenCaptureFrame {
+  jpegBase64: string;
+  width: number;
+  height: number;
+}
+
+/**
  * What the companion's picker offers a press of Teach: a display, a window,
  * or a Chrome tab, with what a person needs to tell them apart.
  *
@@ -1311,6 +1354,23 @@ export interface CompanionContext {
    * that does not say is one whose sessions cannot be aimed.
    */
   watchTargets?: boolean;
+  /**
+   * What the running call is being shown, while the user shares a display or
+   * a window with it. Absent when nothing is shared.
+   *
+   * Published by the window that owns the session rather than remembered by
+   * main from the press, for the reason `captureTarget` is: the press is a
+   * request, and this is what the session did with it, so the surface draws
+   * the share as on only once frames can flow to a session that takes them.
+   */
+  screenShare?: WatchCaptureTarget;
+  /**
+   * Whether the call in this window can be shown the screen at all: a session
+   * is running and its assistant understands the frame. The surface offers
+   * the share on a positive answer and nothing on anything else, the bargain
+   * `watchTargets` makes.
+   */
+  screenShareEnabled?: boolean;
   /**
    * What a dictation started from the keyboard has got to, when one is running.
    *
@@ -1523,6 +1583,17 @@ export interface CompanionSurfaceState {
    * whose sessions read the whole screen.
    */
   watchTargets?: boolean;
+  /**
+   * See {@link CompanionContext.screenShare}. Absent is nothing shared, on
+   * every shell including one that predates the field.
+   */
+  screenShare?: WatchCaptureTarget;
+  /**
+   * See {@link CompanionContext.screenShareEnabled}. Read it as
+   * `screenShareEnabled === true`, for the reason `watchTargets` is read that
+   * way: the control this decides starts capturing the user's screen.
+   */
+  screenShareEnabled?: boolean;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the
