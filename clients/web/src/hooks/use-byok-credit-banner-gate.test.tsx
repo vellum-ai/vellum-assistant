@@ -130,14 +130,22 @@ beforeEach(() => {
 describe("useByokCreditRouteVerdict", () => {
   test("nothing to classify settles immediately", () => {
     const v = verdict(false);
-    expect(v).toEqual({ suppress: false, settled: true, routeKnown: false });
+    expect(v).toEqual({
+      suppress: false,
+      settled: true,
+      routeBurnsManaged: false,
+    });
   });
 
   test("queries in flight suppress, and say so", () => {
     queries = { config: LOADING };
     const v = verdict();
     // The banner's fail-safe: an unknown route must not raise a false alarm.
-    expect(v).toEqual({ suppress: true, settled: false, routeKnown: false });
+    expect(v).toEqual({
+      suppress: true,
+      settled: false,
+      routeBurnsManaged: false,
+    });
   });
 
   test("no resolved assistant is not-asked-yet, not answered-no", () => {
@@ -146,14 +154,22 @@ describe("useByokCreditRouteVerdict", () => {
     // a managed route on evidence the gate has not gathered.
     assistantId = null;
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: false, routeKnown: false });
+    expect(v).toEqual({
+      suppress: false,
+      settled: false,
+      routeBurnsManaged: false,
+    });
   });
 
   test("a managed route is a settled answer", () => {
     answerRouteQueries();
     burnsManaged = true;
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
+    expect(v).toEqual({
+      suppress: false,
+      settled: true,
+      routeBurnsManaged: true,
+    });
   });
 
   test("a version-gated query the assistant is too old for still settles", () => {
@@ -163,7 +179,11 @@ describe("useByokCreditRouteVerdict", () => {
     supportsProfiles = false;
     supportsDefaultProvider = false;
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
+    expect(v).toEqual({
+      suppress: false,
+      settled: true,
+      routeBurnsManaged: true,
+    });
   });
 
   test("a BYOK route waits for the spend probe before settling", () => {
@@ -171,7 +191,11 @@ describe("useByokCreditRouteVerdict", () => {
     burnsManaged = false;
     queries = { ...queries, totals: LOADING };
     const v = verdict();
-    expect(v).toEqual({ suppress: true, settled: false, routeKnown: true });
+    expect(v).toEqual({
+      suppress: true,
+      settled: false,
+      routeBurnsManaged: false,
+    });
   });
 
   test("a BYOK route with no recent burn suppresses, settled", () => {
@@ -182,10 +206,17 @@ describe("useByokCreditRouteVerdict", () => {
       totals: queryState("success", { total_usd: "0.00" }),
     };
     const v = verdict();
-    expect(v).toEqual({ suppress: true, settled: true, routeKnown: true });
+    expect(v).toEqual({
+      suppress: true,
+      settled: true,
+      routeBurnsManaged: false,
+    });
   });
 
-  test("a recent managed burn re-arms the banners", () => {
+  test("a recent managed burn re-arms the banners without making it managed", () => {
+    // Spend on another surface lowers suppression. It says nothing about
+    // where this conversation's next turn dispatches, so the route stays
+    // BYOK and no claim may be built on it.
     answerRouteQueries();
     burnsManaged = false;
     queries = {
@@ -193,7 +224,11 @@ describe("useByokCreditRouteVerdict", () => {
       totals: queryState("success", { total_usd: "1.25" }),
     };
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
+    expect(v).toEqual({
+      suppress: false,
+      settled: true,
+      routeBurnsManaged: false,
+    });
   });
 
   test("a failed route read is final without being a route", () => {
@@ -204,7 +239,7 @@ describe("useByokCreditRouteVerdict", () => {
     expect(verdict()).toEqual({
       suppress: false,
       settled: true,
-      routeKnown: false,
+      routeBurnsManaged: false,
     });
   });
 
@@ -217,7 +252,7 @@ describe("useByokCreditRouteVerdict", () => {
     expect(verdict()).toEqual({
       suppress: false,
       settled: false,
-      routeKnown: false,
+      routeBurnsManaged: false,
     });
   });
 
@@ -228,7 +263,7 @@ describe("useByokCreditRouteVerdict", () => {
     expect(verdict()).toEqual({
       suppress: true,
       settled: false,
-      routeKnown: true,
+      routeBurnsManaged: false,
     });
   });
 
@@ -237,6 +272,10 @@ describe("useByokCreditRouteVerdict", () => {
     burnsManaged = false;
     queries = { ...queries, totals: queryState("error") };
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
+    expect(v).toEqual({
+      suppress: false,
+      settled: true,
+      routeBurnsManaged: false,
+    });
   });
 });

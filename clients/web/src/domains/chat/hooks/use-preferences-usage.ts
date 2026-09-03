@@ -89,16 +89,13 @@ export function usePreferencesUsage(
   const hasWalletCredit = balance != null && Number(balance) > 0;
   // A wallet with credit is still not proof it gets spent: a BYOK route
   // dispatches the next turn on the user's own key. The classifier's queries
-  // stay idle until the claim is otherwise live, and while it classifies (or
-  // when it proves BYOK with no recent managed burn) the claim is withheld.
-  const {
-    suppress: routeSkipsWallet,
-    settled: claimSettled,
-    routeKnown,
-  } = useByokCreditRouteVerdict(
-    enabled && spent && hasWalletCredit,
-    opts.conversationId ?? null,
-  );
+  // stay idle until the claim is otherwise live, so the common healthy path
+  // costs nothing.
+  const { settled: claimSettled, routeBurnsManaged } =
+    useByokCreditRouteVerdict(
+      enabled && spent && hasWalletCredit,
+      opts.conversationId ?? null,
+    );
 
   // The reading is final once the summary and the subscription behind it have
   // both answered and the route classification has stopped moving. The
@@ -119,12 +116,13 @@ export function usePreferencesUsage(
       // then arrive on the same render instead of the strip growing the
       // popover a beat later.
       exhausted: settled && spent && isExhausted,
-      // Withheld until the classification settles AND actually derived a
-      // route. A read that failed leaves the gate failing open, which is the
-      // right answer for a banner and no basis at all for telling someone
-      // their next turn spends money.
+      // A managed route is the whole basis for the claim, so it is required
+      // rather than inferred from `suppress` not being set. The gate lowers
+      // suppression for a fail-open null and for a BYOK route with spend on
+      // some other surface, and neither means this conversation's next turn
+      // touches the managed wallet.
       usingExtraCredits:
-        settled && routeKnown && spent && hasWalletCredit && !routeSkipsWallet,
+        settled && routeBurnsManaged && spent && hasWalletCredit,
     },
     settled,
   };

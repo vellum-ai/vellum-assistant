@@ -58,16 +58,19 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
 // The real BYOK gate classifies through five daemon queries and the
 // resolved-assistants store, none of which these tests stand up; what the
 // hook owns is only how the verdict gates the extra-credits claim.
-let byokRoute = false;
-// Whether the classification derived a route at all. A read that failed
-// leaves the gate failing open, which reads identically to "managed" on
-// `suppress` alone.
-let routeKnown = true;
+/**
+ * Which route the classifier lands on. One knob rather than two: the gate
+ * derives `suppress` and `routeBurnsManaged` from the same classification, so
+ * separate switches could stage a BYOK route that also burns managed credits,
+ * which it never reports.
+ */
+let route: "managed" | "byok" | "unknown" = "managed";
 mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
   useByokCreditRouteVerdict: (candidate: boolean) => ({
-    suppress: candidate && byokRoute,
+    // Only a proven BYOK route with no recent burn holds the banners down.
+    suppress: candidate && route === "byok",
     settled: classificationSettled,
-    routeKnown,
+    routeBurnsManaged: route === "managed",
   }),
 }));
 
@@ -125,12 +128,11 @@ beforeEach(() => {
   subscription = proSubscription();
   billingEnabled = true;
   classificationSettled = true;
-  routeKnown = true;
   creditsExhausted = false;
   effectiveBalance = null;
   availableUsageBalance = null;
   totalUsageBalance = null;
-  byokRoute = false;
+  route = "managed";
   balanceStatusOpts = undefined;
 });
 
@@ -339,7 +341,7 @@ describe("PreferencesUsagePanel", () => {
     totalUsageBalance = "25.00";
     availableUsageBalance = "0.00";
     effectiveBalance = "18.00";
-    byokRoute = true;
+    route = "byok";
     const { findByTestId, queryByText } = renderPanel();
 
     const panel = await findByTestId("preferences-usage");
@@ -390,14 +392,14 @@ describe("PreferencesUsagePanel", () => {
     );
   });
 
-  test("a failed route read makes no extra-credits claim", async () => {
-    // Settled, wallet funded, and the gate failing open: `suppress` alone
-    // cannot tell that apart from a managed route, so the claim would be made
-    // on evidence that never arrived.
+  test("no managed route means no extra-credits claim", async () => {
+    // Settled and wallet funded, with suppression down for a reason that is
+    // not a managed route: a read that failed, or a BYOK route with spend on
+    // another surface. `suppress` alone cannot tell either from managed.
     totalUsageBalance = "25.00";
     availableUsageBalance = "0.00";
     effectiveBalance = "12.00";
-    routeKnown = false;
+    route = "unknown";
     const { findByTestId, queryByText } = renderPanel();
 
     const panel = await findByTestId("preferences-usage");
