@@ -241,6 +241,26 @@ const ContactPromptFlagsParams = z.object({
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether another contact form is already waiting on the guardian.
+ *
+ * Clients hold one contact card at a time, so a second broadcast replaces the
+ * first and leaves its command waiting on a form nobody can answer. Refusing
+ * fails the second command immediately instead, which is a caller that can
+ * retry rather than one that hangs. Both contact forms share the rule, so they
+ * share this check.
+ */
+function contactFormAlreadyOpen(): ContactPromptResult | null {
+  if (!hasUnclaimedGuardianForm(CONTACT_FORMS)) {
+    return null;
+  }
+  return {
+    ok: false,
+    error:
+      "Another contact form is already open. Wait for it to be answered, then try again.",
+  };
+}
+
 async function handleContactPrompt({
   body = {},
 }: RouteHandlerArgs): Promise<ContactPromptResult> {
@@ -267,16 +287,9 @@ async function handleContactPrompt({
     };
   }
 
-  // Clients hold one contact card at a time, so a second broadcast replaces the
-  // first and leaves its command waiting on a form nobody can answer. Refusing
-  // here fails the second command immediately instead, which is a caller that
-  // can retry rather than one that hangs.
-  if (hasUnclaimedGuardianForm(CONTACT_FORMS)) {
-    return {
-      ok: false,
-      error:
-        "Another contact form is already open. Wait for it to be answered, then try again.",
-    };
+  const conflict = contactFormAlreadyOpen();
+  if (conflict) {
+    return conflict;
   }
 
   return openGuardianForm<ContactPromptResult>({
@@ -357,16 +370,9 @@ async function handleContactRecordPrompt({
     }
   }
 
-  // Clients hold one contact card at a time, so a second broadcast replaces the
-  // first and leaves its command waiting on a form nobody can answer. Refusing
-  // here fails the second command immediately instead, which is a caller that
-  // can retry rather than one that hangs.
-  if (hasUnclaimedGuardianForm(CONTACT_FORMS)) {
-    return {
-      ok: false,
-      error:
-        "Another contact form is already open. Wait for it to be answered, then try again.",
-    };
+  const conflict = contactFormAlreadyOpen();
+  if (conflict) {
+    return conflict;
   }
 
   return openGuardianForm<ContactPromptResult>({
