@@ -37,6 +37,29 @@ describe("ChatPill", () => {
     expect(getByRole("status").getAttribute("aria-live")).toBe("polite");
   });
 
+  // The chat overlay these pills float in is `pointer-events-none`, so it does
+  // not swallow clicks on the transcript beneath it. A pill inside it has to
+  // opt back in or it is visible and dead.
+  test("stays clickable over a pointer-events-none overlay", () => {
+    let clicks = 0;
+    const { getByRole } = render(
+      <div className="pointer-events-none">
+        <ChatPill
+          onClick={() => {
+            clicks += 1;
+          }}
+          ariaLabel="Open suggestions"
+        >
+          Suggestions
+        </ChatPill>
+      </div>,
+    );
+    const button = getByRole("button", { name: "Open suggestions" });
+    expect(button.className).toContain("pointer-events-auto");
+    fireEvent.click(button);
+    expect(clicks).toBe(1);
+  });
+
   test("invokes onClick when the button is activated", () => {
     let clicks = 0;
     const { getByRole } = render(

@@ -20,12 +20,23 @@
  *
  * Every task is watched, starters and the rest of the catalog alike, because
  * the Inspiration List can launch any of them.
+ *
+ * The list an event is filed under is resolved here, by the same hook every
+ * other surface reads it from, and handed to the emitter as a captured
+ * context. Letting the emitter resolve it would send it to the module global
+ * `useEffectiveActivationListId` publishes from an effect, which is only
+ * populated before this one runs when a sibling hook in the same component
+ * happens to be ordered ahead of it.
  */
 
 import { useEffect, useRef } from "react";
 
+import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { emitActivationEvent } from "@/utils/activation-telemetry";
+import {
+  captureActivationTelemetryContext,
+  emitActivationEvent,
+} from "@/utils/activation-telemetry";
 
 import {
   activationRowStatus,
@@ -37,6 +48,7 @@ const NO_BASELINE = Symbol("no-activation-baseline");
 
 export function useActivationCompletionTelemetry(): void {
   const { data: progress } = useActivationProgress();
+  const listId = useEffectiveActivationListId();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   /** The assistant `reported` was built for. */
   const baselineFor = useRef<string | null | typeof NO_BASELINE>(NO_BASELINE);
@@ -57,12 +69,13 @@ export function useActivationCompletionTelemetry(): void {
       reported.current = done;
       return;
     }
+    const context = captureActivationTelemetryContext(listId ?? "unknown");
     for (const taskId of done) {
       if (reported.current.has(taskId)) {
         continue;
       }
       reported.current.add(taskId);
-      emitActivationEvent("activation_task_completed", { taskId });
+      emitActivationEvent("activation_task_completed", { taskId }, context);
     }
-  }, [progress, activeAssistantId]);
+  }, [progress, activeAssistantId, listId]);
 }

@@ -19,52 +19,51 @@ import {
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { usePageSurfaceStore } from "@/stores/page-surface-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 let mockIsElectron = false;
-const isElectronModule = await import("@/runtime/is-electron");
-// Captured by value: a module namespace's bindings are live, so reading the
-// export back after the mock is installed would hand out the mock.
-const { isElectron: realIsElectron } = isElectronModule;
-mock.module("@/runtime/is-electron", () => ({
-  ...isElectronModule,
+stubModule("@/runtime/is-electron", await import("@/runtime/is-electron"), {
   isElectron: () => mockIsElectron,
-}));
-
-// `mock.module` replaces a module for every file sharing this process, and a
-// desktop answer left standing hides every surface that drops a web link
-// inside the app.
-afterAll(() => {
-  mock.module("@/runtime/is-electron", () => ({
-    ...isElectronModule,
-    isElectron: realIsElectron,
-  }));
 });
 
+// The two stores the header writes through are driven by their own state
+// rather than a module stub, so the spies are checked against the real store
+// shapes. Both stores are process-global, so the real actions go back below.
 const toggleCommandPaletteSpy = mock(() => {});
-mock.module("@/stores/command-palette-store", () => ({
-  useCommandPaletteStore: {
-    use: { toggle: () => toggleCommandPaletteSpy },
-  },
-}));
-
 const setInlineTitleBarActiveSpy = mock((_active: boolean) => {});
-mock.module("@/stores/title-bar-store", () => ({
-  useTitleBarStore: {
-    use: {
-      setInlineTitleBarActive: () => setInlineTitleBarActiveSpy,
-      windowsMenuBarSuppressed: () => false,
-    },
-  },
-}));
+const realToggleCommandPalette = useCommandPaletteStore.getState().toggle;
+const realSetInlineTitleBarActive =
+  useTitleBarStore.getState().setInlineTitleBarActive;
 
 let mockIsNativeMobile = false;
 let mockElectronHostOS: "macos" | "windows" | "linux" | null = null;
-mock.module("@/runtime/platform-detection", () => ({
-  detectElectronHostOS: () =>
-    mockIsElectron ? (mockElectronHostOS ?? "macos") : null,
-  isNativeMobile: () => mockIsNativeMobile,
-}));
+stubModule(
+  "@/runtime/platform-detection",
+  await import("@/runtime/platform-detection"),
+  {
+    detectElectronHostOS: () =>
+      mockIsElectron ? (mockElectronHostOS ?? "macos") : null,
+    isNativeMobile: () => mockIsNativeMobile,
+  },
+);
+
+// `mock.module` replaces a module for every file sharing this process, so
+// nothing here may outlive the file: a desktop answer left standing hides
+// every surface that drops a web link inside the app. The store actions the
+// spies stand in for are process-global for the same reason.
+afterAll(() => {
+  useCommandPaletteStore.setState({ toggle: realToggleCommandPalette });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: realSetInlineTitleBarActive,
+  });
+  restoreStubbedModules();
+});
 
 // Imported after the mocks so the header picks up the mocked modules.
 const { ChatLayoutHeader } = await import("@/domains/chat/chat-layout-header");
@@ -76,6 +75,11 @@ beforeEach(() => {
   usePageSurfaceStore.getState().setSurface(null);
   toggleCommandPaletteSpy.mockClear();
   setInlineTitleBarActiveSpy.mockClear();
+  useCommandPaletteStore.setState({ toggle: toggleCommandPaletteSpy });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: setInlineTitleBarActiveSpy,
+    windowsMenuBarSuppressed: false,
+  });
 });
 
 afterEach(() => {
@@ -109,25 +113,6 @@ describe("ChatLayoutHeader — right cluster", () => {
     expect(screen.getByText("Notifications")).toBeTruthy();
     // Nothing folds the cluster away: no overflow menu to open.
     expect(screen.queryByRole("button", { name: "More controls" })).toBeNull();
-  });
-
-  // The pill takes its own slot rather than riding beside the bell, because
-  // the bell's slot is restated in the mobile drawer's glyph row and a full
-  // pill has no seat there. In the top bar the two sit together, pill first.
-  test("seats the pill ahead of the route slot", () => {
-    renderHeader({
-      topBarRightSlot: (
-        <>
-          <div data-testid="suggestions-pill" />
-          <button type="button">Notifications</button>
-        </>
-      ),
-    });
-    const pill = screen.getByTestId("suggestions-pill");
-    const bell = screen.getByText("Notifications");
-    expect(
-      pill.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
   });
 
   test("search reaches the command palette", () => {

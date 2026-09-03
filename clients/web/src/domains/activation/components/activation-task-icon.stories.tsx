@@ -37,10 +37,21 @@ export const Done: Story = {
   args: { state: "done" },
 };
 
+/** One glyph on the dark ground, where the accent wash thins the most. */
+export const DefaultDark: Story = {
+  globals: { theme: "dark" },
+};
+
 /** The finished treatment on the dark ground, where the check has to hold. */
 export const DoneDark: Story = {
   args: { state: "done" },
   globals: { theme: "dark" },
+};
+
+/** The finished disc at phone width, beside a two-line description. */
+export const DoneMobile: Story = {
+  args: { state: "done" },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
 /** A single disc at phone width, where it sits beside a two-line description. */

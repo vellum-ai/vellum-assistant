@@ -78,12 +78,9 @@ const AVAILABLE_CAPABILITY_TAGS: ReadonlySet<string> = new Set(
  * Whether a task's prerequisites are met. A task with no `requires` always
  * passes, and so does one requiring a tag this build does not know.
  */
-function taskIsAvailable(
-  task: Pick<ActivationTask, "requires">,
-  availableTags: ReadonlySet<string>,
-): boolean {
+function taskIsAvailable(task: Pick<ActivationTask, "requires">): boolean {
   return (task.requires ?? []).every(
-    (tag) => !isKnownCapabilityTag(tag) || availableTags.has(tag),
+    (tag) => !isKnownCapabilityTag(tag) || AVAILABLE_CAPABILITY_TAGS.has(tag),
   );
 }
 
@@ -98,12 +95,8 @@ export function useAvailableActivationList(listId: string): ActivationList {
   const { starters, items } = useActivationList(listId);
   return useMemo(
     () => ({
-      starters: starters.filter((task) =>
-        taskIsAvailable(task, AVAILABLE_CAPABILITY_TAGS),
-      ),
-      items: items.filter((task) =>
-        taskIsAvailable(task, AVAILABLE_CAPABILITY_TAGS),
-      ),
+      starters: starters.filter(taskIsAvailable),
+      items: items.filter(taskIsAvailable),
     }),
     [items, starters],
   );
