@@ -186,30 +186,10 @@ describe("PinnedAppNavItem", () => {
   });
 
   /* The row's one command stays a named, focusable control where the device
-     cannot hover, because a long press is not something a screen reader or a
-     switch control can announce. */
+     cannot hover: the swipe button behind the row is out of the accessibility
+     tree until a swipe reveals it, and a long press is not something a screen
+     reader or switch control can announce. */
   test("expanded: keeps the trailing unpin button where the device cannot hover", () => {
-    viewport.set({ narrow: true, coarsePointer: true });
-
-    render(
-      <PinnedAppNavItem
-        app={APP}
-        active={false}
-        collapsed={false}
-        {...actions()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
-    expect(onUnpin).toHaveBeenCalledWith("app-1");
-  });
-
-  /* A swipe row is full width by construction, so wrapping a `w-fit` pill in
-     one puts a row-width box around a pill-width control: a swipe starting in
-     the empty rail beside the pill acts on it, and the action it reveals lands
-     at the rail's edge rather than at the pill. The pill is reachable by the
-     trailing button and by long press, so it carries no swipe at all. */
-  test("expanded: the pill is not wrapped in a swipe row", () => {
     viewport.set({ narrow: true, coarsePointer: true });
 
     const { container } = render(
@@ -221,11 +201,46 @@ describe("PinnedAppNavItem", () => {
       />,
     );
 
-    expect(container.querySelector("[data-swipe-action-row]")).toBeNull();
-    // The pill is the only thing that paints, so nothing around it can band it.
+    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
+    expect(onUnpin).toHaveBeenCalledWith("app-1");
+
+    // Behind the row until a swipe slides it away, hence found by attribute:
+    // it is `aria-hidden` and out of the tab path while it is back there.
     expect(
       container.querySelector('button[aria-label="Unpin"][aria-hidden="true"]'),
-    ).toBeNull();
+    ).not.toBeNull();
+  });
+
+  /* The pin is a `w-fit` pill and the swipe wrapper around it is the sidebar's
+     full width, so any fill on the wrapper is a band behind the pill rather
+     than the pill's own surface, and the row reads as two mismatched shapes. */
+  test("expanded: the swipe wrapper paints nothing behind the pill", () => {
+    viewport.set({ narrow: true, coarsePointer: true });
+
+    const { container } = render(
+      <PinnedAppNavItem
+        app={APP}
+        active={false}
+        collapsed={false}
+        {...actions()}
+      />,
+    );
+
+    // The three boxes the wrapper adds between the sidebar and the pill: the
+    // row a list lays out, the clip inside it, and the layer that slides. The
+    // pill's own surface is not in this list and is not being asserted on.
+    const row = container.querySelector("[data-swipe-action-row]");
+    const clip = row?.firstElementChild;
+    // The layer that slides is the clip's last child: action layers are
+    // rendered before it so it paints over them. Located structurally rather
+    // than by its transform, which is a formatted string and not the point.
+    const sliding = clip?.lastElementChild;
+
+    expect(row).not.toBeNull();
+    expect(sliding).not.toBeNull();
+    for (const layer of [row, clip, sliding]) {
+      expect(layer?.className ?? "").not.toMatch(/(^|\s)bg-/);
+    }
   });
 
   /* The tile is the shape with the most riding on the menu: no hover button,

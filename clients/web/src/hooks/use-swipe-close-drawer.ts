@@ -4,9 +4,9 @@ import { useSwipeHorizontal } from "@/hooks/use-swipe-horizontal";
 
 /**
  * Rows that own a horizontal drag for their own swipe actions. A conversation
- * row reveals Archive on a leftward swipe and Pin on a rightward one, and it
- * sits inside the drawer, so the panel gesture has to leave it alone or the
- * two fight over every drag.
+ * row reveals Archive on a leftward swipe and Pin on a rightward one, and a
+ * pinned app pill reveals Unpin; both sit inside the drawer, so the panel
+ * gesture has to leave them alone or the two fight over every drag.
  *
  * `SwipeActionReveal` marks only its armed branch, so a row rendered without
  * actions (or on a fine pointer) claims nothing and the panel keeps the drag.
