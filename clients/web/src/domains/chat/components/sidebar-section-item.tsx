@@ -150,22 +150,18 @@ export function SidebarSectionItem({
         ) : undefined
       }
       label={label}
-      /* The name in the same raw accent the glyph wears, via the published
-         `--avatar-accent` var (the same value `accentHex` resolves - the
-         var is just the CSS-reachable copy), so glyph and name read as one
-         mark on the tinted pill. Absent var - custom-image or still-loading
-         avatar - falls back to the tertiary ink the shared header classes
-         use. Set on the label span, so it overrides by inheritance rather
-         than specificity. */
+      /* The name in the emphasised ink rather than the shared header
+         classes' tertiary gray: this header sits on its own tinted surface,
+         where the section-family gray reads as disabled instead of quiet.
+         Set on the label span, so it overrides by inheritance rather than
+         specificity. */
       labelClassName={
-        isAssistantSection
-          ? "text-[var(--avatar-accent,var(--content-tertiary))]"
-          : undefined
+        isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
       }
-      /* The whole header on its own surface: a deeper cut of the accent than
-         the card's 18%, spanning glyph, label, unread dot, and chevron edge
-         to edge - one pill, not a pill with the controls stranded outside
-         it. 36px stands it at the height of a collapsed side-menu item,
+      /* The whole header on its own surface: the New Chat pill's exact wash
+         (PANEL_ITEM_WASH rest = a 15% accent mix into --surface-lift),
+         spanning glyph, label, unread dot, and chevron edge to edge - one
+         pill, not a pill with the controls stranded outside it. 36px stands it at the height of a collapsed side-menu item,
          whose full roundness is likewise half of 36. The glyph keeps the
          pill's own inset, not the flat headers': as a pill standing beside
          the Preferences PanelItem (p-[8px]), its glyph has to start the
@@ -174,7 +170,7 @@ export function SidebarSectionItem({
          the 36px is this class's to state. */
       headerClassName={
         isAssistantSection
-          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-2!"
+          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-2!"
           : undefined
       }
       /* The one section painted in the assistant's own color, so it reads as
