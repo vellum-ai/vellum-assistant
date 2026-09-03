@@ -31,7 +31,7 @@
     },
     "media-processing": {
       "docsSlug": "media-processing",
-      "sha256": "2355e860b9ae5c06036ca2ef206679647a9c73ff38af50a23268503959f189cd"
+      "sha256": "aa38b7020be5ef92cd4f065b9d30a135947cd800bb09884b3fdc3323a49c8ac8"
     },
     "messaging": {
       "docsSlug": "messaging",
@@ -47,7 +47,7 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "ffffe1cead80d1c705265a8d2836b52773285a6001cdda491ade8835d0867bd5"
+      "sha256": "afa1d28831de2c8752f0b75d9a0abb61600626e445482840e709e0705027b83f"
     },
     "skill-management": {
       "docsSlug": "skill-management",

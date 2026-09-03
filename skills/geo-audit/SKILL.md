@@ -25,16 +25,9 @@ This is the operator-side companion to writing content. It tells you whether you
 
 ---
 
-## TRIGGER
+## RUNNING AN AUDIT
 
-Fire this skill **immediately** — no clarifying questions, no preamble — when the user says any of the following (or close variants):
-
-- "Do a GEO audit check on my domain: <url>"
-- "Run a GEO audit on <url>"
-- "GEO audit <url>"
-- "Audit <url> for GEO"
-
-Extract the domain from the message and run the script. Stream the terminal output back as it happens. When the HTML report opens, mention that it just popped up in their browser and summarize the score in one sentence.
+Extract the domain from the user's message and run the script without asking clarifying questions first. Stream the terminal output back as it happens. When the HTML report opens, mention that it just popped up in their browser and summarize the score in one sentence.
 
 ## WHEN TO USE THIS SKILL
 
