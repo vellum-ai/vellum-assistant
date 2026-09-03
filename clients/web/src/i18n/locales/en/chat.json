@@ -760,6 +760,9 @@
     "upload": "Upload",
     "uploading": "Uploading..."
   },
+  "followUpSuggestions": {
+    "groupAria": "Suggested follow-ups"
+  },
   "formSurface": {
     "secureHint": "This value will be sent securely and will not be stored in your browser.",
     "selectPlaceholder": "Select..."

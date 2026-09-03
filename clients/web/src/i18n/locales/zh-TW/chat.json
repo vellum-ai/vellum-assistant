@@ -736,6 +736,9 @@
     "upload": "上傳",
     "uploading": "正在上傳..."
   },
+  "followUpSuggestions": {
+    "groupAria": "建議的後續問題"
+  },
   "formSurface": {
     "secureHint": "此值將會安全傳送，且不會儲存在您的瀏覽器中。",
     "selectPlaceholder": "請選擇..."

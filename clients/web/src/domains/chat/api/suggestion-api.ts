@@ -3,6 +3,7 @@ import type { SuggestionGetResponse } from "@/generated/daemon/types.gen";
 
 const EMPTY: SuggestionGetResponse = {
   suggestion: null,
+  suggestions: [],
   messageId: null,
   source: "none",
 };

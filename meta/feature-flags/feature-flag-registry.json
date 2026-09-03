@@ -347,7 +347,7 @@
       "scope": "client",
       "key": "follow-up-suggestions",
       "label": "Follow-up suggestion chips",
-      "description": "Render two tappable follow-up suggestion chips under the latest assistant reply. The chips prefill the composer with the suggestion the user picks; the daemon returns the suggestions either way.",
+      "description": "Render two tappable follow-up suggestion chips under the latest assistant reply. Picking one sends it as the user's next message, and the composer's ghost-text suggestion stays hidden while the chips are on; the daemon returns the suggestions either way.",
       "defaultEnabled": false
     },
     {

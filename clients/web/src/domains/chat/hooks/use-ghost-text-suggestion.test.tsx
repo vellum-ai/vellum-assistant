@@ -41,6 +41,7 @@ mock.module("@tanstack/react-query", () => ({
 mock.module("@/domains/chat/api/suggestion-api", () => ({
   fetchSuggestion: async () => ({
     suggestion: null,
+    suggestions: [],
     messageId: null,
     source: "none" as const,
   }),

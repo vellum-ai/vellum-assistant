@@ -107,6 +107,10 @@ export interface TranscriptRowProps {
    *  `TranscriptMessageBody` so the message directly above the parked avatar
    *  collapses its hover-actions row and animates it open on hover. */
   isLatestMessage?: boolean;
+  /** Follow-up suggestion chips for the message this transcript ends on.
+   *  Forwarded verbatim; `TranscriptMessageBody` decides whether this row is
+   *  the one that renders them. */
+  followUpSuggestionsSlot?: ReactNode;
 }
 
 /**
@@ -223,6 +227,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   responseArtifacts,
   isStreaming,
   isLatestMessage,
+  followUpSuggestionsSlot,
 }: TranscriptRowProps) {
   const { t } = useTranslation("chat");
   switch (item.kind) {
@@ -302,6 +307,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           responseArtifacts={responseArtifacts}
           isStreaming={isStreaming}
           isLatestMessage={isLatestMessage}
+          followUpSuggestionsSlot={followUpSuggestionsSlot}
         />
       );
     }
