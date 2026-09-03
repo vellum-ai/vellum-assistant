@@ -496,7 +496,24 @@ export interface VoiceActivityContent {
    * with them so a decision answers the request the user was shown.
    */
   approvalRequestId: string;
+  /**
+   * The session's own camera, or absent when the session cannot be given one.
+   *
+   * The device's camera opened by the window holding the session, with no
+   * viewfinder anywhere: what the surface's camera control asks for, and what
+   * the assistant then sees through. `off` is a session that could see and is
+   * being shown nothing; `on` is one frames are flowing to, which is the only
+   * state the control reads as on. Absent covers an assistant that predates
+   * the frame and a web bundle that predates the control alike, and draws no
+   * control at all: a camera nobody can act on is not offered.
+   */
+  camera?: VoiceActivityCamera;
 }
+
+/** The states of {@link VoiceActivityContent.camera}. */
+export const VOICE_ACTIVITY_CAMERA_STATES = ["off", "on"] as const;
+
+export type VoiceActivityCamera = (typeof VOICE_ACTIVITY_CAMERA_STATES)[number];
 
 /** {@link VoiceActivityContent} plus the fields fixed for the session's lifetime. */
 export interface VoiceActivityStart extends VoiceActivityContent {
@@ -533,10 +550,13 @@ export type VoiceActivityState = VoiceActivityStart;
  * resolved against live session state is self-consistent and still wrong for
  * the user: a button reading "Mute assistant" over an already-muted session
  * would unmute it. Sending what the button said makes that press a no-op,
- * which the next push corrects.
+ * which the next push corrects. The camera pair is absolute for the same
+ * reason.
  *
- * Mirrors `VoiceSessionControlAction` on iOS and the web layer's
- * `VoiceLiveActivityControlAction`; all three are one vocabulary.
+ * A superset of `VoiceSessionControlAction` on iOS and the web layer's
+ * `VoiceLiveActivityControlAction`: the island offers no camera, so the two
+ * camera actions are this surface's alone, and everything else is one
+ * vocabulary across all three.
  */
 export const VOICE_ACTIVITY_CONTROL_ACTIONS = [
   "muteMicrophone",
@@ -546,6 +566,8 @@ export const VOICE_ACTIVITY_CONTROL_ACTIONS = [
   "endSession",
   "approveRequest",
   "denyRequest",
+  "startCamera",
+  "stopCamera",
 ] as const;
 
 export type VoiceActivityControlAction =

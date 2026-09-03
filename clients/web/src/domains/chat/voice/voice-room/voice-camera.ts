@@ -61,6 +61,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  setLiveVoiceCameraRequested,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
@@ -192,7 +196,11 @@ export function isVoiceCameraSupported(): boolean {
   );
 }
 
-function classifyError(cause: unknown): VoiceCameraError {
+/**
+ * Name what `getUserMedia` refused with, in the vocabulary a surface can act
+ * on. Anything that is not a `DOMException` is `unknown`.
+ */
+export function classifyVoiceCameraError(cause: unknown): VoiceCameraError {
   if (cause instanceof DOMException) {
     switch (cause.name) {
       case "NotAllowedError":
@@ -208,6 +216,39 @@ function classifyError(cause: unknown): VoiceCameraError {
     }
   }
   return "unknown";
+}
+
+/**
+ * Ask the browser for the camera facing `facing`, as a video-only stream.
+ *
+ * Video only. See the module docstring: adding `audio` here would renegotiate
+ * the microphone the call is already streaming from. `facingMode` is a plain
+ * (non-`exact`) constraint so a device with one camera (most laptops) still
+ * opens it instead of failing with `OverconstrainedError`.
+ *
+ * Rejects with what `getUserMedia` rejects with, for
+ * {@link classifyVoiceCameraError} to name, and with a `DOMException` named
+ * `NotSupportedError` where the media API is absent, so that case reads as
+ * `unknown` through the same classifier. Every acquisition of a browser
+ * camera goes through here, the viewfinder's and the headless session
+ * camera's alike, so the two negotiate the same picture.
+ */
+export async function requestVideoStream(
+  facing: VoiceCameraFacing,
+): Promise<MediaStream> {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices?.getUserMedia
+  ) {
+    throw new DOMException("camera unsupported", "NotSupportedError");
+  }
+  return navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: facing,
+      width: { ideal: VIEWFINDER_IDEAL_WIDTH },
+      height: { ideal: VIEWFINDER_IDEAL_HEIGHT },
+    },
+  });
 }
 
 /**
@@ -538,19 +579,7 @@ export function useVoiceCamera(
 
       let stream: MediaStream;
       try {
-        // Video only. See the module docstring: adding `audio` here would
-        // renegotiate the microphone the call is already streaming from.
-        //
-        // `facingMode` is a plain (non-`exact`) constraint so a device with
-        // one camera (most laptops) still opens it instead of failing with
-        // OverconstrainedError.
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: nextFacing,
-            width: { ideal: VIEWFINDER_IDEAL_WIDTH },
-            height: { ideal: VIEWFINDER_IDEAL_HEIGHT },
-          },
-        });
+        stream = await requestVideoStream(nextFacing);
       } catch (cause) {
         // Superseded requests report as superseded whether they succeeded or
         // failed. A rejection that lands after a close is not news the user
@@ -559,7 +588,7 @@ export function useVoiceCamera(
         if (epoch !== acquireEpochRef.current) {
           return "aborted";
         }
-        return classifyError(cause);
+        return classifyVoiceCameraError(cause);
       }
 
       if (epoch !== acquireEpochRef.current) {
@@ -789,6 +818,31 @@ export function useVoiceCamera(
       videoRef.current.srcObject = streamRef.current;
     }
   }, [open, videoRef]);
+
+  // One owner of the device at a time, and a viewfinder on screen is it.
+  //
+  // The live-voice session can open the same camera with no viewfinder at all
+  // (`live-voice/use-live-voice-camera.ts`, driven from the macOS companion).
+  // Chromium hands a second `getUserMedia` the same device rather than
+  // refusing it, so nothing stops both from running: the user is then looking
+  // at one preview while a hidden stream of the same picture is also being
+  // sampled for the call, and a viewfinder in Live feeds it every keep twice.
+  // The one the user can see wins. Opening a viewfinder takes the session's
+  // ask back, and an ask raised while one is up is refused in the same tick,
+  // so the companion's control reads as off rather than as a camera that is
+  // secretly a second copy of this one. The ask is a no-op with no session,
+  // which is the composer's photo overlay outside a call.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setLiveVoiceCameraRequested(false);
+    return useLiveVoiceStore.subscribe((state, previous) => {
+      if (state.cameraRequested && !previous.cameraRequested) {
+        state.setCameraRequested(false);
+      }
+    });
+  }, [open]);
 
   const flashAvailable =
     native &&

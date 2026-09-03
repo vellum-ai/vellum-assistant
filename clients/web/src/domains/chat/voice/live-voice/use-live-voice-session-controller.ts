@@ -34,7 +34,9 @@
  * And it is where duties that must outlive the room UI live, because this
  * mount does: {@link useSightFrameReclaimer} gives back camera-frame uploads
  * an assistant refused, which the room cannot be trusted to do while it is
- * minimized and therefore unmounted.
+ * minimized and therefore unmounted, and {@link useLiveVoiceCamera} runs the
+ * session's own camera for a surface with no viewfinder, which the room is
+ * not open to run.
  */
 
 import { useEffect, useLayoutEffect, useRef } from "react";
@@ -53,6 +55,7 @@ import {
 import { drainPendingVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useLiveActivityControls } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
+import { useLiveVoiceCamera } from "@/domains/chat/voice/live-voice/use-live-voice-camera";
 import { useSightFrameReclaimer } from "@/domains/chat/voice/live-voice/use-sight-frame-reclaimer";
 import {
   activateVoiceAudioSession,
@@ -261,4 +264,8 @@ export function useLiveVoiceSessionController(
   // room is not mounted, and an upload refused while it is minimized would
   // otherwise be stranded when the call ends.
   useSightFrameReclaimer();
+  // The session's own camera, for the desktop's companion call: the room is
+  // not open during one, so the viewfinder it would sample is nowhere, and
+  // this mount is the one that lives exactly as long as the session can.
+  useLiveVoiceCamera();
 }

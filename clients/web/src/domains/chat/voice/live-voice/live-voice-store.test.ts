@@ -32,6 +32,7 @@ import {
   PER_JOB_CEILING_MS,
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
+  setLiveVoiceCameraRequested,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   subscribeSettledLiveVoiceState,
@@ -200,6 +201,21 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
       stopLiveVoiceResponse();
       updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
     }).not.toThrow();
+  });
+
+  test("the camera ask is refused with no session, and reset clears it", () => {
+    setLiveVoiceCameraRequested(true);
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceCameraRequested(true);
+    useLiveVoiceStore.getState().setCameraStreaming(true);
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(true);
+    expect(useLiveVoiceStore.getState().cameraStreaming).toBe(true);
+
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+    expect(useLiveVoiceStore.getState().cameraStreaming).toBe(false);
   });
 
   test("reset clears muted and handsFree; setSessionContext unmutes a fresh session", () => {

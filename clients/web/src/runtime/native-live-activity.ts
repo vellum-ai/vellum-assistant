@@ -29,10 +29,7 @@ import {
   callNativeVoice,
   subscribeNativeVoiceListener,
 } from "@/runtime/native-voice";
-import {
-  isNativeIOS,
-  isNativeMobile,
-} from "@/runtime/platform-detection";
+import { isNativeIOS, isNativeMobile } from "@/runtime/platform-detection";
 
 /** The mutable half of the activity — everything that can change mid-session. */
 export interface VoiceLiveActivityContent {
@@ -98,6 +95,14 @@ export interface VoiceLiveActivityContent {
    * in which nothing here could act on a press anyway.
    */
   approvalRequestId: string;
+  /**
+   * The session's own camera, or absent when the session cannot be given
+   * one. Desktop only: the island draws nothing for it and the plugin reads
+   * nothing from it, and it is here because the mirror composes one payload
+   * for both surfaces. See `VoiceActivityContent.camera` in
+   * `@vellumai/ipc-contract` for the states.
+   */
+  camera?: "off" | "on";
 }
 
 /** {@link VoiceLiveActivityContent} plus the fields fixed for the activity's lifetime. */

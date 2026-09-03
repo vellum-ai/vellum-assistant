@@ -492,6 +492,27 @@ export interface LiveVoiceState {
    */
   outputMuted: boolean;
   /**
+   * Whether the user has asked the session to see through the device's own
+   * camera, with no viewfinder anywhere on screen.
+   *
+   * The companion's camera control on macOS is the one thing that sets it:
+   * that surface has no camera of its own and the room is not open during a
+   * companion call, so the window holding the session opens the camera on
+   * this flag (`useLiveVoiceCamera`) and samples it the way the room's Live
+   * samples the viewfinder. The ask, not the fact: the camera can still be
+   * refused, and a refusal lowers this again so the control reads as off and
+   * a later press asks afresh. Session state, so a session ending or
+   * reconnecting takes the ask with it, the bargain `muted` makes.
+   */
+  cameraRequested: boolean;
+  /**
+   * Whether frames are flowing from that camera: the stream is open, the
+   * sampler is running, and every keep reaches the call. What the companion's
+   * control reads as on, which is the fact rather than the ask, so the
+   * control never claims to see before the camera does.
+   */
+  cameraStreaming: boolean;
+  /**
    * Whether the active session runs hands-free (server-VAD). Published by the
    * controller at start and downgraded on the version-skew fallback (an older
    * daemon that ignores `turnDetection`). Surfaces use it to gate hands-free-
@@ -672,6 +693,10 @@ export interface LiveVoiceActions {
   setMuted: (muted: boolean) => void;
   /** Record the assistant-audio muted state published by the controller. */
   setOutputMuted: (muted: boolean) => void;
+  /** See {@link LiveVoiceState.cameraRequested}. */
+  setCameraRequested: (requested: boolean) => void;
+  /** See {@link LiveVoiceState.cameraStreaming}. */
+  setCameraStreaming: (streaming: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
   setHandsFree: (handsFree: boolean) => void;
   /** Record whether the voice room is dismissed for the active session. */
@@ -874,6 +899,8 @@ const INITIAL_SESSION_STATE: Omit<
   inputAmplitude: 0,
   muted: false,
   outputMuted: false,
+  cameraRequested: false,
+  cameraStreaming: false,
   handsFree: false,
   roomMinimized: false,
   entryOrigin: null,
@@ -1180,6 +1207,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setOutputMuted: (outputMuted) => set({ outputMuted }),
+  setCameraRequested: (cameraRequested) => set({ cameraRequested }),
+  setCameraStreaming: (cameraStreaming) => set({ cameraStreaming }),
   setHandsFree: (handsFree) => set({ handsFree }),
   setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
   setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
@@ -1378,6 +1407,19 @@ export function setLiveVoiceMuted(muted: boolean): void {
  */
 export function setLiveVoiceOutputMuted(muted: boolean): void {
   useLiveVoiceStore.getState().controls?.setOutputMuted(muted);
+}
+
+/**
+ * Ask the running session for its own camera, or take the ask back. A no-op
+ * with no session: the ask is session state and would otherwise sit waiting
+ * for whichever session starts next, which nobody asked to be seen.
+ */
+export function setLiveVoiceCameraRequested(requested: boolean): void {
+  const state = useLiveVoiceStore.getState();
+  if (!isLiveVoiceSessionActive(state.state)) {
+    return;
+  }
+  state.setCameraRequested(requested);
 }
 
 /**

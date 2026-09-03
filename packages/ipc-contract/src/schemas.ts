@@ -19,6 +19,7 @@ import {
   ASSISTANT_STATUSES,
   COMPANION_DICTATION_TAIL,
   NOTIFICATION_CATEGORIES,
+  VOICE_ACTIVITY_CAMERA_STATES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
 } from "./types";
@@ -65,6 +66,7 @@ export const voiceActivityContentSchema = z.object({
   outputMuted: z.boolean(),
   detail: z.string(),
   approvalRequestId: z.string(),
+  camera: z.enum(VOICE_ACTIVITY_CAMERA_STATES).optional(),
 });
 
 export const voiceActivityStartSchema = voiceActivityContentSchema.extend({

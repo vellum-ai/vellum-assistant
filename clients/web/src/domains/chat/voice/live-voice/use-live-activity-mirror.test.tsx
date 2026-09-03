@@ -491,6 +491,41 @@ describe("updating the activity", () => {
     expect(lastUpdatePayload()?.outputMuted).toBe(false);
   });
 
+  /**
+   * The camera is the desktop panel's: offered where a frame can land, and
+   * read as on only while frames flow. Composed into the one payload both
+   * sinks get, since the island simply reads nothing from it.
+   */
+  test("offers the camera only where a frame can land, and pushes its state", async () => {
+    renderMirror();
+    // The session's assistant predates the frame (no version hydrated yet),
+    // so there is nothing to offer.
+    await settled(() =>
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1"),
+    );
+    await setPhase("listening");
+    expect(lastStartPayload()?.camera).toBeUndefined();
+
+    // An assistant that understands the frame is offered the control, off.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Ada", "0.11.7-dev.202609010300.b432fb7", "assistant-1");
+    await settled(() => useLiveVoiceStore.getState().setMuted(true));
+    expect(lastUpdatePayload()?.camera).toBe("off");
+
+    // On only once frames flow, not on the ask.
+    await settled(() => useLiveVoiceStore.getState().setCameraRequested(true));
+    expect(lastUpdatePayload()?.camera).toBe("off");
+    await settled(() => useLiveVoiceStore.getState().setCameraStreaming(true));
+    expect(lastUpdatePayload()?.camera).toBe("on");
+
+    // A session that has latched the frame as unsupported loses the control.
+    await settled(() =>
+      useLiveVoiceStore.getState().noteSightFrameRefused(true),
+    );
+    expect(lastUpdatePayload()?.camera).toBeUndefined();
+  });
+
   test("amplitude and transcript churn pushes nothing", async () => {
     renderMirror();
     await setPhase("listening");

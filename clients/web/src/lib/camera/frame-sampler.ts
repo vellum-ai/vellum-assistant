@@ -37,6 +37,13 @@
  * rather than the camera sees the same picture repeatedly, and a repeat is a
  * zero-motion frame that makes a moving camera look settled.
  *
+ * The animation frame is also what a `<video>` nothing renders is sampled on,
+ * by {@link FrameSamplerOptions.pacing}. The per-frame callback fires for a
+ * frame the compositor presented, and a detached element has no frame to
+ * present: it plays, and `drawImage` reads its current picture, but nothing
+ * composites it. The display loop reads it anyway, and the same two guards
+ * keep that loop honest about repeats.
+ *
  * ## What this module does not do
  *
  * - It does not acquire or release the camera. It is handed a `<video>` that is
@@ -130,6 +137,17 @@ export interface FrameSamplerOptions {
    * costs more than the decision is worth. Values below 1 are clamped.
    */
   readonly frameStride?: number;
+  /**
+   * What wakes the loop for the next frame.
+   *
+   * `video`, the default, is one callback per presented frame wherever the
+   * browser offers it, with the animation frame standing in where it does not.
+   * `display` rides the animation frame regardless, for a `<video>` that is
+   * playing but drawn nowhere: a frame the compositor never presents earns no
+   * per-frame callback, so a loop paced by the video would wait forever on an
+   * element sampled for a call rather than for a viewfinder.
+   */
+  readonly pacing?: "video" | "display";
 }
 
 /** How a sampler asks to be woken for the next frame. */
@@ -143,8 +161,12 @@ interface FrameLoop {
   cancel(handle: number): void;
 }
 
-function frameLoopFor(video: HTMLVideoElement): FrameLoop {
+function frameLoopFor(
+  video: HTMLVideoElement,
+  pacing: "video" | "display",
+): FrameLoop {
   if (
+    pacing === "video" &&
     typeof video.requestVideoFrameCallback === "function" &&
     typeof video.cancelVideoFrameCallback === "function"
   ) {
@@ -171,6 +193,7 @@ function frameLoopFor(video: HTMLVideoElement): FrameLoop {
 export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   const { gate, onDecision } = options;
   const stride = Math.max(1, Math.floor(options.frameStride ?? 1));
+  const pacing = options.pacing ?? "video";
 
   const grids = createFrameGridProducer();
 
@@ -179,9 +202,31 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   let pendingHandle: number | null = null;
   let frameIndex = 0;
   // Playback position of the last frame sampled, read only by the
-  // animation-frame fallback. NaN compares equal to nothing, so the first tick
-  // after a start always samples.
+  // animation-frame fallback where the decoder's own frame count is not
+  // available. NaN compares equal to nothing, so the first tick after a start
+  // always samples.
   let lastSampledTime = Number.NaN;
+  // Decoded frame count as of the last sample, read the same way. Null
+  // compares equal to nothing either, and also means "not available here".
+  let lastSampledFrameCount: number | null = null;
+
+  /**
+   * The decoder's own count of frames it has delivered, or null where the
+   * browser cannot report one.
+   *
+   * `currentTime` cannot stand in for this on a live `MediaStream`: it tracks
+   * the wall clock there, not the decoder, so two animation-frame ticks with
+   * no new picture between them can still report different `currentTime`
+   * values. A file-backed `<video>` does not have this problem, which is why
+   * `currentTime` remains the fallback for the browsers that lack
+   * `getVideoPlaybackQuality`.
+   */
+  function decodedFrameCount(source: HTMLVideoElement): number | null {
+    if (typeof source.getVideoPlaybackQuality !== "function") {
+      return null;
+    }
+    return source.getVideoPlaybackQuality().totalVideoFrames;
+  }
 
   function sampleFrame(): void {
     const source = video;
@@ -191,6 +236,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
     if (source.readyState < HAVE_CURRENT_DATA) {
       return;
     }
+    let frameCount: number | null = null;
     // Both of these cover the same hazard, which only the animation frame has:
     // it fires on the display's schedule rather than the camera's, so it can
     // read one picture more than once. `requestVideoFrameCallback` runs once
@@ -201,13 +247,17 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
       if (source.paused || source.ended) {
         return;
       }
-      // The same thing at video rate: a 24 fps stream on a 60 Hz display holds
-      // each frame across two or three animation frames, and a repeat sample
-      // scores zero motion against its own twin. That reads as a settled camera
-      // on alternate ticks, and the settle check then waves through a smeared
-      // frame mid-pan, which is the case it exists to catch. An advancing
-      // `currentTime` is what separates a new frame from the same one again.
-      if (source.currentTime === lastSampledTime) {
+      // A 24 or 30 fps stream on a 60 Hz display holds each frame across two
+      // or three animation frames, and a repeat sample scores zero motion
+      // against its own twin. That reads as a settled camera on alternate
+      // ticks, and the settle check then waves through a smeared frame
+      // mid-pan, which is the case this guard exists to catch.
+      frameCount = decodedFrameCount(source);
+      if (frameCount !== null) {
+        if (frameCount === lastSampledFrameCount) {
+          return;
+        }
+      } else if (source.currentTime === lastSampledTime) {
         return;
       }
     }
@@ -217,6 +267,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
       return;
     }
     lastSampledTime = source.currentTime;
+    lastSampledFrameCount = frameCount;
 
     const nowMs = performance.now();
     onDecision(gate.offer(grid, nowMs), nowMs);
@@ -269,9 +320,10 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   function start(next: HTMLVideoElement): void {
     stop();
     video = next;
-    loop = frameLoopFor(next);
+    loop = frameLoopFor(next, pacing);
     frameIndex = 0;
     lastSampledTime = Number.NaN;
+    lastSampledFrameCount = null;
     document.addEventListener("visibilitychange", handleVisibilityChange);
     schedule();
   }

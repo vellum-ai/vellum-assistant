@@ -1,5 +1,7 @@
 import {
   AudioLines,
+  Camera,
+  CameraOff,
   Check,
   Eye,
   EyeOff,
@@ -28,6 +30,7 @@ import {
 import type {
   CompanionCharacter,
   CompanionWatchRetro,
+  VoiceActivityCamera,
   VoiceActivityControlAction,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -342,9 +345,11 @@ export const FALLBACK_WIDTHS: Record<
   // has a stated width whatever is in it, so this is the state's actual width
   // rather than a guess at one.
   dictating: TRANSCRIPT_WIDTH + 32,
-  // The line and the four controls of the handlebar, with Teach held down and
-  // so spelling its name out, which is the widest a call draws.
-  call: 332,
+  // The line at its cap and the five controls of the handlebar, with Teach
+  // and the camera both held down and so spelling their names out, which is
+  // the widest a call draws: the body's `scrollWidth` in the
+  // `InCallWithCameraWhileWatching` story with the line filled to its cap.
+  call: 381,
 };
 
 export interface CompanionSurfaceProps {
@@ -1602,7 +1607,7 @@ function CallBody({
   // empty for most of a call, so this reads as the surface saying more exactly
   // when there is more to say. The mascot carries the state either way.
   const line = call.detail || call.label;
-  const { muted, outputMuted } = call;
+  const { muted, outputMuted, camera } = call;
 
   return (
     <>
@@ -1610,8 +1615,9 @@ function CallBody({
           decide how wide to be, so a label that collapses under pressure would
           measure its own collapsed self: the width and the truncation would
           chase each other down. The cap is what keeps a pathological label from
-          growing the pill without bound. */}
-      <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+          growing the pill without bound, and it is sized so the row with both
+          toggles held down still lands inside the canvas. */}
+      <span className="ml-1 max-w-[108px] shrink-0 truncate text-[12px] text-white/85">
         {line}
       </span>
       {/* Beside what the session is doing rather than beside the end control:
@@ -1626,6 +1632,9 @@ function CallBody({
         onWatch={onWatch}
         onTeach={onTeach}
       />
+      {camera !== undefined && (
+        <CameraButton camera={camera} onControl={onControl} />
+      )}
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1660,6 +1669,51 @@ function CallBody({
       />
       <EndCallButton onControl={onControl} />
     </>
+  );
+}
+
+/**
+ * The session's camera, on the call row: the way to give the call the Mac's
+ * webcam, and the way to take it back.
+ *
+ * The same shape as Teach, beside it, because it is the same kind of thing: a
+ * sense the user lends the call for as long as the control is held down, with
+ * its name pinned while it is so the row says which press ends it. The glyph
+ * is the state, the way the mutes' are: a crossed camera is one that is off.
+ *
+ * **Both presses are absolute.** The surface draws content that can be a beat
+ * old, so the press sends the state the glyph promised rather than a toggle,
+ * and a stale press asks for what is already so. The session answers `on` only
+ * once frames are flowing, so a press that raises the permission prompt reads
+ * as off until the prompt is answered, and as off again if it is refused.
+ *
+ * Absent entirely when the session cannot be given a camera (the assistant
+ * predates the frame, or has refused it this session), for the reason Teach is
+ * absent under its flag: a control that explains itself by refusing is not
+ * owed to anyone. The pill measures its own contents, so the row simply comes
+ * out narrower.
+ */
+function CameraButton({
+  camera,
+  onControl,
+}: {
+  camera: VoiceActivityCamera;
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+}) {
+  const { t } = useTranslation();
+  const on = camera === "on";
+  return (
+    <PillButton
+      icon={
+        on ? <Camera className="size-4" /> : <CameraOff className="size-4" />
+      }
+      label={t("companionSurface.camera")}
+      revealLabel
+      pressed={on}
+      onClick={() => {
+        onControl?.(on ? "stopCamera" : "startCamera");
+      }}
+    />
   );
 }
 
