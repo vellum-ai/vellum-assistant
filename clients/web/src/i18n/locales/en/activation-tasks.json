@@ -1,0 +1,533 @@
+{
+  "tasks": {
+    "pdf-car-report": {
+      "category": "documents",
+      "icon": "FileText",
+      "color": "blue",
+      "title": "Make a PDF",
+      "description": "Generate a cool classic car value report based on the vehicle you drive (or just have parked in the garage).",
+      "chip": "Create a report for my car",
+      "prompt": "Create a one-page PDF value report for the car I drive. Ask me the make, model and year first if you do not know them."
+    },
+    "pdf-proposal": {
+      "category": "documents",
+      "icon": "FileText",
+      "color": "blue",
+      "title": "Make a proposal PDF",
+      "description": "A one-page proposal or quote you can send today.",
+      "chip": "Draft a quote for a new client",
+      "prompt": "Create a one-page PDF proposal for a new client. Ask me what we sell, the client's name and the price, then produce the PDF."
+    },
+    "pdf-chore-chart": {
+      "category": "documents",
+      "icon": "FileText",
+      "color": "blue",
+      "title": "Make a chore chart",
+      "description": "A printable weekly chart for the fridge.",
+      "chip": "Chore chart for two kids",
+      "prompt": "Make a printable weekly chore chart as a PDF. Ask me the kids' names and ages first, then suggest age-appropriate chores."
+    },
+    "draft-doc": {
+      "category": "documents",
+      "icon": "PenLine",
+      "color": "purple",
+      "title": "Draft a document",
+      "description": "Write a first draft in the editor and iterate together.",
+      "chip": "Draft a launch announcement",
+      "prompt": "Open a new document and draft a one-page announcement. Ask me three questions about what I am announcing first."
+    },
+    "edit-my-doc": {
+      "category": "documents",
+      "icon": "SpellCheck",
+      "color": "purple",
+      "title": "Polish my writing",
+      "description": "Paste anything and get suggestions you can accept one by one.",
+      "chip": "Tighten this email",
+      "prompt": "I will paste something I wrote. Put it in a document and give me suggestions to make it shorter and clearer, one by one."
+    },
+    "meeting-notes": {
+      "category": "documents",
+      "icon": "ListChecks",
+      "color": "purple",
+      "title": "Turn notes into a summary",
+      "description": "Paste messy notes, get decisions and action items.",
+      "chip": "Summarize my meeting notes",
+      "prompt": "I will paste rough meeting notes. Turn them into a summary with decisions, action items with owners, and open questions."
+    },
+    "sop-doc": {
+      "category": "documents",
+      "icon": "ClipboardList",
+      "color": "purple",
+      "title": "Write a how-to for your team",
+      "description": "Turn a process in your head into a checklist anyone can follow.",
+      "chip": "Document how we onboard a customer",
+      "prompt": "Help me write a step-by-step how-to for a process my team repeats. Interview me for five minutes, then write it as a checklist in a document."
+    },
+    "school-letter": {
+      "category": "documents",
+      "icon": "Mail",
+      "color": "purple",
+      "title": "Write a note to school",
+      "description": "An absence note or a teacher email in your voice.",
+      "chip": "Absence note for tomorrow",
+      "prompt": "Write a short absence note for my child's school for tomorrow. Ask me the child's name, class and reason."
+    },
+    "campaign-tracker": {
+      "category": "apps",
+      "icon": "Megaphone",
+      "color": "orange",
+      "title": "Build a campaign tracker",
+      "description": "A small app to track campaigns, owners and status.",
+      "chip": "Campaign tracker app",
+      "prompt": "Build me a simple campaign tracker app with columns for campaign, channel, owner, status and launch date."
+    },
+    "analytics-dashboard": {
+      "category": "apps",
+      "icon": "BarChart3",
+      "color": "orange",
+      "title": "Make a dashboard from a CSV",
+      "description": "Drop in a spreadsheet, get charts.",
+      "chip": "Dashboard from my CSV",
+      "prompt": "Create a dashboard app from a CSV I upload, with one chart per numeric column and a summary at the top."
+    },
+    "content-calendar": {
+      "category": "apps",
+      "icon": "CalendarDays",
+      "color": "orange",
+      "title": "Plan a content calendar",
+      "description": "A month of posts at a glance.",
+      "chip": "30-day content calendar",
+      "prompt": "Build a content calendar app for the next 30 days with slots for blog, social and newsletter, and let me drag posts between days."
+    },
+    "idea-tree": {
+      "category": "apps",
+      "icon": "GitBranch",
+      "color": "orange",
+      "title": "Brainstorm as a tree",
+      "description": "Branching ideas you can keep expanding.",
+      "chip": "Idea tree for a side project",
+      "prompt": "Make an idea tree app: I give a topic, you branch it three levels deep and let me expand any node."
+    },
+    "invoice-tracker": {
+      "category": "apps",
+      "icon": "Receipt",
+      "color": "orange",
+      "title": "Track unpaid invoices",
+      "description": "Who owes what, and when it was due.",
+      "chip": "Invoice tracker",
+      "prompt": "Build a small app to track invoices: client, amount, sent date, due date, paid or not, with overdue rows highlighted."
+    },
+    "inventory-app": {
+      "category": "apps",
+      "icon": "Boxes",
+      "color": "orange",
+      "title": "Count your stock",
+      "description": "A simple inventory list with low-stock flags.",
+      "chip": "Inventory list",
+      "prompt": "Build an inventory app: item, quantity on hand, reorder point, supplier. Flag anything below its reorder point."
+    },
+    "family-board": {
+      "category": "apps",
+      "icon": "LayoutGrid",
+      "color": "orange",
+      "title": "Build a family board",
+      "description": "Who is where this week, on one screen.",
+      "chip": "Weekly family board",
+      "prompt": "Build a family week board app with a column per person and a row per day. Ask me who is in the family first."
+    },
+    "allowance-tracker": {
+      "category": "apps",
+      "icon": "PiggyBank",
+      "color": "orange",
+      "title": "Track allowance and chores",
+      "description": "Points, payouts and streaks for the kids.",
+      "chip": "Allowance tracker",
+      "prompt": "Build an allowance app: chores with point values, a tally per child, streaks, and a weekly payout summary."
+    },
+    "meal-planner": {
+      "category": "apps",
+      "icon": "UtensilsCrossed",
+      "color": "orange",
+      "title": "Plan the week's meals",
+      "description": "A menu plus a grocery list you can tick off.",
+      "chip": "Meal plan for this week",
+      "prompt": "Build a meal planner app for this week with a dinner per night and an auto-generated grocery list I can tick off. Ask about allergies first."
+    },
+    "habit-tracker": {
+      "category": "apps",
+      "icon": "Flame",
+      "color": "orange",
+      "title": "Track a habit",
+      "description": "One tap a day, streaks included.",
+      "chip": "Habit tracker",
+      "prompt": "Build a habit tracker app for up to five habits with one-tap check-ins and streak counts."
+    },
+    "price-quote-calc": {
+      "category": "apps",
+      "icon": "Calculator",
+      "color": "orange",
+      "title": "Build a pricing calculator",
+      "description": "Inputs in, a quote out, shareable with customers.",
+      "chip": "Pricing calculator",
+      "prompt": "Build a pricing calculator app for what I sell. Ask me the inputs that change the price, then make the calculator."
+    },
+    "connect-email": {
+      "category": "inbox",
+      "icon": "Inbox",
+      "color": "teal",
+      "title": "Connect your inbox",
+      "description": "Let your assistant read and draft email for you.",
+      "chip": "Connect my email",
+      "prompt": "Help me connect my email account so you can read and draft messages for me. Walk me through it."
+    },
+    "inbox-sweep": {
+      "category": "inbox",
+      "icon": "MailX",
+      "color": "teal",
+      "title": "Sweep your inbox",
+      "description": "Unsubscribe, archive, and surface what matters.",
+      "chip": "Clean up my inbox",
+      "prompt": "Sweep my inbox: propose newsletters to unsubscribe from, old threads to archive, and the five emails I should answer today. Ask before changing anything.",
+      "requires": [
+        "email"
+      ]
+    },
+    "daily-briefing": {
+      "category": "automations",
+      "icon": "Sunrise",
+      "color": "teal",
+      "title": "Get a morning briefing",
+      "description": "Calendar, email and weather in one message every morning.",
+      "chip": "Brief me every morning at 7",
+      "prompt": "Set up a daily morning briefing at 7am with my calendar, important email and the weather. Ask me which channel you should send it to."
+    },
+    "calendar-find-time": {
+      "category": "inbox",
+      "icon": "CalendarClock",
+      "color": "teal",
+      "title": "Find time for a meeting",
+      "description": "Check your calendar and propose slots.",
+      "chip": "Find 30 minutes this week",
+      "prompt": "Look at my calendar and propose three 30-minute slots this week for a meeting. Draft the invite text too.",
+      "requires": [
+        "calendar"
+      ]
+    },
+    "draft-replies": {
+      "category": "inbox",
+      "icon": "Reply",
+      "color": "teal",
+      "title": "Draft replies to customers",
+      "description": "Pre-written answers for the emails waiting on you.",
+      "chip": "Draft replies to today's emails",
+      "prompt": "Find the customer emails waiting on me and draft a reply for each in my tone. Show me the drafts before sending.",
+      "requires": [
+        "email"
+      ]
+    },
+    "school-emails": {
+      "category": "inbox",
+      "icon": "GraduationCap",
+      "color": "teal",
+      "title": "Catch school emails",
+      "description": "Never miss a permission slip again.",
+      "chip": "Watch for school emails",
+      "prompt": "Watch my inbox for emails from my kids' school and send me a short summary with any deadlines the same day. Ask me the school's email domain first.",
+      "requires": [
+        "email"
+      ]
+    },
+    "set-schedule": {
+      "category": "automations",
+      "icon": "Calendar",
+      "color": "teal",
+      "title": "Set up a schedule",
+      "description": "Want a reminder? An everyday inbox sweep? Go wild.",
+      "chip": "Remind me every weekday at 9",
+      "prompt": "Set up a recurring schedule for me. Propose three useful daily or weekly routines and set up the one I choose."
+    },
+    "weekly-report": {
+      "category": "automations",
+      "icon": "CalendarCheck",
+      "color": "teal",
+      "title": "Get a weekly business recap",
+      "description": "Every Friday: what happened, what is due next week.",
+      "chip": "Friday recap at 4pm",
+      "prompt": "Set up a weekly recap every Friday at 4pm covering what happened this week and what is due next week, using whatever you can see. Ask me what to include."
+    },
+    "sunday-ping": {
+      "category": "automations",
+      "icon": "CalendarCheck",
+      "color": "teal",
+      "title": "Sunday planning ping",
+      "description": "A message every Sunday with the week ahead.",
+      "chip": "Sunday evening week preview",
+      "prompt": "Set up a Sunday 6pm message that previews the family's week: appointments, school events and anything I told you to remember."
+    },
+    "watcher": {
+      "category": "automations",
+      "icon": "Eye",
+      "color": "teal",
+      "title": "Watch a web page",
+      "description": "Get told when a page changes.",
+      "chip": "Tell me when this price drops",
+      "prompt": "Watch a web page for me and message me when it changes. Ask me for the URL and what change matters."
+    },
+    "bill-reminders": {
+      "category": "automations",
+      "icon": "BellRing",
+      "color": "teal",
+      "title": "Never miss a bill",
+      "description": "Reminders before each due date.",
+      "chip": "Remind me about bills",
+      "prompt": "Set up reminders for my recurring bills three days before each is due. Ask me for the bills and their due dates."
+    },
+    "blog-post": {
+      "category": "content",
+      "icon": "Newspaper",
+      "color": "pink",
+      "title": "Write a blog post",
+      "description": "Outline, draft, polish.",
+      "chip": "700-word blog post",
+      "prompt": "Write a 700-word blog post. Ask me for the topic and audience, show me an outline, then draft it in a document."
+    },
+    "social-posts": {
+      "category": "content",
+      "icon": "Share2",
+      "color": "pink",
+      "title": "Post to socials",
+      "description": "Turn one idea into three posts.",
+      "chip": "Three posts from one idea",
+      "prompt": "Turn one announcement into a LinkedIn post, an X post and a short newsletter blurb. Ask me what I am announcing."
+    },
+    "newsletter": {
+      "category": "content",
+      "icon": "MailOpen",
+      "color": "pink",
+      "title": "Draft a newsletter",
+      "description": "Subject line, intro, three sections.",
+      "chip": "This week's newsletter",
+      "prompt": "Draft this week's newsletter with a subject line, a short intro and three sections. Ask me what happened this week."
+    },
+    "image-asset": {
+      "category": "content",
+      "icon": "Image",
+      "color": "pink",
+      "title": "Make a social image",
+      "description": "A share-ready graphic in your colors.",
+      "chip": "Launch graphic",
+      "prompt": "Create a 1200x630 social image for an announcement. Ask me for the headline and my brand color.",
+      "requires": [
+        "image-generation"
+      ]
+    },
+    "seo-audit": {
+      "category": "content",
+      "icon": "SearchCheck",
+      "color": "pink",
+      "title": "Check your site's SEO",
+      "description": "A quick audit with the five fixes that matter most.",
+      "chip": "Audit my website",
+      "prompt": "Audit my website for SEO and AI-search visibility and give me the five highest-impact fixes. Ask me for the URL."
+    },
+    "google-review-replies": {
+      "category": "content",
+      "icon": "Star",
+      "color": "pink",
+      "title": "Reply to reviews",
+      "description": "Warm replies to your latest customer reviews.",
+      "chip": "Answer three reviews",
+      "prompt": "I will paste three customer reviews. Write a warm, specific reply to each in my business's voice."
+    },
+    "meme-generator": {
+      "category": "content",
+      "icon": "Laugh",
+      "color": "pink",
+      "title": "Make a meme",
+      "description": "For the group chat.",
+      "chip": "Meme about Mondays",
+      "prompt": "Make me a meme. Ask me for the topic and pick a fitting template.",
+      "requires": [
+        "image-generation"
+      ]
+    },
+    "research-competitors": {
+      "category": "research",
+      "icon": "Telescope",
+      "color": "green",
+      "title": "Size up a competitor",
+      "description": "What they charge, what they claim, where you win.",
+      "chip": "Compare me to a competitor",
+      "prompt": "Research a competitor and give me a one-page comparison: pricing, positioning, and three places we can win. Ask me for their website and mine."
+    },
+    "compare-products": {
+      "category": "research",
+      "icon": "Scale",
+      "color": "green",
+      "title": "Compare before you buy",
+      "description": "Three options, one table, a recommendation.",
+      "chip": "Best car seat under $200",
+      "prompt": "Help me choose a product. Ask me what I am buying and my budget, then compare three options in a table and recommend one."
+    },
+    "plan-a-trip": {
+      "category": "research",
+      "icon": "Plane",
+      "color": "green",
+      "title": "Plan a family trip",
+      "description": "Itinerary, packing list and budget.",
+      "chip": "Long weekend with kids",
+      "prompt": "Plan a family trip. Ask me where, when, who is coming and the budget, then give me a day-by-day itinerary and a packing list."
+    },
+    "restaurant-reservation": {
+      "category": "research",
+      "icon": "ChefHat",
+      "color": "green",
+      "title": "Book a table",
+      "description": "Find a spot and reserve it.",
+      "chip": "Dinner for four on Friday",
+      "prompt": "Find a restaurant and book a table. Ask me the city, day, party size and what we feel like eating."
+    },
+    "weather-plan": {
+      "category": "research",
+      "icon": "CloudSun",
+      "color": "green",
+      "title": "Plan the weekend by the weather",
+      "description": "Kid-friendly ideas that match the forecast.",
+      "chip": "What should we do this weekend?",
+      "prompt": "Check this weekend's weather where I live and suggest three kid-friendly plans that fit it. Ask me my city and the kids' ages."
+    },
+    "reorder-essentials": {
+      "category": "research",
+      "icon": "ShoppingCart",
+      "color": "green",
+      "title": "Reorder essentials",
+      "description": "Ask, and it lands at your door.",
+      "chip": "Reorder diapers and coffee",
+      "prompt": "Help me set up reordering of household essentials. Ask me what I run out of most.",
+      "requires": [
+        "shopping"
+      ]
+    },
+    "expense-summary": {
+      "category": "money",
+      "icon": "Wallet",
+      "color": "green",
+      "title": "Summarize expenses",
+      "description": "Drop in a statement, get categories and totals.",
+      "chip": "Categorize last month",
+      "prompt": "I will upload a bank or card statement export. Categorize the expenses, total each category, and flag anything unusual."
+    },
+    "budget-plan": {
+      "category": "money",
+      "icon": "Wallet",
+      "color": "green",
+      "title": "Make a family budget",
+      "description": "Income, fixed costs, and what is left, by month.",
+      "chip": "Monthly family budget",
+      "prompt": "Build a monthly family budget with me. Ask about income and fixed costs, then show what is left and suggest three savings."
+    },
+    "teach-memory": {
+      "category": "setup",
+      "icon": "Brain",
+      "color": "yellow",
+      "title": "Teach it about you",
+      "description": "Names, routines, pet peeves. It remembers.",
+      "chip": "Here's what you should know about me",
+      "prompt": "Ask me ten quick questions about my life and work so you can remember what matters. Save what you learn."
+    },
+    "add-contacts": {
+      "category": "setup",
+      "icon": "Users",
+      "color": "yellow",
+      "title": "Add your people",
+      "description": "Save the contacts it should know by name.",
+      "chip": "Add my team",
+      "prompt": "Help me add the people I mention most as contacts so you know who I mean. Ask me for names and how I know them."
+    },
+    "voice-mode": {
+      "category": "setup",
+      "icon": "Mic",
+      "color": "yellow",
+      "title": "Talk instead of type",
+      "description": "Try a hands-free chat.",
+      "chip": "Set up voice",
+      "prompt": "Help me set up voice so I can talk to you instead of typing, then let's have a short voice conversation."
+    },
+    "connect-telegram": {
+      "category": "setup",
+      "icon": "MessageCircle",
+      "color": "yellow",
+      "title": "Chat from your phone",
+      "description": "Reach your assistant on Telegram, WhatsApp or SMS.",
+      "chip": "Set up Telegram",
+      "prompt": "Help me connect a messaging channel so I can text you from my phone. Show me the options and set up the one I pick."
+    },
+    "connect-slack": {
+      "category": "setup",
+      "icon": "Hash",
+      "color": "yellow",
+      "title": "Add it to Slack",
+      "description": "Ask questions where your team already is.",
+      "chip": "Set up Slack",
+      "prompt": "Help me add you to my team's Slack workspace so we can ask you things in a channel."
+    },
+    "connect-notion": {
+      "category": "setup",
+      "icon": "BookOpen",
+      "color": "yellow",
+      "title": "Connect Notion",
+      "description": "Read and write your team's pages.",
+      "chip": "Connect Notion",
+      "prompt": "Help me connect Notion so you can read and update our pages, then summarize one page I pick."
+    },
+    "import-chatgpt": {
+      "category": "setup",
+      "icon": "Download",
+      "color": "yellow",
+      "title": "Bring your ChatGPT history",
+      "description": "Import past chats so it starts with context.",
+      "chip": "Import my ChatGPT export",
+      "prompt": "Help me import my ChatGPT history so you know what I have been working on."
+    },
+    "faq-page": {
+      "category": "content",
+      "icon": "MessageCircleQuestion",
+      "color": "pink",
+      "title": "Write your FAQ",
+      "description": "The ten questions customers keep asking, answered once.",
+      "chip": "FAQ for my business",
+      "prompt": "Write an FAQ page for my business. Ask me what I sell and the questions I get most, then draft ten answers in a document."
+    },
+    "birthday-tracker": {
+      "category": "automations",
+      "icon": "Cake",
+      "color": "teal",
+      "title": "Never forget a birthday",
+      "description": "A nudge a week before, with gift ideas.",
+      "chip": "Remind me about birthdays",
+      "prompt": "Set up birthday reminders a week ahead with three gift ideas each. Ask me for the people and dates."
+    },
+    "weekly-review": {
+      "category": "automations",
+      "icon": "NotebookPen",
+      "color": "teal",
+      "title": "Reflect on your week",
+      "description": "Three questions every Friday, saved as a journal.",
+      "chip": "Friday reflection",
+      "prompt": "Every Friday at 5pm ask me three short reflection questions and save my answers to a journal document."
+    },
+    "try-computer-use": {
+      "category": "setup",
+      "icon": "MonitorSmartphone",
+      "color": "yellow",
+      "title": "Try computer use",
+      "description": "Let your assistant see your screen and click around for you. Needs the desktop app.",
+      "chip": "Show me what computer use can do",
+      "prompt": "Show me what you can do with computer use on my machine. Start by taking a screenshot and describing what is on my screen, then suggest two things you could do for me.",
+      "link": {
+        "label": "Download the desktop app",
+        "url": "https://www.vellum.ai/downloads"
+      }
+    }
+  }
+}

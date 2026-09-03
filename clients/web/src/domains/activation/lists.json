@@ -1,0 +1,115 @@
+{
+  "lists": {
+    "smb": {
+      "starters": [
+        "pdf-proposal",
+        "weekly-report",
+        "social-posts"
+      ],
+      "items": [
+        "connect-email",
+        "inbox-sweep",
+        "draft-replies",
+        "calendar-find-time",
+        "daily-briefing",
+        "campaign-tracker",
+        "invoice-tracker",
+        "inventory-app",
+        "analytics-dashboard",
+        "content-calendar",
+        "price-quote-calc",
+        "sop-doc",
+        "meeting-notes",
+        "edit-my-doc",
+        "blog-post",
+        "newsletter",
+        "image-asset",
+        "seo-audit",
+        "google-review-replies",
+        "research-competitors",
+        "expense-summary",
+        "watcher",
+        "teach-memory",
+        "add-contacts",
+        "connect-slack",
+        "connect-notion",
+        "faq-page",
+        "try-computer-use"
+      ]
+    },
+    "parent": {
+      "starters": [
+        "pdf-chore-chart",
+        "sunday-ping",
+        "meal-planner"
+      ],
+      "items": [
+        "connect-email",
+        "school-emails",
+        "daily-briefing",
+        "calendar-find-time",
+        "family-board",
+        "allowance-tracker",
+        "habit-tracker",
+        "school-letter",
+        "plan-a-trip",
+        "weather-plan",
+        "compare-products",
+        "restaurant-reservation",
+        "reorder-essentials",
+        "budget-plan",
+        "bill-reminders",
+        "watcher",
+        "teach-memory",
+        "add-contacts",
+        "voice-mode",
+        "connect-telegram",
+        "meme-generator",
+        "draft-doc",
+        "edit-my-doc",
+        "meeting-notes",
+        "idea-tree",
+        "import-chatgpt",
+        "birthday-tracker",
+        "try-computer-use"
+      ]
+    },
+    "general": {
+      "starters": [
+        "pdf-car-report",
+        "set-schedule",
+        "draft-doc"
+      ],
+      "items": [
+        "edit-my-doc",
+        "meeting-notes",
+        "connect-email",
+        "inbox-sweep",
+        "daily-briefing",
+        "calendar-find-time",
+        "habit-tracker",
+        "idea-tree",
+        "analytics-dashboard",
+        "content-calendar",
+        "blog-post",
+        "social-posts",
+        "image-asset",
+        "meme-generator",
+        "compare-products",
+        "plan-a-trip",
+        "restaurant-reservation",
+        "research-competitors",
+        "watcher",
+        "bill-reminders",
+        "budget-plan",
+        "teach-memory",
+        "add-contacts",
+        "voice-mode",
+        "connect-telegram",
+        "import-chatgpt",
+        "weekly-review",
+        "try-computer-use"
+      ]
+    }
+  }
+}

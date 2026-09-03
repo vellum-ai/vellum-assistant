@@ -51,9 +51,23 @@ export const NAMESPACES = [
   "contacts",
   "onboarding",
   "intelligence",
+  "activation",
+  "activation-tasks",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];
+
+/**
+ * Namespaces whose keys are addressed by a data id rather than written out at
+ * a call site.
+ *
+ * `activation-tasks` holds one entry per catalog task, keyed by the task id
+ * that `domains/activation/lists.json` references, so no source file spells
+ * any of its key paths. The unreferenced-key guard in `catalogs.test.ts` skips
+ * these; `domains/activation/catalog.test.ts` owns their coverage instead, by
+ * asserting every list id resolves to a complete entry.
+ */
+export const DATA_KEYED_NAMESPACES: readonly Namespace[] = ["activation-tasks"];
 
 /**
  * The namespace used when a call site does not name one. `common` holds the

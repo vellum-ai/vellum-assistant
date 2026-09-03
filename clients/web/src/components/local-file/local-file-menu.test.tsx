@@ -13,7 +13,7 @@ mock.module("@/utils/download-workspace-file", () => ({
 }));
 
 const { LocalFileMenu } =
-  await import("@/domains/chat/components/local-file/local-file-menu");
+  await import("@/components/local-file/local-file-menu");
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();

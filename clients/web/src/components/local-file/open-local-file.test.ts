@@ -12,7 +12,7 @@ const {
   previewKindFor,
   toggleLocalFile,
   usesDocumentDrawer,
-} = await import("@/domains/chat/components/local-file/open-local-file");
+} = await import("@/components/local-file/open-local-file");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const openWorkspaceFilePreview = mock(

@@ -5,6 +5,10 @@
  *
  * The trigger swallows its own click and Enter/Space so opening the menu never
  * also activates the card or media it sits on.
+ *
+ * Its copy lives in the `chat` catalog: `fileDownload.failed` is shared with
+ * the transcript and the preview drawer, so the keys belong to the domain that
+ * owns them rather than to this component's directory.
  */
 
 import {

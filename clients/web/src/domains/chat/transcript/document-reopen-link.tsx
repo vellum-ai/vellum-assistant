@@ -28,7 +28,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { DocumentCard } from "@/domains/chat/components/document-card";
-import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
+import { useIsDocumentOpen } from "@/components/local-file/open-local-file";
 import { documentsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { DocumentsGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";

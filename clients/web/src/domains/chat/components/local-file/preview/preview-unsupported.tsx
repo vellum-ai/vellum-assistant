@@ -7,7 +7,7 @@ import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments
 import {
   LocalFileIcon,
   localFileKindFromFilename,
-} from "@/domains/chat/components/local-file/local-file-icon";
+} from "@/components/local-file/local-file-icon";
 import { useTranslation } from "@/i18n";
 
 interface PreviewUnsupportedProps {
