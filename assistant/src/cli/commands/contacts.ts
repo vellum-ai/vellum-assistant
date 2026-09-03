@@ -525,6 +525,12 @@ async function runRecordPrompt(
      * survivor kept its old name.
      */
     renamed?: boolean;
+    /**
+     * Whether a merge reached the assistant's own copy of the contacts. False
+     * means the merge committed and the donor is still there, its notes on it
+     * rather than combined onto the survivor.
+     */
+    mirrored?: boolean;
     cancelled?: boolean;
   }>(
     "contacts_record_prompt",
@@ -559,6 +565,9 @@ async function runRecordPrompt(
   // A merge that could not apply the submitted name still merged, so this is a
   // partial outcome to report rather than a failed command.
   const renameLost = r.result.renamed === false;
+  // Same shape: the merge committed, and only the assistant's own half of it
+  // is outstanding.
+  const mirrorLost = r.result.mirrored === false;
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
@@ -618,6 +627,7 @@ async function runRecordPrompt(
       ...(written ? { contact: written } : { contactId }),
       ...(notesLost ? { notesSaved: false } : {}),
       ...(renameLost ? { renamed: false } : {}),
+      ...(mirrorLost ? { mirrored: false } : {}),
     });
     return;
   }
@@ -635,6 +645,12 @@ async function runRecordPrompt(
     writeError(
       cmd,
       "The contacts were merged, but the surviving contact was not renamed",
+    );
+  }
+  if (mirrorLost) {
+    writeError(
+      cmd,
+      "The contacts were merged, but the assistant's copy of the duplicate was not cleaned up, so its notes were not combined",
     );
   }
 }

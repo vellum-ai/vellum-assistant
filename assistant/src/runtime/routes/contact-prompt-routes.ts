@@ -88,6 +88,12 @@ export interface ContactPromptResult {
    * merge committed but its rename could not land.
    */
   renamed?: boolean;
+  /**
+   * Whether a merge reached the assistant's copy of the contacts. False means
+   * the merge committed, but the donor is still there with its notes on it
+   * rather than combined onto the survivor.
+   */
+  mirrored?: boolean;
   /** The guardian dismissed the form. Nothing was written. */
   cancelled?: boolean;
 }
@@ -501,6 +507,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       nothingWritten: z.boolean().optional(),
       merged: z.boolean().optional(),
       renamed: z.boolean().optional(),
+      mirrored: z.boolean().optional(),
       cancelled: z.boolean().optional(),
     }),
   },

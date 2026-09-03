@@ -1024,7 +1024,11 @@ async function writeContactRecord(input: {
     }
 
     if (operation === "merge") {
-      await mergeContactsCore({
+      // The donor's notes live only in the assistant mirror, so a merge whose
+      // mirror op did not land leaves them on an orphaned row rather than
+      // combined onto the survivor. The gateway half committed, so this is a
+      // partial outcome to report, not a failure.
+      const { mirrored } = await mergeContactsCore({
         keepId: contactId!,
         mergeId: donorContactId!,
       });
@@ -1051,7 +1055,7 @@ async function writeContactRecord(input: {
         }
       }
       log.info(
-        { requestId, contactId, donorContactId, renamed },
+        { requestId, contactId, donorContactId, renamed, mirrored },
         "contact-record-submit: merged",
       );
       return {
@@ -1059,6 +1063,7 @@ async function writeContactRecord(input: {
           contactId,
           merged: true,
           ...(renamed === false ? { renamed: false } : {}),
+          ...(mirrored ? {} : { mirrored: false }),
         },
       };
     }

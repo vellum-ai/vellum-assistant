@@ -6808,6 +6808,8 @@ paths:
                     type: boolean
                   renamed:
                     type: boolean
+                  mirrored:
+                    type: boolean
                   cancelled:
                     type: boolean
                 required:

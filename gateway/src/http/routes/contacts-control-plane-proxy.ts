@@ -806,7 +806,8 @@ export async function updateContactChannelCore(params: {
  * Shared by the HTTP `handleMergeContacts` and the gateway IPC
  * `merge_contacts` route. Runs `ContactStore.mergeContacts` (gateway DB
  * transaction + best-effort assistant mirror), emits `contacts_changed`, and
- * returns the survivor contact payload.
+ * returns the survivor contact payload alongside `mirrored`, which says
+ * whether the assistant-side half of the merge landed.
  *
  * Throws `MergeContactsError` for validation failures; unexpected errors
  * propagate so each transport surfaces a 500-equivalent — never a silent
@@ -815,20 +816,25 @@ export async function updateContactChannelCore(params: {
 export async function mergeContactsCore(params: {
   keepId: string;
   mergeId: string;
-}): Promise<{ ok: true; contact?: Record<string, unknown> }> {
+}): Promise<{
+  ok: true;
+  contact?: Record<string, unknown>;
+  mirrored: boolean;
+}> {
   const { keepId, mergeId } = params;
   const store = new ContactStore();
-  const contact = await store.mergeContacts(keepId, mergeId);
+  const { contact, mirrored } = await store.mergeContacts(keepId, mergeId);
 
   // Emit contacts_changed so connected clients refresh.
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});
 
-  log.info({ keepId, mergeId }, "merge_contacts: handled natively");
+  log.info({ keepId, mergeId, mirrored }, "merge_contacts: handled natively");
   return {
     ok: true,
     contact: contact ? toContactPayload(contact) : undefined,
+    mirrored,
   };
 }
 

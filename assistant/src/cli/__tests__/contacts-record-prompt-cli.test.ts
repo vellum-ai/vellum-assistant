@@ -81,6 +81,8 @@ let nothingWritten: boolean | undefined;
 let dismissed = false;
 /** Whether a merge's survivor took the submitted name. Absent unless renamed. */
 let renamed: boolean | undefined;
+/** Whether a merge reached the assistant's own copy of the contacts. */
+let mirrored: boolean | undefined;
 
 const baseIpcImplementation = async (
   operationId: string,
@@ -113,6 +115,7 @@ const baseIpcImplementation = async (
       notesSaved,
       nothingWritten,
       renamed,
+      mirrored,
     },
   };
 };
@@ -144,6 +147,7 @@ describe("contacts record prompts", () => {
     nothingWritten = undefined;
     dismissed = false;
     renamed = undefined;
+    mirrored = undefined;
     // Global and sticky: the failure-path cases below set it, and a later test
     // asserting success would otherwise read their exit code as its own.
     // Cleared to 0 rather than undefined, which does not reset it.
@@ -482,6 +486,43 @@ describe("contacts record prompts", () => {
 
       expect(stdout).toContain('Merged "Bob" into "Alice"');
       expect(stderr).toContain("not renamed");
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    test("a merge the assistant's own copy did not get still reports the merge", async () => {
+      // The gateway half committed and the donor is gone from it, so a failure
+      // here would describe a merge that happened as one that did not.
+      mirrored = false;
+
+      const { stdout, stderr } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+      );
+
+      expect(stdout).toContain('Merged "Bob" into "Alice"');
+      expect(stderr).toContain("not cleaned up");
+      expect(stderr).toContain("notes were not combined");
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    test("--json reports the surviving contact and the uncleaned copy", async () => {
+      mirrored = false;
+
+      const { stdout } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+        "--json",
+      );
+
+      expect(JSON.parse(stdout)).toEqual({
+        ok: true,
+        contact,
+        mirrored: false,
+      });
       expect(process.exitCode).toBeFalsy();
     });
 

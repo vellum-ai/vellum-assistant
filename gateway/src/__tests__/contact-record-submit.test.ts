@@ -59,12 +59,16 @@ const ipcMock = mock(
       resolveFailures -= 1;
       throw new Error("socket closed");
     }
+    if (method === "contacts_mirror_merge_contact" && mirrorMergeFails) {
+      throw new Error("mirror unavailable");
+    }
     if (method === "contacts_mirror_upsert_full") {
       if (mirrorWritesFail) {
         throw new Error("mirror unavailable");
       }
       const body = options?.body as
-        { contactId?: string; notes?: string | null } | undefined;
+        | { contactId?: string; notes?: string | null }
+        | undefined;
       if (body?.contactId && body.notes !== undefined) {
         mirroredNotes.set(body.contactId, body.notes);
       }
@@ -109,6 +113,13 @@ let mirroredNotes = new Map<string, string | null>();
 
 /** Drop mirror writes, as an unreachable mirror op would. */
 let mirrorWritesFail = false;
+
+/**
+ * Drop the merge's mirror op. The gateway half of a merge commits first, so
+ * this is the window where the donor is gone here and still alive, notes and
+ * all, on the assistant side.
+ */
+let mirrorMergeFails = false;
 
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
@@ -193,6 +204,7 @@ beforeEach(() => {
   resolveFailures = 0;
   mirroredNotes = new Map<string, string | null>();
   mirrorWritesFail = false;
+  mirrorMergeFails = false;
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
@@ -977,6 +989,56 @@ describe("contact record submit", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  test("a merge whose mirror op fails reports the half that did not land", async () => {
+    seedContact("c-keep-mirror", "Alice");
+    seedContact("c-donor-mirror", "Alice Chen");
+    seedChannel("c-donor-mirror", "email", "alice.chen@example.com");
+    mirrorMergeFails = true;
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-mirror"),
+        operation: "merge",
+        contactId: "c-keep-mirror",
+        donorContactId: "c-donor-mirror",
+      }),
+    );
+
+    // The gateway half committed, so this is a partial outcome, not a failure.
+    expect(res.status).toBe(200);
+    const resolved = resolveCall();
+    expect(resolved.body.merged).toBe(true);
+    expect(resolved.body.mirrored).toBe(false);
+    expect(resolved.body.error).toBeUndefined();
+
+    // Donor gone here, which is what leaves its notes stranded on the
+    // assistant-side row the mirror op never reached.
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor-mirror"))
+        .get(),
+    ).toBeUndefined();
+  });
+
+  test("a merge whose mirror op lands says nothing about it", async () => {
+    seedContact("c-keep-clean", "Alice");
+    seedContact("c-donor-clean", "Alice Chen");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-clean"),
+        operation: "merge",
+        contactId: "c-keep-clean",
+        donorContactId: "c-donor-clean",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(resolveCall().body.mirrored).toBeUndefined();
   });
 
   test("merge refuses to absorb the guardian contact", async () => {
