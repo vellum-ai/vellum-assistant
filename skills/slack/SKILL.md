@@ -50,7 +50,7 @@ The cache is stored locally under `$VELLUM_WORKSPACE_DIR/data/slack-skill/`. On 
 
 Use `assistant oauth request` to call any Slack Web API method. Auth is handled transparently: the provider injects its own token, which is the bot's for `slack_channel` and the installer's for `slack`. Pass relative method paths; do not include a host.
 
-This is the only way to call Slack. Never fetch a Slack token yourself (`assistant credentials reveal`, an environment variable, a pasted value) and never call `slack.com/api` with `curl` or any other HTTP client: a token that reaches a shell command line is written into the transcript and the tool log, where no redaction applies. `assistant oauth request` sends the token from inside the daemon and never shows it to you.
+This is the only way to call Slack. Never fetch a Slack token yourself (`assistant credentials reveal`, an environment variable, a pasted value) and never call `slack.com/api` with `curl` or any other HTTP client: a token that reaches a shell command line is written into the transcript and the tool log, where no redaction applies. `assistant oauth request` sends the token from inside the assistant and never shows it to you. The command's name is the name of the authenticated-request command, not a description of the credential: for `slack_channel` it sends the bot token the setup wizard stored, and no OAuth flow is involved; `slack` is the separate OAuth integration that acts as the person who connected it.
 
 The examples below use `slack_channel`, since posting and reading a channel the bot has joined are what it is for. See [Which provider to pass](#which-provider-to-pass) before reaching for one on a workspace that has no bot, or for `search.messages`.
 
@@ -239,4 +239,4 @@ If a Slack API call fails due to missing or invalid credentials -- for example, 
 
 - For rich content (digests, reports, formatted summaries): use `chat.postMessage` with blocks via `assistant oauth request --provider slack_channel`
 - For short alerts: `assistant notifications send` via `bash` is fine -- it lets the notification router pick the best channel
-- For scheduled tasks: always include an explicit `assistant oauth request --provider slack_channel` call to deliver results, otherwise output only lives in the conversation log
+- For scheduled tasks: always include an explicit `assistant oauth request` call to deliver results, passing the provider [Which provider to pass](#which-provider-to-pass) names for posting on this workspace; otherwise output only lives in the conversation log
