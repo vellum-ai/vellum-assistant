@@ -60,6 +60,7 @@ function createRecordingGate(): {
     observe(grid, nowMs) {
       observed.push({ grid, cells: Array.from(grid), nowMs });
     },
+    armForcedKeep() {},
     reset() {},
   };
   return { gate, offers, observed };

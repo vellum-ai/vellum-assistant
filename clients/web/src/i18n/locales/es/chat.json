@@ -753,7 +753,9 @@
   },
   "frameGateHud": {
     "collapse": "Ocultar la lectura del filtro de fotogramas",
-    "expand": "Mostrar la lectura del filtro de fotogramas"
+    "expand": "Mostrar la lectura del filtro de fotogramas",
+    "reasonForced": "Guardado para la pregunta que se está haciendo ahora.",
+    "stepForced": "Solicitado"
   },
   "groupActions": {
     "archiveAll": "Archivar todas…",

@@ -731,7 +731,9 @@
   },
   "frameGateHud": {
     "collapse": "隐藏帧筛选读数",
-    "expand": "显示帧筛选读数"
+    "expand": "显示帧筛选读数",
+    "reasonForced": "为当前正在提出的问题保留。",
+    "stepForced": "按需保留"
   },
   "groupActions": {
     "archiveAll": "全部归档…",

@@ -247,6 +247,21 @@ export interface NativeFrameSource {
   /** Begin polling. Starting an already-started source restarts its cadence. */
   start(): void;
   /**
+   * Take one pair now, without waiting for the next tick.
+   *
+   * For the moment the owner knows a frame matters more than the cadence says
+   * it does, which the poll cannot see: at a sample a second the frame that
+   * answers a question asked now can be most of a second old. Nothing else
+   * about the pair changes, so what reaches the gate is a properly primed
+   * frame rather than a lone capture with no motion baseline.
+   *
+   * Ignored while a pair for this run is already out, since that pair is the
+   * fresh one and a second beside it would queue behind it on the bridge and
+   * blow its own gap bound. Ignored on a source that is not polling: a stopped
+   * source samples nothing, however it is asked.
+   */
+  sampleNow(): void;
+  /**
    * Refuse whatever is in flight, and keep polling.
    *
    * For the boundaries only the owner can see: the camera flipping, a transport
@@ -567,6 +582,16 @@ export function createNativeFrameSource(
     generation += 1;
   }
 
+  function sampleNow(): void {
+    // The cadence's own claim, `samplingGeneration`, is what keeps this from
+    // running beside a tick; `sampleOnce` takes it on entry and returns to
+    // anyone who finds it held.
+    if (timer === null) {
+      return;
+    }
+    void sampleOnce();
+  }
+
   function stop(): void {
     invalidate();
     if (timer !== null) {
@@ -582,5 +607,5 @@ export function createNativeFrameSource(
     }, intervalMs);
   }
 
-  return { start, invalidate, stop };
+  return { start, sampleNow, invalidate, stop };
 }
