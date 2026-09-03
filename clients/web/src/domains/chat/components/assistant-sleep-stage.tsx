@@ -13,9 +13,13 @@
  * **Fullish, not fullscreen.** The stage is an `absolute inset-0` layer inside
  * the conversation's `<main>`, the same placement the desktop voice room
  * takes. The sidenav, the header and the window chrome stay put and stay
- * usable: this covers the thread, which is the part that is waiting. It claims
- * no `z-index` on purpose: painting order alone puts it over the thread and
- * under the voice room, which `<main>` mounts after it.
+ * usable: this covers the thread, which is the part that is waiting. It sits
+ * at `z-30`, over the thread's own layered controls (the scroll-to-latest
+ * button, the attachment drag overlay), and stands down entirely while the
+ * voice room, a takeover of the same box, is up. `ChatLayout` makes the
+ * covered thread `inert` for as long as the stage is drawn, so what is behind
+ * it is out of the tab order and the accessibility tree rather than merely
+ * out of reach of the pointer.
  *
  * **Clicking it hands the page back.** The whole stage is a button; one click
  * dismisses it and the banner returns to carrying the status, so nobody is
@@ -30,23 +34,26 @@
  * alone on the stage.
  */
 
+import { useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useMemo } from "react";
-import { useMatch } from "react-router";
+import { useLocation } from "react-router";
 
 import {
   useAssistantSleepPhase,
   type AssistantSleepPhase,
 } from "@/components/status-banner";
+import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { resolveVoiceRoomLook } from "@/domains/chat/voice/voice-room/voice-room-eyes";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
+import { readLastSeenAvatar } from "@/lib/avatar-last-seen-cache";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { tightPathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
-import { routes } from "@/utils/routes";
+import { isConversationChatPath } from "@/utils/routes";
 
 /**
  * How much of the eye the lid covers, at rest and at the bottom of a drift.
@@ -65,10 +72,15 @@ export function AssistantSleepStage() {
   const { t } = useTranslation("chat");
   const reduce = useReducedMotion();
   const clipId = useId();
-  // Only the conversation page: every other route under `ChatLayout` (home,
-  // library, the identity pages) has content of its own worth reading while
-  // the assistant is away, and keeps the banner instead.
-  const onConversationPage = useMatch(routes.conversation(":conversationId"));
+  // Only where the chat surface itself is mounted: the `/assistant` draft and
+  // an open conversation, not the inspector or the other routes under
+  // `ChatLayout` (home, library, the identity pages), which have content of
+  // their own worth reading while the assistant is away and keep the banner.
+  const { pathname } = useLocation();
+  const onConversationPage = isConversationChatPath(pathname);
+  // The voice room is a takeover of the same box; it mounts after this one and
+  // owns the surface while it is up.
+  const voiceRoomVisible = useIsVoiceRoomVisible();
   const phase = useAssistantSleepPhase();
   const assistantName = useAssistantIdentityStore.use.name();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -80,23 +92,45 @@ export function AssistantSleepStage() {
   const dismiss = useAssistantSleepStageStore.use.dismiss();
   const reset = useAssistantSleepStageStore.use.reset();
 
-  const visible = Boolean(onConversationPage) && phase !== null && !dismissed;
+  const visible =
+    onConversationPage && !voiceRoomVisible && phase !== null && !dismissed;
 
   useEffect(() => {
     setVisible(visible);
     return () => setVisible(false);
   }, [visible, setVisible]);
 
-  // A dismissal lasts as long as the sleep it was aimed at.
+  // A dismissal lasts as long as the sleep it was aimed at, and belongs to the
+  // assistant it was aimed at: switching to another assistant that is also
+  // asleep never reports a phase of null, so the switch clears it too.
   useEffect(() => {
     if (phase === null) {
       reset();
     }
   }, [phase, reset]);
+  useEffect(() => {
+    reset();
+  }, [assistantId, reset]);
+
+  // Traits from the assistant when it is reachable, else the last ones this
+  // device saw it wearing. On a cold load the thing that serves them is the
+  // thing asleep, and defaulting to the catalog's first creature would put a
+  // character the user never made on the page during the one state this
+  // screen exists for. Only a character is recovered: an uploaded image would
+  // mean a blob URL to own, and the copy alone carries that case.
+  const lastSeen = useQuery({
+    queryKey: ["assistant-sleep-stage", "last-seen-traits", assistantId],
+    queryFn: async () => {
+      const seen = await readLastSeenAvatar(assistantId!);
+      return seen?.kind === "character" ? seen.traits : null;
+    },
+    enabled: visible && Boolean(assistantId) && !traits && !customImageUrl,
+    staleTime: Infinity,
+  });
+  const effectiveTraits = traits ?? lastSeen.data ?? null;
 
   // The catalog is bundled, so the eyes still draw while the assistant that
-  // serves `/avatar/character-components` is the thing asleep; only the traits
-  // come off the wire (or default, as they do on every other surface).
+  // serves `/avatar/character-components` is the thing asleep.
   const eyes = useMemo(() => {
     // Measuring the art parses every eye path, so it waits until there is a
     // stage to draw: every conversation mounts this component, and almost
@@ -106,7 +140,7 @@ export function AssistantSleepStage() {
     }
     const look = resolveVoiceRoomLook(
       components ?? BUNDLED_COMPONENTS,
-      traits,
+      effectiveTraits,
       customImageUrl,
     );
     if (!look?.art) {
@@ -129,7 +163,7 @@ export function AssistantSleepStage() {
       lidColor: look.bgHex,
     };
     return eyeArt;
-  }, [visible, components, traits, customImageUrl]);
+  }, [visible, components, effectiveTraits, customImageUrl]);
 
   if (!visible || phase === null) {
     return null;
@@ -148,7 +182,7 @@ export function AssistantSleepStage() {
       type="button"
       onClick={dismiss}
       aria-label={t("assistantSleepStage.dismissLabel")}
-      className="absolute inset-0 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: reduce ? 0 : 0.35 }}

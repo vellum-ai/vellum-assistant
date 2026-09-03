@@ -8,12 +8,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
 import type { AssistantSleepPhase } from "@/components/status-banner";
 
 let phaseMock: AssistantSleepPhase | null = "waking";
+let voiceRoomVisibleMock = false;
 
 mock.module("@/components/status-banner", () => ({
   useAssistantSleepPhase: () => phaseMock,
@@ -27,26 +35,43 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
-const { AssistantSleepStage } = await import(
-  "@/domains/chat/components/assistant-sleep-stage"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
-const { useAssistantSleepStageStore } = await import(
-  "@/stores/assistant-sleep-stage-store"
+mock.module(
+  "@/domains/chat/voice/voice-room/use-is-voice-room-visible",
+  () => ({
+    useIsVoiceRoomVisible: () => voiceRoomVisibleMock,
+  }),
 );
 
+mock.module("@/lib/avatar-last-seen-cache", () => ({
+  readLastSeenAvatar: async () => null,
+}));
+
+const { AssistantSleepStage } =
+  await import("@/domains/chat/components/assistant-sleep-stage");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useAssistantSleepStageStore } =
+  await import("@/stores/assistant-sleep-stage-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+
 function renderAt(pathname: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[pathname]}>
-      <AssistantSleepStage />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[pathname]}>
+        <AssistantSleepStage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
   phaseMock = "waking";
+  voiceRoomVisibleMock = false;
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   useAssistantIdentityStore.setState({ name: "Mel", version: null });
   useAssistantSleepStageStore.setState({ visible: false, dismissed: false });
 });
@@ -69,8 +94,28 @@ describe("AssistantSleepStage", () => {
     expect(screen.getByText("Your assistant is waking up…")).toBeTruthy();
   });
 
-  test("stays off every route but the conversation page", () => {
-    renderAt("/assistant/home");
+  test("covers the draft conversation at the assistant index too", () => {
+    renderAt("/assistant");
+
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+  });
+
+  test("stays off routes that mount no chat surface", () => {
+    for (const path of [
+      "/assistant/home",
+      "/assistant/conversations/c1/inspect",
+    ]) {
+      const view = renderAt(path);
+      expect(screen.queryByText("Mel is waking up…")).toBeNull();
+      expect(useAssistantSleepStageStore.getState().visible).toBe(false);
+      view.unmount();
+    }
+  });
+
+  test("leaves the surface to the voice room", () => {
+    voiceRoomVisibleMock = true;
+
+    renderAt("/assistant/conversations/c1");
 
     expect(screen.queryByText("Mel is waking up…")).toBeNull();
     expect(useAssistantSleepStageStore.getState().visible).toBe(false);
@@ -98,5 +143,18 @@ describe("AssistantSleepStage", () => {
     renderAt("/assistant/conversations/c1");
 
     expect(screen.getByText("Mel is asleep")).toBeTruthy();
+  });
+
+  test("a dismissal does not carry over to another sleeping assistant", () => {
+    renderAt("/assistant/conversations/c1");
+    fireEvent.click(screen.getByText("Mel is waking up…"));
+    expect(screen.queryByText("Mel is waking up…")).toBeNull();
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    });
+
+    expect(useAssistantSleepStageStore.getState().dismissed).toBe(false);
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
   });
 });

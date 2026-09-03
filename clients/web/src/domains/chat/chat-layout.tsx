@@ -92,6 +92,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
+import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
 import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
 import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -579,6 +580,9 @@ export function ChatLayout({
   // sidebar until the session ends or the room is minimized (the session
   // then continues behind the composer voice bar / title-bar pill).
   const voiceRoomVisible = useIsVoiceRoomVisible();
+  // The sleep stage covers this same box; while it is up the thread under it
+  // leaves the tab order and the accessibility tree, as it does for the room.
+  const sleepStageVisible = useAssistantSleepStageStore.use.visible();
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -1112,7 +1116,7 @@ export function ChatLayout({
   const chatContent = (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col"
-      inert={voiceRoomVisible}
+      inert={voiceRoomVisible || sleepStageVisible}
     >
       <Outlet />
     </div>
