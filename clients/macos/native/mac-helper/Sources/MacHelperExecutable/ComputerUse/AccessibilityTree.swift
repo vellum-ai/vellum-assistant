@@ -68,7 +68,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// probe multiple apps, while staying generous enough for slow/heavy
     /// targets (Chrome with many tabs, Electron during GC) where individual
     /// attribute reads can momentarily take upwards of 1s.
-    private static let axMessagingTimeoutSeconds: Float = 3.0
+    static let axMessagingTimeoutSeconds: Float = 3.0
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -362,8 +362,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
               let windows = windowsRef as? [AXUIElement],
               !windows.isEmpty else {
+            log.warning("axWindow: pid \(window.pid) exposes no AX windows")
             return nil
         }
+        // A minimized window is still in both lists: the window server keeps
+        // describing it, with the bounds it had on screen, and the app keeps
+        // reporting that same frame through AX, so the frame match holds for
+        // a window that is in the Dock.
         let byFrame = windows.first(where: { candidate in
             let frame = getFrameAttribute(candidate)
             return abs(frame.origin.x - window.bounds.origin.x) <= 2

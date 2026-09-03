@@ -127,16 +127,18 @@ final class MacHelper: @unchecked Sendable {
         // The window a pick named, brought to the front before the session
         // that reads it starts.
         router.register("captureSources.raise") { params in
+            // A CGWindowID is 32 bits; a number outside that range is not one,
+            // and converting it unchecked would trap the helper.
             guard
                 let object = params as? [String: Any],
-                let windowId = object["windowId"] as? Int,
-                windowId >= 0
+                let number = object["windowId"] as? Int,
+                let windowId = CGWindowID(exactly: number)
             else {
                 throw JsonRpcDispatchError.invalidParams(
                     "captureSources.raise requires windowId"
                 )
             }
-            return CaptureSources.raise(windowId: CGWindowID(windowId))
+            return CaptureSources.raise(windowId: windowId)
         }
         router.register("hotkey.fnPushToTalk") { [weak self] params in
             guard let self else {

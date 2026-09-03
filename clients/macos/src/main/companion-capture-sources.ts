@@ -414,24 +414,66 @@ export function chromeWindowFor(
 }
 
 /**
+ * How long a pick waits for its window to come to the front before going
+ * ahead without it. The helper answers in milliseconds for an app that is
+ * answering at all, and gives up on one that is not within a few seconds of
+ * its own; the shared helper client's budget is a minute, sized for
+ * computer-use actions, and a pick left waiting that long would read as a
+ * dead button.
+ */
+export const RAISE_WAIT_MS = 5_000;
+
+/**
  * Bring a picked window to the front, and carry on either way.
  *
  * The pick is what the user is about to talk about, so it belongs in front
  * of whatever they were looking at when they picked it. The capture does not
  * depend on it: a window the helper could not raise (an app refusing the
- * request, a helper that is down) is still read where it is, so this never
- * decides whether the pick resolves.
+ * request, a helper that is down, a helper still trying past `waitMs`) is
+ * still read where it is, so this never decides whether the pick resolves.
+ * A raise that lands after the wait lands on the window the session is
+ * reading anyway, or on a pick the generation guard in `companion-window`
+ * has already superseded, which is a window the user chose a moment ago.
  */
-const bringForward = async (
+export const bringForward = async (
   windowId: number,
   deps: Pick<CaptureSourceDeps, "raiseWindow">,
+  waitMs = RAISE_WAIT_MS,
 ): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<"expired">((resolve) => {
+    timer = setTimeout(() => resolve("expired"), waitMs);
+  });
   try {
-    if (!(await deps.raiseWindow(windowId))) {
+    const raise = deps.raiseWindow(windowId);
+    const outcome = await Promise.race([raise, expiry]);
+    if (outcome === "expired") {
+      log.warn(
+        `[companion] window ${windowId} is still coming to the front after ${waitMs}ms; not waiting`,
+      );
+      // The late answer is only worth a line in the log, and its rejection
+      // is caught so it never surfaces as an unhandled one.
+      raise.then(
+        (raised) => {
+          if (!raised) {
+            log.warn(
+              `[companion] window ${windowId} would not come to the front`,
+            );
+          }
+        },
+        (err) =>
+          log.warn(
+            "[companion] could not bring the picked window forward:",
+            err,
+          ),
+      );
+    } else if (!outcome) {
       log.warn(`[companion] window ${windowId} would not come to the front`);
     }
   } catch (err) {
     log.warn("[companion] could not bring the picked window forward:", err);
+  } finally {
+    clearTimeout(timer);
   }
 };
 
@@ -491,6 +533,13 @@ export async function resolveCapturePick(
     log.warn("[companion] no Chrome window on screen for the picked tab");
     return null;
   }
+  // Raised after Chrome has finished its own activation (the script above
+  // returns once Chrome has processed it), never alongside it. When Chrome
+  // did bring this window forward, the raise finds it already restored and
+  // in front and changes nothing; when Chrome activated with another of its
+  // windows in front, which happens, this is what puts the tab's window
+  // there. Unconditional because the cheap case is a no-op and the check
+  // that would skip it (is this window frontmost now?) costs the same trip.
   await bringForward(window.windowId, deps);
   return { kind: "window", windowId: window.windowId };
 }

@@ -79,28 +79,51 @@ enum CaptureSources {
     /// AX request still gets activated, and the pick goes ahead either way,
     /// since the capture does not depend on the window being in front.
     ///
-    /// Reads and writes window state through Accessibility, which is the
-    /// permission a watch session already holds for the tree it files.
+    /// The window is found the way the tree finds it, by frame and then by a
+    /// title that names exactly one of the app's windows. When neither holds
+    /// (two windows titled alike at frames the app will not report) nothing
+    /// is raised rather than a guess at a sibling; the app still comes
+    /// forward, and the session frames the window wherever the app left it.
+    ///
+    /// Reads and writes window state through Accessibility, the same grant
+    /// the session reads its tree with. Without that grant the app is
+    /// activated and nothing else: there is no prompt from here, since the
+    /// session this pick starts checks the grant itself and prompts once
+    /// (`HostCuExecutor`), and a pick is not the moment for a second dialog
+    /// on top of that one.
     static func raise(windowId: CGWindowID) -> [String: Any] {
         let enumerator = AccessibilityTreeEnumerator()
         guard let server = enumerator.serverWindow(for: windowId) else {
             log.warning("raise: window \(windowId) is not known to the window server")
             return ["raised": false]
         }
-        let appElement = AXUIElementCreateApplication(server.pid)
-        let window = enumerator.axWindow(for: server, in: appElement)
         var raised = false
-        if let window {
-            var minimized: CFTypeRef?
-            if AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimized) == .success,
-               (minimized as? Bool) == true {
-                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            }
-            raised = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+        if !AXIsProcessTrusted() {
+            log.warning("raise: Accessibility is not granted; activating the app of window \(windowId) only")
         } else {
-            log.warning("raise: no AX window matches window \(windowId); activating its app only")
+            let appElement = AXUIElementCreateApplication(server.pid)
+            // This runs on the helper's command thread, where every later
+            // command waits behind it. Bounded per call like the tree walk,
+            // so an app that has stopped answering costs seconds, not the
+            // default six per attribute.
+            AXUIElementSetMessagingTimeout(appElement, AccessibilityTreeEnumerator.axMessagingTimeoutSeconds)
+            if let window = enumerator.axWindow(for: server, in: appElement) {
+                var minimized: CFTypeRef?
+                if AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimized) == .success,
+                   (minimized as? Bool) == true {
+                    AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                }
+                raised = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+            } else {
+                log.warning("raise: no AX window matches window \(windowId); activating its app only")
+            }
         }
-        NSRunningApplication(processIdentifier: server.pid)?.activate()
+        // AppKit work belongs on the main thread, which is where app control
+        // activates from too; the answer does not wait on it, since whether
+        // the app took focus is not something the pick acts on.
+        if let app = NSRunningApplication(processIdentifier: server.pid) {
+            DispatchQueue.main.async { app.activate() }
+        }
         return ["raised": raised]
     }
 

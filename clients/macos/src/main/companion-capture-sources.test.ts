@@ -25,6 +25,7 @@ mock.module("./sidecar/shared-cu-helper", () => ({
 
 const {
   CHROME_BUNDLE_ID,
+  bringForward,
   chromeWindowFor,
   listCaptureSources,
   parseChromeTabs,
@@ -434,6 +435,46 @@ describe("resolving a pick", () => {
       expect(
         await resolveCapturePick({ kind: "window", windowId: 8 }, d),
       ).toEqual({ kind: "window", windowId: 8 });
+    }
+  });
+
+  test("a helper that is slow to raise does not hold the pick", async () => {
+    // A helper that never answers: the shared client would give up after a
+    // minute, and a pick cannot wait that long on a window that is going
+    // to be read where it is anyway.
+    let late: ((raised: boolean) => void) | undefined;
+    const d = deps({
+      raiseWindow: () =>
+        new Promise<boolean>((resolve) => {
+          late = resolve;
+        }),
+    });
+    const started = Date.now();
+    await bringForward(8, d, 20);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    // The answer arriving afterwards is taken quietly.
+    late?.(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  test("a helper that fails after the wait does not surface an unhandled rejection", async () => {
+    let fail: ((err: Error) => void) | undefined;
+    const d = deps({
+      raiseWindow: () =>
+        new Promise<boolean>((_, reject) => {
+          fail = reject;
+        }),
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await bringForward(8, d, 20);
+      fail?.(new Error("helper down"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
     }
   });
 
