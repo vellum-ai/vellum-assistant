@@ -48,44 +48,70 @@ Whenever **any** flow (MCP tool, API call, web request, or otherwise) produces a
 
 ---
 
-## Step 0: Check installation and auth
+## Step 0: Resolve the CLI and check auth
 
 ```bash
-if command -v link-cli >/dev/null; then
-  link-cli auth status --format json
+if [[ -n "${LINK_CLI_HOME:-}" ]]; then
+  link_cli_home="$LINK_CLI_HOME"
+elif [[ -n "${VELLUM_WORKSPACE_DIR:-}" ]]; then
+  link_cli_home="$VELLUM_WORKSPACE_DIR/tools/stripe-link-cli"
+elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
+  link_cli_home="$XDG_DATA_HOME/vellum/tools/stripe-link-cli"
 else
-  bunx @stripe/link-cli auth status --format json
+  link_cli_home="$HOME/.local/share/vellum/tools/stripe-link-cli"
+fi
+
+if command -v link-cli >/dev/null; then
+  LINK_CLI=(link-cli)
+elif [[ -x "$link_cli_home/bin/link-cli" ]]; then
+  LINK_CLI=("$link_cli_home/bin/link-cli")
+else
+  LINK_CLI=()
+fi
+
+if [[ ${#LINK_CLI[@]} -gt 0 ]]; then
+  NO_UPDATE_NOTIFIER=1 "${LINK_CLI[@]}" auth status --format json
 fi
 ```
 
-- `link-cli` missing — use `bunx @stripe/link-cli` for Step 0 and every command below.
-- Exit 0 but `"authenticated": false` — fall to **Setup: login**.
-- Authenticated — proceed to the requested flow.
-- `"update"` key present in auth status — mention the update to the user but don't block on it.
+- A resolved CLI with `"authenticated": false` falls through to **Setup: login**.
+- An authenticated CLI proceeds to the requested flow.
+- If no CLI resolves, install it using the bundled script below.
+- If `"update"` is present in auth status, run the installer again to update Link CLI and its compatible portable Node.js runtime.
 
 ---
 
 ## Setup
 
-### If `link-cli` is missing
+### If `link-cli` is missing or incompatible
 
-Invoke the CLI on demand with `bunx`:
+Run the bundled installer from the skill directory:
 
 ```bash
-bunx @stripe/link-cli <subcommand>
+bash scripts/install-link-cli.sh
 ```
 
-In every example below, substitute `bunx @stripe/link-cli` wherever you see `link-cli`.
+The script:
+
+- installs only under a user-writable data directory, never into the host system;
+- tries official Node.js LTS releases from newest to oldest until the latest Link CLI passes its startup and login smoke tests;
+- verifies the Node.js archive against its official SHA-256 checksum;
+- installs the latest Link CLI with lifecycle scripts disabled; and
+- returns JSON containing the `command` path and installed versions.
+
+Set `LINK_CLI` from the returned `command` path and use `"${LINK_CLI[@]}"` in place of `link-cli` in every command below. Do not fall back to `bunx` when the CLI hangs or fails under Bun.
 
 ### If installed but not authenticated
 
-Use your own assistant name for `--client-name` — read it from `IDENTITY.md`. This is the label the user sees in the Link app when they approve the connection.
+Use your own assistant name for `--client-name`. Read it from `IDENTITY.md`. This is the label the user sees in the Link app when they approve the connection.
 
 ```bash
-link-cli auth login --client-name "<your assistant name>"
+NO_UPDATE_NOTIFIER=1 "${LINK_CLI[@]}" auth login \
+  --client-name "<your assistant name>" \
+  --format json
 ```
 
-Opens a browser flow. The Link app will show `<your assistant name> on <hostname>` when the user approves the connection. After it completes, re-run Step 0.
+This is a device-code flow. It returns a `verification_url` and phrase immediately, without requiring a local browser or callback server. Present the URL and phrase to the user, then run the `_next` polling command from the JSON output. Do not set `BROWSER=echo`.
 
 ### Introspecting the CLI
 
@@ -272,7 +298,7 @@ link-cli spend-request cancel <id> --format json
 
 | Error / condition                       | Action                                                                                              |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `link-cli` not found                    | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`. |
+| `link-cli` missing or incompatible      | Run `bash scripts/install-link-cli.sh`, then use the returned `command` path.                        |
 | Not authenticated                       | Run `auth login --client-name "<your assistant name>"` (see Setup)                                  |
 | `POLLING_TIMEOUT` on retrieve           | Report to user; offer cancel or fresh spend request                                                 |
 | SPT payment fails (402 again after pay) | SPT is consumed — create a new spend request                                                        |
