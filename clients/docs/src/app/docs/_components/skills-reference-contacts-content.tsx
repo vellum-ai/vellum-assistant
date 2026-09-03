@@ -149,10 +149,10 @@ export function SkillsReferenceContactsContent() {
             </li>
             <li>
               <strong>You approve every write.</strong> The assistant can look
-              up and merge contacts on its own, but creating, editing, or
-              deleting one opens a form in your app first. Nothing is written
-              until you submit it, and you can edit the values it proposes
-              before you do.
+              up and search contacts on its own, but creating, editing,
+              deleting, merging, or adding a channel to one opens a form in your
+              app first. Nothing is written until you submit it, and you can
+              edit the values it proposes before you do.
             </li>
             <li>
               <strong>A contact is not access.</strong> Adding someone records

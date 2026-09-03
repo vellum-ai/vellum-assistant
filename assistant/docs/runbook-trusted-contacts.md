@@ -156,6 +156,13 @@ gateway contacts set-risk-threshold <contactId> --threshold high
 
 `inherit` clears the risk ceiling so the contact follows room and trust-class settings. Stored vocabulary is `none`, `low`, `medium`, or `high`.
 
+Binding an address to a contact goes through the guardian instead of the operator. The command below opens a form in the guardian's app naming that contact, and the gateway writes the channel only when they submit it. An address already held by a different contact is refused, naming that contact.
+
+```bash
+assistant contacts channels add <contactId> --channel <type> --address <addr>
+assistant contacts channels add <contactId> --channel email --address alice@example.com
+```
+
 ## 4. Force-Revoke a Trusted Contact
 
 ### Via CLI (preferred)
