@@ -93,7 +93,7 @@ Returns immediately with `verification_url` and `phrase`. It does not wait for a
 
 **2. Send the user the link before you run anything else**
 
-**Hard rule: reply to the user with the `verification_url` and the `phrase` before the next command.** Give the URL as a clickable link, quote the phrase, and tell them to approve `<your assistant name> on <hostname>` in the Link app. The user cannot approve a link they have never been shown, and a poll started before this reply holds the turn open with nothing on screen: they watch a spinner until the device code expires.
+**Hard rule: reply to the user with the `verification_url` and the `phrase` before the next command.** Give the URL as a clickable link, quote the phrase, and tell them to approve `<your name> on <hostname>` in the Link app. The user cannot approve a link they have never been shown, and a poll started before this reply holds the turn open with nothing on screen: they watch a spinner until the device code expires.
 
 **3. Poll in the background, then end the turn**
 
