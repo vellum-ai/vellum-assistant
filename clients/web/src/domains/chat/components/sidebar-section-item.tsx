@@ -163,13 +163,14 @@ export function SidebarSectionItem({
          to edge - one pill, not a pill with the controls stranded outside
          it. 36px stands it at the height of a collapsed side-menu item,
          whose full roundness is likewise half of 36. The glyph keeps the
-         shared horizontal geometry (the same inline padding every header
-         gets from `sidebar-nav-geometry`), so it sits on the axis of
-         Pinned's and Chats' glyphs; only the title's vertical padding is
-         overridden, so the 36px is this class's to state. */
+         pill's own inset, not the flat headers': as a pill standing beside
+         the Preferences PanelItem (p-[8px]), its glyph has to start the
+         same 8px from the rounded edge, so the shared 12px title inset is
+         overridden down to pl-2. The title's vertical padding is zeroed so
+         the 36px is this class's to state. */
       headerClassName={
         isAssistantSection
-          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0!"
+          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-2!"
           : undefined
       }
       /* The one section painted in the assistant's own color, so it reads as
