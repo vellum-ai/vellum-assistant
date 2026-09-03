@@ -14,7 +14,7 @@ import {
 } from "@/components/local-file/local-file-icon";
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
 import { toggleLocalFile } from "@/components/local-file/open-local-file";
-import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 import { t } from "@/i18n";
 
 export interface LocalFileLinkProps {

@@ -69,6 +69,7 @@ import {
   BadRequestError,
   ConflictError,
   InternalError,
+  NotFoundError,
   ServiceUnavailableError,
 } from "../runtime/routes/errors.js";
 import { publishActivationProgressChanged } from "../runtime/sync/resource-sync-events.js";
@@ -389,12 +390,12 @@ let lockWaitTimeoutMs: number = LOCK_WAIT_TIMEOUT_MS;
 const LOCK_RETRY_DELAY_MS = 15;
 
 /**
- * Age at which a lock is treated as abandoned. Generous next to the work a
- * holder does, so a slow filesystem is waited out rather than trampled, and
- * short enough that a process killed mid-mutation does not block its
- * successors for the life of the workspace.
+ * Age at which a lock file naming no holder this build can check is treated
+ * as abandoned. Generous on purpose: it is the only rule left once a writer
+ * has died between creating the file and stamping it, and it must also
+ * outlast any garbage file that happens to name a live process.
  */
-const LOCK_STALE_MS = 5_000;
+const LOCK_UNREADABLE_STALE_MS = 60_000;
 
 /** Path of the lock file, beside the snapshot it guards. */
 export function getActivationProgressLockPath(): string {
@@ -438,21 +439,43 @@ function tryAcquireProgressLock(
       : "unavailable";
   }
   try {
+    // The pid is what a waiter checks; the timestamp is for whoever reads a
+    // lock file that outlived its writer.
     writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
   } catch {
-    // The holder identity is an optimization for stale detection, not the
-    // lock itself: an empty lock file still excludes every other writer, and
-    // reads as abandoned once it ages out.
+    // The holder identity is what makes a takeover safe, not the lock itself:
+    // an empty lock file still excludes every other writer, and reads as
+    // abandoned only once it has aged out of
+    // {@link LOCK_UNREADABLE_STALE_MS}.
   } finally {
     closeSync(fd);
   }
   return "acquired";
 }
 
+/** How long ago the lock file was last written, or `null` when it is gone. */
+function progressLockAgeMs(lockPath: string): number | null {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Whether the lock on disk belongs to a writer that is never coming back:
- * one whose process is gone, one older than {@link LOCK_STALE_MS}, or one
- * whose contents say nothing this build can check.
+ * Whether the lock on disk belongs to a writer that is never coming back.
+ *
+ * A lock that names a process is reclaimed only once that process is gone.
+ * Age is never the reason on its own: a holder can be alive and paused (a
+ * stopped debugger, a suspended host, a filesystem call that stalled) and
+ * still finish its rename, so taking its lock over would let two writers
+ * clobber each other, which is the one outcome this lock exists to prevent.
+ * A holder that keeps its lock past the wait bound is refused a takeover and
+ * fails the waiting mutation instead.
+ *
+ * A lock file this build cannot read names nobody to check, so it is the one
+ * case that falls back to age: empty or unparseable contents older than
+ * {@link LOCK_UNREADABLE_STALE_MS} are treated as abandoned.
  *
  * A lock that has vanished by the time it is read is not stale, it is free,
  * and the next create attempt takes it.
@@ -468,16 +491,14 @@ function progressLockIsStale(lockPath: string): boolean {
   try {
     holder = JSON.parse(raw);
   } catch {
-    return true;
+    holder = null;
   }
-  if (!isRecord(holder)) {
-    return true;
+  const pid = isRecord(holder) ? holder.pid : undefined;
+  if (typeof pid === "number" && Number.isInteger(pid) && pid > 0) {
+    return pid !== process.pid && !processIsAlive(pid);
   }
-  const { pid, at } = holder;
-  if (typeof at !== "number" || Date.now() - at >= LOCK_STALE_MS) {
-    return true;
-  }
-  return typeof pid === "number" && pid !== process.pid && !processIsAlive(pid);
+  const age = progressLockAgeMs(lockPath);
+  return age !== null && age >= LOCK_UNREADABLE_STALE_MS;
 }
 
 /**
@@ -558,11 +579,21 @@ let writeChain: Promise<unknown> = Promise.resolve();
  * load-bearing for the client: it sends the task's prompt only once the
  * link is recorded, and a silent 200 here would start a conversation no
  * task points at.
+ *
+ * `precondition` is the seam for state this file does not own but the write
+ * depends on, such as whether the conversation being linked still exists. It
+ * runs inside the lock, against the same snapshot the mutation will change,
+ * so a check made before the wait cannot go out of date while the wait runs;
+ * throwing from it aborts the transaction with nothing written.
  */
 async function mutateActivationProgress(
   mutate: (progress: ActivationProgress) => boolean,
-  originClientId?: string,
+  options: {
+    originClientId?: string;
+    precondition?: () => void | Promise<void>;
+  } = {},
 ): Promise<ActivationProgress> {
+  const { originClientId, precondition } = options;
   const run = async (): Promise<ActivationProgress> => {
     const locked = await acquireProgressLock();
     try {
@@ -579,6 +610,7 @@ async function mutateActivationProgress(
           "Activation progress was written by a newer version of this assistant and cannot be updated by this build",
         );
       }
+      await precondition?.();
       if (!mutate(progress)) {
         return progress;
       }
@@ -677,14 +709,22 @@ function unlinkOtherTasks(
  * a conversation another `started` task points at drops that stale record
  * in the same write, so the step and completion lookups never resolve one
  * task while silently ignoring another.
+ *
+ * `verify` answers whether the conversation is still there, and is asked
+ * inside the lock, immediately before the link is written. The caller owns
+ * the lookup because this file does not know what a conversation is; what
+ * it does know is that a link written against a row deleted while this
+ * mutation queued would leave the task stuck on Working with an action that
+ * opens nothing, so a `false` refuses the write with a 404.
  */
 export async function startActivationTask(params: {
   taskId: string;
   conversationId: string;
   listId?: string;
   originClientId?: string;
+  verify?: () => boolean | Promise<boolean>;
 }): Promise<ActivationProgress> {
-  const { taskId, conversationId, listId, originClientId } = params;
+  const { taskId, conversationId, listId, originClientId, verify } = params;
   assertActivationId(taskId, "taskId");
   if (conversationId.trim().length === 0) {
     throw new BadRequestError("conversationId is required");
@@ -698,26 +738,42 @@ export async function startActivationTask(params: {
     assertActivationId(listId, "listId");
   }
 
-  return mutateActivationProgress((progress) => {
-    const listChanged = applyListId(progress, listId);
-    const existing = progress.tasks[taskId];
-    if (existing?.status === "done") {
-      return listChanged;
-    }
-    const unlinked = unlinkOtherTasks(progress, conversationId, taskId);
-    if (existing?.conversationId === conversationId) {
-      return listChanged || unlinked;
-    }
-    progress.tasks[taskId] = {
-      status: "started",
-      conversationId,
-      startedAt: new Date().toISOString(),
-      completedAt: null,
-      stepCount: 0,
-      artifacts: [],
-    };
-    return true;
-  }, originClientId);
+  return mutateActivationProgress(
+    (progress) => {
+      const listChanged = applyListId(progress, listId);
+      const existing = progress.tasks[taskId];
+      if (existing?.status === "done") {
+        return listChanged;
+      }
+      const unlinked = unlinkOtherTasks(progress, conversationId, taskId);
+      if (existing?.conversationId === conversationId) {
+        return listChanged || unlinked;
+      }
+      progress.tasks[taskId] = {
+        status: "started",
+        conversationId,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        stepCount: 0,
+        artifacts: [],
+      };
+      return true;
+    },
+    {
+      ...(originClientId !== undefined ? { originClientId } : {}),
+      ...(verify !== undefined
+        ? {
+            precondition: async () => {
+              if (!(await verify())) {
+                throw new NotFoundError(
+                  `Conversation ${conversationId} not found`,
+                );
+              }
+            },
+          }
+        : {}),
+    },
+  );
 }
 
 /**
@@ -736,15 +792,18 @@ export async function dismissActivation(params: {
     assertActivationId(listId, "listId");
   }
 
-  return mutateActivationProgress((progress) => {
-    let changed = applyListId(progress, listId);
-    const field = kind === "modal" ? "modalDismissedAt" : "allDoneShownAt";
-    if (progress[field] === null) {
-      progress[field] = new Date().toISOString();
-      changed = true;
-    }
-    return changed;
-  }, originClientId);
+  return mutateActivationProgress(
+    (progress) => {
+      let changed = applyListId(progress, listId);
+      const field = kind === "modal" ? "modalDismissedAt" : "allDoneShownAt";
+      if (progress[field] === null) {
+        progress[field] = new Date().toISOString();
+        changed = true;
+      }
+      return changed;
+    },
+    originClientId === undefined ? {} : { originClientId },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -963,9 +1022,8 @@ export async function bumpActivationStepCount(
 
 /**
  * How long a completion waits before its single retry. Long enough for a
- * holder that was merely slow to finish or age out of
- * {@link LOCK_STALE_MS}, short enough that the row leaves Working while the
- * user is still watching it.
+ * holder that was merely slow to finish and let its lock go, short enough
+ * that the row leaves Working while the user is still watching it.
  */
 const COMPLETION_RETRY_DELAY_MS = 1_000;
 

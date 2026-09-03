@@ -11,11 +11,8 @@ import {
   ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   type AttachmentIconKind,
-} from "@/domains/chat/components/chat-attachments/utils";
-import {
-  type LocalFileKind,
-  resolveLocalFileType,
-} from "@/domains/chat/utils/mime-sniff";
+} from "@/utils/attachment-utils";
+import { type LocalFileKind, resolveLocalFileType } from "@/utils/mime-sniff";
 
 /** Icon bucket for a classified local file. */
 export function localFileIconKind(

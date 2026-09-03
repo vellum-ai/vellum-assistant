@@ -55,6 +55,12 @@ function handleGetActivationProgress() {
  * nothing, while the send that follows fails anyway. Answering 404 instead
  * tells the client the link was refused outright, which is the one answer
  * that lets it take its freshly created conversation back.
+ *
+ * The store asks the same question again inside its lock, because the answer
+ * can change while a contended mutation waits its turn: a deletion that
+ * lands in that window has already run its own activation cleanup, so a link
+ * written afterwards is the one nothing will ever clear. The check here is
+ * the fast path that answers without taking a lock at all.
  */
 async function handleStartActivationTask({
   pathParams = {},
@@ -65,13 +71,15 @@ async function handleStartActivationTask({
     ActivationTaskStartRequestSchema,
     body,
   );
-  if (!getConversation(conversationId)) {
+  const conversationExists = () => getConversation(conversationId) !== null;
+  if (!conversationExists()) {
     throw new NotFoundError(`Conversation ${conversationId} not found`);
   }
   const originClientId = getOriginClientId(headers);
   return startActivationTask({
     taskId: pathParams.taskId ?? "",
     conversationId,
+    verify: conversationExists,
     ...(listId !== undefined ? { listId } : {}),
     ...(originClientId !== undefined ? { originClientId } : {}),
   });

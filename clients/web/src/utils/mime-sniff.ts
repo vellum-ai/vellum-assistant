@@ -1,5 +1,7 @@
 /**
- * Content-type classification for local files referenced from chat markdown.
+ * Content-type classification for a local file, shared by every surface that
+ * renders one: the chat transcript, the file preview, and the activation
+ * checklist.
  *
  * The bytes decide. A filename extension is a claim the author makes and the
  * daemon's content endpoint derives its `Content-Type` from that same claim, so

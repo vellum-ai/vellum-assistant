@@ -14,6 +14,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import * as nodeFs from "node:fs";
@@ -140,15 +141,26 @@ function startedTask(conversationId: string) {
  * Hold the progress lock the way another process would: a live holder that
  * has just taken it, so a mutation has to wait rather than take it over.
  */
-function holdProgressLock(atMs: number = Date.now()): string {
+function holdProgressLock(
+  atMs: number = Date.now(),
+  pid = process.pid,
+): string {
   mkdirSync(join(workspaceDir, "data"), { recursive: true });
   const lockPath = getActivationProgressLockPath();
-  writeFileSync(
-    lockPath,
-    JSON.stringify({ pid: process.pid, at: atMs }),
-    "utf-8",
-  );
+  writeFileSync(lockPath, JSON.stringify({ pid, at: atMs }), "utf-8");
   return lockPath;
+}
+
+/**
+ * A live process that is not this one, for the takeover rules that turn on
+ * the holder's identity. The parent of the test runner outlives the test.
+ */
+const OTHER_LIVE_PID = process.ppid > 1 ? process.ppid : process.pid;
+
+/** Backdate the lock file, the only signal a holderless lock is judged on. */
+function ageLockFile(lockPath: string, ageMs: number): void {
+  const when = new Date(Date.now() - ageMs);
+  utimesSync(lockPath, when, when);
 }
 
 function syncPublishCount(): number {
@@ -1087,6 +1099,49 @@ describe("activation progress store", () => {
     });
   });
 
+  describe("a verified link", () => {
+    test("records the link when the conversation is still there", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+        verify: () => true,
+      });
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+        conversationId: "conv-1",
+      });
+    });
+
+    test("refuses the write with a 404 when the conversation went away", async () => {
+      const err = await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+        verify: () => false,
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(404);
+      expect(existsSync(getActivationProgressPath())).toBe(false);
+    });
+
+    test("asks again after the wait, not before it", async () => {
+      // What the route sees: present when the call starts, gone by the time
+      // the mutation reaches the front of the queue.
+      let exists = true;
+      const pending = startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+        verify: () => exists,
+      }).catch((e: unknown) => e);
+      exists = false;
+
+      const err = await pending;
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(404);
+      expect(existsSync(getActivationProgressPath())).toBe(false);
+    });
+  });
+
   describe("the interprocess lock", () => {
     test("waits for a lock another process holds, then lands", async () => {
       const lockPath = holdProgressLock();
@@ -1109,8 +1164,45 @@ describe("activation progress store", () => {
       expect(existsSync(lockPath)).toBe(false);
     });
 
-    test("takes over a lock whose holder never came back", async () => {
-      const lockPath = holdProgressLock(Date.now() - 60_000);
+    test("waits out a live holder rather than expiring it by age", async () => {
+      setActivationLockTimingForTesting({ waitMs: 40 });
+      // Five seconds is a lifetime for a holder that does one read and one
+      // rename, and still no reason to take a running process's lock: it may
+      // be paused rather than gone, and its rename is still coming.
+      const lockPath = holdProgressLock(Date.now() - 5_000, OTHER_LIVE_PID);
+      ageLockFile(lockPath, 5_000);
+
+      const err = await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(503);
+      expect(existsSync(getActivationProgressPath())).toBe(false);
+      expect(existsSync(lockPath)).toBe(true);
+    });
+
+    test("waits out a live holder however long it has held", async () => {
+      setActivationLockTimingForTesting({ waitMs: 40 });
+      const lockPath = holdProgressLock(Date.now() - 3_600_000, OTHER_LIVE_PID);
+      ageLockFile(lockPath, 3_600_000);
+
+      const err = await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      }).catch((e: unknown) => e);
+
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(503);
+      expect(existsSync(lockPath)).toBe(true);
+    });
+
+    test("takes over a lock whose holder left nothing to check, once it is old", async () => {
+      // What a writer killed between creating the file and stamping it leaves.
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      const lockPath = getActivationProgressLockPath();
+      writeFileSync(lockPath, "", "utf-8");
+      ageLockFile(lockPath, 120_000);
 
       await startActivationTask({
         taskId: "draft-email",
@@ -1121,6 +1213,21 @@ describe("activation progress store", () => {
         status: "started",
       });
       expect(existsSync(lockPath)).toBe(false);
+    });
+
+    test("waits out a lock whose holder left nothing to check while it is young", async () => {
+      setActivationLockTimingForTesting({ waitMs: 40 });
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      const lockPath = getActivationProgressLockPath();
+      writeFileSync(lockPath, "{ not json", "utf-8");
+
+      const err = await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      }).catch((e: unknown) => e);
+
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(503);
+      expect(existsSync(lockPath)).toBe(true);
     });
 
     test("takes over a lock a dead process left behind", async () => {

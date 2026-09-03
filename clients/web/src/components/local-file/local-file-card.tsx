@@ -7,9 +7,10 @@
  *
  * Shared: the chat transcript renders it for a file the assistant referenced,
  * and the activation checklist renders it for a file a task produced. The
- * classification helpers it reads (`mime-sniff`, `chat-attachments/utils`) are
- * owned by the chat domain, and the menu's copy lives in the `chat` catalog
- * because chat surfaces share those keys; moving either is its own change.
+ * classification helpers it reads (`utils/mime-sniff`,
+ * `utils/attachment-utils`) sit at the shared layer for the same reason. The
+ * menu's copy lives in the `chat` catalog because chat surfaces share those
+ * keys; moving it is its own change.
  */
 
 import { ExternalLink, PanelRight } from "lucide-react";
@@ -17,10 +18,7 @@ import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 
 import { cn, Typography } from "@vellumai/design-library";
 
-import {
-  formatAttachmentSize,
-  middleTruncate,
-} from "@/domains/chat/components/chat-attachments/utils";
+import { formatAttachmentSize, middleTruncate } from "@/utils/attachment-utils";
 import { LocalFileIcon } from "@/components/local-file/local-file-icon";
 import { LocalFileMenu } from "@/components/local-file/local-file-menu";
 import {
@@ -29,7 +27,7 @@ import {
   useIsWorkspaceFileOpen,
   type LocalFileDestination,
 } from "@/components/local-file/open-local-file";
-import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
+import type { LocalFileKind } from "@/utils/mime-sniff";
 
 export interface LocalFileCardProps {
   /** Markdown alt/label text, which may equal the filename. */

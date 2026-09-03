@@ -5,15 +5,15 @@
  * less than the card asks for: it also wants the bare filename, the rendering
  * kind, and whether the file can be opened. Deriving that here keeps the
  * classification in one place for every surface that shows an artifact, and
- * keeps the mime rules (owned by the chat domain) out of the surfaces.
+ * keeps the mime rules out of the surfaces.
  *
  * The size is unknown at this point: the daemon records what a turn attached,
  * not how large it is, and the card renders without one.
  */
 
 import type { LocalFileCardProps } from "@/components/local-file/local-file-card";
-import { resolveLocalFileType } from "@/domains/chat/utils/mime-sniff";
-import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { resolveLocalFileType } from "@/utils/mime-sniff";
+import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 
 /** A file an assistant turn attached, as activation progress records it. */
 export interface WorkspaceArtifact {

@@ -19,7 +19,7 @@ import { Download, X } from "lucide-react";
 import { Button, toast, Typography } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import { formatAttachmentSize } from "@/utils/attachment-utils";
 import {
   LocalFileIcon,
   localFileKindFromFilename,

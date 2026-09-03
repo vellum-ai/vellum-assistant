@@ -13,7 +13,7 @@ import {
   ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   isImageAttachment,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 
 describe("isImageAttachment", () => {
   test("reads a type that names an image", () => {
