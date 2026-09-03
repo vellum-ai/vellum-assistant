@@ -9,6 +9,7 @@ import type {
   ApprovalUIMetadata,
   ChannelDeliveryResult,
 } from "@vellumai/gateway-client";
+import { parseDiscordEmojiMention } from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
@@ -424,8 +425,8 @@ export async function sendDiscordAttachments(
  * as itself.
  */
 function discordReactionPathEmoji(emoji: string): string {
-  const custom = /^<a?:([^:>]+):(\d+)>$/.exec(emoji);
-  return encodeURIComponent(custom ? `${custom[1]}:${custom[2]}` : emoji);
+  const custom = parseDiscordEmojiMention(emoji);
+  return encodeURIComponent(custom ? `${custom.name}:${custom.id}` : emoji);
 }
 
 /**

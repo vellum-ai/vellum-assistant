@@ -224,6 +224,17 @@ describe("resolvePricing", () => {
       );
     });
 
+    test("returns priced for gemini-3.8-flash", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.8-flash",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(1.5 + 7.5);
+    });
+
     test("returns priced for gemini-3-flash-preview", () => {
       const result = resolvePricing(
         "gemini",
@@ -448,6 +459,19 @@ describe("resolvePricingForUsage", () => {
     expect(result.pricingStatus).toBe("priced");
     // 5 (input) + 50 (output) + 0.15 (cache-read) + 1.25 (5m write) + 1.0 (1h write) = 57.4
     expect(result.estimatedCostUsd).toBeCloseTo(57.4, 10);
+  });
+
+  test("bills Fable 5.1 cache reads at the catalog rate", () => {
+    const result = resolvePricingForUsage("anthropic", "claude-fable-5-1", {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    });
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.25, 10);
   });
 
   test("returns unpriced with null cost for unknown provider", () => {

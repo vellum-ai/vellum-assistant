@@ -259,6 +259,12 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraShutterHint": {
+    "live": "En vivo · Toca para detener",
+    "liveDescription": "Toca para detener el video en vivo.",
+    "photo": "Toca para foto · Mantén para en vivo",
+    "photoDescription": "Mantén pulsado para iniciar el video en vivo."
+  },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",
     "announceLiveMuted": "En vivo. Silenciado. {status}",
@@ -271,6 +277,14 @@
     "live": "En vivo",
     "photo": "Foto",
     "yourAssistant": "Tu asistente"
+  },
+  "cameraViewOptions": {
+    "buttonAria": "Opciones de vista de la cámara",
+    "gateHudDescription": "El panel de ajuste de lo que conserva el modo en vivo.",
+    "gateHudTitle": "Lectura del filtro de fotogramas",
+    "keptFrameDescription": "El último fotograma enviado en vivo, junto a tus fotos. El envío continúa igualmente.",
+    "keptFrameTitle": "Último fotograma",
+    "title": "Mostrar"
   },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
@@ -379,10 +393,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Preguntar al Doctor",
-    "copyCliFix": "Copiar corrección de CLI",
     "goToDoctor": "Ir al Doctor",
     "openPage": "Abrir página",
-    "suggestionFallback": "Sugerencia"
+    "suggestionFallback": "Sugerencia",
+    "copyCliFix": "Copiar corrección de CLI"
   },
   "chatRuleEditorModal": {
     "applyTo": "Aplicar a",
@@ -506,24 +520,33 @@
   },
   "contactPromptCard": {
     "addContact": "Añadir un contacto",
+    "addingToContact": "Añadiendo un canal a {name}",
     "cancel": "Cancelar",
     "contactSaved": "Contacto guardado",
     "dismiss": "Descartar",
     "enterAddress": "Introduce la dirección de {channel}",
     "markVerified": "Marcar esta dirección como verificada",
     "markVerifiedHelp": "Una dirección verificada puede enviar mensajes a tu asistente.",
+    "namePlaceholder": "Nombre",
+    "notesLabel": "Notas",
     "save": "Guardar",
     "saving": "Guardando…"
   },
   "contactRecordCard": {
     "cancel": "Cancelar",
     "contactDeleted": "Contacto eliminado",
+    "contactMerged": "Contactos combinados",
     "contactSaved": "Contacto guardado",
     "createTitle": "Añadir un contacto",
     "delete": "Eliminar",
     "deleteTitle": "¿Eliminar a {name}?",
     "deleteWarning": "Esto también elimina sus canales, por lo que ya no podrá contactar con tu asistente.",
     "dismiss": "Descartar",
+    "merge": "Combinar",
+    "mergeDonorChannels": "Se trasladan de {name}",
+    "mergeSurvivorChannels": "Ya están en {name}",
+    "mergeTitle": "¿Combinar a {donor} con {survivor}?",
+    "mergeWarning": "Estos canales pasan a {survivor} y se elimina el registro de {donor}.",
     "namePlaceholder": "Nombre",
     "noChannels": "Este contacto no tiene canales.",
     "notesPlaceholder": "Notas (opcional)",
@@ -634,6 +657,9 @@
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
+  "deletedMessageRow": {
+    "label": "Este mensaje fue eliminado"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
   },
@@ -733,6 +759,10 @@
   "formSurface": {
     "secureHint": "Este valor se enviará de forma segura y no se guardará en tu navegador.",
     "selectPlaceholder": "Seleccionar..."
+  },
+  "frameGateHud": {
+    "collapse": "Ocultar la lectura del filtro de fotogramas",
+    "expand": "Mostrar la lectura del filtro de fotogramas"
   },
   "groupActions": {
     "archiveAll": "Archivar todas…",
@@ -1467,9 +1497,7 @@
   },
   "skillLoadOutput": {
     "output": "Salida",
-    "outputFormatAria": "Formato de salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más"
+    "outputFormatAria": "Formato de salida"
   },
   "skillToolList": {
     "fromSkill": "De {name}"
@@ -1583,6 +1611,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Cerrar detalles de la herramienta",
+    "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
+    "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "output": "Salida",
     "riskLevel": "Nivel de riesgo",
     "running": "Ejecutando…"
@@ -1674,6 +1704,7 @@
     "muteMicrophone": "Silenciar el micrófono",
     "mutedState": "Silenciado. {state}",
     "showCamera": "Mostrar la cámara",
+    "stopLive": "Detener en vivo",
     "takePhoto": "Tomar una foto",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
@@ -1756,5 +1787,15 @@
     "reactionAdded": "{name} reaccionó con {emoji}",
     "reactionRemoved": "{name} quitó su reacción {emoji}",
     "reactionSomeone": "Alguien"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "Restaurar acceso",
+    "restoring": "Restaurando...",
+    "restored": "Restaurado. Los modelos gestionados por Vellum vuelven a funcionar.",
+    "failedNoAssistant": "Selecciona un asistente y vuelve a intentarlo.",
+    "failedCannotActHere": "Esta aplicación no puede restaurar la credencial de este asistente. Abre el asistente en el equipo que lo ejecuta.",
+    "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
+    "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
+    "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
   }
 }

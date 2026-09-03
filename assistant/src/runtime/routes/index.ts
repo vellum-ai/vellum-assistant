@@ -132,6 +132,7 @@ import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as RESOURCE_PRESSURE_ROUTES } from "./resource-pressure-routes.js";
 import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
+import { ROUTES as ROADMAP_ROUTES } from "./roadmap-routes.js";
 import { ROUTES as ROUTE_HOST_WORKER_ROUTES } from "./route-host-worker-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
@@ -139,6 +140,7 @@ import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
+import { ROUTES as SIGHT_FRAME_ROUTES } from "./sight-frame-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
 import { ROUTES as SOUNDS_CONFIG_ROUTES } from "./sounds-config-routes.js";
@@ -281,12 +283,14 @@ export const ROUTES: RouteDefinition[] = [
   ...RENAME_CONVERSATION_ROUTES,
   ...MONITORING_ROUTES,
   ...RETROSPECTIVE_ROUTES,
+  ...ROADMAP_ROUTES,
   ...SCHEDULE_ROUTES,
   ...SCHEDULE_WORKER_ROUTES,
   ...ROUTE_HOST_WORKER_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SIGHT_FRAME_ROUTES,
   ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,

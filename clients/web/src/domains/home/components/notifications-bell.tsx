@@ -23,8 +23,7 @@ import {
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { HomeRecapRow } from "../home-recap-row";
-import { useBriefingRecipeCard } from "../hooks/use-briefing-recipe-card";
+import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
@@ -39,6 +38,7 @@ import {
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
 import { NotificationsBellEmptyState } from "./notifications-bell-empty-state";
+import { NotificationsBellList } from "./notifications-bell-list";
 
 // The height budget the panel's content region is drawn against: five compact
 // cards plus the four 8px gaps between them. A compact card is 73px tall: 2px
@@ -47,7 +47,7 @@ import { NotificationsBellEmptyState } from "./notifications-bell-empty-state";
 // 5 * 73 + 4 * 8 = 397. The list takes it as a cap, so a short feed draws a
 // short panel and older notifications stay reachable by scrolling. The detail
 // takes it as a fixed height, so every notification renders in the same frame.
-const PANEL_CONTENT_HEIGHT = "397px";
+export const PANEL_CONTENT_HEIGHT = "397px";
 
 // Ceiling on that budget, so a viewport too short to seat it shrinks the
 // content region instead of running the popover off the bottom edge. The
@@ -131,7 +131,7 @@ export function NotificationsBell() {
   // entity-link resolver fill, so it is at most one request between them.
   const isEmptyStateVisible =
     isOpen && !isDetailOpen && !feedQuery.isError && visibleItems.length === 0;
-  const briefingRecipe = useBriefingRecipeCard(
+  const showBriefingRecipe = useShouldOfferBriefingRecipe(
     assistantId,
     isEmptyStateVisible,
   );
@@ -342,34 +342,25 @@ export function NotificationsBell() {
       ) : (
         <NotificationsBellEmptyState
           onLaunchRecipe={closePanel}
-          showBriefingRecipe={briefingRecipe.isVisible}
-          onDismissBriefingRecipe={briefingRecipe.dismiss}
+          showBriefingRecipe={showBriefingRecipe}
         />
       )
     ) : (
-      <div
-        ref={restoreListScroll}
+      <NotificationsBellList
+        items={visibleItems}
+        maxHeight={listMaxHeight}
+        scrollRef={restoreListScroll}
         onScroll={(event) => {
           listScrollTopRef.current = event.currentTarget.scrollTop;
         }}
-        style={{ maxHeight: listMaxHeight }}
-        className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
-      >
-        {visibleItems.map((item) => (
-          <HomeRecapRow
-            key={item.id}
-            item={item}
-            density="compact"
-            onSelect={handleSelectItem}
-            onDismiss={(itemId) =>
-              feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
-            }
-            onToggleRead={(itemId, status) =>
-              feedQuery.updateStatus.mutate({ itemId, status })
-            }
-          />
-        ))}
-      </div>
+        onSelect={handleSelectItem}
+        onDismiss={(itemId) =>
+          feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
+        }
+        onToggleRead={(itemId, status) =>
+          feedQuery.updateStatus.mutate({ itemId, status })
+        }
+      />
     );
 
   // Keyed so the swap remounts the incoming view and replays its entrance.

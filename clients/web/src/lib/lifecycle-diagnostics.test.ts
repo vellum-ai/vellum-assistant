@@ -53,6 +53,31 @@ describe("subscribeLifecycleDiagnostics", () => {
     unsubscribe();
   });
 
+  // The record a support bundle needs to answer whether a desktop window
+  // reported itself watched when a notification vanished.
+  test("records the desktop's attention edges with their state", () => {
+    // GIVEN the lifecycle recorder is attached to the bus
+    const before = getLifecycleDiagnosticsEvents().length;
+    const unsubscribe = subscribeLifecycleDiagnostics();
+
+    // WHEN a desktop window loses and regains the user's attention
+    publish("app.attention", { attended: false });
+    publish("app.attention", { attended: true });
+
+    // THEN both edges land in the ring, carrying which way they went
+    const recorded = getLifecycleDiagnosticsEvents().slice(before);
+    expect(recorded.map((event) => event.kind)).toEqual([
+      "app.attention",
+      "app.attention",
+    ]);
+    expect(recorded.map((event) => event.details.attended)).toEqual([
+      false,
+      true,
+    ]);
+
+    unsubscribe();
+  });
+
   test("stops recording after unsubscribe", () => {
     // GIVEN the recorder was attached and then torn down
     const unsubscribe = subscribeLifecycleDiagnostics();

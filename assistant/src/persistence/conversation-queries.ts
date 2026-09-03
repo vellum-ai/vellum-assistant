@@ -25,6 +25,8 @@ import { ensureDisplayOrderMigration } from "./conversation-display-order-migrat
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
+  ASSISTANT_INITIATED_GROUP_ID,
+  ASSISTANT_INITIATED_SOURCE,
   type ConversationType,
   NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
@@ -214,6 +216,58 @@ function notBackgroundVisibilitySql(alias = "conversations"): string {
 }
 
 /**
+ * Raw SQL predicate for "a thread the assistant started on its own": the rows
+ * stamped {@link ASSISTANT_INITIATED_SOURCE} at creation by a producer that
+ * opted the thread into the section.
+ *
+ * Membership rides `source` rather than `group_id` because those rows are
+ * filed nowhere — see {@link ASSISTANT_INITIATED_GROUP_ID} for why the section
+ * is still named as a group id. It is a dedicated source rather than the
+ * notification pipeline's `'notification'`, whose rows are the transactional
+ * request trails (guardian approvals, confirmation / access / question /
+ * tool-grant requests, channel deliveries) that belong to the bell and to
+ * Chats - see {@link ASSISTANT_INITIATED_SOURCE} for the full rationale.
+ */
+function assistantInitiatedSql(alias = "conversations"): string {
+  return `(${alias}.source = '${ASSISTANT_INITIATED_SOURCE}' AND ${ungroupedSql(alias)})`;
+}
+
+/**
+ * The complement of {@link assistantInitiatedSql}, spelled out rather than
+ * wrapped in `NOT`.
+ *
+ * `source` is nullable and the overwhelming majority of rows carry NULL, so
+ * `NOT (source = '...')` evaluates to NULL for them under SQL's three-valued
+ * logic and the WHERE clause drops them. Negating the column naively would
+ * therefore not withhold one section from Chats - it would empty Chats.
+ */
+function notAssistantInitiatedSql(alias = "conversations"): string {
+  return `(${alias}.source IS NULL OR ${alias}.source != '${ASSISTANT_INITIATED_SOURCE}' OR NOT ${ungroupedSql(alias)})`;
+}
+
+/**
+ * Raw SQL predicate for {@link UNGROUPED_GROUP_ID}: every row the sidebar's
+ * flat list shows — not pinned and not filed in a custom group.
+ *
+ * It deliberately admits the system buckets, because a surfaced background or
+ * scheduled conversation keeps its `system:background` / `system:scheduled`
+ * group id (surfacing writes only `surfaced_at`) while the standard listing
+ * renders it in Recents. Whether such a row is actually visible stays with
+ * {@link conversationTypeClause}, which admits the surfaced ones and excludes
+ * the rest; matching on group id alone here would drop them.
+ *
+ * Named because two sections are carved out of this same set — Chats and the
+ * assistant-initiated threads — and they have to agree on what it contains or
+ * a row lands in both or neither.
+ */
+function ungroupedSql(alias = "conversations"): string {
+  return (
+    `(${alias}.group_id IS NULL` +
+    ` OR (${alias}.group_id LIKE 'system:%' AND ${alias}.group_id != '${PINNED_GROUP_ID}'))`
+  );
+}
+
+/**
  * SQL predicate selecting which bucket {@link listConversations} and
  * {@link countConversations} return, keyed by the canonical
  * {@link ConversationType}:
@@ -293,6 +347,21 @@ export interface ConversationListFilter {
    * row instead of paging past runs it would skip.
    */
   foregroundOnly?: true;
+  /**
+   * Withhold the threads the assistant started on its own
+   * ({@link assistantInitiatedSql}) from the result.
+   *
+   * The exact complement of `groupId: ASSISTANT_INITIATED_GROUP_ID`, and the
+   * other half of splitting that section out of Chats: without it those rows
+   * would be counted and listed twice, once in their own section and once in
+   * the leftover bucket that never excluded them. Being the exact complement
+   * matters as much as the exclusion — a thread the user pinned or filed into
+   * a custom group is not in the assistant section, so this must not withhold
+   * it from the section that does hold it. Only `true` narrows; omit to keep
+   * every row, which is what every caller does while the
+   * `assistant-initiated-threads` flag is off.
+   */
+  excludeAssistantInitiated?: true;
 }
 
 export interface ConversationListQuery extends ConversationListFilter {
@@ -313,16 +382,15 @@ export interface ConversationListQuery extends ConversationListFilter {
  * declared in `schema/conversations.ts`.
  */
 function groupIdClause(groupId: string) {
+  if (groupId === ASSISTANT_INITIATED_GROUP_ID) {
+    // Not a `group_id` match: `source` decides membership. See
+    // ASSISTANT_INITIATED_GROUP_ID. Still narrowed to the ungrouped set,
+    // because filing one of these threads into a custom group — or pinning it
+    // — must move it there rather than leave it in two sections at once.
+    return sql.raw(assistantInitiatedSql());
+  }
   if (groupId === UNGROUPED_GROUP_ID) {
-    // "Ungrouped" means every row the sidebar's flat list shows: not pinned
-    // and not filed in a custom group. It deliberately admits the system
-    // buckets, because a surfaced background or scheduled conversation keeps
-    // its `system:background` / `system:scheduled` group id (surfacing writes
-    // only `surfaced_at`) while the standard listing renders it in Recents.
-    // Whether such a row is actually visible stays with
-    // `conversationTypeClause`, which admits the surfaced ones and excludes
-    // the rest; matching on group id alone here would drop them.
-    return sql`(group_id IS NULL OR (group_id LIKE 'system:%' AND group_id != ${PINNED_GROUP_ID}))`;
+    return sql.raw(ungroupedSql());
   }
   // `group_id` is single-valued and authoritative, so a row belongs to
   // exactly one section by construction. `is_pinned` is a derived duplicate
@@ -376,6 +444,7 @@ function conversationListWhere(filter: ConversationListFilter) {
     groupId,
     needsAttention,
     foregroundOnly,
+    excludeAssistantInitiated,
   } = filter;
   return and(
     conversationTypeClause(conversationType),
@@ -384,6 +453,7 @@ function conversationListWhere(filter: ConversationListFilter) {
     groupId ? groupIdClause(groupId) : undefined,
     ...(needsAttention ? unseenAttentionStateConditions() : []),
     foregroundOnly ? sql.raw(notBackgroundVisibilitySql()) : undefined,
+    excludeAssistantInitiated ? sql.raw(notAssistantInitiatedSql()) : undefined,
   );
 }
 
@@ -699,11 +769,34 @@ export interface ConversationSectionCount {
 export interface ConversationSectionCounts {
   groups: Array<{ groupId: string } & ConversationSectionCount>;
   channels: Array<{ channel: string } & ConversationSectionCount>;
+  /**
+   * The assistant-initiated section, present only when the caller asked for
+   * the split ({@link CountConversationSectionsOptions.splitAssistantInitiated}).
+   * Absent — not zero — when it did not, so a caller that never asked cannot
+   * mistake "not split out" for "split out and empty".
+   *
+   * When present, these rows are withheld from `channels`, keeping the two
+   * axes disjoint the way `groups` and `channels` already are.
+   */
+  assistantInitiated?: ConversationSectionCount;
 }
 
-export function countConversationSections(): ConversationSectionCounts {
+export interface CountConversationSectionsOptions {
+  /**
+   * Count the threads the assistant started on its own as their own section
+   * and withhold them from the channel buckets. Off by default: the caller
+   * that knows about the `assistant-initiated-threads` flag turns it on, and
+   * every other caller keeps today's shape.
+   */
+  splitAssistantInitiated?: boolean;
+}
+
+export function countConversationSections(
+  options: CountConversationSectionsOptions = {},
+): ConversationSectionCounts {
   ensureGroupMigration();
   const db = getDb();
+  const { splitAssistantInitiated = false } = options;
 
   /* `countUnreadConversations` gets the same effect with an INNER JOIN and
      the unseen conditions in its WHERE; here every row must be counted and
@@ -747,12 +840,48 @@ export function countConversationSections(): ConversationSectionCounts {
         conversationTypeClause("standard"),
         isNull(conversations.archivedAt),
         groupIdClause(UNGROUPED_GROUP_ID),
+        /* The split's other half. These rows are ungrouped and natively
+           attributed, so without this they stay in the Chats bucket and get
+           counted in both sections at once. */
+        splitAssistantInitiated
+          ? sql.raw(notAssistantInitiatedSql())
+          : undefined,
       ),
     )
     .groupBy(effectiveChannel)
     .all();
 
-  return { groups, channels };
+  if (!splitAssistantInitiated) {
+    return { groups, channels };
+  }
+
+  /* Composed from the same predicates as the buckets above rather than
+     restated, so this section's badge cannot drift from theirs: same standard
+     listing visibility, same active-rows-only rule, same unread CASE. */
+  const [assistantInitiated] = db
+    .select({ total: count(), unread })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        groupIdClause(ASSISTANT_INITIATED_GROUP_ID),
+      ),
+    )
+    .all();
+
+  return {
+    groups,
+    channels,
+    /* The aggregate is over no GROUP BY, so it always yields one row — but it
+       yields `unread: null` rather than 0 when no row matched, because SUM
+       over an empty set is NULL. */
+    assistantInitiated: {
+      total: assistantInitiated?.total ?? 0,
+      unread: assistantInitiated?.unread ?? 0,
+    },
+  };
 }
 
 /**
@@ -1250,10 +1379,6 @@ function wrapRecallEvidenceExcerpt(
     : wrapUntrustedContent(excerpt, { source });
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Earliest case-insensitive match of the query in `text`: the contiguous
  * query when present, otherwise the earliest of its lexical tokens (same
@@ -1275,7 +1400,7 @@ function findEarliestMatch(
     ).exec(text);
   };
 
-  const whole = execAnchored(escapeRegExp(query));
+  const whole = execAnchored(RegExp.escape(query));
   if (whole) {
     return { index: whole.index, length: whole[0].length };
   }
@@ -1285,7 +1410,9 @@ function findEarliestMatch(
   if (tokens.length === 0) {
     return null;
   }
-  const match = execAnchored(tokens.map(escapeRegExp).join("|"));
+  const match = execAnchored(
+    tokens.map((token) => RegExp.escape(token)).join("|"),
+  );
   return match ? { index: match.index, length: match[0].length } : null;
 }
 

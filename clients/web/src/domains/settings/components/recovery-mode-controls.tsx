@@ -121,11 +121,11 @@ export function RecoveryModeControls({
               {t("recoveryModeControls.title")}
             </p>
             {isActive ? (
-              <p className="text-body-small-default text-[var(--system-mid-strong)]">
+              <p className="text-body-small-lighter text-[var(--system-mid-strong)]">
                 {t("recoveryModeControls.activeDescription")}
               </p>
             ) : (
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                 {t("recoveryModeControls.inactiveDescription")}
               </p>
             )}

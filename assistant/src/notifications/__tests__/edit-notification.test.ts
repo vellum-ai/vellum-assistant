@@ -74,6 +74,22 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
 }));
 
+const reindexedMessageIds: string[] = [];
+mock.module("../../persistence/job-handlers/message-lexical.js", () => ({
+  enqueueLexicalIndexForMessage: (messageId: string) => {
+    reindexedMessageIds.push(messageId);
+  },
+}));
+
+const staleMarkedConversations: string[] = [];
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (conversationId: string) => ({
+    markHistoryStale: () => {
+      staleMarkedConversations.push(conversationId);
+    },
+  }),
+}));
+
 mock.module("../emit-signal.js", () => ({
   getBroadcaster: () => ({
     getAdapter: () =>
@@ -133,6 +149,7 @@ function makeDelivery(
     errorCode: null,
     errorMessage: null,
     sentAt: 1700000000000,
+    canonicalMessageId: null,
     conversationId: null,
     messageId: "1700000000.0001",
     conversationStrategy: null,
@@ -164,6 +181,8 @@ beforeEach(() => {
   renderedCopyPatches.length = 0;
   adapterUpdates.length = 0;
   messageRewrites.length = 0;
+  reindexedMessageIds.length = 0;
+  staleMarkedConversations.length = 0;
   messageOwners.clear();
   messageOwners.set("msg-9", "conv-source-1");
   messageLookupShouldThrow = false;
@@ -318,6 +337,46 @@ describe("editNotification", () => {
     expect(result!.channels).toEqual([
       { channel: "slack", deliveryId: "del-1", outcome: "updated" },
     ]);
+  });
+
+  test("a body edit rewrites the delivery's canonical row, re-indexes it, and marks its conversation stale", async () => {
+    await appendFeedItem(makeItem());
+    decisionRow = { id: "dec-1" };
+    deliveryRows = [
+      makeDelivery({
+        conversationId: "conv-chat-home",
+        canonicalMessageId: "row-42",
+      }),
+    ];
+
+    await editNotification({ id: FEED_ITEM_ID, body: "Done in 4 minutes" });
+
+    expect(messageRewrites).toContainEqual({
+      messageId: "row-42",
+      content: "Done in 4 minutes",
+    });
+    expect(reindexedMessageIds).toEqual(["row-42"]);
+    expect(staleMarkedConversations).toEqual(["conv-chat-home"]);
+  });
+
+  test("a title-only edit leaves the canonical row alone", async () => {
+    await appendFeedItem(makeItem());
+    decisionRow = { id: "dec-1" };
+    deliveryRows = [
+      makeDelivery({
+        conversationId: "conv-chat-home",
+        canonicalMessageId: "row-42",
+      }),
+    ];
+
+    await editNotification({
+      id: FEED_ITEM_ID,
+      title: "Backup finished early",
+    });
+
+    expect(messageRewrites.some((r) => r.messageId === "row-42")).toBe(false);
+    expect(reindexedMessageIds).toEqual([]);
+    expect(staleMarkedConversations).toEqual([]);
   });
 
   test("reports channels whose adapter cannot edit in place as unsupported", async () => {

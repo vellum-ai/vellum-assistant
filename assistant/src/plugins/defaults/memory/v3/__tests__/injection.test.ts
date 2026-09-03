@@ -1,6 +1,6 @@
 /**
  * Tests for the memory-v3 injection layer (`injector.ts`): frozen net-new
- * cards + ephemeral spotlight.
+ * cards + per-turn spotlight.
  *
  *   - net-new dedup: a turn re-selecting already-injected pages renders zero
  *     new cards (empty-text block — still produced, so v2 suppression holds);
@@ -613,14 +613,14 @@ describe("memoryV3Injector — frozen net-new cards", () => {
   });
 });
 
-// ─── ephemeral spotlight ────────────────────────────────────────────────────
+// ─── per-turn spotlight ─────────────────────────────────────────────────────
 
 describe("memoryV3SpotlightInjector — ephemeral section spotlight", () => {
   const sectionA = section("page-a", "Alpha", "alpha section text");
   const sectionB = section("page-b", "Beta", "beta section text");
   const sectionC = section("page-c", "Gamma", "gamma section text");
 
-  test("renders selected finder hits' matched sections right after the memory cards", async () => {
+  test("renders selected finder hits' matched sections as an after-memory-prefix spotlight", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a", "page-b"], [["page-a", sectionA]]));
 

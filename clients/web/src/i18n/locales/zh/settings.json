@@ -74,6 +74,8 @@
     "unsupportedLabel": "不可用"
   },
   "appIcon": {
+    "androidApplyNote": "备用图标随应用提供。Android 会在您离开应用后应用您的选择，更换图标可能会重置您固定到主屏幕的快捷方式。",
+    "androidError": "Android 未更改您的主屏幕图标。您可以再试一次。",
     "apply": "设置应用图标",
     "change": "更改",
     "color": "颜色",
@@ -275,9 +277,7 @@
     "addTitle": "添加银行卡",
     "addressFormLoadError": "未能加载账单地址表单。请重试。",
     "cancel": "取消",
-    "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
-    "cardOnFileNote": "保存后将被替换",
     "close": "关闭",
     "confirmFailed": "未能保存付款方式。",
     "confirmingWithBank": "正在与您的银行确认…",
@@ -288,10 +288,17 @@
     "primaryReplace": "替换银行卡",
     "primarySubmitting": "保存中",
     "replaceSubtitle": "新卡将立即生效。",
+    "replaceSubtitleCard": "正在替换 {brand} •••• {last4}。新卡将立即生效。",
+    "replaceSubtitleCardExpiry": "正在替换 {brand} •••• {last4}·{month}/{year}。新卡将立即生效。",
+    "replaceSubtitleCardNoBrand": "正在替换尾号为 {last4} 的银行卡。新卡将立即生效。",
+    "replaceSubtitleCardNoBrandExpiry": "正在替换尾号为 {last4} 的银行卡·{month}/{year}。新卡将立即生效。",
+    "replaceSubtitleCardNoLast4": "正在替换您的 {brand} 卡。新卡将立即生效。",
+    "replaceSubtitleCardNoLast4Expiry": "正在替换您的 {brand} 卡·{month}/{year}。新卡将立即生效。",
     "replaceTitle": "替换您的银行卡",
     "savedSubtitle": "自动充值已重新启用",
     "savedTitle": "{brand} •••• {last4} 已保存",
     "savedTitleGeneric": "银行卡已保存",
+    "savedTitleNoBrand": "尾号为 {last4} 的银行卡已保存",
     "setupError": "未能启动银行卡设置。请重试。",
     "termsAdd": "Vellum 可以使用这张卡收取自动充值和订阅续费的费用。您可以随时在账单设置中移除它。",
     "termsReplace": "在您从账单设置中移除之前，旧卡会保留在 Stripe；Vellum 现在起不再从旧卡扣款。",
@@ -608,7 +615,7 @@
   "customPlanRow": {
     "configure": "配置",
     "currentPlanTag": "您的当前计划",
-    "genericDescriptor": "选择自定义CPU算力、内存和存储。或者直接添加一些令牌。",
+    "genericDescriptor": "选择自定义CPU算力、内存和存储。或者直接添加一些 Token。",
     "prompt": "需要更符合您需求的服务吗？",
     "title": "自定义计划"
   },
@@ -1052,7 +1059,7 @@
     "toastRemoved": "已移除 {serverId}",
     "toastUpdateFailed": "更新 {serverId} 失败",
     "toastUpdated": "已更新 {serverId}",
-    "totalTokens": "共计约 {count} 个令牌",
+    "totalTokens": "共计约 {count} 个 Token",
     "totalTools": "{count, plural, other {# 个工具}}"
   },
   "mcpServerCard": {
@@ -1060,7 +1067,7 @@
     "authenticating": "正在认证...",
     "configure": "配置",
     "configureTooltip": "配置",
-    "estimatedTokens": "~{count} 个令牌",
+    "estimatedTokens": "~{count} 个 Token",
     "oauthBadge": "OAuth",
     "reAuth": "重新认证",
     "reAuthTooltip": "重新认证 OAuth",
@@ -1077,7 +1084,7 @@
     "toggleDisableAriaLabel": "禁用 {serverId}",
     "toggleEnableAriaLabel": "启用 {serverId}",
     "toolCount": "{count, plural, other {# 个工具}}",
-    "toolTokensAbbrev": "~{count} 令牌"
+    "toolTokensAbbrev": "~{count} Token"
   },
   "mcpServerDetailModal": {
     "apiKey": "API 密钥",
@@ -1105,9 +1112,9 @@
     "save": "保存",
     "saving": "正在保存...",
     "tableDescription": "描述",
-    "tableTokens": "令牌",
+    "tableTokens": "Token",
     "tableTool": "工具",
-    "tokenOverhead": "总预估令牌开销：~{count} 个令牌",
+    "tokenOverhead": "总预估 Token 开销：~{count} 个 Token",
     "toolEstimatedTokens": "~{count}"
   },
   "mediaEmbedsCard": {
@@ -1429,14 +1436,14 @@
     "effortLabel": "努力程度",
     "effortSegmentDefault": "默认",
     "enableExtendedThinkingLabel": "启用扩展思考",
-    "maxOutputTokensLabel": "最大输出令牌数",
+    "maxOutputTokensLabel": "最大输出 Token 数",
     "reset": "重置",
     "speedLabel": "速度",
-    "streamThinkingTokensLabel": "流式思考令牌",
+    "streamThinkingTokensLabel": "流式思考 Token",
     "temperatureLabel": "温度",
     "thinkingLevelInheritHint": "(默认 = 继承)",
     "thinkingLevelLabel": "思考级别",
-    "tokensAriaLabel": "{label} (令牌)",
+    "tokensAriaLabel": "{label} (Token)",
     "topPLabel": "Top P",
     "verbosityLabel": "详细程度"
   },
@@ -1460,8 +1467,8 @@
     "saving": "正在保存…"
   },
   "profileEditor": {
-    "maxTokensNoInputRoom": "最大令牌数 ({maxTokens}) 将整个 {window} 令牌上下文窗口保留用于输出，导致您的消息没有空间。请减少此值（例如 8000）。",
-    "maxTokensOverCap": "最大令牌数 ({maxTokens}) 超过了模型的最大输出 {cap} 令牌。请将其减少到 {cap} 或更少。",
+    "maxTokensNoInputRoom": "最大 Token 数 ({maxTokens}) 将整个 {window} Token上下文窗口保留用于输出，导致您的消息没有空间。请减少此值（例如 8000）。",
+    "maxTokensOverCap": "最大 Token 数 ({maxTokens}) 超过了模型的最大输出 {cap} Token。请将其减少到 {cap} 或更少。",
     "nameRequired": "名称为必填项",
     "nameTaken": "此名称已被占用",
     "providerRequired": "请选择提供商",
@@ -1528,8 +1535,8 @@
     "managedByVellum": "由 Vellum 管理",
     "openProfileAriaLabel": "打开配置文件 {displayName}",
     "configIssueModelUnknown": "此配置文件的模型无法从其提供商处获取。",
-    "configIssueNoInputRoom": "此配置文件的最大输出令牌数在模型的上下文窗口中没有为输入留下空间。",
-    "configIssueOverOutputCap": "此配置文件的最大输出令牌数超出了其模型支持的范围。",
+    "configIssueNoInputRoom": "此配置文件的最大输出 Token 数在模型的上下文窗口中没有为输入留下空间。",
+    "configIssueOverOutputCap": "此配置文件的最大输出 Token 数超出了其模型支持的范围。",
     "providerUnavailableDefault": "此配置文件的提供商不可用。",
     "providerUnavailableFixable": "{message} 点击修复。",
     "view": "查看"
@@ -1625,7 +1632,7 @@
     "customTag": "自定义",
     "customTagTitle": "您创建的提供商，由兼容 OpenAI 的端点提供服务。",
     "defaultTag": "默认",
-    "defaultTagTitle": "内置配置文件（平衡、质量、成本、速度）使用此提供商。",
+    "defaultTagTitle": "内置配置文件（平衡、质量、预算、快速）使用此提供商。",
     "delete": "删除",
     "edit": "编辑",
     "localTag": "本地",
@@ -2066,7 +2073,7 @@
     "costLabel": "成本",
     "dailyTrend": "每日趋势",
     "dailyTrendBy": "按 {group} 的每日趋势",
-    "directInputTokensLabel": "直接输入令牌",
+    "directInputTokensLabel": "直接输入 Token",
     "failedToLoadUsage": "未能加载使用情况。",
     "groupByActor": "执行者",
     "groupByConversation": "对话",
@@ -2083,7 +2090,7 @@
     "noBreakdownDataSubtitle": "此分组没有记录使用情况",
     "noBreakdownDataTitle": "无明细数据",
     "optimizeSettingsButton": "优化设置",
-    "outputTokensLabel": "输出令牌",
+    "outputTokensLabel": "输出 Token",
     "percentOfTotalLabel": "占总计百分比",
     "range30d": "最近 30 天",
     "range7d": "最近 7 天",
@@ -2093,7 +2100,7 @@
     "rangeYesterday": "昨天",
     "retry": "重试",
     "title": "使用情况",
-    "tokensLabel": "令牌",
+    "tokensLabel": "Token",
     "totalsAriaLabel": "总计",
     "turnsLabel": "轮次",
     "unknownSchedule": "未知定时任务 ({scheduleId})"
@@ -2160,8 +2167,6 @@
     "customKey": "自定义",
     "defaultBadge": "默认",
     "enableVoiceShortcut": "启用语音模式快捷方式",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn 需要输入监控。请在“系统设置”中授予权限，或设置自定义快捷方式。",
     "focusedTabNote": "按键说话仅在此标签页处于焦点时有效，并且浏览器可能会在页面识别之前拦截某些快捷方式（例如 Ctrl+T）。如需始终开启按键说话功能，请使用 Vellum 桌面应用。",
     "grantMicrophoneAccessHint": "授予麦克风访问权限以列出可用的输入设备。",
     "interruptSensitivityAriaLabel": "打断灵敏度",
@@ -2179,7 +2184,6 @@
     "pauseBeforeReplyDescription": "您停止说话后，助手等待多久才回复。更长的暂停时间可让您在句子中间整理思绪，而不会被打断。",
     "pauseBeforeReplyLabel": "回复前暂停",
     "pressShortcut": "按下快捷方式…",
-    "recommendedBadge": "推荐",
     "recordingPrompt": "按下组合键或按键…",
     "resetToDefaults": "恢复默认设置",
     "savedMicrophone": "已保存的麦克风",
@@ -2202,7 +2206,22 @@
     "turnTakingTitle": "轮流说话",
     "voiceShortcutSubtitle": "在应用中的任何位置按下快捷方式以开始或结束语音对话。",
     "voiceShortcutSubtitleDesktop": "用于开始/结束语音对话的全局快捷方式。",
-    "voiceShortcutTitle": "语音模式快捷方式"
+    "voiceShortcutTitle": "语音模式快捷方式",
+    "captionsRecommendation": "我们建议初次使用时保持关闭，体验更接近真实对话。"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "允许输入监控",
+    "customHint": "按住 Cmd、Ctrl、Option、Shift 中的两个或更多键，然后松开。",
+    "customLabel": "自定义",
+    "fnDictationNote": "如果 macOS 听写在连按两次 Fn 时启动，请在“系统设置”的“键盘”中关闭它。",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "在允许输入监控之前，无法监听该键。",
+    "offLabel": "关闭",
+    "recordingPrompt": "按住修饰键…",
+    "refusedNote": "无法监听该键。请重启应用后重试。",
+    "subtitle": "按住可在光标处听写或询问所选内容。连按两次可开始或结束通话。",
+    "title": "语音键",
+    "voiceOverNote": "Control 和 Option 是 VoiceOver 的修饰键。如果你使用 VoiceOver，其命令会优先占用这些键。"
   },
   "voicePickerCard": {
     "changeButton": "更改",
@@ -2275,5 +2294,32 @@
     "redirectHint": "将此 URL 添加到您的 OAuth 应用的重定向设置中。",
     "redirectUrl": "重定向 URL",
     "waitingAuthorization": "等待授权..."
+  },
+  "sidebar": {
+    "general": "常规",
+    "model": "模型与服务",
+    "integrations": "集成",
+    "credentials": "凭据",
+    "notifications": "通知",
+    "voice": "语音",
+    "sounds": "声音",
+    "privacy": "权限与隐私",
+    "bookmarks": "书签",
+    "usage": "用量",
+    "billingUsage": "账单与用量",
+    "community": "社区",
+    "debug": "调试",
+    "developer": "开发者",
+    "logout": "退出登录",
+    "login": "登录",
+    "title": "设置"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "常规",
+      "terminal": "终端",
+      "doctor": "诊断",
+      "conversations": "会话"
+    }
   }
 }

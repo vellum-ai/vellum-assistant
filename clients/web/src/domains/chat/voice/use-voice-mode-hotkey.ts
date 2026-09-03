@@ -2,31 +2,19 @@ import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
 import { isTextEntryElement } from "@/domains/chat/composer-focus";
-import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { isElectron } from "@/runtime/is-electron";
-import {
-  endLiveVoiceSession,
-  isLiveVoiceSessionActive,
-  useLiveVoiceStore,
-} from "@/domains/chat/voice/live-voice/live-voice-store";
-import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
+import { toggleVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useNativeChordRegistration } from "@/domains/chat/voice/use-native-chord-registration";
-import { useNativeFnRegistration } from "@/domains/chat/voice/use-native-fn-registration";
 import {
   LS_VOICE_MODE_ACTIVATION_KEY,
   eventMatchesVoiceModeActivator,
-  isFnVoiceModeActivator,
   readVoiceModeActivator,
   supportsBareModifierVoiceMode,
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
 import { type PTTModifier } from "@/utils/ptt-activator";
 import type { VoiceModeChord } from "@vellumai/ipc-contract";
-import {
-  type HotkeyEvent,
-  subscribeToHotkeyEvents,
-  supportsFnPushToTalk,
-} from "@/runtime/hotkey";
+import { type HotkeyEvent, subscribeToHotkeyEvents } from "@/runtime/hotkey";
 import { watchSetting } from "@/utils/local-settings";
 
 const MODIFIER_BY_KEY: Partial<Record<string, PTTModifier>> = {
@@ -56,48 +44,20 @@ const MODIFIER_BY_KEY: Partial<Record<string, PTTModifier>> = {
  * point, and a shortcut that only worked with focus outside the textarea
  * would be dead in the state users are actually in.
  *
- * Fn is desktop-only and orthogonal to both. It never reaches the DOM, so the
- * helper is registered instead. The helper reports a completed bare-Fn tap as
- * a `down`/`up` pair (a chorded Fn press, e.g. Fn+Ctrl or Fn+arrow, is
- * someone else's shortcut and is filtered out there), and the `down` edge is
- * the tap since a toggle has no use for the release. A host that accepts no
- * Fn registration simply has no Fn binding; the global Talk shortcut is still
- * there, and unlike Fn it needs no Input Monitoring grant.
+ * The macOS desktop app has neither: its voice key (`useVoiceKey`) starts and
+ * ends a call on a double tap, and this hook binds nothing there.
  *
  * Starting is not this hook's to define. A press is handed to
- * `startVoiceFromSurface`, the same entry the companion surface's Talk uses,
- * so every way in stays one behaviour rather than several.
+ * `toggleVoiceFromSurface`, the same entry the voice key's double tap uses and
+ * built on the one the companion surface's Talk uses, so every way in stays
+ * one behaviour rather than several.
  */
 export function useVoiceModeHotkey({
   enabled = true,
 }: { enabled?: boolean } = {}): void {
   const navigate = useNavigate();
-  /**
-   * Publish whether the host took Fn, rather than branching on it here.
-   *
-   * There is nothing for this hook to do about a refusal: the chord is the
-   * host's `globalShortcut` now, so there is no second binding to fall back
-   * to, and quietly binding one would be a binding the settings card does not
-   * show. What a refusal needs is to be said out loud, which is the card's
-   * job. See `fn-registration-store`.
-   */
-  const setFnRegistered = useFnRegistrationStore(
-    (state) => state.setRegistered,
-  );
 
-  const shouldRegisterFn = useCallback(
-    () =>
-      enabled &&
-      isFnVoiceModeActivator(readVoiceModeActivator(supportsFnPushToTalk())),
-    [enabled],
-  );
-  useNativeFnRegistration(
-    shouldRegisterFn,
-    LS_VOICE_MODE_ACTIVATION_KEY,
-    setFnRegistered,
-  );
-
-  // The Windows analog of the Fn registration above. A bare-modifier binding
+  // The Windows analog of the macOS voice key. A bare-modifier binding
   // can only be watched system-wide by the helper's keyboard hook (an Electron
   // `globalShortcut` cannot express one), so it is registered there whenever
   // the setting names one. While the host confirms native capture is live,
@@ -110,11 +70,8 @@ export function useVoiceModeHotkey({
     if (!enabled || !supportsBareModifierVoiceMode()) {
       return null;
     }
-    const activator = readVoiceModeActivator(supportsFnPushToTalk());
-    if (
-      activator.kind !== "modifierOnly" ||
-      isFnVoiceModeActivator(activator)
-    ) {
+    const activator = readVoiceModeActivator();
+    if (activator.kind !== "modifierOnly") {
       return null;
     }
     return { kind: "modifierOnly", modifiers: activator.modifiers };
@@ -126,15 +83,7 @@ export function useVoiceModeHotkey({
   );
 
   const toggleVoiceMode = useCallback(() => {
-    if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
-      endLiveVoiceSession();
-      return;
-    }
-    // The same action as the companion surface's Talk, deliberately: a press
-    // here and a press there are the same request, made from outside the
-    // conversation either way. `startVoiceFromSurface` owns what that means,
-    // so the two cannot drift.
-    startVoiceFromSurface(navigate);
+    toggleVoiceFromSurface(navigate);
   }, [navigate]);
 
   useEffect(() => {
@@ -142,10 +91,9 @@ export function useVoiceModeHotkey({
       return;
     }
 
-    const fnAvailable = supportsFnPushToTalk();
-    let activator = readVoiceModeActivator(fnAvailable);
+    let activator = readVoiceModeActivator();
     const unwatchSetting = watchSetting(LS_VOICE_MODE_ACTIVATION_KEY, () => {
-      activator = readVoiceModeActivator(fnAvailable);
+      activator = readVoiceModeActivator();
     });
 
     // A bare-modifier binding (Windows desktop) toggles on a clean tap:
@@ -161,9 +109,7 @@ export function useVoiceModeHotkey({
     const bindsChord = !isElectron();
 
     const isBareModifierActivator = (a: VoiceModeActivator): boolean =>
-      bindsBareModifier &&
-      a.kind === "modifierOnly" &&
-      !isFnVoiceModeActivator(a);
+      bindsBareModifier && a.kind === "modifierOnly";
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || activator.kind === "off") {
@@ -189,10 +135,6 @@ export function useVoiceModeHotkey({
       // Desktop chords are the main process's `globalShortcut`; only the
       // bare-modifier path above belongs to the DOM there.
       if (!bindsChord) {
-        return;
-      }
-      // Fn arrives over the host bridge below, never as a DOM key event.
-      if (isFnVoiceModeActivator(activator)) {
         return;
       }
       // A binding with no modifier is a bare character. Yield to whatever the
@@ -244,19 +186,16 @@ export function useVoiceModeHotkey({
     };
 
     const onNativeHotkey = (event: HotkeyEvent) => {
-      // The release edge ends a push-to-talk hold. For a toggle it means
-      // nothing: the user has already lifted the key that started the session.
-      if (event.state !== "down") {
-        return;
-      }
-      // Fn taps come from the macOS helper; a completed bare-modifier chord
-      // tap comes from the Windows helper's keyboard hook. Either way the
-      // event only counts while the setting still names that binding.
-      const matchesBinding =
-        event.kind === "fnPushToTalk"
-          ? isFnVoiceModeActivator(activator)
-          : isBareModifierActivator(activator);
-      if (!matchesBinding) {
+      // A completed bare-modifier chord tap from the Windows helper's keyboard
+      // hook, reported as a pair once the keys are back up. The release edge
+      // means nothing to a toggle, and the tap only counts while the setting
+      // still names that binding. The macOS helper's hold edges belong to the
+      // voice key.
+      if (
+        event.kind !== "voiceModeChord" ||
+        event.state !== "down" ||
+        !isBareModifierActivator(activator)
+      ) {
         return;
       }
       toggleVoiceMode();

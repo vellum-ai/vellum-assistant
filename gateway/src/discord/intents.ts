@@ -57,8 +57,8 @@ export const DISCORD_INTENTS = {
  * decision, not this bitmask's.
  *
  * The two reaction intents deliver `MESSAGE_REACTION_ADD` / `_REMOVE`, which
- * carry a guardian's approval-by-reaction on an approval card and the
- * reaction annotations recorded on stored messages. Neither is privileged,
+ * carry the reaction annotations recorded on stored messages and the wake a
+ * reaction on the assistant's own post drives. Neither is privileged,
  * and a reaction dispatch carries an emoji and ids but no message content,
  * so they leave the no-`MESSAGE_CONTENT` posture untouched.
  */

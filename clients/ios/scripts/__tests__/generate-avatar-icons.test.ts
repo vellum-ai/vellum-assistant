@@ -26,12 +26,14 @@ import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 
 import {
-  AVATAR_ICONS_DIR,
-  AVATAR_ICONS_XCCONFIG_PATH,
-  generateAvatarIcons,
   iconNameForTraits,
   traitCombinations,
   type IconSetScope,
+} from "../avatar-icon-core.js";
+import {
+  AVATAR_ICONS_DIR,
+  AVATAR_ICONS_XCCONFIG_PATH,
+  generateAvatarIcons,
 } from "../generate-avatar-icons.js";
 
 /** Scope of the catalog checked into the repo. Narrowing it is a code change. */

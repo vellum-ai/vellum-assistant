@@ -7,6 +7,7 @@
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
 import {
+  avatarAccentPost,
   avatarCharactercomponentsGet,
   avatarImagePost,
   avatarRenderfromtraitsPost,
@@ -24,6 +25,14 @@ import type {
 } from "@/types/avatar";
 import { isAvatarState, isCharacterTraits } from "@/types/avatar";
 import { assertHasResponse } from "@/utils/api-errors";
+
+/**
+ * An assistant that predates accents answers without the field; the manifest
+ * shape promises it, so the null is filled in here.
+ */
+function withAccent(state: AvatarState): AvatarState {
+  return { ...state, accent: state.accent ?? null };
+}
 
 /**
  * Fetch the authoritative avatar render manifest from the daemon's
@@ -44,7 +53,33 @@ export async function fetchAvatarState(
     if (!response.ok || !isAvatarState(data)) {
       return null;
     }
-    return data;
+    return withAccent(data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Set the accent over the current avatar (`#rrggbb`), or hand it back to the
+ * automatic one with `null`. Resolves to the manifest as written, or null when
+ * the request failed. Only reachable on assistants whose manifest already
+ * carries an accent, which is how the route's presence is known.
+ */
+export async function saveAvatarAccent(
+  assistantId: string,
+  hex: string | null,
+): Promise<AvatarState | null> {
+  try {
+    const { data, error, response } = await avatarAccentPost({
+      path: { assistant_id: assistantId },
+      body: { hex },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to save avatar accent");
+    if (!response.ok || !isAvatarState(data)) {
+      return null;
+    }
+    return withAccent(data);
   } catch {
     return null;
   }
@@ -73,9 +108,7 @@ export async function fetchCharacterComponents(
  * authoritative answer) apart from "the request failed" (inconclusive).
  */
 export type AvatarFileResult<T> =
-  | { status: "found"; value: T }
-  | { status: "absent" }
-  | { status: "failed" };
+  { status: "found"; value: T } | { status: "absent" } | { status: "failed" };
 
 function parseCharacterTraits(content: string): CharacterTraits | null {
   try {

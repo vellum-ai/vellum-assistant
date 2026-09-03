@@ -258,6 +258,12 @@
     "unsupported": "此裝置無法開啟相機。",
     "uploadFailed": "無法傳送該相片。"
   },
+  "cameraShutterHint": {
+    "live": "即時 · 輕觸停止",
+    "liveDescription": "輕觸停止即時視訊。",
+    "photo": "輕觸拍照 · 長按開啟即時",
+    "photoDescription": "長按開啟即時視訊。"
+  },
   "cameraStatusPill": {
     "announceLive": "即時。{status}",
     "announceLiveMuted": "即時。已靜音。{status}",
@@ -270,6 +276,14 @@
     "live": "即時",
     "photo": "相片",
     "yourAssistant": "您的助理"
+  },
+  "cameraViewOptions": {
+    "buttonAria": "相機顯示選項",
+    "gateHudDescription": "用於調整即時模式保留哪些畫面的面板。",
+    "gateHudTitle": "影格篩選讀數",
+    "keptFrameDescription": "即時模式傳送的最近一格，顯示在照片旁邊。無論是否顯示，都會繼續傳送。",
+    "keptFrameTitle": "最近一格",
+    "title": "顯示"
   },
   "cardSurface": {
     "tasksProgress": "已完成 {completed} / 共 {total} 個任務"
@@ -378,10 +392,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "詢問 Doctor",
-    "copyCliFix": "複製 CLI 修正",
     "goToDoctor": "前往 Doctor",
     "openPage": "開啟頁面",
-    "suggestionFallback": "建議"
+    "suggestionFallback": "建議",
+    "copyCliFix": "複製 CLI 修正"
   },
   "chatRuleEditorModal": {
     "applyTo": "套用至",
@@ -502,12 +516,23 @@
   },
   "contactPromptCard": {
     "addContact": "新增聯絡人",
+    "addingToContact": "正在為 {name} 新增管道",
     "cancel": "取消",
     "contactSaved": "聯絡人已儲存",
     "dismiss": "關閉",
     "enterAddress": "輸入 {channel} 位址",
+    "namePlaceholder": "名稱",
+    "notesLabel": "備註",
     "save": "儲存",
     "saving": "正在儲存…"
+  },
+  "contactRecordCard": {
+    "contactMerged": "聯絡人已合併",
+    "merge": "合併",
+    "mergeDonorChannels": "從 {name} 轉移",
+    "mergeSurvivorChannels": "已屬於 {name}",
+    "mergeTitle": "將 {donor} 合併至 {survivor}？",
+    "mergeWarning": "這些管道將轉移至 {survivor}，並刪除 {donor} 的記錄。"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",
@@ -612,6 +637,9 @@
     "title": "刪除對話",
     "untitled": "未命名"
   },
+  "deletedMessageRow": {
+    "label": "此訊息已被刪除"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "下載 PDF 失敗"
   },
@@ -711,6 +739,10 @@
   "formSurface": {
     "secureHint": "此值將會安全傳送，且不會儲存在您的瀏覽器中。",
     "selectPlaceholder": "請選擇..."
+  },
+  "frameGateHud": {
+    "collapse": "隱藏影格篩選讀數",
+    "expand": "顯示影格篩選讀數"
   },
   "groupActions": {
     "archiveAll": "全部封存…",
@@ -1445,9 +1477,7 @@
   },
   "skillLoadOutput": {
     "output": "輸出",
-    "outputFormatAria": "輸出格式",
-    "showLess": "顯示較少",
-    "showMore": "顯示更多"
+    "outputFormatAria": "輸出格式"
   },
   "skillToolList": {
     "fromSkill": "來自 {name}"
@@ -1561,6 +1591,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "關閉工具詳細資料",
+    "denied": "此工具呼叫未獲核准，因此沒有執行。",
+    "emptyOutput": "該工具沒有回傳任何輸出。",
     "output": "輸出",
     "riskLevel": "風險等級",
     "running": "正在執行…"
@@ -1652,6 +1684,7 @@
     "muteMicrophone": "將麥克風靜音",
     "mutedState": "已靜音。{state}",
     "showCamera": "顯示相機",
+    "stopLive": "停止即時",
     "takePhoto": "拍照",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"
@@ -1734,5 +1767,15 @@
     "reactionAdded": "{name} 用 {emoji} 回應",
     "reactionRemoved": "{name} 移除了 {emoji} 回應",
     "reactionSomeone": "有人"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "復原存取",
+    "restoring": "正在復原...",
+    "restored": "已復原。由 Vellum 託管的模型重新可用。",
+    "failedNoAssistant": "請選擇一個助理，然後再試一次。",
+    "failedCannotActHere": "此應用程式無法為該助理復原憑證。請在執行該助理的電腦上開啟它。",
+    "failedReplacementRejected": "Vellum 拒絕了新的憑證。請登入 Vellum 平台後再試一次。",
+    "failedUnconfirmed": "新憑證已儲存，但無法向 Vellum 確認。它可能很快就會生效。",
+    "failedGeneric": "無法復原存取。請稍後再試。"
   }
 }

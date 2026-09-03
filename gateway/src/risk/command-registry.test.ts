@@ -582,6 +582,21 @@ describe("command-registry", () => {
       }
     });
 
+    test("contacts write verbs keep their risk levels", () => {
+      // Every one opens a guardian form, so the levels describe the command
+      // itself: delete takes the contact's channels with it, while a merge
+      // moves them to the survivor.
+      expect(getAssistantPath("contacts prompt").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts create").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts update").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts delete").baseRisk).toBe("high");
+      expect(getAssistantPath("contacts merge").baseRisk).toBe("high");
+      expect(getAssistantPath("contacts channels add").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts channels update-status").baseRisk).toBe(
+        "medium",
+      );
+    });
+
     test("expanded assistant operations have expected risk levels", () => {
       expect(getAssistantPath("config set").baseRisk).toBe("low");
       expect(getAssistantPath("oauth providers register").baseRisk).toBe(
@@ -621,6 +636,20 @@ describe("command-registry", () => {
       expect(getAssistantPath("plugins disable").baseRisk).toBe("medium");
       expect(getAssistantPath("platform invoices list").baseRisk).toBe("low");
       expect(getAssistantPath("platform invoices get").baseRisk).toBe("low");
+    });
+
+    // Every roadmap write lands on the public Vellum roadmap under the
+    // assistant's name, so none of them may drift back to a risk level an
+    // auto-approve policy would wave through.
+    test("roadmap reads are low and every roadmap write is at least medium", () => {
+      expect(getAssistantPath("roadmap").baseRisk).toBe("low");
+      expect(getAssistantPath("roadmap list").baseRisk).toBe("low");
+      expect(getAssistantPath("roadmap get").baseRisk).toBe("low");
+      expect(getAssistantPath("roadmap create").baseRisk).toBe("high");
+      expect(getAssistantPath("roadmap delete").baseRisk).toBe("high");
+      expect(getAssistantPath("roadmap update").baseRisk).toBe("medium");
+      expect(getAssistantPath("roadmap upvote").baseRisk).toBe("medium");
+      expect(getAssistantPath("roadmap unvote").baseRisk).toBe("medium");
     });
 
     test("assistant schedules update escalates to high for script payloads", () => {

@@ -457,12 +457,21 @@ export async function fetchNewestForegroundConversation(
 }
 
 /**
- * The two group ids the daemon owns. Pinning is stored as group membership,
+ * The group ids the daemon owns. Pinning is stored as group membership,
  * and `system:all` is what no group claimed, so a conversation belongs to
  * exactly one group and group-scoped lists never overlap.
+ *
+ * `system:assistant` is a pseudo-group in the daemon's sense: no row carries
+ * it, and membership is decided by the conversation's `source` (the threads
+ * the assistant started on its own). It is spelled as a group id so this
+ * section is fetched through the same parameter as every other one. The
+ * daemon narrows it to the ungrouped set, so pinning one of those threads or
+ * filing it into a custom group moves it out of this section rather than
+ * listing it twice — the same "exactly one section" rule the two above keep.
  */
 export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
 export const SYSTEM_ALL_GROUP_ID = "system:all";
+export const SYSTEM_ASSISTANT_GROUP_ID = "system:assistant";
 
 /**
  * The `originChannel` value for a conversation started in Vellum rather than

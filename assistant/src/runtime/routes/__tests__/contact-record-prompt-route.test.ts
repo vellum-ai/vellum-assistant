@@ -119,8 +119,8 @@ describe("contacts_record_prompt", () => {
     expect(await pending).toEqual({ ok: false, error: "Cancelled by user" });
   });
 
-  test("update and delete require a contact id, and broadcast nothing without one", async () => {
-    for (const operation of ["update", "delete"]) {
+  test("update, delete and merge require a contact id, and broadcast nothing without one", async () => {
+    for (const operation of ["update", "delete", "merge"]) {
       broadcasts = [];
       const result = (await recordPrompt.handler({
         body: { operation, displayName: "Alice" },
@@ -132,10 +132,66 @@ describe("contacts_record_prompt", () => {
     }
   });
 
-  test("rejects an operation outside create/update/delete", async () => {
+  test("rejects an operation outside create/update/delete/merge", async () => {
     expect(() =>
       recordPrompt.handler({ body: { operation: "promote" } }),
     ).toThrow();
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  test("a merge broadcasts the survivor and the contact being absorbed", async () => {
+    const donorChannels = [{ type: "email", address: "bob@example.com" }];
+    const pending = recordPrompt.handler({
+      body: {
+        operation: "merge",
+        contactId: "ct_survivor",
+        currentDisplayName: "Alice",
+        donorContactId: "ct_donor",
+        donorDisplayName: "Bob",
+        donorChannels,
+      },
+    }) as Promise<Record<string, unknown>>;
+
+    const message = broadcasts.find((b) => b.type === "contact_record_request");
+    expect(message).toMatchObject({
+      operation: "merge",
+      contactId: "ct_survivor",
+      donorContactId: "ct_donor",
+      donorDisplayName: "Bob",
+      donorChannels,
+    });
+
+    resolvePrompt.handler({
+      body: { requestId: parkedRequestId(), contactId: "ct_survivor" },
+    });
+    expect(await pending).toEqual({ ok: true, contactId: "ct_survivor" });
+  });
+
+  test("a merge without a donor is refused, and broadcasts nothing", async () => {
+    const result = (await recordPrompt.handler({
+      body: { operation: "merge", contactId: "ct_survivor" },
+    })) as Record<string, unknown>;
+
+    expect(result).toEqual({
+      ok: false,
+      error: "donorContactId is required to merge",
+    });
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  test("a contact cannot be merged into itself", async () => {
+    const result = (await recordPrompt.handler({
+      body: {
+        operation: "merge",
+        contactId: "ct_1",
+        donorContactId: "ct_1",
+      },
+    })) as Record<string, unknown>;
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Cannot merge a contact with itself",
+    });
     expect(broadcasts).toHaveLength(0);
   });
 

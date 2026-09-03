@@ -10,6 +10,7 @@
     "./conversation-handle": "./src/conversation-handle.ts",
     "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
+    "./desktop-presence": "./src/desktop-presence.ts",
     "./ingress": "./src/ingress.ts",
     "./no-response": "./src/no-response.ts",
     "./remote-web-pairing": "./src/remote-web-pairing.ts",
@@ -22,7 +23,10 @@
     "./redacted-credential": "./src/redacted-credential.ts",
     "./secret-detection": "./src/secret-detection.ts",
     "./stripe-currency": "./src/stripe-currency.ts",
-    "./error": "./src/error.ts"
+    "./error": "./src/error.ts",
+    "./reactions": "./src/reactions.ts",
+    "./guardian-requests": "./src/guardian-requests.ts",
+    "./platform-credential": "./src/platform-credential.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

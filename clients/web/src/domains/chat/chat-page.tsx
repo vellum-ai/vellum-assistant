@@ -14,6 +14,7 @@
 import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef } from "react";
 
+import { assistantStateCanServeChat } from "@/assistant/lifecycle";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -42,9 +43,10 @@ export function ChatPage() {
   const selfHostedChatEnabled =
     useClientFeatureFlagStore.use.selfHostedAssistant();
 
-  const shouldRenderChat =
-    assistantState.kind === "active" ||
-    (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
+  const shouldRenderChat = assistantStateCanServeChat(
+    assistantState.kind,
+    selfHostedChatEnabled,
+  );
 
   // Conversation list query — needed for the self-hosted error guard below.
   // TanStack Query deduplicates with the same query in ActiveChatView.

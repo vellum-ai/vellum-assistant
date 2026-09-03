@@ -204,7 +204,7 @@ function awaitRouteApproval(args: {
     broadcastMessage(confirmationMsg, conversationId);
 
     // Promote the confirmation to a guardian request so channel
-    // guardian decisions (reactions, buttons, text) can resolve it.
+    // guardian decisions (buttons, text) can resolve it.
     void createGuardianRequestForConfirmation(confirmationMsg, conversationId);
   });
 }

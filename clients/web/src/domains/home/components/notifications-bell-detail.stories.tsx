@@ -176,8 +176,9 @@ export const LinksPending: Story = {
 /**
  * A pending guardian approval: the canonical "Needs attention" item for a
  * request raised from a channel. The body is the guardian card with
- * requester and source context first, then Approve/Reject against the
- * canonical request, with the source-thread jump in the footer.
+ * the ask and where it came from first, then the tool the request would
+ * run, then Approve/Reject against the canonical request, with the
+ * source-thread link under them.
  */
 export const GuardianApprovalPending: Story = {
   args: {
@@ -200,20 +201,24 @@ export const GuardianApprovalPending: Story = {
         sourceChannel: "slack",
         sourceContextLabel: "Slack #user-feedback",
         sourceUrl: "https://slack.com/archives/C0123456789/p1725100000000100",
-        slackCardUrl:
-          "https://slack.com/archives/D0AAAAAAAAA/p1725100001000100",
       },
     }),
   },
 };
 
-/** A pending guardian question routes to the source conversation to answer. */
+/**
+ * A pending guardian question routes to the source conversation to answer.
+ * The summary is the question with its options on their own lines, which is
+ * all the bell shows: the reply mechanics a chat channel needs are stripped
+ * before the copy reaches this surface.
+ */
 export const GuardianQuestionPending: Story = {
   args: {
     item: feedItem({
       id: "guardian:req-question",
       title: "Which venue should I book?",
-      summary: "Vex needs an answer before booking the offsite venue.",
+      summary:
+        "Which venue should I book for the offsite? The two on the shortlist differ on price and travel time.\n\n1. The lakeside lodge\n2. The downtown hotel\n3. Either, your call",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "permissionChat" },
@@ -252,7 +257,6 @@ export const GuardianApprovalResolved: Story = {
         requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceContextLabel: "Slack #user-feedback",
-        decidedByLabel: "Bob",
         decidedAt: "2026-08-31T13:00:00.000Z",
       },
     }),

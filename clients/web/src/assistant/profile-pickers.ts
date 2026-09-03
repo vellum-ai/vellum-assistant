@@ -9,7 +9,11 @@
  * the trigger with an empty label and the user wondering what's in effect.
  */
 
-import type { ProfileEntry } from "@/generated/daemon/types.gen";
+import { resolveModelDisplayName } from "@/assistant/model-display";
+import type {
+  ProfileEntry,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 
 /**
  * The subset of a profile a picker needs. Fields are typed from the generated
@@ -23,6 +27,7 @@ export interface ProfilePickerEntry {
   readonly provider?: ProfileEntry["provider"] | null;
   readonly model?: ProfileEntry["model"] | null;
   readonly mix?: ProfileEntry["mix"];
+  readonly source?: ProfileEntry["source"];
 }
 
 /**
@@ -187,4 +192,27 @@ export function undispatchableProfileReason(p: ProfilePickerEntry): string {
     return `"${base}" mixes a profile that has no provider and model, so some turns would fall back to another profile.`;
   }
   return `"${base}" has no provider and model, so it cannot be used and the action falls back to another profile.`;
+}
+
+/**
+ * The model a Vellum-managed profile currently runs on, as a display name.
+ *
+ * Managed profiles are named for the tier they serve ("Balanced", "Speed"),
+ * and the model behind a tier moves whenever Vellum repoints the pin, so the
+ * profile name alone never says what is about to run. A user profile is named
+ * by the person who made it, usually after the model it pins, so naming the
+ * model there would only repeat the label beside it.
+ *
+ * Returns null when there is nothing definite to name: a user profile, a
+ * profile carrying no model, or a mix, whose arm is picked per conversation at
+ * dispatch time and so is not knowable when a picker is drawn.
+ */
+export function managedProfileModelName(
+  p: ProfilePickerEntry,
+  connections?: ProviderConnection[],
+): string | null {
+  if (p.source !== "managed" || p.mix != null || !p.model) {
+    return null;
+  }
+  return resolveModelDisplayName(p.provider ?? undefined, p.model, connections);
 }

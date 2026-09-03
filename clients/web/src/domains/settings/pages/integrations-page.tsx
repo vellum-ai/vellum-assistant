@@ -7,6 +7,7 @@ import {
   type SelectOption,
 } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
+import { isChannelUserIntegration } from "@vellumai/service-contracts/channels";
 import { Loader2, Search, Sparkles } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -214,9 +215,17 @@ function IntegrationsPanelInner() {
 
   const filteredProviders = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
+    const isConnected = (providerKey: string) =>
+      Boolean(connectionForProvider(connections, providerKey)?.connected);
+
     let list = managedProviders.filter((provider) => {
-      if (provider.provider_key === "slack") {
-        return false;
+      if (isChannelUserIntegration(provider.provider_key)) {
+        // The bot under this brand is what connects an assistant, so the
+        // catalog offers that instead of this grant. Withheld, not disabled:
+        // the provider stays connectable everywhere else. A card the owner
+        // already connected keeps its tile, since this page is the only place
+        // to disconnect one.
+        return isConnected(provider.provider_key);
       }
       if (!needle) {
         return true;
@@ -230,20 +239,14 @@ function IntegrationsPanelInner() {
 
     if (selectedFilter !== "all") {
       list = list.filter((provider) => {
-        const connected = Boolean(
-          connectionForProvider(connections, provider.provider_key)?.connected,
-        );
+        const connected = isConnected(provider.provider_key);
         return selectedFilter === "enabled" ? connected : !connected;
       });
     }
 
     return [...list].sort((a, b) => {
-      const aEnabled = Boolean(
-        connectionForProvider(connections, a.provider_key)?.connected,
-      );
-      const bEnabled = Boolean(
-        connectionForProvider(connections, b.provider_key)?.connected,
-      );
+      const aEnabled = isConnected(a.provider_key);
+      const bEnabled = isConnected(b.provider_key);
       if (aEnabled !== bEnabled) {
         return aEnabled ? -1 : 1;
       }

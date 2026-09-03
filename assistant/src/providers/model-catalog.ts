@@ -194,6 +194,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "claude-fable-5-1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
+      {
         id: "claude-fable-5",
         displayName: "Claude Fable 5",
         contextWindowTokens: 1000000,
@@ -614,6 +632,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gemini-3.8-flash",
+        displayName: "Gemini 3.8 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        thinkingFloor: "low",
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 7.5,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
         id: "gemini-3.7-flash",
         displayName: "Gemini 3.7 Flash",
         contextWindowTokens: 1048576,
@@ -911,23 +945,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
-        id: "accounts/fireworks/models/glm-5p2",
-        displayName: "GLM 5.2",
-        // Fireworks serves GLM 5.2 with a 1,040K input window.
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 1.4,
-          outputPer1mTokens: 4.4,
-          cacheReadPer1mTokens: 0.26,
-        },
-      },
-      {
         id: "accounts/fireworks/models/glm-5p3",
         displayName: "GLM 5.3",
         contextWindowTokens: 1040000,
@@ -966,6 +983,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.029,
         },
       },
+      {
+        id: "accounts/fireworks/models/glm-5p2",
+        displayName: "GLM 5.2",
+        // Fireworks serves GLM 5.2 with a 1,040K input window.
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
+        },
+      },
       // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) is intentionally
       // absent: Fireworks serves it on-demand/dedicated only, so serverless
       // chat/completions calls 404 ("not found, inaccessible, and/or not
@@ -988,28 +1022,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.06,
         },
       },
+      // MiniMax M2.7 (accounts/fireworks/models/minimax-m2p7) is
+      // intentionally absent: Fireworks has no serverless deployment for
+      // it (the model page claims serverless support, but the serving API
+      // returns 404).
       {
-        id: "accounts/fireworks/models/minimax-m2p7",
-        displayName: "MiniMax M2.7",
-        contextWindowTokens: 196608,
-        maxOutputTokens: 25000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
-      },
-      {
-        id: "accounts/fireworks/models/deepseek-v4-pro",
+        id: "accounts/fireworks/models/deepseek-v4-pro-0813",
         displayName: "DeepSeek V4 Pro",
         contextWindowTokens: 1040000,
         maxOutputTokens: 131072,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
         maxEffort: "max",
-        pricing: { inputPer1mTokens: 1.74, outputPer1mTokens: 3.48 },
+        pricing: {
+          inputPer1mTokens: 1.32,
+          outputPer1mTokens: 3.96,
+          cacheReadPer1mTokens: 0.044,
+        },
       },
       {
         id: "accounts/fireworks/models/deepseek-v4-flash-0731",
@@ -1086,6 +1117,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // OpenRouter proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5.1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
       {
         id: "anthropic/claude-fable-5",
         displayName: "Claude Fable 5",
@@ -1798,7 +1847,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // Z.ai
       {
         id: "z-ai/glm-5.3",
-        displayName: "GLM-5.3",
+        displayName: "GLM 5.3",
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1813,7 +1862,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       {
         id: "z-ai/glm-5.3-flash",
-        displayName: "GLM-5.3 Flash",
+        displayName: "GLM 5.3 Flash",
         contextWindowTokens: 1310720,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1828,7 +1877,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       {
         id: "z-ai/glm-5.2",
-        displayName: "GLM-5.2",
+        displayName: "GLM 5.2",
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1934,6 +1983,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // The gateway proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5.1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
       {
         id: "anthropic/claude-fable-5",
         displayName: "Claude Fable 5",

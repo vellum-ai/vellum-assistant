@@ -89,6 +89,32 @@ describe("assistant channels", () => {
         queryParams: { includeRemote: "true" },
       });
     });
+
+    test("human list output points missing channels at plugin search", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: { success: true, snapshots: [emptySnapshot("slack")] },
+        },
+      ];
+      const out = await runCli("channels", "list");
+      expect(out).toContain("assistant plugins search <name>");
+      expect(out).toContain("not listed");
+    });
+
+    test("json list output omits the plugin-search hint", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: { success: true, snapshots: [emptySnapshot("slack")] },
+        },
+      ];
+      const out = await runCli("channels", "list", "--json");
+      expect(out).not.toContain("assistant plugins search");
+      expect(JSON.parse(out)).toEqual({
+        snapshots: [emptySnapshot("slack")],
+      });
+    });
   });
 
   describe("two-axis rendering", () => {

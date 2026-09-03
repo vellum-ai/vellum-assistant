@@ -253,6 +253,15 @@ mock.module("./devtools", () => ({
 
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => false,
+  onCompanionHiddenChange: () => () => {},
+}));
+
+// Stubbed so `./menu`, imported below for `dispatchMenuCommand`, doesn't drag
+// the real companion surface into this file's module graph, along with the
+// rest of `window-state` that the mock above deliberately doesn't cover.
+mock.module("./companion-window", () => ({
+  setCompanionSurfaceVisible: () => undefined,
 }));
 
 // Full `./cli-path-installer` surface so this mock — which leaks into co-run

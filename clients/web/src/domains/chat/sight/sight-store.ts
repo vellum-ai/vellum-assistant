@@ -55,10 +55,12 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { captureVideoFrame } from "@/domains/chat/voice/voice-room/voice-camera";
+import { createFrameGate } from "@/lib/camera/frame-gate";
 import {
-  DEFAULT_FRAME_GATE_OPTIONS,
-  createFrameGate,
-} from "@/lib/camera/frame-gate";
+  FRAME_GATE_LIVE_OPTIONS,
+  recordFrameGateDecision,
+  recordFrameGateKeep,
+} from "@/lib/camera/frame-gate-debug";
 import {
   createFrameSampler,
   type FrameSampler,
@@ -363,14 +365,19 @@ const useSightStoreBase = create<SightStore>()((set, get) => {
         return;
       }
 
-      const gate = createFrameGate(DEFAULT_FRAME_GATE_OPTIONS);
+      // The live options record rather than the defaults, so the tuning
+      // readout can move a threshold without this gate being rebuilt. A new
+      // gate would clear the last-keep clock, and a keep here is an upload and
+      // a persisted message.
+      const gate = createFrameGate(FRAME_GATE_LIVE_OPTIONS);
       gate.reset(performance.now());
       // The capture this decision triggers spans an encode, so both the camera
       // and the element can be replaced under it.
       const epoch = acquireEpoch;
       const next = createFrameSampler({
         gate,
-        onDecision: (decision) => {
+        onDecision: (decision, nowMs) => {
+          recordFrameGateDecision("composer", decision, nowMs);
           if (!decision.keep) {
             return;
           }
@@ -379,6 +386,7 @@ const useSightStoreBase = create<SightStore>()((set, get) => {
             if (!file || epoch !== acquireEpoch || previewVideo !== video) {
               return;
             }
+            recordFrameGateKeep("composer", file);
             set({ latestKeep: { file, atMs: Date.now() } });
           })();
         },

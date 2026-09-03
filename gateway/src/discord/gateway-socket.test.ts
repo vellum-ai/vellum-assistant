@@ -490,6 +490,8 @@ describe("reaction dispatch", () => {
     expect(event.message.reaction).toEqual({
       op: "added",
       emoji: "\u{1F44D}",
+      emojiKind: "unicode",
+      emojiName: "\u{1F44D}",
       targetMessageId: "msg-1",
     });
     expect(event.actor.actorExternalId).toBe("user-1");
@@ -510,6 +512,21 @@ describe("reaction dispatch", () => {
     ws.message(reactionAdd({ user_id: "bot-1" }));
 
     expect(h.events).toHaveLength(0);
+  });
+
+  test("add, remove and re-add forward as three distinct events", async () => {
+    // End to end through the socket: three byte-identical dispatch payloads,
+    // three distinct ids. The socket's stamp at receipt is what separates
+    // them, so this covers the minting the pure normalizer tests cannot.
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(reactionAdd());
+    ws.message({ ...reactionAdd(), t: "MESSAGE_REACTION_REMOVE" });
+    ws.message(reactionAdd());
+
+    expect(h.events).toHaveLength(3);
+    const ids = h.events.map((event) => event.message.externalMessageId);
+    expect(new Set(ids).size).toBe(3);
   });
 
   test("a thread reaction resolves its parent conversation", async () => {

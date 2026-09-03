@@ -125,6 +125,17 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * {@link deriveIngressIdempotencyKey}).
    */
   clientMessageId?: string;
+  /**
+   * Serialized `slackMeta` reaction envelope for a Slack reaction-driven
+   * turn, stamped onto the persisted user row so it reads as a reaction to
+   * every envelope consumer. Slack-only on purpose: every other channel's
+   * reaction turn rides `channelInbound`, whose lane declines Slack while
+   * Slack writes its own envelope.
+   *
+   * TRANSITIONAL: dies when Slack joins the neutral `providerMeta`
+   * envelope; do not extend it.
+   */
+  slackReactionRowMeta?: string;
 };
 
 /**
@@ -167,6 +178,21 @@ function buildIngressCarrierMetadata(
       ? { channelInbound: options.channelInbound }
       : {}),
   };
+}
+
+/**
+ * The metadata a server-side ingress turn persists with its user row: the
+ * transient carrier bag above, plus the pre-built `slackMeta` a Slack
+ * reaction turn stamps directly (see `slackReactionRowMeta`).
+ */
+function buildPersistMetadata(
+  options?: ProcessMessageOptions,
+): Record<string, unknown> | undefined {
+  const carrier = buildIngressCarrierMetadata(options);
+  if (!options?.slackReactionRowMeta) {
+    return carrier;
+  }
+  return { slackMeta: options.slackReactionRowMeta, ...carrier };
 }
 
 /**
@@ -709,7 +735,7 @@ export async function processMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = uuidv7();
-  const persistMetadata = buildIngressCarrierMetadata(options);
+  const persistMetadata = buildPersistMetadata(options);
   const ingressKey = deriveIngressIdempotencyKey(options);
   const { id: messageId, deduplicated } = await conversation.persistUserMessage(
     {
@@ -790,7 +816,7 @@ export async function processMessageInBackground(
   const emitEvent = buildEventEmitter(options?.onEvent);
 
   const requestId = uuidv7();
-  const persistMetadata = buildIngressCarrierMetadata(options);
+  const persistMetadata = buildPersistMetadata(options);
   const ingressKey = deriveIngressIdempotencyKey(options);
   const { id: messageId, deduplicated } = await conversation.persistUserMessage(
     {

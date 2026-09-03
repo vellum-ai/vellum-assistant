@@ -24,27 +24,12 @@
  */
 
 import { getLogger } from "../../util/logger.js";
-import { readDaemonBootTime } from "../daemon-boot-time.js";
-import { openRecoveryDb } from "./db.js";
+import { withBootFencedRecoveryDb } from "./db.js";
 
 const log = getLogger("recovery-stale-processing");
 
 export function clearStaleProcessing(): void {
-  const bootTime = readDaemonBootTime();
-  if (bootTime == null) {
-    // Without the boot-time fence we can't distinguish a dead process's flag
-    // from a live turn's, so skip; the next daemon restart reconciles.
-    log.warn("Skipping stale-processing clear — daemon boot time unavailable");
-    return;
-  }
-
-  const db = openRecoveryDb();
-  if (db == null) {
-    return;
-  }
-  try {
-    // Throws here (missing `processing_started_at` column) propagate to the
-    // orchestrator as "schema not ready yet" and retry on the next monitor run.
+  withBootFencedRecoveryDb("stale-processing", (db, bootTime) => {
     const result = db
       .query(
         `UPDATE conversations
@@ -59,7 +44,5 @@ export function clearStaleProcessing(): void {
         "Cleared stale conversation processing flags from a previous process",
       );
     }
-  } finally {
-    db.close();
-  }
+  });
 }

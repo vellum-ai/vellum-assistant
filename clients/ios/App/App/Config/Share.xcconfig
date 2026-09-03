@@ -1,0 +1,12 @@
+// Share.xcconfig - production Share extension overrides.
+// The bundle ID must stay prefixed by App.xcconfig's, and the URL scheme
+// and App Group must match App.xcconfig's character for character.
+
+#include "Share-Base.xcconfig"
+
+APP_GROUP_ID = group.ai.vocify-inc.vellum-assistant-ios
+BUNDLE_DISPLAY_NAME = Vellum
+BUNDLE_URL_SCHEME = vellum-assistant
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.Share
+
+PROVISIONING_PROFILE_SPECIFIER_Manual = Vellum Assistant iOS Share Distribution

@@ -87,7 +87,7 @@ function LegendItem({ status }: LegendItemProps): ReactNode {
 
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-label-default"
+      className="inline-flex items-center gap-1.5 text-label-medium-default"
       style={{ color: "var(--content-secondary)" }}
     >
       <span
@@ -126,7 +126,7 @@ function SegmentRow({ segment, widthPercent }: SegmentRowProps): ReactNode {
           {segment.ttl ? <Tag tone="neutral">{segment.ttl}</Tag> : null}
         </span>
         <span
-          className="shrink-0 text-label-default tabular-nums"
+          className="shrink-0 text-label-medium-default tabular-nums"
           style={{ color: "var(--content-secondary)" }}
         >
           {t("cacheBreakpointMapCard.estimatedTokens", {
@@ -147,7 +147,7 @@ function SegmentRow({ segment, widthPercent }: SegmentRowProps): ReactNode {
       </div>
       {segment.detail ? (
         <span
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {segment.detail}
@@ -265,7 +265,7 @@ export function CacheBreakpointMapCard({
       ) : null}
 
       <p
-        className="mt-3 text-label-default"
+        className="mt-3 text-body-small-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("cacheBreakpointMapCard.tokenEstimateNote")}

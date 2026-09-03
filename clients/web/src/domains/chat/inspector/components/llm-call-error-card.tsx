@@ -121,7 +121,7 @@ function buildErrorChips(error: LLMCallError): ErrorChipModel[] {
 function ErrorChip({ label, value }: ErrorChipModel): ReactNode {
   return (
     <span
-      className="inline-flex items-baseline gap-1 rounded px-2 py-0.5 text-label-default"
+      className="inline-flex items-baseline gap-1 rounded px-2 py-0.5 text-label-medium-default"
       style={{
         background: "var(--surface-overlay)",
         color: "var(--content-secondary)",

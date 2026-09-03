@@ -99,7 +99,9 @@ export type FrameGateReason =
   /** The view has almost no structure: a blank wall, or a hand over the lens. */
   | "featureless"
   /** Settled, recent enough, and materially the same as the last keep. */
-  | "unchanged";
+  | "unchanged"
+  /** A caller asked for a frame of this moment, whatever the thresholds say. */
+  | "forced";
 
 export interface FrameGateDecision {
   readonly keep: boolean;
@@ -238,6 +240,17 @@ export const DEFAULT_FRAME_GATE_OPTIONS: FrameGateOptions = {
   motionMaxAgeMs: 120,
 };
 
+/**
+ * How long an arm from {@link FrameGate.armForcedKeep} waits for a frame it can
+ * keep.
+ *
+ * Wide enough for a sampler polling once a second to answer it, and for a
+ * camera part-way through its warmup to finish. Narrow enough that the frame it
+ * keeps is still of the scene the caller asked about: an arm nothing answered
+ * expires rather than firing into whatever the camera is pointed at later.
+ */
+export const FRAME_GATE_FORCED_KEEP_TTL_MS = 2_000;
+
 export interface FrameGate {
   /**
    * Offer one frame. `grid` is read synchronously and never retained, so a
@@ -245,14 +258,77 @@ export interface FrameGate {
    *
    * `nowMs` is a monotonic reading in milliseconds. The gate never reads a
    * clock itself, which is what makes it testable without faking time.
+   *
+   * `capturedSinceMs` is a lower bound on when the frame's picture was taken,
+   * defaulting to `nowMs`. It exists for a source whose offers trail their
+   * captures: a bridge call is issued, answers later, and decodes later still,
+   * so `nowMs` is only an upper bound on the picture's age. The one decision
+   * that needs the lower bound is a forced-keep arm, which must not be spent
+   * on a picture from before the ask. A source that offers what its camera
+   * shows right now leaves it unset.
    */
-  offer(grid: FrameGrid, nowMs: number): FrameGateDecision;
+  offer(
+    grid: FrameGrid,
+    nowMs: number,
+    capturedSinceMs?: number,
+  ): FrameGateDecision;
+  /**
+   * Record one frame as the motion baseline, without judging it.
+   *
+   * {@link FrameGateDecision.motion} is only computed against a frame that
+   * arrived within {@link FrameGateOptions.motionMaxAgeMs}, which a sampler
+   * polling once a second cannot produce out of consecutive offers: every
+   * offer would report no motion, and the settle check would never run. Such a
+   * sampler takes a PAIR instead. The first frame comes in here, the second is
+   * offered, and the offer's motion is measured across the pair's spacing
+   * rather than across the poll interval.
+   *
+   * This does exactly what every {@link FrameGate.offer} already does on its
+   * way out, and nothing else. A frame passed here can never be kept, does not
+   * become the novelty baseline, does not move the rate floor, does not end
+   * warmup, and does not start the settle grace. The only thing it can change
+   * about the next offer is that offer's motion.
+   */
+  observe(grid: FrameGrid, nowMs: number): void;
+  /**
+   * Ask for the next usable frame to be kept, whatever the thresholds say.
+   *
+   * The gate judges a frame against the ones around it, and there is one thing
+   * it cannot see: the moment the user starts asking about what the camera is
+   * pointed at. The ambient cadence answers that question with whichever frame
+   * it last thought was worth sending, which on a camera that has just moved is
+   * the scene before this one. An arm makes the current scene the one that
+   * lands.
+   *
+   * One shot, and it expires {@link FRAME_GATE_FORCED_KEEP_TTL_MS} after
+   * `nowMs`. Warmup and the detail floor still refuse it, because a frame taken
+   * before exposure converged or of a palm over the lens answers nobody's
+   * question and would poison the baseline everything afterwards is compared
+   * against. Everything else is skipped: the rate floor, the settle check,
+   * novelty and the heartbeat. The keep is recorded exactly as an ambient one,
+   * so the next frame is judged against it rather than firing again behind it.
+   *
+   * `nowMs` is also the arm's lower bound: only a frame whose picture provably
+   * postdates it may spend it. The proof an offer carries is its
+   * `capturedSinceMs`, the earliest its picture can have been taken, and a
+   * frame whose bound falls before the arm was taken before the ask: exactly
+   * the stale scene the arm exists to get past. Such a frame is judged as an
+   * ambient one and leaves the arm standing for the first frame whose bound
+   * reaches it. The comparison only means something because the arm and the
+   * offers are stamped from one clock, which every caller of this gate reads
+   * from `performance.now`.
+   */
+  armForcedKeep(nowMs: number): void;
   /**
    * Drop all comparison history: no last-kept baseline, no previous frame,
    * and a fresh warmup window starting at `nowMs`. The one survivor is the
    * rate floor's clock: a keep made just before the reset still counts
    * against {@link FrameGateOptions.minIntervalMs}, because the floor bounds
    * cost and a reset does not refund the frame already sent.
+   *
+   * An unspent arm goes with the history. It was made about a scene this gate
+   * can no longer score against, and the camera the next frame comes from may
+   * not even be the one it was made for.
    *
    * Call this when the camera opens, and on anything else that invalidates
    * comparison against earlier frames. A camera flip is the important one: the
@@ -313,6 +389,54 @@ function meanAbsoluteDifference(a: Float32Array, b: Float32Array): number {
 }
 
 /**
+ * The checks `offer` runs before it has a kept frame to compare against, in
+ * the order it runs them. Ends at the keep that establishes the baseline.
+ */
+const FIRST_KEEP_PATH = [
+  "warmup",
+  "featureless",
+  "forced",
+  "rate-floor",
+  "moving",
+  "first",
+] as const satisfies readonly FrameGateReason[];
+
+/** The checks `offer` runs once a baseline exists, in the order it runs them. */
+const BASELINE_PATH = [
+  "warmup",
+  "featureless",
+  "forced",
+  "rate-floor",
+  "moving",
+  "heartbeat",
+  "novel",
+  "unchanged",
+] as const satisfies readonly FrameGateReason[];
+
+/**
+ * The checks that were on the table for one decision, in the order `offer`
+ * runs them, ending at the one that could not be got past.
+ *
+ * `offer` is not a single list of checks: it branches on whether a kept frame
+ * exists, and the two branches share only their first four steps. A reader
+ * needs the branch that was actually taken, because "the checks above the
+ * highlighted one all passed" is the whole value of seeing the order, and a
+ * flattened list makes that claim about checks the frame never reached.
+ *
+ * The decision identifies its own branch. `offer` computes
+ * {@link FrameGateDecision.novelty} as the difference from the last kept frame
+ * before any check runs, so it is null on exactly the frames judged without a
+ * baseline. Reading the branch back off the decision is what keeps this
+ * function honest: there is no second copy of the control flow to forget to
+ * update, only the same condition `offer` itself branched on.
+ */
+export function frameGateDecisionPath(
+  decision: Pick<FrameGateDecision, "novelty">,
+): readonly FrameGateReason[] {
+  return decision.novelty === null ? FIRST_KEEP_PATH : BASELINE_PATH;
+}
+
+/**
  * Create a gate.
  *
  * Allocation-free after construction: three fixed grids and no per-frame
@@ -337,6 +461,12 @@ export function createFrameGate(
   // keep became possible. Only consulted before that first keep: afterwards
   // eligibility is governed by `minIntervalMs` instead.
   let firstEligibleAtMs: number | null = null;
+  // An unspent arm from `armForcedKeep`, or null when nothing is armed.
+  // `sinceMs` is when it was made, and only a frame whose capture lower bound
+  // reaches it may spend it: an offer can carry a capture from before the
+  // ask, which is the very scene the arm exists to get past. `untilMs` is
+  // when it stops being answerable at all.
+  let forcedArm: { sinceMs: number; untilMs: number } | null = null;
 
   // Detail of the frame being decided right now. Held here rather than passed
   // through every helper: it is a property of `current`, which the helpers
@@ -373,7 +503,11 @@ export function createFrameGate(
   }
 
   return {
-    offer(grid: FrameGrid, nowMs: number): FrameGateDecision {
+    offer(
+      grid: FrameGrid,
+      nowMs: number,
+      capturedSinceMs?: number,
+    ): FrameGateDecision {
       if (grid.length !== FRAME_GRID_CELLS) {
         throw new Error(
           `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
@@ -391,6 +525,13 @@ export function createFrameGate(
           : null;
       const novelty = hasKept ? meanAbsoluteDifference(current, kept) : null;
 
+      // Ahead of the vetoes below, so an arm that ran out while the camera had
+      // nothing worth keeping is dropped rather than spent on the first frame
+      // past them: it was asked for a scene a whole window ago.
+      if (forcedArm !== null && nowMs > forcedArm.untilMs) {
+        forcedArm = null;
+      }
+
       // Warmup is checked before everything else, including the first keep:
       // the frames it covers are the badly exposed ones, and the whole reason
       // to wait is to avoid making one of them the baseline.
@@ -402,6 +543,22 @@ export function createFrameGate(
       // become the baseline that everything afterwards is compared against.
       if (detail < options.minDetail) {
         return skipFrame(nowMs, "featureless", motion, novelty);
+      }
+
+      // Only a frame whose picture provably postdates the arm may spend it: a
+      // native offer can carry a capture from before the ask, however late its
+      // stamp lands, and force-keeping that one would send the stale scene the
+      // arm exists to get past. It falls through to the ambient rules and the
+      // arm stands for the next fresh frame.
+      // Through `keepFrame` like every other keep, so the rate floor's clock
+      // and both baselines move with it and the next ambient frame is judged
+      // against this one instead of firing again behind it.
+      if (
+        forcedArm !== null &&
+        (capturedSinceMs ?? nowMs) >= forcedArm.sinceMs
+      ) {
+        forcedArm = null;
+        return keepFrame(nowMs, "forced", motion, novelty);
       }
 
       if (firstEligibleAtMs === null) {
@@ -420,7 +577,7 @@ export function createFrameGate(
       );
       // Past the grace window a moving frame is kept anyway rather than
       // letting a walking user's camera go silent indefinitely.
-      const forced = nowMs - eligibleSinceMs >= options.settleGraceMs;
+      const graceExpired = nowMs - eligibleSinceMs >= options.settleGraceMs;
 
       if (!hasKept) {
         // The baseline is gone after a reset, but the floor's clock is not: a
@@ -429,7 +586,7 @@ export function createFrameGate(
         if (nowMs - keptAtMs < options.minIntervalMs) {
           return skipFrame(nowMs, "rate-floor", motion, novelty);
         }
-        if (moving && !forced) {
+        if (moving && !graceExpired) {
           return skipFrame(nowMs, "moving", motion, novelty);
         }
         return keepFrame(nowMs, "first", motion, novelty);
@@ -439,7 +596,7 @@ export function createFrameGate(
       if (sinceKeep < options.minIntervalMs) {
         return skipFrame(nowMs, "rate-floor", motion, novelty);
       }
-      if (moving && !forced) {
+      if (moving && !graceExpired) {
         return skipFrame(nowMs, "moving", motion, novelty);
       }
       if (sinceKeep >= options.maxIntervalMs) {
@@ -451,10 +608,31 @@ export function createFrameGate(
       return skipFrame(nowMs, "unchanged", motion, novelty);
     },
 
+    observe(grid: FrameGrid, nowMs: number): void {
+      if (grid.length !== FRAME_GRID_CELLS) {
+        throw new Error(
+          `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
+        );
+      }
+      // `current` is scratch that every offer normalizes into again before
+      // reading, and `detail` is deliberately left alone: it describes the
+      // frame being decided, and this one is not being decided.
+      normalizeGrid(grid, current);
+      rememberPrevious(nowMs);
+    },
+
+    armForcedKeep(nowMs: number): void {
+      forcedArm = {
+        sinceMs: nowMs,
+        untilMs: nowMs + FRAME_GATE_FORCED_KEEP_TTL_MS,
+      };
+    },
+
     reset(nowMs: number): void {
       hasPrevious = false;
       hasKept = false;
       previousAtMs = 0;
+      forcedArm = null;
       // `keptAtMs` is deliberately not cleared: comparison history is invalid
       // after a reset, but the cost of the last keep is already paid and the
       // rate floor still counts it.

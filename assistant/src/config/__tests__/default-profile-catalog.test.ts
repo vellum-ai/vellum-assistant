@@ -440,7 +440,7 @@ describe("resolveDefaultProfileForProvider", () => {
       expect(entry?.provider_connection).toBeUndefined();
       expect(entry?.source).toBe("managed");
     }
-    // Cost and Speed both opt fully out of reasoning.
+    // Budget and Fast both opt fully out of reasoning.
     expect(effective["cost-optimized"]?.effort).toBe("none");
     expect(effective["latency-optimized"]?.effort).toBe("none");
     expect(effective.balanced?.thinking?.enabled).toBe(true);

@@ -143,6 +143,14 @@ COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.jso
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
     chmod +x /usr/local/bin/assistant
 
+# The image ships no Node, so `bunx <pkg>` follows a bin's `#!/usr/bin/env node`
+# shebang into this launcher. It hands off to a real Node when one is installed
+# later and otherwise runs the bin under Bun with the auto-serve shim preloaded,
+# so a CLI whose bundle default-exports an object with `fetch` exits instead of
+# being turned into an HTTP server by `bun:main`. Installing it here also stops
+# Bun synthesizing its own `node` shim in /tmp/bun-node-<hash> at daemon launch.
+RUN ln -s /app/assistant/docker-node-launcher.sh /usr/local/bin/node
+
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
@@ -186,53 +194,11 @@ RUN printf '%s\n' \
     >> /home/assistant/.bashrc && \
     chown assistant:assistant /home/assistant/.bashrc
 
-RUN printf '%s\n' \
-    '#!/usr/bin/env sh' \
-    'set -eu' \
-    '. /app/assistant/docker-kata-runtime-family.sh' \
-    'if ! vellum_is_kata_family_runtime; then' \
-    '  exec /usr/bin/apt-get "$@"' \
-    'fi' \
-    'export DEBIAN_FRONTEND=noninteractive' \
-    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
-    '/app/assistant/docker-init-apt-root.sh' \
-    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt-get" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
-    '  exec chroot "${DATA_ROOT}" /usr/bin/apt-get "$@"' \
-    'fi' \
-    'exec /usr/bin/apt-get "$@"' \
-    > /usr/local/bin/apt-get && \
-    chmod +x /usr/local/bin/apt-get && \
-    printf '%s\n' \
-    '#!/usr/bin/env sh' \
-    'set -eu' \
-    '. /app/assistant/docker-kata-runtime-family.sh' \
-    'if ! vellum_is_kata_family_runtime; then' \
-    '  exec /usr/bin/apt "$@"' \
-    'fi' \
-    'export DEBIAN_FRONTEND=noninteractive' \
-    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
-    '/app/assistant/docker-init-apt-root.sh' \
-    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
-    '  exec chroot "${DATA_ROOT}" /usr/bin/apt "$@"' \
-    'fi' \
-    'exec /usr/bin/apt "$@"' \
-    > /usr/local/bin/apt && \
-    chmod +x /usr/local/bin/apt && \
-    printf '%s\n' \
-    '#!/usr/bin/env sh' \
-    'set -eu' \
-    '. /app/assistant/docker-kata-runtime-family.sh' \
-    'if ! vellum_is_kata_family_runtime; then' \
-    '  exec /usr/bin/dpkg "$@"' \
-    'fi' \
-    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
-    '/app/assistant/docker-init-apt-root.sh' \
-    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/dpkg" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
-    '  exec chroot "${DATA_ROOT}" /usr/bin/dpkg "$@"' \
-    'fi' \
-    'exec /usr/bin/dpkg "$@"' \
-    > /usr/local/bin/dpkg && \
-    chmod +x /usr/local/bin/dpkg
+# apt/apt-get/dpkg must persist like pip: on Kata-family runtimes the wrapper
+# routes package operations into the persistent apt chroot.
+RUN ln -s /app/assistant/docker-kata-apt-wrapper.sh /usr/local/bin/apt-get && \
+    ln -s /app/assistant/docker-kata-apt-wrapper.sh /usr/local/bin/apt && \
+    ln -s /app/assistant/docker-kata-apt-wrapper.sh /usr/local/bin/dpkg
 
 # pip must persist like apt: on Kata-family runtimes the wrapper routes root
 # installs into the persistent apt chroot.
@@ -274,9 +240,12 @@ RUN chmod +x \
     /app/assistant/docker-entrypoint.sh \
     /app/assistant/docker-init-apt-root.sh \
     /app/assistant/docker-kata-apt-env.sh \
+    /app/assistant/docker-kata-apt-shims.sh \
+    /app/assistant/docker-kata-apt-wrapper.sh \
+    /app/assistant/docker-kata-chroot-exec.sh \
     /app/assistant/docker-kata-pip.sh \
-    /app/assistant/docker-kata-pip-chroot.sh \
     /app/assistant/docker-kata-runtime-family.sh \
+    /app/assistant/docker-node-launcher.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \
     /usr/local/bin/vellum-block-volume-mount.sh \

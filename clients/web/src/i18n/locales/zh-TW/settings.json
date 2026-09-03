@@ -74,6 +74,8 @@
     "unsupportedLabel": "無法使用"
   },
   "appIcon": {
+    "androidApplyNote": "替換圖示隨應用程式提供。Android 會在您離開應用程式後套用您的選擇，變更圖示可能會重設您釘選到主螢幕的捷徑。",
+    "androidError": "Android 未變更您的主螢幕圖示。您可以再試一次。",
     "apply": "設定應用程式圖示",
     "change": "變更",
     "color": "顏色",
@@ -275,9 +277,7 @@
     "addTitle": "新增信用卡",
     "addressFormLoadError": "無法載入帳單地址表單。請再試一次。",
     "cancel": "取消",
-    "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
-    "cardOnFileNote": "儲存後將被替換",
     "close": "關閉",
     "confirmFailed": "無法儲存付款方式。",
     "confirmingWithBank": "正在與您的銀行確認…",
@@ -288,10 +288,17 @@
     "primaryReplace": "替換信用卡",
     "primarySubmitting": "正在儲存",
     "replaceSubtitle": "新的信用卡將立即生效。",
+    "replaceSubtitleCard": "正在替換 {brand} •••• {last4}。新的信用卡將立即生效。",
+    "replaceSubtitleCardExpiry": "正在替換 {brand} •••• {last4}·{month}/{year}。新的信用卡將立即生效。",
+    "replaceSubtitleCardNoBrand": "正在替換卡號末四碼為 {last4} 的信用卡。新的信用卡將立即生效。",
+    "replaceSubtitleCardNoBrandExpiry": "正在替換卡號末四碼為 {last4} 的信用卡·{month}/{year}。新的信用卡將立即生效。",
+    "replaceSubtitleCardNoLast4": "正在替換您的 {brand} 信用卡。新的信用卡將立即生效。",
+    "replaceSubtitleCardNoLast4Expiry": "正在替換您的 {brand} 信用卡·{month}/{year}。新的信用卡將立即生效。",
     "replaceTitle": "替換您的信用卡",
     "savedSubtitle": "自動加值已重新啟用",
     "savedTitle": "{brand} •••• {last4} 已儲存",
     "savedTitleGeneric": "信用卡已儲存",
+    "savedTitleNoBrand": "卡號末四碼為 {last4} 的信用卡已儲存",
     "setupError": "無法啟動信用卡設定。請再試一次。",
     "termsAdd": "Vellum 可以使用這張卡收取自動加值和訂閱續訂的費用。您可以隨時從帳單設定中移除它。",
     "termsReplace": "在您從帳單設定中移除之前，舊卡會保留在 Stripe；Vellum 從現在起不再向這張卡收取費用。",
@@ -1625,7 +1632,7 @@
     "customTag": "自訂",
     "customTagTitle": "您建立的供應商，由相容於 OpenAI 的端點提供服務。",
     "defaultTag": "預設",
-    "defaultTagTitle": "內建設定檔（平衡、品質、成本、速度）使用此供應商。",
+    "defaultTagTitle": "內建設定檔（平衡、品質、預算、快速）使用此供應商。",
     "delete": "刪除",
     "edit": "編輯",
     "localTag": "本機",
@@ -2160,8 +2167,6 @@
     "customKey": "自訂",
     "defaultBadge": "預設",
     "enableVoiceShortcut": "啟用語音模式捷徑",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn 需要輸入監控。請在「系統設定」中授予權限，或設定自訂捷徑。",
     "focusedTabNote": "按鍵通話僅在此分頁為焦點時有效，且瀏覽器可能會在頁面偵測到某些捷徑（例如 Ctrl+T）之前將其攔截。若要啟用始終開啟的按鍵通話功能，請使用 Vellum 桌面應用程式。",
     "grantMicrophoneAccessHint": "授予麥克風存取權限，以列出可用的輸入裝置。",
     "interruptSensitivityAriaLabel": "打斷靈敏度",
@@ -2179,7 +2184,6 @@
     "pauseBeforeReplyDescription": "您停止說話後，助理等待多久才回覆。較長的暫停時間可讓您在句子中間整理思緒，而不會被打斷。",
     "pauseBeforeReplyLabel": "回覆前暫停",
     "pressShortcut": "按下捷徑…",
-    "recommendedBadge": "建議",
     "recordingPrompt": "按下組合鍵或按鍵…",
     "resetToDefaults": "重設為預設值",
     "savedMicrophone": "已儲存的麥克風",
@@ -2202,7 +2206,22 @@
     "turnTakingTitle": "輪流說話",
     "voiceShortcutSubtitle": "在應用程式中的任何位置按下捷徑，以開始或結束語音對話。",
     "voiceShortcutSubtitleDesktop": "用於開始/結束語音對話的全域捷徑。",
-    "voiceShortcutTitle": "語音模式捷徑"
+    "voiceShortcutTitle": "語音模式捷徑",
+    "captionsRecommendation": "我們建議初次使用時保持關閉，體驗更接近真實對話。"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "允許輸入監控",
+    "customHint": "按住 Cmd、Ctrl、Option、Shift 中的兩個或更多鍵，然後放開。",
+    "customLabel": "自訂",
+    "fnDictationNote": "如果 macOS 聽寫在連按兩次 Fn 時啟動，請在「系統設定」的「鍵盤」中關閉它。",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "在允許輸入監控之前，無法監聽此鍵。",
+    "offLabel": "關閉",
+    "recordingPrompt": "按住修飾鍵…",
+    "refusedNote": "無法監聽此鍵。請重新啟動 App 後再試一次。",
+    "subtitle": "按住可在游標處聽寫或詢問所選內容。連按兩次可開始或結束通話。",
+    "title": "語音鍵",
+    "voiceOverNote": "Control 和 Option 是 VoiceOver 的修飾鍵。如果你使用 VoiceOver，其指令會優先佔用這些鍵。"
   },
   "voicePickerCard": {
     "changeButton": "變更",
@@ -2275,5 +2294,32 @@
     "redirectHint": "將此網址新增至您的 OAuth 應用程式的重新導向設定中。",
     "redirectUrl": "重新導向網址",
     "waitingAuthorization": "等待授權中..."
+  },
+  "sidebar": {
+    "general": "一般",
+    "model": "模型與服務",
+    "integrations": "整合",
+    "credentials": "憑證",
+    "notifications": "通知",
+    "voice": "語音",
+    "sounds": "聲音",
+    "privacy": "權限與隱私",
+    "bookmarks": "書籤",
+    "usage": "用量",
+    "billingUsage": "帳單與用量",
+    "community": "社群",
+    "debug": "偵錯",
+    "developer": "開發者",
+    "logout": "登出",
+    "login": "登入",
+    "title": "設定"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "一般",
+      "terminal": "終端機",
+      "doctor": "診斷",
+      "conversations": "對話"
+    }
   }
 }

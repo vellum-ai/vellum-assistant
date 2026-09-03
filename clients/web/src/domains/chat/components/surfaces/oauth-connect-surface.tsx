@@ -255,7 +255,7 @@ export function OAuthConnectSurface({
             </p>
 
             {missingConfiguration && (
-              <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-negative-strong)]">
+              <div className="mt-3 flex items-center gap-2 text-body-small-lighter text-[var(--system-negative-strong)]">
                 <XCircle className="h-4 w-4 shrink-0" />
                 {t("oauthConnectSurface.missingDetails")}
               </div>

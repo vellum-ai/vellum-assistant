@@ -30,9 +30,9 @@
  *    the mode the saved card calls for. The failure waits for the config query
  *    to settle, so it cannot be pinned to add mode by a still-pending one.
  *  - The card expiry and the saved billing address come from the platform
- *    config: the row and the modal's card on file show the expiry, the modal
- *    is seeded with the address, and a platform deployment that omits the
- *    keys renders with nulls instead.
+ *    config: the row and the modal's replace subtitle show the expiry, the
+ *    modal is seeded with the address, and a platform deployment that omits
+ *    the keys renders with nulls instead.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having

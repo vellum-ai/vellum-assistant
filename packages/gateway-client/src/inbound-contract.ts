@@ -13,6 +13,8 @@
 import { INBOUND_EVENT_KINDS } from "./inbound-event-kind.js";
 import { z } from "zod";
 
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
+
 import { ChannelConversationTypeSchema } from "./channel-permission-contract.js";
 
 import { AdmissionPolicySchema } from "./admission-policy-contract.js";
@@ -183,6 +185,7 @@ export const RuntimeInboundPayloadSchema = z.object({
     .object({
       op: z.enum(["added", "removed"]),
       emoji: z.string(),
+      ...ReactionEmojiFieldsSchema.shape,
       targetMessageId: z.string(),
     })
     .optional(),

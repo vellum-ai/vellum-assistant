@@ -70,6 +70,10 @@
     "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
   },
   "avatarManagementModal": {
+    "accent": "Accent",
+    "accentAutomatic": "Automatic",
+    "accentPickerLabel": "Accent color",
+    "accentReset": "Reset",
     "body": "Body",
     "color": "Color",
     "eyes": "Eyes",
@@ -102,6 +106,14 @@
   },
   "byoVoiceNote": {
     "body": "Your assistant speaks through a provider you configured yourself. Set its voice on <settingsLink>Models & Services</settingsLink>."
+  },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "One last step: verify it's you",
+    "verifyAction": "Verify me",
+    "verifyBody": "Your assistant doesn't know which {channel} account is yours yet, so it won't answer you. Say \"verify me on {channel}\" in chat to finish.",
+    "verifyActionBody": "Your assistant doesn't know which {channel} account is yours yet, so it won't answer you. It finishes this with you in chat.",
+    "verifiedTitle": "You're verified",
+    "verifiedBody": "Your assistant knows your {channel} account, so it will answer you. You're all set."
   },
   "chatAvatar": {
     "alt": "Assistant avatar",
@@ -140,28 +152,31 @@
     "talk": {
       "body": "Start a voice conversation.",
       "title": "Talk"
-    },
-    "type": {
-      "body": "Send a message from here and read the reply here too.",
-      "title": "Type"
     }
   },
   "companionSurface": {
     "allow": "Allow",
+    "calling": "Calling…",
+    "callingNamed": "Calling {name}…",
+    "captureNothing": "Nothing to show",
+    "capturePicker": "What to teach from",
+    "captureScreen": "Screen {n}",
+    "captureScreens": "Screens",
+    "captureTabs": "Chrome tabs",
+    "captureWindows": "Windows",
     "deny": "Deny",
+    "dictating": "Listening",
+    "dictatingTranscribing": "Thinking",
     "endSession": "End session",
-    "goBack": "Go back",
-    "messagePlaceholder": "Message {name}",
     "muteAssistant": "Mute assistant",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
-    "send": "Send",
+    "openVellum": "Open Vellum",
     "showSummary": "Show summary",
     "stopTeaching": "Stop teaching",
     "summarizing": "Summarizing",
     "talk": "Talk",
     "teach": "Teach",
-    "type": "Type",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
@@ -209,7 +224,9 @@
   },
   "detailPrimitives": {
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "showLess": "Show less",
+    "showMore": "Show more"
   },
   "dictationOverlayPage": {
     "stopRecording": "Stop recording"
@@ -224,6 +241,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "Paste the bot token you copied from the Bot page.",
+    "verificationNoticeTitle": "Ignore the \"Verify your App\" page",
+    "verificationNoticeBody": "Discord shows it for every new app. It only matters past 100 servers.",
     "botTokenLabel": "Bot token",
     "save": "Connect",
     "saving": "Connecting...",
@@ -231,21 +250,33 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Open the Discord developer portal and create a new application. On its <resetLine>Bot</resetLine> page, click Reset Token and copy the token straight away: Discord shows it once and there is no way to read it back.",
-    "intentsNote": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
+    "inPortal": "In the Discord developer portal:",
+    "stepCreateApp": "Click <strong>New Application</strong> and give the app your assistant's name:",
+    "copyName": "Copy name",
+    "copied": "Copied!",
+    "stepAppIcon": "Optional: download the avatar, then upload it on <strong>General Information</strong> as the app icon.",
+    "stepResetToken": "Go to the <strong>Bot</strong> page in the app's menu, then click <strong>Reset Token</strong> and copy the token right away. Discord only shows it once.",
+    "stepIntentsOff": "On the same page, leave all three <strong>Privileged Gateway Intents</strong> switches off. Your assistant doesn't need them: it only reads direct messages and messages that mention it.",
     "openPortal": "Open Discord portal",
     "continue": "I have my token"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "Bot added",
+    "connectedBody": "The token is saved and the bot is in your server. The Discord side is done."
+  },
   "discordSetupInviteStep": {
-    "instructions": "Your bot cannot see anything until it joins a server. This link uses the install settings on your application's Installation page.",
+    "instructions": "Your bot can't see or answer anything until it joins a server. Open the link, pick your server, and approve.",
     "openInvite": "Add to a server",
+    "confirmJoined": "I've added the bot",
     "noAppId": "Connect a bot token first, then come back to add it to a server."
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "Create app",
     "stepConnect": "Connect",
-    "stepInvite": "Add to server"
+    "stepInvite": "Add to server",
+    "stepFinish": "Finish",
+    "copyError": "Could not copy the name. Type it into Discord instead."
   },
   "diskPressureBanner": {
     "acknowledge": "Acknowledge",
@@ -294,6 +325,9 @@
   },
   "lazyBoundary": {
     "loadError": "This section couldn't load. Reload the page to try again."
+  },
+  "localNotification": {
+    "goToConversation": "Go to Conversation"
   },
   "macosAppBanner": {
     "ariaLabel": "Download the macOS app",
@@ -510,9 +544,10 @@
     "botTokenLabel": "Bot Token",
     "connectSlack": "Connect Slack",
     "connecting": "Connecting…",
-    "credentialsSaved": "Credentials saved.",
+    "credentialsSaved": "Credentials saved",
     "instructions": "On Slack's confirmation screen, expand <credentials>Your app credentials</credentials> and copy both tokens.",
-    "skipNotice": "That screen also offers a command-line walkthrough and a <download>Download app files</download> button. Skip both. They set up a separate local app, and this assistant needs only the two tokens."
+    "skipNotice": "That screen also offers a command-line walkthrough and a <download>Download app files</download> button. Skip both. They set up a separate local app, and this assistant needs only the two tokens.",
+    "savedBody": "Both tokens are stored. The Slack side is done."
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -589,7 +624,8 @@
     "connectTelegram": "Connect Telegram",
     "instructions": "Paste the token from BotFather's reply. It is the whole line after <tokenLine>Use this token to access the HTTP API</tokenLine>.",
     "saving": "Saving…",
-    "successNotice": "Token saved. The rest finishes on its own. Your assistant will confirm Telegram is delivering the next time you chat, and make sure it can reach you."
+    "savedTitle": "Token saved",
+    "savedBody": "Your bot token is stored. The Telegram side is done."
   },
   "telegramSetupCreateStep": {
     "copied": "Copied!",
@@ -656,12 +692,15 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyLinux": "On this computer I can work with files, the terminal, and the browser.",
     "computerUseBodyMacos": "On this Mac I can control apps and the desktop for you.",
     "computerUseBodyWindows": "On this PC I can control apps and the desktop for you.",
+    "computerUseTitleLinux": "Let me use this computer",
     "computerUseTitleMacos": "Let me use your Mac",
     "computerUseTitleWindows": "Let me use your PC",
     "dismiss": "Dismiss",
     "nextTip": "Next tip",
+    "pluginsBodyLinux": "From a personal-finance copilot to a daily family briefing.",
     "pluginsBodyMacos": "From a personal-finance copilot to a mode that lives in your MacBook notch.",
     "pluginsBodyWindows": "From a personal-finance copilot to a daily family briefing.",
     "quickInputBody": "Press {shortcut} to send me a quick message from any app.",
@@ -778,7 +817,11 @@
     "body": "Speech providers, transcription, and API keys live in <modelsLink>Models & Services</modelsLink>."
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "Recommended off"
+    "recommendedOff": "Recommended off",
+    "userTranscriptLabel": "Show the words you say",
+    "userTranscriptDescription": "Live transcription while you speak.",
+    "assistantTranscriptLabel": "Show the words the assistant says",
+    "assistantTranscriptDescription": "Text alongside the spoken response."
   },
   "windowsMenuBar": {
     "developer": "Developer",
@@ -812,6 +855,24 @@
       "slack": "Download your assistant's avatar to upload as the app icon.",
       "discord": "Download your assistant's avatar to upload as the bot icon.",
       "telegram": "Download your assistant's avatar, then send it to BotFather with /setuserpic."
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "Strict",
+      "description": "Always ask before acting. No actions are auto-approved."
+    },
+    "conservative": {
+      "label": "Conservative",
+      "description": "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace."
+    },
+    "relaxed": {
+      "label": "Relaxed",
+      "description": "Auto-approve low and medium-risk actions, like changing files outside its own workspace."
+    },
+    "fullAccess": {
+      "label": "Full access",
+      "description": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
     }
   }
 }

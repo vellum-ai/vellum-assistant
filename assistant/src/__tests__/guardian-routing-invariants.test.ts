@@ -106,7 +106,6 @@ function replyCtx(
 ): GuardianReplyContext {
   return {
     messageText: "",
-    channel: "telegram",
     actor: guardianActor(),
     conversationId: "conv-test",
     ...overrides,
@@ -1509,7 +1508,6 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        channel: "telegram",
         actor: guardianActor({ guardianPrincipalId: "different-principal" }),
         conversationId: "conv-guardian-chat",
         pendingScope: { mode: "scoped", requestIds: [req.id] },
@@ -1544,7 +1542,6 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        channel: "telegram",
         actor: guardianActor({ actorExternalUserId: "guardian-tg-user" }),
         conversationId: "conv-guardian-chat",
         // pendingScope omitted — no delivery hints
@@ -1704,7 +1701,6 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
 
     const result = await routeGuardianReply({
       messageText: "C0D3A5 approve",
-      channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
       pendingScope: { mode: "scoped", requestIds: [req.id] },
@@ -1743,7 +1739,6 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
 
     const result = await routeGuardianReply({
       messageText: "please approve this request",
-      channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
       pendingScope: { mode: "scoped", requestIds: [req.id] },
@@ -1907,15 +1902,34 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     expect(actions[1].action).toBe("reject");
   });
 
-  test("source-code invariant: guardian-action-routes.ts contains kind guard", () => {
-    const srcRoot = resolve(__dirname, "..");
-    const fullPath = join(srcRoot, "runtime/routes/guardian-action-routes.ts");
-    const source = readFileSync(fullPath, "utf-8");
-    expect(source).toContain('req.kind === "access_request"');
-  });
-
   // Integration tests: verify listGuardianDecisionPrompts returns correct
   // action sets for each guardian request kind.
+
+  test("access_request prompt text carries the invite-flow sentence and no decision directive", async () => {
+    const convId = "conv-kind-access-request";
+    sim.seedRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      sourceConversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      questionText: "Alice is requesting access to the assistant.",
+      requestCode: "A1B2C3",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
+    expect(prompts).toHaveLength(1);
+    // The actions carry the decision; the invite flow has no action anywhere,
+    // so its sentence rides in the text.
+    expect(prompts[0]!.questionText).toBe(
+      'Alice is requesting access to the assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
+    expect(prompts[0]!.questionText).not.toContain("A1B2C3");
+  });
 
   test("tool_approval prompt uses approve_once + reject only (one-time decision pattern)", async () => {
     const convId = "conv-kind-tool-approval";

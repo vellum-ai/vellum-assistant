@@ -70,6 +70,10 @@
     "updateFailed": "无法更新“{label}”。您的更改已恢复。"
   },
   "avatarManagementModal": {
+    "accent": "强调色",
+    "accentAutomatic": "自动",
+    "accentPickerLabel": "强调色",
+    "accentReset": "重置",
     "body": "身体",
     "color": "颜色",
     "eyes": "眼睛",
@@ -102,6 +106,14 @@
   },
   "byoVoiceNote": {
     "body": "您的助手通过您自己配置的提供商进行语音交互。请在<settingsLink>模型与服务</settingsLink>中设置其语音。"
+  },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "最后一步：确认您的身份",
+    "verifyAction": "验证我",
+    "verifyBody": "您的助手还不知道哪个 {channel} 账号是您的，所以暂时不会回复您。在聊天中说“在 {channel} 上验证我”即可完成。",
+    "verifyActionBody": "您的助手还不知道哪个 {channel} 账号是您的，所以暂时不会回复您。它会在聊天中陪您完成。",
+    "verifiedTitle": "身份已验证",
+    "verifiedBody": "您的助手已识别您的 {channel} 账号，会回复您。一切就绪。"
   },
   "chatAvatar": {
     "alt": "助手头像",
@@ -140,28 +152,29 @@
     "talk": {
       "body": "开始语音对话。",
       "title": "交谈"
-    },
-    "type": {
-      "body": "从这里发送消息，并在这里阅读回复。",
-      "title": "输入"
     }
   },
   "companionSurface": {
     "allow": "允许",
+    "calling": "正在呼叫…",
+    "callingNamed": "正在呼叫 {name}…",
+    "captureNothing": "没有可显示的内容",
+    "capturePicker": "教学来源",
+    "captureScreen": "屏幕 {n}",
+    "captureScreens": "屏幕",
+    "captureTabs": "Chrome 标签页",
+    "captureWindows": "窗口",
     "deny": "拒绝",
     "endSession": "结束会话",
-    "goBack": "返回",
-    "messagePlaceholder": "向 {name} 发送消息",
     "muteAssistant": "静音助手",
     "muteMicrophone": "静音麦克风",
     "notNow": "暂不",
-    "send": "发送",
+    "openVellum": "打开 Vellum",
     "showSummary": "显示摘要",
     "stopTeaching": "停止教学",
     "summarizing": "正在摘要",
     "talk": "交谈",
     "teach": "教学",
-    "type": "输入",
     "unmuteAssistant": "取消助手静音",
     "unmuteMicrophone": "取消麦克风静音"
   },
@@ -209,7 +222,9 @@
   },
   "detailPrimitives": {
     "copied": "已复制",
-    "copy": "复制"
+    "copy": "复制",
+    "showLess": "显示更少",
+    "showMore": "显示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止录音"
@@ -224,6 +239,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "粘贴您从“机器人”页面复制的机器人令牌。",
+    "verificationNoticeTitle": "请忽略“验证您的应用”页面",
+    "verificationNoticeBody": "Discord 对每个新应用都会显示它。只有超过 100 个服务器时才有意义。",
     "botTokenLabel": "机器人令牌",
     "save": "连接",
     "saving": "正在连接...",
@@ -231,21 +248,33 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "打开 Discord 开发者门户并创建一个新应用程序。在其 <resetLine>机器人</resetLine> 页面上，点击“重置令牌”并立即复制令牌：Discord 只显示一次，之后无法再次查看。",
-    "intentsNote": "关闭所有三个特权网关意图。您的助手只读取直接消息和提及它的消息，Discord 将这些消息排除在“消息内容”意图之外。",
+    "inPortal": "在 Discord 开发者门户中：",
+    "stepCreateApp": "点击<strong>New Application</strong>，并用您助手的名字命名应用：",
+    "copyName": "复制名称",
+    "copied": "已复制！",
+    "stepAppIcon": "可选：下载头像，然后在<strong>一般信息</strong>页面上传为应用图标。",
+    "stepResetToken": "前往应用菜单中的<strong>机器人</strong>页面，点击<strong>重置令牌</strong>并立即复制令牌。Discord 只显示一次。",
+    "stepIntentsOff": "在同一页面，保持三个<strong>特权网关意图</strong>开关全部关闭。您的助手不需要它们：它只读取私信和提及它的消息。",
     "openPortal": "打开 Discord 门户",
     "continue": "我已拥有令牌"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "机器人已添加",
+    "connectedBody": "令牌已保存，机器人已加入您的服务器。Discord 这边已完成。"
+  },
   "discordSetupInviteStep": {
-    "instructions": "您的机器人必须加入服务器才能看到任何内容。此链接使用您应用程序“安装”页面上的安装设置。",
+    "instructions": "机器人加入服务器前什么都看不到、也无法回复。打开链接，选择您的服务器并批准。",
     "openInvite": "添加到服务器",
+    "confirmJoined": "我已添加机器人",
     "noAppId": "请先连接机器人令牌，然后返回此处将其添加到服务器。"
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "创建应用",
     "stepConnect": "连接",
-    "stepInvite": "添加到服务器"
+    "stepInvite": "添加到服务器",
+    "stepFinish": "完成",
+    "copyError": "无法复制名称。请改为在 Discord 中输入。"
   },
   "diskPressureBanner": {
     "acknowledge": "确认",
@@ -294,6 +323,9 @@
   },
   "lazyBoundary": {
     "loadError": "此部分无法加载。请重新加载页面重试。"
+  },
+  "localNotification": {
+    "goToConversation": "前往对话"
   },
   "macosAppBanner": {
     "ariaLabel": "下载 macOS 应用",
@@ -510,9 +542,10 @@
     "botTokenLabel": "机器人令牌",
     "connectSlack": "连接 Slack",
     "connecting": "正在连接…",
-    "credentialsSaved": "凭据已保存。",
-    "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个令牌。",
-    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个令牌。"
+    "credentialsSaved": "凭据已保存",
+    "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个 Token。",
+    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个 Token。",
+    "savedBody": "两个 Token都已保存。Slack 这边已完成。"
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -589,7 +622,8 @@
     "connectTelegram": "连接 Telegram",
     "instructions": "粘贴 BotFather 回复中的令牌。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之后的整行内容。",
     "saving": "正在保存…",
-    "successNotice": "令牌已保存。其余步骤将自动完成。您的助手将在您下次聊天时确认 Telegram 正在发送消息，并确保可以联系到您。"
+    "savedTitle": "令牌已保存",
+    "savedBody": "机器人令牌已保存。Telegram 这边已完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已复制！",
@@ -601,7 +635,7 @@
     "openBotFather": "打开 BotFather",
     "stepDisplayName": "给它一个显示名称，这是人们在聊天中看到的名称",
     "stepSendNewBot": "发送 <strong>/newbot</strong>",
-    "stepTokenReply": "BotFather 会在 <strong>Use this token to access the HTTP API</strong> 之后回复一个令牌",
+    "stepTokenReply": "BotFather 会在 <strong>Use this token to access the HTTP API</strong> 之后回复一个 Token",
     "stepUsername": "给它一个用户名，该用户名必须是唯一的，并以 <strong>bot</strong> 结尾"
   },
   "telegramSetupWizard": {
@@ -656,12 +690,15 @@
     "velvet": "丝绒"
   },
   "tipCard": {
+    "computerUseBodyLinux": "在这台电脑上，我可以处理文件、终端和浏览器。",
     "computerUseBodyMacos": "在此 Mac 上，我可以为您控制应用和桌面。",
     "computerUseBodyWindows": "在此电脑上，我可以为您控制应用和桌面。",
+    "computerUseTitleLinux": "让我使用这台电脑",
     "computerUseTitleMacos": "让我使用您的 Mac",
     "computerUseTitleWindows": "让我使用您的电脑",
     "dismiss": "关闭",
     "nextTip": "下一条提示",
+    "pluginsBodyLinux": "从个人理财副驾驶到每日家庭简报。",
     "pluginsBodyMacos": "从个人理财副驾驶到常驻 MacBook 刘海区域的模式。",
     "pluginsBodyWindows": "从个人理财副驾驶到每日家庭简报。",
     "quickInputBody": "按 {shortcut} 即可从任何应用向我发送快捷消息。",
@@ -778,7 +815,11 @@
     "body": "语音提供商、转录和 API 密钥位于<modelsLink>模型与服务</modelsLink>中。"
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "建议关闭"
+    "recommendedOff": "建议关闭",
+    "userTranscriptLabel": "显示你说的话",
+    "userTranscriptDescription": "在你说话时实时转录文字。",
+    "assistantTranscriptLabel": "显示助手说的话",
+    "assistantTranscriptDescription": "在语音回复旁同步显示文本。"
   },
   "windowsMenuBar": {
     "developer": "开发者",
@@ -812,6 +853,24 @@
       "slack": "下载您的助手头像以上传为应用图标。",
       "discord": "下载您的助手头像以上传为机器人图标。",
       "telegram": "下载您的助手头像，然后使用 /setuserpic 发送给 BotFather。"
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "严格",
+      "description": "执行任何操作前均需确认。不自动批准任何操作。"
+    },
+    "conservative": {
+      "label": "保守",
+      "description": "自动批准低风险操作，例如网络搜索以及在其自身工作区中读写文件。"
+    },
+    "relaxed": {
+      "label": "宽松",
+      "description": "自动批准低风险与中等风险操作，例如修改其工作区之外的文件。"
+    },
+    "fullAccess": {
+      "label": "完全访问",
+      "description": "自动批准所有操作，包括高风险和无法识别的命令。助手将绝不请求权限确认。"
     }
   }
 }

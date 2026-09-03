@@ -30,7 +30,17 @@ import {
   type SlackRequestOptions,
 } from "./web-api-transport.js";
 
-/** Envelope fields the outbound surfaces read off successful responses. */
+/**
+ * Envelope fields the outbound surfaces read off successful responses.
+ *
+ * Deliberately no `message_ts`: that is what `chat.postEphemeral` returns
+ * instead of `ts`, and Slack documents it as not addressing a persisted
+ * message (`chat.update` rejects it). So an ephemeral reply has no id worth
+ * recording, and the absent `ts` correctly leaves its row unstamped rather
+ * than carrying a `channelTs` whose permalink resolves to nothing.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.postEphemeral/
+ */
 interface SlackOutboundApiResponse extends SlackApiResponse {
   ts?: string;
   upload_url?: string;

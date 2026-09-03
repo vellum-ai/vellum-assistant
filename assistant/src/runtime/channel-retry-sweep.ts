@@ -111,6 +111,13 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         : undefined,
     requesterChatId:
       typeof raw.requesterChatId === "string" ? raw.requesterChatId : undefined,
+    // The triggering message's own id and thread, stamped at ingress. A
+    // replayed turn keeps them so what reads them (the turn's chat and thread
+    // lines, approval-card source links) sees the same turn the live path ran.
+    sourceMessageId:
+      typeof raw.sourceMessageId === "string" ? raw.sourceMessageId : undefined,
+    sourceThreadId:
+      typeof raw.sourceThreadId === "string" ? raw.sourceThreadId : undefined,
     requesterContactId:
       typeof raw.requesterContactId === "string"
         ? raw.requesterContactId
@@ -634,6 +641,10 @@ export async function sweepFailedEvents(
         { eventId: event.id, conversationId: event.conversationId },
         "Skipping retry delivery: a sibling event owns delivery for the deduplicated turn",
       );
+      // The sibling owns delivery, so settle this row rather than leaving it
+      // `pending`, which stranded-delivery recovery reads as delivery still
+      // owed and would act on after a restart.
+      markDeliveryDelivered(event.id);
     } else if (replyCallbackUrl && externalChatId) {
       try {
         await finalizeEventDelivery({
@@ -644,7 +655,7 @@ export async function sweepFailedEvents(
           assistantId,
           replyMessageId,
           userMessageId,
-          slackReplySession: undefined,
+          replySession: undefined,
           priorStreamMessageTs,
         });
       } catch (err) {

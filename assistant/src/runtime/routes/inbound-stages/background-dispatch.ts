@@ -36,6 +36,7 @@ import {
 import {
   deferRetryUntilIdle,
   isDeduplicatedDeliveryOwnedBySibling,
+  markDeliveryDelivered,
   markProcessed,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
@@ -47,6 +48,7 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
+import { createChannelReplySession } from "../../channel-reply-session.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
@@ -54,7 +56,6 @@ import type {
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
 import { hasDeliverableAssistantText } from "../../no-response.js";
-import { createSlackReplySession } from "../../slack-reply-session.js";
 import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
@@ -116,8 +117,26 @@ export interface BackgroundProcessingParams {
    * Neutral per-row channel envelope for non-Slack channels, the counterpart
    * of `slackInbound`: threaded through to `persistUserMessage` so the row
    * is tagged with `providerMeta` and can say which external message it is.
+   * A reaction-driven wake turn rides the same lane with its reaction
+   * envelope, so the turn's own persisted row IS the reaction row.
    */
   channelInbound?: ProviderMessageMetadata;
+  /** See `ProcessMessageOptions.slackReactionRowMeta`. TRANSITIONAL. */
+  slackReactionRowMeta?: string;
+  /** Explicit idempotency key for this turn's persisted row. */
+  clientMessageId?: string;
+  /** Persist the triggering row without indexing it. */
+  skipUserMessageIndexing?: boolean;
+  /**
+   * Called when the turn could not run because a non-channel turn re-took
+   * the processing lock after admission. When present it REPLACES the
+   * retry-sweep deferral: that lane rebuilds a turn from its stored payload
+   * as a plain message, so a caller whose event stores nothing a turn can be
+   * rebuilt from (a reaction wake, whose payload is delivery-only) degrades
+   * through this hook instead, e.g. by persisting the passive row the turn
+   * would have created.
+   */
+  onTurnLostToBusy?: () => Promise<void>;
 }
 
 /**
@@ -150,6 +169,10 @@ export function processChannelMessageInBackground(
     slackBotMentioned,
     slackInbound,
     channelInbound,
+    slackReactionRowMeta,
+    clientMessageId,
+    skipUserMessageIndexing,
+    onTurnLostToBusy,
   } = params;
 
   // Capture the channel ingress metadata onto the stored payload up front,
@@ -224,9 +247,7 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
-      const slackReplySession = createSlackReplySession({
-        sourceChannel,
-        chatType,
+      const replySession = createChannelReplySession({
         replyCallbackUrl,
         chatId: externalChatId,
         recipientUserId: slackInbound?.actorExternalUserId,
@@ -244,7 +265,7 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
-        slackReplySession?.observeEvent(msg);
+        replySession?.observeEvent(msg);
         channelActivity?.observeEvent(msg);
       };
 
@@ -267,6 +288,9 @@ export function processChannelMessageInBackground(
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackInbound ? { slackInbound } : {}),
           ...(channelInbound ? { channelInbound } : {}),
+          ...(slackReactionRowMeta ? { slackReactionRowMeta } : {}),
+          ...(clientMessageId ? { clientMessageId } : {}),
+          ...(skipUserMessageIndexing ? { skipUserMessageIndexing } : {}),
           onEvent: observeAgentEvent,
           sourceChannel,
           sourceInterface,
@@ -274,22 +298,40 @@ export function processChannelMessageInBackground(
         userMessageId = result.messageId;
         deduplicatedIngress = result.deduplicated === true;
         linkMessage(eventId, userMessageId);
-        markProcessed(eventId);
+        // Record the reply row BEFORE marking the event processed. Stranded
+        // delivery recovery treats `processed` as the point an event becomes
+        // eligible and reads the reply id from the stored payload, so an
+        // event that becomes eligible first would be skipped by that step
+        // and never deliver. Crashing between these two leaves the row
+        // `pending` instead, which the orphan step already recovers.
         replyMessageId ??= result.assistantMessageId;
         if (replyMessageId) {
           storeReplyMessageId(eventId, replyMessageId);
         }
+        markProcessed(eventId);
       } catch (err) {
         // Stop any live Slack stream cleanly. Its `ts` is already durably
         // recorded via `onStreamOpen`, so the retry sweep can reconcile
         // against that message rather than posting a duplicate.
-        await slackReplySession?.finish();
+        await replySession?.finish();
         if (isConversationBusyError(err)) {
+          if (onTurnLostToBusy) {
+            // The sweep's processing lane cannot rebuild this turn (see the
+            // hook's doc), so the caller degrades in its own way instead.
+            // Nothing was persisted: the busy error is thrown before the
+            // row insert.
+            log.info(
+              { conversationId, eventId },
+              "Channel turn lost the processing lock after admission; degrading via caller fallback",
+            );
+            await onTurnLostToBusy();
+            return;
+          }
           // Admission observed the conversation idle, but a non-channel turn
           // (web / wake / voice) re-took the processing lock before this turn
           // could. Re-schedule for the retry sweep without burning a retry
           // attempt (`deferRetryUntilIdle`) so it reprocesses and delivers from
-          // the stored payload once the lock frees — a plain processing-failure
+          // the stored payload once the lock frees: a plain processing-failure
           // record would classify the busy message as fatal and dead-letter it
           // (a silent drop), and even a retryable one could exhaust the budget
           // under sustained contention.
@@ -304,6 +346,13 @@ export function processChannelMessageInBackground(
           { err, conversationId },
           "Background channel message processing failed",
         );
+        if (onTurnLostToBusy) {
+          // A caller that opted out of sweep replay has no retry lane at
+          // all: its event is already marked processed, so a failure record
+          // would only feed the sweep an event it cannot rebuild. The
+          // best-effort turn is simply lost.
+          return;
+        }
         recordProcessingFailure(eventId, err);
         return;
       }
@@ -345,6 +394,10 @@ export function processChannelMessageInBackground(
           { conversationId, eventId },
           "Skipping channel reply delivery for deduplicated ingress event; a prior attempt owns delivery",
         );
+        // The sibling owns delivery, so settle this row rather than leaving it
+        // `pending`, which stranded-delivery recovery reads as delivery still
+        // owed and would act on after a restart.
+        markDeliveryDelivered(eventId);
       } else if (replyCallbackUrl) {
         try {
           await finalizeEventDelivery({
@@ -355,7 +408,7 @@ export function processChannelMessageInBackground(
             assistantId,
             replyMessageId,
             userMessageId,
-            slackReplySession,
+            replySession,
             ...(recoveredStreamMessageTs
               ? { priorStreamMessageTs: recoveredStreamMessageTs }
               : {}),

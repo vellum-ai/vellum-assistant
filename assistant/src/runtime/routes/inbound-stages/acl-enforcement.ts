@@ -131,9 +131,10 @@ export interface AclEnforcementParams {
    * The platform named no actor for this event (the id is a channel's
    * synthetic system identity). There is no identity claim to enforce, so
    * the ACL neither resolves a member nor denies: the family stage that
-   * consumes such an event applies it only to rows whose author cleared
-   * this ACL when the original message arrived. Callers set this ONLY for
-   * event kinds that cannot start an agent turn.
+   * consumes such an event applies it only to a row the daemon already
+   * holds for that chat, one ingested from an author who cleared this ACL
+   * on arrival or one the assistant posted itself. Callers set this ONLY
+   * for event kinds that cannot start an agent turn.
    */
   actorUnattributed?: boolean;
 }
