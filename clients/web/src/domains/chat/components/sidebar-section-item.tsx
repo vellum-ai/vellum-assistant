@@ -180,9 +180,11 @@ export function SidebarSectionItem({
          surface itself: mixing a percentage of `--surface-lift` into
          `--surface-lift` is exactly `--surface-lift`, which is what every
          other card paints. A `transparent` fallback would instead punch a
-         hole in the card. 18% is the balance point: strong enough that the
-         card reads as a different surface at a glance, short of reading as
-         selected - the rows on top still have to read as ordinary rows.
+         hole in the card. The mix is the same 15% the header pill wears
+         (the New Chat wash), so header and content share one surface and
+         the card reads as a single tinted object rather than a pill on a
+         deeper slab; still short of reading as selected, so the rows on
+         top read as ordinary rows.
 
          `mt-auto` is the anchor half of the section's bottom pin. The order
          pin (`pinAssistantSectionLast`) makes it the last card, but only the
@@ -195,7 +197,7 @@ export function SidebarSectionItem({
          margin is inert. */
       cardClassName={
         isAssistantSection
-          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_18%,var(--surface-lift))]"
+          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]"
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from
