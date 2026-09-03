@@ -1,27 +1,13 @@
 /**
- * The color math behind an uploaded avatar's room-fill color. The canvas half
- * (`sampleAvatarFieldHex`) is not exercised here, because no test environment
- * decodes an image. The sampling is split so the part that decides the color
- * can be tested from pixels alone.
+ * The room's treatment of an uploaded avatar's accent. The canvas half
+ * (`sampleAvatarAccentHex`) is not exercised here, because no test environment
+ * decodes an image, and the colour it samples is `dominantAccentHex`, tested
+ * in `@vellumai/avatar-manifest`.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  fieldHexFromImageData,
-  normalizeFieldHex,
-} from "./avatar-image-color";
-
-/** Build an RGBA block from `[r, g, b, a]` tuples, each repeated `count` times. */
-function pixels(...runs: [number, number, number, number, number][]) {
-  const out: number[] = [];
-  for (const [r, g, b, a, count] of runs) {
-    for (let i = 0; i < count; i += 1) {
-      out.push(r, g, b, a);
-    }
-  }
-  return new Uint8ClampedArray(out);
-}
+import { normalizeFieldHex } from "./avatar-image-color";
 
 /** Perceived brightness (YIQ), the same measure `toneForBg` reads. */
 function brightness(hex: string): number {
@@ -58,9 +44,22 @@ function saturation(hex: string): number {
 
 /** Fully saturated samples right around the hue wheel, plus the achromatic ends. */
 const HUE_SWEEP = [
-  "#FF0000", "#FF8000", "#FFFF00", "#80FF00", "#00FF00", "#00FF80",
-  "#00FFFF", "#0080FF", "#0000FF", "#8000FF", "#FF00FF", "#FF0080",
-  "#FFFFFF", "#000000", "#123456", "#8A8A8A",
+  "#FF0000",
+  "#FF8000",
+  "#FFFF00",
+  "#80FF00",
+  "#00FF00",
+  "#00FF80",
+  "#00FFFF",
+  "#0080FF",
+  "#0000FF",
+  "#8000FF",
+  "#FF00FF",
+  "#FF0080",
+  "#FFFFFF",
+  "#000000",
+  "#123456",
+  "#8A8A8A",
 ];
 
 describe("normalizeFieldHex", () => {
@@ -105,34 +104,5 @@ describe("normalizeFieldHex", () => {
 
   test("returns a malformed input untouched", () => {
     expect(normalizeFieldHex("not-a-color")).toBe("not-a-color");
-  });
-});
-
-describe("fieldHexFromImageData", () => {
-  test("lets the colored pixels carry a logo on a white ground", () => {
-    // A flat average of a red mark on white is pale pink, which is how every
-    // logo upload ends up with the same washed-out room.
-    const hex = fieldHexFromImageData(
-      pixels([255, 255, 255, 255, 90], [200, 30, 30, 255, 10]),
-    );
-    const n = parseInt(hex!.slice(1), 16);
-    expect((n >> 16) & 0xff).toBeGreaterThan((n >> 8) & 0xff);
-    expect(saturation(hex!)).toBeGreaterThan(0.2);
-  });
-
-  test("skips transparent pixels: a cutout's ground is not its color", () => {
-    const cutout = fieldHexFromImageData(
-      pixels([0, 0, 0, 0, 90], [40, 120, 200, 255, 10]),
-    );
-    const opaque = fieldHexFromImageData(pixels([40, 120, 200, 255, 10]));
-    expect(cutout).toBe(opaque);
-  });
-
-  test("returns null when nothing is opaque enough to sample", () => {
-    expect(fieldHexFromImageData(pixels([12, 34, 56, 0, 40]))).toBeNull();
-  });
-
-  test("returns null for an empty block", () => {
-    expect(fieldHexFromImageData(new Uint8ClampedArray())).toBeNull();
   });
 });

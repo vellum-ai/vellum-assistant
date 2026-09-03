@@ -9,24 +9,25 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
-const sampleSpy = mock(async (_src: string): Promise<string | null> => "#3B5C8A");
+const sampleSpy = mock(
+  async (_src: string): Promise<string | null> => "#3B5C8A",
+);
 mock.module("@/utils/avatar-image-color", () => ({
-  sampleAvatarFieldHex: sampleSpy,
+  sampleAvatarAccentHex: sampleSpy,
 }));
 
-const { useCustomAvatarFieldHex, clearCustomAvatarFieldCache } = await import(
-  "./use-custom-avatar-field"
-);
+const { useSampledAvatarAccentHex, clearSampledAvatarAccentCache } =
+  await import("./use-sampled-avatar-accent");
 
 function Probe({ url }: { url: string | null }) {
-  const hex = useCustomAvatarFieldHex(url);
+  const hex = useSampledAvatarAccentHex(url);
   return <div data-testid="field">{hex ?? "none"}</div>;
 }
 
 const field = () => screen.getByTestId("field").textContent;
 
 beforeEach(() => {
-  clearCustomAvatarFieldCache();
+  clearSampledAvatarAccentCache();
   sampleSpy.mockClear();
   sampleSpy.mockImplementation(async () => "#3B5C8A");
 });
@@ -35,7 +36,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("useCustomAvatarFieldHex", () => {
+describe("useSampledAvatarAccentHex", () => {
   test("paints nothing until the sample lands", async () => {
     render(<Probe url="blob:avatar-1" />);
     // The first commit is what the room paints its first frame from, so the

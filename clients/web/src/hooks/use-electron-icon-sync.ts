@@ -30,8 +30,10 @@ const ICON_SIZE = 512;
  * rasterization failure) tells main to restore that fallback.
  *
  * It also publishes the character's *traits*, for surfaces that compose the
- * creature themselves and animate it (the companion surface). Pixels are all
- * the Dock and the Tray can use; a surface that can blink wants the source.
+ * creature themselves and animate it (the companion surface), and the avatar's
+ * accent, so those surfaces light themselves in the assistant's colour whether
+ * the avatar is a character or an uploaded image. Pixels are all the Dock and
+ * the Tray can use; a surface that can blink wants the source.
  *
  * Everything no-ops off Electron — `rasterizeAvatar` is gated behind
  * `isElectron()` so web/iOS hosts never do the canvas work. Mounted in
@@ -41,6 +43,7 @@ export function useElectronIconSync(
   customImageUrl: string | null,
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
+  accentHex: string | null,
 ): void {
   useEffect(() => {
     if (!isElectron()) {
@@ -68,6 +71,7 @@ export function useElectronIconSync(
             color: effectiveTraits.color,
           }
         : null,
+      accentHex,
     );
     if (render.kind === "none") {
       setAssistantIcon(null);
@@ -91,5 +95,5 @@ export function useElectronIconSync(
     return () => {
       cancelled = true;
     };
-  }, [customImageUrl, components, traits]);
+  }, [customImageUrl, components, traits, accentHex]);
 }

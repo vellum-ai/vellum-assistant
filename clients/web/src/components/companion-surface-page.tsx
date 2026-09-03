@@ -83,6 +83,9 @@ export function CompanionSurfacePage() {
   const [optionsBox, setOptionsBox] = useState(COMPANION_BASE_AVATAR_BOX);
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
+  const [publishedAccentHex, setPublishedAccentHex] = useState<
+    string | undefined
+  >();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
   // Whether Talk has been pressed and nothing has answered it yet. Main's, like
   // the call it waits for: the press left this window the moment it was made.
@@ -150,6 +153,7 @@ export function CompanionSurfacePage() {
           : `data:image/png;base64,${state.avatarBase64}`,
       );
       setCharacter(state.character);
+      setPublishedAccentHex(state.accentHex);
       setCall(state.call);
       // Off unless positively on, the way `watching` is read: a shell that
       // predates the field is not dialing.
@@ -363,7 +367,7 @@ export function CompanionSurfacePage() {
 
   // The avatar's own colour, shared with the display's edge glow so the two
   // lights cannot come apart. See `companionAccentHexFor`.
-  const accentHex = companionAccentHexFor(call, character);
+  const accentHex = companionAccentHexFor(call, publishedAccentHex, character);
 
   return (
     <div

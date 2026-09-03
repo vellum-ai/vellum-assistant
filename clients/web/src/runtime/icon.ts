@@ -25,21 +25,24 @@ export function setAssistantIcon(png: Uint8Array | null): void {
 /**
  * Publish the traits the assistant's character is composed from, for surfaces
  * that render it live rather than showing the still {@link setAssistantIcon}
- * ships.
+ * ships, together with the avatar's accent.
  *
  * The Dock and the Tray cannot animate, so pixels are all they can use. The
  * companion surface is a web renderer and can, so it composes the character
- * itself and the creature blinks and breathes there. Pass `null` for a custom
- * uploaded image or no avatar, which have no traits to compose from.
+ * itself and the creature blinks and breathes there. Pass a `null` character
+ * for a custom uploaded image or no avatar, which have no traits to compose
+ * from; the accent still travels, so an uploaded image lights the surface in
+ * its own colour. A `null` accent is an avatar with no colour yet.
  *
  * Safe to call from any host: no-op off Electron and on a shell that predates
- * the channel.
+ * the channel. A shell that predates the accent ignores the second argument.
  */
 export function setAssistantCharacter(
   character: CompanionCharacter | null,
+  accentHex: string | null,
 ): void {
   if (!isElectron()) {
     return;
   }
-  window.vellum?.icon?.setCharacter?.(character);
+  window.vellum?.icon?.setCharacter?.(character, accentHex);
 }

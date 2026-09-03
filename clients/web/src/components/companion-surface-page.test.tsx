@@ -1320,8 +1320,29 @@ describe("the companion's accent colour", () => {
   });
 
   /**
-   * An uploaded image has no palette colour to resolve, so the component's own
-   * default is the last word rather than a colour guessed from nothing.
+   * The accent the app's window published is the colour every other surface
+   * paints with, so it is the capsule's too: an uploaded image lights the
+   * surface in its own colour without a character to resolve one from.
+   */
+  test("lights an uploaded image in the accent the app published", async () => {
+    STATE.accentHex = "#c81e1e";
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#c81e1e");
+  });
+
+  test("lets the published accent win over the character's palette colour", async () => {
+    STATE.character = { ...CHARACTER };
+    STATE.accentHex = "#12ab34";
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#12ab34");
+  });
+
+  /**
+   * With neither a published accent nor a character (an uploaded image on a
+   * shell that predates the accent), the component's own default is the last
+   * word rather than a colour guessed from nothing.
    */
   test("falls back to the component default without a character", async () => {
     const { container } = render(<CompanionSurfacePage />);

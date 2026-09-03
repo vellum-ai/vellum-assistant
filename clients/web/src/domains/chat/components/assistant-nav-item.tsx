@@ -132,8 +132,12 @@ export function AssistantNavItem({
   expansion,
 }: AssistantNavItemProps) {
   const { t } = useTranslation("chat");
-  const { components, traits, customImageUrl } =
-    useAssistantAvatar(assistantId);
+  const {
+    components,
+    traits,
+    customImageUrl,
+    accentHex: hex,
+  } = useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
   // While the onboarding tour owns the nav rows (flooding them with its own
   // eyes treatment), this component's eyes and its loop stay completely
@@ -238,15 +242,9 @@ export function AssistantNavItem({
     };
   }, [reduce, navTourActive, collapsed, eyesControls]);
 
-  const hex =
-    (components &&
-      traits &&
-      components.colors.find((c) => c.id === traits.color)?.hex) ||
-    null;
-
   /* A wash of the assistant's colour under the identity pill's solid fill, at
      the same depth the pinned apps below it wear, so the column's tinted rows
-     agree. Without a character avatar there is no hue to mix and nothing is
+     agree. Without an avatar colour there is no hue to mix and nothing is
      declared, leaving the plain surface both the pill and the tile fall back
      to; while the tour owns the nav the wash drains with the identity pill's
      fill.

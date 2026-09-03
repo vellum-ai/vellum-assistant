@@ -32,6 +32,7 @@ const CHARACTER: AvatarState = {
   traits: TRAITS,
   source: "builder",
   image: null,
+  accent: null,
 };
 
 /** A custom image whose traits sidecar was never cleaned up. */
@@ -40,6 +41,7 @@ const IMAGE_WITH_STALE_TRAITS: AvatarState = {
   traits: TRAITS,
   source: "upload",
   image: null,
+  accent: null,
 };
 
 const NONE: AvatarState = {
@@ -47,6 +49,7 @@ const NONE: AvatarState = {
   traits: null,
   source: null,
   image: null,
+  accent: null,
 };
 
 let avatarState: AvatarState | null = CHARACTER;
