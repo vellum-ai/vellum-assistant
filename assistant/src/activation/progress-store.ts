@@ -171,8 +171,7 @@ function readActivationSnapshot(): ActivationSnapshot {
   const path = getActivationProgressPath();
   // Stamped before the bytes are read, so a write that lands between the two
   // leaves the index looking stale rather than fresh: the next miss sees a
-  // changed stamp and re-reads. Stamping after the read would file the
-  // pre-write bytes under the post-write stamp and pin them forever.
+  // changed stamp and re-reads.
   const stamp = progressFileStamp();
   let raw: string;
   try {
@@ -235,15 +234,14 @@ export function readActivationProgress(): ActivationProgress {
   return readActivationSnapshot().progress;
 }
 
-/** Writes the document and returns the stamp of the bytes it just landed. */
-function writeActivationProgress(progress: ActivationProgress): string {
+/** Writes the document atomically, replacing whatever was at the path. */
+function writeActivationProgress(progress: ActivationProgress): void {
   const path = getActivationProgressPath();
   mkdirSync(getDataDir(), { recursive: true });
   const tmpPath = `${path}.tmp.${process.pid}`;
   try {
     writeFileSync(tmpPath, JSON.stringify(progress, null, 2), "utf-8");
     renameSync(tmpPath, path);
-    return progressFileStamp();
   } catch (err) {
     // A temp file left behind by a failed write is never picked up again
     // (the next attempt writes its own), so it would only accumulate.
@@ -276,7 +274,10 @@ function writeActivationProgress(progress: ActivationProgress): string {
  * read the index was built from, and a *miss* is confirmed against a fresh
  * `statSync` before it is believed. A hit still costs one map lookup and no
  * syscall, and a miss costs one stat rather than a read, a parse, and a
- * schema validation.
+ * schema validation. An index rebuilt from a mutation carries no stamp,
+ * because nothing observable after the rename is provably that mutation's
+ * bytes; the first miss after a write therefore re-reads once and stamps the
+ * index from that read.
  *
  * `linkIndexPath` pins the index to the workspace it was built from: a
  * process that switches workspaces (tests do) falls back to a read rather
@@ -304,13 +305,17 @@ function progressFileStamp(): string {
 
 /**
  * Rebuild the index from `snapshot`, filed under the stamp of the bytes that
- * snapshot came from. The caller supplies the stamp because only the caller
- * knows which bytes those were: a read stamps before it reads, a write stamps
- * straight after its rename.
+ * snapshot came from, or under `null` when no stamp is provably tied to those
+ * bytes. The caller supplies the stamp because only the caller knows which
+ * bytes those were: a read stamps before it reads, and a write passes `null`
+ * because any stat it takes after its rename may describe another writer's
+ * file. A `null` stamp matches no stat, so the first miss against the index
+ * re-reads once and files the result under a real stamp; hits answer from the
+ * map with no syscall either way.
  */
 function refreshLinkIndex(
   snapshot: ActivationSnapshot,
-  stamp: string,
+  stamp: string | null,
 ): ActivationSnapshot {
   const next = new Map<string, string>();
   for (const [taskId, task] of Object.entries(snapshot.progress.tasks)) {
@@ -393,9 +398,8 @@ async function mutateActivationProgress(
     if (!mutate(progress)) {
       return progress;
     }
-    let stamp: string;
     try {
-      stamp = writeActivationProgress(progress);
+      writeActivationProgress(progress);
     } catch (err) {
       // The index was built from what was on disk before the mutation, and
       // the in-memory document has moved on from both. Drop it.
@@ -403,7 +407,7 @@ async function mutateActivationProgress(
       log.warn({ err }, "Failed to write activation-progress.json");
       throw new InternalError("Failed to persist activation progress");
     }
-    refreshLinkIndex(snapshot, stamp);
+    refreshLinkIndex(snapshot, null);
     publishActivationProgressChanged(originClientId);
     return progress;
   };

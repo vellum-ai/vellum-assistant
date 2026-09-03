@@ -16,7 +16,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   act,
@@ -108,14 +108,18 @@ const authRef: {
   logout: async () => {},
 };
 
+const authStoreModule = await import("@/stores/auth-store");
+// The menu reads two selectors and `getState()`; the rest of the zustand
+// surface has no consumer here, so the stub asserts the store's type rather
+// than reproducing it.
 const authStoreStub = Object.assign(() => null, {
   use: {
     user: () => authRef.user,
     logout: () => authRef.logout,
   },
   getState: () => authRef,
-});
-stubModule("@/stores/auth-store", await import("@/stores/auth-store"), {
+}) as unknown as typeof authStoreModule.useAuthStore;
+stubModule("@/stores/auth-store", authStoreModule, {
   useAuthStore: authStoreStub,
   useIsAuthenticated: () => authRef.isAuthenticated,
 });
@@ -124,13 +128,17 @@ stubModule("@/stores/auth-store", await import("@/stores/auth-store"), {
 // own, and the only version that carries the string-flag surface the
 // activation arm is read through. A stub here would also replace it for every
 // test file sharing this process.
+const assistantFeatureFlagStoreModule =
+  await import("@/stores/assistant-feature-flag-store");
+// Nothing the menu renders reads a flag off this store, so the stub answers
+// with an empty surface and asserts the store's type.
 const featureFlagStoreStub = Object.assign(() => null, {
   use: {},
   getState: () => ({}),
-});
+}) as unknown as typeof assistantFeatureFlagStoreModule.useAssistantFeatureFlagStore;
 stubModule(
   "@/stores/assistant-feature-flag-store",
-  await import("@/stores/assistant-feature-flag-store"),
+  assistantFeatureFlagStoreModule,
   { useAssistantFeatureFlagStore: featureFlagStoreStub },
 );
 
@@ -157,23 +165,35 @@ function isActivationProgressQuery(options: unknown): boolean {
 // (e.g. `isCancelledError` via `captureError`) keep resolving; only the
 // hook under test's read is overridden. The menu makes two reads, so the
 // stub answers by query key rather than handing both the same body.
-stubModule("@tanstack/react-query", await import("@tanstack/react-query"), {
-  useQuery: (options: unknown) =>
+const reactQueryModule = await import("@tanstack/react-query");
+stubModule("@tanstack/react-query", reactQueryModule, {
+  // The menu reads `data`, `isLoading` and `isError` only, so the answer is
+  // asserted against `useQuery`'s type rather than built out to its full
+  // result shape.
+  useQuery: ((options: unknown) =>
     isActivationProgressQuery(options)
       ? { data: activationProgressRef.data, isLoading: false, isError: false }
-      : { data: billingRef.data, isLoading: false, isError: false },
+      : {
+          data: billingRef.data,
+          isLoading: false,
+          isError: false,
+        }) as unknown as typeof reactQueryModule.useQuery,
 });
 
+const generatedQueriesModule =
+  await import("@/generated/api/@tanstack/react-query.gen");
+// Only the query key is read (the stubbed `useQuery` answers by key), so each
+// factory answers with the key alone and asserts the generated signature.
 stubModule(
   "@/generated/api/@tanstack/react-query.gen",
-  await import("@/generated/api/@tanstack/react-query.gen"),
+  generatedQueriesModule,
   {
-    organizationsBillingSummaryRetrieveOptions: () => ({
+    organizationsBillingSummaryRetrieveOptions: (() => ({
       queryKey: [{ _id: "organizationsBillingSummaryRetrieve" }],
-    }),
-    referralCodesMeRetrieveOptions: () => ({
+    })) as unknown as typeof generatedQueriesModule.organizationsBillingSummaryRetrieveOptions,
+    referralCodesMeRetrieveOptions: (() => ({
       queryKey: [{ _id: "referralCodesMeRetrieve" }],
-    }),
+    })) as unknown as typeof generatedQueriesModule.referralCodesMeRetrieveOptions,
   },
 );
 
@@ -196,7 +216,7 @@ stubModule(
     ShareFeedbackModalLazy: ({ open }: { open: boolean }) =>
       open
         ? createElement("div", { "data-testid": "share-feedback-modal" })
-        : null,
+        : createElement(Fragment),
     prefetchShareFeedbackModal: () => {
       feedbackRef.prefetches += 1;
     },
@@ -247,7 +267,7 @@ stubModule(
     AddCreditsModal: ({ open }: { open: boolean }) =>
       open
         ? createElement("div", { "data-testid": "add-credits-modal" })
-        : null,
+        : createElement(Fragment),
   },
 );
 
@@ -295,7 +315,7 @@ stubModule(
       balance,
       onAddCredits,
     }: {
-      balance: string;
+      balance: string | null;
       onAddCredits?: () => void;
     }) =>
       createElement(

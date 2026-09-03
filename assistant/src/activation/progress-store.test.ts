@@ -414,6 +414,9 @@ describe("activation progress store", () => {
           taskId: "draft-email",
           conversationId: "conv-1",
         });
+        // The write leaves the index unstamped, so the first miss rereads
+        // and stamps it. From there a miss is answered by a stat.
+        await bumpActivationStepCount("conv-unlinked");
 
         // Unreadable but still stat-able, and neither size nor mtime moved:
         // a lookup that re-read here would degrade to empty progress and
@@ -534,6 +537,44 @@ describe("activation progress store", () => {
       await bumpActivationStepCount("conv-2");
 
       expect(readRawProgress().tasks["book-travel"].stepCount).toBe(1);
+    });
+
+    test("a write leaves the stamp stale: one reread, then hits stay free", async () => {
+      // A window wide enough that only the first bump per conversation
+      // flushes, so a later bump exercises the lookup without a write.
+      resetActivationStepThrottleForTesting(60_000);
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      // Flush the first bump, so the index is the one the write rebuilt.
+      await bumpActivationStepCount("conv-1");
+
+      const path = getActivationProgressPath();
+      const readSpy = spyOn(nodeFs, "readFileSync");
+      const statSpy = spyOn(nodeFs, "statSync");
+      const callsFor = (spy: { mock: { calls: unknown[][] } }): number =>
+        spy.mock.calls.filter((args) => args[0] === path).length;
+      try {
+        // A hit answers from the map, so it costs no syscall at all.
+        await bumpActivationStepCount("conv-1");
+        expect(callsFor(readSpy)).toBe(0);
+        expect(callsFor(statSpy)).toBe(0);
+
+        // The write could not tie a stamp to the bytes it landed, so the
+        // first miss against that index rereads.
+        await bumpActivationStepCount("conv-unlinked");
+        expect(callsFor(readSpy)).toBe(1);
+
+        // That reread stamped the index, so the next miss is one stat.
+        const statsAfterReread = callsFor(statSpy);
+        await bumpActivationStepCount("conv-unlinked");
+        expect(callsFor(readSpy)).toBe(1);
+        expect(callsFor(statSpy)).toBe(statsAfterReread + 1);
+      } finally {
+        readSpy.mockRestore();
+        statSpy.mockRestore();
+      }
     });
 
     test("the test-only reset drops the index", async () => {

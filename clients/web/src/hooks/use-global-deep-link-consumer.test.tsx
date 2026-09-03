@@ -10,6 +10,7 @@ import {
 } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { NavigateOptions, To } from "react-router";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -34,6 +35,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
+import type * as SentryReact from "@sentry/react";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import {
   restoreStubbedModules,
@@ -48,21 +50,28 @@ import {
  */
 let mockPathname: string = routes.assistant;
 let mockSearch = "";
-const navigateMock = mock(
-  (
-    to: string | { pathname: string; search?: string; hash?: string },
-    _options?: { replace?: boolean },
-  ) => {
-    const path = typeof to === "string" ? to : to.pathname;
-    mockPathname = path.split("?")[0] ?? path;
-    return undefined;
-  },
-);
+const navigateMock = mock((to: To | number, _options?: NavigateOptions) => {
+  // A history delta names no path, so the location stays where it is.
+  const path =
+    typeof to === "number"
+      ? mockPathname
+      : typeof to === "string"
+        ? to
+        : (to.pathname ?? mockPathname);
+  mockPathname = path.split("?")[0] ?? path;
+  return undefined;
+});
 stubModule("react-router", await import("react-router"), {
   useNavigate: () => navigateMock,
   // Empty `search` is the main window: the room's pop-out gate
   // (`isPopoutWindow`) looks for `popout=1`.
-  useLocation: () => ({ pathname: mockPathname, search: mockSearch, hash: "" }),
+  useLocation: () => ({
+    pathname: mockPathname,
+    search: mockSearch,
+    hash: "",
+    state: null,
+    key: "default",
+  }),
 });
 
 const ensureMainWindowVisibleMock = mock(async () => undefined);
@@ -72,20 +81,25 @@ stubModule("@/runtime/main-window", await import("@/runtime/main-window"), {
 
 // Stub the toaster: the top-up success branch toasts, and no <Toaster /> is
 // mounted here.
-const toastSuccessMock = mock((..._args: unknown[]) => undefined);
+const toastSuccessMock = mock<typeof toastModule.toast.success>(
+  (_message, _options) => "",
+);
+// The real toast carries its other kinds and `dismiss`; only the success
+// branch this suite asserts on is replaced.
 stubModule("@vellumai/design-library/components/toast", toastModule, {
-  toast: Object.assign((..._args: unknown[]) => {}, {
-    success: toastSuccessMock,
-    error: () => {},
-    info: () => {},
-    warning: () => {},
-  }),
+  toast: Object.assign(
+    (..._args: Parameters<typeof toastModule.toast>): string | number => "",
+    toastModule.toast,
+    { success: toastSuccessMock },
+  ),
 });
 
-const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
+const sentryBreadcrumbMock = mock<typeof SentryReact.addBreadcrumb>(
+  (_breadcrumb) => undefined,
+);
 stubModule("@sentry/react", await import("@sentry/react"), {
   addBreadcrumb: sentryBreadcrumbMock,
-  captureException: () => {},
+  captureException: () => "",
 });
 
 // Voice entry runs a readiness preflight before a session opens; stub it ready

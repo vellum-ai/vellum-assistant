@@ -22,7 +22,13 @@ let currentPath = "/assistant";
 const setOnboardingWindowMock = mock((_active: boolean) => Promise.resolve());
 
 stubModule("react-router", await import("react-router"), {
-  useLocation: () => ({ pathname: currentPath }),
+  useLocation: () => ({
+    pathname: currentPath,
+    search: "",
+    hash: "",
+    state: null,
+    key: "default",
+  }),
 });
 
 stubModule("@/runtime/main-window", await import("@/runtime/main-window"), {

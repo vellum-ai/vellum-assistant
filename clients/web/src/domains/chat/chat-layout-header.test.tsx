@@ -19,7 +19,9 @@ import {
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { usePageSurfaceStore } from "@/stores/page-surface-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
 import {
   restoreStubbedModules,
   stubModule,
@@ -30,30 +32,14 @@ stubModule("@/runtime/is-electron", await import("@/runtime/is-electron"), {
   isElectron: () => mockIsElectron,
 });
 
+// The two stores the header writes through are driven by their own state
+// rather than a module stub, so the spies are checked against the real store
+// shapes. Both stores are process-global, so the real actions go back below.
 const toggleCommandPaletteSpy = mock(() => {});
-stubModule(
-  "@/stores/command-palette-store",
-  await import("@/stores/command-palette-store"),
-  {
-    useCommandPaletteStore: {
-      use: { toggle: () => toggleCommandPaletteSpy },
-    },
-  },
-);
-
 const setInlineTitleBarActiveSpy = mock((_active: boolean) => {});
-stubModule(
-  "@/stores/title-bar-store",
-  await import("@/stores/title-bar-store"),
-  {
-    useTitleBarStore: {
-      use: {
-        setInlineTitleBarActive: () => setInlineTitleBarActiveSpy,
-        windowsMenuBarSuppressed: () => false,
-      },
-    },
-  },
-);
+const realToggleCommandPalette = useCommandPaletteStore.getState().toggle;
+const realSetInlineTitleBarActive =
+  useTitleBarStore.getState().setInlineTitleBarActive;
 
 let mockIsNativeMobile = false;
 let mockElectronHostOS: "macos" | "windows" | "linux" | null = null;
@@ -69,8 +55,15 @@ stubModule(
 
 // `mock.module` replaces a module for every file sharing this process, so
 // nothing here may outlive the file: a desktop answer left standing hides
-// every surface that drops a web link inside the app.
-afterAll(restoreStubbedModules);
+// every surface that drops a web link inside the app. The store actions the
+// spies stand in for are process-global for the same reason.
+afterAll(() => {
+  useCommandPaletteStore.setState({ toggle: realToggleCommandPalette });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: realSetInlineTitleBarActive,
+  });
+  restoreStubbedModules();
+});
 
 // Imported after the mocks so the header picks up the mocked modules.
 const { ChatLayoutHeader } = await import("@/domains/chat/chat-layout-header");
@@ -82,6 +75,11 @@ beforeEach(() => {
   usePageSurfaceStore.getState().setSurface(null);
   toggleCommandPaletteSpy.mockClear();
   setInlineTitleBarActiveSpy.mockClear();
+  useCommandPaletteStore.setState({ toggle: toggleCommandPaletteSpy });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: setInlineTitleBarActiveSpy,
+    windowsMenuBarSuppressed: false,
+  });
 });
 
 afterEach(() => {
