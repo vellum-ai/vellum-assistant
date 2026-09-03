@@ -6,6 +6,7 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 
 | Flag | Note |
 | ---- | ---- |
+| `activation-checklist` | not opened; default off |
 | `assistant-reply-push` | not opened; default on |
 | `channel-trust-floors` | not opened; default on |
 | `figma-oauth` | not opened; default off |

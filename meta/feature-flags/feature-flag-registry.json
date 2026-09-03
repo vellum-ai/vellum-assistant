@@ -494,6 +494,15 @@
       "label": "Velay Webhooks",
       "description": "Platform pods resolve webhook callback URLs from the Velay-published ingress URL instead of registering platform callback routes. Falls back to platform callback registration while no tunnel URL is published.",
       "defaultEnabled": false
+    },
+    {
+      "id": "activation-checklist",
+      "scope": "client",
+      "key": "activation-checklist",
+      "label": "Activation checklist",
+      "description": "Post-onboarding welcome modal, suggestions pill and inspiration list. off = hidden; smb / parent / general = the task list shown. Percentages per arm are set in LaunchDarkly.",
+      "defaultEnabled": "off",
+      "values": ["off", "smb", "parent", "general"]
     }
   ]
 }
