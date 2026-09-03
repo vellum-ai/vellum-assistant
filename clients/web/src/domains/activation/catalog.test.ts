@@ -204,7 +204,9 @@ describe("activation copy contract", () => {
         "launch.noAssistant",
         "launch.unknownTask",
         "launch.failed",
+        "launch.openConversation",
         "page.title",
+        "page.loading",
       ].sort(),
     );
   });

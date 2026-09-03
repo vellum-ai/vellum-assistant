@@ -179,9 +179,11 @@ export function LocalFileCard({
           aria-hidden="true"
           /* The hint keeps its slot in the layout at all times and is only
              faded, so revealing it cannot reflow the name or the size beside
-             it. */
+             it. It is dropped on a phone, where it is wide enough to squeeze
+             the filename out of the card and the tap it previews is the only
+             gesture there is. */
           data-reveal=""
-          className="flex shrink-0 items-center gap-1 text-[var(--content-tertiary)]"
+          className="flex shrink-0 items-center gap-1 text-[var(--content-tertiary)] max-md:hidden"
         >
           <HintIcon className="h-3.5 w-3.5" />
           <Typography
