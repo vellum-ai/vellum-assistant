@@ -150,13 +150,17 @@ export function SidebarSectionItem({
         ) : undefined
       }
       label={label}
-      /* The name in the emphasised ink rather than the shared header
-         classes' tertiary gray: this header sits on its own tinted surface,
-         where the section-family gray reads as disabled instead of quiet.
-         Set on the label span, so it overrides by inheritance rather than
-         specificity. */
+      /* The name in the same raw accent the glyph wears, via the published
+         `--avatar-accent` var (the same value `accentHex` resolves - the
+         var is just the CSS-reachable copy), so glyph and name read as one
+         mark on the tinted pill. Absent var - custom-image or still-loading
+         avatar - falls back to the tertiary ink the shared header classes
+         use. Set on the label span, so it overrides by inheritance rather
+         than specificity. */
       labelClassName={
-        isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
+        isAssistantSection
+          ? "text-[var(--avatar-accent,var(--content-tertiary))]"
+          : undefined
       }
       /* The whole header on its own surface: a deeper cut of the accent than
          the card's 18%, spanning glyph, label, unread dot, and chevron edge
