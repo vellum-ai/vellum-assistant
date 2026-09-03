@@ -1,6 +1,7 @@
 import {
   BrowserWindow,
   Menu,
+  app,
   screen,
   type Display,
   type MenuItemConstructorOptions,
@@ -112,7 +113,9 @@ const isWatchEnabled = (): boolean =>
  * holding that expansion for as long as a call runs. It stays on screen
  * for the app's whole run unless the user hides it via the tray's "Show
  * Companion" item, a choice that persists across launches
- * (`readCompanionHidden` in `window-state.ts`).
+ * (`readCompanionHidden` in `window-state.ts`), and it steps off the screen
+ * for as long as Vellum itself is the frontmost app with its window showing
+ * (see `syncFrontmost`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
  * the iOS Dynamic Island and Lock Screen activity. Main holds the session
@@ -1024,6 +1027,77 @@ const setInteractive = (interactive: boolean): void => {
 };
 
 /**
+ * Whether Vellum is the active application.
+ *
+ * The surface stands in for the app while the user is working somewhere else,
+ * and it steps off the screen while the app itself is in front: over the app's
+ * own window it is a second copy of the same controls, floating over the chat
+ * they belong to.
+ *
+ * Read from the application's activation rather than from window focus. The
+ * panels this app floats (Quick Input, the dictation overlay, this surface)
+ * take key status without activating the app, and the main window loses key
+ * status to them, so focus says the wrong thing in both directions: a panel
+ * focused over someone else's app would count as Vellum being in front, and
+ * the main window losing focus to one would count as the user having left.
+ * Activation moves only when the user goes to another app or comes back.
+ *
+ * The main window taking focus is read as activation as well. A regular
+ * window cannot become key in an inactive app, and it is the one signal that
+ * cannot arrive early: the launch's own `did-become-active` is not promised to
+ * fire after this listener exists, while the window's first focus comes after
+ * `whenReady`.
+ */
+let appActive = false;
+
+/**
+ * Whether this module has taken the surface off the screen for the app being
+ * in front. Held here rather than read back from the window, so each decision
+ * is measured against the last one made and not against a window server
+ * answer that folds occlusion and minimisation into "visible".
+ */
+let surfaceAway = false;
+
+/**
+ * Whether the app's own window is on screen. An active app whose window has
+ * been put away from the tray, or closed, shows nothing of its own, and the
+ * surface is what stands in for it then.
+ */
+const mainWindowShowing = (): boolean => {
+  const win = currentMainWindow();
+  return win !== null && !win.isDestroyed() && win.isVisible();
+};
+
+/**
+ * Take the surface off the screen while the app is in front, and put it back
+ * when the user leaves.
+ *
+ * Hidden rather than closed, unlike the tray's choice in
+ * `setCompanionSurfaceVisible`: this is a state the user leaves by switching
+ * apps, many times an hour, and the surface has to come back exactly as it
+ * was. Closing would forget where the pill was, replay the opening placement
+ * and lose the call's home. `hide` then `showInactive` keeps the mouse
+ * forwarding that makes the canvas hit-testable, which is what `blur` would
+ * not have (see the note at `openCompanionWindow`).
+ */
+const syncFrontmost = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  const away = appActive && mainWindowShowing();
+  if (away === surfaceAway) {
+    return;
+  }
+  surfaceAway = away;
+  if (away) {
+    win.hide();
+    return;
+  }
+  win.showInactive();
+};
+
+/**
  * Hand a press on the surface to the renderer that can act on it, without
  * bringing Vellum forward.
  *
@@ -1489,6 +1563,28 @@ export const installCompanionWindow = (): void => {
     pushState();
   });
 
+  // The app coming forward and going back, which is what decides whether the
+  // surface is on the screen at all while it is open. See `appActive`.
+  app.on("did-become-active", () => {
+    appActive = true;
+    syncFrontmost();
+  });
+  app.on("did-resign-active", () => {
+    appActive = false;
+    syncFrontmost();
+  });
+  app.on("browser-window-focus", (_event, win) => {
+    if (win !== currentMainWindow()) {
+      return;
+    }
+    appActive = true;
+    syncFrontmost();
+  });
+  // The app's window being shown, put away or closed moves the answer without
+  // the app's activation changing at all: a window hidden from the tray leaves
+  // Vellum active with nothing of its own on screen.
+  onMainWindowVisibilityChange(syncFrontmost);
+
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too. Repaint only: whether there is a surface to repaint is a question
   // about the assistant, not about its picture.
@@ -1584,6 +1680,11 @@ export const openCompanionWindow = (): void => {
   win.on("closed", () => {
     callHome = null;
   });
+  // `createFloatingWindow` has already shown it. A surface opened while the
+  // app is in front, which is where a sign-in opens it from, goes straight back
+  // off the screen: it is due when the user leaves.
+  surfaceAway = false;
+  syncFrontmost();
   // A surface shown mid-call is the call's from its first frame, and one
   // shown mid-session has the frame beside it rather than under the cursor.
   syncCallSurface();

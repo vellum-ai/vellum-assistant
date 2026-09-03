@@ -485,9 +485,11 @@ app
     installMainWindow();
 
     // After the main window, so the surface opens over a running app rather
-    // than being the first thing on screen at launch. Present from here on,
-    // unless the user has hidden it from the tray: the app being frontmost is
-    // not one of its states.
+    // than being the first thing on screen at launch. Open from here on,
+    // unless the user has hidden it from the tray, and on screen whenever the
+    // app itself is not in front: it stands in for the app while the user is
+    // working somewhere else, and steps off while Vellum is the frontmost app
+    // with its window showing.
     //
     // A launch that has nobody signed in yet leaves it closed, and the window
     // that opens it later is the app's own, once it has an assistant to

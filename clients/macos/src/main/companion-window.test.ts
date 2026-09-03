@@ -48,6 +48,25 @@ let windowsRaised = 0;
 /** Whether the app's window exists, which is what decides between those two. */
 let mainWindowOpen = true;
 
+/** Whether the app's window is on screen, as opposed to put away or minimised. */
+let mainWindowVisible = true;
+
+/**
+ * Whether the surface's window exists. Closed by the tray and by the assistant
+ * going away, and opened again by the same two, so a case can open one over an
+ * app that is already in front. Reset before each case.
+ */
+let companionOpen = true;
+
+/**
+ * The app's window, as far as this module reads it: whether it exists and
+ * whether it is showing. One object, so a focus event can name it by identity.
+ */
+const mainWindow = {
+  isDestroyed: () => false,
+  isVisible: () => mainWindowVisible,
+};
+
 /** Where the canvas's origin is, which is what the window reports and moves. */
 let origin = { x: 0, y: 0 };
 
@@ -63,9 +82,19 @@ const surface = {
   // The surface's own flag going away closes the window, which a case moving
   // the flags can reach. Nothing here has a window server behind it, so this
   // only has to be callable.
-  close: () => {},
+  close: () => {
+    companionOpen = false;
+  },
   on: () => {},
   isDestroyed: () => false,
+  /** Whether the surface is on screen: off it while the app is in front. */
+  visible: true,
+  hide: () => {
+    surface.visible = false;
+  },
+  showInactive: () => {
+    surface.visible = true;
+  },
   getPosition: () => [origin.x, origin.y],
   setPosition: (x: number, y: number) => {
     origin = { x, y };
@@ -97,8 +126,28 @@ const register =
     into.set(channel, (args) => fn(schema.parse(args) as never));
   };
 
+/** Main's application listeners, so a case can bring the app forward. */
+const appListeners: {
+  event: string;
+  listener: (...args: unknown[]) => void;
+}[] = [];
+
+/** Fire an application event main registered, as the OS would. */
+const fireAppEvent = (event: string, ...args: unknown[]): void => {
+  for (const entry of [...appListeners]) {
+    if (entry.event === event) {
+      entry.listener({}, ...args);
+    }
+  }
+};
+
 mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
+  app: {
+    on: (event: string, listener: (...args: unknown[]) => void) => {
+      appListeners.push({ event, listener });
+    },
+  },
   // Stubbed for the same reason as the rest of this mock: the module under
   // test imports it, and an export missing from a whole-module mock fails the
   // file at load rather than in the case that uses it.
@@ -197,10 +246,11 @@ mock.module("./ipc", () => ({
 const visibilityListeners: (() => void)[] = [];
 
 mock.module("./main-window", () => ({
-  // Only its existence is read: it is what decides whether a press is
-  // dispatched straight into a renderer or has to build one first, and
-  // whether a visibility change is the window being destroyed.
-  current: () => (mainWindowOpen ? {} : null),
+  // Its existence decides whether a press is dispatched straight into a
+  // renderer or has to build one first, and whether a visibility change is the
+  // window being destroyed; whether it is showing decides, with the app's
+  // activation, whether the surface is on the screen.
+  current: () => (mainWindowOpen ? mainWindow : null),
   dispatchToMain: (command: VellumCommand) => {
     dispatched.push(command);
   },
@@ -295,8 +345,17 @@ mock.module("@vellumai/electron-desktop/floating-window", () => ({
     width: number;
     height: number;
     position?: { x: number; y: number } | (() => { x: number; y: number });
-  }) => (options.kind === "companion" ? surface : openGlow(options)),
-  getFloatingWindow: (kind: string) => (kind === "companion" ? surface : glow),
+  }) => {
+    if (options.kind !== "companion") {
+      return openGlow(options);
+    }
+    // Shown on creation, the way the real one is.
+    companionOpen = true;
+    surface.visible = true;
+    return surface;
+  },
+  getFloatingWindow: (kind: string) =>
+    kind === "companion" ? (companionOpen ? surface : null) : glow,
 }));
 
 mock.module("@vellumai/electron-desktop/avatar", () => ({
@@ -401,6 +460,13 @@ beforeEach(() => {
   boundsAsked.length = 0;
   resolvedPick = null;
   picksResolved.length = 0;
+  // The user is working somewhere else, with the app's window open behind
+  // them: the state the surface exists for.
+  mainWindowOpen = true;
+  mainWindowVisible = true;
+  companionOpen = true;
+  fireAppEvent("did-resign-active");
+  surface.visible = true;
 });
 
 /** Put a set of evaluated flags in settings and tell main they changed. */
@@ -2036,5 +2102,110 @@ describe("the Watch flag on the pushed state", () => {
 
     expect(pushes.length).toBeGreaterThan(before);
     expect(pushes.at(-1)?.watchEnabled).toBe(false);
+  });
+});
+
+// The identity main holds, which is what opens the surface after a sign-in.
+// Imported after the mocks for the same reason the module under test is.
+const { setName } = await import("@vellumai/electron-desktop/identity");
+
+describe("the surface while the app is in front", () => {
+  test("steps off the screen when the app comes forward", () => {
+    fireAppEvent("did-become-active");
+
+    expect(surface.visible).toBe(false);
+  });
+
+  test("comes back when the user goes to another app", () => {
+    fireAppEvent("did-become-active");
+    fireAppEvent("did-resign-active");
+
+    expect(surface.visible).toBe(true);
+  });
+
+  test("stays while the active app's window is put away", () => {
+    mainWindowVisible = false;
+
+    fireAppEvent("did-become-active");
+
+    expect(surface.visible).toBe(true);
+  });
+
+  test("stays while the active app's window is closed", () => {
+    mainWindowOpen = false;
+
+    fireAppEvent("did-become-active");
+
+    expect(surface.visible).toBe(true);
+  });
+
+  test("steps off once the active app's window shows", () => {
+    mainWindowVisible = false;
+    fireAppEvent("did-become-active");
+
+    mainWindowVisible = true;
+    fireVisibilityChange();
+
+    expect(surface.visible).toBe(false);
+  });
+
+  test("comes back when the window is put away from the tray", () => {
+    fireAppEvent("did-become-active");
+
+    mainWindowVisible = false;
+    fireVisibilityChange();
+
+    expect(surface.visible).toBe(true);
+  });
+
+  test("comes back when the window is closed", () => {
+    fireAppEvent("did-become-active");
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(surface.visible).toBe(true);
+  });
+
+  test("reads the app's window taking focus as the app being in front", () => {
+    fireAppEvent("browser-window-focus", mainWindow);
+
+    expect(surface.visible).toBe(false);
+  });
+
+  test("does not read a panel taking focus as the app being in front", () => {
+    fireAppEvent("browser-window-focus", {});
+
+    expect(surface.visible).toBe(true);
+  });
+
+  test("opens straight off the screen over an app already in front", () => {
+    surface.close();
+    fireAppEvent("did-become-active");
+
+    setName("Aria");
+
+    expect(companionOpen).toBe(true);
+    expect(surface.visible).toBe(false);
+    setName(null);
+  });
+
+  test("opens on the screen when the user is working elsewhere", () => {
+    surface.close();
+
+    setName("Aria");
+
+    expect(companionOpen).toBe(true);
+    expect(surface.visible).toBe(true);
+    setName(null);
+  });
+
+  test("a surface put away by the tray is not brought back by the app", () => {
+    surface.close();
+    fireAppEvent("did-become-active");
+
+    fireAppEvent("did-resign-active");
+
+    expect(companionOpen).toBe(false);
   });
 });
