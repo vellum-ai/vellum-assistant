@@ -1,9 +1,9 @@
 /**
  * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
  * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
- * tigervncconfig clipboard bridge and Playwright's Chromium, started by the
- * first viewer and lingering after the last one leaves so a reconnect is
- * instant.
+ * tint2 panel, the tigervncconfig clipboard bridge and Playwright's Chromium,
+ * started by the first viewer and lingering after the last one leaves so a
+ * reconnect is instant.
  */
 
 import { mkdirSync } from "node:fs";
@@ -78,6 +78,7 @@ const BUSY_LOSS: DesktopLoss = {
 export type DesktopChildRole =
   | "x-server"
   | "window-manager"
+  | "panel"
   | "clipboard"
   | "browser";
 
@@ -282,6 +283,8 @@ export class DesktopSessionManager {
         );
       }
       this.launch("window-manager", [binaries.windowManager], env);
+      // The panel needs its window manager already up to list windows.
+      this.launch("panel", [binaries.panel], env);
       this.launch("clipboard", [binaries.clipboard, "-nowin"], env);
     } catch (err) {
       if (this.generation === generation) {
@@ -298,18 +301,20 @@ export class DesktopSessionManager {
   private resolveBinaries() {
     const xServer = this.which("Xtigervnc");
     const windowManager = this.which("openbox");
+    const panel = this.which("tint2");
     const clipboard = this.which("tigervncconfig") ?? this.which("vncconfig");
-    if (!xServer || !windowManager || !clipboard) {
+    if (!xServer || !windowManager || !panel || !clipboard) {
       const missing = [
         xServer ? null : "Xtigervnc",
         windowManager ? null : "openbox",
+        panel ? null : "tint2",
         clipboard ? null : "tigervncconfig",
       ].filter(Boolean);
       throw new Error(
         `Desktop binaries missing from PATH: ${missing.join(", ")}`,
       );
     }
-    return { xServer, windowManager, clipboard };
+    return { xServer, windowManager, panel, clipboard };
   }
 
   private async waitForVnc(generation: number): Promise<boolean> {
@@ -387,6 +392,11 @@ export class DesktopSessionManager {
     if (role === "browser") {
       log.info({ outcome }, "Desktop browser exited");
       this.onBrowserExit();
+      return;
+    }
+    if (role === "panel") {
+      // A dead panel costs the taskbar, not the desktop.
+      log.warn({ outcome }, "Desktop panel exited");
       return;
     }
     log.warn({ role, outcome }, "Desktop process exited, tearing down");
