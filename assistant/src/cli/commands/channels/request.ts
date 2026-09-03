@@ -4,13 +4,12 @@
  *
  * This is the bot-identity door. A channel's bot credential (the token the
  * setup wizard stored) and a person's OAuth integration for the same brand
- * are different identities that reach different things, and until this
- * command they shared one door, `assistant oauth request`, told apart only
- * by a provider name that does not say which is which (`slack_channel` is the
- * bot, `slack` is the person; `telegram` is the bot). Keying the request on
- * the channel id resolves the bot credential through the one map that owns
- * that fact, `CHANNEL_BOT_PROVIDER`, so a caller names the channel and never
- * chooses a provider. Acting as the person stays on `oauth request`.
+ * are different identities that reach different things, and the provider
+ * keys do not say which is which (`slack_channel` is the bot, `slack` is the
+ * person; `telegram` is the bot). Keying the request on the channel id
+ * resolves the bot credential through the one map that owns that fact,
+ * `CHANNEL_BOT_PROVIDER`, so a caller names the channel and never chooses a
+ * provider. Acting as the person is `oauth request`.
  *
  * The request itself is the same authenticated request `oauth request`
  * makes: the route resolves the provider's connection and injects the
@@ -41,7 +40,11 @@ export const REQUESTABLE_CHANNELS = Object.keys(
  * the channel has none (or is not a built-in channel at all).
  */
 export function botProviderForChannel(channel: string): string | undefined {
-  return (CHANNEL_BOT_PROVIDER as Readonly<Record<string, string>>)[channel];
+  // Own-property lookup: an inherited name (`constructor`, `toString`) is not
+  // a channel and must not resolve to a function as if it were a provider.
+  return Object.hasOwn(CHANNEL_BOT_PROVIDER, channel)
+    ? (CHANNEL_BOT_PROVIDER as Readonly<Record<string, string>>)[channel]
+    : undefined;
 }
 
 export function registerChannelsRequestCommand(channels: Command): void {

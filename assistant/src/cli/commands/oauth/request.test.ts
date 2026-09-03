@@ -33,6 +33,8 @@ mock.module("../../../ipc/cli-client.js", () => ({
   exitFromIpcResult: (r: { error?: string }) => {
     throw new Error(r.error ?? "IPC error");
   },
+  exitCodeFromIpcResult: (r: { statusCode?: number }) =>
+    r.statusCode === undefined ? 10 : r.statusCode >= 500 ? 3 : 1,
 }));
 
 mock.module("../../../runtime/routes/oauth-commands-routes.js", () => ({

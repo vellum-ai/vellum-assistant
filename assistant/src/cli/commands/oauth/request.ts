@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { exitCodeFromIpcResult } from "../../../ipc/cli-client.js";
 import {
   findContentTypeHeader,
   parseRequestBodyBytes,
@@ -242,11 +242,17 @@ export async function runAuthenticatedRequest(params: {
       result = (await handleRequest({ body })) as typeof result;
     } catch (err) {
       if (err instanceof RouteError) {
-        return exitFromIpcResult({
+        // A structured route failure (unknown provider, no connection) is
+        // reported the way every other failure here is, so `--json` gets its
+        // envelope and the caller's diagnostics hint is not lost; only the
+        // exit code comes from the route's status.
+        writeError(`Error: ${err.message}\n\n${params.diagnosticsHint}`);
+        process.exitCode = exitCodeFromIpcResult({
           ok: false,
           error: err.message,
           statusCode: err.statusCode,
         });
+        return;
       }
       throw err;
     }

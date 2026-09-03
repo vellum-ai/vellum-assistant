@@ -13,8 +13,7 @@
  * `oauth request` makes, without the caller naming a provider.
  *
  * A mutating `refresh` verb (for reconnecting channels, e.g. supplying
- * fresh Slack tokens) is intentionally not shipped here; it will land in
- * its own PR.
+ * fresh Slack tokens) is intentionally not part of this group.
  */
 
 import type { Command } from "commander";

@@ -28,14 +28,10 @@ platform, and a2a.
 ${CHANNELS_PLUGIN_SEARCH_HINT} Plugins can bundle additional channels
 from other Vellum users.
 
-  list                    Overview of every channel + ready state
-  get <channel>           Live snapshot of one channel (always re-probes)
-  request --channel <id> <url>
-                          Call the channel's platform API as the assistant's
-                          own bot (slack, telegram, discord). The bot
-                          credential is resolved from the channel; no token
-                          is handled. Acting as a person through their OAuth
-                          integration is 'assistant oauth request'.
+Two identities can reach a channel's platform. 'request' acts as the
+assistant's own bot on that channel (slack, telegram, discord), resolving
+the bot credential from the channel id so no token is handled. Acting as a
+person through their OAuth integration is 'assistant oauth request'.
 
 Examples:
   $ assistant channels list
@@ -44,6 +40,43 @@ Examples:
   $ assistant channels request --channel slack -X POST \\
       -d '{"channel":"D0123456789","limit":20}' /conversations.history --json`,
   subcommands: [
+    {
+      name: "request",
+      args: "<url>",
+      description:
+        "Call the channel's platform API as the assistant's own bot on that channel (curl-like interface)",
+      // The request-shaping options (-X, -H, -d, -G, -I, -o, -s, -v, -i) and
+      // the required --channel flag are registered imperatively in
+      // request.ts: the repeatable "-H, --header" flag needs a Commander
+      // collect parser the declarative contract cannot express, and the
+      // options must keep their registration order around it.
+      helpText: `
+Makes one authenticated request to the channel's platform API as the
+assistant's bot. The bot credential is the one the channel's setup wizard
+stored; it is resolved from --channel and sent from inside the assistant,
+never printed or passed on the command line. Acting as a person through
+their OAuth integration is a different identity and stays on
+'assistant oauth request --provider <key>'.
+
+Arguments:
+  <url>    The API method path, relative to the platform's API host
+           (for Slack, '/conversations.history'; for Discord, '/users/@me';
+           for Telegram, '/getMe'). The provider supplies the host.
+
+Options:
+  --channel <id>   Required. One of: slack, telegram, discord. A channel with
+                   no bot credential of its own (phone, vellum) is refused.
+  -X <method>      HTTP method (default: GET; POST when -d is given).
+  -H 'Key: Value'  Request header, repeatable.
+  -d <data>        Request body: inline JSON, @file, or @- for stdin.
+  --json           Machine-readable envelope: ok, status, headers, body.
+
+Examples:
+  $ assistant channels request --channel slack /auth.test --json
+  $ assistant channels request --channel slack -X POST \\
+      -d '{"channel":"D0123456789","limit":100}' /conversations.history --json
+  $ assistant channels request --channel discord /users/@me --json`,
+    },
     {
       name: "list",
       description: "Show readiness state for every configured channel",

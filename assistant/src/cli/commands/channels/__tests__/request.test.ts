@@ -15,6 +15,8 @@ mock.module("../../../../ipc/cli-client.js", () => ({
   exitFromIpcResult: (r: { error?: string }) => {
     throw new Error(r.error ?? "IPC error");
   },
+  exitCodeFromIpcResult: (r: { statusCode?: number }) =>
+    r.statusCode === undefined ? 10 : r.statusCode >= 500 ? 3 : 1,
 }));
 
 mock.module("../../../../runtime/routes/oauth-commands-routes.js", () => ({
@@ -106,6 +108,12 @@ describe("channel to bot provider", () => {
     expect(botProviderForChannel("vellum")).toBeUndefined();
     expect(botProviderForChannel("not-a-channel")).toBeUndefined();
   });
+
+  test("an inherited object property is not a channel", () => {
+    expect(botProviderForChannel("constructor")).toBeUndefined();
+    expect(botProviderForChannel("toString")).toBeUndefined();
+    expect(botProviderForChannel("__proto__")).toBeUndefined();
+  });
 });
 
 describe("assistant channels request", () => {
@@ -186,5 +194,31 @@ describe("assistant channels request", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain("assistant channels get slack");
     expect(stderr).not.toContain("oauth providers get");
+  });
+
+  test("a structured route failure keeps the JSON envelope and the hint", async () => {
+    const { RouteError } = await import("../../../../runtime/routes/errors.js");
+    mock.module("../../../../runtime/routes/oauth-commands-routes.js", () => ({
+      handleRequest: async () => {
+        throw new RouteError(
+          "Provider not configured: slack_channel",
+          "NOT_FOUND",
+          404,
+        );
+      },
+    }));
+
+    const { stdout, exitCode } = await runChannelsRequest([
+      "--channel",
+      "slack",
+      "--json",
+      "/auth.test",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const envelope = JSON.parse(stdout.trim());
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error).toContain("Provider not configured");
+    expect(envelope.error).toContain("assistant channels get slack");
   });
 });
