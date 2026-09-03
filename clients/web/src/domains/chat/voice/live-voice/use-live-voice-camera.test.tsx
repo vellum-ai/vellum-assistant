@@ -39,11 +39,19 @@ mock.module("@/lib/camera/frame-sampler", () => ({
 
 /** The camera the browser hands back, with a track whose stop can be seen. */
 const trackStop = mock(() => {});
+/** A real `EventTarget` so a test can fire `ended` the way a track would. */
+type FakeVideoTrack = EventTarget & { stop: () => void };
+/** The track behind the most recently created stream, for firing `ended`. */
+let lastTrack: FakeVideoTrack | null = null;
 function cameraStream(): MediaStream {
+  const track = Object.assign(new EventTarget(), {
+    stop: trackStop,
+  }) as FakeVideoTrack;
+  lastTrack = track;
   const stream = new MediaStream();
   Object.defineProperties(stream, {
-    getTracks: { value: () => [{ stop: trackStop }] },
-    getVideoTracks: { value: () => [] },
+    getTracks: { value: () => [track] },
+    getVideoTracks: { value: () => [track] },
   });
   return stream;
 }
@@ -138,6 +146,7 @@ beforeEach(() => {
   samplerStart.mockClear();
   samplerStop.mockClear();
   trackStop.mockClear();
+  lastTrack = null;
   requestVideoStream.mockClear();
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
@@ -320,6 +329,18 @@ describe("useLiveVoiceCamera: releasing", () => {
     expect(samplerStop).toHaveBeenCalled();
     expect(trackStop).toHaveBeenCalledTimes(1);
     expect(useLiveVoiceStore.getState().cameraStreaming).toBe(false);
+  });
+
+  test("closes when the track ends externally (unplugged, permission revoked)", async () => {
+    await opened();
+    act(() => {
+      lastTrack?.dispatchEvent(new Event("ended"));
+    });
+    await flush();
+
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+    expect(useLiveVoiceStore.getState().cameraStreaming).toBe(false);
+    expect(trackStop).toHaveBeenCalledTimes(1);
   });
 
   test("closes a stream that arrives after the ask was taken back", async () => {

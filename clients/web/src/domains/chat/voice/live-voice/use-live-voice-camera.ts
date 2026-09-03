@@ -37,9 +37,11 @@
  * Only a press on the control opens the camera, and the control shows the
  * camera as on for exactly as long as frames flow. The camera closes when the
  * user presses again, when the session ends or reconnects (the ask is session
- * state), when the assistant refuses the frame for the session, and when this
- * hook unmounts, which is the chat layout going away. Each keep lands in the
- * transcript, where the user can see it and delete it.
+ * state), when the assistant refuses the frame for the session, when this
+ * hook unmounts, which is the chat layout going away, and when the track ends
+ * from outside the app (a webcam unplugged, permission revoked mid-call) —
+ * the same interruption the sight store's viewfinder watches for. Each keep
+ * lands in the transcript, where the user can see it and delete it.
  */
 
 import { useEffect, useState } from "react";
@@ -97,6 +99,7 @@ export function useLiveVoiceCamera(): void {
     let stream: MediaStream | null = null;
     let video: HTMLVideoElement | null = null;
     let stopSampling: (() => void) | null = null;
+    let detachTrackEnded: (() => void) | null = null;
 
     const run = async (): Promise<void> => {
       let acquired: MediaStream;
@@ -126,6 +129,21 @@ export function useLiveVoiceCamera(): void {
         return;
       }
       stream = acquired;
+      // macOS can end the track from outside this hook: the webcam is
+      // unplugged, or permission is revoked mid-call. `stop()` on our own
+      // side does not fire `ended` (the spec says so), so this can only hear
+      // an interruption, never the cleanup below. Lowering the ask runs this
+      // effect's own cleanup, the same path a press on the control takes.
+      const [track] = stream.getVideoTracks();
+      if (track) {
+        const onTrackEnded = (): void => {
+          console.warn("[live-voice camera] camera track ended externally");
+          useLiveVoiceStore.getState().setCameraRequested(false);
+        };
+        track.addEventListener("ended", onTrackEnded);
+        detachTrackEnded = () =>
+          track.removeEventListener("ended", onTrackEnded);
+      }
       video = document.createElement("video");
       video.muted = true;
       video.playsInline = true;
@@ -174,6 +192,7 @@ export function useLiveVoiceCamera(): void {
       // re-base gives back what was parked behind them.
       sight.revokeConsent();
       sight.rebaseSendOrder();
+      detachTrackEnded?.();
       stopSampling?.();
       if (video) {
         video.pause();
