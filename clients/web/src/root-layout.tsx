@@ -398,8 +398,13 @@ export function RootLayout() {
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so
     // its refusal is worth being able to test, and a module is what makes that
-    // possible. It takes no arguments, which the handler signature allows.
-    toggleWatch: handleToggleWatchCommand,
+    // possible. The command carries the picker's target on a start, and the
+    // handler is handed exactly that and nothing else of the command.
+    toggleWatch: (command) => {
+      handleToggleWatchCommand(
+        command.kind === "toggleWatch" ? command.target : undefined,
+      );
+    },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);
     },

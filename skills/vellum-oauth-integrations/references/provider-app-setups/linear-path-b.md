@@ -55,9 +55,17 @@ Wait for the Client ID.
 
 Then ask for the secret:
 
-> Now send me the **app secret**. It's shown only once right after creation. If you can still see it, copy and send it as a standalone message with no other text.
+> Copy the **app secret**. It is shown only once right after creation; if you navigated away, regenerate it from the application settings page. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: If the user navigated away and can no longer see the secret, they'll need to regenerate it from the application settings page.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service linear --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the app secret from the app settings page."
+```
+
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
 
 ## Path B Step 5: Authorize and Verify
 

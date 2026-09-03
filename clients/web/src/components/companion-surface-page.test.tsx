@@ -21,7 +21,27 @@ const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
 const startVoiceMock = mock(() => undefined);
-const toggleWatchMock = mock(() => undefined);
+const toggleWatchMock = mock((_pick?: unknown) => undefined);
+/**
+ * What the shell lists for the picker. Null is a shell with no picker to
+ * offer, which is what a bridge that predates it answers.
+ */
+let captureSources: {
+  displays: {
+    kind: "display";
+    displayId: number;
+    index: number;
+    primary: boolean;
+  }[];
+  tabs: {
+    kind: "tab";
+    chromeWindowId: number;
+    tabIndex: number;
+    title: string;
+  }[];
+  windows: { kind: "window"; windowId: number; title: string; app: string }[];
+} | null = null;
+const listSourcesMock = mock(async () => captureSources);
 const answerRetroMock = mock((_open: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
@@ -63,6 +83,8 @@ const resetState = () => {
   delete STATE.dialing;
   delete STATE.watching;
   delete STATE.captureCount;
+  delete STATE.watchTargets;
+  delete STATE.captureTarget;
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
@@ -107,6 +129,7 @@ mock.module("@/runtime/companion-surface", () => ({
   activateCompanionApp: activateMock,
   startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
+  listCompanionCaptureSources: listSourcesMock,
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
@@ -129,6 +152,8 @@ afterEach(() => {
   activateMock.mockClear();
   startVoiceMock.mockClear();
   toggleWatchMock.mockClear();
+  listSourcesMock.mockClear();
+  captureSources = null;
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
   sendControlMock.mockClear();
@@ -874,6 +899,240 @@ describe("the watch session on the companion surface", () => {
     await waitFor(() => {
       expect(stopOf(container)).toBeNull();
     });
+  });
+});
+
+/**
+ * The picker Teach opens, when the window holding the session says it can be
+ * told what to read. The choice is this page's; the pick leaves it the way
+ * every press does.
+ */
+describe("the picker behind Teach", () => {
+  const teachOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    if (!found) {
+      throw new Error("Expected Teach to render");
+    }
+    return found;
+  };
+  const pickerOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("[data-companion-capture-picker]");
+
+  const SOURCES = {
+    displays: [
+      { kind: "display" as const, displayId: 1, index: 0, primary: true },
+    ],
+    tabs: [
+      { kind: "tab" as const, chromeWindowId: 5, tabIndex: 2, title: "Docs" },
+    ],
+    windows: [
+      {
+        kind: "window" as const,
+        windowId: 9,
+        title: "Groceries",
+        app: "Notes",
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    STATE.call = LISTENING_CALL;
+    STATE.watchTargets = true;
+    captureSources = SOURCES;
+  });
+
+  test("opens on Teach with what the shell lists, and holds Teach down", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+      expect(
+        container.querySelector('button[aria-label="Screen 1"]'),
+      ).not.toBeNull();
+    });
+    expect(teachOf(container).getAttribute("aria-pressed")).toBe("true");
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+  });
+
+  test("a pick leaves as the toggle, and closes the picker", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const row = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Groceries (Notes)"]',
+      );
+      if (!found) {
+        throw new Error("Expected the window row");
+      }
+      return found;
+    });
+
+    fireEvent.click(row);
+
+    expect(toggleWatchMock).toHaveBeenCalledWith({
+      kind: "window",
+      windowId: 9,
+    });
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("gives the desktop back when a pick removes the card under the pointer", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const canvas = canvasOf(container);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const card = await waitFor(() => {
+      const found = pickerOf(container);
+      if (!found) {
+        throw new Error("Expected the picker");
+      }
+      return found;
+    });
+    pin(card, { left: 100, right: 360, top: 400, bottom: 600 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 500 });
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(container.querySelector('button[aria-label="Screen 1"]')!);
+
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(false);
+  });
+
+  test("a second press of Teach closes it unanswered", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+
+    fireEvent.click(teachOf(container));
+
+    expect(pickerOf(container)).toBeNull();
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+  });
+
+  test("closes once a session starts, whoever started it", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+
+    pushState({ ...STATE, watching: true });
+
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("closes with the call it sits over", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+
+    pushState({ ...STATE, call: null });
+
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  /**
+   * The window holding the session has not said its assistant can be told
+   * what to read, so the press is what it always was: the whole screen.
+   */
+  test("is not offered where a session cannot be aimed", async () => {
+    STATE.watchTargets = false;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+    expect(toggleWatchMock).toHaveBeenCalledWith();
+    expect(pickerOf(container)).toBeNull();
+    expect(listSourcesMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The list arrives after a round trip. A picker the user closed in the
+   * meantime is not answered by it, least of all with the whole-screen
+   * session a shell with nothing to list would otherwise start.
+   */
+  test("ignores a list that arrives after the picker was closed", async () => {
+    let answer: ((listed: typeof captureSources) => void) | null = null;
+    listSourcesMock.mockImplementationOnce(
+      () =>
+        new Promise<typeof captureSources>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+    fireEvent.click(teachOf(container));
+    expect(pickerOf(container)).toBeNull();
+
+    await act(async () => {
+      answer?.(null);
+      await Promise.resolve();
+    });
+
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("starts the whole-screen session on a shell with nothing to list", async () => {
+    captureSources = null;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    await waitFor(() => {
+      expect(toggleWatchMock).toHaveBeenCalledWith();
+    });
+    expect(pickerOf(container)).toBeNull();
+  });
+
+  test("makes the window clickable while the pointer is on the card", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const canvas = canvasOf(container);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    const card = await waitFor(() => {
+      const found = pickerOf(container);
+      if (!found) {
+        throw new Error("Expected the picker");
+      }
+      return found;
+    });
+    pin(card, { left: 100, right: 360, top: 400, bottom: 600 });
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 500 });
+
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
+  });
+
+  test("the stop is never a question", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    fireEvent.click(teachOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledWith();
+    expect(pickerOf(container)).toBeNull();
   });
 });
 

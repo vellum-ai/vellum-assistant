@@ -27,6 +27,8 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -550,8 +552,23 @@ export interface VellumBridge {
      * surface draws a single control and the window holding the session is the
      * only side that knows which edge a press is. What comes back is `watching`
      * on `onState`.
+     *
+     * `pick` is the row of the picker the start edge came from, when it came
+     * from one. Main resolves a tab to the window showing it and hands the
+     * result to the session as its target; what comes back is `captureTarget`
+     * on `onState`, and the frame main draws around it.
      */
-    toggleWatch(): void;
+    toggleWatch(pick?: CompanionCapturePick): void;
+    /**
+     * What a session could read right now: the displays, the Chrome tabs, and
+     * the windows on screen, for the picker Teach opens.
+     *
+     * Listed on demand rather than pushed, because the desktop changes under
+     * every push and the list is only worth anything at the moment it is drawn.
+     * Absent on a shell that predates the picker, which the surface reads as
+     * having nothing to offer and starts the whole-screen session instead.
+     */
+    listCaptureSources?(): Promise<CompanionCaptureSources>;
     /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.

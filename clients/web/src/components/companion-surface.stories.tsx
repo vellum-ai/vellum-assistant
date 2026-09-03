@@ -13,6 +13,7 @@ import {
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
+import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
@@ -475,6 +476,57 @@ export const SummaryReady: Story = {
  */
 export const InCallWhileWatching: Story = {
   args: { phase: "call", watching: true, call: DEMO_CALL },
+};
+
+/**
+ * Teach pressed, and the question it asks first: what to read.
+ *
+ * The picker is a card over the bar rather than a row on it, on the height
+ * the host reserves for a card, since a desktop has a dozen windows and the
+ * bar is one thin row by design. Screens, then Chrome's tabs, then every
+ * other window; the pick is what starts the session, and the picked surface
+ * is what gets the frame.
+ */
+export const InCallPicking: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: (
+      <CompanionCapturePicker
+        sources={{
+          displays: [
+            { kind: "display", displayId: 1, index: 0, primary: true },
+            { kind: "display", displayId: 2, index: 1, primary: false },
+          ],
+          tabs: [
+            {
+              kind: "tab",
+              chromeWindowId: 101,
+              tabIndex: 1,
+              title: "Quarterly plan - Google Docs",
+            },
+            {
+              kind: "tab",
+              chromeWindowId: 101,
+              tabIndex: 2,
+              title: "vellum-ai/vellum-assistant: Pull request #42002",
+            },
+          ],
+          windows: [
+            { kind: "window", windowId: 7, title: "Groceries", app: "Notes" },
+            { kind: "window", windowId: 8, title: "", app: "Preview" },
+            {
+              kind: "window",
+              windowId: 9,
+              title: "companion-surface.tsx",
+              app: "Code",
+            },
+          ],
+        }}
+      />
+    ),
+  },
 };
 
 /**

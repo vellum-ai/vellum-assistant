@@ -1,0 +1,469 @@
+/**
+ * What a watch session could read, and how a pick becomes a target.
+ *
+ * The companion's Teach opens a picker (`companion-capture-picker.tsx`) and
+ * this is the main-process half of it: the list the picker draws, and the
+ * resolution of a pressed row into the display or window the session is
+ * told to read (`WatchCaptureTarget`).
+ *
+ * **The windows come from the native helper, not from `desktopCapturer`.**
+ * The frame the shell draws around a picked window has to follow it, which
+ * takes the window's bounds, and `desktopCapturer` names windows without
+ * saying where they are. The helper reads the window server's own list
+ * (`CaptureSources.swift`), which carries bounds, owner and title in one
+ * call, and the shell polls the same call to keep the frame on a window the
+ * user is moving.
+ *
+ * **A Chrome tab is a window with a step in front.** Chrome's scripting
+ * interface lists tabs by Chrome's own window id and a tab index, neither of
+ * which the window server knows. Picking one has Chrome show that tab and
+ * bring its window forward, after which the tab is the frontmost Chrome
+ * window with that title, and that window is the target. The step is here so
+ * the surface never has to know a tab is not a window.
+ *
+ * Everything the desktop is asked comes through {@link CaptureSourceDeps}, so
+ * the resolution and the parsing can be exercised without a window server, a
+ * helper process, or Chrome.
+ */
+
+import { app, screen } from "electron";
+import { z } from "zod";
+
+import type {
+  CompanionCapturePick,
+  CompanionCaptureSources,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
+
+import { runAppleScript } from "./appleScriptExecutor";
+import log from "./logger";
+import { getSharedCuHelper } from "./sidecar/shared-cu-helper";
+
+/** Chrome, as `NSRunningApplication` names it and as AppleScript addresses it. */
+export const CHROME_BUNDLE_ID = "com.google.Chrome";
+
+const boundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
+/**
+ * One on-screen window as the helper's `captureSources.list` reports it.
+ * Bounds are in points, in the window server's global coordinates, which are
+ * the coordinates Electron's `screen` and window bounds already use on macOS.
+ */
+const helperWindowSchema = z.object({
+  windowId: z.number().int().nonnegative(),
+  pid: z.number().int(),
+  app: z.string(),
+  bundleId: z.string().optional(),
+  appPath: z.string().optional(),
+  title: z.string(),
+  bounds: boundsSchema,
+  displayId: z.number().int().nonnegative().optional(),
+});
+
+export type HelperWindow = z.infer<typeof helperWindowSchema>;
+
+const helperListSchema = z.object({
+  windows: z.array(helperWindowSchema),
+});
+
+/**
+ * The helper's answer, checked at the boundary. A malformed entry drops the
+ * whole answer rather than one row: the helper and this shell ship together,
+ * so a shape mismatch is a bug to notice, not a window to skip.
+ */
+export function parseHelperWindows(raw: unknown): HelperWindow[] {
+  return helperListSchema.parse(raw).windows;
+}
+
+export interface ChromeTab {
+  chromeWindowId: number;
+  /** One-based, as AppleScript counts tabs. */
+  tabIndex: number;
+  active: boolean;
+  title: string;
+}
+
+/**
+ * The separator the listing script puts between a tab's fields: the unit
+ * separator, which is what it is for. A control character rather than a tab
+ * or a comma, because a page title can hold either and cannot hold this.
+ */
+const FIELD_SEPARATOR = "";
+
+/**
+ * Every tab in every Chrome window, one per line: window id, index, whether
+ * it is the window's active tab, and its title.
+ */
+const LIST_CHROME_TABS_SCRIPT = `
+tell application id "${CHROME_BUNDLE_ID}"
+  set out to ""
+  set sep to (ASCII character 31)
+  repeat with w in windows
+    set wid to id of w
+    set ai to active tab index of w
+    set i to 1
+    repeat with t in tabs of w
+      set out to out & wid & sep & i & sep & (ai = i) & sep & (title of t) & linefeed
+      set i to i + 1
+    end repeat
+  end repeat
+  return out
+end tell
+`;
+
+/** The listing script's output, one tab per line. Blank and torn lines are skipped. */
+export function parseChromeTabs(stdout: string): ChromeTab[] {
+  const tabs: ChromeTab[] = [];
+  for (const line of stdout.split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const [windowRaw, indexRaw, activeRaw, ...titleParts] =
+      line.split(FIELD_SEPARATOR);
+    const chromeWindowId = Number(windowRaw);
+    const tabIndex = Number(indexRaw);
+    if (
+      titleParts.length === 0 ||
+      !Number.isInteger(chromeWindowId) ||
+      !Number.isInteger(tabIndex) ||
+      tabIndex < 1
+    ) {
+      continue;
+    }
+    tabs.push({
+      chromeWindowId,
+      tabIndex,
+      active: activeRaw === "true",
+      // A title that somehow carried the separator is joined back together
+      // rather than truncated at it.
+      title: titleParts.join(FIELD_SEPARATOR).replace(/\r$/, ""),
+    });
+  }
+  return tabs;
+}
+
+/**
+ * Show `tabIndex` in Chrome window `chromeWindowId`, bring that window
+ * forward, and report where Chrome says the window now is and whether it is
+ * still minimized: "minimized, left, top, right, bottom", separated.
+ */
+const activateChromeTabScript = (
+  chromeWindowId: number,
+  tabIndex: number,
+): string => `
+tell application id "${CHROME_BUNDLE_ID}"
+  set w to window id ${Math.trunc(chromeWindowId)}
+  set active tab index of w to ${Math.trunc(tabIndex)}
+  set index of w to 1
+  activate
+  set sep to (ASCII character 31)
+  set b to bounds of w
+  return (minimized of w as text) & sep & (item 1 of b) & sep & (item 2 of b) & sep & (item 3 of b) & sep & (item 4 of b)
+end tell
+`;
+
+/**
+ * Where Chrome put the window it was told to show, in Chrome's own words.
+ * The one signal that ties a tab to a window the window server knows: the
+ * helper lists windows by bounds, and Chrome reports bounds for the window
+ * by id, so the two meet on the rectangle rather than on a title two windows
+ * can share.
+ */
+export interface ChromeWindowPlacement {
+  minimized: boolean;
+  bounds: { x: number; y: number; width: number; height: number };
+}
+
+/** The activation script's answer, or nothing for an answer that is not one. */
+export function parseChromeWindowPlacement(
+  stdout: string,
+): ChromeWindowPlacement | null {
+  const [minimizedRaw, ...edges] = stdout.trim().split(FIELD_SEPARATOR);
+  const [left, top, right, bottom] = edges.map((edge) => Number(edge));
+  if (
+    edges.length !== 4 ||
+    [left, top, right, bottom].some((edge) => !Number.isFinite(edge))
+  ) {
+    return null;
+  }
+  return {
+    minimized: minimizedRaw === "true",
+    bounds: {
+      x: left as number,
+      y: top as number,
+      width: (right as number) - (left as number),
+      height: (bottom as number) - (top as number),
+    },
+  };
+}
+
+export interface CaptureDisplay {
+  id: number;
+  bounds: { x: number; y: number; width: number; height: number };
+  primary: boolean;
+}
+
+/**
+ * Everything this module asks of the desktop, so the tests can answer for it.
+ */
+export interface CaptureSourceDeps {
+  listWindows: () => Promise<HelperWindow[]>;
+  listDisplays: () => CaptureDisplay[];
+  listChromeTabs: () => Promise<ChromeTab[]>;
+  /**
+   * Show the tab and bring its window forward; resolves to where Chrome says
+   * that window is, or null when Chrome would not say.
+   */
+  activateChromeTab: (
+    chromeWindowId: number,
+    tabIndex: number,
+  ) => Promise<ChromeWindowPlacement | null>;
+  /** The icon of the app at `appPath` as a data URL, or nothing. */
+  iconFor: (appPath: string) => Promise<string | undefined>;
+}
+
+/**
+ * Icons by app path, kept for the process. An app's icon does not change
+ * while it runs, and the picker asks for the same dozen apps every time it
+ * opens.
+ */
+const iconCache = new Map<string, Promise<string | undefined>>();
+
+const readIcon = (appPath: string): Promise<string | undefined> => {
+  const cached = iconCache.get(appPath);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const read = app
+    .getFileIcon(appPath, { size: "small" })
+    .then((image) => (image.isEmpty() ? undefined : image.toDataURL()))
+    .catch(() => undefined);
+  iconCache.set(appPath, read);
+  return read;
+};
+
+export const defaultCaptureSourceDeps: CaptureSourceDeps = {
+  listWindows: async () =>
+    parseHelperWindows(await getSharedCuHelper().call("captureSources.list")),
+  listDisplays: () => {
+    const primaryId = screen.getPrimaryDisplay().id;
+    return screen.getAllDisplays().map((display) => ({
+      id: display.id,
+      bounds: display.bounds,
+      primary: display.id === primaryId,
+    }));
+  },
+  listChromeTabs: async () =>
+    parseChromeTabs(await runAppleScript(LIST_CHROME_TABS_SCRIPT)),
+  activateChromeTab: async (chromeWindowId, tabIndex) =>
+    parseChromeWindowPlacement(
+      await runAppleScript(activateChromeTabScript(chromeWindowId, tabIndex)),
+    ),
+  iconFor: readIcon,
+};
+
+/** Whether a helper window is one of Chrome's. */
+const isChromeWindow = (window: HelperWindow): boolean =>
+  window.bundleId === CHROME_BUNDLE_ID;
+
+/**
+ * List what a session could read right now, in the order the picker draws
+ * it: the displays with the primary first, the Chrome tabs when Chrome has a
+ * window up, and every window the helper reports.
+ *
+ * Chrome is only asked when one of its windows is on screen. Asking is an
+ * Apple event, which the first time round is a system prompt about
+ * controlling Chrome, and a prompt about an app that is not even running is
+ * one nobody asked for. A refusal, or Chrome answering nothing, leaves the
+ * tabs out and the rest of the list standing.
+ */
+export async function listCaptureSources(
+  deps: CaptureSourceDeps = defaultCaptureSourceDeps,
+): Promise<CompanionCaptureSources> {
+  const [windows, displays] = await Promise.all([
+    deps.listWindows().catch((err: unknown) => {
+      log.warn("[companion] could not list windows for the picker:", err);
+      return [] as HelperWindow[];
+    }),
+    Promise.resolve(deps.listDisplays()),
+  ]);
+
+  const chromeWindow = windows.find(isChromeWindow);
+  let tabs: ChromeTab[] = [];
+  if (chromeWindow !== undefined) {
+    try {
+      tabs = await deps.listChromeTabs();
+    } catch (err) {
+      log.info("[companion] Chrome did not list its tabs for the picker:", err);
+    }
+  }
+
+  const icons = new Map<string, string | undefined>();
+  await Promise.all(
+    [...new Set(windows.flatMap((w) => (w.appPath ? [w.appPath] : [])))].map(
+      async (appPath) => {
+        icons.set(appPath, await deps.iconFor(appPath));
+      },
+    ),
+  );
+  const iconOf = (appPath: string | undefined): string | undefined =>
+    appPath === undefined ? undefined : icons.get(appPath);
+  const chromeIcon = iconOf(chromeWindow?.appPath);
+
+  const orderedDisplays = [...displays].sort((a, b) =>
+    a.primary === b.primary ? 0 : a.primary ? -1 : 1,
+  );
+
+  return {
+    displays: orderedDisplays.map((display, index) => ({
+      kind: "display",
+      displayId: display.id,
+      index,
+      primary: display.primary,
+    })),
+    tabs: tabs.map((tab) => ({
+      kind: "tab",
+      chromeWindowId: tab.chromeWindowId,
+      tabIndex: tab.tabIndex,
+      title: tab.title,
+      ...(chromeIcon === undefined ? {} : { icon: chromeIcon }),
+    })),
+    windows: windows.map((window) => {
+      const icon = iconOf(window.appPath);
+      return {
+        kind: "window",
+        windowId: window.windowId,
+        title: window.title,
+        app: window.app,
+        ...(icon === undefined ? {} : { icon }),
+      };
+    }),
+  };
+}
+
+/**
+ * The Chrome window showing a tab with `title`, once Chrome has been told to
+ * show it, or nothing when no window can be tied to that tab.
+ *
+ * By the bounds Chrome reports for the window after showing the tab, which
+ * is the one signal that names that window and no other. Without them, by
+ * title, since a Chrome window is titled after its active tab: the one
+ * window with exactly that title, or the one window whose title Chrome
+ * decorated around it. Never by z-order, and never one of several alike. The activation brings the tab's window forward when it can, but a
+ * window Chrome could not restore (minimized, on another space) stays off the
+ * helper's on-screen list, and the frontmost Chrome window is then some
+ * other page the user did not pick. Reading nothing is the only honest
+ * answer there; the surface tells the user the pick started nothing.
+ */
+export function chromeWindowFor(
+  windows: HelperWindow[],
+  title: string,
+  placement?: ChromeWindowPlacement | null,
+): HelperWindow | undefined {
+  const chrome = windows.filter(isChromeWindow);
+  // Chrome's own account of the window comes first. A window still
+  // minimized after the activation is not on screen at all, whatever else
+  // is; and a window Chrome places is the Chrome window the helper lists
+  // at that rectangle, title or no title.
+  if (placement) {
+    if (placement.minimized) {
+      return undefined;
+    }
+    const { bounds } = placement;
+    return chrome.find(
+      (w) =>
+        Math.abs(w.bounds.x - bounds.x) <= 2 &&
+        Math.abs(w.bounds.y - bounds.y) <= 2 &&
+        Math.abs(w.bounds.width - bounds.width) <= 2 &&
+        Math.abs(w.bounds.height - bounds.height) <= 2,
+    );
+  }
+  // Without a placement, the title, and only a title that names one window. Two Chrome windows on the same page share a title,
+  // and if the picked one stayed off screen the other is the one listed.
+  const exact = chrome.filter((w) => w.title === title);
+  if (exact.length === 1) {
+    return exact[0];
+  }
+  if (exact.length > 1 || title === "") {
+    return undefined;
+  }
+  const decorated = chrome.filter((w) => w.title.startsWith(title));
+  return decorated.length === 1 ? decorated[0] : undefined;
+}
+
+/**
+ * Turn a pressed row into the target the session is told to read, or nothing
+ * when it cannot be: a tab whose window Chrome no longer has, or a Chrome
+ * that would not take the request.
+ *
+ * A display and a window are already targets. A tab is the window showing
+ * it, which takes an activation round trip through Chrome and a fresh list
+ * from the helper, since the window that shows it may not have been in front
+ * (or on screen at all, if minimized) when the picker was drawn.
+ */
+export async function resolveCapturePick(
+  pick: CompanionCapturePick,
+  deps: CaptureSourceDeps = defaultCaptureSourceDeps,
+): Promise<WatchCaptureTarget | null> {
+  if (pick.kind === "display") {
+    return { kind: "display", displayId: pick.displayId };
+  }
+  if (pick.kind === "window") {
+    return { kind: "window", windowId: pick.windowId };
+  }
+  let title = "";
+  let placement: ChromeWindowPlacement | null = null;
+  try {
+    const tab = (await deps.listChromeTabs()).find(
+      (t) =>
+        t.chromeWindowId === pick.chromeWindowId &&
+        t.tabIndex === pick.tabIndex,
+    );
+    if (tab === undefined) {
+      log.warn("[companion] the picked Chrome tab is gone");
+      return null;
+    }
+    title = tab.title;
+    placement = await deps.activateChromeTab(
+      pick.chromeWindowId,
+      pick.tabIndex,
+    );
+  } catch (err) {
+    log.warn("[companion] Chrome would not show the picked tab:", err);
+    return null;
+  }
+  let windows: HelperWindow[];
+  try {
+    windows = await deps.listWindows();
+  } catch (err) {
+    log.warn("[companion] could not list windows after showing the tab:", err);
+    return null;
+  }
+  const window = chromeWindowFor(windows, title, placement);
+  if (window === undefined) {
+    log.warn("[companion] no Chrome window on screen for the picked tab");
+    return null;
+  }
+  return { kind: "window", windowId: window.windowId };
+}
+
+/**
+ * Where a window is right now, or nothing when it is not on screen: closed,
+ * minimized, or on a space the user has left. The shell's frame polls this
+ * to stay on a window the user is moving, and hides while the answer is
+ * nothing.
+ */
+export async function windowBoundsFor(
+  windowId: number,
+  deps: Pick<CaptureSourceDeps, "listWindows"> = defaultCaptureSourceDeps,
+): Promise<HelperWindow["bounds"] | null> {
+  const window = (await deps.listWindows()).find(
+    (w) => w.windowId === windowId,
+  );
+  return window === undefined ? null : window.bounds;
+}

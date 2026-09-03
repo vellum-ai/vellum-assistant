@@ -110,7 +110,81 @@ mock.module("electron", () => ({
       bounds: { x: 0, y: 0, width: 1440, height: 900 },
       workArea: { x: 0, y: 0, width: 1440, height: 900 },
     }),
-    on: () => undefined,
+    getAllDisplays: () => displays,
+    getPrimaryDisplay: () => displays[0],
+    on: (event: string, listener: () => void) => {
+      screenListeners.push({ event, listener });
+    },
+  },
+}));
+
+/** Main's display listeners, so a case can rearrange the displays. */
+const screenListeners: { event: string; listener: () => void }[] = [];
+
+/** Fire the display event main registered, as the window server would. */
+const fireDisplayEvent = (event: string): void => {
+  for (const entry of [...screenListeners]) {
+    if (entry.event === event) {
+      entry.listener();
+    }
+  }
+};
+
+/**
+ * The displays the window server has, by id, for a session framing one of
+ * them. Two by default, so a case can pick the one the surface is not on.
+ */
+let displays: {
+  id: number;
+  bounds: { x: number; y: number; width: number; height: number };
+  workArea: { x: number; y: number; width: number; height: number };
+}[] = [];
+
+/**
+ * Where the helper says a picked window is, or null when it is off screen.
+ * The frame polls this; a case sets it and lets the poll run.
+ */
+let windowBounds: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} | null = null;
+
+/** Every window id the frame has asked the helper about, most recent last. */
+const boundsAsked: number[] = [];
+
+/** What the picker's list resolves to, and what a pressed row resolves to. */
+const listedSources = {
+  displays: [
+    { kind: "display" as const, displayId: 1, index: 0, primary: true },
+  ],
+  tabs: [],
+  windows: [],
+};
+let resolvedPick:
+  | { kind: "display"; displayId: number }
+  | { kind: "window"; windowId: number }
+  | null = null;
+const picksResolved: unknown[] = [];
+
+// The desktop half of the picker asks a helper process, Chrome and the window
+// server, none of which exist here. What this file holds is what main does
+// with the answers: where it puts the frame, and what it dispatches.
+/** The resolution itself, swappable so a case can hold one open. */
+let resolvedPickAsync: (pick: unknown) => Promise<typeof resolvedPick> = async (
+  pick,
+) => {
+  picksResolved.push(pick);
+  return resolvedPick;
+};
+
+mock.module("./companion-capture-sources", () => ({
+  listCaptureSources: async () => listedSources,
+  resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
+  windowBoundsFor: async (windowId: number) => {
+    boundsAsked.push(windowId);
+    return windowBounds;
   },
 }));
 
@@ -162,6 +236,11 @@ type GlowWindow = {
   close: () => void;
   isDestroyed: () => boolean;
   on: () => void;
+  /** Whether the frame is on screen: hidden while its window is not. */
+  visible: boolean;
+  hide: () => void;
+  showInactive: () => void;
+  isVisible: () => boolean;
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
@@ -197,6 +276,14 @@ const openGlow = (options: {
     },
     isDestroyed: () => false,
     on: () => {},
+    visible: true,
+    hide: () => {
+      window.visible = false;
+    },
+    showInactive: () => {
+      window.visible = true;
+    },
+    isVisible: () => window.visible,
   };
   glow = window;
   return window;
@@ -298,6 +385,22 @@ beforeEach(() => {
   boundsSet.length = 0;
   glow = null;
   glowPushes.length = 0;
+  displays = [
+    {
+      id: 1,
+      bounds: { x: 0, y: 0, width: 1440, height: 900 },
+      workArea: { x: 0, y: 0, width: 1440, height: 900 },
+    },
+    {
+      id: 2,
+      bounds: { x: 1440, y: 0, width: 1920, height: 1080 },
+      workArea: { x: 1440, y: 0, width: 1920, height: 1080 },
+    },
+  ];
+  windowBounds = null;
+  boundsAsked.length = 0;
+  resolvedPick = null;
+  picksResolved.length = 0;
 });
 
 /** Put a set of evaluated flags in settings and tell main they changed. */
@@ -863,6 +966,264 @@ describe("the light a watch session puts on the display", () => {
     send("vellum:voiceActivity:end");
     expect(glow).not.toBeNull();
     send("vellum:companion:setContext", context({ watching: false }));
+  });
+
+  /**
+   * A session started on a pick frames exactly what it reads. The display
+   * by its id, wherever the surface happens to be; the window by its bounds,
+   * asked of the helper and asked again as it moves.
+   */
+  test("frames the picked display rather than the surface's", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+  });
+
+  test("is placed again when the picked display changes shape", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    displays[1] = {
+      ...displays[1],
+      bounds: { x: 1440, y: 0, width: 1080, height: 1920 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1080, height: 1920 });
+  });
+
+  test("falls back to the surface's display for one that is gone", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 99 },
+      }),
+    );
+    expect(glow?.bounds).toEqual(SCREEN);
+  });
+
+  test("frames the picked window where the helper says it is", async () => {
+    windowBounds = { x: 200, y: 120, width: 800, height: 600 };
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "window", windowId: 4242 },
+      }),
+    );
+    await Bun.sleep(0);
+    expect(boundsAsked).toEqual([4242]);
+    expect(glow?.bounds).toEqual({ x: 200, y: 120, width: 800, height: 600 });
+    send("vellum:companion:setContext", context({ watching: false }));
+  });
+
+  test("hides the frame while the picked window is off screen", async () => {
+    windowBounds = { x: 200, y: 120, width: 800, height: 600 };
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "window", windowId: 4242 },
+      }),
+    );
+    await Bun.sleep(0);
+    expect(glow?.visible).toBe(true);
+    // Minimized: the helper no longer lists it.
+    windowBounds = null;
+    await Bun.sleep(300);
+    expect(glow).not.toBeNull();
+    expect(glow?.visible).toBe(false);
+    // And back.
+    windowBounds = { x: 10, y: 20, width: 800, height: 600 };
+    await Bun.sleep(300);
+    expect(glow?.visible).toBe(true);
+    expect(glow?.bounds).toEqual({ x: 10, y: 20, width: 800, height: 600 });
+    send("vellum:companion:setContext", context({ watching: false }));
+  });
+
+  test("stops asking after the picked window once the session ends", async () => {
+    windowBounds = { x: 200, y: 120, width: 800, height: 600 };
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "window", windowId: 4242 },
+      }),
+    );
+    await Bun.sleep(0);
+    send("vellum:companion:setContext", context({ watching: false }));
+    const asked = boundsAsked.length;
+    await Bun.sleep(300);
+    expect(boundsAsked.length).toBe(asked);
+    expect(glow).toBeNull();
+  });
+
+  test("carries the target and whether one may be picked to the surface", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        watchTargets: true,
+        captureTarget: { kind: "window", windowId: 7 },
+      }),
+    );
+    expect(state().captureTarget).toEqual({ kind: "window", windowId: 7 });
+    expect(state().watchTargets).toBe(true);
+    send("vellum:companion:setContext", context({}));
+    expect(state().captureTarget).toBeUndefined();
+    expect(state().watchTargets).toBe(false);
+  });
+});
+
+/**
+ * Teach's picker, from main's side: the list it draws, and the pick that
+ * comes back on the toggle channel as the session's target.
+ */
+describe("the picker behind Teach", () => {
+  beforeEach(() => {
+    mainWindowOpen = true;
+    dispatched.length = 0;
+  });
+
+  test("lists what a session could read on demand", async () => {
+    const list = invocable.get("vellum:companion:listCaptureSources");
+    expect(list).toBeDefined();
+    expect(await list?.([])).toEqual(listedSources);
+  });
+
+  test("a press with no pick is the toggle it always was", () => {
+    send("vellum:companion:toggleWatch");
+    expect(dispatched.at(-1)).toEqual({ kind: "toggleWatch" });
+    expect(picksResolved).toHaveLength(0);
+  });
+
+  test("a pick rides the toggle to the window holding the session", async () => {
+    resolvedPick = { kind: "window", windowId: 4242 };
+    send("vellum:companion:toggleWatch", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 2,
+    });
+    await Bun.sleep(0);
+    expect(picksResolved).toEqual([
+      { kind: "tab", chromeWindowId: 3, tabIndex: 2 },
+    ]);
+    expect(dispatched.at(-1)).toEqual({
+      kind: "toggleWatch",
+      target: { kind: "window", windowId: 4242 },
+    });
+  });
+
+  /**
+   * Only the latest pick may start anything. A slow resolution (the first
+   * one waits on the Automation prompt) outlived by a second pick would
+   * otherwise dispatch beside it: two toggles, one ending what the other
+   * started.
+   */
+  test("a pick superseded by a later one dispatches nothing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    resolvedPick = { kind: "window", windowId: 1 };
+    const slow = resolvedPickAsync;
+    resolvedPickAsync = async () => {
+      await gate;
+      return { kind: "window", windowId: 1 };
+    };
+    send("vellum:companion:toggleWatch", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 1,
+    });
+    resolvedPickAsync = slow;
+    resolvedPick = { kind: "window", windowId: 2 };
+    send("vellum:companion:toggleWatch", { kind: "window", windowId: 2 });
+    await Bun.sleep(0);
+    release();
+    await Bun.sleep(0);
+    expect(dispatched).toEqual([
+      { kind: "toggleWatch", target: { kind: "window", windowId: 2 } },
+    ]);
+  });
+
+  test("reopening the picker or ending the call supersedes a pending pick", async () => {
+    for (const supersede of ["list", "end"] as const) {
+      dispatched.length = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const slow = resolvedPickAsync;
+      resolvedPickAsync = async () => {
+        await gate;
+        return { kind: "window", windowId: 1 };
+      };
+      send("vellum:companion:toggleWatch", {
+        kind: "tab",
+        chromeWindowId: 3,
+        tabIndex: 1,
+      });
+      resolvedPickAsync = slow;
+      if (supersede === "list") {
+        await invocable.get("vellum:companion:listCaptureSources")?.([]);
+      } else {
+        send("vellum:companion:startVoice");
+        send("vellum:voiceActivity:start", START);
+        send("vellum:voiceActivity:end");
+      }
+      release();
+      await Bun.sleep(0);
+      expect(dispatched.filter((c) => c.kind === "toggleWatch")).toEqual([]);
+    }
+  });
+
+  test("a press with no pick supersedes a pending one", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = resolvedPickAsync;
+    resolvedPickAsync = async () => {
+      await gate;
+      return { kind: "window", windowId: 1 };
+    };
+    send("vellum:companion:toggleWatch", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 1,
+    });
+    resolvedPickAsync = slow;
+    send("vellum:companion:toggleWatch");
+    release();
+    await Bun.sleep(0);
+    expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+  });
+
+  test("a pick that resolves to nothing starts nothing", async () => {
+    resolvedPick = null;
+    send("vellum:companion:toggleWatch", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 2,
+    });
+    await Bun.sleep(0);
+    expect(dispatched).toHaveLength(0);
+  });
+
+  test("refuses a pick that names nothing the contract knows", () => {
+    expect(() => {
+      send("vellum:companion:toggleWatch", { kind: "camera" });
+    }).toThrow();
   });
 });
 

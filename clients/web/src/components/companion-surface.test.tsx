@@ -634,6 +634,59 @@ describe("the companion surface's Watch action", () => {
   });
 
   /**
+   * The way in may be a question first. A page that can ask what to read
+   * takes the press with no session running; the stop is the session's and
+   * never a question.
+   */
+  test("hands the way in to the page that asks first, and the stop to the session", () => {
+    const presses: string[] = [];
+    const surface = (watching: boolean) => (
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled
+        watching={watching}
+        onWatch={() => {
+          presses.push("watch");
+        }}
+        onTeach={() => {
+          presses.push("teach");
+        }}
+      />
+    );
+    const { container, rerender } = render(surface(false));
+    fireEvent.click(watchOf(container));
+    rerender(surface(true));
+    fireEvent.click(watchOf(container));
+    expect(presses).toEqual(["teach", "watch"]);
+  });
+
+  test("is held down while the question is open", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled
+        picking
+      />,
+    );
+    expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("draws the picker it is handed beside the surface", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled
+        picking
+        picker={<div data-testid="picker" />}
+      />,
+    );
+    expect(container.querySelector('[data-testid="picker"]')).not.toBeNull();
+  });
+
+  /**
    * A reader gets none of what this surface spends on the state: not the amber
    * ring, not the held-down background. The pressed state is the whole of what
    * reaches them, so it is what says a session is running and that the press

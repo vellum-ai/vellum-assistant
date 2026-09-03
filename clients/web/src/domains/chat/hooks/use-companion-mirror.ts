@@ -30,7 +30,9 @@ import {
   setCompanionContext,
   setCompanionDictation,
 } from "@/runtime/companion-surface";
+import { supportsWatchCaptureTarget } from "@/lib/backwards-compat/watch-capture-target";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -108,6 +110,18 @@ function currentContext(): CompanionContext {
     // count that arrived a push apart from the flag it belongs to would mark a
     // capture against a session the surface has already stopped drawing.
     captureCount: useWatchStore.getState().captureCount,
+    // What that session reads, when it was aimed. Published with the flag for
+    // the reason the count is: the frame main draws from it is a claim about
+    // this session and no other.
+    captureTarget: useWatchStore.getState().target,
+    // Whether a session started here can be aimed at all, which is the
+    // assistant's version and so this window's to know. The surface offers
+    // its picker on a yes and starts the whole-screen session on anything
+    // else. Re-read on every identity write, so it flips once the version
+    // resolves and again on an assistant switch.
+    watchTargets: supportsWatchCaptureTarget(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ),
     // What a keyboard dictation has got to. Published from here for the reason
     // `watching` is: the recording runs in this window, and while it runs the
     // surface is the only thing on screen to say so.
@@ -157,6 +171,19 @@ function dictationTail(): string {
   return interim.slice(-COMPANION_DICTATION_TAIL);
 }
 
+/** Whether two targets name the same display or window, absence included. */
+function sameTarget(
+  a: CompanionContext["captureTarget"],
+  b: CompanionContext["captureTarget"],
+): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return a.kind === "display"
+    ? b.kind === "display" && a.displayId === b.displayId
+    : b.kind === "window" && a.windowId === b.windowId;
+}
+
 /** Whether two payloads would draw the same surface. */
 function sameContext(a: CompanionContext, b: CompanionContext): boolean {
   return (
@@ -165,6 +192,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.watching === b.watching &&
     a.watchRetro === b.watchRetro &&
     a.captureCount === b.captureCount &&
+    sameTarget(a.captureTarget, b.captureTarget) &&
+    a.watchTargets === b.watchTargets &&
     a.dictating === b.dictating &&
     a.dictationText === b.dictationText
   );

@@ -13,6 +13,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionContext,
   CompanionIntroAction,
   CompanionSurfaceState,
@@ -499,9 +501,19 @@ const bridge: VellumBridge = {
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },
-    toggleWatch: (): void => {
-      ipcRenderer.send("vellum:companion:toggleWatch");
+    toggleWatch: (pick?: CompanionCapturePick): void => {
+      // Sent with no argument at all when there is no pick, so a main that
+      // predates the picker still sees the empty tuple its schema expects.
+      if (pick === undefined) {
+        ipcRenderer.send("vellum:companion:toggleWatch");
+        return;
+      }
+      ipcRenderer.send("vellum:companion:toggleWatch", pick);
     },
+    listCaptureSources: (): Promise<CompanionCaptureSources> =>
+      ipcRenderer.invoke(
+        "vellum:companion:listCaptureSources",
+      ) as Promise<CompanionCaptureSources>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },

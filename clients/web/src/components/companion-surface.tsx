@@ -467,6 +467,23 @@ export interface CompanionSurfaceProps {
    */
   onWatch?: () => void;
   /**
+   * The press of Teach with no session running, when the surface has something
+   * to do with it other than start one: open the picker.
+   *
+   * Its own callback rather than a flag on {@link CompanionSurfaceProps.onWatch}
+   * because the two presses go different places. A stop is the session's and
+   * leaves for the window that owns it; the way in, when there is a choice to
+   * make first, stays on the page that draws the choice. Absent, Teach starts
+   * the session the way it always did.
+   */
+  onTeach?: () => void;
+  /**
+   * Whether the picker Teach opens is on screen, which draws Teach held down
+   * for as long as it is. The card itself arrives on
+   * {@link CompanionSurfaceProps.picker}.
+   */
+  picking?: boolean;
+  /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
    * since it is the side holding the session; this side only names the press
@@ -576,6 +593,12 @@ export interface CompanionSurfaceProps {
    */
   intro?: ReactNode;
   /**
+   * The picker Teach opens, drawn beside the surface while a choice is being
+   * made. Composed by the caller for the reason the introduction is: the card
+   * is a sibling of the pill, and the page that owns the choice owns it.
+   */
+  picker?: ReactNode;
+  /**
    * What a keyboard dictation has got to, when one is running. See
    * {@link CompanionDictating}.
    */
@@ -604,6 +627,8 @@ export function CompanionSurface({
   onSurfaceContextMenu,
   spotlight,
   onWatch,
+  onTeach,
+  picking = false,
   onAvatarClick,
   working = false,
   watching = false,
@@ -615,6 +640,7 @@ export function CompanionSurface({
   call,
   onControl,
   intro,
+  picker,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -891,8 +917,10 @@ export function CompanionSurface({
                 assistantName={assistantName}
                 watching={watching}
                 watchEnabled={watchEnabled}
+                picking={picking}
                 onControl={onControl}
                 onWatch={onWatch}
+                onTeach={onTeach}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -994,6 +1022,7 @@ export function CompanionSurface({
         onClick={onAvatarClick}
       />
       {intro}
+      {picker}
     </div>
   );
 }
@@ -1386,15 +1415,24 @@ function IdleBody({
  * carried Teach carries the stop instead, the same stop the idle row draws.
  * Hiding the way in is the whole of what the flag does; leaving a capture
  * with nothing that ends it is not something a flag is allowed to cause.
+ *
+ * **The way in may be a question first.** Where the page can ask what to
+ * read, the press with no session running opens its picker rather than a
+ * session, and Teach is drawn held down for the asking; the pick is what
+ * starts the session. The stop is never a question.
  */
 function TeachButton({
   watching,
   watchEnabled,
+  picking,
   onWatch,
+  onTeach,
 }: {
   watching: boolean;
   watchEnabled: boolean;
+  picking: boolean;
   onWatch?: () => void;
+  onTeach?: () => void;
 }) {
   const { t } = useTranslation();
   if (!watchEnabled) {
@@ -1405,8 +1443,14 @@ function TeachButton({
       icon={<Eye className="size-4" />}
       label={t("companionSurface.teach")}
       revealLabel
-      pressed={watching}
-      onClick={onWatch}
+      // Held down for the session and for the choice before it alike: both
+      // are states this press is in the middle of, and the second press ends
+      // either one.
+      pressed={watching || picking}
+      // The stop is the session's whatever the page wants of a start. A page
+      // with no picker leaves `onTeach` unset and both edges take `onWatch`,
+      // which is the toggle it always was.
+      onClick={watching ? onWatch : (onTeach ?? onWatch)}
     />
   );
 }
@@ -1497,15 +1541,19 @@ function CallBody({
   assistantName,
   watching,
   watchEnabled,
+  picking,
   onControl,
   onWatch,
+  onTeach,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
   watching: boolean;
   watchEnabled: boolean;
+  picking: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
+  onTeach?: () => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1524,7 +1572,9 @@ function CallBody({
         <TeachButton
           watching={watching}
           watchEnabled={watchEnabled}
+          picking={picking}
           onWatch={onWatch}
+          onTeach={onTeach}
         />
         <EndCallButton onControl={onControl} />
       </>
@@ -1572,7 +1622,9 @@ function CallBody({
       <TeachButton
         watching={watching}
         watchEnabled={watchEnabled}
+        picking={picking}
         onWatch={onWatch}
+        onTeach={onTeach}
       />
       <PillButton
         icon={
