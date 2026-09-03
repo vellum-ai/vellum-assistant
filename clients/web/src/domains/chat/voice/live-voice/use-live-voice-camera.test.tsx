@@ -356,6 +356,62 @@ describe("useLiveVoiceCamera: releasing", () => {
     expect(trackStop).toHaveBeenCalledTimes(1);
   });
 
+  test("a superseded ask stops the stream it got and lets the newer ask open", async () => {
+    // The first request is still out when the ask is taken back and made
+    // again. Each run is its own: the first must close what it is handed
+    // rather than attach it, and only the second's stream is sampled.
+    const handBacks: ((stream: MediaStream) => void)[] = [];
+    answerStream = () =>
+      new Promise((resolve) => {
+        handBacks.push(resolve);
+      });
+    renderCamera();
+    ask(true);
+    await flush();
+    ask(false);
+    await flush();
+    ask(true);
+    await flush();
+    expect(handBacks).toHaveLength(2);
+
+    const superseded = cameraStream();
+    const supersededTrack = lastTrack!;
+    await act(async () => {
+      handBacks[0]!(superseded);
+    });
+    await flush();
+    expect(samplerStart).not.toHaveBeenCalled();
+    expect(supersededTrack.stop).toHaveBeenCalledTimes(1);
+
+    const current = cameraStream();
+    await act(async () => {
+      handBacks[1]!(current);
+    });
+    await flush();
+    expect(samplerStart).toHaveBeenCalledTimes(1);
+    expect(samplerStart.mock.calls[0]?.[0]?.srcObject).toBe(current);
+    expect(useLiveVoiceStore.getState().cameraStreaming).toBe(true);
+  });
+
+  test("a fault past the acquisition lowers the ask and gives the stream back", async () => {
+    // The gate or the sampler failing to come up is ours rather than the
+    // user's, and it must not leave the camera light on behind a control that
+    // reads as off.
+    samplerStart.mockImplementationOnce(() => {
+      throw new Error("no animation frame");
+    });
+    // Filed, which logs; the log is not what is under test.
+    const filed = spyOn(console, "error").mockImplementation(() => {});
+    renderCamera();
+    ask(true);
+    await flush();
+    filed.mockRestore();
+
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+    expect(useLiveVoiceStore.getState().cameraStreaming).toBe(false);
+    expect(trackStop).toHaveBeenCalledTimes(1);
+  });
+
   test("closes a stream that arrives after the ask was taken back", async () => {
     let handBack: (stream: MediaStream) => void = () => undefined;
     answerStream = () =>

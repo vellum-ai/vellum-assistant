@@ -52,6 +52,8 @@ mock.module("@/runtime/native-voice-camera", () => ({
 
 const { useVoiceCamera } = await import("./voice-camera");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
 
 /** What a camera with a working flash answers the probe with. */
 const FLASH_CAPABLE = ["off", "on", "auto"];
@@ -145,6 +147,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   restoreMediaDevices();
+  useLiveVoiceStore.getState().reset();
 });
 
 describe("useVoiceCamera: which cameras get a flash control", () => {
@@ -784,3 +787,50 @@ async function settle(release: () => void) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+
+/**
+ * One owner of the device at a time. The live-voice session can open the same
+ * camera with no viewfinder (the companion's control), and Chromium hands a
+ * second `getUserMedia` the same device rather than refusing it, so the
+ * viewfinder the user can see is what decides.
+ */
+describe("useVoiceCamera: one camera at a time", () => {
+  beforeEach(() => {
+    nativeMobile = false;
+    stubMediaDevices(async () => fakeStream());
+    useLiveVoiceStore.getState().setState("listening");
+  });
+
+  test("opening a viewfinder takes the session's own camera back", async () => {
+    useLiveVoiceStore.getState().setCameraRequested(true);
+    render(<Probe flash={false} />);
+    await press("open");
+
+    expect(screen.getByTestId("open-state").textContent).toBe("yes");
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+  });
+
+  test("refuses the session's ask while the viewfinder is up, and not after", async () => {
+    render(<Probe flash={false} />);
+    await press("open");
+
+    act(() => {
+      useLiveVoiceStore.getState().setCameraRequested(true);
+    });
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+
+    await press("close");
+    act(() => {
+      useLiveVoiceStore.getState().setCameraRequested(true);
+    });
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(true);
+  });
+
+  test("leaves the ask alone while the viewfinder is closed", async () => {
+    render(<Probe flash={false} />);
+    act(() => {
+      useLiveVoiceStore.getState().setCameraRequested(true);
+    });
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(true);
+  });
+});

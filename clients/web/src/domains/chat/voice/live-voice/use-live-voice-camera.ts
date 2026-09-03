@@ -42,6 +42,15 @@
  * from outside the app (a webcam unplugged, permission revoked mid-call),
  * the same interruption the sight store's viewfinder watches for. Each keep
  * lands in the transcript, where the user can see it and delete it.
+ *
+ * ## One camera at a time
+ *
+ * A viewfinder on screen owns the device. The room's Live and the composer's
+ * photo overlay open the same camera through `useVoiceCamera`, which takes
+ * this ask back the moment its viewfinder is up and refuses one raised while
+ * it is, so the user is never looking at one preview while a hidden copy of
+ * it is sampled for the call as well. The composer's Eyes yields the other
+ * way, to the session itself (see `sight/sight-store.ts`).
  */
 
 import { useEffect, useState } from "react";
@@ -63,6 +72,7 @@ import {
   recordFrameGateDecision,
 } from "@/lib/camera/frame-gate-debug";
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
+import { captureError } from "@/lib/sentry/capture-error";
 
 /** Where a failure is filed, so the tag says which source it came from. */
 const ERROR_CONTEXT = "live-voice camera: sample/upload frame";
@@ -196,7 +206,17 @@ export function useLiveVoiceCamera(): void {
       stopSampling = sampler.stop;
       useLiveVoiceStore.getState().setCameraStreaming(true);
     };
-    void run();
+    run().catch((cause: unknown) => {
+      // Past the two awaits, whose refusals are handled above: a fault in the
+      // gate or the sampler coming up. Filed, since it is ours rather than the
+      // user's, and the ask is lowered so the control reads as off and this
+      // effect's own cleanup gives the stream back.
+      if (cancelled) {
+        return;
+      }
+      captureError(cause, { context: ERROR_CONTEXT, bestEffort: true });
+      useLiveVoiceStore.getState().setCameraRequested(false);
+    });
 
     return () => {
       cancelled = true;

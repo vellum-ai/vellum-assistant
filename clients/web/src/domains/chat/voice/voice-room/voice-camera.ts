@@ -61,6 +61,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  setLiveVoiceCameraRequested,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
@@ -814,6 +818,31 @@ export function useVoiceCamera(
       videoRef.current.srcObject = streamRef.current;
     }
   }, [open, videoRef]);
+
+  // One owner of the device at a time, and a viewfinder on screen is it.
+  //
+  // The live-voice session can open the same camera with no viewfinder at all
+  // (`live-voice/use-live-voice-camera.ts`, driven from the macOS companion).
+  // Chromium hands a second `getUserMedia` the same device rather than
+  // refusing it, so nothing stops both from running: the user is then looking
+  // at one preview while a hidden stream of the same picture is also being
+  // sampled for the call, and a viewfinder in Live feeds it every keep twice.
+  // The one the user can see wins. Opening a viewfinder takes the session's
+  // ask back, and an ask raised while one is up is refused in the same tick,
+  // so the companion's control reads as off rather than as a camera that is
+  // secretly a second copy of this one. The ask is a no-op with no session,
+  // which is the composer's photo overlay outside a call.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setLiveVoiceCameraRequested(false);
+    return useLiveVoiceStore.subscribe((state, previous) => {
+      if (state.cameraRequested && !previous.cameraRequested) {
+        state.setCameraRequested(false);
+      }
+    });
+  }, [open]);
 
   const flashAvailable =
     native &&

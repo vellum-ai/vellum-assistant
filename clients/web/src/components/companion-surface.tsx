@@ -347,8 +347,9 @@ export const FALLBACK_WIDTHS: Record<
   dictating: TRANSCRIPT_WIDTH + 32,
   // The line at its cap and the five controls of the handlebar, with Teach
   // and the camera both held down and so spelling their names out, which is
-  // the widest a call draws.
-  call: 380,
+  // the widest a call draws: the body's `scrollWidth` in the
+  // `InCallWithCameraWhileWatching` story with the line filled to its cap.
+  call: 381,
 };
 
 export interface CompanionSurfaceProps {
