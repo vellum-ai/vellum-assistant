@@ -121,7 +121,7 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
 COPY --from=builder /app /app
 
-# Bake Playwright's Chromium for the pod desktop so the first viewer never
+# Bake Playwright's Chromium for the assistant desktop so the first viewer never
 # waits on a download; its shared libraries are in the apt list above. Only
 # node_modules is needed, so this sits before the source copies and survives
 # them changing.

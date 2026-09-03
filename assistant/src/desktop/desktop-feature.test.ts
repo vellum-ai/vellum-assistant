@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { isPodDesktopEnabled } from "./desktop-feature.js";
+import { isAssistantDesktopEnabled } from "./desktop-feature.js";
 
-describe("isPodDesktopEnabled", () => {
+describe("isAssistantDesktopEnabled", () => {
   const config = {} as AssistantConfig;
 
   test("needs both the flag and a containerized runtime", () => {
-    setOverridesForTesting({ "pod-desktop": true });
-    expect(isPodDesktopEnabled(config, true)).toBe(true);
-    expect(isPodDesktopEnabled(config, false)).toBe(false);
+    setOverridesForTesting({ "assistant-desktop": true });
+    expect(isAssistantDesktopEnabled(config, true)).toBe(true);
+    expect(isAssistantDesktopEnabled(config, false)).toBe(false);
 
-    setOverridesForTesting({ "pod-desktop": false });
-    expect(isPodDesktopEnabled(config, true)).toBe(false);
+    setOverridesForTesting({ "assistant-desktop": false });
+    expect(isAssistantDesktopEnabled(config, true)).toBe(false);
   });
 });

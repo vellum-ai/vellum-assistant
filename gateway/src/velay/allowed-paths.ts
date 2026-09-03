@@ -31,7 +31,7 @@
  *
  *   - `^/v1/watch/stream` — exact match for the browser watch-session
  *     WebSocket, which carries a session's narration audio.
- *   - `^/v1/desktop/stream`: exact match for the browser pod-desktop
+ *   - `^/v1/desktop/stream`: exact match for the browser assistant-desktop
  *     WebSocket, a raw RFB byte pipe to the pod's VNC server. Guardian-only
  *     at the gateway handler, the same shape as the watch stream.
  *

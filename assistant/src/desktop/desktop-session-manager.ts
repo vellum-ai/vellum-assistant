@@ -1,8 +1,9 @@
 /**
- * On-demand pod desktop: Xtigervnc (VNC on loopback only, so the authenticated
- * `/v1/desktop/stream` upgrade is the sole way in), openbox, the tigervncconfig
- * clipboard bridge and Playwright's Chromium, started by the first viewer and
- * lingering after the last one leaves so a reconnect is instant.
+ * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
+ * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
+ * tigervncconfig clipboard bridge and Playwright's Chromium, started by the
+ * first viewer and lingering after the last one leaves so a reconnect is
+ * instant.
  */
 
 import { mkdirSync } from "node:fs";

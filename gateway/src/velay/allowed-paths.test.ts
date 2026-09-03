@@ -63,7 +63,7 @@ describe("VELAY_ALLOWED_PATHS", () => {
       // and injects the attested caller, and the gateway's handler admits only
       // the guardian on it. Self-hosted assistants bypass velay entirely.
       "/v1/watch/stream": true,
-      // The pod desktop rides the tunnel the same way: a guardian-only RFB
+      // The assistant desktop rides the tunnel the same way: a guardian-only RFB
       // byte pipe the web client dials with a velay-minted token.
       "/v1/desktop/stream": true,
       "/assistant/credentials/enter": true,

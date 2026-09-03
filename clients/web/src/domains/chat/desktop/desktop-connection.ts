@@ -1,5 +1,5 @@
 /**
- * Transport for the pod desktop stream: which URL to dial, and what the
+ * Transport for the assistant desktop stream: which URL to dial, and what the
  * socket's close code means once it is gone.
  */
 

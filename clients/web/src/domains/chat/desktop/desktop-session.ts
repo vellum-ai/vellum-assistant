@@ -1,8 +1,9 @@
 /**
- * One viewing session on the pod desktop. The socket is opened here rather
- * than by noVNC because noVNC's `disconnect` event carries only `{ clean }`
- * and the close code is the runtime's only word on why a session ended; the
- * close listener is registered before noVNC attaches so the coded reason wins.
+ * One viewing session on the assistant desktop. The socket is opened here
+ * rather than by noVNC because noVNC's `disconnect` event carries only
+ * `{ clean }` and the close code is the runtime's only word on why a session
+ * ended; the close listener is registered before noVNC attaches so the coded
+ * reason wins.
  */
 
 import RFB from "@novnc/novnc";

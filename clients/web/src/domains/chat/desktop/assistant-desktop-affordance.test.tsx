@@ -17,7 +17,7 @@ import {
 import { useEffect } from "react";
 
 mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: { use: { podDesktop: () => true } },
+  useAssistantFeatureFlagStore: { use: { assistantDesktop: () => true } },
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
@@ -37,10 +37,11 @@ mock.module("./desktop-panel", () => ({
   },
 }));
 
-const { PodDesktopAffordance } = await import("./pod-desktop-affordance");
+const { AssistantDesktopAffordance } =
+  await import("./assistant-desktop-affordance");
 
 const openDesktop = async () => {
-  render(<PodDesktopAffordance />);
+  render(<AssistantDesktopAffordance />);
   fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
   await waitFor(() =>
     expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
@@ -53,7 +54,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("PodDesktopAffordance", () => {
+describe("AssistantDesktopAffordance", () => {
   test("Escape leaves the modal open and the panel mounted", async () => {
     await openDesktop();
 

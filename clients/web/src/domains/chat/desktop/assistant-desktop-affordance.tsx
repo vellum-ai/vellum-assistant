@@ -14,14 +14,14 @@ const DesktopPanel = lazy(() =>
 );
 
 /**
- * The header control that opens the pod desktop, and the modal it opens.
- * Renders nothing unless the per-assistant `pod-desktop` flag is positively
- * on, since it is off wherever no desktop exists; the runtime's own refusal
- * is the backstop. The panel mounts only while the modal is open.
+ * The header control that opens the assistant desktop, and the modal it opens.
+ * Renders nothing unless the per-assistant `assistant-desktop` flag is
+ * positively on, since it is off wherever no desktop exists; the runtime's own
+ * refusal is the backstop. The panel mounts only while the modal is open.
  */
-export function PodDesktopAffordance() {
+export function AssistantDesktopAffordance() {
   const { t } = useTranslation("chat");
-  const enabled = useAssistantFeatureFlagStore.use.podDesktop();
+  const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const [open, setOpen] = useState(false);
 
@@ -34,8 +34,8 @@ export function PodDesktopAffordance() {
       <Button
         variant="ghost"
         iconOnly={<Monitor />}
-        aria-label={t("podDesktop.openAria")}
-        tooltip={t("podDesktop.openAria")}
+        aria-label={t("assistantDesktop.openAria")}
+        tooltip={t("assistantDesktop.openAria")}
         onClick={() => setOpen(true)}
       />
       <Modal.Root open={open} onOpenChange={setOpen}>
@@ -47,7 +47,7 @@ export function PodDesktopAffordance() {
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
           <Modal.Header>
-            <Modal.Title>{t("podDesktop.title")}</Modal.Title>
+            <Modal.Title>{t("assistantDesktop.title")}</Modal.Title>
           </Modal.Header>
           <Modal.Body className="min-h-0 overflow-hidden p-0">
             <LazyBoundary>

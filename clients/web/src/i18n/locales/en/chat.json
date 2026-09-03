@@ -87,6 +87,16 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Earlier activity"
   },
+  "assistantDesktop": {
+    "busy": "The desktop is in use by another viewer.",
+    "connecting": "Connecting to the desktop…",
+    "failed": "The desktop couldn't start.",
+    "lost": "The connection to the desktop was lost.",
+    "openAria": "Open desktop",
+    "reconnectButton": "Reconnect",
+    "title": "Desktop",
+    "unavailable": "The desktop isn't available on this assistant."
+  },
   "assistantNavItem": {
     "newChat": "New Chat"
   },
@@ -1197,16 +1207,6 @@
   "pluginPill": {
     "disableAria": "Disable {name} for this chat",
     "enableAria": "Enable {name} for this chat"
-  },
-  "podDesktop": {
-    "busy": "The desktop is in use by another viewer.",
-    "connecting": "Connecting to the desktop…",
-    "failed": "The desktop couldn't start.",
-    "lost": "The connection to the desktop was lost.",
-    "openAria": "Open desktop",
-    "reconnectButton": "Reconnect",
-    "title": "Desktop",
-    "unavailable": "The desktop isn't available on this assistant."
   },
   "preferencesMenu": {
     "admin": "Admin",

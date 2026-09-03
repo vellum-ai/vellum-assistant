@@ -12,10 +12,10 @@ import {
 
 // Spelled out rather than templated so the catalog-usage guard sees each key.
 const END_REASON_KEY = {
-  busy: "podDesktop.busy",
-  unavailable: "podDesktop.unavailable",
-  failed: "podDesktop.failed",
-  lost: "podDesktop.lost",
+  busy: "assistantDesktop.busy",
+  unavailable: "assistantDesktop.unavailable",
+  failed: "assistantDesktop.failed",
+  lost: "assistantDesktop.lost",
 } as const satisfies Record<DesktopEndReason, string>;
 
 /** Endings a fresh session might get past. */
@@ -29,9 +29,9 @@ export interface DesktopPanelProps {
 }
 
 /**
- * The interactive view of a pod desktop. Opens a session on mount and closes
- * it on unmount; noVNC resizes the remote display to fit the viewport. A
- * status overlay covers the viewport until the picture is live, and again
+ * The interactive view of an assistant desktop. Opens a session on mount and
+ * closes it on unmount; noVNC resizes the remote display to fit the viewport.
+ * A status overlay covers the viewport until the picture is live, and again
  * once the session ends, with a Reconnect button where retrying can help.
  */
 export function DesktopPanel({ assistantId }: DesktopPanelProps) {
@@ -78,7 +78,7 @@ export function DesktopPanel({ assistantId }: DesktopPanelProps) {
             <>
               <Loader2 className="h-5 w-5 animate-spin text-[var(--content-tertiary)]" />
               <span className="text-body-medium-lighter">
-                {t("podDesktop.connecting")}
+                {t("assistantDesktop.connecting")}
               </span>
             </>
           ) : (
@@ -88,7 +88,7 @@ export function DesktopPanel({ assistantId }: DesktopPanelProps) {
               </span>
               {RETRYABLE_END_REASONS.has(state.reason) ? (
                 <Button variant="outlined" onClick={reconnect}>
-                  {t("podDesktop.reconnectButton")}
+                  {t("assistantDesktop.reconnectButton")}
                 </Button>
               ) : null}
             </>
