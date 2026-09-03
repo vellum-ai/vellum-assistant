@@ -50,7 +50,7 @@ describe("supportsWatchCaptureTarget", () => {
   test("true for the dev build the floor names and later ones", () => {
     seed(MIN_VERSION);
     expect(supportsWatchCaptureTarget(OWNER_ASSISTANT_ID)).toBe(true);
-    seed("0.11.8-dev.202609031200.1111111");
+    seed("0.11.8-dev.202609041200.1111111");
     expect(supportsWatchCaptureTarget(OWNER_ASSISTANT_ID)).toBe(true);
     seed("0.11.9");
     expect(supportsWatchCaptureTarget(OWNER_ASSISTANT_ID)).toBe(true);
