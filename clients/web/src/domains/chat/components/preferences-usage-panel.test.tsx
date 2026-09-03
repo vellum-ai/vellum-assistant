@@ -59,10 +59,15 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
 // resolved-assistants store, none of which these tests stand up; what the
 // hook owns is only how the verdict gates the extra-credits claim.
 let byokRoute = false;
+// Whether the classification derived a route at all. A read that failed
+// leaves the gate failing open, which reads identically to "managed" on
+// `suppress` alone.
+let routeKnown = true;
 mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
   useByokCreditRouteVerdict: (candidate: boolean) => ({
     suppress: candidate && byokRoute,
     settled: classificationSettled,
+    routeKnown,
   }),
 }));
 
@@ -120,6 +125,7 @@ beforeEach(() => {
   subscription = proSubscription();
   billingEnabled = true;
   classificationSettled = true;
+  routeKnown = true;
   creditsExhausted = false;
   effectiveBalance = null;
   availableUsageBalance = null;
@@ -382,6 +388,21 @@ describe("PreferencesUsagePanel", () => {
     expect(getByText("100% used").className).not.toContain(
       "--system-negative-strong",
     );
+  });
+
+  test("a failed route read makes no extra-credits claim", async () => {
+    // Settled, wallet funded, and the gate failing open: `suppress` alone
+    // cannot tell that apart from a managed route, so the claim would be made
+    // on evidence that never arrived.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "0.00";
+    effectiveBalance = "12.00";
+    routeKnown = false;
+    const { findByTestId, queryByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(queryByText("Now using extra usage credits")).toBeNull();
   });
 
   test("an unsettled classification withholds the exhausted strip too", async () => {

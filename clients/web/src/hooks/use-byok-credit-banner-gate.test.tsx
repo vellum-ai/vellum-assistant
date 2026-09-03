@@ -130,14 +130,14 @@ beforeEach(() => {
 describe("useByokCreditRouteVerdict", () => {
   test("nothing to classify settles immediately", () => {
     const v = verdict(false);
-    expect(v).toEqual({ suppress: false, settled: true });
+    expect(v).toEqual({ suppress: false, settled: true, routeKnown: false });
   });
 
   test("queries in flight suppress, and say so", () => {
     queries = { config: LOADING };
     const v = verdict();
     // The banner's fail-safe: an unknown route must not raise a false alarm.
-    expect(v).toEqual({ suppress: true, settled: false });
+    expect(v).toEqual({ suppress: true, settled: false, routeKnown: false });
   });
 
   test("no resolved assistant is not-asked-yet, not answered-no", () => {
@@ -146,14 +146,14 @@ describe("useByokCreditRouteVerdict", () => {
     // a managed route on evidence the gate has not gathered.
     assistantId = null;
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: false });
+    expect(v).toEqual({ suppress: false, settled: false, routeKnown: false });
   });
 
   test("a managed route is a settled answer", () => {
     answerRouteQueries();
     burnsManaged = true;
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true });
+    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
   });
 
   test("a version-gated query the assistant is too old for still settles", () => {
@@ -163,7 +163,7 @@ describe("useByokCreditRouteVerdict", () => {
     supportsProfiles = false;
     supportsDefaultProvider = false;
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true });
+    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
   });
 
   test("a BYOK route waits for the spend probe before settling", () => {
@@ -171,7 +171,7 @@ describe("useByokCreditRouteVerdict", () => {
     burnsManaged = false;
     queries = { ...queries, totals: LOADING };
     const v = verdict();
-    expect(v).toEqual({ suppress: true, settled: false });
+    expect(v).toEqual({ suppress: true, settled: false, routeKnown: true });
   });
 
   test("a BYOK route with no recent burn suppresses, settled", () => {
@@ -182,7 +182,7 @@ describe("useByokCreditRouteVerdict", () => {
       totals: queryState("success", { total_usd: "0.00" }),
     };
     const v = verdict();
-    expect(v).toEqual({ suppress: true, settled: true });
+    expect(v).toEqual({ suppress: true, settled: true, routeKnown: true });
   });
 
   test("a recent managed burn re-arms the banners", () => {
@@ -193,7 +193,19 @@ describe("useByokCreditRouteVerdict", () => {
       totals: queryState("success", { total_usd: "1.25" }),
     };
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true });
+    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
+  });
+
+  test("a failed route read is final without being a route", () => {
+    // Fail-open is the right answer for the banner, and no answer at all for
+    // a caller about to tell someone their next turn spends managed credits.
+    answerRouteQueries();
+    queries = { ...queries, config: queryState("error") };
+    expect(verdict()).toEqual({
+      suppress: false,
+      settled: true,
+      routeKnown: false,
+    });
   });
 
   test("an offline paused route read is unsettled", () => {
@@ -202,14 +214,22 @@ describe("useByokCreditRouteVerdict", () => {
     // a caller paint one.
     answerRouteQueries();
     queries = { ...queries, connections: PAUSED };
-    expect(verdict()).toEqual({ suppress: false, settled: false });
+    expect(verdict()).toEqual({
+      suppress: false,
+      settled: false,
+      routeKnown: false,
+    });
   });
 
   test("an offline paused spend probe is unsettled", () => {
     answerRouteQueries();
     burnsManaged = false;
     queries = { ...queries, totals: PAUSED };
-    expect(verdict()).toEqual({ suppress: true, settled: false });
+    expect(verdict()).toEqual({
+      suppress: true,
+      settled: false,
+      routeKnown: true,
+    });
   });
 
   test("a failed spend probe fails open, and that is a final answer", () => {
@@ -217,6 +237,6 @@ describe("useByokCreditRouteVerdict", () => {
     burnsManaged = false;
     queries = { ...queries, totals: queryState("error") };
     const v = verdict();
-    expect(v).toEqual({ suppress: false, settled: true });
+    expect(v).toEqual({ suppress: false, settled: true, routeKnown: true });
   });
 });

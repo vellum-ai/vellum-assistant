@@ -15,6 +15,7 @@ import {
 } from "@/lib/billing/byok-credit-route";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { useSupportsInferenceProfiles } from "@/lib/backwards-compat/use-supports-inference-profiles";
+import { awaitsAnswer } from "@/lib/query-awaits-answer";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,23 +66,13 @@ function useUtcDay(): string {
 export interface ByokCreditRouteVerdict {
   suppress: boolean;
   settled: boolean;
-}
-
-/**
- * A query with no answer yet that may still get one.
- *
- * `isLoading` is pending AND fetching, which misses the offline case: the
- * default network mode parks an enabled fetch at `fetchStatus: "paused"`,
- * reporting neither a load nor an error, so a gap with the browser offline
- * would otherwise read as an answer. A disabled query sits at `"idle"`
- * instead, and that one is final: the version gates hold two of these reads
- * closed on assistants whose daemon never serves them.
- */
-function awaitsAnswer(query: {
-  isPending: boolean;
-  fetchStatus: "fetching" | "paused" | "idle";
-}): boolean {
-  return query.isPending && query.fetchStatus !== "idle";
+  /**
+   * The route was positively derived rather than failed open on evidence that
+   * never arrived. `suppress` deliberately cannot tell those apart, because a
+   * banner treats both as "show it"; a caller making a positive claim has to,
+   * because a failed config read is not proof of a managed route.
+   */
+  routeKnown: boolean;
 }
 
 /**
@@ -228,8 +219,12 @@ export function useByokCreditRouteVerdict(
     refetchInterval: 5 * 60_000,
   });
 
+  // A route derived from evidence, as opposed to the null the classification
+  // yields when a read it needs is missing or failed.
+  const routeKnown = burnsManaged != null;
+
   if (!candidate) {
-    return { suppress: false, settled: true };
+    return { suppress: false, settled: true, routeKnown };
   }
   // Idle and empty is "not asked yet", not "answered no": every route query
   // waits on a resolved assistant, so until one arrives the fail-open verdict
@@ -251,19 +246,23 @@ export function useByokCreditRouteVerdict(
     profilesQuery.isLoading ||
     defaultProviderQuery.isLoading
   ) {
-    return { suppress: true, settled: false };
+    return { suppress: true, settled: false, routeKnown };
   }
   if (burnsManaged !== false) {
     // Fail-open covers a genuine read failure as well as a missing assistant
     // or an offline gap. The first is a final answer, the others are not.
-    return { suppress: false, settled: !cannotAskYet && !routeAwaitingAnswer };
+    return {
+      suppress: false,
+      settled: !cannotAskYet && !routeAwaitingAnswer,
+      routeKnown,
+    };
   }
   // Route proven BYOK: stay down only while the spend probe positively
   // reports no recent burn (or is still loading). A failed probe fails open
   // like every other unknown in this gate: a burn may have happened and the
   // banners must not stay hidden on missing data.
   if (totalsQuery.isError) {
-    return { suppress: false, settled: true };
+    return { suppress: false, settled: true, routeKnown };
   }
   const totals = totalsQuery.data;
   const burnedRecently = totals ? Number(totals.total_usd) > 0 : null;
@@ -271,5 +270,6 @@ export function useByokCreditRouteVerdict(
     suppress: burnedRecently !== true,
     settled:
       !cannotAskYet && !routeAwaitingAnswer && !awaitsAnswer(totalsQuery),
+    routeKnown,
   };
 }

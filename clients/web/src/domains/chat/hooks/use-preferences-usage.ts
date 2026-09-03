@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
+import { awaitsAnswer } from "@/lib/query-awaits-answer";
 import { useByokCreditRouteVerdict } from "@/hooks/use-byok-credit-banner-gate";
 import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
 
@@ -90,18 +91,21 @@ export function usePreferencesUsage(
   // dispatches the next turn on the user's own key. The classifier's queries
   // stay idle until the claim is otherwise live, and while it classifies (or
   // when it proves BYOK with no recent managed burn) the claim is withheld.
-  const { suppress: routeSkipsWallet, settled: claimSettled } =
-    useByokCreditRouteVerdict(
-      enabled && spent && hasWalletCredit,
-      opts.conversationId ?? null,
-    );
+  const {
+    suppress: routeSkipsWallet,
+    settled: claimSettled,
+    routeKnown,
+  } = useByokCreditRouteVerdict(
+    enabled && spent && hasWalletCredit,
+    opts.conversationId ?? null,
+  );
 
   // The reading is final once the summary and the subscription behind it have
   // both answered and the route classification has stopped moving. The
   // subscription is the second half of `usage`: without it there is no plan to
   // read the grants against, so a null here is pending rather than none.
   const settled =
-    balanceSettled && !subscriptionQuery.isLoading && claimSettled;
+    balanceSettled && !awaitsAnswer(subscriptionQuery) && claimSettled;
 
   if (!enabled || !usage) {
     return { usage: null, settled };
@@ -115,10 +119,12 @@ export function usePreferencesUsage(
       // then arrive on the same render instead of the strip growing the
       // popover a beat later.
       exhausted: settled && spent && isExhausted,
-      // Withheld until the classification settles, so the claim is never made
-      // on the strength of a query that has not answered.
+      // Withheld until the classification settles AND actually derived a
+      // route. A read that failed leaves the gate failing open, which is the
+      // right answer for a banner and no basis at all for telling someone
+      // their next turn spends money.
       usingExtraCredits:
-        settled && spent && hasWalletCredit && !routeSkipsWallet,
+        settled && routeKnown && spent && hasWalletCredit && !routeSkipsWallet,
     },
     settled,
   };
