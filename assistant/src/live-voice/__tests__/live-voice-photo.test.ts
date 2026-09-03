@@ -53,6 +53,7 @@ import {
   _pendingFrameReclaimCountForTests,
   _setProcessingWaitMsForTests,
   _standaloneImageQueueSizeForTests,
+  pendingStandaloneImagePersist,
   persistAmbientSightFrame,
   persistLiveVoicePhoto,
 } from "../live-voice-photo.js";
@@ -1589,6 +1590,107 @@ describe("standalone image persists are serialized per conversation", () => {
 
       // Nothing is left behind for a call that ended.
       expect(_standaloneImageQueueSizeForTests()).toBe(0);
+    } finally {
+      live.dispose();
+    }
+  });
+});
+
+describe("pendingStandaloneImagePersist", () => {
+  test("reports nothing for a conversation with no image queued", async () => {
+    const live = liveConversation("Sight pending idle");
+    try {
+      expect(pendingStandaloneImagePersist(live.id)).toBeNull();
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("reports a keep from the tick it was handed in", async () => {
+    // The count is taken before the persist's first await, which is what lets
+    // a turn launching in the same call chain as the utterance see a frame
+    // that has not started writing.
+    const live = liveConversation("Sight pending keep");
+    try {
+      const frame = await uploadFrame("pending-keep.png");
+
+      const keep = persistAmbientSightFrame(live.id, frame, "voice");
+      const pending = pendingStandaloneImagePersist(live.id);
+      expect(pending).not.toBeNull();
+      expect(getMessages(live.id)).toHaveLength(0);
+
+      await pending;
+
+      // Settled means written and the flag handed back, so a turn waiting on
+      // this both sees the row and can claim the flag.
+      expect(getMessages(live.id)).toHaveLength(1);
+      expect(live.activeConversation.isProcessing()).toBe(false);
+      expect(await keep).toMatchObject({ ok: true });
+      expect(pendingStandaloneImagePersist(live.id)).toBeNull();
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("reports a photo in flight, not keeps alone", async () => {
+    // A user who snaps a shutter photo and asks about it straight away wants
+    // the same freshness, so the ledger this reads counts both kinds.
+    const live = liveConversation("Sight pending photo");
+    try {
+      const photo = await uploadFrame("pending-photo.png");
+
+      const snap = persistLiveVoicePhoto(live.id, photo);
+      const pending = pendingStandaloneImagePersist(live.id);
+      expect(pending).not.toBeNull();
+
+      await pending;
+
+      expect(getMessages(live.id)).toHaveLength(1);
+      expect(await snap).toMatchObject({ ok: true });
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("settles rather than rejects when the persist gives up", async () => {
+    const live = liveConversation("Sight pending failure");
+    try {
+      const keep = persistAmbientSightFrame(live.id, "att-missing", "voice");
+      const pending = pendingStandaloneImagePersist(live.id);
+      expect(pending).not.toBeNull();
+
+      expect(await pending).toBeUndefined();
+      expect(await keep).toMatchObject({ ok: false });
+      expect(getMessages(live.id)).toHaveLength(0);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("covers what was queued when it was asked, not what arrives after", async () => {
+    // The boundary a caller can rely on: a frame the client sends during the
+    // wait belongs to whatever asks next, so the wait stays bounded by work
+    // that was already in flight.
+    const live = liveConversation("Sight pending boundary");
+    try {
+      const first = await uploadFrame("boundary-first.png");
+      const second = await uploadFrame("boundary-second.png");
+
+      live.activeConversation.setProcessing(true);
+      const firstKeep = persistAmbientSightFrame(live.id, first, "voice");
+      // Long enough for the first keep to reach the idle wait, so the second
+      // queues behind a job that has already begun rather than replacing it.
+      await sleep(30);
+      const pending = pendingStandaloneImagePersist(live.id);
+      const secondKeep = persistAmbientSightFrame(live.id, second, "voice");
+      live.activeConversation.setProcessing(false);
+
+      await pending;
+      expect(getMessages(live.id)).toHaveLength(1);
+
+      expect(await firstKeep).toMatchObject({ ok: true });
+      expect(await secondKeep).toMatchObject({ ok: true });
+      expect(getMessages(live.id)).toHaveLength(2);
     } finally {
       live.dispose();
     }
