@@ -719,6 +719,31 @@ describe("receiveEvent", () => {
     expect(events[2]!.content).toBe("file.txt");
   });
 
+  it("summarises past a blank priority key to the one carrying a value", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    // `command` is scanned before `url`. The scan used to accept any string,
+    // so an empty `command` ended it and the step was labelled with nothing.
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_use_start",
+        toolName: "web_fetch",
+        input: { command: "", url: "https://example.com/docs" },
+      },
+      timestamp: NOW + 100,
+    });
+
+    expect(getState().byId["sa-1"]!.events[0]!.content).toBe(
+      "https://example.com/docs",
+    );
+  });
+
   it("coalesces consecutive text deltas into one event", () => {
     getState().spawnSubagent({
       subagentId: "sa-1",

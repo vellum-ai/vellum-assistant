@@ -20,6 +20,7 @@ import {
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
+import { readToolInputString } from "@/domains/chat/utils/tool-input";
 import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import {
   extractDomain,
@@ -650,8 +651,7 @@ function deriveCurrentStepInfo(
 
     if (tc.name === "web_search") {
       if (!terminal) {
-        const query =
-          typeof tc.input?.query === "string" ? tc.input.query.trim() : "";
+        const query = readToolInputString(tc.input ?? {}, "query");
         return query ? `Searching ${query}` : "";
       }
       if (typeof tc.result === "string") {
@@ -666,7 +666,7 @@ function deriveCurrentStepInfo(
     }
 
     if (tc.name === "web_fetch") {
-      const url = typeof tc.input?.url === "string" ? tc.input.url : "";
+      const url = readToolInputString(tc.input ?? {}, "url");
       const host = url ? extractDomain(url) : "";
       if (host) {
         return terminal ? host : `Reading ${host}`;
