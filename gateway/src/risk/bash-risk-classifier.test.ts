@@ -914,6 +914,17 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
+  // The bot-identity door makes the same authenticated request, so it
+  // carries the same rating; a channel-keyed call must not read as unknown.
+  test("assistant channels request → medium", async () => {
+    const result = await classifier.classify({
+      command:
+        "assistant channels request --channel slack /conversations.history",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant oauth connect → low", async () => {
     const result = await classifier.classify({
       command: "assistant oauth connect",

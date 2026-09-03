@@ -77,6 +77,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channels",
   "channels list",
   "channels get",
+  "channels request",
   "clients",
   "clients disconnect",
   "clients list",
@@ -828,6 +829,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "oauth request",
     risk: "medium",
     reason: "Makes authenticated OAuth request",
+  },
+  {
+    path: "channels request",
+    risk: "medium",
+    reason:
+      "Makes an authenticated platform API request as a channel's bot; the same request oauth request makes, keyed on the channel",
   },
   {
     path: "oauth connect",

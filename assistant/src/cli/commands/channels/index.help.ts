@@ -19,7 +19,7 @@ export const CHANNELS_PLUGIN_SEARCH_HINT =
 
 export const channelsHelp: CliCommandHelp = {
   name: "channels",
-  description: "Inspect and repair messaging channels",
+  description: "Inspect messaging channels and act as their bots",
   helpText: `
 Channels are the messaging surfaces the assistant talks over. Built-in
 readiness probes cover slack, telegram, whatsapp, email, phone, vellum,
@@ -30,10 +30,19 @@ from other Vellum users.
 
   list                    Overview of every channel + ready state
   get <channel>           Live snapshot of one channel (always re-probes)
+  request --channel <id> <url>
+                          Call the channel's platform API as the assistant's
+                          own bot (slack, telegram, discord). The bot
+                          credential is resolved from the channel; no token
+                          is handled. Acting as a person through their OAuth
+                          integration is 'assistant oauth request'.
 
 Examples:
   $ assistant channels list
-  $ assistant channels get slack`,
+  $ assistant channels get slack
+  $ assistant channels request --channel slack /auth.test --json
+  $ assistant channels request --channel slack -X POST \\
+      -d '{"channel":"D0123456789","limit":20}' /conversations.history --json`,
   subcommands: [
     {
       name: "list",
