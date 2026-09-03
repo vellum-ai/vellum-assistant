@@ -25,12 +25,12 @@ import type { ActivationProgress } from "@/domains/activation/hooks/use-activati
  * Resolves the real catalog the way the route does, so a story renders the
  * copy, icons and colors that ship rather than a hand-written stand-in.
  */
-function ListPageDemo({ progress }: { progress: ActivationProgress }) {
+function ListPageDemo({ progress }: { progress?: ActivationProgress }) {
   const { starters, items } = useActivationList("smb");
   return (
     <ActivationListPage
       tasks={[...starters, ...items]}
-      progress={progress.tasks}
+      progress={progress?.tasks}
       onLaunch={() => {}}
       onOpenConversation={() => {}}
     />
@@ -78,6 +78,15 @@ export const Light796TodoDark: Story = {
  */
 export const Light797Mixed: Story = {
   args: { progress: ACTIVATION_PROGRESS_LIST_MIXED },
+};
+
+/**
+ * The list before the daemon has answered. Placeholder rows stand in for the
+ * real ones, because a row rendered against progress that has not landed would
+ * offer a finished task back to the user.
+ */
+export const Loading: Story = {
+  args: { progress: undefined },
 };
 
 /** The mixed list on a phone, where the file card has the least room. */

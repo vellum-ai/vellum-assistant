@@ -27,14 +27,11 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
-import {
-  resolveActivationListId,
-  useActivationChecklistArm,
-} from "@/hooks/use-activation-checklist-flag";
+import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
+import { useActivationEnabledListId } from "@/hooks/use-activation-enabled";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { useSupportsActivationProgress } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
@@ -271,16 +268,13 @@ function PreferencesMenuContent({
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  /* The Inspiration List entry rides the same two gates as every other
-     activation surface: an arm that names a list, and a daemon carrying the
-     progress routes the page reads. */
+  /* The Inspiration List entry rides the same gate as every other activation
+     surface, resolved in the one place that owns it. The arm is read beside it
+     for the telemetry the entry emits, not as a second gate. */
   const activationArm = useActivationChecklistArm();
-  const activationListId = resolveActivationListId(activationArm);
   const activationAssistantId =
     useResolvedAssistantsStore.use.activeAssistantId();
-  const supportsActivation = useSupportsActivationProgress(
-    activationAssistantId,
-  );
+  const activationListId = useActivationEnabledListId(activationAssistantId);
   const {
     enabled: showBillingRows,
     balance: effectiveBalance,
@@ -323,7 +317,7 @@ function PreferencesMenuContent({
         </div>
       ) : null}
 
-      {activationListId !== null && supportsActivation ? (
+      {activationListId !== null ? (
         <PanelItem
           icon={List}
           label={tActivation("menu.inspirationList")}

@@ -32,9 +32,16 @@
  * Every launch gets its own conversation. Reusing one across tasks would put
  * two prompts in one thread and give the daemon two tasks pointing at the same
  * turn.
+ *
+ * Launches run concurrently and are tracked as a set, because the list lets the
+ * user start a second task while the first is still in flight. A single pending
+ * id would clear on whichever launch settled first and hand every other row
+ * back to the user mid-launch. The set is mirrored in a ref so the duplicate
+ * guard answers within the click that fires it, before React has re-rendered
+ * the row into its pending state.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -113,6 +120,11 @@ export interface LaunchActivationTaskResult {
   ok: boolean;
   /** The conversation the task was launched into, once one is linked to it. */
   conversationId?: string;
+  /**
+   * What to tell the user. Absent when there is nothing to say: a launch
+   * refused because the same task is already running is not a failure the user
+   * caused or needs to see.
+   */
   error?: string;
 }
 
@@ -127,9 +139,13 @@ export interface UseLaunchActivationTask {
     taskId: string,
     promptOverride?: string,
   ) => Promise<LaunchActivationTaskResult>;
-  /** The task currently mid-launch, for the row's pending state. */
-  pendingTaskId: string | null;
+  /** Every task whose launch is in flight, for the rows' pending states. */
+  pendingTaskIds: ReadonlySet<string>;
+  /** Whether `taskId`'s own launch is still in flight. */
+  isPending: (taskId: string) => boolean;
 }
+
+const NONE_PENDING: ReadonlySet<string> = new Set();
 
 export function useLaunchActivationTask(
   listId: string,
@@ -138,7 +154,11 @@ export function useLaunchActivationTask(
   const arm = useActivationChecklistArm();
   const queryClient = useQueryClient();
   const { t } = useTranslation("activation");
-  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [pendingTaskIds, setPendingTaskIds] =
+    useState<ReadonlySet<string>>(NONE_PENDING);
+  // The ref is the authority the guard reads; the state is the copy React
+  // renders. Two clicks in one tick both see the ref, and only one gets past.
+  const inFlight = useRef<Set<string>>(new Set());
 
   const launch = useCallback(
     async (
@@ -161,7 +181,13 @@ export function useLaunchActivationTask(
       // count it. Only the catalog prompt is scripted.
       const scripted = !override;
 
-      setPendingTaskId(taskId);
+      // The row is already working. Launching again would open a second
+      // conversation for one task and leave the daemon two rows to mark done.
+      if (inFlight.current.has(taskId)) {
+        return { ok: false };
+      }
+      inFlight.current.add(taskId);
+      setPendingTaskIds(new Set(inFlight.current));
       try {
         const created = await createBackgroundConversation({
           assistantId,
@@ -224,11 +250,17 @@ export function useLaunchActivationTask(
         });
         return { ok: true, conversationId };
       } finally {
-        setPendingTaskId(null);
+        inFlight.current.delete(taskId);
+        setPendingTaskIds(new Set(inFlight.current));
       }
     },
     [arm, assistantId, listId, queryClient, t],
   );
 
-  return { launch, pendingTaskId };
+  const isPending = useCallback(
+    (taskId: string) => pendingTaskIds.has(taskId),
+    [pendingTaskIds],
+  );
+
+  return { launch, pendingTaskIds, isPending };
 }

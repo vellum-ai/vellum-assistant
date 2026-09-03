@@ -112,7 +112,7 @@ describe("ActivationListPage", () => {
       <ActivationListPage
         tasks={TASKS}
         progress={{}}
-        pendingTaskId={FIXTURE_STARTER_IDS[0]}
+        pendingTaskIds={new Set([FIXTURE_STARTER_IDS[0]])}
         onLaunch={(taskId) => launched.push(taskId)}
         onOpenConversation={(conversationId) => opened.push(conversationId)}
       />,
@@ -121,6 +121,44 @@ describe("ActivationListPage", () => {
     expect(screen.getByText("Working")).toBeTruthy();
     fireEvent.click(rowButton(starters[0]?.title ?? ""));
     expect(launched).toEqual([]);
+  });
+
+  // Two launches can be in flight at once, and each row leaves its pending
+  // state only when its own launch settles.
+  test("every in-flight launch holds its own row", () => {
+    render(
+      <ActivationListPage
+        tasks={TASKS}
+        progress={{}}
+        pendingTaskIds={
+          new Set([FIXTURE_STARTER_IDS[0], FIXTURE_STARTER_IDS[1]])
+        }
+        onLaunch={(taskId) => launched.push(taskId)}
+        onOpenConversation={(conversationId) => opened.push(conversationId)}
+      />,
+    );
+
+    expect(screen.getAllByText("Working")).toHaveLength(2);
+    fireEvent.click(rowButton(starters[0]?.title ?? ""));
+    fireEvent.click(rowButton(starters[1]?.title ?? ""));
+    expect(launched).toEqual([]);
+  });
+
+  // Progress the daemon has not answered for yet is not an empty progress
+  // map: a row rendered against one would offer a finished task back.
+  test("progress that has not landed renders placeholders, not tasks", () => {
+    render(
+      <ActivationListPage
+        tasks={TASKS}
+        progress={undefined}
+        onLaunch={(taskId) => launched.push(taskId)}
+        onOpenConversation={(conversationId) => opened.push(conversationId)}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByText(starters[0]?.title ?? "")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
 

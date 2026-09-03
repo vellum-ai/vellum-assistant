@@ -54,6 +54,18 @@ let sendStatus = 200;
 let sendThrows = false;
 let startThrows = false;
 let mintCounter = 0;
+/** While true, the create leg parks until `releaseCreates()` lets it answer. */
+let holdCreates = false;
+let parkedCreates: Array<() => void> = [];
+
+function releaseCreates(): void {
+  holdCreates = false;
+  const parked = parkedCreates;
+  parkedCreates = [];
+  for (const resume of parked) {
+    resume();
+  }
+}
 
 const emitMock = mock(() => {});
 
@@ -109,6 +121,9 @@ function installFetch(): void {
     });
     switch (leg) {
       case "create":
+        if (holdCreates) {
+          await new Promise<void>((resolve) => parkedCreates.push(resolve));
+        }
         if (createStatus !== 200) {
           return json(
             createStatus,
@@ -185,6 +200,8 @@ beforeEach(() => {
   sendStatus = 200;
   sendThrows = false;
   startThrows = false;
+  holdCreates = false;
+  parkedCreates = [];
   emitMock.mockClear();
   installFetch();
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
@@ -365,7 +382,7 @@ describe("useLaunchActivationTask", () => {
     expect(requestsFor("discard")).toHaveLength(0);
     expect(outcome).toMatchObject({ ok: false, conversationId: "conv-1" });
     expect(outcome?.error).toBeTruthy();
-    expect(result.current.pendingTaskId).toBeNull();
+    expect(result.current.isPending("pdf-proposal")).toBe(false);
   });
 
   test("reports a failed send against the conversation it linked", async () => {
@@ -397,7 +414,7 @@ describe("useLaunchActivationTask", () => {
     expect(outcome).toMatchObject({ ok: false, conversationId: "conv-1" });
     expect(outcome?.error).toBeTruthy();
     expect(emitMock).not.toHaveBeenCalled();
-    expect(result.current.pendingTaskId).toBeNull();
+    expect(result.current.isPending("pdf-proposal")).toBe(false);
   });
 
   test("creates a fresh conversation for every launch", async () => {
@@ -452,5 +469,86 @@ describe("useLaunchActivationTask", () => {
       listId: "smb",
       taskId: "pdf-proposal",
     });
+  });
+});
+
+/**
+ * The list lets the user start a second task while the first is still going,
+ * so pending state is per task. A single pending id would clear on whichever
+ * launch settled first and hand every other row back mid-launch.
+ */
+describe("useLaunchActivationTask concurrency", () => {
+  test("a second launch leaves the first task pending", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let first: Promise<LaunchActivationTaskResult> | undefined;
+    let second: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      first = result.current.launch("pdf-proposal");
+      second = result.current.launch("weekly-report");
+    });
+
+    expect(result.current.isPending("pdf-proposal")).toBe(true);
+    expect(result.current.isPending("weekly-report")).toBe(true);
+    expect([...result.current.pendingTaskIds].sort()).toEqual([
+      "pdf-proposal",
+      "weekly-report",
+    ]);
+
+    await act(async () => {
+      releaseCreates();
+      await first;
+      await second;
+    });
+
+    expect(result.current.pendingTaskIds.size).toBe(0);
+  });
+
+  // Two conversations for one task would leave the daemon two rows to mark
+  // done and run the prompt twice.
+  test("a task already in flight cannot be launched again", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let first: Promise<LaunchActivationTaskResult> | undefined;
+    let second: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      first = result.current.launch("pdf-proposal");
+      second = result.current.launch("weekly-report");
+    });
+
+    let duplicate: LaunchActivationTaskResult | undefined;
+    await act(async () => {
+      duplicate = await result.current.launch("pdf-proposal");
+    });
+
+    expect(duplicate).toEqual({ ok: false });
+    // The refusal has nothing to tell the user: the row is already working.
+    expect(duplicate?.error).toBeUndefined();
+    expect(calls.filter((leg) => leg === "create")).toHaveLength(2);
+    expect(result.current.isPending("pdf-proposal")).toBe(true);
+
+    await act(async () => {
+      releaseCreates();
+      await first;
+      await second;
+    });
+  });
+
+  test("a settled launch can be started again", async () => {
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(result.current.isPending("pdf-proposal")).toBe(false);
+
+    let again: LaunchActivationTaskResult | undefined;
+    await act(async () => {
+      again = await result.current.launch("pdf-proposal");
+    });
+
+    expect(again?.ok).toBe(true);
   });
 });

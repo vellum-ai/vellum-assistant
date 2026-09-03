@@ -5,19 +5,17 @@
  * and the celebration can never disagree about whether the feature is on, and
  * so a new gate is added in exactly one file.
  *
- * The order is deliberate. Cheap local answers come first (flag arm, daemon
- * support), then the server read, then the surfaces this one must not fight
- * with: onboarding routes and the in-chat tour own the screen while they run,
- * and a banner already occupies the slot the pill would take.
+ * The order is deliberate. The cheap local answer comes first
+ * (`useActivationEnabledListId`, which carries the flag arm and the daemon
+ * support gate every activation surface shares), then the server read, then
+ * the surfaces this one must not fight with: onboarding routes and the in-chat
+ * tour own the screen while they run, and a banner already occupies the slot
+ * the pill would take.
  */
 
 import { useLocation } from "react-router";
 
-import {
-  resolveActivationListId,
-  useActivationChecklistArm,
-} from "@/hooks/use-activation-checklist-flag";
-import { useSupportsActivationProgress } from "@/lib/backwards-compat/use-supports-activation-progress";
+import { useActivationEnabledListId } from "@/hooks/use-activation-enabled";
 import { useBannerVisible } from "@/stores/banner-visibility-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -69,16 +67,14 @@ export function doneStarterCount(
 }
 
 export function useActivationVisibility(): ActivationVisibility {
-  const arm = useActivationChecklistArm();
-  const armListId = resolveActivationListId(arm);
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const supported = useSupportsActivationProgress(assistantId);
+  const armListId = useActivationEnabledListId(assistantId);
   const { data: progress } = useActivationProgress();
   const { pathname } = useLocation();
   const tourActive = useInChatOnboardingStore.use.prototypeActive();
   const bannerVisible = useBannerVisible();
 
-  if (armListId === null || !supported || !progress) {
+  if (armListId === null || !progress) {
     return HIDDEN;
   }
   // The daemon's frozen list wins over the arm, so a re-bucketed user keeps

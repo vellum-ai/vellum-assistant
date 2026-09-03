@@ -1,15 +1,24 @@
 /**
- * What the route owes the page: the right list, the daemon's progress, and the
- * two actions a row can take.
+ * What the route owes the page: the right list, the daemon's progress, the
+ * gates that decide whether the page may render at all, and the two actions a
+ * row can take, including what a failed one says.
  *
- * The progress read, the launch and the capability signal are mocked at their
- * hook seams; each owns its own suite, and what is under test here is the
- * wiring between them.
+ * The progress read, the launch, the capability signal and the toast are
+ * mocked at their seams; each owns its own suite, and what is under test here
+ * is the wiring between them. The version gate is not mocked: it reads the
+ * identity store, which is the thing a bookmark against an old assistant
+ * actually trips.
  */
 
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import {
@@ -19,13 +28,29 @@ import {
 } from "@/domains/activation/activation-test-fixtures";
 import { getActivationList } from "@/domains/activation/catalog";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
+import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-activation-progress";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
+interface LaunchOutcome {
+  ok: boolean;
+  conversationId?: string;
+  error?: string;
+}
+
+interface CapturedToast {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
 let progress: ActivationProgress | undefined;
+let launchOutcome: LaunchOutcome = { ok: true };
 const launched: string[] = [];
 const navigated: string[] = [];
+const toasts: CapturedToast[] = [];
 
 // Every mock spreads the real module: `mock.module` replaces it for the whole
 // test process, so returning only the overridden export would erase the rest
@@ -46,10 +71,29 @@ mock.module("@/domains/activation/hooks/use-launch-activation-task", () => ({
   useLaunchActivationTask: () => ({
     launch: async (taskId: string) => {
       launched.push(taskId);
-      return { ok: true };
+      return launchOutcome;
     },
-    pendingTaskId: null,
+    pendingTaskIds: new Set<string>(),
+    isPending: () => false,
   }),
+}));
+
+const toastModule = await import("@vellumai/design-library/components/toast");
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: {
+    ...toastModule.toast,
+    error: (
+      message: string,
+      options?: { action?: { label: string; onClick: () => void } },
+    ) => {
+      toasts.push({
+        message,
+        actionLabel: options?.action?.label,
+        onAction: options?.action?.onClick,
+      });
+    },
+  },
 }));
 
 const capabilitiesModule = await import("@/domains/activation/capabilities");
@@ -93,14 +137,18 @@ function renderRoute() {
 
 beforeEach(() => {
   progress = ACTIVATION_PROGRESS_EMPTY;
+  launchOutcome = { ok: true };
   setArm("smb");
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+  useAssistantIdentityStore.getState().setIdentity("Vel", MIN_VERSION, "asst-1");
 });
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
   launched.length = 0;
   navigated.length = 0;
+  toasts.length = 0;
 });
 
 describe("ActivationListRoute", () => {
@@ -149,5 +197,99 @@ describe("ActivationListRoute", () => {
 
     expect(navigated).toEqual(["conv-done-1"]);
     expect(launched).toEqual([]);
+  });
+
+  // A bookmark reaches this page directly, and an assistant without the
+  // `/v1/activation/*` routes can neither answer the progress read nor link a
+  // launch, so every row would offer work it cannot do.
+  test("an assistant below the activation floor hands the user back to chat", () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.11.0", "asst-1");
+    progress = ACTIVATION_PROGRESS_LIST_MIXED;
+    renderRoute();
+
+    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(screen.queryByText(starters[0]?.title ?? "")).toBeNull();
+  });
+});
+
+describe("ActivationListRoute before progress lands", () => {
+  // An absent record reads as "never started", so a finished task rendered
+  // against a progress read still in flight would offer to run again.
+  test("no task can launch until the daemon has answered", () => {
+    progress = undefined;
+    const { rerender } = renderRoute();
+
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByText(starters[0]?.title ?? "")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+
+    // The answer arrives, carrying a task that is already done.
+    progress = ACTIVATION_PROGRESS_LIST_MIXED;
+    rerender(<ActivationListRoute />);
+
+    fireEvent.click(
+      screen.getByText(starters[0]?.title ?? "").closest("button")!,
+    );
+
+    expect(launched).toEqual([]);
+    expect(navigated).toEqual(["conv-done-1"]);
+  });
+});
+
+describe("ActivationListRoute launch failures", () => {
+  test("a refused launch says so", async () => {
+    launchOutcome = { ok: false, error: "no conversation for you" };
+    renderRoute();
+
+    fireEvent.click(
+      screen.getByText(starters[0]?.title ?? "").closest("button")!,
+    );
+
+    await waitFor(() => {
+      expect(toasts).toHaveLength(1);
+    });
+    expect(toasts[0]?.message).toBe("no conversation for you");
+    // Nothing was linked, so there is nothing to recover into.
+    expect(toasts[0]?.actionLabel).toBeUndefined();
+  });
+
+  // A send that fails after the link stands leaves a real conversation the
+  // task owns; the user has to be able to reach it.
+  test("a failed send offers the conversation it already linked", async () => {
+    launchOutcome = {
+      ok: false,
+      conversationId: "conv-linked-1",
+      error: "daemon said no",
+    };
+    renderRoute();
+
+    fireEvent.click(
+      screen.getByText(starters[0]?.title ?? "").closest("button")!,
+    );
+
+    await waitFor(() => {
+      expect(toasts).toHaveLength(1);
+    });
+    expect(toasts[0]?.message).toBe("daemon said no");
+    expect(toasts[0]?.actionLabel).toBe("Open conversation");
+
+    toasts[0]?.onAction?.();
+    expect(navigated).toEqual(["conv-linked-1"]);
+  });
+
+  // A launch refused because the same task is already running is not a failure
+  // the user caused, and it carries nothing to say.
+  test("a launch with nothing to report shows no toast", async () => {
+    launchOutcome = { ok: false };
+    renderRoute();
+
+    fireEvent.click(
+      screen.getByText(starters[0]?.title ?? "").closest("button")!,
+    );
+
+    await waitFor(() => {
+      expect(launched).toEqual([FIXTURE_STARTER_IDS[0]]);
+    });
+    expect(toasts).toEqual([]);
   });
 });

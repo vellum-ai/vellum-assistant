@@ -7,29 +7,30 @@
  * ships.
  *
  * The daemon's frozen list wins over the flag arm, the same rule the modal and
- * the pill follow, so a re-bucketed user keeps the checklist they started. An
- * arm that selects no list has nothing to show and hands the user back to
- * chat rather than leaving them on an empty page.
+ * the pill follow, so a re-bucketed user keeps the checklist they started.
+ *
+ * The gate is `useActivationEnabledListId`, the one every activation surface
+ * shares, rather than the flag arm alone: the page is reachable by a bookmark,
+ * and against an assistant too old for the `/v1/activation/*` routes every row
+ * would offer a launch the daemon cannot link. Gated off, the route hands the
+ * user back to chat.
  *
  * Mounted under `ActiveAssistantGate`, so `activeAssistantId` is resolved by
  * the time this renders and needs no second guard.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Navigate, useNavigate } from "react-router";
 
-import {
-  resolveActivationListId,
-  useActivationChecklistArm,
-} from "@/hooks/use-activation-checklist-flag";
+import { toast } from "@vellumai/design-library/components/toast";
+
+import { useActivationEnabledListId } from "@/hooks/use-activation-enabled";
+import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
-import {
-  taskIsAvailable,
-  useAvailableCapabilityTags,
-} from "../capabilities";
+import { taskIsAvailable, useAvailableCapabilityTags } from "../capabilities";
 import { useActivationList } from "../catalog";
 import { ActivationListPage } from "../components/activation-list-page";
 import { useActivationProgress } from "../hooks/use-activation-progress";
@@ -37,15 +38,15 @@ import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
 
 export function ActivationListRoute() {
   const navigate = useNavigate();
+  const { t } = useTranslation("activation");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const arm = useActivationChecklistArm();
-  const armListId = resolveActivationListId(arm);
+  const armListId = useActivationEnabledListId(assistantId);
   const { data: progress } = useActivationProgress();
   const listId = progress?.listId ?? armListId;
 
   const { starters, items } = useActivationList(listId ?? "");
   const availableTags = useAvailableCapabilityTags();
-  const { launch, pendingTaskId } = useLaunchActivationTask(listId ?? "");
+  const { launch, pendingTaskIds } = useLaunchActivationTask(listId ?? "");
 
   const tasks = useMemo(
     () =>
@@ -55,6 +56,34 @@ export function ActivationListRoute() {
     [starters, items, availableTags],
   );
 
+  // The page is the point of the launch, so the user stays on it and the row
+  // flips to Working; the conversation runs in the background. A failure has
+  // nowhere else to surface, and one that already linked a conversation hands
+  // it back so the user can drive the task by hand.
+  const handleLaunch = useCallback(
+    async (taskId: string) => {
+      const result = await launch(taskId);
+      if (result.ok || !result.error) {
+        return;
+      }
+      const { conversationId } = result;
+      toast.error(
+        result.error,
+        conversationId
+          ? {
+              action: {
+                label: t("launch.openConversation"),
+                onClick: () => {
+                  navigateToConversation(navigate, conversationId);
+                },
+              },
+            }
+          : undefined,
+      );
+    },
+    [launch, navigate, t],
+  );
+
   if (armListId === null) {
     return <Navigate to={routes.assistant} replace />;
   }
@@ -62,12 +91,10 @@ export function ActivationListRoute() {
   return (
     <ActivationListPage
       tasks={tasks}
-      progress={progress?.tasks ?? {}}
-      pendingTaskId={pendingTaskId}
-      // The page is the point of the launch, so the user stays on it and the
-      // row flips to Working; the conversation runs in the background.
+      progress={progress?.tasks}
+      pendingTaskIds={pendingTaskIds}
       onLaunch={(taskId) => {
-        void launch(taskId);
+        void handleLaunch(taskId);
       }}
       onOpenConversation={(conversationId) => {
         navigateToConversation(navigate, conversationId);
