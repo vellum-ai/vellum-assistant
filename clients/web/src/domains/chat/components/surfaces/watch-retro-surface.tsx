@@ -10,6 +10,7 @@ import {
   ListRow,
   Stepper,
   type StepperStep,
+  Tag,
   Typography,
 } from "@vellumai/design-library";
 import {
@@ -18,9 +19,12 @@ import {
   ChevronRight,
   GraduationCap,
   Loader2,
+  MessageSquareWarning,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type ComponentType, useCallback, useMemo, useState } from "react";
 
+import { inferCompletionTone } from "@/domains/chat/completion-tone";
+import { COMPLETION_TONE_STYLE } from "@/domains/chat/components/surfaces/surface-container";
 import type { Surface } from "@/domains/chat/types/types";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
@@ -50,13 +54,29 @@ import { cn } from "@/utils/misc";
  * notice. The retro is the whole of what a finished session gives the user and
  * the turn writes no prose beside it, so it has to survive an older client.
  *
- * **Every page is skippable and every skip is safe.** Skipping advances with a
- * default already in hand. `defaultAnswerFor` owns which: the first option,
- * which the payload contract requires to be the cautious answer on a gate and
- * the model's own reading on a pick.
+ * **A pick or a gate is answered by tapping, and nothing is tapped for you.**
+ * No option starts selected. The first one is marked as recommended, which is
+ * what the payload contract makes it: the model's own reading on a pick and
+ * the cautious answer on a gate. A tap commits and advances in one gesture,
+ * so the page carries no Skip: a preselected default under a Skip button was
+ * the thing users reached for when they meant to go forward. A page revisited
+ * with an answer already standing shows Next instead, so moving on does not
+ * mean tapping the same option twice.
+ *
+ * **A fill is skippable and the skip is safe.** It starts on its suggestion,
+ * so skipping keeps a working phrase. `defaultAnswerFor` also supplies the
+ * first option as a pick's or gate's answer of record, which is only reached
+ * when a page was never answered, since the summary is behind every page.
  *
  * **One submission, at the end.** Answers accumulate in local state and go out
  * as a single action payload rather than one turn per question.
+ *
+ * **The card says when it is done.** A `card` never collapses on its own: the
+ * router only folds the inherently interactive types, and the card's own
+ * renderer redrew the same page after Save, so the only feedback was the
+ * spinner. Once the surface is completed, the whole card gives way to one row
+ * naming what happened, with a summary sent along in the action so history
+ * and the daemon's completion event say the same thing.
  */
 
 interface WatchRetroSurfaceProps {
@@ -87,10 +107,12 @@ interface WatchRetroAnswer {
  * The answer a question carries before the user touches it.
  *
  * A `fill` starts on its suggestion, which is what makes skipping it an
- * acceptance rather than a blank. A `pick` and a `gate` start on their first
- * option: the payload contract puts the model's reading first on a pick and
- * the cautious answer first on a gate, so this one rule covers both without
- * the renderer having to know which is which.
+ * acceptance rather than a blank. A `pick` and a `gate` hold their first
+ * option as the answer of record without showing it as selected: the payload
+ * contract puts the model's reading first on a pick and the cautious answer
+ * first on a gate, so this one rule covers both without the renderer having
+ * to know which is which. `skipped` stays true until the user actually taps,
+ * which is also what the page reads to decide whether anything is marked.
  */
 function defaultAnswerFor(question: WatchRetroQuestion): WatchRetroAnswer {
   const firstOption = question.options?.[0];
@@ -148,6 +170,47 @@ function usableQuestions(
   });
 }
 
+/** The three ways the card can end, keyed by the action that ends it. */
+type WatchRetroOutcome = "answer" | "not_right" | "discard";
+
+interface CompletionStyle {
+  Icon: ComponentType<{ className?: string }>;
+  colorClass: string;
+}
+
+/**
+ * How each ending is drawn once the surface is completed: the glyph, its
+ * colour, and the catalog key for the line beside it. `answer` is the one
+ * success and `discard` is a void, so both borrow the tones every other
+ * completed card uses. `not_right` is neither: the turn picks it up and asks
+ * what was off, so it reads as a message sent.
+ */
+const OUTCOME_STYLE: Record<
+  WatchRetroOutcome,
+  CompletionStyle & {
+    summaryKey:
+      | "watchRetroSurface.doneSaved"
+      | "watchRetroSurface.doneNotRight"
+      | "watchRetroSurface.doneDiscarded";
+  }
+> = {
+  answer: {
+    ...COMPLETION_TONE_STYLE.success,
+    summaryKey: "watchRetroSurface.doneSaved",
+  },
+  not_right: {
+    Icon: MessageSquareWarning,
+    colorClass: "text-[color:var(--content-quiet)]",
+    summaryKey: "watchRetroSurface.doneNotRight",
+  },
+  discard: {
+    ...COMPLETION_TONE_STYLE.neutral,
+    summaryKey: "watchRetroSurface.doneDiscarded",
+  },
+};
+
+const OUTCOMES = Object.keys(OUTCOME_STYLE) as WatchRetroOutcome[];
+
 export function WatchRetroSurface({
   surface,
   templateData,
@@ -170,6 +233,11 @@ export function WatchRetroSurface({
 
   const [pageIndex, setPageIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  // Which ending was submitted from this mount. The completed row prefers the
+  // surface's own summary, which is what history restores; this is the
+  // fallback for the gap between the optimistic completion and the daemon's
+  // `ui_surface_complete`, when the surface is completed with no summary yet.
+  const [outcome, setOutcome] = useState<WatchRetroOutcome | null>(null);
   // Whether the summary has been reached. Once it has, the card is being
   // reviewed rather than filled in, and every page returns there.
   const [reviewed, setReviewed] = useState(false);
@@ -222,11 +290,15 @@ export function WatchRetroSurface({
   );
 
   const submit = useCallback(
-    async (actionId: string, collected: Record<string, WatchRetroAnswer>) => {
+    async (
+      actionId: WatchRetroOutcome,
+      collected: Record<string, WatchRetroAnswer>,
+    ) => {
       if (submitting) {
         return;
       }
       setSubmitting(true);
+      setOutcome(actionId);
       try {
         await onAction(surface.surfaceId, actionId, {
           // Ordered by the pages they were asked on, so the model reads them in
@@ -239,6 +311,10 @@ export function WatchRetroSurface({
           // answer goes out in this one payload. Without it the card would
           // stay answerable after it had been answered.
           _completeSurface: true,
+          // The line the completed row shows. Without it the daemon summarises
+          // the completion as a bare "Completed", and that is what history
+          // would restore in place of what actually happened.
+          _completionSummary: t(OUTCOME_STYLE[actionId].summaryKey),
         });
       } finally {
         // Released unconditionally, matching `SurfaceContainer`. A rejection is
@@ -250,7 +326,7 @@ export function WatchRetroSurface({
         setSubmitting(false);
       }
     },
-    [onAction, questions, submitting, surface.surfaceId],
+    [onAction, questions, submitting, surface.surfaceId, t],
   );
 
   /**
@@ -289,6 +365,17 @@ export function WatchRetroSurface({
   }, [goToPage, pageIndex]);
 
   const heading = data.task || t("watchRetroSurface.untitledTask");
+
+  if (surface.completed) {
+    return (
+      <CompletedRow
+        heading={heading}
+        summary={surface.completionSummary}
+        outcome={outcome}
+        tone={surface.completionTone}
+      />
+    );
+  }
 
   return (
     <Card padding="lg" bordered>
@@ -392,14 +479,14 @@ export function WatchRetroSurface({
             </Button>
           )}
 
-          {currentQuestion && (
+          {currentQuestion?.kind === "fill" && (
             <Button
               variant="ghost"
               disabled={submitting}
               onClick={() => {
-                // The default is already in `answers`, so a skip only has to
-                // move on. It stays marked skipped so the model can tell an
-                // accepted default from a chosen one.
+                // The suggestion is already in `answers`, so a skip only has
+                // to move on. It stays marked skipped so the model can tell an
+                // accepted suggestion from a typed one.
                 advance(answers);
               }}
             >
@@ -421,11 +508,15 @@ export function WatchRetroSurface({
             </Button>
           )}
 
-          {/* A `pick` and a `gate` commit on tap, matching every other
-              single-select surface in the app, so their page carries no
-              advance button. The recap, a `fill` and the summary have nothing
-              to tap, so they keep one. */}
-          {(onRecap || onSummary || currentQuestion?.kind === "fill") && (
+          {/* A `pick` and a `gate` commit on tap, so their page earns an
+              advance button only once an answer is standing: a page revisited
+              from the summary can be left without tapping the same option
+              again. The recap, a `fill` and the summary have nothing to tap,
+              so they always keep one. */}
+          {(onRecap ||
+            onSummary ||
+            currentQuestion?.kind === "fill" ||
+            (currentQuestion && !answers[currentQuestion.id]?.skipped)) && (
             <Button
               variant="primary"
               disabled={submitting}
@@ -447,6 +538,74 @@ export function WatchRetroSurface({
             </Button>
           )}
         </div>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * What the card becomes once it has been answered: the task, and one line
+ * saying what happened to it.
+ *
+ * The summary comes from the surface when it has one, which is what a
+ * restored conversation carries and what the daemon's completion event set.
+ * Until that arrives the ending submitted from this mount fills in, and a
+ * completed surface with neither, which is a card answered elsewhere before
+ * this client learned the template, still says it is done.
+ *
+ * The glyph follows the ending. On a restored card the ending is not known
+ * directly, so it is read back off the summary: the card wrote that summary
+ * from its own catalog, so a match is exact. A summary the card did not
+ * write, such as a bare "Completed" from a daemon that ignored the request,
+ * takes the tone every other completed card would infer from it.
+ */
+function CompletedRow({
+  heading,
+  summary,
+  outcome,
+  tone,
+}: {
+  heading: string;
+  summary: string | undefined;
+  outcome: WatchRetroOutcome | null;
+  tone: Surface["completionTone"];
+}) {
+  const { t } = useTranslation("chat");
+  const resolvedOutcome =
+    outcome ??
+    OUTCOMES.find(
+      (candidate) => summary === t(OUTCOME_STYLE[candidate].summaryKey),
+    ) ??
+    null;
+  const style: CompletionStyle = resolvedOutcome
+    ? OUTCOME_STYLE[resolvedOutcome]
+    : COMPLETION_TONE_STYLE[tone ?? inferCompletionTone(summary)];
+  const line =
+    summary ||
+    (resolvedOutcome
+      ? t(OUTCOME_STYLE[resolvedOutcome].summaryKey)
+      : t("surfaceRouter.done"));
+
+  return (
+    <Card padding="sm" bordered>
+      <div className="flex items-center gap-3">
+        <GraduationCap className="h-4 w-4 shrink-0 text-[color:var(--content-quiet)]" />
+        <Typography
+          variant="body-medium-default"
+          as="span"
+          className="min-w-0 flex-1 truncate text-[color:var(--content-strong)]"
+        >
+          {heading}
+        </Typography>
+        <span
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 text-body-medium-default",
+            style.colorClass,
+          )}
+        >
+          <style.Icon className="h-4 w-4 shrink-0" />
+          {line}
+        </span>
       </div>
     </Card>
   );
@@ -547,8 +706,13 @@ function QuestionPage({
   onFillChange: (value: string) => void;
   onPick: (optionId: string, label: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const promptId = `watch-retro-q-${question.id}`;
-  const selectedOptionId = answer?.optionId ?? question.options?.[0]?.id;
+  // Only a tapped answer is marked. The answer of record before any tap is
+  // the first option, but drawing it selected is what put users one Skip away
+  // from an answer they never gave.
+  const selectedOptionId =
+    answer && !answer.skipped ? answer.optionId : undefined;
 
   return (
     <div>
@@ -627,13 +791,25 @@ function QuestionPage({
                   {selected && <Check className="h-3.5 w-3.5" />}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <Typography
-                    as="span"
-                    variant="body-medium-default"
-                    className="block text-[color:var(--content-strong)]"
-                  >
-                    {option.label}
-                  </Typography>
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Typography
+                      as="span"
+                      variant="body-medium-default"
+                      className="text-[color:var(--content-strong)]"
+                    >
+                      {option.label}
+                    </Typography>
+                    {/* The first option is the recommended one by contract:
+                        the recording's own reading on a pick, the cautious
+                        answer on a gate. Marked rather than preselected, so
+                        the recommendation is visible and the answer is still
+                        the user's. */}
+                    {index === 0 && (
+                      <Tag tone="info">
+                        {t("watchRetroSurface.recommended")}
+                      </Tag>
+                    )}
+                  </span>
                   {option.note && (
                     <Typography
                       as="span"
