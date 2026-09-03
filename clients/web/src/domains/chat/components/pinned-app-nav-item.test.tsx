@@ -204,11 +204,10 @@ describe("PinnedAppNavItem", () => {
     expect(onUnpin).toHaveBeenCalledWith("app-1");
   });
 
-  /* Swipe-to-reveal is a list-row gesture and a pill is a chip: its one
-     action is the trailing button. A swipe row would also be as wide as the
-     rail, so a swipe starting in the open rail beside the pill would act on
-     it, and the action it revealed would land at the rail's edge. */
-  test("expanded: the pill is not wrapped in a swipe row", () => {
+  /* A pill is its own swipe box. The wrapper takes the pill's shape, so the
+     action behind it is a capsule the pill's size and the gesture arms on the
+     pill rather than across the rail beside it. */
+  test("expanded: swipes in its own shape", () => {
     viewport.set({ narrow: true, coarsePointer: true });
 
     const { container } = render(
@@ -220,10 +219,17 @@ describe("PinnedAppNavItem", () => {
       />,
     );
 
-    expect(container.querySelector("[data-swipe-action-row]")).toBeNull();
-    expect(
-      container.querySelector('button[aria-label="Unpin"][aria-hidden="true"]'),
-    ).toBeNull();
+    const row = container.querySelector<HTMLElement>("[data-swipe-action-row]");
+    expect(row).not.toBeNull();
+    expect(row!.className).toContain("w-fit");
+    expect(row!.className).toContain("rounded-full");
+    // Behind the pill until a swipe uncovers it: painted, covered, and out of
+    // the accessibility tree.
+    const layer = container.querySelector(
+      'button[aria-label="Unpin"]',
+    )!.parentElement!;
+    expect(layer.getAttribute("aria-hidden")).toBe("true");
+    expect(layer.hasAttribute("inert")).toBe(true);
   });
 
   /* The tile is the shape with the most riding on the menu: no hover button,

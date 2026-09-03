@@ -1,9 +1,13 @@
 import { PinOff, Rocket } from "lucide-react";
+import { useMemo } from "react";
+
+import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
+import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -70,6 +74,21 @@ export function PinnedAppNavItem({
      property resolves on the element that declares it, so one mechanism
      covers both shapes. */
   const tintStyle = pinTintStyle(app.pinColor);
+
+  /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
+     array each render would re-mint them each render. */
+  const trailingActions = useMemo<SwipeAction[]>(
+    () => [
+      {
+        id: "unpin",
+        label: t("pinnedAppNavItem.unpin"),
+        icon: PinOff,
+        variant: "destructive",
+        onSelect: () => onUnpin(app.id),
+      },
+    ],
+    [app.id, onUnpin, t],
+  );
 
   const sideMenuItem = (
     <SideMenu.Item
@@ -165,7 +184,14 @@ export function PinnedAppNavItem({
 
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger>{item}</ContextMenu.Trigger>
+      <ContextMenu.Trigger>
+        <SwipeActionReveal
+          className="w-fit rounded-full"
+          trailingActions={trailingActions}
+        >
+          {item}
+        </SwipeActionReveal>
+      </ContextMenu.Trigger>
       {menu}
     </ContextMenu.Root>
   );

@@ -16,25 +16,6 @@ const noopAction: SwipeAction = {
   onSelect: () => {},
 };
 
-/**
- * The px a layer is translated by, read from the layer holding the action
- * named `label`. Parsed rather than string-matched so the assertion is about
- * the distance travelled, and survives the transform being written as
- * `translate3d` or with different spacing.
- */
-function shiftOf(host: HTMLElement, label: string): number {
-  const layer = host.querySelector(
-    `button[aria-label="${label}"]`,
-  )?.parentElement;
-  const match = /translate(?:X|3d)?\(\s*(-?[\d.]+)px/.exec(
-    layer?.style.transform ?? "",
-  );
-  if (!match) {
-    throw new Error(`no translate on the layer holding "${label}"`);
-  }
-  return Number(match[1]);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -68,7 +49,7 @@ describe("SwipeActionReveal", () => {
     expect(html).toContain("Test");
   });
 
-  test("each action layer sits a full width outside the clip at rest", () => {
+  test("each action layer is the item's whole box, in the item's shape", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal
         enabled={true}
@@ -79,21 +60,24 @@ describe("SwipeActionReveal", () => {
       </SwipeActionReveal>,
     );
 
-    // What hides an unrevealed action is the clip, not anything painted over
-    // it: each layer is translated its own width off the edge it hangs from,
-    // so at rest it is wholly outside the box that clips. A swipe walks that
-    // back in step with the content, which is what confines an action to the
-    // strip the content has vacated.
-    //
-    // Each side is asserted against the edge it hangs from, and the layers are
-    // found by the action each one holds. Asserting that the two shifts exist
-    // somewhere would pass just as well with the sides swapped, which is a row
-    // whose actions slide in from the wrong edge.
+    // A layer is the same size and shape as the item it sits behind, so what
+    // the item uncovers as it slides is the layer's own rounded end. Found by
+    // the action each one holds.
     const host = document.createElement("div");
     host.innerHTML = html;
-
-    expect(shiftOf(host, "Pin")).toBe(-ACTION_WIDTH_PX);
-    expect(shiftOf(host, "Archive")).toBe(ACTION_WIDTH_PX);
+    for (const label of ["Pin", "Archive"]) {
+      const layer = host.querySelector(
+        `button[aria-label="${label}"]`,
+      )!.parentElement!;
+      expect(layer.className).toContain("inset-0");
+      expect(layer.className).toContain("rounded-[inherit]");
+      // At rest the item covers it, so it stays painted (hiding it would
+      // blink during the slide back) and is instead taken out of the tab path
+      // and the accessibility tree.
+      expect(layer.style.visibility).toBe("visible");
+      expect(layer.getAttribute("aria-hidden")).toBe("true");
+      expect(layer.hasAttribute("inert")).toBe(true);
+    }
   });
 
   test("the content layer paints no fill of its own", () => {
@@ -111,35 +95,24 @@ describe("SwipeActionReveal", () => {
     expect(html).not.toContain("--surface-overlay");
   });
 
-  test("only the actions are clipped, never the root or the content", () => {
+  test("the item is not clipped and the wrapper paints nothing", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
         <div data-testid="content">Row content</div>
       </SwipeActionReveal>,
     );
 
-    // A flex or grid item whose overflow is not `visible` has its automatic
-    // minimum size resolved to zero rather than to its content, so a container
-    // that is out of room squashes it away entirely. The root is what a list
-    // lays out, so it must not clip.
-    //
-    // Nor may anything between the root and the content: a clip there cuts a
-    // row at its own edge as it slides, which for a `w-fit` pill is the middle
-    // of the open rail beside it. The surface that has an edge (a card) is what
-    // clips at that edge. The action clip is the one clip, and it holds only
-    // the action layers.
+    // The item paints its own surface and slides freely; whatever has an edge
+    // (a card, the drawer) clips at that edge. A clip or a fill between the
+    // root and the item would cut it at its own edge or band it.
     const host = document.createElement("div");
     host.innerHTML = html;
     const root = host.firstElementChild!;
-    expect(root.hasAttribute("data-swipe-action-row")).toBe(true);
-
-    const actionClip = host.querySelector('button[aria-label="Test"]')!
-      .parentElement!.parentElement!;
-    expect(actionClip.className).toContain("overflow-hidden");
-
     let node = host.querySelector('[data-testid="content"]')!.parentElement;
     while (node && node !== root.parentElement) {
       expect(node.className).not.toContain("overflow-hidden");
+      expect(node.className).not.toMatch(/(^|\s)bg-/);
+      expect(node.style.background).toBe("");
       node = node.parentElement;
     }
   });

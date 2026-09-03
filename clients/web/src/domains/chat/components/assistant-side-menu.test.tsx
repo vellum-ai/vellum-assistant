@@ -1456,11 +1456,11 @@ describe("AssistantSideMenu · section spacing", () => {
 });
 
 describe("AssistantSideMenu · section card surface", () => {
-  /* A swipeable row carries only the surface its own content carries, so a
-     card has no fill to hand down to it. Asserted as an absence because a
-     card that names one puts a row-width band behind the `w-fit` pills
-     standing beside these cards. */
-  test("no section card hands its rows a fill to paint", () => {
+  /* A row swiped aside is an opaque cell sliding off the action behind it,
+     and the card is what knows its own colour, so the card names the surface
+     its rows paint. The swipe wrapper itself paints nothing, which is what
+     keeps the pills standing beside these cards free of a band (LUM-3518). */
+  test("every section card names the surface its rows paint", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -1471,6 +1471,9 @@ describe("AssistantSideMenu · section card surface", () => {
     const cards = sectionCards(container);
     expect(cards).toHaveLength(4);
     for (const card of cards) {
+      expect(card.className).toContain(
+        "[--conversation-row-surface:var(--surface-lift)]",
+      );
       expect(card.className).not.toContain("--swipe-reveal-bg");
     }
   });

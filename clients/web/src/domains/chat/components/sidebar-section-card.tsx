@@ -162,6 +162,10 @@ export function SidebarSectionCard({
          into that space instead of under its own edge. */
       clipContents
       className={cn(
+        /* The rows inside paint the card's colour, so a row swiped aside is
+           an opaque cell sliding off the action behind it, and at rest reads
+           as transparent. The card owns its surface, so it names it here. */
+        "[--conversation-row-surface:var(--surface-lift)]",
         /* No padding of its own: the overlay class branch below owns the
            card's inset, and wrapping it in another layer of Card padding
            would inflate the pill past its spec. The row list picks up the

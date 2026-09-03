@@ -256,7 +256,10 @@ export function ConversationRow({
           // `!` forces this over PanelItem's own max-md:py-3: cross-package
           // Tailwind generation order doesn't reliably favor a plain
           // (unmarked) override here.
-          "p-[6px] max-md:p-2! text-[var(--content-default)]",
+          // The row paints the surface its host names, so it reads as
+          // transparent at rest and covers the swipe action behind it until
+          // it slides. A host that names none leaves it transparent.
+          "p-[6px] max-md:p-2! text-[var(--content-default)] bg-[var(--conversation-row-surface,transparent)]",
           // A row in the drawer stands at the same height as the pills above
           // it, which is taller than a row in the rail. Restated under
           // `max-md` for the same reason the padding above is: PanelItem's own

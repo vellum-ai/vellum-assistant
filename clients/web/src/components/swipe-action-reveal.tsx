@@ -1,4 +1,4 @@
-import { type ComponentPropsWithoutRef, forwardRef, useCallback } from "react";
+import { type ComponentPropsWithoutRef, forwardRef } from "react";
 
 import { cn } from "@vellumai/design-library/utils/cn";
 
@@ -13,43 +13,42 @@ import { isPointerCoarse } from "@/utils/pointer";
 // Action button
 // ---------------------------------------------------------------------------
 
+/** What an action paints, keyed by its variant. */
+const ACTION_SURFACE = {
+  default: { bg: "var(--primary-base)", fg: "var(--content-inset)" },
+  destructive: { bg: "var(--system-negative-strong)", fg: "var(--aux-white)" },
+} as const;
+
+function surfaceFor(action: SwipeAction) {
+  return ACTION_SURFACE[action.variant ?? "default"];
+}
+
 function SwipeActionButton({
   action,
   onAfterSelect,
-  hidden = false,
 }: {
   action: SwipeAction;
   onAfterSelect: () => void;
-  hidden?: boolean;
 }) {
-  const handleClick = useCallback(() => {
-    action.onSelect();
-    onAfterSelect();
-  }, [action, onAfterSelect]);
-
   const Icon = action.icon;
+  const surface = surfaceFor(action);
 
   return (
     <button
       type="button"
       aria-label={action.label}
-      aria-hidden={hidden}
-      tabIndex={hidden ? -1 : 0}
-      onClick={handleClick}
+      onClick={() => {
+        action.onSelect();
+        onAfterSelect();
+      }}
       className={cn(
         "flex shrink-0 flex-col items-center justify-center gap-1",
         "touch-mobile:transition-none",
       )}
       style={{
         width: ACTION_WIDTH_PX,
-        color:
-          action.variant === "destructive"
-            ? "var(--aux-white)"
-            : "var(--content-inset)",
-        background:
-          action.variant === "destructive"
-            ? "var(--system-negative-strong)"
-            : "var(--primary-base)",
+        color: surface.fg,
+        background: surface.bg,
       }}
     >
       <Icon size={18} />
@@ -57,6 +56,65 @@ function SwipeActionButton({
         {action.label}
       </span>
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Action layer
+// ---------------------------------------------------------------------------
+
+/**
+ * One side's actions, as a layer the whole size and shape of the item, behind
+ * it. The buttons sit at the edge the layer belongs to, so what the item
+ * uncovers as it slides is the layer's own end, rounded like the item.
+ *
+ * Painted in the outermost action's colour, so an overdrag past the buttons
+ * shows the layer's surface rather than the box behind it.
+ *
+ * Both layers fill the box, so the one on the side not being swiped is hidden
+ * or it would paint over the other. The layer on the swiped side stays
+ * painted whenever the item is off centre, including while it slides back to
+ * rest: hiding it the moment the offset reads zero would blink the box behind
+ * it for the length of that transition. At rest the item covers it, and
+ * `inert` and `aria-hidden` keep its buttons out of the tab path and the
+ * accessibility tree while covered.
+ */
+function ActionLayer({
+  side,
+  actions,
+  offset,
+  onAfterSelect,
+}: {
+  side: "leading" | "trailing";
+  actions: SwipeAction[];
+  offset: number;
+  onAfterSelect: () => void;
+}) {
+  const outermost =
+    side === "trailing" ? actions[actions.length - 1]! : actions[0]!;
+  const wrongSide = side === "trailing" ? offset > 0 : offset < 0;
+  const covered = offset === 0;
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 flex overflow-hidden rounded-[inherit]",
+        side === "trailing" ? "justify-end" : "justify-start",
+      )}
+      inert={covered}
+      aria-hidden={covered}
+      style={{
+        background: surfaceFor(outermost).bg,
+        visibility: wrongSide ? "hidden" : "visible",
+      }}
+    >
+      {actions.map((action) => (
+        <SwipeActionButton
+          key={action.id}
+          action={action}
+          onAfterSelect={onAfterSelect}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -74,42 +132,28 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
 }
 
 /**
- * Wraps a list-row content layer and reveals action buttons behind it as the
- * user swipes horizontally. On touch devices, swiping left reveals trailing
- * actions (e.g. Archive), swiping right reveals leading actions (e.g. Pin).
- * Releasing past the commit threshold snaps to reveal; below it snaps back.
+ * Reveals action buttons behind an item as the user swipes it horizontally.
+ * On touch, swiping left reveals `trailingActions` (Archive, Unpin), swiping
+ * right reveals `leadingActions` (Pin). Releasing past the commit threshold
+ * snaps to the revealed state; below it snaps back. On a fine pointer this is
+ * a passthrough: the children render with no swipe affordance.
  *
- * On desktop (fine pointer), this is a passthrough — children render normally
- * with no swipe affordance.
+ * Two layers in the item's box and shape, the way a list cell is built. Each
+ * side's actions are a layer the whole size of the box, behind; the item is
+ * the layer on top and slides toward the swiped edge in a `translateX()`. The
+ * item has to paint its own surface, since that is what covers the action
+ * layer at rest: a pill does already, and a row on a card paints the card's
+ * colour so it reads as transparent until it moves. The root takes the
+ * caller's shape (`w-fit rounded-full` for a pill; the row's width and radius
+ * by default), and the layers inherit its radius.
  *
- * The content layer sits in a `transform: translateX()` beside two absolutely
- * positioned action layers. Each action layer is translated by its own width
- * away from the edge it hangs off, so at rest it sits wholly outside the row
- * and the action clip hides it. A swipe walks that translation back in step
- * with the content, so an action is visible exactly across the strip the
- * content has vacated and never anywhere else.
- *
- * Only the actions are clipped. The content is free to slide, and the surface
- * that has an edge is what clips at that edge, the way a list clips the row
- * sliding inside it: a section card clips its rows. A clip here would instead
- * cut the content at the row's own edge, wherever that happens to fall.
- *
- * Which is why the content layer paints nothing of its own. Nothing here
- * depends on it covering an action, so a row carries whatever surface its own
- * content carries, in whatever shape: a `w-fit` pill reads as a pill rather
- * than as a pill sitting on a row-width fill.
- *
- * That clip lives one level inside the root rather than on it, because the
- * root is what a list lays out: a flex or grid item whose overflow is not
- * `visible` has its automatic minimum size resolved to zero instead of to its
- * content, so a clipping root can be squashed to nothing by a container that
- * is out of room. Keeping the clip off the root leaves a swipe row sizing
- * exactly like a row without one, in either axis and whatever the container.
+ * Nothing here clips the item. The surface that has an edge clips at that
+ * edge, the way a list clips the cell sliding inside it: a section card sets
+ * `clipContents`, and the drawer's own edge does the rest.
  *
  * Modeled on the swipe patterns in {@link use-gallery-swipe} and
- * {@link use-edge-swipe}. Action button styling follows the iOS Mail
- * convention: trailing destructive actions in red, leading actions in
- * primary color.
+ * {@link use-edge-swipe}. Action colours follow the iOS Mail convention:
+ * destructive actions in red, others in the primary colour.
  *
  * Forwards `ref` and any extra DOM props (e.g. `onContextMenu` injected by
  * Radix `ContextMenu.Trigger` with `asChild`) to the root element so parent
@@ -138,8 +182,6 @@ export const SwipeActionReveal = forwardRef<
   const {
     offset,
     isDragging,
-    leadingWidth,
-    trailingWidth,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
@@ -164,25 +206,12 @@ export const SwipeActionReveal = forwardRef<
     );
   }
 
-  /* How far each action layer stands outside the box it hangs off: its own
-     width at rest, closing to zero as the content vacates the strip it needs.
-     Clamped at zero so an overdrag past the reveal width slides the content
-     on alone rather than dragging the actions out of the far edge with it. */
-  const trailingShift = Math.max(0, trailingWidth + offset);
-  const leadingShift = Math.min(0, offset - leadingWidth);
-
-  /* The action layers travel with the content, so they share its transition:
-     the release animates all three to the committed position together, and a
-     live drag pins every one of them to the finger. */
-  const layerTransition = cn(
-    "transition-transform",
-    isDragging && "transition-none",
-  );
-
   return (
     <div
       ref={ref}
-      className={className}
+      // `relative` so the action layers position against the row; the
+      // caller's classes give it its shape, which the layers inherit.
+      className={cn("relative", className)}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
       {...rest}
@@ -203,73 +232,30 @@ export const SwipeActionReveal = forwardRef<
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
-      {/* The positioning box. It does not clip: the content below is free to
-          travel past it, and the action clip inside it is the only clip. */}
-      <div className="relative">
-        {/* The action clip. `rounded-[inherit]` takes whatever radius the
-            caller put on the root, so a revealed action is cut to the row's
-            corners. This parks the action layers outside the row until a
-            swipe walks them in. The content is painted over it, so at rest
-            it takes no taps; where the content has slid away, the revealed
-            action is what stands in the strip. */}
-        <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
-          {/* Trailing actions (right side, revealed on swipe-left) */}
-          {trailingActions && trailingActions.length > 0 ? (
-            <div
-              className={cn("absolute inset-y-0 right-0 flex", layerTransition)}
-              aria-hidden={offset >= 0}
-              style={{
-                transform: `translateX(${trailingShift}px)`,
-                // A parked layer is clipped and so already unhittable; this
-                // covers the closing transition, where `offset` is back to 0
-                // while the layer is still sliding out and a tap would
-                // otherwise land on an action on its way off screen. Tab
-                // order is the button's own `tabIndex`, not this.
-                pointerEvents: offset >= 0 ? "none" : undefined,
-              }}
-            >
-              {trailingActions.map((action) => (
-                <SwipeActionButton
-                  key={action.id}
-                  action={action}
-                  onAfterSelect={close}
-                  hidden={offset >= 0}
-                />
-              ))}
-            </div>
-          ) : null}
-
-          {/* Leading actions (left side, revealed on swipe-right) */}
-          {leadingActions && leadingActions.length > 0 ? (
-            <div
-              className={cn("absolute inset-y-0 left-0 flex", layerTransition)}
-              aria-hidden={offset <= 0}
-              style={{
-                transform: `translateX(${leadingShift}px)`,
-                pointerEvents: offset <= 0 ? "none" : undefined,
-              }}
-            >
-              {leadingActions.map((action) => (
-                <SwipeActionButton
-                  key={action.id}
-                  action={action}
-                  onAfterSelect={close}
-                  hidden={offset <= 0}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Content layer, sliding aside to admit the action layers. Unclipped,
-            so a row slides into the space beside it rather than under its own
-            edge. */}
-        <div
-          className={cn("relative", layerTransition)}
-          style={{ transform: `translateX(${offset}px)` }}
-        >
-          {children}
-        </div>
+      {trailingActions && trailingActions.length > 0 ? (
+        <ActionLayer
+          side="trailing"
+          actions={trailingActions}
+          offset={offset}
+          onAfterSelect={close}
+        />
+      ) : null}
+      {leadingActions && leadingActions.length > 0 ? (
+        <ActionLayer
+          side="leading"
+          actions={leadingActions}
+          offset={offset}
+          onAfterSelect={close}
+        />
+      ) : null}
+      <div
+        className={cn(
+          "relative rounded-[inherit] transition-transform",
+          isDragging && "transition-none",
+        )}
+        style={{ transform: `translateX(${offset}px)` }}
+      >
+        {children}
       </div>
     </div>
   );
