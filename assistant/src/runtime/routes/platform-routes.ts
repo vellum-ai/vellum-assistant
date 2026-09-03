@@ -195,7 +195,7 @@ const PlatformCreditsResponseSchema = z.object({
     .boolean()
     .nullable()
     .describe(
-      "True when the plan-included credit is used up or expired, so further managed usage draws on extra_credit_remaining. Null when there is no plan-credit reading.",
+      "True when the plan-included credit is used up or expired. Whether further managed usage is funded is extra_credit_remaining (zero means the organization is out of credit). Null when there is no plan-credit reading.",
     ),
   extra_credit_remaining: z
     .number()

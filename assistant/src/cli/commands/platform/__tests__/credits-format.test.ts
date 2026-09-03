@@ -88,14 +88,18 @@ describe("formatCreditsLines", () => {
     expect(lines[5]).toStartWith("Today:     $3.25 counted against");
   });
 
-  test("says plan credit is used up and skips the expiry line when nothing expires", () => {
-    const lines = formatCreditsLines({
+  test("says plan credit is used up and skips the expiry line when nothing is scheduled", () => {
+    const spent = {
       ...BASE,
       plan_credit_remaining: 0,
       plan_credit_used_fraction: 1,
       plan_credits_spent: true,
-      extra_credit_remaining: 42.17,
       credits_expiring_soon: 0,
+      next_credit_expiry_at: null,
+    };
+    const lines = formatCreditsLines({
+      ...spent,
+      extra_credit_remaining: 42.17,
     });
 
     expect(lines[2]).toBe(
@@ -105,6 +109,18 @@ describe("formatCreditsLines", () => {
       "Extra:     $42.17 bought or earned on top of plan credit",
     );
     expect(lines[4]).toStartWith("Today:");
+
+    expect(formatCreditsLines({ ...spent, extra_credit_remaining: 0 })[2]).toBe(
+      "Plan:      plan credit used up or expired, and no extra credit remains",
+    );
+  });
+
+  test("shows the next expiry when it falls beyond the 30-day window", () => {
+    const lines = formatCreditsLines({ ...BASE, credits_expiring_soon: 0 });
+
+    expect(lines[4]).toBe(
+      "Expiry:    next plan-credit expiry 2026-10-01T00:00:00Z (nothing expires within 30 days)",
+    );
   });
 
   test("formats a negative remaining balance with the sign first", () => {

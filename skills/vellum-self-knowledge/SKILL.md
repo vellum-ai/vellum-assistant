@@ -82,7 +82,8 @@ from an estimate. "How much of my allowance is left" is the plan-credit
 reading, the same one the in-app usage meter shows: `plan_credit_remaining`
 of `plan_credit_total`, with `plan_credit_used_fraction` as the percentage.
 When `plan_credits_spent` is true, further managed usage draws on
-`extra_credit_remaining`. Plan credit mixes grants with different lifetimes
+`extra_credit_remaining` only if that is above zero; at zero the organization
+is out of credit. Plan credit mixes grants with different lifetimes
 (only the Pro bundle turns over with the billing cycle), so it has no single
 reset date: give `next_credit_expiry_at` and `credits_expiring_soon` for what
 expires next, and `currentPeriodEnd` from `platform subscription` only as the

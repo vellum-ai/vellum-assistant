@@ -96,8 +96,8 @@ Fields:
   plan_credit_total      What those plan-included grants were worth in total, in USD
   plan_credit_used_fraction
                          Share of plan credit used, 0 to 1 (the in-app usage meter)
-  plan_credits_spent     True when plan credit is used up or expired and managed usage draws
-                         on extra credit; null when there is no plan-credit reading
+  plan_credits_spent     True when plan credit is used up or expired (extra_credit_remaining
+                         says whether anything still funds usage); null with no reading
   extra_credit_remaining Credit bought or earned on top of plan credit, in USD
   credits_expiring_soon  Credit on grants expiring within 30 days, in USD
   next_credit_expiry_at  Earliest upcoming grant expiry (ISO 8601), or null

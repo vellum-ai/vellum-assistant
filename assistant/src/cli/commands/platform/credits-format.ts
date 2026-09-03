@@ -34,8 +34,15 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
     result.plan_credit_total !== null
   ) {
     if (result.plan_credits_spent === true) {
+      // Mirrors the web usage panel: extra credit is only said to fund usage
+      // once the wallet provably holds some.
+      const hasExtra =
+        result.extra_credit_remaining !== null &&
+        result.extra_credit_remaining > 0;
       lines.push(
-        "Plan:      plan credit used up or expired; managed usage now draws on extra credit",
+        hasExtra
+          ? "Plan:      plan credit used up or expired; managed usage now draws on extra credit"
+          : "Plan:      plan credit used up or expired, and no extra credit remains",
       );
     } else {
       const pct =
@@ -61,6 +68,10 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
       : "";
     lines.push(
       `Expiring:  ${formatCostUsd(result.credits_expiring_soon)} within 30 days${when}`,
+    );
+  } else if (result.next_credit_expiry_at) {
+    lines.push(
+      `Expiry:    next plan-credit expiry ${result.next_credit_expiry_at} (nothing expires within 30 days)`,
     );
   }
   if (result.daily_spend !== null) {
