@@ -63,11 +63,24 @@ function stripTrailingSlashes(url: string): string {
  * through the `www.vellum.ai/api/marketing` proxy the user-facing CLI uses:
  * that proxy carries the owner's session cookie, which is exactly the identity
  * this surface exists to avoid.
+ *
+ * Only production has a default, and deliberately so. The roadmap is a single
+ * public site, so an unconfigured staging or dev assistant that fell back to
+ * it would file real items under its own name and hand a non-production key to
+ * a production host. Outside production the endpoint has to be named.
  */
 function marketingBaseUrl(): string {
-  return stripTrailingSlashes(
-    process.env.VELLUM_MARKETING_URL?.trim() || DEFAULT_MARKETING_URL,
-  );
+  const override = process.env.VELLUM_MARKETING_URL?.trim();
+  if (override) {
+    return stripTrailingSlashes(override);
+  }
+  const env = process.env.VELLUM_ENVIRONMENT?.trim();
+  if (env && env !== "production") {
+    throw new UnprocessableEntityError(
+      `The Vellum roadmap has no ${env} deployment. Set VELLUM_MARKETING_URL to the roadmap service for this environment, or run the assistant in production.`,
+    );
+  }
+  return DEFAULT_MARKETING_URL;
 }
 
 /** Site that renders roadmap items, for the human-facing item links. */

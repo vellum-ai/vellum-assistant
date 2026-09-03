@@ -92,6 +92,39 @@ afterEach(() => {
   globalThis.fetch = realFetch;
   delete process.env.VELLUM_MARKETING_URL;
   delete process.env.VELLUM_WEB_URL;
+  delete process.env.VELLUM_ENVIRONMENT;
+});
+
+describe("which deployment the roadmap calls reach", () => {
+  test("production needs no configuration", async () => {
+    delete process.env.VELLUM_MARKETING_URL;
+    process.env.VELLUM_ENVIRONMENT = "production";
+    stubFetch({ items: [], total: 0 });
+
+    await list({});
+
+    expect(calls[0].url).toBe("https://marketing.vellum.ai/v1/roadmap");
+  });
+
+  test("an unconfigured non-production assistant refuses rather than writing to the public roadmap", async () => {
+    delete process.env.VELLUM_MARKETING_URL;
+    process.env.VELLUM_ENVIRONMENT = "staging";
+    stubFetch({ items: [], total: 0 });
+
+    await expect(list({})).rejects.toThrow(
+      "The Vellum roadmap has no staging deployment",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a named endpoint is honored in any environment", async () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    stubFetch({ items: [], total: 0 });
+
+    await list({});
+
+    expect(calls[0].url).toBe("https://marketing.test/v1/roadmap");
+  });
 });
 
 describe("roadmap reads", () => {
