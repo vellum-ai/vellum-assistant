@@ -40,7 +40,6 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
-import { toneForBg } from "@/utils/avatar-tone";
 
 /**
  * The assistant section shows at most five realizations before scrolling
@@ -98,11 +97,10 @@ export function SidebarSectionItem({
      wants the name, and the same store is what the layout above reads. */
   const assistantName = useAssistantIdentityStore.use.name();
   const isAssistantSection = section.type === "assistant";
-  /* The accent hex, for choosing the disc glyph's ink in JS: `color-mix`
-     can pale a color but cannot answer "is this too light for white?", and
-     the yellow palette entry is. Null keeps every other section off the
-     avatar query, and null accent (custom-image / still-loading avatar) is
-     the case where the disc falls back to the plain surface anyway. */
+  /* The accent hex, for inking the header glyph in the avatar's own color
+     (the New Chat treatment). Null keeps every other section off the avatar
+     query, and null accent (custom-image / still-loading avatar) is the
+     case where the glyph falls back to the tertiary ink anyway. */
   const { components, traits } = useAssistantAvatar(
     isAssistantSection ? assistantId : null,
   );
@@ -126,27 +124,29 @@ export function SidebarSectionItem({
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
-      /* The bare Inbox mark inked in a deeper cut of the avatar accent: the
-         same treatment the assistant cluster's New Chat plus wears, so the
+      /* The bare Inbox mark inked in the raw avatar accent: exactly the
+         treatment the assistant cluster's New Chat plus wears
+         (`--panel-item-icon-fg` = the accent hex, undarkened), so the
          section reads as the same family without restating the cluster's
-         solid-disc avatar. `toneForBg(...).fgDeep` is the established "this
-         accent, darkened to read as a tone on its own tint" - and because
-         it darkens the accent itself, it stays legible on every palette
-         entry including yellow, with no contrast branch. NOT the eyes:
-         those are the assistant herself and stay exclusive to the cluster
-         at the top of the rail. With no accent (custom-image or
-         still-loading avatar, exactly when `accentHex` is null) the glyph
-         falls back to the tertiary ink every other section's glyph wears. */
+         solid-disc avatar. NOT the eyes: those are the assistant herself
+         and stay exclusive to the cluster at the top of the rail. Sized and
+         boxed like every other section glyph (12px in the 14px slot), so it
+         sits at the same weight and on the same axis as Pinned's and
+         Chats'. With no accent (custom-image or still-loading avatar,
+         exactly when `accentHex` is null) it falls back to the tertiary ink
+         those glyphs wear. */
       iconNode={
         isAssistantSection ? (
-          <Inbox
-            size={16}
-            aria-hidden
-            className={accentHex ? undefined : "text-[var(--content-tertiary)]"}
-            style={
-              accentHex ? { color: toneForBg(accentHex).fgDeep } : undefined
-            }
-          />
+          <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+            <Inbox
+              size={12}
+              aria-hidden
+              className={
+                accentHex ? undefined : "text-[var(--content-tertiary)]"
+              }
+              style={accentHex ? { color: accentHex } : undefined}
+            />
+          </span>
         ) : undefined
       }
       label={label}
