@@ -352,6 +352,30 @@ describe("the Chrome window for a tab", () => {
    * title. The picked one may be the one on another Space, which the helper
    * lists as off screen, so neither is named.
    */
+  test("is nothing when an exact and a decorated title share the rectangle", () => {
+    const placed = {
+      minimized: false,
+      bounds: { x: 0, y: 0, width: 600, height: 400 },
+    };
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 6, title: "Inbox" }),
+          chrome({ windowId: 9, title: "Inbox - Google Chrome" }),
+        ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 9, title: "Inbox - Google Chrome" })],
+        "Inbox",
+        placed,
+      )?.windowId,
+    ).toBe(9);
+  });
+
   test("is nothing when a look-alike shares the rectangle and the title", () => {
     const placed = {
       minimized: false,

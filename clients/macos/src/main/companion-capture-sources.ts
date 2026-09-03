@@ -401,11 +401,12 @@ export function chromeWindowFor(
         Math.abs(w.bounds.width - bounds.width) <= 2 &&
         Math.abs(w.bounds.height - bounds.height) <= 2,
     );
-    const titled = at.filter((w) => w.title === title);
-    const candidates =
-      titled.length > 0 || title === ""
-        ? titled
-        : at.filter((w) => w.title.startsWith(title));
+    // Exact and decorated titles count together: which of the two Chrome
+    // gives a window is not something this side can tell, so a window of
+    // either kind beside the other is an ambiguity, not a preference.
+    const candidates = at.filter(
+      (w) => w.title === title || (title !== "" && w.title.startsWith(title)),
+    );
     if (candidates.length !== 1 || candidates[0]?.onScreen === false) {
       return undefined;
     }
