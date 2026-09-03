@@ -126,31 +126,27 @@ export function SidebarSectionItem({
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
-      /* The Inbox mark in the full-accent disc - the same disc the avatar's
-         eyes used to sit in, kept because it is what makes the header read
-         as this section's own; only the occupant changed. NOT the eyes: the
-         eyes are the assistant herself and stay exclusive to the cluster at
-         the top of the rail, or this header reads as a second switcher. The
-         glyph's ink comes from `toneForBg`'s perceived-brightness rule -
-         white on every palette entry except yellow, where white vanishes -
-         not from the stricter WCAG `contrastForeground`, whose text-grade
-         threshold turns mid-tone colors like the pink dark; a 16px glyph is
-         iconography, not body text. With no accent (custom-image or
-         still-loading avatar, exactly when `accentHex` is null) the disc
-         falls back to the plain lifted surface and the glyph to the
-         tertiary ink every other section's glyph wears. */
+      /* The bare Inbox mark inked in a deeper cut of the avatar accent: the
+         same treatment the assistant cluster's New Chat plus wears, so the
+         section reads as the same family without restating the cluster's
+         solid-disc avatar. `toneForBg(...).fgDeep` is the established "this
+         accent, darkened to read as a tone on its own tint" - and because
+         it darkens the accent itself, it stays legible on every palette
+         entry including yellow, with no contrast branch. NOT the eyes:
+         those are the assistant herself and stay exclusive to the cluster
+         at the top of the rail. With no accent (custom-image or
+         still-loading avatar, exactly when `accentHex` is null) the glyph
+         falls back to the tertiary ink every other section's glyph wears. */
       iconNode={
         isAssistantSection ? (
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent,var(--surface-lift))]">
-            <Inbox
-              size={16}
-              aria-hidden
-              className={
-                accentHex ? undefined : "text-[var(--content-tertiary)]"
-              }
-              style={accentHex ? { color: toneForBg(accentHex).fg } : undefined}
-            />
-          </span>
+          <Inbox
+            size={16}
+            aria-hidden
+            className={accentHex ? undefined : "text-[var(--content-tertiary)]"}
+            style={
+              accentHex ? { color: toneForBg(accentHex).fgDeep } : undefined
+            }
+          />
         ) : undefined
       }
       label={label}
@@ -163,19 +159,17 @@ export function SidebarSectionItem({
         isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
       }
       /* The whole header on its own surface: a deeper cut of the accent than
-         the card's 18%, spanning disc, label, unread dot, and chevron edge
+         the card's 18%, spanning glyph, label, unread dot, and chevron edge
          to edge - one pill, not a pill with the controls stranded outside
-         it. Geometry is the Figma spec (8300:166976) at its native size: a
-         32px disc inset 2px inside a 36px pill, the same height as a
-         collapsed side-menu item, whose full roundness is likewise half of
-         36. The title's own horizontal padding is inline style from
-         `sidebar-nav-geometry`, so the 2px disc inset needs the `!`
-         overrides; the trailing cluster's `pr-[6px]` is the pill's right
-         padding. Row-axis centering of the 32px disc in the 36px row is
-         what yields the inset above and below. */
+         it. 36px stands it at the height of a collapsed side-menu item,
+         whose full roundness is likewise half of 36. The glyph keeps the
+         shared horizontal geometry (the same inline padding every header
+         gets from `sidebar-nav-geometry`), so it sits on the axis of
+         Pinned's and Chats' glyphs; only the title's vertical padding is
+         overridden, so the 36px is this class's to state. */
       headerClassName={
         isAssistantSection
-          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-0.5! [&_[data-slot=collapsible-nav-section-title]]:pr-2!"
+          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0!"
           : undefined
       }
       /* The one section painted in the assistant's own color, so it reads as
