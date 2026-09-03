@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type ReactNode,
   type Ref,
   useCallback,
@@ -124,6 +125,17 @@ export function ScrollShadow({
     ? buildMask(orientation, size, edges, fadeEdges)
     : undefined;
 
+  // The scrollbar is hidden with an inline property as well as the utility
+  // classes. An app that consumes this package as source does not necessarily
+  // generate those classes (Tailwind scans the app's own files, not a linked
+  // package), and an inline `scrollbar-width` outranks any app-level rule
+  // that sets one on every element. The `::-webkit-scrollbar` rule has no
+  // inline form, so its class stays for the engines that still need it.
+  const style: CSSProperties = {
+    ...(maskImage ? { maskImage, WebkitMaskImage: maskImage } : {}),
+    ...(hideScrollBar ? { scrollbarWidth: "none" } : {}),
+  };
+
   return (
     <div
       ref={setRefs}
@@ -131,13 +143,10 @@ export function ScrollShadow({
       data-orientation={orientation}
       className={cn(
         orientation === "vertical" ? "overflow-y-auto" : "overflow-x-auto",
-        hideScrollBar &&
-          "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        hideScrollBar && "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         className,
       )}
-      style={
-        maskImage ? { maskImage, WebkitMaskImage: maskImage } : undefined
-      }
+      style={Object.keys(style).length > 0 ? style : undefined}
     >
       <div ref={contentRef} className={orientation === "horizontal" ? "w-max" : undefined}>
         {children}

@@ -301,7 +301,6 @@ describe("the voice key", () => {
     const { onHoldStart } = renderKey();
 
     act(() => {
-      emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
       emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
     });
     await settle(HOLD_ARMING_MS + 30);

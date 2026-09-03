@@ -26,7 +26,6 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -82,7 +81,6 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -183,11 +181,6 @@ const bridge: VellumBridge = {
       };
     },
     hotkey: {
-      fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
-        ipcRenderer.invoke(
-          "vellum:helper:hotkey:fnPushToTalk",
-          enable,
-        ) as Promise<FnPushToTalkResult>,
       setModifierHold: (
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult> =>

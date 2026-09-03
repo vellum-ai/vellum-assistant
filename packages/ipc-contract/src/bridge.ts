@@ -39,7 +39,6 @@ import type {
   DictationPartialsResult,
   DictationTranscribeResult,
   DownloadDoneEvent,
-  FnPushToTalkResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
@@ -223,12 +222,12 @@ export interface VellumBridge {
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
     /**
-     * The global voice mode tap. macOS exposes the Fn hold; Windows exposes
-     * the shortcut's bare-modifier chord (`setVoiceModeChord`) plus
+     * The global voice bindings. macOS exposes the held modifier set the
+     * voice key rides on (`setModifierHold`); Windows exposes the voice mode
+     * shortcut's bare-modifier chord (`setVoiceModeChord`) plus
      * registration-state events. Absent on shells with no global trigger.
      */
     hotkey?: {
-      fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
       setVoiceModeChord?(
         activator: VoiceModeChord | null,
       ): Promise<VoiceModeChordRegistrationResult>;

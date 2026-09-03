@@ -78,11 +78,10 @@ const LINUX_ONLY_SURFACE = [
   "menu.popup",
   "menu.titles",
 ];
-// The macOS helper watches the raw keyboard, which is where the Fn tap and
-// the bare-modifier hold come from. The Linux sidecar has no such tap, so
-// its hotkey surface is the shortcut chord alone.
+// The macOS helper watches the raw keyboard, which is where the voice key's
+// hold comes from. The Linux sidecar has no such monitor, so its hotkey
+// surface is the shortcut chord alone.
 const MACOS_ONLY_SURFACE = [
-  "helper.hotkey.fnPushToTalk",
   "helper.hotkey.readFrontSelection",
   "helper.hotkey.setModifierHold",
 ];

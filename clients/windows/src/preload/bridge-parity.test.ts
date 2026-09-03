@@ -90,7 +90,6 @@ const WINDOWS_ONLY_SURFACE = [
 // key, and a hold of a configured modifier set. Windows answers the first with
 // a configurable global chord, and has no hold of its own to register.
 const MACOS_ONLY_SURFACE = [
-  "helper.hotkey.fnPushToTalk",
   "helper.hotkey.readFrontSelection",
   "helper.hotkey.setModifierHold",
 ];

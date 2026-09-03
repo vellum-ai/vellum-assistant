@@ -38,8 +38,8 @@ const subscribe =
 
 /**
  * The Linux helper's bridge: dictation plus the global voice mode chord.
- * `hotkey.fnPushToTalk` and `hotkey.setModifierHold` are absent: both need
- * a raw keyboard tap, and the Linux sidecar has none.
+ * `hotkey.setModifierHold` is absent: the voice key needs a raw keyboard
+ * monitor, and the Linux sidecar has none.
  * `setVoiceModeChord` registers the voice mode shortcut's bare-modifier
  * chord with the helper when a sidecar exists.
  */

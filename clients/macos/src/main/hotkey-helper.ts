@@ -24,11 +24,9 @@ import {
 import type {
   DictationPartialEvent,
   DictationPartialsResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
-  HotkeyEventKind,
   HotkeyEventState,
   HotkeySelection,
   ModifierHold,
@@ -50,7 +48,6 @@ import {
 export type {
   DictationPartialEvent,
   DictationPartialsResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -69,7 +66,7 @@ export type MacHelperPermissionStatus =
   | "granted";
 
 const HOTKEY_EVENT_SCHEMA = z.object({
-  kind: z.enum(["fnPushToTalk", "modifierHold"]),
+  kind: z.literal("modifierHold"),
   state: z.enum(["down", "up"]),
   reason: z.enum(["released", "chord", "cancelled"]).optional(),
 });
@@ -137,16 +134,10 @@ const makeClient = (): MacHelperClient =>
 let client = makeClient();
 
 /**
- * Point the helper's hold detector at a modifier set, or clear it.
- *
- * The set crosses as names rather than a mask: the helper owns which bits a
- * modifier is, left and right hand alike, and neither side should hold a second
- * copy of that table.
- */
-/**
  * The binding the helper is currently holding, so a clear that has nothing to
  * clear stays off the wire. Teardown runs on paths the hold was never used on,
- * and the helper's stdin is shared with the Fn binding and dictation.
+ * and the helper's stdin is shared with dictation. Also what a helper that
+ * comes back from a crash is handed, so the key survives the restart.
  */
 let modifierHoldBinding: ModifierHold = { kind: "off" };
 
@@ -163,6 +154,13 @@ let modifierHoldBinding: ModifierHold = { kind: "off" };
 let desiredModifierHold: ModifierHold = { kind: "off" };
 let modifierHoldInFlight: Promise<ModifierHoldRegistrationResult> | null = null;
 
+/**
+ * Point the helper's hold detector at a modifier set, or clear it.
+ *
+ * The set crosses as names rather than a mask: the helper owns which bits a
+ * modifier is, left and right hand alike, and neither side should hold a second
+ * copy of that table.
+ */
 const setModifierHold = async (
   hold: ModifierHold,
 ): Promise<ModifierHoldRegistrationResult> => {
@@ -191,6 +189,12 @@ const applyModifierHold = async (
     return { ok: true, enabled: false };
   }
   modifierHoldBinding = hold;
+  return sendModifierHold(hold);
+};
+
+const sendModifierHold = async (
+  hold: ModifierHold,
+): Promise<ModifierHoldRegistrationResult> => {
   try {
     const result = await client.call(
       "hotkey.modifierHold",
@@ -202,6 +206,7 @@ const applyModifierHold = async (
     if (!parsed.success) {
       return { ok: false, reason: "mac helper returned invalid hotkey result" };
     }
+    helperHoldsBinding = hold.kind !== "off" && parsed.data.enabled;
     return { ok: true, enabled: parsed.data.enabled };
   } catch (err) {
     return {
@@ -230,22 +235,6 @@ const readFrontSelection = async (): Promise<HotkeySelection | null> => {
       `[mac-helper] selection read failed: ${err instanceof Error ? err.message : String(err)}`,
     );
     return null;
-  }
-};
-
-const fnPushToTalk = async (enable: boolean): Promise<FnPushToTalkResult> => {
-  try {
-    const result = await client.call("hotkey.fnPushToTalk", { enable });
-    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
-    if (!parsed.success) {
-      return { ok: false, reason: "mac helper returned invalid hotkey result" };
-    }
-    return { ok: true, enabled: parsed.data.enabled };
-  } catch (err) {
-    return {
-      ok: false,
-      reason: err instanceof Error ? err.message : String(err),
-    };
   }
 };
 
@@ -462,13 +451,12 @@ const sendDictationTextEventToOwner = (
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
 let activeHotkeyOwnerId: number | null = null;
-let helperRegistered = false;
-let helperRegistrationSync: Promise<FnPushToTalkResult> | null = null;
-let restoreHotkeyAfterRestart = false;
-let restoreHotkeyInFlight = false;
-let openEdgeKind: HotkeyEventKind | null = null;
-
-const shouldRegisterHelper = (): boolean => hotkeyOwners.size > 0;
+/** Whether the running helper has taken the binding, as far as main knows. */
+let helperHoldsBinding = false;
+/** Whether the helper that comes back next is owed the binding it died with. */
+let restoreHoldAfterRestart = false;
+let restoreHoldInFlight = false;
+let holdIsOpen = false;
 
 const newestOwnerId = (): number | null => {
   let id: number | null = null;
@@ -488,18 +476,14 @@ const removeHotkeyOwner = (webContentsId: number): void => {
   }
 };
 
-const disableFnPushToTalkForOwner = async (
-  webContents: WebContents,
-): Promise<FnPushToTalkResult> => {
+const releaseHotkeyOwner = (webContents: WebContents): void => {
   removeHotkeyOwner(webContents.id);
 
   if (hotkeyOwners.size === 0) {
-    restoreHotkeyAfterRestart = false;
     // Nothing is left to receive the edges, so a hold still armed in the
     // helper would open a microphone into a window that is gone.
     void setModifierHold({ kind: "off" });
   }
-  return syncFnPushToTalkRegistration();
 };
 
 const addHotkeyOwner = (webContents: WebContents): void => {
@@ -514,7 +498,7 @@ const addHotkeyOwner = (webContents: WebContents): void => {
     if (hotkeyOwners.has(id)) activeHotkeyOwnerId = id;
   };
   const handleDestroyed = () => {
-    void disableFnPushToTalkForOwner(webContents);
+    releaseHotkeyOwner(webContents);
   };
 
   webContents.once("destroyed", handleDestroyed);
@@ -530,67 +514,8 @@ const addHotkeyOwner = (webContents: WebContents): void => {
   activeHotkeyOwnerId = id;
 };
 
-const enableFnPushToTalkForOwner = async (
-  webContents: WebContents,
-): Promise<FnPushToTalkResult> => {
-  addHotkeyOwner(webContents);
-
-  const result = await syncFnPushToTalkRegistration();
-  if (!result.ok) {
-    log.warn(`[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`);
-    removeHotkeyOwner(webContents.id);
-    void syncFnPushToTalkRegistration();
-  }
-  return result;
-};
-
-const setHelperRegistration = async (
-  enable: boolean,
-): Promise<FnPushToTalkResult> => {
-  const result = await fnPushToTalk(enable);
-  if (!result.ok) return result;
-
-  helperRegistered = result.enabled;
-  if (result.enabled !== enable) {
-    return {
-      ok: false,
-      reason: enable
-        ? "mac helper did not enable Fn push-to-talk"
-        : "mac helper did not disable Fn push-to-talk",
-    };
-  }
-
-  log.info(
-    enable
-      ? "[mac-helper] enabled Fn push-to-talk"
-      : "[mac-helper] disabled Fn push-to-talk",
-  );
-  return { ok: true, enabled: helperRegistered };
-};
-
-const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
-  if (helperRegistrationSync) return helperRegistrationSync;
-
-  const sync = (async (): Promise<FnPushToTalkResult> => {
-    while (helperRegistered !== shouldRegisterHelper()) {
-      const shouldRegister = shouldRegisterHelper();
-      const result = await setHelperRegistration(shouldRegister);
-      if (!result.ok) return result;
-    }
-    return { ok: true, enabled: helperRegistered };
-  })();
-  helperRegistrationSync = sync;
-  void sync.finally(() => {
-    if (helperRegistrationSync === sync) {
-      helperRegistrationSync = null;
-    }
-  });
-
-  return sync;
-};
-
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
-  openEdgeKind = event.state === "down" ? event.kind : null;
+  holdIsOpen = event.state === "down";
   const ownerId = activeHotkeyOwnerId ?? newestOwnerId();
   const activeOwner = ownerId !== null ? hotkeyOwners.get(ownerId) : null;
   const owner =
@@ -602,20 +527,19 @@ const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
 };
 
 /**
- * Close whichever edge the dead helper left open. A hold's consumer is a
- * microphone, and it closes on the `up` of the binding that opened it, so the
- * synthetic edge has to carry that binding's kind and say it was not the user
- * letting go.
+ * Close the hold the dead helper left open. Its consumer is a microphone that
+ * closes on the `up`, and the edge has to say the user did not let go.
  */
 const sendSyntheticHotkeyUpIfNeeded = (): void => {
-  const kind = openEdgeKind;
-  if (kind === null) return;
-  openEdgeKind = null;
-  sendHotkeyEventToOwner(
-    kind === "modifierHold"
-      ? { kind, state: "up", reason: "cancelled" }
-      : { kind, state: "up" },
-  );
+  if (!holdIsOpen) {
+    return;
+  }
+  holdIsOpen = false;
+  sendHotkeyEventToOwner({
+    kind: "modifierHold",
+    state: "up",
+    reason: "cancelled",
+  });
 };
 
 const sendHelperStateToRenderers = (state: MacHelperState): void => {
@@ -625,27 +549,30 @@ const sendHelperStateToRenderers = (state: MacHelperState): void => {
   }
 };
 
-const restoreHotkeyRegistrationIfNeeded = async (): Promise<void> => {
+/**
+ * Hand a helper that has just come back the binding the app believes it holds.
+ * The renderer registered once and is not told about the restart, so without
+ * this the key is dead until the next reload.
+ */
+const restoreModifierHoldIfNeeded = async (): Promise<void> => {
   if (
-    !restoreHotkeyAfterRestart ||
-    restoreHotkeyInFlight ||
-    helperRegistered ||
+    !restoreHoldAfterRestart ||
+    restoreHoldInFlight ||
+    modifierHoldBinding.kind === "off" ||
     hotkeyOwners.size === 0
   ) {
     return;
   }
 
-  restoreHotkeyInFlight = true;
-  const result = await syncFnPushToTalkRegistration();
-  restoreHotkeyInFlight = false;
-  if (result.ok) {
-    restoreHotkeyAfterRestart = !result.enabled;
-    if (result.enabled) {
-      log.info("[mac-helper] restored Fn push-to-talk after helper restart");
-    }
+  restoreHoldInFlight = true;
+  const result = await sendModifierHold(modifierHoldBinding);
+  restoreHoldInFlight = false;
+  if (result.ok && result.enabled) {
+    restoreHoldAfterRestart = false;
+    log.info("[mac-helper] restored the voice key after helper restart");
   } else {
     log.warn(
-      `[mac-helper] failed to restore Fn push-to-talk: ${result.reason}`,
+      `[mac-helper] failed to restore the voice key: ${result.ok ? "helper refused" : result.reason}`,
     );
   }
 };
@@ -653,14 +580,14 @@ const restoreHotkeyRegistrationIfNeeded = async (): Promise<void> => {
 const handleHelperState = (state: MacHelperState): void => {
   sendHelperStateToRenderers(state);
   if (state.status === "running") {
-    void restoreHotkeyRegistrationIfNeeded();
+    void restoreModifierHoldIfNeeded();
     return;
   }
 
-  if (helperRegistered && hotkeyOwners.size > 0) {
-    restoreHotkeyAfterRestart = true;
+  if (helperHoldsBinding) {
+    helperHoldsBinding = false;
+    restoreHoldAfterRestart = true;
   }
-  helperRegistered = false;
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
   dictationOwners.clear();
@@ -738,31 +665,19 @@ export const installHotkeyHelper = (): void => {
   handle("vellum:helper:restart", z.tuple([]), () => restartHelper());
 
   handle(
-    "vellum:helper:hotkey:fnPushToTalk",
-    z.tuple([z.boolean()]),
-    ([enable], event) =>
-      enable
-        ? enableFnPushToTalkForOwner(event.sender)
-        : disableFnPushToTalkForOwner(event.sender),
-  );
-
-  handle(
     HELPER_HOTKEY_SET_MODIFIER_HOLD,
     z.tuple([MODIFIER_HOLD_SCHEMA]),
     ([hold], event) => {
-      // The edges reach whichever window asked for the binding, the way the
-      // Fn ones do: a microphone bracketed by them belongs to the window that
-      // opened it. Clearing the binding leaves the ownership alone, since Fn
-      // may still be riding it.
-      if (hold.kind === "off") {
-        return setModifierHold(hold);
+      // The edges reach whichever window asked for the binding: a microphone
+      // bracketed by them belongs to the window that opened it. Clearing the
+      // binding leaves the ownership alone, since the window may be about to
+      // register another.
+      if (hold.kind !== "off") {
+        // The binding is inert without Input Monitoring. The renderer asks for
+        // the grant when it arms the key; a press cannot be the moment, since
+        // noticing the press is the thing being asked for.
+        addHotkeyOwner(event.sender);
       }
-      // The binding is inert without Input Monitoring, and the grant is asked
-      // for where the user turns the feature on rather than here: a press
-      // cannot be the moment to ask, since noticing the press is the thing
-      // being asked for, and asking on registration would prompt at launch for
-      // something they may not have switched on.
-      addHotkeyOwner(event.sender);
       return setModifierHold(hold);
     },
   );
@@ -820,7 +735,7 @@ export const installHotkeyHelper = (): void => {
 
   app.on("before-quit", () => {
     client.shutdown({
-      method: "hotkey.fnPushToTalk",
+      method: "hotkey.modifierHold",
       params: { enable: false },
     });
   });
@@ -831,11 +746,13 @@ export const __resetForTesting = (): void => {
   ipcMain.removeAllListeners("vellum:helper:dictation:audio");
   platformForTesting = null;
   supervisorOptionsForTesting = {};
-  helperRegistered = false;
-  helperRegistrationSync = null;
-  restoreHotkeyAfterRestart = false;
-  restoreHotkeyInFlight = false;
-  openEdgeKind = null;
+  modifierHoldBinding = { kind: "off" };
+  desiredModifierHold = { kind: "off" };
+  modifierHoldInFlight = null;
+  helperHoldsBinding = false;
+  restoreHoldAfterRestart = false;
+  restoreHoldInFlight = false;
+  holdIsOpen = false;
   unsubscribeHotkeyEvents?.();
   unsubscribeHotkeyEvents = null;
   unsubscribeHelperState?.();

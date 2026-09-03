@@ -37,7 +37,6 @@ import type {
   DictationTranscribeResult,
   DownloadDoneEvent,
   ElectronHostOS,
-  FnPushToTalkResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
@@ -96,7 +95,6 @@ export type {
   DictationPartialEvent,
   DictationPartialsResult,
   DownloadDoneEvent,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -164,7 +162,6 @@ declare global {
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
-          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
           ): Promise<VoiceModeChordRegistrationResult>;

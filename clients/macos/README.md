@@ -276,12 +276,12 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   transport seam is [`clients/web/src/runtime/local-mode-host.ts`](../web/src/runtime/local-mode-host.ts),
   which selects this bridge on Electron and the dev-server `/assistant/__local/*`
   middleware on web/dev so both hosts honor the same contract.
-- `helper.hotkey.fnPushToTalk(enable)` starts or stops the native helper
-  that captures a bare Fn tap globally, and `helper.hotkey.setModifierHold(hold)`
-  points it at a modifier set to watch as a hold. `helper.hotkey.onEvent(callback)`
-  streams the `down` / `up` edges of both; a hold's `up` says why it closed.
-  `helper.hotkey.readFrontSelection()` reads what is highlighted in the
-  application in front, which a hold asks for once it has armed.
+- `helper.hotkey.setModifierHold(hold)` points the native helper at the
+  modifier set the voice key rides on (Fn by default), watched globally as a
+  hold. `helper.hotkey.onEvent(callback)` streams its `down` / `up` edges, and
+  the `up` says why it closed, which is how the renderer tells a hold from a
+  double tap. `helper.hotkey.readFrontSelection()` reads what is highlighted
+  in the application in front, which a hold asks for once it has armed.
 - `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
 - `auth.*` — typed stubs that reject with "not implemented yet" until the
   corresponding feature tickets land.
