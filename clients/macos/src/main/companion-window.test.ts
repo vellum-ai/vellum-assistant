@@ -1099,7 +1099,7 @@ describe("the picker behind Teach", () => {
    * started.
    */
   test("a pick superseded by a later one dispatches nothing", async () => {
-    let release: (() => void) | null = null;
+    let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -1118,7 +1118,7 @@ describe("the picker behind Teach", () => {
     resolvedPick = { kind: "window", windowId: 2 };
     send("vellum:companion:toggleWatch", { kind: "window", windowId: 2 });
     await Bun.sleep(0);
-    release?.();
+    release();
     await Bun.sleep(0);
     expect(dispatched).toEqual([
       { kind: "toggleWatch", target: { kind: "window", windowId: 2 } },
@@ -1126,7 +1126,7 @@ describe("the picker behind Teach", () => {
   });
 
   test("a press with no pick supersedes a pending one", async () => {
-    let release: (() => void) | null = null;
+    let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -1142,7 +1142,7 @@ describe("the picker behind Teach", () => {
     });
     resolvedPickAsync = slow;
     send("vellum:companion:toggleWatch");
-    release?.();
+    release();
     await Bun.sleep(0);
     expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
   });
