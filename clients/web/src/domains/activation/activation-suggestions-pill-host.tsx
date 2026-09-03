@@ -1,11 +1,11 @@
 /**
  * The suggestions pill, wired to the checklist's gate stack.
  *
- * Composed into the chat layout's top-bar accessory at the route level rather
- * than registered through `setTopBarRightSlot`. That slot already has a single
- * writer, the chat page's own header registration, and a second effect writing
- * it would erase whatever the other put there on every conversation change.
- * The notification bell is composed at the route for the matching reason.
+ * Passed to the chat layout header as its `topBarPill`, a slot of its own that
+ * the header seats ahead of the route's own accessory. Registering the pill
+ * through `setTopBarRightSlot` instead would erase whatever the chat page's
+ * header registration had put there, since that slot has a single writer and
+ * is rewritten on every conversation change.
  *
  * Shows only while the checklist is in its dismissed-but-unfinished state, so
  * it retires itself once the third starter lands.

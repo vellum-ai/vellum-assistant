@@ -1,4 +1,5 @@
 import {
+  afterAll,
   afterEach,
   beforeEach,
   describe,
@@ -34,6 +35,10 @@ import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 /**
  * Location the app is "on", advanced by the consumer's own `navigate` calls.
@@ -53,60 +58,55 @@ const navigateMock = mock(
     return undefined;
   },
 );
-mock.module("react-router", () => ({
+stubModule("react-router", await import("react-router"), {
   useNavigate: () => navigateMock,
-  // Empty `search` is the main window — the room's pop-out gate
+  // Empty `search` is the main window: the room's pop-out gate
   // (`isPopoutWindow`) looks for `popout=1`.
   useLocation: () => ({ pathname: mockPathname, search: mockSearch, hash: "" }),
-}));
+});
 
-// Spread the real module: `mock.module` is process-global in bun, so a partial
-// shape erases the rest of it for every file that loads it later.
-const mainWindowModule = await import("@/runtime/main-window");
 const ensureMainWindowVisibleMock = mock(async () => undefined);
-mock.module("@/runtime/main-window", () => ({
-  ...mainWindowModule,
+stubModule("@/runtime/main-window", await import("@/runtime/main-window"), {
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
-}));
+});
 
 // Stub the toaster: the top-up success branch toasts, and no <Toaster /> is
-// mounted here. Full toast surface: `mock.module` is process-global in bun,
-// so a partial shape would shadow the other methods for later test files.
+// mounted here.
 const toastSuccessMock = mock((..._args: unknown[]) => undefined);
-mock.module("@vellumai/design-library/components/toast", () => ({
-  ...toastModule,
+stubModule("@vellumai/design-library/components/toast", toastModule, {
   toast: Object.assign((..._args: unknown[]) => {}, {
     success: toastSuccessMock,
     error: () => {},
     info: () => {},
     warning: () => {},
   }),
-}));
+});
 
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
-// Full Sentry surface — `mock.module` is process-global in bun, so a
-// partial mock would shadow `captureException` (used by `runtime/event-sources/*`
-// and `sse-service`) for every later test file in the run.
-mock.module("@sentry/react", () => ({
+stubModule("@sentry/react", await import("@sentry/react"), {
   addBreadcrumb: sentryBreadcrumbMock,
   captureException: () => {},
-}));
+});
 
 // Voice entry runs a readiness preflight before a session opens; stub it ready
 // so these tests stay about link handling. See `voice-entry-guards`.
-mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
-  preflightLiveVoice: async () => ({ status: "ready" }),
-}));
+stubModule(
+  "@/domains/chat/voice/live-voice/live-voice-preflight-api",
+  await import("@/domains/chat/voice/live-voice/live-voice-preflight-api"),
+  { preflightLiveVoice: async () => ({ status: "ready" }) },
+);
 
 const consumeShareInboxMock = mock(
   async (_id?: string | null): Promise<ShareInboxItem | null> => null,
 );
 const readShareInboxFilesMock = mock(async () => [] as File[]);
-mock.module("@/runtime/share-inbox", () => ({
+stubModule("@/runtime/share-inbox", await import("@/runtime/share-inbox"), {
   consumeShareInbox: consumeShareInboxMock,
   readShareInboxFiles: readShareInboxFilesMock,
   publishShareInboxSource: () => () => undefined,
-}));
+});
+
+afterAll(restoreStubbedModules);
 
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");

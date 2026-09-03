@@ -43,6 +43,15 @@ describe("ChatLayout top-bar slots", () => {
     expect(layoutSource).toContain("{topBarPill}");
   });
 
+  // Both land in the header's one route slot, so their order in the cluster is
+  // the order the layout writes them in: pill first, bell after.
+  test("the top bar seats the pill ahead of the accessory", () => {
+    const pillAt = layoutSource.indexOf("{topBarPill}");
+    const accessoryAt = layoutSource.indexOf("{topBarAccessory}");
+    expect(pillAt).toBeGreaterThan(-1);
+    expect(accessoryAt).toBeGreaterThan(pillAt);
+  });
+
   test("the route composes the pill into the pill slot", () => {
     expect(routesSource).toContain(
       "topBarPill={<ActivationSuggestionsPillHost />}",

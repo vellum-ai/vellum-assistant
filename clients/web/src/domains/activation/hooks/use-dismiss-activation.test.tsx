@@ -12,9 +12,10 @@ import type { ActivationProgress } from "./use-activation-progress";
 import { useDismissActivation } from "./use-dismiss-activation";
 
 /**
- * The dismissal is written into the progress cache before the daemon answers.
- * What happens to that write afterwards depends on the answer: an accepted
- * write is refetched, a refused one is kept so the pill stays reachable.
+ * The dismissal is written into the progress cache before the daemon answers,
+ * behind a cancel of whatever read was already in flight. What happens to that
+ * write afterwards depends on the answer: an accepted write is refetched, a
+ * refused one is kept so the pill stays reachable.
  */
 const ASSISTANT_ID = "asst-1";
 const PROGRESS_KEY = activationProgressGetQueryKey({
@@ -24,6 +25,7 @@ const PROGRESS_KEY = activationProgressGetQueryKey({
 const originalFetch = globalThis.fetch;
 let dismissStatus = 200;
 let progressReads = 0;
+let dismissWrites = 0;
 
 function installFetch(): void {
   globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
@@ -35,7 +37,11 @@ function installFetch(): void {
         headers: { "content-type": "application/json" },
       });
     }
-    const status = url.includes("/activation/dismiss") ? dismissStatus : 200;
+    let status = 200;
+    if (url.includes("/activation/dismiss")) {
+      dismissWrites += 1;
+      status = dismissStatus;
+    }
     return new Response("{}", {
       status,
       headers: { "content-type": "application/json" },
@@ -65,6 +71,7 @@ async function settle(): Promise<void> {
 beforeEach(() => {
   dismissStatus = 200;
   progressReads = 0;
+  dismissWrites = 0;
   installFetch();
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -82,11 +89,38 @@ afterEach(() => {
 });
 
 describe("useDismissActivation", () => {
-  test("stamps the dismissal into the cache before the daemon answers", () => {
+  test("stamps the dismissal into the cache before the daemon answers", async () => {
     const { result } = renderDismiss();
     act(() => {
       result.current.dismiss("modal");
     });
+    await settle();
+    expect(cached()?.modalDismissedAt).not.toBeNull();
+    // The seed rides ahead of the write, not behind its answer.
+    expect(dismissWrites).toBe(1);
+  });
+
+  test("cancels an in-flight read so its answer cannot undo the dismissal", async () => {
+    let release: (progress: ActivationProgress) => void = () => {};
+    const parked = new Promise<ActivationProgress>((resolve) => {
+      release = resolve;
+    });
+    // A read issued before the dismissal, so its answer predates it and knows
+    // nothing about the surface the user just closed.
+    const inFlight = queryClient
+      .fetchQuery({ queryKey: PROGRESS_KEY, queryFn: () => parked })
+      .catch(() => {});
+
+    const { result } = renderDismiss();
+    act(() => {
+      result.current.dismiss("modal");
+    });
+    await settle();
+
+    release(ACTIVATION_PROGRESS_EMPTY);
+    await inFlight;
+    await settle();
+
     expect(cached()?.modalDismissedAt).not.toBeNull();
   });
 

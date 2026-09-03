@@ -33,6 +33,10 @@ const progressMock = await mockActivationProgress();
 const funnel = await recordActivationFunnelEvents();
 
 afterAll(() => {
+  // Unmount first: the hook subscribes to the flag store, so resetting it
+  // below would re-render a component whose progress hook the restore has
+  // just swapped back to the real one.
+  cleanup();
   progressMock.restore();
   funnel.restore();
   resetActivationFlagStore();
@@ -40,6 +44,11 @@ afterAll(() => {
 
 const { useActivationCompletionTelemetry } =
   await import("@/domains/activation/hooks/use-activation-completion-telemetry");
+// Imported after the progress mock is installed, for the same reason as the
+// hook under test: a static import would bind the real progress hook and want
+// a query client.
+const { readEffectiveActivationListId, useEffectiveActivationListId } =
+  await import("@/hooks/use-activation-enabled");
 
 const [FIRST_TASK, SECOND_TASK] = FIXTURE_STARTER_IDS;
 
@@ -114,6 +123,23 @@ describe("useActivationCompletionTelemetry", () => {
     advance(rerender, progressWithDone(SECOND_TASK!), "asst-2");
 
     expect(completions()).toEqual([]);
+  });
+
+  // The emitter falls back to a module global that an effect elsewhere
+  // publishes, so a hook that leaves the list to it is only right while some
+  // sibling happens to render ahead of it.
+  test("files a completion under the list this render resolved", () => {
+    const stale = renderHook(() => useEffectiveActivationListId());
+    expect(readEffectiveActivationListId()).toBe("smb");
+    stale.unmount();
+    setActivationArm("parent");
+
+    const { rerender } = renderHook(() => useActivationCompletionTelemetry());
+    advance(rerender, progressWithDone(FIRST_TASK!));
+
+    expect(funnel.matching("activation_task_completed")[0]?.screen).toBe(
+      `parent/${FIRST_TASK}`,
+    );
   });
 
   // Task ids are the catalog's, so they are shared across assistants: a

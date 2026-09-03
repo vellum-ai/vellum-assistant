@@ -130,9 +130,49 @@ export const DoneWithFileDark: Story = {
   globals: { theme: "dark" },
 };
 
+/** The finished row at phone width, where the file card has least room. */
+export const DoneWithFileMobile: Story = {
+  args: { progress: doneWithArtifactProgress() },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
 /** The expanded row at phone width, where the field loses the most room. */
 export const TodoExpandedMobile: Story = {
   args: { expanded: true },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+/** The closed row on the dark ground, where the disc carries the only colour. */
+export const TodoCollapsedDark: Story = {
+  globals: { theme: "dark" },
+};
+
+/** The closed row at phone width, where the description wraps to three lines. */
+export const TodoCollapsedMobile: Story = {
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+/** The call to action on the dark ground, where the link is the only accent. */
+export const TodoExpandedWithLinkDark: Story = {
+  args: { task: COMPUTER_USE_TASK, expanded: true },
+  globals: { theme: "dark" },
+};
+
+/** The call to action at phone width, where it wraps under the field. */
+export const TodoExpandedWithLinkMobile: Story = {
+  args: { task: COMPUTER_USE_TASK, expanded: true },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+/** The locked row on the dark ground, where the disabled controls flatten. */
+export const TodoExpandedPendingDark: Story = {
+  args: { expanded: true, pending: true },
+  globals: { theme: "dark" },
+};
+
+/** The locked row at phone width, where the send button is tightest. */
+export const TodoExpandedPendingMobile: Story = {
+  args: { expanded: true, pending: true },
   globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 

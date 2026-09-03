@@ -15,9 +15,24 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import * as nodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
+
+/**
+ * The real implementation, captured before any spy replaces it, so a stub
+ * that wants the genuine bytes does not call itself.
+ */
+const realReadFileSync = nodeFs.readFileSync;
 
 import type { ActivationProgress } from "../api/responses/activation.js";
 import { _resetStreamStateForTesting } from "../runtime/assistant-stream-state.js";
@@ -489,6 +504,38 @@ describe("activation progress store", () => {
       });
     });
 
+    test("a write during a read is not stamped as already indexed", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      // Cold index, so the next lookup has to go to disk.
+      resetActivationStepThrottleForTesting(THROTTLE_MS);
+
+      const external = readRawProgress();
+      external.tasks["book-travel"] = startedTask("conv-2");
+
+      const spy = spyOn(nodeFs, "readFileSync");
+      spy.mockImplementationOnce(((path: never, options: never) => {
+        const raw = realReadFileSync(path, options);
+        // Another process records the link while this read is in flight.
+        writeProgressBehindStore(external);
+        return raw;
+      }) as typeof nodeFs.readFileSync);
+      try {
+        await bumpActivationStepCount("conv-unlinked");
+      } finally {
+        spy.mockRestore();
+      }
+
+      // The index holds the pre-write bytes. Stamping it after the read
+      // would file them under the post-write stamp, and this link would
+      // stay invisible for the life of the process.
+      await bumpActivationStepCount("conv-2");
+
+      expect(readRawProgress().tasks["book-travel"].stepCount).toBe(1);
+    });
+
     test("the test-only reset drops the index", async () => {
       await startActivationTask({
         taskId: "draft-email",
@@ -822,6 +869,38 @@ describe("activation progress store", () => {
         expect(readRawProgress().tasks["draft-email"].stepCount).toBe(0);
       },
     );
+
+    test("a failed step flush still lets the turn complete", async () => {
+      // A window wide enough that the second bump is certain to be pending
+      // when the completion flushes it.
+      resetActivationStepThrottleForTesting(5_000);
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await bumpActivationStepCount("conv-1");
+      await bumpActivationStepCount("conv-1");
+
+      const spy = spyOn(nodeFs, "writeFileSync");
+      spy.mockImplementationOnce(() => {
+        throw new Error("transient write failure");
+      });
+      try {
+        await markActivationTurnComplete({
+          conversationId: "conv-1",
+          toolCallCount: 4,
+          endedAwaitingUser: false,
+          artifacts: [],
+        });
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "done",
+        stepCount: 4,
+      });
+    });
 
     test("a rejected write leaves later mutations working", async () => {
       breakDataDir();

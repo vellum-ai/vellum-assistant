@@ -807,7 +807,7 @@ graph LR
     START["POST /v1/activation/tasks/:id/start<br/>links task to conversation"]
     LOOP["Agent loop"]
     TOOL["onActivationToolCall<br/>throttled stepCount bump"]
-    DONE["onActivationTurnComplete<br/>status=done + artifacts<br/>(only when the turn did something)"]
+    DONE["onActivationTurnComplete<br/>status=done + artifacts<br/>(unless the turn ended awaiting the user)"]
     ATT["resolveAssistantAttachments<br/>persisted workspace files only"]
     STORE["activation-progress.json<br/>serialized atomic writes"]
     SYNC["sync_changed<br/>activation:progress"]
