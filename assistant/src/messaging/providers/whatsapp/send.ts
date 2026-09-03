@@ -10,6 +10,7 @@ import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
+import { type AcknowledgedSend, acknowledgedSend } from "../send-result.js";
 import {
   sendWhatsAppInteractiveMessage,
   sendWhatsAppMediaMessage,
@@ -103,32 +104,24 @@ function selectButtons(
 // Public API
 // ---------------------------------------------------------------------------
 
-/** Outcome of a WhatsApp reply send. */
-export interface WhatsAppSendResult {
-  /**
-   * Cloud API id of every message the send created, in send order: one per
-   * text chunk plus the interactive message an approval adds. A message whose
-   * API response carried no id is absent, so a recorder never invents one.
-   */
-  messageIds: string[];
-}
-
 /** The id the Cloud API assigned to a sent message, when its response has one. */
 function sentMessageId(result: WhatsAppSendMessageResult): string | undefined {
   return result.messages?.[0]?.id;
 }
 
+/**
+ * Send a reply as one message per text chunk, plus the interactive message an
+ * approval adds; that one rides last, so `lastMessageId` addresses the
+ * buttons.
+ */
 export async function sendWhatsAppReply(
   to: string,
   text: string,
   approval?: ApprovalUIMetadata,
-): Promise<WhatsAppSendResult> {
-  const messageIds: string[] = [];
+): Promise<AcknowledgedSend> {
+  const ids: Array<string | undefined> = [];
   const record = (result: WhatsAppSendMessageResult): void => {
-    const id = sentMessageId(result);
-    if (id !== undefined) {
-      messageIds.push(id);
-    }
+    ids.push(sentMessageId(result));
   };
 
   if (approval) {
@@ -141,7 +134,7 @@ export async function sendWhatsAppReply(
     if (text.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
       record(await sendWhatsAppInteractiveMessage(to, text, buttons));
       log.debug({ to }, "WhatsApp interactive approval reply sent");
-      return { messageIds };
+      return acknowledgedSend(ids);
     }
 
     const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
@@ -160,7 +153,7 @@ export async function sendWhatsAppReply(
     }
 
     log.debug({ to, chunks: chunks.length }, "WhatsApp approval reply sent");
-    return { messageIds };
+    return acknowledgedSend(ids);
   }
 
   const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
@@ -168,7 +161,7 @@ export async function sendWhatsAppReply(
     record(await sendWhatsAppTextMessage(to, chunk));
   }
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
-  return { messageIds };
+  return acknowledgedSend(ids);
 }
 
 export type AttachmentResult = {

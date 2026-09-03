@@ -66,21 +66,30 @@ describe("sendWhatsAppReply acknowledged ids", () => {
     const result = await sendWhatsAppReply("12125550100", "hello");
 
     expect(sent).toHaveLength(1);
-    expect(result).toEqual({ messageIds: ["wamid.1"] });
+    expect(result).toEqual({
+      lastMessageId: "wamid.1",
+      messageIds: ["wamid.1"],
+    });
   });
 
   test("a split text acknowledges every chunk in send order", async () => {
     const result = await sendWhatsAppReply("12125550100", "x".repeat(9000));
 
     expect(sent).toHaveLength(3);
-    expect(result).toEqual({ messageIds: ["wamid.1", "wamid.2", "wamid.3"] });
+    expect(result).toEqual({
+      lastMessageId: "wamid.3",
+      messageIds: ["wamid.1", "wamid.2", "wamid.3"],
+    });
   });
 
   test("an approval that fits one interactive message is one id", async () => {
     const result = await sendWhatsAppReply("12125550100", "Approve?", approval);
 
     expect(sent.map((s) => s.kind)).toEqual(["interactive"]);
-    expect(result).toEqual({ messageIds: ["wamid.1"] });
+    expect(result).toEqual({
+      lastMessageId: "wamid.1",
+      messageIds: ["wamid.1"],
+    });
   });
 
   test("a long approval acknowledges its text chunks and the button message", async () => {
@@ -93,7 +102,10 @@ describe("sendWhatsAppReply acknowledged ids", () => {
     // A 4096-char chunk, then a 2000-char last chunk that is over the
     // interactive body limit, so the buttons ride a third, separate message.
     expect(sent.map((s) => s.kind)).toEqual(["text", "text", "interactive"]);
-    expect(result).toEqual({ messageIds: ["wamid.1", "wamid.2", "wamid.3"] });
+    expect(result).toEqual({
+      lastMessageId: "wamid.3",
+      messageIds: ["wamid.1", "wamid.2", "wamid.3"],
+    });
   });
 
   test("a response without an id acknowledges nothing rather than inventing one", async () => {
