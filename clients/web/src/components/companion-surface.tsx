@@ -907,31 +907,32 @@ export function CompanionSurface({
           </div>
         </div>
       </div>
-      {/* The creature's name for a press, beside it where the pill would be.
+      {/* The creature's name for a press, the way the Dock names an icon: a
+          small label centred above it rather than a control standing beside
+          it.
 
-          A name and not a control: it takes no pointer, and the press it
+          Above and centred rather than beside, unlike the pill: this is the
+          shape of a name a Mac user already reads as "what this icon is
+          called", not "something to press", so it does not have to invent a
+          visual language of its own to avoid looking pressable. A name and
+          not a control either way: it takes no pointer, and the press it
           names is the creature's. `aria-hidden` because the creature carries
           the same word as its accessible name, and a reader told it twice is
           told about two things. Mounted throughout and faded, so its arrival
-          after the dwell is a fade rather than a pop. Hung off the creature's
-          edge the way the pill is, on the creature's own centre line rather
-          than its baseline, since it is the creature being named and not a
-          row being stood beside it. */}
-      <span
-        className={`pointer-events-none absolute flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-[#17181b]/95 px-2.5 text-[12px] whitespace-nowrap text-white/85 shadow-lg shadow-black/40 transition-opacity duration-200 ${
-          named ? "opacity-100" : "opacity-0"
-        }`}
+          after the dwell is a fade rather than a pop. */}
+      <CompanionNameCaption
+        named={named}
         style={{
-          ...edgeAt(growth, avatarHalf + gap),
+          left: "50%",
           top: lineAt(cardGrowth, 0),
-          transform: "translateY(-50%)",
+          // Pulled up by the avatar's own half-box (a true point value, so it
+          // goes through `inUnits` the way `edgeAt`/`lineAt` do) plus a few
+          // flat pixels in the caption's own authored scale: enough that the
+          // beak lands on the avatar's edge rather than short of it.
+          transform: `translate(-50%, calc(-100% - ${inUnits(avatarHalf)}px - 4px))`,
         }}
-        data-companion-name={named ? "shown" : "hidden"}
-        aria-hidden
-      >
-        <AudioLines className="size-4" />
-        {t("companionSurface.talk")}
-      </span>
+        label={t("companionSurface.talk")}
+      />
       {/* Drawn after the pill so the creature lands over the pill's leading
         edge rather than under it. */}
       <Avatar
@@ -994,6 +995,85 @@ export function CompanionSurface({
       />
       {intro}
     </div>
+  );
+}
+
+/**
+ * The name's fill, named once and shared by the rectangle and its beak.
+ *
+ * A shared constant rather than the same literal typed twice. Translucent
+ * rather than the flat fill this had before `backdrop-filter` was added:
+ * the blur only has something to show once the fill lets it through. The
+ * beak sits flush against the rectangle's bottom edge rather than
+ * overlapping it (`top-full`, not a negative offset), so the two panes of
+ * blurred backdrop meet edge to edge instead of compositing on top of each
+ * other, which is what kept the flat-fill version seam-free and keeps this
+ * one seam-free too.
+ */
+const NAME_CAPTION_FILL = "rgba(28, 28, 30, 0.55)";
+
+/**
+ * The blur and saturation boost shared by the rectangle and its beak, so the
+ * one pane of "glass" reads as one material rather than two.
+ *
+ * An approximation of macOS's own vibrancy material, not the real thing: a
+ * genuine `NSGlassEffectView` is a native layer, and this is HTML painted
+ * inside the window's own transparent content, so the closest available
+ * tool is Chromium's `backdrop-filter` sampling the desktop showing through
+ * that transparency.
+ */
+const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
+
+/**
+ * The creature's name for a press, the way the Dock names an icon: a small
+ * rectangle above it with a beak pointing down at it.
+ *
+ * Text only, no icon: the avatar beneath it is the icon already, and the
+ * Dock's own tooltip carries nothing but the name. A small rectangle rather
+ * than the pill's stadium shape, so the two never share a silhouette.
+ */
+function CompanionNameCaption({
+  named,
+  style,
+  label,
+}: {
+  named: boolean;
+  style: CSSProperties;
+  label: string;
+}) {
+  return (
+    <span
+      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${
+        named ? "opacity-100" : "opacity-0"
+      }`}
+      style={{ ...style, backgroundColor: NAME_CAPTION_FILL }}
+      data-companion-name={named ? "shown" : "hidden"}
+      aria-hidden
+    >
+      {label}
+      {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
+          nudged down to meet it, so the two blurred panes meet at a seam
+          rather than compositing on top of each other. Centred under the
+          text rather than under the whole padded box for the same reason a
+          Dock label's beak centres on the name: it is pointing at the icon
+          below, and the icon is what the horizontal centre of this box was
+          already placed over.
+
+          Clipped to a triangle rather than drawn with the border trick:
+          `backdrop-filter` blurs an element's whole border box, transparent
+          border colour or not, so the border trick left a hazy rectangular
+          smudge around the visible point. `clip-path` removes those corners
+          from the element entirely, so there is nothing left there for the
+          blur to show through. */}
+      <span
+        className={`absolute top-full left-1/2 h-1.5 w-2.5 -translate-x-1/2 ${NAME_CAPTION_GLASS}`}
+        style={{
+          backgroundColor: NAME_CAPTION_FILL,
+          clipPath: "polygon(0 0, 100% 0, 50% 100%)",
+        }}
+        aria-hidden
+      />
+    </span>
   );
 }
 
