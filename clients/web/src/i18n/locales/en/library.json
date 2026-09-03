@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "Your library is empty",
-    "body": "Ask your assistant to build something, or import a shared app",
-    "newConversation": "New Conversation",
-    "separator": "or",
-    "importFile": "Import .vellum File"
+    "body": "Ask your assistant to build something",
+    "newConversation": "New Conversation"
   },
   "libraryView": {
     "importFailed": "Failed to import app",

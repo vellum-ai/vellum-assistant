@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "Tu biblioteca está vacía",
-    "body": "Pide a tu asistente que construya algo, o importa una aplicación compartida",
-    "newConversation": "Nueva conversación",
-    "separator": "o",
-    "importFile": "Importar un archivo .vellum"
+    "body": "Pide a tu asistente que construya algo",
+    "newConversation": "Nueva conversación"
   },
   "libraryView": {
     "importFailed": "No se pudo importar la aplicación",

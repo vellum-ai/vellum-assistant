@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "您的库为空",
-    "body": "让您的助手构建一些内容，或导入共享应用",
-    "newConversation": "新建对话",
-    "separator": "或",
-    "importFile": "导入 .vellum 文件"
+    "body": "让您的助手构建一些内容",
+    "newConversation": "新建对话"
   },
   "libraryView": {
     "importFailed": "导入应用失败",

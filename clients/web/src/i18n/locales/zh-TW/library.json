@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "您的資料庫是空的",
-    "body": "請您的助理建立內容，或匯入共享應用程式",
-    "newConversation": "新增對話",
-    "separator": "或",
-    "importFile": "匯入 .vellum 檔案"
+    "body": "請您的助理建立內容",
+    "newConversation": "新增對話"
   },
   "libraryView": {
     "importFailed": "匯入應用程式失敗",
