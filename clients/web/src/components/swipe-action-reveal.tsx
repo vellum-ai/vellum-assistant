@@ -82,9 +82,17 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
  * On desktop (fine pointer), this is a passthrough — children render normally
  * with no swipe affordance.
  *
- * The content layer sits in a `transform: translateX()` above two absolutely
- * positioned action layers. `overflow: hidden` on the layer box clips the
- * action layers so they're invisible until the content slides away.
+ * The content layer sits in a `transform: translateX()` beside two absolutely
+ * positioned action layers. Each action layer is translated by its own width
+ * away from the edge it hangs off, so at rest it sits wholly outside the layer
+ * box and `overflow: hidden` clips it. A swipe walks that translation back in
+ * step with the content, so an action is visible exactly across the strip the
+ * content has vacated and never anywhere else.
+ *
+ * Which is why the content layer paints nothing of its own. Nothing here
+ * depends on it covering an action, so a row carries whatever surface its own
+ * content carries, in whatever shape: a `w-fit` pill reads as a pill rather
+ * than as a pill sitting on a row-width fill.
  *
  * That clip lives one level inside the root rather than on it, because the
  * root is what a list lays out: a flex or grid item whose overflow is not
@@ -125,6 +133,8 @@ export const SwipeActionReveal = forwardRef<
   const {
     offset,
     isDragging,
+    leadingWidth,
+    trailingWidth,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
@@ -149,18 +159,38 @@ export const SwipeActionReveal = forwardRef<
     );
   }
 
+  /* How far each action layer stands outside the box it hangs off: its own
+     width at rest, closing to zero as the content vacates the strip it needs.
+     Clamped at zero so an overdrag past the reveal width slides the content
+     on alone rather than dragging the actions out of the far edge with it. */
+  const trailingShift = Math.max(0, trailingWidth + offset);
+  const leadingShift = Math.min(0, offset - leadingWidth);
+
+  /* The action layers travel with the content, so they share its transition:
+     the release animates all three to the committed position together, and a
+     live drag pins every one of them to the finger. */
+  const layerTransition = cn(
+    "transition-transform",
+    isDragging && "transition-none",
+  );
+
   return (
     <div
       ref={ref}
-      // Marks a row that owns horizontal drags, so an enclosing panel gesture
-      // can stand down over it. The mobile drawer's swipe-to-close reads this
-      // to leave a row's own swipe actions alone. Only the armed branch carries
-      // it: with no actions there is nothing to yield to.
-      data-slot="swipe-action-row"
       className={className}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
       {...rest}
+      // Marks a row that owns horizontal drags, so an enclosing panel gesture
+      // can stand down over it. The mobile drawer's swipe-to-close reads this
+      // to leave a row's own swipe actions alone. Only the armed branch carries
+      // it: with no actions there is nothing to yield to.
+      //
+      // An attribute of its own rather than a `data-slot`, declared after the
+      // injected props: a parent using `asChild` hands the row a `data-slot`
+      // of its own (the pinned-app pill's `ContextMenu.Trigger` does), and a
+      // mark a gesture depends on has to be one a wrapper cannot overwrite.
+      data-swipe-action-row=""
       // Allow vertical scrolling to remain native while claiming horizontal
       // gestures for swipe-to-reveal, preventing the browser from
       // intercepting them for edge navigation / native panning.
@@ -171,17 +201,22 @@ export const SwipeActionReveal = forwardRef<
       onTouchCancel={onTouchCancel}
     >
       {/* The layer box. `rounded-[inherit]` takes whatever radius the caller
-          put on the root, so a revealed action is cut to the row's corners. */}
+          put on the root, so a revealed action is cut to the row's corners.
+          This is also the clip that parks the action layers outside the row
+          until a swipe walks them in. */}
       <div className="relative overflow-hidden rounded-[inherit]">
         {/* Trailing actions (right side, revealed on swipe-left) */}
         {trailingActions && trailingActions.length > 0 ? (
           <div
-            className="absolute inset-y-0 right-0 flex"
+            className={cn("absolute inset-y-0 right-0 flex", layerTransition)}
             aria-hidden={offset >= 0}
-            // Remove hidden actions from tab order: they're only reachable
-            // after a swipe reveals them. Without this, tab navigation
-            // lands on invisible buttons behind the content layer.
-            style={offset >= 0 ? { pointerEvents: "none" } : undefined}
+            style={{
+              transform: `translateX(${trailingShift}px)`,
+              // Remove hidden actions from tab order: they're only reachable
+              // after a swipe reveals them. Without this, tab navigation
+              // lands on buttons parked outside the clip.
+              pointerEvents: offset >= 0 ? "none" : undefined,
+            }}
           >
             {trailingActions.map((action) => (
               <SwipeActionButton
@@ -197,9 +232,12 @@ export const SwipeActionReveal = forwardRef<
         {/* Leading actions (left side, revealed on swipe-right) */}
         {leadingActions && leadingActions.length > 0 ? (
           <div
-            className="absolute inset-y-0 left-0 flex"
+            className={cn("absolute inset-y-0 left-0 flex", layerTransition)}
             aria-hidden={offset <= 0}
-            style={offset <= 0 ? { pointerEvents: "none" } : undefined}
+            style={{
+              transform: `translateX(${leadingShift}px)`,
+              pointerEvents: offset <= 0 ? "none" : undefined,
+            }}
           >
             {leadingActions.map((action) => (
               <SwipeActionButton
@@ -212,23 +250,13 @@ export const SwipeActionReveal = forwardRef<
           </div>
         ) : null}
 
-        {/* Content layer, sliding over the action layers. Its fill has to be
-            opaque so the actions stay hidden until a swipe reveals them, and it
-            has to match whatever surface the row sits on or the row reads as a
-            differently-coloured band. `--swipe-reveal-bg` lets that surface name
-            itself (the sidebar's section card publishes its own), falling back
-            to the panel surface a row rests on elsewhere. */}
+        {/* Content layer, sliding aside to admit the action layers. It paints
+            no fill of its own: the row keeps whatever surface it has on the
+            page, of whatever shape, because nothing here depends on it
+            covering anything. */}
         <div
-          className={cn(
-            "relative bg-[var(--swipe-reveal-bg,var(--surface-overlay))] transition-transform",
-            isDragging && "transition-none",
-          )}
-          style={{
-            transform: `translateX(${offset}px)`,
-            // Ensure the content layer paints above the action layers so they're
-            // hidden until swiped. z-10 is enough since actions are auto-positioned.
-            zIndex: 1,
-          }}
+          className={cn("relative", layerTransition)}
+          style={{ transform: `translateX(${offset}px)` }}
         >
           {children}
         </div>

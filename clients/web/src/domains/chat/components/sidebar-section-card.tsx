@@ -157,12 +157,6 @@ export function SidebarSectionCard({
       bordered={false}
       noPadding
       className={cn(
-        /* A swipeable row inside this card paints an opaque layer of its own
-           so its actions stay hidden until swiped, so the card names the
-           surface that layer has to match. Declared here rather than on the
-           row: the card is what owns the fill, and every swipeable thing it
-           holds inherits the one value. */
-        "[--swipe-reveal-bg:var(--surface-lift)]",
         /* No padding of its own: the overlay class branch below owns the
            card's inset, and wrapping it in another layer of Card padding
            would inflate the pill past its spec. The row list picks up the

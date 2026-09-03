@@ -49,19 +49,46 @@ describe("SwipeActionReveal", () => {
     expect(html).toContain("Test");
   });
 
-  test("the content layer takes its opaque fill from the surface it sits on", () => {
+  test("each action layer sits a full width outside the clip at rest", () => {
+    const html = renderToStaticMarkup(
+      <SwipeActionReveal
+        enabled={true}
+        leadingActions={[noopAction]}
+        trailingActions={[noopAction]}
+      >
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+
+    // What hides an unrevealed action is the clip, not anything painted over
+    // it: each layer is translated its own width off the edge it hangs from,
+    // so at rest it is wholly outside the box that clips. A swipe walks that
+    // back in step with the content, which is what confines an action to the
+    // strip the content has vacated.
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const layers = [
+      ...host.querySelectorAll<HTMLElement>("[style*=translateX]"),
+    ];
+    const shifts = layers.map((layer) => layer.style.transform);
+
+    expect(shifts).toContain(`translateX(${ACTION_WIDTH_PX}px)`);
+    expect(shifts).toContain(`translateX(-${ACTION_WIDTH_PX}px)`);
+  });
+
+  test("the content layer paints no fill of its own", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
         <div>Row content</div>
       </SwipeActionReveal>,
     );
-    // The layer hides the actions until a swipe reveals them, so it can never
-    // be transparent. Reading `--swipe-reveal-bg` is what lets a host that
-    // rests its rows on something other than the panel surface (the sidebar's
-    // section card) hand down its own fill instead of banding every row.
-    expect(html).toContain(
-      "bg-[var(--swipe-reveal-bg,var(--surface-overlay))]",
-    );
+
+    // A fill here would be the row's full width whatever shape the row is,
+    // which is what banded the sidebar's `w-fit` pills (LUM-3147). Nothing
+    // needs covering now, so nothing is painted, and a host no longer has to
+    // name the surface its rows rest on for the wrapper to match.
+    expect(html).not.toContain("--swipe-reveal-bg");
+    expect(html).not.toContain("--surface-overlay");
   });
 
   test("the row a list lays out is not the element that clips", () => {
@@ -80,9 +107,34 @@ describe("SwipeActionReveal", () => {
     host.innerHTML = html;
     const root = host.firstElementChild;
 
-    expect(root?.getAttribute("data-slot")).toBe("swipe-action-row");
+    expect(root?.hasAttribute("data-swipe-action-row")).toBe(true);
     expect(root?.className).not.toContain("overflow-hidden");
     expect(root?.firstElementChild?.className).toContain("overflow-hidden");
+  });
+
+  test("keeps its mark when a parent hands the row a slot name", () => {
+    // What `ContextMenu.Trigger` does with `asChild`, which is how the
+    // pinned-app pill mounts: it clones the row and passes its own props down.
+    // While the mark shared the `data-slot` channel the injected name replaced
+    // it, so the drawer's swipe-to-close never saw a row to stand down for and
+    // fought the pill for every horizontal drag.
+    const html = renderToStaticMarkup(
+      <SwipeActionReveal
+        enabled={true}
+        trailingActions={[noopAction]}
+        data-slot="context-menu-trigger"
+      >
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const root = host.firstElementChild;
+
+    expect(root?.hasAttribute("data-swipe-action-row")).toBe(true);
+    // The parent keeps its own name too: nothing has to lose here.
+    expect(root?.getAttribute("data-slot")).toBe("context-menu-trigger");
   });
 
   test("renders leading and trailing action buttons", () => {

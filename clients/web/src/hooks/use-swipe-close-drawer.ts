@@ -10,8 +10,12 @@ import { useSwipeHorizontal } from "@/hooks/use-swipe-horizontal";
  *
  * `SwipeActionReveal` marks only its armed branch, so a row rendered without
  * actions (or on a fine pointer) claims nothing and the panel keeps the drag.
+ *
+ * The mark is an attribute of its own rather than a `data-slot`, because a row
+ * wrapped in a `ContextMenu.Trigger` is handed that trigger's own `data-slot`
+ * by `asChild`, which would leave the two competing for one attribute.
  */
-const SWIPE_ACTION_ROW_SELECTOR = '[data-slot="swipe-action-row"]';
+const SWIPE_ACTION_ROW_SELECTOR = "[data-swipe-action-row]";
 
 /**
  * Whether a touch beginning here belongs to a row's own swipe actions rather

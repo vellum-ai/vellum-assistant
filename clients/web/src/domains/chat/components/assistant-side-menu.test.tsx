@@ -1456,12 +1456,13 @@ describe("AssistantSideMenu · section spacing", () => {
 });
 
 describe("AssistantSideMenu · section card surface", () => {
-  /* A conversation row rests transparent, so on touch the swipe layer wrapping
-     it is what actually paints behind the label. Left to its own default that
-     layer takes the panel surface, which is a different colour from the card,
-     and every row in the card reads as a sunken band. The card publishes its
-     own fill so the layer matches whatever the card is. */
-  test("every section card names the fill its swipeable rows sit on", () => {
+  /* A card used to hand its swipeable rows a fill to paint, because the swipe
+     wrapper covered its actions with an opaque layer and that layer had to
+     match the card or every row read as a sunken band. The wrapper clips its
+     actions away instead now, so it paints nothing and there is no fill for a
+     host to name. Asserted rather than merely deleted: re-publishing the
+     variable would be the band coming back on the pills beside these cards. */
+  test("no section card hands its rows a fill to paint", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -1472,9 +1473,7 @@ describe("AssistantSideMenu · section card surface", () => {
     const cards = sectionCards(container);
     expect(cards).toHaveLength(4);
     for (const card of cards) {
-      expect(card.className).toContain(
-        "[--swipe-reveal-bg:var(--surface-lift)]",
-      );
+      expect(card.className).not.toContain("--swipe-reveal-bg");
     }
   });
 });
@@ -1797,20 +1796,21 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
     try {
-      const chats = sectionElements(container)[
-        sectionLabels(container).indexOf("Chats")
-      ];
+      const chats =
+        sectionElements(container)[sectionLabels(container).indexOf("Chats")];
       if (!chats) {
         throw new Error("expected the Chats section");
       }
 
       await waitFor(() => {
-        expect(chats.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+        expect(
+          chats.querySelector('[data-slot="virtual-list"]'),
+        ).not.toBeNull();
       });
       expect(chats.querySelector(".overflow-y-auto")).toBeNull();
       expect(
-        chats.querySelector('[data-slot="virtual-list"]')?.parentElement
-          ?.style.minHeight,
+        chats.querySelector('[data-slot="virtual-list"]')?.parentElement?.style
+          .minHeight,
       ).toBe("");
     } finally {
       cleanup();

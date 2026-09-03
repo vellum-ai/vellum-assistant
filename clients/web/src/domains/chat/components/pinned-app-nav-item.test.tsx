@@ -211,6 +211,36 @@ describe("PinnedAppNavItem", () => {
     ).not.toBeNull();
   });
 
+  /* LUM-3518: the pin is a `w-fit` pill, and the swipe wrapper around it is
+     the sidebar's full width. Any fill on the wrapper is therefore a band
+     behind the pill rather than the pill's own surface, which is how this
+     reached a TestFlight build looking like two mismatched shapes. */
+  test("expanded: the swipe wrapper paints nothing behind the pill", () => {
+    viewport.set({ narrow: true, coarsePointer: true });
+
+    const { container } = render(
+      <PinnedAppNavItem
+        app={APP}
+        active={false}
+        collapsed={false}
+        {...actions()}
+      />,
+    );
+
+    // The three boxes the wrapper adds between the sidebar and the pill: the
+    // row a list lays out, the clip inside it, and the layer that slides. The
+    // pill's own surface is not in this list and is not being asserted on.
+    const row = container.querySelector("[data-swipe-action-row]");
+    const clip = row?.firstElementChild;
+    const sliding = clip?.querySelector('[style*="translateX(0px)"]');
+
+    expect(row).not.toBeNull();
+    expect(sliding).not.toBeNull();
+    for (const layer of [row, clip, sliding]) {
+      expect(layer?.className ?? "").not.toMatch(/(^|\s)bg-/);
+    }
+  });
+
   /* The tile is the shape with the most riding on the menu: no hover button,
      nothing to swipe, so this is its only route to an unpin. Collapsing the
      rail changes what a pinned app looks like, not what can be done to it. */
