@@ -59,6 +59,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.roles()).toEqual([
       "x-server",
       "window-manager",
+      "panel",
       "clipboard",
       "browser",
     ]);
@@ -69,7 +70,12 @@ describe("DesktopSessionManager process tree", () => {
     expect(x[x.indexOf("-SecurityTypes") + 1]).toBe("None");
     expect(x[x.indexOf("-rfbport") + 1]).toBe(String(DESKTOP_VNC_PORT));
     expect(x[x.indexOf("-geometry") + 1]).toBe("1440x900");
-    for (const role of ["window-manager", "clipboard", "browser"] as const) {
+    for (const role of [
+      "window-manager",
+      "panel",
+      "clipboard",
+      "browser",
+    ] as const) {
       expect(h.child(role).request.env).toEqual({
         PATH: "/usr/bin",
         HOME: "/data",
@@ -79,6 +85,7 @@ describe("DesktopSessionManager process tree", () => {
       });
     }
     expect(h.child("window-manager").request.cmd).toEqual(["/usr/bin/openbox"]);
+    expect(h.child("panel").request.cmd).toEqual(["/usr/bin/tint2"]);
     expect(h.child("clipboard").request.cmd).toEqual([
       "/usr/bin/tigervncconfig",
       "-nowin",
@@ -107,10 +114,10 @@ describe("DesktopSessionManager process tree", () => {
 
   test("a missing binary fails the start before anything is spawned", async () => {
     const h = newManager({
-      missingBinaries: ["Xtigervnc", "tigervncconfig", "vncconfig"],
+      missingBinaries: ["Xtigervnc", "tint2", "tigervncconfig", "vncconfig"],
     });
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(
-      "Desktop binaries missing from PATH: Xtigervnc, tigervncconfig",
+      "Desktop binaries missing from PATH: Xtigervnc, tint2, tigervncconfig",
     );
     expect(h.spawned).toEqual([]);
   });
@@ -182,19 +189,20 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["window-manager", "x-server"]);
+    ).toEqual(["panel", "window-manager", "x-server"]);
     expect(lost).toEqual([{ code: 4011, reason: "Desktop failed to start" }]);
 
     failSpawn.length = 0;
     await h.manager.ensureDesktopRunning();
     await settle();
-    expect(h.roles().slice(2)).toEqual([
+    expect(h.roles().slice(3)).toEqual([
       "x-server",
       "window-manager",
+      "panel",
       "clipboard",
       "browser",
     ]);
-    expect(h.terminated()).toHaveLength(2);
+    expect(h.terminated()).toHaveLength(3);
   });
 
   test("an X server exit tears the tree down and tells the viewer", async () => {
@@ -215,13 +223,31 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["browser", "clipboard", "window-manager"]);
+    ).toEqual(["browser", "clipboard", "panel", "window-manager"]);
     // The slot is free and the next start builds a fresh tree.
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual({
       ok: true,
     });
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(2);
+  });
+
+  test("a panel exit under a viewer leaves the desktop running", async () => {
+    const h = newManager();
+    const { viewer, lost } = newViewer();
+    h.manager.acquireViewerSlot(viewer);
+    await h.manager.ensureDesktopRunning();
+    await settle();
+
+    h.child("panel").exit(1);
+    await settle();
+
+    expect(lost).toEqual([]);
+    expect(h.killed).toEqual([]);
+    // Not relaunched, and the tree it belonged to is untouched.
+    expect(h.count("panel")).toBe(1);
+    await h.manager.ensureDesktopRunning();
+    expect(h.count("x-server")).toBe(1);
   });
 
   test("a browser exit with nobody watching keeps the desktop and the next viewer gets a fresh one", async () => {
@@ -265,7 +291,7 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["clipboard", "window-manager", "x-server"]);
+    ).toEqual(["clipboard", "panel", "window-manager", "x-server"]);
   });
 
   test("a browser that cannot be installed takes the desktop down", async () => {
@@ -281,7 +307,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(lost).toEqual([
       { code: 4011, reason: "Desktop browser failed to start" },
     ]);
-    expect(h.terminated()).toHaveLength(3);
+    expect(h.terminated()).toHaveLength(4);
   });
 
   test("destroy terminates, hard-kills stragglers after the grace, and refuses what comes after", async () => {
@@ -299,8 +325,8 @@ describe("DesktopSessionManager process tree", () => {
       { code: 1001, reason: "The assistant is shutting down" },
     ]);
     expect(h.killed.map((k) => k.signal)).toEqual([
-      ...Array(4).fill("SIGTERM"),
-      ...Array(4).fill("SIGKILL"),
+      ...Array(5).fill("SIGTERM"),
+      ...Array(5).fill("SIGKILL"),
     ]);
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual(
       SHUTTING_DOWN,
@@ -316,7 +342,7 @@ describe("DesktopSessionManager process tree", () => {
     await settle();
 
     await h.manager.destroy();
-    expect(h.killed.map((k) => k.signal)).toEqual(Array(4).fill("SIGTERM"));
+    expect(h.killed.map((k) => k.signal)).toEqual(Array(5).fill("SIGTERM"));
   });
 });
 
@@ -347,7 +373,7 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.killed).toEqual([]);
 
     await sleep(LINGER_MS * 2);
-    expect(h.terminated()).toHaveLength(4);
+    expect(h.terminated()).toHaveLength(5);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(2);
   });

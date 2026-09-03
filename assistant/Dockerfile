@@ -103,6 +103,7 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     sudo \
     tigervnc-standalone-server \
+    tint2 \
     util-linux \
     util-linux-extra \
     unzip \
