@@ -169,7 +169,8 @@ without it is refused rather than ignored.
 --json reports what the form wrote, so the shape follows the mode: without
 --channel it is {ok, contact}, and with it the address form's
 {ok, contactId, channelId, channelType, address, verified}. The new id is
-contact.id in the first and contactId in the second.
+contact.id in the first and contactId in the second. With --notes, notesSaved
+answers whether they landed: true, false, or null when the write did not say.
 
 ${FORM_NOTE}
 

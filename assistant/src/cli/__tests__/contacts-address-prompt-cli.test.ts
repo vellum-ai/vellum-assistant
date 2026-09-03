@@ -388,6 +388,28 @@ describe("contacts create --channel", () => {
     expect(process.exitCode).toBeFalsy();
   });
 
+  test("--json carries the unconfirmed notes as null, not as a clean save", async () => {
+    // Agents read this output, so a write that said nothing about the notes
+    // must not come back looking like one that stored them.
+    promptResult = { ...boundChannel };
+
+    const { stdout } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+      "--json",
+    );
+
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.ok).toBe(true);
+    expect(parsed.notesSaved).toBeNull();
+  });
+
   test("a create proposing no notes says nothing about them", async () => {
     promptResult = { ...boundChannel };
 

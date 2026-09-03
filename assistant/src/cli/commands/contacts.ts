@@ -378,8 +378,16 @@ async function runAddressPrompt(
     return;
   }
 
+  // Proposed notes the write said nothing about are neither saved nor known to
+  // be lost, so the field carries null rather than an answer it does not have.
+  const notesUnconfirmed =
+    opts.notes !== undefined && result.notesSaved === undefined;
+
   if (shouldOutputJson(cmd)) {
-    writeOutput(cmd, result);
+    writeOutput(
+      cmd,
+      notesUnconfirmed ? { ...result, notesSaved: null } : result,
+    );
     return;
   }
 
@@ -397,12 +405,15 @@ async function runAddressPrompt(
   // partial outcome to report rather than a failed command. Proposed notes the
   // write says nothing about are the same outcome: a gateway that does not
   // report on them is one that did not carry them.
-  if (opts.notes !== undefined && result.notesSaved !== true) {
+  if (result.notesSaved === false) {
     writeError(
       cmd,
-      result.notesSaved === false
-        ? "The contact and channel were saved, but its notes were not"
-        : "The contact and channel were saved, but the write did not confirm its notes. Check them with 'assistant contacts get', and set them with 'assistant contacts update' if they are missing.",
+      "The contact and channel were saved, but its notes were not",
+    );
+  } else if (notesUnconfirmed) {
+    writeError(
+      cmd,
+      "The contact and channel were saved, but the write did not confirm its notes. Check them with 'assistant contacts get', and set them with 'assistant contacts update' if they are missing.",
     );
   }
 }
