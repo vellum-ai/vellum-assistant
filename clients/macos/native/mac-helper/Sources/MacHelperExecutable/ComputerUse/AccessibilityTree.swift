@@ -358,11 +358,12 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         return ServerWindow(pid: pid_t(ownerPID), name: description[kCGWindowName as String] as? String, bounds: bounds)
     }
 
-    /// The one AX window of `pid` that is `window`, by its frame first and by
-    /// its title only when that title names exactly one of the app's windows.
-    /// Two windows titled alike (two "Untitled" documents, two browser windows
-    /// on the same page) would otherwise let the wrong one be read or raised
-    /// beside the right one's screenshot. Nil when nothing matches.
+    /// The one AX window of `pid` that is `window`: the single window at its
+    /// frame, or else the single window with its title. Two windows at one
+    /// frame (two maximized browser windows) or titled alike (two "Untitled"
+    /// documents) would otherwise let the wrong one be read or raised beside
+    /// the right one's screenshot, so a frame or title that fits more than
+    /// one window decides nothing. Nil when neither fits exactly one.
     ///
     /// The app element is handed back with the match because a caller that
     /// wants to read the tree marks it first, and one that only wants to raise
@@ -379,18 +380,25 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // describing it, with the bounds it had on screen, and the app keeps
         // reporting that same frame through AX, so the frame match holds for
         // a window that is in the Dock.
-        let byFrame = windows.first(where: { candidate in
+        let framed = windows.filter { candidate in
             let frame = getFrameAttribute(candidate)
             return abs(frame.origin.x - window.bounds.origin.x) <= 2
                 && abs(frame.origin.y - window.bounds.origin.y) <= 2
                 && abs(frame.width - window.bounds.width) <= 2
                 && abs(frame.height - window.bounds.height) <= 2
-        })
-        let byTitle: AXUIElement? = window.name.flatMap { name in
-            let titled = windows.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
+        }
+        if framed.count == 1 {
+            return framed[0]
+        }
+        // No window at that frame (a sheet, a window mid-resize) or several
+        // (stacked windows of one size): the title settles it, among the
+        // windows at the frame when there are any, since a title shared with
+        // a window elsewhere still names one window here.
+        let candidates = framed.isEmpty ? windows : framed
+        return window.name.flatMap { name in
+            let titled = candidates.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
             return titled.count == 1 ? titled[0] : nil
         }
-        return byFrame ?? byTitle
     }
 
     private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
