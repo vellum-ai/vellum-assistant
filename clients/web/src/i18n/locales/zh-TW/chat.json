@@ -1768,6 +1768,12 @@
     "reactionRemoved": "{name} 移除了 {emoji} 回應",
     "reactionSomeone": "有人"
   },
+  "watchRetroSurface": {
+    "doneDiscarded": "未儲存",
+    "doneNotRight": "已標記為有誤",
+    "doneSaved": "技能已儲存",
+    "recommended": "推薦"
+  },
   "restoreManagedCredentialButton": {
     "restore": "復原存取",
     "restoring": "正在復原...",

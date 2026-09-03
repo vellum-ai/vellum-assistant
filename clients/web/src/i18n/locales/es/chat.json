@@ -1788,6 +1788,12 @@
     "reactionRemoved": "{name} quitó su reacción {emoji}",
     "reactionSomeone": "Alguien"
   },
+  "watchRetroSurface": {
+    "doneDiscarded": "No se guardó",
+    "doneNotRight": "Marcado como incorrecto",
+    "doneSaved": "Habilidad guardada",
+    "recommended": "Recomendado"
+  },
   "restoreManagedCredentialButton": {
     "restore": "Restaurar acceso",
     "restoring": "Restaurando...",

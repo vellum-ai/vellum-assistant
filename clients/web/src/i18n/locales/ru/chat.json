@@ -851,6 +851,12 @@
     "collapse": "Скрыть показатели фильтра кадров",
     "expand": "Показать показатели фильтра кадров"
   },
+  "watchRetroSurface": {
+    "doneDiscarded": "Не сохранено",
+    "doneNotRight": "Отмечено как неверное",
+    "doneSaved": "Навык сохранён",
+    "recommended": "Рекомендуем"
+  },
   "restoreManagedCredentialButton": {
     "restore": "Восстановить доступ",
     "restoring": "Восстановление...",

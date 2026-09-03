@@ -86,6 +86,9 @@ final class MacHelper: @unchecked Sendable {
             let includeOffscreen = ((params as? [String: Any])?["includeOffscreen"] as? Bool) ?? false
             return CaptureSources.list(includeOffscreen: includeOffscreen)
         }
+        // captureSources.raise is not registered here: it talks to another
+        // app over AX, so it is dispatched off the main queue in
+        // `handleCommand` like cu.perform.
         router.register("hotkey.modifierHold") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
@@ -330,23 +333,61 @@ final class MacHelper: @unchecked Sendable {
 
     private func handleCommand(_ line: String) {
         // Computer-use and app-control dispatch are async + @MainActor, so they
-        // can't go through the synchronous JsonRpcRouter. Peek at the method and
+        // can't go through the synchronous JsonRpcRouter; a raise waits on
+        // another app and must not hold the main queue. Peek at the method and
         // hand the raw line off to an async dispatcher (which re-parses inside
         // the Task so no non-Sendable JSON value crosses the isolation boundary).
         if let data = line.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let method = object["method"] as? String,
-           method == "cu.perform" || method == "appControl.perform" || method == "capture.frame" {
-            if method == "cu.perform" {
+           let method = object["method"] as? String {
+            switch method {
+            case "cu.perform":
                 dispatchCuPerform(line: line)
-            } else if method == "capture.frame" {
+                return
+            case "capture.frame":
                 dispatchCaptureFrame(line: line)
-            } else {
+                return
+            case "appControl.perform":
                 dispatchAppControlPerform(line: line)
+                return
+            case "captureSources.raise":
+                dispatchCaptureSourcesRaise(line: line)
+                return
+            default:
+                break
             }
-            return
         }
         writeLine(router.handle(line: line))
+    }
+
+    /// The window a pick named, brought to the front before the session that
+    /// reads it starts. Off the main queue: the raise asks the window's app
+    /// over AX, and an app that has stopped answering costs seconds per call
+    /// even with the timeout `CaptureSources.raise` sets, during which the
+    /// hotkeys, dictation and any computer-use action in flight would
+    /// otherwise stand still with it.
+    private func dispatchCaptureSourcesRaise(line: String) {
+        Task.detached { [weak self] in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            // A CGWindowID is 32 bits; a number outside that range is not one,
+            // and converting it unchecked would trap the helper.
+            guard
+                let number = params["windowId"] as? Int,
+                let windowId = CGWindowID(exactly: number)
+            else {
+                self?.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "captureSources.raise requires windowId"
+                ))
+                return
+            }
+            self?.writeResponse(
+                JsonRpcCodec.successResponse(id: id, result: CaptureSources.raise(windowId: windowId))
+            )
+        }
     }
 
     private func dispatchCuPerform(line: String) {

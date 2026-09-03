@@ -27,8 +27,12 @@ interface SurfaceContainerProps {
  * check; `danger` is a red rejection glyph (denied / blocked); `neutral` is a
  * muted "voided" glyph for terminal states that are not a success and not an
  * active rejection (left unverified / expired / cancelled / timed out).
+ *
+ * Exported for surfaces that draw their own completed state and want the same
+ * glyphs for the same tones, so a completed card reads the same whichever
+ * renderer folded it.
  */
-const COMPLETION_TONE_STYLE: Record<
+export const COMPLETION_TONE_STYLE: Record<
   SurfaceCompletionTone,
   { Icon: ComponentType<{ className?: string }>; colorClass: string }
 > = {

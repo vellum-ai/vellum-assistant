@@ -1800,13 +1800,19 @@ function maybeEmitActivationMoment(ctx: Conversation, surfaceId: string): void {
   recordActivationMoment(ctx, moment);
 }
 
+/** The action result for an enqueue the message queue refused. */
+const QUEUE_FULL_RESULT: SurfaceActionResult = {
+  accepted: false,
+  error: "queue_full",
+};
+
 /**
  * Record a surface action the message queue refused.
  *
- * The route answers `{ ok: true }` for a rejected enqueue and the client
- * optimistically completes the card on that, so the user sees an answered card
- * that the next history reseed reverts. Nothing else on this path logs, so
- * without this the only user-visible cause of a reverted card leaves no trace.
+ * The rejection reaches the client as a failed submit, so the card stays
+ * answerable and nothing is marked completed. Nothing else on this path logs,
+ * so without this a saturated queue leaves no trace of which actions it
+ * turned away.
  */
 function logSurfaceActionRejected(
   ctx: Conversation,
@@ -2247,7 +2253,7 @@ export async function handleSurfaceAction(
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
       logSurfaceActionRejected(ctx, surfaceId, actionId, stored?.surfaceType);
-      return;
+      return QUEUE_FULL_RESULT;
     }
 
     // Terminal user commit accepted — record the activation milestone if this
@@ -2500,7 +2506,7 @@ export async function handleSurfaceAction(
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
     logSurfaceActionRejected(ctx, surfaceId, actionId, pending.surfaceType);
-    return;
+    return QUEUE_FULL_RESULT;
   }
 
   // Terminal user commit accepted — record the activation milestone if this

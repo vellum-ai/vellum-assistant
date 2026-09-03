@@ -1846,9 +1846,13 @@
   },
   "watchRetroSurface": {
     "back": "Back",
+    "doneDiscarded": "Not saved",
+    "doneNotRight": "Flagged as not right",
+    "doneSaved": "Skill saved",
     "dontSave": "Don't save",
     "looksRight": "Looks right",
     "next": "Next",
+    "recommended": "Recommended",
     "save": "Save skill",
     "skip": "Skip",
     "somethingOff": "Something's off",
