@@ -134,6 +134,19 @@ export interface TelegramSendResult {
    * Undefined when the API response did not carry a message id.
    */
   lastMessageId?: string;
+  /**
+   * Channel-native id of every message the send created, in send order: one
+   * per chunk of a split text, one for a rich message. A chunk whose API
+   * response carried no id is absent, so a recorder never invents one.
+   */
+  messageIds: string[];
+}
+
+function telegramSendResult(messageIds: string[]): TelegramSendResult {
+  const lastMessageId = messageIds[messageIds.length - 1];
+  return lastMessageId !== undefined
+    ? { lastMessageId, messageIds }
+    : { messageIds };
 }
 
 /**
@@ -191,7 +204,7 @@ export async function sendTelegramReply(
 ): Promise<TelegramSendResult> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
-  let lastMessageId: string | undefined;
+  const messageIds: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
@@ -209,14 +222,13 @@ export async function sendTelegramReply(
       "sendMessage",
       payload,
     );
-    lastMessageId =
-      typeof sent?.message_id === "number"
-        ? String(sent.message_id)
-        : undefined;
+    if (typeof sent?.message_id === "number") {
+      messageIds.push(String(sent.message_id));
+    }
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
-  return lastMessageId !== undefined ? { lastMessageId } : {};
+  return telegramSendResult(messageIds);
 }
 
 /**
@@ -251,12 +263,11 @@ export async function sendTelegramRichReply(
   markdown: string,
   approval?: ApprovalUIMetadata,
   opts?: TelegramSendOptions,
-): Promise<void> {
+): Promise<TelegramSendResult> {
   const html = renderTelegramHtml(markdown);
   if (html === undefined) {
     // No renderable rich content — send as plain text.
-    await sendTelegramReply(chatId, markdown, approval, opts);
-    return;
+    return sendTelegramReply(chatId, markdown, approval, opts);
   }
 
   const payload: Record<string, unknown> = {
@@ -269,16 +280,22 @@ export async function sendTelegramRichReply(
   }
 
   try {
-    await callTelegramBotApi("sendRichMessage", payload);
+    // sendRichMessage returns the sent Message like sendMessage does.
+    const sent = await callTelegramBotApi<TelegramMessage>(
+      "sendRichMessage",
+      payload,
+    );
     log.debug({ chatId }, "Telegram rich message sent");
+    return telegramSendResult(
+      typeof sent?.message_id === "number" ? [String(sent.message_id)] : [],
+    );
   } catch (err) {
     if (err instanceof TelegramNonRetryableError) {
       log.warn(
         { chatId, description: err.description },
         "Telegram rejected rich message; falling back to plain text",
       );
-      await sendTelegramReply(chatId, markdown, approval, opts);
-      return;
+      return sendTelegramReply(chatId, markdown, approval, opts);
     }
     throw err;
   }

@@ -156,6 +156,20 @@ describe("sendDiscordReply", () => {
       });
     }
     expect(result.lastMessageId).toBe("msg-1");
+    // Every chunk is acknowledged, one id per post, in send order.
+    expect(result.messageIds).toHaveLength(calls.length);
+    expect(result.messageIds.every((id) => id === "msg-1")).toBe(true);
+  });
+
+  test("a single post acknowledges exactly one id", async () => {
+    const result = await sendDiscordReply({ channelId: "C1" }, "hello");
+    expect(result).toEqual({ lastMessageId: "msg-1", messageIds: ["msg-1"] });
+  });
+
+  test("a response without an id acknowledges nothing", async () => {
+    stubFetch(200, {});
+    const result = await sendDiscordReply({ channelId: "C1" }, "hello");
+    expect(result).toEqual({ messageIds: [] });
   });
 
   test("sends nothing for blank text", async () => {

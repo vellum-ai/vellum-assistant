@@ -47,7 +47,7 @@ mock.module("../messaging/providers/telegram-bot/send.js", () => ({
   ...realTelegramSend,
   sendTelegramReply: async (chatId: string, text: string) => {
     deliveries.push({ transport: "telegram", to: chatId, text });
-    return {};
+    return { messageIds: [] };
   },
 }));
 
@@ -63,7 +63,7 @@ mock.module("../messaging/providers/discord/send.js", () => ({
   ...realDiscordSend,
   sendDiscordReply: async (target: { channelId: string }, text: string) => {
     deliveries.push({ transport: "discord", to: target.channelId, text });
-    return {};
+    return { messageIds: [] };
   },
 }));
 

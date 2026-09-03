@@ -16,6 +16,7 @@ import {
   sendWhatsAppTextMessage,
   uploadWhatsAppMedia,
   type WhatsAppMediaType,
+  type WhatsAppSendMessageResult,
 } from "./api.js";
 
 const log = getLogger("whatsapp-send");
@@ -102,11 +103,34 @@ function selectButtons(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Outcome of a WhatsApp reply send. */
+export interface WhatsAppSendResult {
+  /**
+   * Cloud API id of every message the send created, in send order: one per
+   * text chunk plus the interactive message an approval adds. A message whose
+   * API response carried no id is absent, so a recorder never invents one.
+   */
+  messageIds: string[];
+}
+
+/** The id the Cloud API assigned to a sent message, when its response has one. */
+function sentMessageId(result: WhatsAppSendMessageResult): string | undefined {
+  return result.messages?.[0]?.id;
+}
+
 export async function sendWhatsAppReply(
   to: string,
   text: string,
   approval?: ApprovalUIMetadata,
-): Promise<void> {
+): Promise<WhatsAppSendResult> {
+  const messageIds: string[] = [];
+  const record = (result: WhatsAppSendMessageResult): void => {
+    const id = sentMessageId(result);
+    if (id !== undefined) {
+      messageIds.push(id);
+    }
+  };
+
   if (approval) {
     const selectedActions = selectButtons(approval.actions);
     const buttons = selectedActions.map((action) => ({
@@ -115,33 +139,36 @@ export async function sendWhatsAppReply(
     }));
 
     if (text.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(to, text, buttons);
+      record(await sendWhatsAppInteractiveMessage(to, text, buttons));
       log.debug({ to }, "WhatsApp interactive approval reply sent");
-      return;
+      return { messageIds };
     }
 
     const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
     for (let i = 0; i < chunks.length - 1; i++) {
-      await sendWhatsAppTextMessage(to, chunks[i]);
+      record(await sendWhatsAppTextMessage(to, chunks[i]));
     }
 
     const lastChunk = chunks[chunks.length - 1];
     if (lastChunk.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(to, lastChunk, buttons);
+      record(await sendWhatsAppInteractiveMessage(to, lastChunk, buttons));
     } else {
-      await sendWhatsAppTextMessage(to, lastChunk);
-      await sendWhatsAppInteractiveMessage(to, "Choose an action:", buttons);
+      record(await sendWhatsAppTextMessage(to, lastChunk));
+      record(
+        await sendWhatsAppInteractiveMessage(to, "Choose an action:", buttons),
+      );
     }
 
     log.debug({ to, chunks: chunks.length }, "WhatsApp approval reply sent");
-    return;
+    return { messageIds };
   }
 
   const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
   for (const chunk of chunks) {
-    await sendWhatsAppTextMessage(to, chunk);
+    record(await sendWhatsAppTextMessage(to, chunk));
   }
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
+  return { messageIds };
 }
 
 export type AttachmentResult = {

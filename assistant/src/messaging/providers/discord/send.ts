@@ -185,6 +185,19 @@ export interface DiscordSendResult {
    * the message later. Undefined when the API response carried no id.
    */
   lastMessageId?: string;
+  /**
+   * Channel-native id of every chunk the send created, in send order. A chunk
+   * whose API response carried no id is absent, so a recorder never invents
+   * one. Empty when nothing was posted.
+   */
+  messageIds: string[];
+}
+
+function discordSendResult(messageIds: string[]): DiscordSendResult {
+  const lastMessageId = messageIds[messageIds.length - 1];
+  return lastMessageId !== undefined
+    ? { lastMessageId, messageIds }
+    : { messageIds };
 }
 
 /**
@@ -254,14 +267,14 @@ export async function sendDiscordReply(
 ): Promise<DiscordSendResult> {
   const chunks = renderDiscordMessages(text);
   if (chunks.length === 0) {
-    return {};
+    return { messageIds: [] };
   }
 
   // Buttons ride the final chunk: its id is the one recorded on the delivery
   // row, so the message a press arrives on is the message the row can find.
   const components = approval ? buildDiscordApprovalComponents(approval) : [];
 
-  let lastMessageId: string | undefined;
+  const messageIds: string[] = [];
   for (const [index, chunk] of chunks.entries()) {
     try {
       const sent = await callDiscordApi<DiscordMessage>(
@@ -275,7 +288,9 @@ export async function sendDiscordReply(
             : {}),
         },
       );
-      lastMessageId = typeof sent?.id === "string" ? sent.id : undefined;
+      if (typeof sent?.id === "string") {
+        messageIds.push(sent.id);
+      }
     } catch (err) {
       // Nothing posted yet propagates plainly; a caller may retry or fall
       // back with the full text. Past the first chunk the delivered prefix
@@ -287,7 +302,7 @@ export async function sendDiscordReply(
         err,
         index,
         chunks.slice(index).join("\n"),
-        lastMessageId,
+        messageIds[messageIds.length - 1],
       );
     }
   }
@@ -296,7 +311,7 @@ export async function sendDiscordReply(
     { channelId: target.channelId, chunks: chunks.length },
     "Discord reply sent",
   );
-  return lastMessageId !== undefined ? { lastMessageId } : {};
+  return discordSendResult(messageIds);
 }
 
 export interface DiscordAttachmentResult {
