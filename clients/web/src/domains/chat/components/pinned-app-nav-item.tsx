@@ -179,7 +179,15 @@ export function PinnedAppNavItem({
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger>
-        <SwipeActionReveal trailingActions={trailingActions}>
+        <SwipeActionReveal
+          /* The swipe box is the pill, not the rail. A swipe row is otherwise
+             as wide as its container, which puts the revealed action at the
+             rail's edge rather than beside the pill it acts on, arms the
+             gesture across the empty rail, and cuts the action square against
+             a capsule. */
+          className="w-fit rounded-full"
+          trailingActions={trailingActions}
+        >
           {item}
         </SwipeActionReveal>
       </ContextMenu.Trigger>
