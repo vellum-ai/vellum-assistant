@@ -493,7 +493,10 @@ const cancelGlide = (): void => {
  * Whether the surface moves at once rather than over time.
  *
  * Read per move rather than once at launch: it is the system's "Reduce
- * motion" setting, which the user can change while the app runs.
+ * motion" setting, which the user can change while the app runs. Per move
+ * and not per frame, so a glide is one thing from start to landing: a toggle
+ * during one lands the glide in flight on its timetable and decides how the
+ * next move happens.
  */
 const prefersReducedMotion = (): boolean =>
   systemPreferences.getAnimationSettings().prefersReducedMotion;
@@ -917,11 +920,19 @@ const glideAvatarTo = (
     return;
   }
   const tick = (): void => {
-    if (glide === null || win.isDestroyed()) {
+    // A frame belongs to the glide it was scheduled by, and only that glide
+    // is allowed to move the window. Checked by identity rather than against
+    // `null`: a frame of a glide that was replaced must not touch the one
+    // that replaced it, in either direction, and cancelling from here would
+    // clear the newer glide's timer, not this one's.
+    if (glide !== flight) {
+      return;
+    }
+    if (win.isDestroyed()) {
       cancelGlide();
       return;
     }
-    const t = (performance.now() - glide.startedAt) / COMPANION_GLIDE_MS;
+    const t = (performance.now() - flight.startedAt) / COMPANION_GLIDE_MS;
     if (t >= 1) {
       glide = null;
       moveAvatarTo(win, to, displayUnder(to).workArea);
@@ -936,14 +947,15 @@ const glideAvatarTo = (
     // headed for, as a drag is: a glide between displays clamped to its
     // destination's edges would jump to that edge on its first frame.
     moveAvatarTo(win, point, displayUnder(point).workArea);
-    glide.timer = setTimeout(tick, GLIDE_FRAME_MS);
+    flight.timer = setTimeout(tick, GLIDE_FRAME_MS);
   };
-  glide = {
+  const flight: NonNullable<typeof glide> = {
     from,
     to,
     startedAt: performance.now(),
     timer: setTimeout(tick, GLIDE_FRAME_MS),
   };
+  glide = flight;
 };
 
 /**
@@ -1811,7 +1823,13 @@ export const setCompanionSurfaceSize = (
     geometry = next;
     return;
   }
-  const centre = avatarCentre(win);
+  // Where the avatar rests, which for a glide in flight is where it is headed.
+  // The canvas is rebuilt around a point the avatar stays on, and a point it
+  // is passing through is one the next frame leaves; so the glide lands here,
+  // early, and the canvas is built around its landing. Left running, its
+  // frames would step a line measured in the old geometry across the new one.
+  const centre = glide === null ? avatarCentre(win) : glide.to;
+  cancelGlide();
   geometry = next;
   const { workArea } = screen.getDisplayNearestPoint({
     x: Math.round(centre.x),
