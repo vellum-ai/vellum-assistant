@@ -731,9 +731,7 @@
   },
   "frameGateHud": {
     "collapse": "隱藏影格篩選讀數",
-    "expand": "顯示影格篩選讀數",
-    "reasonForced": "為目前正在提出的問題保留。",
-    "stepForced": "依需求保留"
+    "expand": "顯示影格篩選讀數"
   },
   "groupActions": {
     "archiveAll": "全部封存…",
