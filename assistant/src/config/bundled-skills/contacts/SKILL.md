@@ -123,7 +123,7 @@ Opens a confirmation naming both contacts and listing the channels that move. No
 - Notes from both contacts are combined
 - The donor record is deleted
 
-The survivor keeps its own interaction count; the donor's is not carried over.
+A contact's interaction count is the sum over its channels, so a moved channel brings its history with it. An address the survivor already holds is left where it is, and its donor-side history goes with the deleted record.
 
 Nobody loses access: every address that reached the donor reaches the survivor afterwards. A guardian contact cannot be the donor, so keep the guardian as the survivor.
 
