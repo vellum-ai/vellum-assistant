@@ -21,6 +21,7 @@
  */
 
 import {
+  endLiveVoiceSession,
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -161,6 +162,24 @@ export function startVoiceFromSurface(
   }
   void navigate(routes.assistant);
   requestVoiceStart(navigate, options);
+}
+
+/**
+ * Start a session, or end the one that is running: the keyboard's version of
+ * Talk.
+ *
+ * A key differs from a button in one way: the same press has to undo itself,
+ * because a global gesture is often the only voice control within reach of
+ * someone working in another app. Talk stays start-only, since the surface
+ * that draws it also draws a way to stop. Both the voice mode shortcut and
+ * the voice key's double tap come through here, so the two cannot drift.
+ */
+export function toggleVoiceFromSurface(navigate: VoiceStartNavigate): void {
+  if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+    endLiveVoiceSession();
+    return;
+  }
+  startVoiceFromSurface(navigate);
 }
 
 /**

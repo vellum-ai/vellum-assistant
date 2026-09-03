@@ -2167,8 +2167,6 @@
     "customKey": "自定义",
     "defaultBadge": "默认",
     "enableVoiceShortcut": "启用语音模式快捷方式",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn 需要输入监控。请在“系统设置”中授予权限，或设置自定义快捷方式。",
     "focusedTabNote": "按键说话仅在此标签页处于焦点时有效，并且浏览器可能会在页面识别之前拦截某些快捷方式（例如 Ctrl+T）。如需始终开启按键说话功能，请使用 Vellum 桌面应用。",
     "grantMicrophoneAccessHint": "授予麦克风访问权限以列出可用的输入设备。",
     "interruptSensitivityAriaLabel": "打断灵敏度",
@@ -2186,7 +2184,6 @@
     "pauseBeforeReplyDescription": "您停止说话后，助手等待多久才回复。更长的暂停时间可让您在句子中间整理思绪，而不会被打断。",
     "pauseBeforeReplyLabel": "回复前暂停",
     "pressShortcut": "按下快捷方式…",
-    "recommendedBadge": "推荐",
     "recordingPrompt": "按下组合键或按键…",
     "resetToDefaults": "恢复默认设置",
     "savedMicrophone": "已保存的麦克风",
@@ -2211,6 +2208,20 @@
     "voiceShortcutSubtitleDesktop": "用于开始/结束语音对话的全局快捷方式。",
     "voiceShortcutTitle": "语音模式快捷方式",
     "captionsRecommendation": "我们建议初次使用时保持关闭，体验更接近真实对话。"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "允许输入监控",
+    "customHint": "按住 Cmd、Ctrl、Option、Shift 中的两个或更多键，然后松开。",
+    "customLabel": "自定义",
+    "fnDictationNote": "如果 macOS 听写在连按两次 Fn 时启动，请在“系统设置”的“键盘”中关闭它。",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "在允许输入监控之前，无法监听该键。",
+    "offLabel": "关闭",
+    "recordingPrompt": "按住修饰键…",
+    "refusedNote": "无法监听该键。请重启应用后重试。",
+    "subtitle": "按住可在光标处听写或询问所选内容。连按两次可开始或结束通话。",
+    "title": "语音键",
+    "voiceOverNote": "Control 和 Option 是 VoiceOver 的修饰键。如果你使用 VoiceOver，其命令会优先占用这些键。"
   },
   "voicePickerCard": {
     "changeButton": "更改",

@@ -15,16 +15,18 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import {
   announceAskRefused,
   askVoiceFromSurface,
+  toggleVoiceFromSurface,
 } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
-import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
+import { useVoiceKey } from "@/domains/chat/voice/use-voice-key";
+import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import {
   markHoldDictation,
-  useHoldToDictateEnabled,
-} from "@/utils/hold-to-dictate";
-import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
+  useVoiceKey as useVoiceKeySetting,
+} from "@/utils/voice-key";
+import { useVoiceKeyRegistrationStore } from "@/stores/voice-key-registration-store";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
@@ -233,7 +235,10 @@ export function GlobalPushToTalkBridge({
     stream: voiceStream,
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
-  const holdToDictateEnabled = useHoldToDictateEnabled();
+  const voiceKey = useVoiceKeySetting();
+  const setVoiceKeyRegistered = useVoiceKeyRegistrationStore(
+    (state) => state.setRegistered,
+  );
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   useEffect(() => {
@@ -255,10 +260,10 @@ export function GlobalPushToTalkBridge({
   // (RootLayout) while the chat composer only exists on chat routes; the
   // overlay must mirror dictation hosted by either VoiceInputButton
   // instance. Reads everything from the shared recording store.
-  // While the hold is bound, the companion surface carries the status instead:
-  // one surface saying a microphone is open rather than a panel and a pill
-  // saying it separately.
-  useDictationOverlaySync({ suppressed: holdToDictateEnabled });
+  // While the voice key is bound, the companion surface carries the status
+  // instead: one surface saying a microphone is open rather than a panel and
+  // a pill saying it separately.
+  useDictationOverlaySync({ suppressed: voiceKey.kind !== "off" });
 
   /**
    * The recorder a held key drives, which is always this bridge's own.
@@ -299,14 +304,15 @@ export function GlobalPushToTalkBridge({
   // same way dictation is.
   useVoiceModeHotkey({ enabled: supportsKeyboardActivation() });
 
-  // Hold to dictate, from whatever app the user is in. The same target the
-  // overlay's stop button drives, so a hold and a press are the same dictation
-  // and land the same way: through `handleTranscript` below, which cleans the
-  // transcript up and drops it at the cursor. A hold made over a selection is
-  // the one exception: its words are a question about the selection, and go
-  // to the assistant instead.
-  useHoldToDictate({
-    enabled: holdToDictateEnabled,
+  // The voice key, from whatever app the user is in. A hold drives the same
+  // target the overlay's stop button drives, so a hold and a press are the
+  // same dictation and land the same way: through `handleTranscript` below,
+  // which cleans the transcript up and drops it at the cursor. A hold made
+  // over a selection is the one exception: its words are a question about the
+  // selection, and go to the assistant instead. A double tap is Talk.
+  useVoiceKey({
+    key: voiceKey,
+    onRegistered: setVoiceKeyRegistered,
     onHoldStart: ({ selection }) => {
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
@@ -328,6 +334,9 @@ export function GlobalPushToTalkBridge({
         return;
       }
       holdTarget()?.stop();
+    },
+    onDoubleTap: () => {
+      toggleVoiceFromSurface((to, options) => navigateRef.current(to, options));
     },
   });
 

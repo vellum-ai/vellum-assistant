@@ -1,14 +1,22 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
+let onElectron = false;
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => onElectron,
+}));
+
+const {
   LS_VOICE_MODE_ACTIVATION_KEY,
   defaultVoiceModeActivator,
   isValidVoiceModeActivator,
   keyboardDefaultActivator,
   readVoiceModeActivator,
   writeVoiceModeActivator,
-} from "@/utils/voice-mode-activation";
-import { FN_PTT_ACTIVATOR } from "@/utils/ptt-activator";
+} = await import("@/utils/voice-mode-activation");
+
+beforeEach(() => {
+  onElectron = false;
+});
 
 afterEach(() => {
   localStorage.removeItem(LS_VOICE_MODE_ACTIVATION_KEY);
@@ -22,10 +30,6 @@ describe("isValidVoiceModeActivator", () => {
         modifiers: ["control"],
       }),
     ).toBe(false);
-  });
-
-  test("accepts Fn, the one modifier nothing else claims", () => {
-    expect(isValidVoiceModeActivator(FN_PTT_ACTIVATOR)).toBe(true);
   });
 
   test("accepts a chord and an explicit off", () => {
@@ -42,19 +46,12 @@ describe("isValidVoiceModeActivator", () => {
 
 describe("readVoiceModeActivator", () => {
   test("defaults to the keyboard chord with nothing stored", () => {
-    expect(readVoiceModeActivator(false)).toEqual(keyboardDefaultActivator());
+    expect(readVoiceModeActivator()).toEqual(keyboardDefaultActivator());
   });
 
-  test("binds nothing on a Fn-capable host until the user picks a key", () => {
-    // The release blocker this answers: Fn used to be the out-of-the-box
-    // binding, so a fresh install claimed the Globe key from whatever the OS
-    // had it doing (Start Dictation, on a lot of machines) without ever asking.
-    expect(readVoiceModeActivator(true)).toEqual({ kind: "off" });
-  });
-
-  test("honours Fn once the user has chosen it", () => {
-    writeVoiceModeActivator(FN_PTT_ACTIVATOR);
-    expect(readVoiceModeActivator(true)).toEqual(FN_PTT_ACTIVATOR);
+  test("binds nothing on the desktop app, where the DOM chord is never bound", () => {
+    onElectron = true;
+    expect(readVoiceModeActivator()).toEqual({ kind: "off" });
   });
 
   test("round-trips a stored chord", () => {
@@ -64,12 +61,12 @@ describe("readVoiceModeActivator", () => {
       modifiers: ["control" as const, "shift" as const],
     };
     writeVoiceModeActivator(chord);
-    expect(readVoiceModeActivator(false)).toEqual(chord);
+    expect(readVoiceModeActivator()).toEqual(chord);
   });
 
   test("keeps an explicit off", () => {
     writeVoiceModeActivator({ kind: "off" });
-    expect(readVoiceModeActivator(false)).toEqual({ kind: "off" });
+    expect(readVoiceModeActivator()).toEqual({ kind: "off" });
   });
 
   test("falls back to the host default for an unusable stored value", () => {
@@ -80,12 +77,16 @@ describe("readVoiceModeActivator", () => {
       LS_VOICE_MODE_ACTIVATION_KEY,
       JSON.stringify({ kind: "modifierOnly", modifiers: ["control"] }),
     );
-    expect(readVoiceModeActivator(false)).toEqual(keyboardDefaultActivator());
+    expect(readVoiceModeActivator()).toEqual(keyboardDefaultActivator());
   });
 
-  test("substitutes the chord for a stored Fn binding the host cannot see", () => {
-    writeVoiceModeActivator(FN_PTT_ACTIVATOR);
-    expect(readVoiceModeActivator(false)).toEqual(keyboardDefaultActivator());
+  /** Fn was this setting's answer before it became the voice key. */
+  test("reads a stored Fn binding as nothing usable", () => {
+    localStorage.setItem(
+      LS_VOICE_MODE_ACTIVATION_KEY,
+      JSON.stringify({ kind: "modifierOnly", modifiers: ["function"] }),
+    );
+    expect(readVoiceModeActivator()).toEqual(keyboardDefaultActivator());
   });
 });
 
@@ -98,7 +99,8 @@ describe("defaultVoiceModeActivator", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("never hands out Fn, which is the user's key to give", () => {
-    expect(defaultVoiceModeActivator(true)).toEqual({ kind: "off" });
+  test("is off on the desktop app", () => {
+    onElectron = true;
+    expect(defaultVoiceModeActivator()).toEqual({ kind: "off" });
   });
 });
