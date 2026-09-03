@@ -66,6 +66,20 @@ describe("the voice key", () => {
       });
     });
 
+    test("keeps a hold that was switched off, off", () => {
+      localStorage.setItem(LS_LEGACY_HOLD, "false");
+      expect(readVoiceKey()).toEqual({ kind: "off" });
+    });
+
+    test("a chosen Fn tap outranks a hold that was switched off", () => {
+      localStorage.setItem(LS_LEGACY_HOLD, "false");
+      localStorage.setItem(
+        LS_LEGACY_ACTIVATION,
+        JSON.stringify({ kind: "modifierOnly", modifiers: ["function"] }),
+      );
+      expect(readVoiceKey()).toEqual(FN_VOICE_KEY);
+    });
+
     test("keeps a shortcut that was turned off", () => {
       localStorage.setItem(
         LS_LEGACY_ACTIVATION,

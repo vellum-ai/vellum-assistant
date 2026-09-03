@@ -46,7 +46,8 @@ const LEGACY_HOLD_MODIFIERS: KeyboardModifier[] = ["control", "option"];
 /**
  * The two settings this one replaces, read when it is not yet stored so an
  * upgrade keeps what the user had: a hold on Ctrl+Option stays on Ctrl+Option,
- * and a shortcut turned off stays off.
+ * a chosen Fn tap lands on Fn, and anything the user switched off (the hold,
+ * or the shortcut) stays off rather than becoming a key they never asked for.
  */
 const LS_LEGACY_HOLD_TO_DICTATE = "vellum:voice:holdToDictate";
 const LS_LEGACY_VOICE_MODE_ACTIVATION = "vellum:voice:voiceModeActivation";
@@ -89,11 +90,17 @@ function parseVoiceKey(raw: string): VoiceKey | null {
 }
 
 function legacyVoiceKey(): VoiceKey {
-  if (getLocalSetting(LS_LEGACY_HOLD_TO_DICTATE, "") === "true") {
+  const hold = getLocalSetting(LS_LEGACY_HOLD_TO_DICTATE, "");
+  if (hold === "true") {
     return { kind: "modifierOnly", modifiers: LEGACY_HOLD_MODIFIERS };
   }
   const activation = getLocalSetting(LS_LEGACY_VOICE_MODE_ACTIVATION, "");
-  if (activation && parseActivator(activation).kind === "off") {
+  const activator = activation ? parseActivator(activation) : null;
+  if (activator?.kind === "modifierOnly") {
+    // The one bare modifier that setting accepted on this host was Fn.
+    return FN_VOICE_KEY;
+  }
+  if (hold === "false" || activator?.kind === "off") {
     return { kind: "off" };
   }
   return FN_VOICE_KEY;
