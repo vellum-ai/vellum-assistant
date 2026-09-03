@@ -63,7 +63,6 @@ import {
   type AmoebaTarget,
 } from "./amoeba-avatar";
 import { AssistantNameEditor } from "./assistant-name-editor";
-import { resolveAvatarHex } from "./assistant-stage";
 import {
   buildIdentitySections,
   type IdentitySection,
@@ -230,6 +229,8 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     components,
     traits,
     customImageUrl,
+    accentHex,
+    accent,
     isLoading: isAvatarLoading,
     invalidate: invalidateAvatar,
   } = useAssistantAvatar(assistantId);
@@ -307,10 +308,11 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
 
   const sections = buildIdentitySections({ isNativeMobile });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
-  const avatarHex = resolveAvatarHex(components, traits);
-  // Custom image (no character color): the page background becomes the
-  // photo itself, blown up and heavily blurred behind the content.
-  const photoBackdrop = Boolean(customImageUrl) && !avatarHex;
+  // Custom image: the page background becomes the photo itself, blown up and
+  // heavily blurred behind the content, which says more about the assistant
+  // than a wash of its accent would. A character tints the page in its colour.
+  const photoBackdrop = Boolean(customImageUrl);
+  const avatarHex = photoBackdrop ? null : accentHex;
 
   return (
     <PageShell
@@ -378,8 +380,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
         components={components}
         traits={traits}
         customImageUrl={customImageUrl}
+        accent={accent}
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
+        onSaveAccent={handleAvatarChange}
         assistantName={
           identityQuery.data?.identity?.name ||
           t("identityOverview.defaultAssistantName")

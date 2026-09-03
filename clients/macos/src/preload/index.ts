@@ -284,8 +284,12 @@ const bridge: VellumBridge = {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
     },
-    setCharacter: (character): void => {
-      ipcRenderer.send("vellum:icon:setCharacter", character);
+    setCharacter: (character, accentHex): void => {
+      ipcRenderer.send(
+        "vellum:icon:setCharacter",
+        character,
+        accentHex ?? null,
+      );
     },
   },
   dock: {

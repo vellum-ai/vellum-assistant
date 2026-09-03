@@ -132,8 +132,12 @@ export function AssistantNavItem({
   expansion,
 }: AssistantNavItemProps) {
   const { t } = useTranslation("chat");
-  const { components, traits, customImageUrl } =
-    useAssistantAvatar(assistantId);
+  const {
+    components,
+    traits,
+    customImageUrl,
+    accentHex: hex,
+  } = useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
   // While the onboarding tour owns the nav rows (flooding them with its own
   // eyes treatment), this component's eyes and its loop stay completely
@@ -238,15 +242,9 @@ export function AssistantNavItem({
     };
   }, [reduce, navTourActive, collapsed, eyesControls]);
 
-  const hex =
-    (components &&
-      traits &&
-      components.colors.find((c) => c.id === traits.color)?.hex) ||
-    null;
-
   /* A wash of the assistant's colour under the identity pill's solid fill, at
      the same depth the pinned apps below it wear, so the column's tinted rows
-     agree. Without a character avatar there is no hue to mix and nothing is
+     agree. Without an avatar colour there is no hue to mix and nothing is
      declared, leaving the plain surface both the pill and the tile fall back
      to; while the tour owns the nav the wash drains with the identity pill's
      fill.
@@ -360,11 +358,17 @@ export function AssistantNavItem({
       </span>
     ) : null;
 
-  if (!hex) {
-    // No character avatar (custom image / not loaded): a plain-toned row
-    // that keeps the New Chat row's geometry — the Brain icon centers in
-    // the same CHIP_SIZE slot the plus chip and the eyes use, so both
-    // rows' labels stay on one axis.
+  /* Saved traits outrank an uploaded image, as they do in ChatAvatar; an
+     image displaces only the default creature. Decided from the traits, not
+     from the accent: an image carries an accent of its own now, and that
+     colour washes the New Chat row above without making the row a character. */
+  const wearsImage = customImageUrl !== null && !traits;
+
+  if (!hex || wearsImage) {
+    // No character to draw (an uploaded image, or an avatar not loaded yet):
+    // a plain-toned row that keeps the New Chat row's geometry. The uploaded
+    // image, or else the Brain icon, centers in the same CHIP_SIZE slot the
+    // plus chip and the eyes use, so both rows' labels stay on one axis.
     return (
       <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
         {collapsed ? (

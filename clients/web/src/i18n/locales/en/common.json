@@ -70,6 +70,10 @@
     "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
   },
   "avatarManagementModal": {
+    "accent": "Accent",
+    "accentAutomatic": "Automatic",
+    "accentPickerLabel": "Accent color",
+    "accentReset": "Reset",
     "body": "Body",
     "color": "Color",
     "eyes": "Eyes",

@@ -36,10 +36,10 @@ import { ConversationListProvider } from "@/domains/chat/components/conversation
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
-import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterTraits } from "@/types/avatar";
 import type { Conversation } from "@/types/conversation-types";
+import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SYSTEM_ASSISTANT_GROUP_ID } from "@/utils/conversation-list-fetchers";
 import { conversationListQueryKey } from "@/utils/conversation-list-keys";
@@ -64,7 +64,11 @@ const AVATAR_TRAITS: CharacterTraits = {
  * bundled palette id.)
  */
 const ACCENT =
-  resolveAvatarAccentHex(BUNDLED_COMPONENTS, AVATAR_TRAITS) ?? undefined;
+  resolveAvatarAccentHex({
+    components: BUNDLED_COMPONENTS,
+    traits: AVATAR_TRAITS,
+    customImageUrl: null,
+  }) ?? undefined;
 
 /**
  * Threads written the way a heartbeat realization actually reads — an

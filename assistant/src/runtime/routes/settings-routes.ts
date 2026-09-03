@@ -117,7 +117,7 @@ async function handleGenerateAvatar({ body = {}, headers }: RouteHandlerArgs) {
 
     // Route through the store so traits sidecars are cleared and the manifest
     // is recorded as an AI-sourced image atomically.
-    setImage(result.pngBuffer, "ai");
+    await setImage(result.pngBuffer, "ai");
 
     const avatarPath = getAvatarImagePath();
 

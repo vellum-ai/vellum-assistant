@@ -70,6 +70,10 @@
     "updateFailed": "无法更新“{label}”。您的更改已恢复。"
   },
   "avatarManagementModal": {
+    "accent": "强调色",
+    "accentAutomatic": "自动",
+    "accentPickerLabel": "强调色",
+    "accentReset": "重置",
     "body": "身体",
     "color": "颜色",
     "eyes": "眼睛",

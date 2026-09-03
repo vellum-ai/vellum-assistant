@@ -161,8 +161,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 // the three states the room actually branches on are all reachable: a resolved
 // sample, a still-pending one, and an image that could not be read.
 let mockCustomFieldHex: string | null = null;
-mock.module("@/domains/chat/voice/voice-room/use-custom-avatar-field", () => ({
-  useCustomAvatarFieldHex: () => mockCustomFieldHex,
+mock.module("@/domains/chat/voice/voice-room/use-sampled-avatar-accent", () => ({
+  useSampledAvatarAccentHex: () => mockCustomFieldHex,
   clearCustomAvatarFieldCache: () => {},
 }));
 

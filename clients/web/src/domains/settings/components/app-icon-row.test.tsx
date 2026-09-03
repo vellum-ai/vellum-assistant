@@ -101,6 +101,7 @@ const CHARACTER: AvatarState = {
   traits: TRAITS,
   source: "builder",
   image: null,
+  accent: null,
 };
 
 const IMAGE: AvatarState = {
@@ -108,6 +109,7 @@ const IMAGE: AvatarState = {
   traits: null,
   source: "upload",
   image: null,
+  accent: null,
 };
 
 let avatarState: AvatarState | null = CHARACTER;

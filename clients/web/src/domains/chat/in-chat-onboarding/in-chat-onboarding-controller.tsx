@@ -43,7 +43,7 @@ export function InChatOnboardingController() {
   const tourRun = useInChatOnboardingStore.use.tourRun();
   const finishTour = useInChatOnboardingStore.use.finishTour();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const { components, traits } = useAssistantAvatar(assistantId);
+  const { accentHex: accent } = useAssistantAvatar(assistantId);
 
   const tourRef = useRef<AvatarTourHandle | null>(null);
   /** True once Skip was pressed this run — tells the done handler to emit
@@ -54,12 +54,6 @@ export function InChatOnboardingController() {
   /** Latches on first landing so the chat doesn't flash back between stops. */
   const [takeover, setTakeover] = useState(false);
   const [progress, setProgress] = useState<TourProgress | null>(null);
-
-  const accent =
-    (components &&
-      traits &&
-      components.colors.find((c) => c.id === traits.color)?.hex) ||
-    null;
 
   const handleStepChange = useCallback((step: TourStep | null) => {
     setNarrationStep(step);

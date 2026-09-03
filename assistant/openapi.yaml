@@ -2019,6 +2019,103 @@ paths:
                   - userId
                   - authenticated
                 additionalProperties: false
+  /v1/avatar/accent:
+    post:
+      operationId: avatar_accent_post
+      summary: Set avatar accent
+      description:
+        "Set the accent colour over the current avatar as #rrggbb, or null to return to the automatic one (the
+        character's palette colour, or the colour read out of the uploaded image)."
+      tags:
+        - avatar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hex:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - hex
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - character
+                      - image
+                      - none
+                  traits:
+                    anyOf:
+                      - type: object
+                        properties:
+                          bodyShape:
+                            type: string
+                          eyeStyle:
+                            type: string
+                          color:
+                            type: string
+                        required:
+                          - bodyShape
+                          - eyeStyle
+                          - color
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - builder
+                          - upload
+                          - ai
+                      - type: "null"
+                  image:
+                    anyOf:
+                      - type: object
+                        properties:
+                          updatedAt:
+                            type: string
+                          etag:
+                            type: string
+                        required:
+                          - updatedAt
+                          - etag
+                        additionalProperties: false
+                      - type: "null"
+                  accent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          hex:
+                            type: string
+                          source:
+                            type: string
+                            enum:
+                              - palette
+                              - derived
+                              - custom
+                        required:
+                          - hex
+                          - source
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - kind
+                  - traits
+                  - source
+                  - image
+                  - accent
+                additionalProperties: false
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get
@@ -2390,7 +2487,7 @@ paths:
     get:
       operationId: avatar_state_get
       summary: Get avatar state
-      description: Return the authoritative avatar render mode (character, image, or none).
+      description: Return the authoritative avatar render mode (character, image, or none) and its accent colour.
       tags:
         - avatar
       responses:
@@ -2444,11 +2541,29 @@ paths:
                           - etag
                         additionalProperties: false
                       - type: "null"
+                  accent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          hex:
+                            type: string
+                          source:
+                            type: string
+                            enum:
+                              - palette
+                              - derived
+                              - custom
+                        required:
+                          - hex
+                          - source
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - kind
                   - traits
                   - source
                   - image
+                  - accent
                 additionalProperties: false
   /v1/background-tools:
     get:

@@ -29,11 +29,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
-import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import type { CharacterTraits } from "@/types/avatar";
 import type { Conversation } from "@/types/conversation-types";
+import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import {
   SYSTEM_ALL_GROUP_ID,
@@ -67,7 +67,11 @@ const AVATAR_TRAITS: CharacterTraits = {
  * unreachable null arm; the trait color is a bundled palette id.)
  */
 const ACCENT =
-  resolveAvatarAccentHex(BUNDLED_COMPONENTS, AVATAR_TRAITS) ?? undefined;
+  resolveAvatarAccentHex({
+    components: BUNDLED_COMPONENTS,
+    traits: AVATAR_TRAITS,
+    customImageUrl: null,
+  }) ?? undefined;
 
 /**
  * Threads the way a heartbeat realization actually reads — an observation the
