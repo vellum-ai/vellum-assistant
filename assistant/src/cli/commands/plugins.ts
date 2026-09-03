@@ -55,7 +55,7 @@ import {
 } from "../lib/toggle-plugin.js";
 import type { PluginUpgradeResult } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
-import { pluginsHelp } from "./plugins.help.js";
+import { PLUGINS_SEARCH_INSTALL_HINT, pluginsHelp } from "./plugins.help.js";
 
 const loadModule = createRequire(import.meta.url);
 
@@ -606,6 +606,7 @@ export function registerPluginsCommand(program: Command): void {
             console.log(
               `${result.matches.length} match${result.matches.length === 1 ? "" : "es"} for "${result.query}".`,
             );
+            console.log(PLUGINS_SEARCH_INSTALL_HINT);
           } catch (err) {
             if (err instanceof libs.search.InvalidSearchPatternError) {
               console.error(err.message);
