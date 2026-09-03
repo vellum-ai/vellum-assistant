@@ -49,9 +49,35 @@ import {
   type ResearchSuggestion,
 } from "@/utils/research-facts";
 
-/** Poll cadence + ceiling for reading the streaming research reply. */
+/** Poll cadence for reading the streaming research reply. */
 const POLL_INTERVAL_MS = 1500;
-const MAX_POLL_MS = 120_000;
+/**
+ * Wall-clock budget for a research turn, measured from `start()`. Covers the
+ * hatch wait, catalog fetch, conversation setup, and reply poll. On expiry the
+ * run settles `error` and the flow continues with whatever was parsed (often
+ * nothing), so the looking-you-up step cannot hold a user for minutes.
+ */
+export const MAX_RESEARCH_WAIT_MS = 45_000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const RESEARCH_TIMED_OUT = Symbol("research-timeout");
+
+async function raceResearchDeadline<T>(
+  promise: Promise<T>,
+  deadline: number,
+): Promise<T | typeof RESEARCH_TIMED_OUT> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return RESEARCH_TIMED_OUT;
+  }
+  return Promise.race([
+    promise,
+    sleep(remaining).then(() => RESEARCH_TIMED_OUT),
+  ]);
+}
+
 /**
  * Consecutive identical non-empty reads that mark the turn settled once the
  * reply has parsed as a COMPLETE JSON payload. Two matching polls (~3s apart)
@@ -368,6 +394,12 @@ export interface StartResearchOptions {
    * true so the legacy suggestions flow is unchanged.
    */
   includeSuggestions?: boolean;
+  /**
+   * Wall-clock budget for this run. Defaults to `MAX_RESEARCH_WAIT_MS`. Tests
+   * pass a shorter value so a hung hatch or poll fails open without waiting
+   * the production ceiling.
+   */
+  timeoutMs?: number;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -423,9 +455,6 @@ export interface UseResearchRunner extends ResearchRunnerState {
    */
   reset: () => void;
 }
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 export function resolveOnboardingPluginInstalls({
   role,
@@ -499,6 +528,7 @@ export function useResearchRunner(): UseResearchRunner {
       resumeConversationId,
       onConversationCreated,
       includeSuggestions = true,
+      timeoutMs = MAX_RESEARCH_WAIT_MS,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) {
@@ -522,8 +552,23 @@ export function useResearchRunner(): UseResearchRunner {
         let resolvedAssistantId: string | undefined;
         let createdConversationId: string | undefined;
         let sawCompletePayload = false;
+        const deadline = Date.now() + timeoutMs;
+        const settleTimeout = () => {
+          if (isStale()) {
+            return;
+          }
+          setState((s) => ({ ...s, status: "error" }));
+        };
         try {
-          const assistantId = await awaitAssistantId();
+          const hatchResult = await raceResearchDeadline(
+            awaitAssistantId(),
+            deadline,
+          );
+          if (hatchResult === RESEARCH_TIMED_OUT) {
+            settleTimeout();
+            return;
+          }
+          const assistantId = hatchResult;
           resolvedAssistantId = assistantId;
           if (isStale()) {
             return;
@@ -534,8 +579,15 @@ export function useResearchRunner(): UseResearchRunner {
           // top-level `plugins` list) for us to install. The catalog filter keeps
           // onboarding scoped to first-party plugins; third-party plugin
           // browsing/install surfaces remain independently feature-gated.
-          const { capabilities, validNames } =
-            await fetchAvailableCapabilities(assistantId);
+          const catalogResult = await raceResearchDeadline(
+            fetchAvailableCapabilities(assistantId),
+            deadline,
+          );
+          if (catalogResult === RESEARCH_TIMED_OUT) {
+            settleTimeout();
+            return;
+          }
+          const { capabilities, validNames } = catalogResult;
           if (isStale()) {
             return;
           }
@@ -644,11 +696,18 @@ export function useResearchRunner(): UseResearchRunner {
             // running a second search. The turn keeps generating server-side
             // across the reload, so re-attach and poll it; only re-post the
             // prompt if it never landed before the refresh.
-            const existing = await messagesGet({
-              path: { assistant_id: assistantId },
-              query: { conversationId: resumeConversationId },
-              throwOnError: false,
-            });
+            const existing = await raceResearchDeadline(
+              messagesGet({
+                path: { assistant_id: assistantId },
+                query: { conversationId: resumeConversationId },
+                throwOnError: false,
+              }),
+              deadline,
+            );
+            if (existing === RESEARCH_TIMED_OUT) {
+              settleTimeout();
+              return;
+            }
             if (isStale()) {
               return;
             }
@@ -662,7 +721,15 @@ export function useResearchRunner(): UseResearchRunner {
                 existing.data?.processing === true ||
                 (existing.data?.messages ?? []).length > 0;
               if (!turnAlreadyStarted) {
-                if (!(await postResearchPrompt(conversationId))) {
+                const posted = await raceResearchDeadline(
+                  postResearchPrompt(conversationId),
+                  deadline,
+                );
+                if (posted === RESEARCH_TIMED_OUT) {
+                  settleTimeout();
+                  return;
+                }
+                if (!posted) {
                   setState((s) => ({ ...s, status: "error" }));
                   return;
                 }
@@ -676,7 +743,15 @@ export function useResearchRunner(): UseResearchRunner {
           }
 
           if (!conversationId) {
-            conversationId = await startFreshConversation();
+            const minted = await raceResearchDeadline(
+              startFreshConversation(),
+              deadline,
+            );
+            if (minted === RESEARCH_TIMED_OUT) {
+              settleTimeout();
+              return;
+            }
+            conversationId = minted;
             if (isStale()) {
               return;
             }
@@ -684,7 +759,15 @@ export function useResearchRunner(): UseResearchRunner {
               setState((s) => ({ ...s, status: "error" }));
               return;
             }
-            if (!(await postResearchPrompt(conversationId))) {
+            const posted = await raceResearchDeadline(
+              postResearchPrompt(conversationId),
+              deadline,
+            );
+            if (posted === RESEARCH_TIMED_OUT) {
+              settleTimeout();
+              return;
+            }
+            if (!posted) {
               setState((s) => ({ ...s, status: "error" }));
               return;
             }
@@ -695,8 +778,8 @@ export function useResearchRunner(): UseResearchRunner {
 
           // Poll the conversation, parsing the (possibly partial) reply each
           // pass so claims/suggestions surface as they land. Settle once the
-          // reply text stops changing.
-          const deadline = Date.now() + MAX_POLL_MS;
+          // reply text stops changing, or when the overall research budget
+          // expires.
           let lastText = "";
           let stableReads = 0;
           // Guards the telemetry report to fire exactly once: `complete` can
@@ -719,15 +802,31 @@ export function useResearchRunner(): UseResearchRunner {
           // still streaming. These union on top of the deterministic floor already
           // installing (see above); idempotent, so racing the same name is fine.
           while (Date.now() < deadline) {
-            await sleep(POLL_INTERVAL_MS);
+            const waitMs = Math.min(
+              POLL_INTERVAL_MS,
+              Math.max(0, deadline - Date.now()),
+            );
+            if (waitMs === 0) {
+              break;
+            }
+            await sleep(waitMs);
             if (isStale()) {
               return;
             }
-            const listed = await messagesGet({
-              path: { assistant_id: assistantId },
-              query: { conversationId },
-              throwOnError: false,
-            });
+            if (Date.now() >= deadline) {
+              break;
+            }
+            const listed = await raceResearchDeadline(
+              messagesGet({
+                path: { assistant_id: assistantId },
+                query: { conversationId },
+                throwOnError: false,
+              }),
+              deadline,
+            );
+            if (listed === RESEARCH_TIMED_OUT) {
+              break;
+            }
             if (isStale()) {
               return;
             }

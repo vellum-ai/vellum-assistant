@@ -231,6 +231,30 @@ describe("research prompt send", () => {
   });
 });
 
+describe("research wait budget", () => {
+  test("a poll that never completes settles error when the budget expires", async () => {
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+        timeoutMs: 40,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("error");
+    });
+    expect(result.current.claims).toEqual([]);
+    expect(createCalls).toHaveLength(1);
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+});
+
 describe("research conversation archive", () => {
   test("archives the side conversation when the prompt fails to post", async () => {
     // A failed prompt POST abandons the run before the poll loop, with the

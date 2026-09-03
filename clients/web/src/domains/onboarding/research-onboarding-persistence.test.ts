@@ -179,4 +179,32 @@ describe("resolveResumeStep", () => {
       "letschat",
     );
   });
+
+  test("skips the research reveal when role and hobbies are both empty", () => {
+    const emptyDetails = {
+      firstName: "Alice",
+      lastName: "",
+      role: "",
+      hobbies: [] as string[],
+    };
+    expect(
+      resolveResumeStep(
+        baseSnapshot({ step: "looking", formValues: emptyDetails }),
+      ),
+    ).toBe("suggestions");
+    expect(
+      resolveResumeStep(
+        baseSnapshot({ step: "results", formValues: emptyDetails }),
+      ),
+    ).toBe("suggestions");
+    expect(
+      resolveResumeStep(
+        baseSnapshot({
+          step: "meeting",
+          checkinBooked: true,
+          formValues: emptyDetails,
+        }),
+      ),
+    ).toBe("suggestions");
+  });
 });

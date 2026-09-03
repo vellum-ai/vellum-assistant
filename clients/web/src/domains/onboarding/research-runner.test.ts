@@ -10,7 +10,7 @@
 import { createElement, type ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "bun:test";
 
 import type { ResearchSubject } from "@/domains/onboarding/research-prompt";
@@ -236,6 +236,25 @@ describe("useResearchRunner reset", () => {
     });
     expect(hatch.calls).toBe(2);
     expect(result.current.status).toBe("running");
+  });
+
+  test("a hung hatch settles error when the research budget expires", async () => {
+    const hatch = pendingHatch();
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+        timeoutMs: 30,
+      });
+    });
+    expect(result.current.status).toBe("running");
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("error");
+    });
+    expect(result.current.claims).toEqual([]);
   });
 
   test("reset leaves the plugin-install gate resolved", async () => {

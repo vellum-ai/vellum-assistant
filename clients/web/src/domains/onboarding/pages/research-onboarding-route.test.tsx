@@ -58,7 +58,13 @@ let researchStatus = "idle";
 const startResearchMock = mock((_opts: unknown) => {
   researchStatus = "running";
 });
-const hydrateResearchMock = mock((_results: unknown, _await?: unknown) => {});
+const hydrateResearchMock = mock(
+  (results: { status?: string }, _await?: unknown) => {
+    if (results.status) {
+      researchStatus = results.status;
+    }
+  },
+);
 const resetResearchMock = mock(() => {});
 const reinstallPluginsMock = mock((_names: string[], _await: unknown) => {});
 let installedPlugins: string[] = [];
@@ -259,20 +265,36 @@ mock.module("@/domains/onboarding/screens/research-onboarding-screen", () => ({
   ResearchOnboardingScreen: (props: {
     onSubmit: (values: unknown) => void;
   }) => (
-    <button
-      type="button"
-      data-testid="form-submit"
-      onClick={() =>
-        props.onSubmit({
-          firstName: "Alice",
-          lastName: "Example",
-          role: "Engineer",
-          hobbies: [],
-        })
-      }
-    >
-      submit
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid="form-submit"
+        onClick={() =>
+          props.onSubmit({
+            firstName: "Alice",
+            lastName: "Example",
+            role: "Engineer",
+            hobbies: [],
+          })
+        }
+      >
+        submit
+      </button>
+      <button
+        type="button"
+        data-testid="form-submit-name-only"
+        onClick={() =>
+          props.onSubmit({
+            firstName: "Alice",
+            lastName: "",
+            role: "",
+            hobbies: [],
+          })
+        }
+      >
+        submit name only
+      </button>
+    </>
   ),
 }));
 
@@ -392,9 +414,8 @@ mock.module("@/domains/onboarding/hooks/use-onboarding-stage-size", () => ({
   ),
 }));
 
-const { ResearchOnboardingRoute } = await import(
-  "@/domains/onboarding/pages/research-onboarding-route"
-);
+const { ResearchOnboardingRoute } =
+  await import("@/domains/onboarding/pages/research-onboarding-route");
 
 function postFormSnapshot(
   overrides: Partial<ResearchOnboardingSnapshot> = {},
@@ -855,8 +876,86 @@ describe("ResearchOnboardingRoute paid return", () => {
   });
 });
 
+describe("ResearchOnboardingRoute empty-details research skip", () => {
+  const nameOnly = {
+    firstName: "Alice",
+    lastName: "",
+    role: "",
+    hobbies: [] as string[],
+  };
+
+  test("a name-only submit hydrates empty results and never starts research", async () => {
+    render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("form-submit-name-only"));
+
+    await waitFor(() => expect(screen.getByTestId("face-step")).toBeTruthy());
+    expect(startResearchMock).not.toHaveBeenCalled();
+    expect(hydrateResearchMock).toHaveBeenCalledWith({
+      status: "done",
+      claims: [],
+      droppedClaims: [],
+      suggestions: [],
+      installedPlugins: [],
+      pluginCatalog: {},
+    });
+  });
+
+  test("a restored looking snapshot with empty role and hobbies skips the reveal", async () => {
+    writeResearchSnapshot(
+      USER_ID,
+      postFormSnapshot({ step: "looking", formValues: nameOnly }),
+    );
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+    );
+    await waitFor(() =>
+      expect(hydrateResearchMock).toHaveBeenCalledWith({
+        status: "done",
+        claims: [],
+        droppedClaims: [],
+        suggestions: [],
+        installedPlugins: [],
+        pluginCatalog: {},
+      }),
+    );
+    expect(screen.queryByTestId("looking-step")).toBeNull();
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  test("a restored snapshot with a role still starts research", async () => {
+    writeResearchSnapshot(
+      USER_ID,
+      postFormSnapshot({
+        formValues: { ...nameOnly, role: "Engineer" },
+      }),
+    );
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("looking-step")).toBeTruthy();
+  });
+
+  test("a restored snapshot with hobbies still starts research", async () => {
+    writeResearchSnapshot(
+      USER_ID,
+      postFormSnapshot({
+        formValues: { ...nameOnly, hobbies: ["chess"] },
+      }),
+    );
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("looking-step")).toBeTruthy();
+  });
+});
+
 // Retrying the hatch must restart everything that already resolved against the
-// dead one: the established-assistant verdict (otherwise it stays fail-open
+// dead one: the established-assistant verdict (otherwise it stays fail-open)
 // from the rejected `awaitReady`), a research turn that settled "error" while
 // holding its subject key (otherwise an identical resubmit dedupes to a no-op),
 // the persona apply that swallowed the same rejection behind locked sliders,
