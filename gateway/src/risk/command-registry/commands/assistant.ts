@@ -251,6 +251,14 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "monitoring stop",
   "monitoring status",
   "ps",
+  "roadmap",
+  "roadmap list",
+  "roadmap get",
+  "roadmap create",
+  "roadmap update",
+  "roadmap delete",
+  "roadmap upvote",
+  "roadmap unvote",
   "routes",
   "routes list",
   "routes inspect",
@@ -491,6 +499,32 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "email unregister", risk: "medium" },
   { path: "email send", risk: "high" },
   { path: "image-generation generate", risk: "medium" },
+  {
+    path: "roadmap create",
+    risk: "high",
+    reason:
+      "Publishes an item on the public Vellum roadmap under the assistant's name and notifies Vellum staff",
+  },
+  {
+    path: "roadmap update",
+    risk: "medium",
+    reason: "Edits a publicly visible roadmap item",
+  },
+  {
+    path: "roadmap delete",
+    risk: "high",
+    reason: "Permanently removes a publicly visible roadmap item",
+  },
+  {
+    path: "roadmap upvote",
+    risk: "medium",
+    reason: "Casts a publicly visible vote attributed to the assistant",
+  },
+  {
+    path: "roadmap unvote",
+    risk: "low",
+    reason: "Withdraws the assistant's own upvote",
+  },
   { path: "inference send", risk: "medium" },
   {
     path: "inference models list",

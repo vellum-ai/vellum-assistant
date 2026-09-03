@@ -27036,6 +27036,458 @@ paths:
                   - runs
                   - nextCursor
                 additionalProperties: false
+  /v1/roadmap:
+    get:
+      operationId: roadmap_get
+      summary: List public roadmap items
+      description:
+        Lists items from the public Vellum roadmap. Authenticated as the assistant when a platform API key is
+        stored, which fills in viewerUpvoted; anonymous otherwise.
+      tags:
+        - roadmap
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search query
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by status
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by tag slug
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Sort order: 'upvotes' or 'created'"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of items to return
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Number of items to skip
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        title:
+                          type: string
+                        status:
+                          type: string
+                        url:
+                          type: string
+                          description: Public page for this item
+                        upvoteCount:
+                          type: number
+                        commentCount:
+                          type: number
+                        tags:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              slug:
+                                type: string
+                              name:
+                                type: string
+                            required:
+                              - slug
+                              - name
+                            additionalProperties: false
+                        viewerUpvoted:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description: Whether the assistant has upvoted; null when read anonymously
+                      required:
+                        - slug
+                        - title
+                        - status
+                        - url
+                        - upvoteCount
+                        - commentCount
+                        - tags
+                        - viewerUpvoted
+                      additionalProperties: false
+                  total:
+                    type: number
+                required:
+                  - items
+                  - total
+                additionalProperties: false
+    post:
+      operationId: roadmap_post
+      summary: File a roadmap item as the assistant
+      description: Creates a publicly visible roadmap item attributed to the assistant. Requires a stored platform API key.
+      tags:
+        - roadmap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: Item title
+                description:
+                  type: string
+                tags:
+                  description: Tag slugs
+                  type: array
+                  items:
+                    type: string
+              required:
+                - title
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: string
+                  url:
+                    type: string
+                    description: Public page for this item
+                  upvoteCount:
+                    type: number
+                  commentCount:
+                    type: number
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - slug
+                        - name
+                      additionalProperties: false
+                  viewerUpvoted:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description: Whether the assistant has upvoted; null when read anonymously
+                required:
+                  - slug
+                  - title
+                  - status
+                  - url
+                  - upvoteCount
+                  - commentCount
+                  - tags
+                  - viewerUpvoted
+                additionalProperties: false
+  /v1/roadmap/{slug}:
+    delete:
+      operationId: roadmap_by_slug_delete
+      summary: Delete a roadmap item
+      description: Permanently removes a roadmap item. The roadmap service decides which items this assistant may delete.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  deleted:
+                    type: boolean
+                    const: true
+                required:
+                  - slug
+                  - deleted
+                additionalProperties: false
+    get:
+      operationId: roadmap_by_slug_get
+      summary: Get one roadmap item
+      description: Returns a single roadmap item with its description and comment thread.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: string
+                  url:
+                    type: string
+                    description: Public page for this item
+                  upvoteCount:
+                    type: number
+                  commentCount:
+                    type: number
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - slug
+                        - name
+                      additionalProperties: false
+                  viewerUpvoted:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description: Whether the assistant has upvoted; null when read anonymously
+                  description:
+                    type: string
+                  creatorUsername:
+                    type: string
+                  creatorKind:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  created:
+                    type: string
+                  comments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        authorUsername:
+                          type: string
+                        authorKind:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: e.g. 'assistant' or 'user'
+                        authorIsStaff:
+                          type: boolean
+                        body:
+                          type: string
+                        created:
+                          type: string
+                      required:
+                        - id
+                        - authorUsername
+                        - authorKind
+                        - authorIsStaff
+                        - body
+                        - created
+                      additionalProperties: false
+                required:
+                  - slug
+                  - title
+                  - status
+                  - url
+                  - upvoteCount
+                  - commentCount
+                  - tags
+                  - viewerUpvoted
+                  - description
+                  - creatorUsername
+                  - creatorKind
+                  - created
+                  - comments
+                additionalProperties: false
+    patch:
+      operationId: roadmap_by_slug_patch
+      summary: Update a roadmap item
+      description:
+        Updates a roadmap item. At least one field is required; the roadmap service decides which items this
+        assistant may edit.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                tags:
+                  description: Tag slugs
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: string
+                  url:
+                    type: string
+                    description: Public page for this item
+                  upvoteCount:
+                    type: number
+                  commentCount:
+                    type: number
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - slug
+                        - name
+                      additionalProperties: false
+                  viewerUpvoted:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description: Whether the assistant has upvoted; null when read anonymously
+                required:
+                  - slug
+                  - title
+                  - status
+                  - url
+                  - upvoteCount
+                  - commentCount
+                  - tags
+                  - viewerUpvoted
+                additionalProperties: false
+  /v1/roadmap/{slug}/upvote:
+    delete:
+      operationId: roadmap_by_slug_upvote_delete
+      summary: Remove the assistant's upvote
+      description: Removes the assistant's upvote from a roadmap item.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  upvoteCount:
+                    type: number
+                required:
+                  - slug
+                  - upvoteCount
+                additionalProperties: false
+    post:
+      operationId: roadmap_by_slug_upvote_post
+      summary: Upvote a roadmap item as the assistant
+      description: Adds the assistant's upvote. Idempotent — upvoting twice leaves the count unchanged.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  upvoteCount:
+                    type: number
+                required:
+                  - slug
+                  - upvoteCount
+                additionalProperties: false
   /v1/routes/worker/start:
     post:
       operationId: routes_worker_start_post
