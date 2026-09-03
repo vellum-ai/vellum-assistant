@@ -275,8 +275,59 @@ describe("resolveAssistantAttachments", () => {
     // The rejected directive, the failed validation, and the tool block
     // (which has no file of its own) are all absent.
     expect(result.persistedFiles).toEqual([
-      { sourcePath: "notes/plan.md", displayName: "plan.md" },
+      {
+        sourcePath: "notes/plan.md",
+        displayName: "plan.md",
+        sourceType: "sandbox_file",
+      },
     ]);
+  });
+
+  test("persistedFiles is empty when there is no message to persist against", async () => {
+    const accepted: AssistantAttachmentDraft = {
+      sourceType: "sandbox_file",
+      filename: "plan.md",
+      mimeType: "text/markdown",
+      dataBase64: makeBase64(64),
+      sizeBytes: 64,
+      kind: "document",
+      sourcePath: "notes/plan.md",
+    };
+
+    mock.module("../daemon/assistant-attachments.js", () => ({
+      resolveDirectives: () =>
+        Promise.resolve({ drafts: [accepted], warnings: [] }),
+      contentBlocksToDrafts: () => [],
+      deduplicateDrafts: (d: AssistantAttachmentDraft[]) => d,
+      validateDrafts: (d: AssistantAttachmentDraft[]) => ({
+        accepted: d,
+        warnings: [],
+      }),
+    }));
+
+    const { resolveAssistantAttachments: resolve } =
+      await import("../daemon/conversation-attachments.js");
+
+    // No assistant message id: the draft is emitted for this turn only and
+    // nothing is stored, so it is not a persisted file.
+    const result = await resolve(
+      [
+        {
+          source: "sandbox" as const,
+          path: "notes/plan.md",
+          filename: "plan.md",
+          mimeType: "text/markdown",
+        },
+      ],
+      [],
+      [],
+      "/tmp",
+      async () => true,
+      undefined,
+    );
+
+    expect(result.emittedAttachments).toHaveLength(1);
+    expect(result.persistedFiles).toEqual([]);
   });
 });
 

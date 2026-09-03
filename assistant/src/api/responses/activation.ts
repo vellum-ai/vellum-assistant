@@ -25,6 +25,14 @@ export const ACTIVATION_PROGRESS_VERSION = 1;
  */
 export const ACTIVATION_ID_PATTERN = /^[a-z0-9-]{1,64}$/;
 
+/**
+ * Upper bound on a stored conversation id. The daemon mints uuids, so this
+ * is generous headroom rather than a fit; it exists so a client cannot turn
+ * the field into an unbounded blob on disk, the same reason task and list
+ * ids are bounded.
+ */
+export const ACTIVATION_CONVERSATION_ID_MAX_LENGTH = 128;
+
 export const ActivationIdSchema = z
   .string()
   .regex(ACTIVATION_ID_PATTERN)
@@ -46,6 +54,7 @@ export const ActivationTaskProgressSchema = z.object({
     .describe("`started` while the linked conversation is working the task"),
   conversationId: z
     .string()
+    .max(ACTIVATION_CONVERSATION_ID_MAX_LENGTH)
     .describe("Conversation the task was launched into"),
   startedAt: z.string().describe("ISO timestamp of the launch"),
   completedAt: z
@@ -90,6 +99,7 @@ export const ActivationTaskStartRequestSchema = z.object({
   conversationId: z
     .string()
     .min(1)
+    .max(ACTIVATION_CONVERSATION_ID_MAX_LENGTH)
     .describe("Conversation the task prompt was sent to"),
   listId: ActivationIdSchema.optional().describe(
     "List the task came from, stored only while no list is frozen",

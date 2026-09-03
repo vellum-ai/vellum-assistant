@@ -77,6 +77,7 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { isNoResponseOnlyText } from "../runtime/no-response.js";
+import { getByConversation as getPendingInteractionsByConversation } from "../runtime/pending-interactions.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import {
@@ -126,6 +127,7 @@ import {
 } from "./conversation-runtime-assembly.js";
 import type { CurrentTurnSurface } from "./conversation-surfaces.js";
 import {
+  hasBlockingPendingSurface,
   markSurfaceCompleted,
   settleRunningTaskProgressSurfaces,
 } from "./conversation-surfaces.js";
@@ -250,6 +252,35 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  * {@link Conversation}.
  */
 export type AssistantSurface = CurrentTurnSurface;
+
+/**
+ * Interaction kinds that are a prompt posed to the user. The `host_*` kinds
+ * are in-flight tool executions proxied to a client, which are the loop
+ * waiting on a machine rather than on a person.
+ */
+const USER_PROMPT_INTERACTION_KINDS = new Set([
+  "confirmation",
+  "acp_confirmation",
+  "question",
+  "secret",
+]);
+
+/**
+ * Whether this turn handed control back to the user instead of delivering.
+ *
+ * True when something the turn put on screen still needs an answer once the
+ * turn is over: a question or confirmation prompt that outlived it, or an
+ * interactive surface still awaiting an action. Both are structural, so a
+ * question the assistant asks in prose alone reads as a delivered turn.
+ */
+function turnEndedAwaitingUser(ctx: Conversation): boolean {
+  if (hasBlockingPendingSurface(ctx)) {
+    return true;
+  }
+  return getPendingInteractionsByConversation(ctx.conversationId).some(
+    (interaction) => USER_PROMPT_INTERACTION_KINDS.has(interaction.kind),
+  );
+}
 
 // ── abort watchdog ───────────────────────────────────────────────────
 
@@ -2026,8 +2057,10 @@ export async function runAgentLoopImpl(
         ctx.turnCount++;
 
         // Activation checklist: a completed turn in a conversation an
-        // activation task was launched into finishes that task. Cancelled
-        // turns and handoffs deliberately fall through: the task is still
+        // activation task was launched into finishes that task, unless the
+        // turn ended waiting on the user, in which case the answer's turn
+        // finishes it (see `markActivationTurnComplete`). Cancelled turns
+        // and handoffs deliberately fall through: the task is still
         // running. No-op for every conversation no task points at.
         //
         // Ahead of the turn-boundary commit, and fire-and-forget: a commit
@@ -2041,7 +2074,9 @@ export async function runAgentLoopImpl(
             attachedFiles: persistedAttachmentFiles.map((file) => ({
               path: file.sourcePath,
               filename: file.displayName,
+              sourceType: file.sourceType,
             })),
+            endedAwaitingUser: turnEndedAwaitingUser(ctx),
           });
         }
 

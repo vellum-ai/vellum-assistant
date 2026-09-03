@@ -7,7 +7,7 @@
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -67,14 +67,66 @@ describe("collectActivationArtifacts", () => {
   test("prefers the explicit filename and falls back to the basename", () => {
     expect(
       collectActivationArtifacts([
-        { path: "notes/plan.md", filename: "Weekly plan.md" },
-        { path: "notes/summary.md", filename: undefined },
-        { path: "  ", filename: "ignored" },
+        {
+          path: join(workspaceDir, "notes", "plan.md"),
+          filename: "Weekly plan.md",
+          sourceType: "sandbox_file",
+        },
+        {
+          path: join(workspaceDir, "notes", "summary.md"),
+          filename: undefined,
+          sourceType: "sandbox_file",
+        },
+        { path: "  ", filename: "ignored", sourceType: "sandbox_file" },
       ]),
     ).toEqual([
       { workspacePath: "notes/plan.md", displayName: "Weekly plan.md" },
       { workspacePath: "notes/summary.md", displayName: "summary.md" },
     ]);
+  });
+
+  test("stores a workspace file relative to the workspace", () => {
+    expect(
+      collectActivationArtifacts([
+        {
+          path: join(workspaceDir, "notes", "plan.md"),
+          filename: undefined,
+          sourceType: "sandbox_file",
+        },
+      ]),
+    ).toEqual([{ workspacePath: "notes/plan.md", displayName: "plan.md" }]);
+  });
+
+  test("drops a host file, whose path names the user's machine", () => {
+    expect(
+      collectActivationArtifacts([
+        {
+          path: join(homedir(), "Documents", "taxes.pdf"),
+          filename: "taxes.pdf",
+          sourceType: "host_file",
+        },
+        // Dropped on its source type alone: a host read that happens to
+        // land on a path shaped like a workspace one is still a host file.
+        {
+          path: join(workspaceDir, "notes", "taxes.pdf"),
+          filename: "taxes.pdf",
+          sourceType: "host_file",
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("drops a path that escapes the workspace", () => {
+    expect(
+      collectActivationArtifacts([
+        {
+          path: join(workspaceDir, "..", "elsewhere", "secret.md"),
+          filename: undefined,
+          sourceType: "sandbox_file",
+        },
+        { path: workspaceDir, filename: undefined, sourceType: "sandbox_file" },
+      ]),
+    ).toEqual([]);
   });
 
   test("returns an empty list when the turn attached nothing", () => {
@@ -113,7 +165,14 @@ describe("onActivationTurnComplete", () => {
     onActivationTurnComplete({
       conversationId: "conv-1",
       toolCallCount: 3,
-      attachedFiles: [{ path: "notes/plan.md", filename: undefined }],
+      endedAwaitingUser: false,
+      attachedFiles: [
+        {
+          path: join(workspaceDir, "notes", "plan.md"),
+          filename: undefined,
+          sourceType: "sandbox_file",
+        },
+      ],
     });
 
     await waitFor(
@@ -129,10 +188,30 @@ describe("onActivationTurnComplete", () => {
     onActivationTurnComplete({
       conversationId: "conv-unlinked",
       toolCallCount: 2,
+      endedAwaitingUser: false,
       attachedFiles: [],
     });
     await Bun.sleep(10);
     expect(readActivationProgress().tasks).toEqual({});
+  });
+
+  test("a turn that ended waiting on the user leaves the task running", async () => {
+    await startActivationTask({
+      taskId: "draft-email",
+      conversationId: "conv-1",
+    });
+
+    onActivationTurnComplete({
+      conversationId: "conv-1",
+      toolCallCount: 1,
+      endedAwaitingUser: true,
+      attachedFiles: [],
+    });
+    await Bun.sleep(10);
+
+    expect(readActivationProgress().tasks["draft-email"].status).toBe(
+      "started",
+    );
   });
 
   test("a second terminal turn changes nothing", async () => {
@@ -143,6 +222,7 @@ describe("onActivationTurnComplete", () => {
     await markActivationTurnComplete({
       conversationId: "conv-1",
       toolCallCount: 2,
+      endedAwaitingUser: false,
       artifacts: [],
     });
     const done = readActivationProgress().tasks["draft-email"];
@@ -150,7 +230,14 @@ describe("onActivationTurnComplete", () => {
     onActivationTurnComplete({
       conversationId: "conv-1",
       toolCallCount: 7,
-      attachedFiles: [{ path: "notes/other.md", filename: undefined }],
+      endedAwaitingUser: false,
+      attachedFiles: [
+        {
+          path: join(workspaceDir, "notes", "other.md"),
+          filename: undefined,
+          sourceType: "sandbox_file",
+        },
+      ],
     });
     await Bun.sleep(10);
 

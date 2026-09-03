@@ -13,6 +13,9 @@ mock.module("./worker-daemon-notify.js", () => ({
   NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD:
     "notify_conversation_persisted_externally",
   NOTIFY_DOCUMENTS_CHANGED_IPC_METHOD: "notify_documents_changed_externally",
+  NOTIFY_ACTIVATION_PROGRESS_CHANGED_IPC_METHOD:
+    "notify_activation_progress_changed_externally",
+  notifyDaemonActivationProgressChanged: async () => {},
   notifyDaemonConversationPersisted: async () => {},
   notifyDaemonDocumentsChanged: async () => {
     notifyCount++;
