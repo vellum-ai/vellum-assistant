@@ -7,11 +7,11 @@ export const roadmapHelp: CliCommandHelp = {
   description: "Read and file public Vellum roadmap feedback as the assistant",
   helpText: `
 Items, upvotes, and comments filed here are attributed to the assistant, not
-to its owner: the daemon signs these calls with the assistant's own platform
-API key. The owner's own roadmap identity lives on \`vellum roadmap\`.
+to its owner: the assistant signs these calls with its own platform API key.
+The owner's own roadmap identity lives on \`vellum roadmap\`.
 
 Reads work anonymously when the assistant is not connected to the platform
-(the "upvoted" marker is then blank); every write needs the connection —
+(the "upvoted" marker is then blank). Every write needs the connection, so
 run \`assistant platform connect\` first.
 
 Items are addressed by slug, which \`roadmap list\` prints in each item's URL.
@@ -36,7 +36,7 @@ Examples:
         {
           flags: "--tag <slug>",
           description:
-            "Filter by tag slug — tags are printed in brackets on each row",
+            "Filter by tag slug. Tags are printed in brackets on each row",
         },
         {
           flags: "--sort <order>",
@@ -82,13 +82,13 @@ Examples:
         {
           flags: "--tag <slug>",
           description:
-            "Tag slug — repeat for several tags; run 'assistant roadmap list' to see the tags in use",
+            "Tag slug, repeatable. Run 'assistant roadmap list' to see the tags in use",
         },
       ],
       helpText: `
 The item is public: it appears on the Vellum roadmap under the assistant's
 name and notifies Vellum staff. Only title, description, and tags are
-accepted — status is assigned by Vellum.
+accepted, since status is assigned by Vellum.
 
 Examples:
   $ assistant roadmap create --title "Add dark mode"
@@ -108,18 +108,26 @@ Examples:
         },
         {
           flags: "--tag <slug>",
-          description: "Replacement tag slug — repeat for several tags",
+          description: "Replacement tag slug, repeatable",
+        },
+        {
+          flags: "--clear-tags",
+          description: "Remove every tag (cannot be combined with --tag)",
         },
       ],
       helpText: `
 Arguments:
   <slug>  Item slug, as printed in the URL by 'assistant roadmap list'
 
-At least one field is required. Vellum decides which items an assistant may
-edit, so this fails for items the assistant does not own.
+At least one field is required. Passing --tag replaces the whole tag set
+rather than adding to it, so list every tag the item should end up with.
+Vellum decides which items an assistant may edit, so this fails for items the
+assistant does not own.
 
 Examples:
-  $ assistant roadmap update dark-mode --description "Follow the OS setting"`,
+  $ assistant roadmap update dark-mode --description "Follow the OS setting"
+  $ assistant roadmap update dark-mode --tag ui --tag theming
+  $ assistant roadmap update dark-mode --clear-tags`,
     },
     {
       name: "delete",
@@ -129,7 +137,7 @@ Examples:
 Arguments:
   <slug>  Item slug, as printed in the URL by 'assistant roadmap list'
 
-Permanent, and limited to items Vellum lets this assistant delete — typically
+Permanent, and limited to items Vellum lets this assistant delete: typically
 its own, and only while they are still open.
 
 Examples:

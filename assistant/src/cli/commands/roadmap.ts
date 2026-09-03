@@ -1,5 +1,5 @@
 /**
- * `assistant roadmap` — read and file public Vellum roadmap feedback as the
+ * `assistant roadmap`: read and file public Vellum roadmap feedback as the
  * assistant itself.
  *
  * Forwards to the daemon's roadmap routes and renders the result. The
@@ -14,7 +14,7 @@ import { stripAnsiAndControlChars as sanitize } from "../../util/ansi.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
+import { shouldOutputJson, writeError, writeOutput } from "../output.js";
 import { roadmapHelp } from "./roadmap.help.js";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,12 @@ interface RoadmapComment {
   body: string;
   created: string;
 }
+
+/** What create and update answer with: the item's identity, no counts. */
+type MutatedRoadmapItem = Pick<
+  RoadmapItem,
+  "slug" | "title" | "status" | "url"
+>;
 
 interface RoadmapItemDetail extends RoadmapItem {
   description: string;
@@ -79,7 +85,7 @@ function tagList(item: RoadmapItem): string {
 }
 
 /** Print the shared "what changed" block used by create and update. */
-function logItemSummary(heading: string, item: RoadmapItem): void {
+function logItemSummary(heading: string, item: MutatedRoadmapItem): void {
   log.info(`${heading}: ${sanitize(item.title)}`);
   log.info(`  slug:   ${item.slug}`);
   log.info(`  status: ${item.status}`);
@@ -203,7 +209,7 @@ interface CreateOpts {
 }
 
 async function runCreate(cmd: Command, opts: CreateOpts): Promise<void> {
-  const item = await call<RoadmapItem>("roadmap_create", {
+  const item = await call<MutatedRoadmapItem>("roadmap_create", {
     body: {
       title: opts.title,
       description: opts.description,
@@ -223,6 +229,7 @@ interface UpdateOpts {
   description?: string;
   status?: string;
   tag?: string[];
+  clearTags?: boolean;
 }
 
 async function runUpdate(
@@ -230,13 +237,24 @@ async function runUpdate(
   slug: string,
   opts: UpdateOpts,
 ): Promise<void> {
-  const item = await call<RoadmapItem>("roadmap_update", {
+  if (opts.clearTags && opts.tag) {
+    writeError(
+      cmd,
+      "--clear-tags and --tag conflict. Drop --clear-tags to set tags, or drop --tag to remove them all.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const item = await call<MutatedRoadmapItem>("roadmap_update", {
     pathParams: { slug },
     body: {
       title: opts.title,
       description: opts.description,
       status: opts.status,
-      tags: opts.tag,
+      // `--tag` always carries a value, so an empty set is only reachable
+      // through `--clear-tags`.
+      tags: opts.clearTags ? [] : opts.tag,
     },
   });
 
@@ -287,7 +305,7 @@ function makeTagRepeatable(command: Command): void {
   const option = command.options.find((o) => o.flags === "--tag <slug>");
   if (!option) {
     throw new Error(
-      `Option "--tag <slug>" not found on "roadmap ${command.name()}" — is it declared in roadmap.help.ts?`,
+      `Option "--tag <slug>" not found on "roadmap ${command.name()}". Is it declared in roadmap.help.ts?`,
     );
   }
   option.argParser((value: string, prev: string[] | undefined) => [

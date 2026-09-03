@@ -1,6 +1,6 @@
 /**
  * Tests for what `assistant roadmap` sends to the daemon and what it prints
- * back. The flags a caller types are the whole interface here — the daemon
+ * back. The flags a caller types are the whole interface here: the daemon
  * route sees only what this layer forwards, so the params, the repeatable
  * `--tag`, and the rendered output are the things worth pinning.
  */
@@ -242,6 +242,41 @@ describe("roadmap writes", () => {
         },
       },
     });
+  });
+
+  test("--clear-tags sends the empty set that --tag cannot express", async () => {
+    nextResult = ITEM;
+
+    await runAssistantCommandFull(
+      "roadmap",
+      "update",
+      "dark-mode",
+      "--clear-tags",
+    );
+
+    expect((calls[0].params as { body: { tags: string[] } }).body.tags).toEqual(
+      [],
+    );
+  });
+
+  test("--clear-tags with --tag is refused rather than silently picking one", async () => {
+    nextResult = ITEM;
+    process.exitCode = 0;
+
+    // The complaint itself goes straight to stderr, which this harness does
+    // not capture; what matters is that no update was forwarded.
+    await runAssistantCommandFull(
+      "roadmap",
+      "update",
+      "dark-mode",
+      "--clear-tags",
+      "--tag",
+      "ui",
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
   });
 
   test("delete names the item it removed", async () => {

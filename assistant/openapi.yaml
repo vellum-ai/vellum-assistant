@@ -27184,37 +27184,11 @@ paths:
                   url:
                     type: string
                     description: Public page for this item
-                  upvoteCount:
-                    type: number
-                  commentCount:
-                    type: number
-                  tags:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        slug:
-                          type: string
-                        name:
-                          type: string
-                      required:
-                        - slug
-                        - name
-                      additionalProperties: false
-                  viewerUpvoted:
-                    anyOf:
-                      - type: boolean
-                      - type: "null"
-                    description: Whether the assistant has upvoted; null when read anonymously
                 required:
                   - slug
                   - title
                   - status
                   - url
-                  - upvoteCount
-                  - commentCount
-                  - tags
-                  - viewerUpvoted
                 additionalProperties: false
   /v1/roadmap/{slug}:
     delete:
@@ -27399,37 +27373,11 @@ paths:
                   url:
                     type: string
                     description: Public page for this item
-                  upvoteCount:
-                    type: number
-                  commentCount:
-                    type: number
-                  tags:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        slug:
-                          type: string
-                        name:
-                          type: string
-                      required:
-                        - slug
-                        - name
-                      additionalProperties: false
-                  viewerUpvoted:
-                    anyOf:
-                      - type: boolean
-                      - type: "null"
-                    description: Whether the assistant has upvoted; null when read anonymously
                 required:
                   - slug
                   - title
                   - status
                   - url
-                  - upvoteCount
-                  - commentCount
-                  - tags
-                  - viewerUpvoted
                 additionalProperties: false
   /v1/roadmap/{slug}/upvote:
     delete:
@@ -27463,7 +27411,7 @@ paths:
     post:
       operationId: roadmap_by_slug_upvote_post
       summary: Upvote a roadmap item as the assistant
-      description: Adds the assistant's upvote. Idempotent — upvoting twice leaves the count unchanged.
+      description: "Adds the assistant's upvote. Idempotent: upvoting twice leaves the count unchanged."
       tags:
         - roadmap
       parameters:

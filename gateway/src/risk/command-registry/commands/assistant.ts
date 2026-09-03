@@ -522,8 +522,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "roadmap unvote",
-    risk: "low",
-    reason: "Withdraws the assistant's own upvote",
+    risk: "medium",
+    reason:
+      "Withdraws a publicly visible vote, changing state the roadmap shows to everyone",
   },
   { path: "inference send", risk: "medium" },
   {

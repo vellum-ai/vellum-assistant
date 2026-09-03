@@ -45,6 +45,7 @@ interface RecordedCall {
   method: string;
   headers: Record<string, string>;
   body: unknown;
+  signal?: AbortSignal | null;
 }
 
 const realFetch = globalThis.fetch;
@@ -61,6 +62,7 @@ function stubFetch(body: unknown, status = 200): void {
       method: init?.method ?? "GET",
       headers: (init?.headers ?? {}) as Record<string, string>,
       body: init?.body ? JSON.parse(init.body as string) : undefined,
+      signal: init?.signal,
     });
     return new Response(JSON.stringify(body), {
       status,
@@ -194,6 +196,28 @@ describe("roadmap writes", () => {
     expect(calls[0].body).toEqual({ title: "Add dark mode", tags: ["ui"] });
   });
 
+  test("a mutation answers with the identity the upstream actually returns", async () => {
+    // What the marketing API sends back on a write: no counts, no tags.
+    stubFetch({ slug: "dark-mode", title: "Add dark mode", status: "open" });
+
+    const created = await create({ body: { title: "Add dark mode" } });
+
+    expect(created).toEqual({
+      slug: "dark-mode",
+      title: "Add dark mode",
+      status: "open",
+      url: "https://web.test/roadmap/dark-mode",
+    });
+  });
+
+  test("update can clear every tag", async () => {
+    stubFetch(UPSTREAM_ITEM);
+
+    await update({ pathParams: { slug: "dark-mode" }, body: { tags: [] } });
+
+    expect(calls[0].body).toEqual({ tags: [] });
+  });
+
   test("create rejects a blank title before calling out", async () => {
     stubFetch(UPSTREAM_ITEM);
 
@@ -289,6 +313,22 @@ describe("upstream failures", () => {
     stubFetch({ detail: "boom" }, 503);
 
     await expect(list({})).rejects.toMatchObject({ statusCode: 502 });
+  });
+
+  test("every request is armed with a deadline, so none can hang", async () => {
+    stubFetch({ items: [], total: 0 });
+
+    await list({});
+
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a caller that gives up takes the upstream request with it", async () => {
+    stubFetch({ items: [], total: 0 });
+
+    await list({ abortSignal: AbortSignal.abort() });
+
+    expect(calls[0].signal?.aborted).toBe(true);
   });
 
   test("an unreachable roadmap service does not leak a raw fetch error", async () => {

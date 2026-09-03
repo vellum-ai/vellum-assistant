@@ -10,13 +10,13 @@
  * and used only in the `Authorization` header. Reads fall back to anonymous
  * when nothing is stored; writes fail with a connect-first message.
  *
- *   GET    /v1/roadmap              — list items
- *   GET    /v1/roadmap/:slug        — one item with its comments
- *   POST   /v1/roadmap              — file an item
- *   PATCH  /v1/roadmap/:slug        — edit an item
- *   DELETE /v1/roadmap/:slug        — remove an item
- *   POST   /v1/roadmap/:slug/upvote — upvote (idempotent)
- *   DELETE /v1/roadmap/:slug/upvote — remove the upvote
+ *   GET    /v1/roadmap              : list items
+ *   GET    /v1/roadmap/:slug        : one item with its comments
+ *   POST   /v1/roadmap              : file an item
+ *   PATCH  /v1/roadmap/:slug        : edit an item
+ *   DELETE /v1/roadmap/:slug        : remove an item
+ *   POST   /v1/roadmap/:slug/upvote : upvote (idempotent)
+ *   DELETE /v1/roadmap/:slug/upvote : remove the upvote
  */
 
 import { SEEDS } from "@vellumai/environments";
@@ -29,6 +29,7 @@ import {
   BadGatewayError,
   BadRequestError,
   ForbiddenError,
+  GatewayTimeoutError,
   NotFoundError,
   UnprocessableEntityError,
 } from "./errors.js";
@@ -43,6 +44,15 @@ import type {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MARKETING_URL = "https://marketing.vellum.ai";
+
+/**
+ * Deadline for one roadmap call, set below the CLI's 60s IPC timeout on
+ * purpose. Closing the IPC socket does not abort a handler, so without this a
+ * slow `create` would keep going and publish a public item after its caller
+ * had already been told the request failed, and the retry would file a second
+ * one.
+ */
+const ROADMAP_REQUEST_TIMEOUT_MS = 30_000;
 
 function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
@@ -120,6 +130,7 @@ async function roadmapFetch(
     key?: string;
     body?: Record<string, unknown>;
     params?: Record<string, string | undefined>;
+    signal?: AbortSignal;
   } = {},
 ): Promise<Response> {
   const query = new URLSearchParams(
@@ -137,13 +148,20 @@ async function roadmapFetch(
     headers["Content-Type"] = "application/json";
   }
 
+  const deadline = AbortSignal.timeout(ROADMAP_REQUEST_TIMEOUT_MS);
   try {
     return await fetch(url, {
       method: opts.method ?? "GET",
       headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: opts.signal ? AbortSignal.any([deadline, opts.signal]) : deadline,
     });
   } catch (err) {
+    if (deadline.aborted) {
+      throw new GatewayTimeoutError(
+        `The Vellum roadmap service did not answer within ${ROADMAP_REQUEST_TIMEOUT_MS / 1000}s.`,
+      );
+    }
     throw new BadGatewayError(
       `Could not reach the Vellum roadmap service: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -201,10 +219,14 @@ interface UpstreamTag {
   name: string;
 }
 
-interface UpstreamItem {
+/** All a mutation answers with. A listing carries the rest. */
+interface UpstreamMutatedItem {
   slug: string;
   title: string;
   status: string;
+}
+
+interface UpstreamItem extends UpstreamMutatedItem {
   upvote_count: number;
   comment_count: number;
   tags?: UpstreamTag[];
@@ -265,6 +287,19 @@ const itemDetailSchema = itemSchema.extend({
   comments: z.array(commentSchema),
 });
 
+/**
+ * What a create or update answers with. Deliberately narrower than
+ * {@link itemSchema}: the marketing API returns only the item's identity on a
+ * mutation, so advertising counts here would promise fields that arrive
+ * undefined.
+ */
+const mutatedItemSchema = itemSchema.pick({
+  slug: true,
+  title: true,
+  status: true,
+  url: true,
+});
+
 const voteSchema = z.object({ slug: z.string(), upvoteCount: z.number() });
 
 // The declared request schemas double as the runtime validators, so the
@@ -292,6 +327,7 @@ const updateRequestSchema = z
 
 type RoadmapItem = z.infer<typeof itemSchema>;
 type RoadmapItemDetail = z.infer<typeof itemDetailSchema>;
+type MutatedRoadmapItem = z.infer<typeof mutatedItemSchema>;
 
 function toItem(raw: UpstreamItem): RoadmapItem {
   return {
@@ -303,6 +339,15 @@ function toItem(raw: UpstreamItem): RoadmapItem {
     commentCount: raw.comment_count,
     tags: raw.tags ?? [],
     viewerUpvoted: raw.viewer_upvoted ?? null,
+  };
+}
+
+function toMutatedItem(raw: UpstreamMutatedItem): MutatedRoadmapItem {
+  return {
+    slug: raw.slug,
+    title: raw.title,
+    status: raw.status,
+    url: itemUrl(raw.slug),
   };
 }
 
@@ -354,12 +399,16 @@ function parseBody<T>(
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function handleList({ queryParams = {} }: RouteHandlerArgs): Promise<{
+async function handleList({
+  queryParams = {},
+  abortSignal,
+}: RouteHandlerArgs): Promise<{
   items: RoadmapItem[];
   total: number;
 }> {
   const response = await roadmapFetch("", {
     key: await assistantApiKey(),
+    signal: abortSignal,
     params: {
       q: queryParams.q,
       status: queryParams.status,
@@ -381,34 +430,41 @@ async function handleGet(args: RouteHandlerArgs): Promise<RoadmapItemDetail> {
   const slug = requireSlug(args);
   const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
     key: await assistantApiKey(),
+    signal: args.abortSignal,
   });
   return toItemDetail(
     await roadmapJson<UpstreamItemDetail>(response, "get roadmap item"),
   );
 }
 
-async function handleCreate({ body }: RouteHandlerArgs): Promise<RoadmapItem> {
-  const item = parseBody(createRequestSchema, body);
+async function handleCreate(
+  args: RouteHandlerArgs,
+): Promise<MutatedRoadmapItem> {
+  const item = parseBody(createRequestSchema, args.body);
   const response = await roadmapFetch("", {
     method: "POST",
     key: await requireAssistantApiKey(),
     body: { ...item, title: item.title.trim() },
+    signal: args.abortSignal,
   });
-  return toItem(
-    await roadmapJson<UpstreamItem>(response, "create roadmap item"),
+  return toMutatedItem(
+    await roadmapJson<UpstreamMutatedItem>(response, "create roadmap item"),
   );
 }
 
-async function handleUpdate(args: RouteHandlerArgs): Promise<RoadmapItem> {
+async function handleUpdate(
+  args: RouteHandlerArgs,
+): Promise<MutatedRoadmapItem> {
   const slug = requireSlug(args);
   const patch = parseBody(updateRequestSchema, args.body);
   const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
     method: "PATCH",
     key: await requireAssistantApiKey(),
     body: patch,
+    signal: args.abortSignal,
   });
-  return toItem(
-    await roadmapJson<UpstreamItem>(response, "update roadmap item"),
+  return toMutatedItem(
+    await roadmapJson<UpstreamMutatedItem>(response, "update roadmap item"),
   );
 }
 
@@ -419,6 +475,7 @@ async function handleDelete(
   const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
     method: "DELETE",
     key: await requireAssistantApiKey(),
+    signal: args.abortSignal,
   });
   if (!response.ok) {
     await throwRoadmapError(response, "delete roadmap item");
@@ -435,6 +492,7 @@ async function vote(
   const response = await roadmapFetch(`/${encodeURIComponent(slug)}/upvote`, {
     method,
     key: await requireAssistantApiKey(),
+    signal: args.abortSignal,
   });
   const data = await roadmapJson<{ slug?: string; upvote_count?: number }>(
     response,
@@ -521,7 +579,7 @@ export const ROUTES: RouteDefinition[] = [
       "Creates a publicly visible roadmap item attributed to the assistant. Requires a stored platform API key.",
     tags: ["roadmap"],
     requestBody: createRequestSchema,
-    responseBody: itemSchema,
+    responseBody: mutatedItemSchema,
     handler: handleCreate,
   },
   {
@@ -538,7 +596,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["roadmap"],
     pathParams: SLUG_PARAM,
     requestBody: updateRequestSchema,
-    responseBody: itemSchema,
+    responseBody: mutatedItemSchema,
     handler: handleUpdate,
   },
   {
@@ -570,7 +628,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Upvote a roadmap item as the assistant",
     description:
-      "Adds the assistant's upvote. Idempotent — upvoting twice leaves the count unchanged.",
+      "Adds the assistant's upvote. Idempotent: upvoting twice leaves the count unchanged.",
     tags: ["roadmap"],
     pathParams: SLUG_PARAM,
     responseBody: voteSchema,
