@@ -10,7 +10,7 @@ import {
 } from "../../../util/oauth-request-body.js";
 import { readStdinBytesSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
-import { shouldOutputJson, writeOutput } from "../../output.js";
+import { shouldOutputJson, writeError, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -142,20 +142,6 @@ export async function runAuthenticatedRequest(params: {
   const { providerKey, url, opts, cmd } = params;
   const jsonMode = shouldOutputJson(cmd);
 
-  // Helper: write an error and set exit code
-  const writeError = (error: string, hint?: string): void => {
-    if (jsonMode) {
-      const payload: Record<string, unknown> = { ok: false, error };
-      if (hint) {
-        payload.hint = hint;
-      }
-      writeOutput(cmd, payload);
-    } else {
-      process.stderr.write(error + "\n");
-    }
-    process.exitCode = 1;
-  };
-
   // Helper: write info to stderr (respects -s)
   const writeInfo = (msg: string): void => {
     if (!opts.silent) {
@@ -246,7 +232,7 @@ export async function runAuthenticatedRequest(params: {
         // reported the way every other failure here is, so `--json` gets its
         // envelope and the caller's diagnostics hint is not lost; only the
         // exit code comes from the route's status.
-        writeError(`Error: ${err.message}\n\n${params.diagnosticsHint}`);
+        writeError(cmd, `${err.message}\n\n${params.diagnosticsHint}`);
         process.exitCode = exitCodeFromIpcResult({
           statusCode: err.statusCode,
         });
@@ -308,7 +294,8 @@ export async function runAuthenticatedRequest(params: {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    writeError(`Error: ${message}\n\n${params.diagnosticsHint}`);
+    writeError(cmd, `${message}\n\n${params.diagnosticsHint}`);
+    process.exitCode = 1;
   }
 }
 

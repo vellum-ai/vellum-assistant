@@ -22,7 +22,7 @@ import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
 import type { Command } from "commander";
 
 import { subcommand } from "../../lib/cli-command-help.js";
-import { shouldOutputJson, writeOutput } from "../../output.js";
+import { writeError } from "../../output.js";
 import {
   attachRequestOptions,
   type AuthenticatedRequestOptions,
@@ -31,20 +31,17 @@ import {
 import { CHANNELS_PLUGIN_SEARCH_HINT } from "./index.help.js";
 
 /** The channels whose bot credential this command can act with. */
-export const REQUESTABLE_CHANNELS = Object.keys(
-  CHANNEL_BOT_PROVIDER,
-) as ReadonlyArray<keyof typeof CHANNEL_BOT_PROVIDER>;
+export const REQUESTABLE_CHANNELS: readonly string[] =
+  Object.keys(CHANNEL_BOT_PROVIDER);
 
 /**
  * The provider key holding a channel's bot credential, or `undefined` when
  * the channel has none (or is not a built-in channel at all).
  */
 export function botProviderForChannel(channel: string): string | undefined {
-  // Own-property lookup: an inherited name (`constructor`, `toString`) is not
-  // a channel and must not resolve to a function as if it were a provider.
-  return Object.hasOwn(CHANNEL_BOT_PROVIDER, channel)
-    ? (CHANNEL_BOT_PROVIDER as Readonly<Record<string, string>>)[channel]
-    : undefined;
+  return Object.entries(CHANNEL_BOT_PROVIDER).find(
+    ([channelId]) => channelId === channel,
+  )?.[1];
 }
 
 export function registerChannelsRequestCommand(channels: Command): void {
@@ -61,12 +58,10 @@ export function registerChannelsRequestCommand(channels: Command): void {
     ) => {
       const providerKey = botProviderForChannel(opts.channel);
       if (!providerKey) {
-        const error = `Channel "${opts.channel}" has no bot credential to request with. Channels with one: ${REQUESTABLE_CHANNELS.join(", ")}. ${CHANNELS_PLUGIN_SEARCH_HINT}`;
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, { ok: false, error });
-        } else {
-          process.stderr.write(error + "\n");
-        }
+        writeError(
+          cmd,
+          `Channel "${opts.channel}" has no bot credential to request with. Channels with one: ${REQUESTABLE_CHANNELS.join(", ")}. ${CHANNELS_PLUGIN_SEARCH_HINT}`,
+        );
         process.exitCode = 1;
         return;
       }
