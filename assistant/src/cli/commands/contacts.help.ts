@@ -249,14 +249,65 @@ channels. Nothing is deleted unless they confirm.
 
 Deleting a contact deletes its channels with it, so anyone reaching the
 assistant through those channels loses access. A guardian contact cannot be
-deleted. To merge a duplicate instead of deleting it, use the contact_merge
-tool, which keeps the surviving contact's channels.
+deleted. To fold a duplicate into the record you are keeping instead of
+deleting it, run 'assistant contacts merge <survivorId> <donorId>', which moves
+the donor's channels to the survivor rather than destroying them.
 
 ${FORM_NOTE}
 
 Examples:
   $ assistant contacts delete 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant contacts delete abc-123 --json`,
+    },
+    {
+      name: "merge",
+      args: "<survivorId> <donorId>",
+      description: "Propose merging two contacts for the guardian to confirm",
+      options: [
+        {
+          flags: "--keep-donor-name",
+          description:
+            "Seed the form with the donor's name instead of the survivor's",
+        },
+        {
+          flags: "--label <label>",
+          description: "Display label shown on the confirmation",
+        },
+        {
+          flags: "--description <description>",
+          description: "Longer description shown on the confirmation",
+        },
+        {
+          flags: "--timeout <ms>",
+          description:
+            "How long the confirmation stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
+        },
+      ],
+      helpText: `
+Arguments:
+  survivorId   UUID of the contact to keep. Run 'assistant contacts list' to find IDs.
+  donorId      UUID of the contact to fold into it. Run 'assistant contacts list' to find IDs.
+
+Opens a confirmation in the guardian's app naming both contacts and listing the
+channels that move. Nothing is merged unless they confirm.
+
+The donor's channels move to the survivor, both sets of notes are combined, and
+the donor record is deleted. Nobody loses access: every address that reached the
+donor reaches the survivor afterwards. A contact's interaction count is the sum
+over its channels, so a moved channel brings its history with it; an address the
+survivor already holds is left where it is, and its donor-side history goes with
+the deleted record. A guardian contact cannot be the donor.
+
+The survivor keeps its own name unless the guardian edits it on the form.
+--keep-donor-name seeds that field with the donor's name, for when the donor is
+the better-named record of the two.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts merge 7a3b1c2d-4e5f-6789-abcd-ef0123456789 9f8e7d6c-5b4a-3210-fedc-ba9876543210
+  $ assistant contacts merge abc-123 def-456 --keep-donor-name --json`,
     },
     {
       name: "prompt",

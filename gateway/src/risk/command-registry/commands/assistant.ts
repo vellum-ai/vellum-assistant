@@ -94,6 +94,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "contacts create",
   "contacts update",
   "contacts delete",
+  "contacts merge",
   "contacts channels",
   "contacts channels add",
   "contacts channels update-status",
@@ -471,6 +472,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "contacts create", risk: "medium" },
   { path: "contacts update", risk: "medium" },
   { path: "contacts delete", risk: "high" },
+  {
+    path: "contacts merge",
+    risk: "high",
+    reason:
+      "Permanently deletes the donor contact record, the same irreversible write that makes 'contacts delete' high. Its channels move to the survivor, so nobody loses access, but a policy that gates high operations should gate this one.",
+  },
   { path: "contacts channels add", risk: "medium" },
   { path: "contacts channels update-status", risk: "medium" },
   { path: "contacts invites create", risk: "high" },

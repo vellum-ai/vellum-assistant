@@ -582,6 +582,21 @@ describe("command-registry", () => {
       }
     });
 
+    test("contacts write verbs keep their risk levels", () => {
+      // Every one opens a guardian form, so the levels describe the command
+      // itself: delete takes the contact's channels with it, while a merge
+      // moves them to the survivor.
+      expect(getAssistantPath("contacts prompt").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts create").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts update").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts delete").baseRisk).toBe("high");
+      expect(getAssistantPath("contacts merge").baseRisk).toBe("high");
+      expect(getAssistantPath("contacts channels add").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts channels update-status").baseRisk).toBe(
+        "medium",
+      );
+    });
+
     test("expanded assistant operations have expected risk levels", () => {
       expect(getAssistantPath("config set").baseRisk).toBe("low");
       expect(getAssistantPath("oauth providers register").baseRisk).toBe(

@@ -1145,6 +1145,34 @@ describe("gateway contacts classification", () => {
   });
 });
 
+describe("assistant contacts write classification", () => {
+  const classifier = makeClassifier();
+
+  test("assistant contacts merge → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant contacts merge ct_1 ct_2",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant contacts channels add → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant contacts channels add ct_1 --channel email",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant contacts delete → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant contacts delete ct_1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+});
+
 // ── Scope options ────────────────────────────────────────────────────────────
 
 describe("scope options", () => {

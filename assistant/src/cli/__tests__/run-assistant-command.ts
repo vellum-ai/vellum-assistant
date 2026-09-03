@@ -4,6 +4,33 @@ export interface AssistantCommandResult {
 }
 
 /**
+ * Stand-in for `exitFromIpcResult` in a `mock.module` factory. The real one
+ * ends the process, which would take the test runner with it. Same stderr line
+ * and same exit code, and the caller carries on to its own early return.
+ *
+ * The code mapping is spelled out rather than imported: suites load this helper
+ * before installing their `mock.module` replacement, so importing the IPC
+ * client here would pull the real module and its import-time work into test
+ * setup. It mirrors `exitCodeFromIpcResult` in `ipc/cli-client.ts`.
+ */
+export function reportIpcFailureWithoutExiting(r: {
+  error?: string;
+  statusCode?: number;
+}): void {
+  process.stderr.write((r.error ?? "Unknown error") + "\n");
+  const status = r.statusCode;
+  if (status === undefined) {
+    process.exitCode = 10;
+  } else if (status >= 500) {
+    process.exitCode = 3;
+  } else if (status >= 400) {
+    process.exitCode = 2;
+  } else {
+    process.exitCode = 1;
+  }
+}
+
+/**
  * Collect a stream's writes into `chunks`. The override must invoke the
  * callback (when provided) so that `Writable` streams piped into the real
  * stream (e.g. pino's CLI destination) can drain: without it only the first

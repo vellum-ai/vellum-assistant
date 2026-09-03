@@ -10,6 +10,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { reportIpcFailureWithoutExiting } from "./run-assistant-command.js";
+
 interface IpcCall {
   operationId: string;
   options?: Record<string, unknown>;
@@ -81,13 +83,7 @@ const actualCliClient = await import("../../ipc/cli-client.js");
 mock.module("../../ipc/cli-client.js", () => ({
   ...actualCliClient,
   cliIpcCall: cliIpcCallMock,
-  // The real one ends the process, which would take the test runner with it.
-  // Same stderr line and same exit code, and the caller carries on to its own
-  // early return.
-  exitFromIpcResult: (r: { error?: string; statusCode?: number }) => {
-    process.stderr.write((r.error ?? "Unknown error") + "\n");
-    process.exitCode = actualCliClient.exitCodeFromIpcResult(r);
-  },
+  exitFromIpcResult: reportIpcFailureWithoutExiting,
 }));
 
 const { runAssistantCommandFull } = await import("./run-assistant-command.js");
