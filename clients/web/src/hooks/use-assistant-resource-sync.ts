@@ -2,9 +2,9 @@
  * Bus consumer for assistant-level resource cache invalidation.
  *
  * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
- * apps, documents, plugins, activation progress) and discrete SSE events (`home_feed_updated`,
- * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
- * TanStack Query cache invalidations.
+ * apps, documents, plugins, activation progress) and discrete SSE events
+ * (`home_feed_updated`, `relationship_state_updated`, `identity_changed`,
+ * `avatar_updated`) into TanStack Query cache invalidations.
  *
  * Also handles `sse.opened` (non-fresh) to invalidate cached resources on
  * reconnect — the client may have missed `sync_changed` events during the
@@ -38,6 +38,7 @@ import {
   activationProgressGetQueryKey,
   configGetQueryKey,
   configLlmCallsitesGetQueryKey,
+  homeStateGetQueryKey,
   identityGetQueryKey,
   inferenceProfilesGetQueryKey,
   schedulesGetQueryKey,
@@ -204,14 +205,20 @@ export function useAssistantResourceSync(
         });
         return;
 
-      // No web surface reads the relationship snapshot, so this event is kept
-      // only as a second staleness signal for the feed: the daemon rewrites
-      // the snapshot at a turn boundary, which is also when the feed can have
-      // gained an item.
+      // The daemon rewrites the relationship snapshot at a turn boundary,
+      // which is also when the feed can have gained an item, so the feed is
+      // marked stale alongside the snapshot itself. The snapshot carries the
+      // capability tiers the activation checklist reads to decide which tasks
+      // have a connected account behind them, so a mail or calendar
+      // connection made on another client has to reach this query or an
+      // eligible task stays hidden.
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
           predicate: (query) =>
             isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: homeStateGetQueryKey(pathOpts),
         });
         return;
 
@@ -343,6 +350,10 @@ function refreshAssistantResources(
   invalidatePluginQueries(queryClient, assistantId, undefined, refetchType);
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+    refetchType,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: homeStateGetQueryKey(pathOpts),
     refetchType,
   });
   void queryClient.invalidateQueries({

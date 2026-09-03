@@ -7,9 +7,18 @@ import {
 } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-function check(version: string | null): boolean {
-  useAssistantIdentityStore.getState().setIdentity("test-asst", version);
-  const { result } = renderHook(() => useSupportsActivationProgress());
+const OWNER_ASSISTANT_ID = "asst-owner";
+
+function check(
+  version: string | null,
+  identityAssistantId: string | null = OWNER_ASSISTANT_ID,
+): boolean {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", version, identityAssistantId);
+  const { result } = renderHook(() =>
+    useSupportsActivationProgress(OWNER_ASSISTANT_ID),
+  );
   return result.current;
 }
 
@@ -54,5 +63,25 @@ describe("useSupportsActivationProgress", () => {
   test("returns false for unparseable versions", () => {
     expect(check("not-a-version")).toBe(false);
     expect(check("0.11")).toBe(false);
+  });
+
+  // The switch window: the active assistant flips to an older one a render
+  // before the identity fetch replaces the version. An unscoped gate would
+  // still answer `true` and let the progress read 404 against it.
+  test("returns false while the version belongs to another assistant", () => {
+    expect(check(MIN_VERSION, "asst-other")).toBe(false);
+    expect(check(MIN_VERSION, null)).toBe(false);
+  });
+
+  test("returns false without an owner to scope to", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", MIN_VERSION, OWNER_ASSISTANT_ID);
+    expect(
+      renderHook(() => useSupportsActivationProgress(null)).result.current,
+    ).toBe(false);
+    expect(
+      renderHook(() => useSupportsActivationProgress(undefined)).result.current,
+    ).toBe(false);
   });
 });

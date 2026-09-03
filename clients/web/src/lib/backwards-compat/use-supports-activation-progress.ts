@@ -16,15 +16,25 @@
  * the agent-loop hooks that mark a task done. `versionSupports` compares base
  * versions first, so a lower floor would admit routeless 0.11.8 builds and
  * 404 against them on every mount.
+ *
+ * Scoped to the assistant the surface reads for via
+ * `useAssistantScopedSupports` (see its JSDoc in `./utils.ts`). Switching from
+ * a new assistant to an older one changes the active id one render before the
+ * identity fetch replaces the version, so an unscoped gate would stay `true`
+ * across that render and enable the progress read against the older assistant,
+ * caching a 404 for it.
  */
-import { useAssistantSupports } from "./utils";
+import { useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.9";
 
 /**
  * Render-path gate for every activation surface. `false` while the version is
- * unknown, which keeps the feature hidden until identity resolves.
+ * unknown or still held for another assistant, which keeps the feature hidden
+ * until identity resolves for `ownerAssistantId`.
  */
-export function useSupportsActivationProgress(): boolean {
-  return useAssistantSupports(MIN_VERSION);
+export function useSupportsActivationProgress(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  return useAssistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }

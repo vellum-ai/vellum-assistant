@@ -201,6 +201,9 @@ describe("activation copy contract", () => {
         "pill.label",
         "pill.progress",
         "menu.inspirationList",
+        "launch.noAssistant",
+        "launch.unknownTask",
+        "launch.failed",
         "page.title",
       ].sort(),
     );

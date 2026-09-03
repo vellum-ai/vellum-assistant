@@ -10,7 +10,9 @@
  * The read is gated three ways, so a client that cannot use the feature never
  * asks for it: the flag arm must select a list, the daemon must carry the
  * routes, and the org header must be ready (a platform-mode read without it is
- * rejected, and the rejection would be cached).
+ * rejected, and the rejection would be cached). The route gate is scoped to
+ * the assistant being read, so a version still held for the assistant the user
+ * just left cannot authorize a read against this one.
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -32,7 +34,7 @@ export type ActivationTaskProgress = ActivationProgress["tasks"][string];
 export function useActivationProgress(): UseQueryResult<ActivationProgress> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isOrgReady = useIsOrgReady();
-  const supported = useSupportsActivationProgress();
+  const supported = useSupportsActivationProgress(assistantId);
   const arm = useActivationChecklistArm();
 
   return useQuery({

@@ -2,22 +2,37 @@
  * Launching a checklist task: one fresh conversation, started in the
  * background, while the modal stays open.
  *
- * The order of the two writes matters. The link is recorded FIRST, then the
- * prompt is sent. The daemon marks a task done when the linked conversation's
- * first turn completes, so a send that lands before the link exists can finish
- * against a conversation the daemon has no task for, and the row would sit on
- * Working forever. Recording the link first costs one round trip and closes
- * that window.
+ * Three writes, in this order: create the conversation, record the link, send
+ * the prompt.
+ *
+ * The conversation is created first because the link and the send both have to
+ * name a row the daemon can resolve. A client-minted draft id resolves for
+ * neither: `POST /v1/messages` looks the strict `conversationId` field up and
+ * 404s on a miss, so a prompt sent against an unmaterialized id never runs.
+ *
+ * The link is recorded before the prompt is sent. The daemon marks a task done
+ * when the linked conversation's first turn completes, so a send that lands
+ * before the link exists can finish against a conversation the daemon has no
+ * task for, and the row would sit on Working forever. Recording the link first
+ * costs one round trip and closes that window.
  *
  * A failed link therefore never sends: an unlinked prompt would run a task the
- * checklist cannot observe. The error is returned for the row to show.
+ * checklist cannot observe. The conversation created for it is given back
+ * rather than left in the sidebar as a thread the user never started. The
+ * error is returned for the row to show.
  *
- * Every launch mints its own conversation. Reusing one across tasks would put
+ * `launch` never rejects. Every failure, transport included, comes back as a
+ * result: the row has to be able to leave its pending state and say what
+ * happened, and a launch that has already linked has to hand back the
+ * conversation id so the user can open it.
+ *
+ * Every launch gets its own conversation. Reusing one across tasks would put
  * two prompts in one thread and give the daemon two tasks pointing at the same
  * turn.
  */
 
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -29,7 +44,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
 import { extractErrorMessage } from "@/utils/api-errors";
 import {
-  mintBackgroundConversationId,
+  createBackgroundConversation,
+  discardBackgroundConversation,
   sendBackgroundPrompt,
 } from "@/utils/background-conversation";
 
@@ -37,7 +53,7 @@ import { readRawActivationTask } from "../catalog";
 
 export interface LaunchActivationTaskResult {
   ok: boolean;
-  /** The conversation the task was launched into, once one has been minted. */
+  /** The conversation the task was launched into, once one is linked to it. */
   conversationId?: string;
   error?: string;
 }
@@ -62,6 +78,7 @@ export function useLaunchActivationTask(
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const arm = useActivationChecklistArm();
   const queryClient = useQueryClient();
+  const { t } = useTranslation("activation");
   const { mutateAsync: startTask } = useMutation(
     activationTasksByTaskIdStartPostMutation(),
   );
@@ -73,7 +90,7 @@ export function useLaunchActivationTask(
       promptOverride?: string,
     ): Promise<LaunchActivationTaskResult> => {
       if (!assistantId) {
-        return { ok: false, error: "No active assistant" };
+        return { ok: false, error: t("launch.noAssistant") };
       }
       const override = promptOverride?.trim();
       // Read at click time rather than from a resolved list: the catalog is
@@ -81,36 +98,51 @@ export function useLaunchActivationTask(
       // right one (see `@/i18n`).
       const prompt = override || readRawActivationTask(taskId)?.prompt;
       if (!prompt) {
-        return { ok: false, error: "Unknown task" };
+        return { ok: false, error: t("launch.unknownTask") };
       }
 
-      const conversationId = mintBackgroundConversationId();
       setPendingTaskId(taskId);
       try {
+        const created = await createBackgroundConversation(assistantId);
+        if (!created.ok) {
+          return { ok: false, error: created.error };
+        }
+        const { conversationId } = created;
+
         try {
           await startTask({
             path: { assistant_id: assistantId, taskId },
             body: { conversationId, listId },
           });
         } catch (error) {
+          void discardBackgroundConversation(assistantId, conversationId);
           return { ok: false, error: extractErrorMessage(error) };
         }
 
-        const sent = await sendBackgroundPrompt({
-          assistantId,
-          conversationId,
-          prompt,
-        });
+        let sent;
+        try {
+          sent = await sendBackgroundPrompt({
+            assistantId,
+            conversationId,
+            prompt,
+          });
+        } catch (error) {
+          // The link already stands, so the conversation is the task's; the
+          // user can open and drive it whatever the transport did.
+          return {
+            ok: false,
+            conversationId,
+            error: extractErrorMessage(error, undefined, t("launch.failed")),
+          };
+        }
         if (!sent.ok) {
-          // The link already stands, so the conversation is the task's; a
-          // failed send leaves it empty and the user can open and drive it.
           return {
             ok: false,
             conversationId,
             error: extractErrorMessage(
               sent.error,
               undefined,
-              "Could not start the task. Please try again.",
+              t("launch.failed"),
             ),
           };
         }
@@ -126,7 +158,7 @@ export function useLaunchActivationTask(
         setPendingTaskId(null);
       }
     },
-    [arm, assistantId, listId, queryClient, startTask],
+    [arm, assistantId, listId, queryClient, startTask, t],
   );
 
   return { launch, pendingTaskId };

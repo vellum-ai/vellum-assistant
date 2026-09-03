@@ -66,6 +66,10 @@ export function isKnownCapabilityTag(
  * Everything not gated by a live signal is included unconditionally, so a
  * caller can answer a row with a plain set membership test and never has to
  * distinguish "unknown tag" from "available tag".
+ *
+ * The home-state read is kept current by `relationship_state_updated` and the
+ * reconnect sweep in `hooks/use-assistant-resource-sync.ts`, so an account
+ * connected on another client unhides its tasks without a reload.
  */
 export function useAvailableCapabilityTags(): ReadonlySet<string> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();

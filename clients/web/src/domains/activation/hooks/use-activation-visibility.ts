@@ -20,6 +20,7 @@ import {
 import { useSupportsActivationProgress } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useBannerVisible } from "@/stores/banner-visibility-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 import { getActivationListIds } from "../catalog";
@@ -69,7 +70,8 @@ export function doneStarterCount(
 export function useActivationVisibility(): ActivationVisibility {
   const arm = useActivationChecklistArm();
   const armListId = resolveActivationListId(arm);
-  const supported = useSupportsActivationProgress();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const supported = useSupportsActivationProgress(assistantId);
   const { data: progress } = useActivationProgress();
   const { pathname } = useLocation();
   const tourActive = useInChatOnboardingStore.use.prototypeActive();

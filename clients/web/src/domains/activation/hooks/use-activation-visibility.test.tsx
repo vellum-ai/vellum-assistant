@@ -20,6 +20,7 @@ import {
 } from "@/domains/activation/activation-test-fixtures";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -47,6 +48,8 @@ function wrapper(pathname: string) {
   };
 }
 
+const ASSISTANT_ID = "asst-1";
+
 function setArm(arm: string): void {
   useClientFeatureFlagStore
     .getState()
@@ -63,7 +66,10 @@ function visibility(pathname = "/assistant/conversation/c1") {
 beforeEach(() => {
   progress = ACTIVATION_PROGRESS_EMPTY;
   setArm("smb");
-  useAssistantIdentityStore.getState().setIdentity("asst-1", MIN_VERSION);
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Vel", MIN_VERSION, ASSISTANT_ID);
   useInChatOnboardingStore.setState({ prototypeActive: false });
   useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
 });
@@ -82,7 +88,18 @@ describe("useActivationVisibility gates", () => {
   });
 
   test("hides everything when the daemon predates the routes", () => {
-    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.8");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Vel", "0.11.8", ASSISTANT_ID);
+    expect(visibility().surface).toBeNull();
+  });
+
+  // The assistant-switch window: the active id flips a render before the
+  // identity fetch replaces the version it was read for.
+  test("hides everything while the version belongs to another assistant", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Vel", MIN_VERSION, "asst-other");
     expect(visibility().surface).toBeNull();
   });
 

@@ -1,42 +1,104 @@
 /**
  * Starting a conversation the user is not looking at.
  *
- * A background launch mints a conversation, links it somewhere, and sends one
- * prompt into it, all while the surface that triggered it stays on screen and
- * the visible conversation is left alone. That is deliberately NOT
+ * A background launch creates a conversation, links it somewhere, and sends
+ * one prompt into it, all while the surface that triggered it stays on screen
+ * and the visible conversation is left alone. That is deliberately NOT
  * `prepareFreshConversation()` from `conversation-navigation.ts`: that helper
  * selects the new draft and reveals the chat, which is right for "new chat"
  * and wrong here, since it would swap the transcript under an open modal while
  * the URL still points at the conversation the user was reading.
  *
+ * The conversation is created by the daemon up front rather than minted
+ * client-side. A caller that has to record a link BEFORE the prompt is sent
+ * needs an id the daemon can already resolve: `POST /v1/messages` looks a
+ * `conversationId` up strictly and 404s on a miss (see
+ * `lib/backwards-compat/conversation-id-wire-field.ts`), and its
+ * create-on-first-send branches either mint their own id or key off an
+ * external `conversationKey`. One extra round trip buys an id that the link
+ * and the send agree about.
+ *
  * The seam lives in `utils/` so a feature domain can reach it without
- * importing the chat domain. The conversation is a real conversation: it lands
- * in the sidebar list once the daemon persists its first message, and opening
- * it later streams like any other.
+ * importing the chat domain. The conversation is a real conversation: it is in
+ * the sidebar list from the moment it exists, and opening it later streams
+ * like any other.
  */
 
 import {
   postChatMessage,
   type PostMessageResult,
 } from "@/domains/chat/api/messages";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { useConversationStore } from "@/stores/conversation-store";
+import {
+  conversationsByIdDelete,
+  conversationsPost,
+} from "@/generated/daemon/sdk.gen";
+import { extractErrorMessage } from "@/utils/api-errors";
+
+export type CreateBackgroundConversationResult =
+  | { ok: true; conversationId: string }
+  | { ok: false; error: string };
 
 /**
- * Mint a conversation id for a turn that starts in the background.
+ * Create the conversation a background turn will run in.
  *
- * Registered as a draft the same way every other fresh key is, so the surfaces
- * that treat an unsent key as a draft agree about this one. Returning the id
- * before anything is sent lets the caller record the link first, which matters
- * whenever a turn can complete before the send call resolves.
+ * `standard` (the daemon's default) on purpose: this is a conversation the
+ * user is meant to be able to open, unlike the `background` rows the
+ * onboarding and identity flows create for work nobody should ever see. No
+ * title either, so the auto titler names it from the turn once it runs.
+ *
+ * Never throws: a transport failure comes back as `ok: false` so a caller's
+ * result contract holds on every path.
  */
-export function mintBackgroundConversationId(): string {
-  return createDraftConversationId();
+export async function createBackgroundConversation(
+  assistantId: string,
+): Promise<CreateBackgroundConversationResult> {
+  try {
+    const { data, error, response } = await conversationsPost({
+      path: { assistant_id: assistantId },
+      body: {},
+      throwOnError: false,
+    });
+    const conversationId = data?.id;
+    if (!response?.ok || !conversationId) {
+      return {
+        ok: false,
+        error: extractErrorMessage(error, response, "Request failed."),
+      };
+    }
+    return { ok: true, conversationId };
+  } catch (error) {
+    return { ok: false, error: extractErrorMessage(error) };
+  }
+}
+
+/**
+ * Give back a background conversation nothing will ever use.
+ *
+ * Only for the window between creating a conversation and the caller deciding
+ * it has no owner: an empty row left behind sits in the sidebar as a
+ * conversation the user never started. A conversation that has been linked to
+ * something, or that carries a message, belongs to whoever linked it.
+ *
+ * Never throws and never reports: the caller has already failed at something
+ * more important, and a leftover empty conversation costs one stray row.
+ */
+export async function discardBackgroundConversation(
+  assistantId: string,
+  conversationId: string,
+): Promise<void> {
+  try {
+    await conversationsByIdDelete({
+      path: { assistant_id: assistantId, id: conversationId },
+      throwOnError: false,
+    });
+  } catch {
+    // Best effort by contract.
+  }
 }
 
 export interface SendBackgroundPromptArgs {
   assistantId: string;
-  /** A key from {@link mintBackgroundConversationId}. */
+  /** A conversation from {@link createBackgroundConversation}. */
   conversationId: string;
   prompt: string;
 }
@@ -44,22 +106,14 @@ export interface SendBackgroundPromptArgs {
 /**
  * Send one prompt into a background conversation.
  *
- * Retires the draft mark on the id the daemon resolved, the same way
- * `use-send-message` does for a foreground send: the POST answering means the
- * row exists, and a key still marked draft describes a conversation that is no
- * longer new. The list reconcile would eventually heal it, but only after the
- * next list refetch.
+ * The id names a row the daemon already holds, so the strict `conversationId`
+ * wire field resolves it on assistants that use it and the legacy
+ * `conversationKey` lookup finds it on assistants that do not.
  */
 export async function sendBackgroundPrompt({
   assistantId,
   conversationId,
   prompt,
 }: SendBackgroundPromptArgs): Promise<PostMessageResult> {
-  const result = await postChatMessage(assistantId, conversationId, prompt);
-  if (result.ok) {
-    useConversationStore
-      .getState()
-      .clearDraftConversationId(result.conversationId);
-  }
-  return result;
+  return postChatMessage(assistantId, conversationId, prompt);
 }
