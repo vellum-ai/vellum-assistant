@@ -16,7 +16,8 @@ Spend on the user's behalf using the [Stripe Link CLI](https://github.com/stripe
 
 ## Required tools
 
-- `bash` for all `link-cli` invocations. Use `host_bash` only if a specific flow genuinely requires host-level access (e.g. reading a local file the user has on their machine).
+- `bash` for all `link-cli` invocations.
+- Use `assistant browser` to open returned Link approval URLs in an available user-browser session. If that route is unavailable but the user has an authenticated desktop client, use `host_bash` only to run `open "<verification_url>"` on that client. Do not use the sandbox browser for approval unless the user explicitly asks for it.
 
 ## Hard constraints
 
@@ -81,11 +82,20 @@ In every example below, substitute `bunx @stripe/link-cli` wherever you see `lin
 
 Use your own assistant name for `--client-name` — read it from `IDENTITY.md`. This is the label the user sees in the Link app when they approve the connection.
 
+> **Device-authorization handling — do not make the user fish a URL out of terminal output.** With `--format json`, `auth login` **does not open a browser**; it returns `verification_url`, `phrase`, and a polling continuation. Run the login once without inline polling, extract the returned URL, then navigate the user's connected browser to it yourself. Only if no browser route is available, present it as a clickable link with the phrase in chat. Never claim the CLI opened a browser unless you actually navigated it.
+
+1. First check `assistant browser --json status`. Prefer an available user-browser backend. If one is connected, open the returned `verification_url` using `assistant browser --browser-mode <available-mode> navigate --url "<verification_url>"`.
+2. If the browser integration is unavailable but an authenticated Mac client is connected, use `host_bash` with `open "<verification_url>"` on that client. This is one of the narrow cases where host execution is appropriate: the approval must open in the user's browser, not the sandbox browser.
+3. Start `auth status --interval 5 --max-attempts 60 --format json` immediately after navigation. Do not wait for another message. Stop when `authenticated` is true or the request reaches a terminal failure.
+
 ```bash
-link-cli auth login --client-name "<your assistant name>"
+link-cli auth login \
+  --client-name "<your assistant name>" \
+  --scope "userinfo:read payment_methods.agentic" \
+  --format json
 ```
 
-Opens a browser flow. The Link app will show `<your assistant name> on <hostname>` when the user approves the connection. After it completes, re-run Step 0.
+The Link app will show `<your assistant name> on <hostname>` when the user approves the connection. After polling succeeds, re-run Step 0 and verify that the returned `scope` includes the access required for the requested task.
 
 ### Introspecting the CLI
 
@@ -273,7 +283,7 @@ link-cli spend-request cancel <id> --format json
 | Error / condition                       | Action                                                                                              |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `link-cli` not found                    | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`. |
-| Not authenticated                       | Run `auth login --client-name "<your assistant name>"` (see Setup)                                  |
+| Not authenticated                       | Run `auth login` with the assistant name and required scopes, then open its returned `verification_url` in the user's browser and poll (see Setup) |
 | `POLLING_TIMEOUT` on retrieve           | Report to user; offer cancel or fresh spend request                                                 |
 | SPT payment fails (402 again after pay) | SPT is consumed — create a new spend request                                                        |
 | `amount` > 50000                        | Tell user the cap is \$500 per transaction                                                          |
