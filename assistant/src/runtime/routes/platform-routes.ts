@@ -194,7 +194,7 @@ const PlatformCreditsResponseSchema = z.object({
     .number()
     .nullable()
     .describe(
-      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter. Null when grant figures are missing or the total is zero.",
+      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter. A Pro subscription whose unexpired grants total nothing reads as 1 (everything granted is used or expired). Null when there is no usable reading: grant figures missing, or a zero total on a base or unknown plan.",
     ),
   plan_credits_spent: z
     .boolean()

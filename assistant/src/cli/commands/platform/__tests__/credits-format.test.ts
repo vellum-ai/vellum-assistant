@@ -115,6 +115,21 @@ describe("formatCreditsLines", () => {
     );
   });
 
+  test("still reports the spent state when the platform omits the remaining amount", () => {
+    const lines = formatCreditsLines({
+      ...BASE,
+      plan_credit_remaining: null,
+      plan_credit_total: 0,
+      plan_credit_used_fraction: 1,
+      plan_credits_spent: true,
+      extra_credit_remaining: null,
+    });
+
+    expect(lines[2]).toBe(
+      "Plan:      plan credit used up or expired, and no extra credit remains",
+    );
+  });
+
   test("shows the next expiry when it falls beyond the 30-day window", () => {
     const lines = formatCreditsLines({ ...BASE, credits_expiring_soon: 0 });
 
