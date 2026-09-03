@@ -23,13 +23,14 @@ export interface AvatarAccentInputs {
  * character (its palette colour) and for an uploaded image (read out of the
  * pixels, or set by the user), so when it is present it is the answer.
  *
- * Without one the accent is the colour `ChatAvatar` draws: a character's
- * palette colour, and for an assistant that never picked traits the same
- * first palette colour its default creature is drawn in. An image with no
- * accent from the daemon (an assistant that predates accents, or an image it
- * could not read) has no colour to match, so surfaces keep their own
- * fallback rather than tinting to an avatar nobody can see. Null while the
- * avatar is still loading.
+ * Without one the accent is the colour of what `ChatAvatar` draws, in the
+ * precedence `resolveAvatarRender` fixes: saved traits outrank an uploaded
+ * image, so they give their palette colour; an image with no accent from the
+ * daemon (an assistant that predates accents, or an image it could not read)
+ * has no colour to match, so surfaces keep their own fallback rather than
+ * tinting to an avatar nobody can see; and an assistant that never picked
+ * traits wears the first palette colour its default creature is drawn in.
+ * Null while the avatar is still loading.
  */
 export function resolveAvatarAccentHex(
   avatar: AvatarAccentInputs,
@@ -38,7 +39,9 @@ export function resolveAvatarAccentHex(
   if (accent) {
     return accent.hex;
   }
-  if (avatar.customImageUrl || avatar.state?.kind === "image") {
+  const wearsImage =
+    Boolean(avatar.customImageUrl) || avatar.state?.kind === "image";
+  if (wearsImage && !avatar.traits) {
     return null;
   }
   const effective = resolveEffectiveTraits(avatar.components, avatar.traits);

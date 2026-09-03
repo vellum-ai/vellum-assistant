@@ -358,11 +358,17 @@ export function AssistantNavItem({
       </span>
     ) : null;
 
-  if (!hex) {
-    // No character avatar (custom image / not loaded): a plain-toned row
-    // that keeps the New Chat row's geometry — the Brain icon centers in
-    // the same CHIP_SIZE slot the plus chip and the eyes use, so both
-    // rows' labels stay on one axis.
+  /* Saved traits outrank an uploaded image, as they do in ChatAvatar; an
+     image displaces only the default creature. Decided from the traits, not
+     from the accent: an image carries an accent of its own now, and that
+     colour washes the New Chat row above without making the row a character. */
+  const wearsImage = customImageUrl !== null && !traits;
+
+  if (!hex || wearsImage) {
+    // No character to draw (an uploaded image, or an avatar not loaded yet):
+    // a plain-toned row that keeps the New Chat row's geometry. The uploaded
+    // image, or else the Brain icon, centers in the same CHIP_SIZE slot the
+    // plus chip and the eyes use, so both rows' labels stay on one axis.
     return (
       <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
         {collapsed ? (

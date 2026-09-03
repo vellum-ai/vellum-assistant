@@ -82,12 +82,10 @@ describe("resolveAvatarAccentHex", () => {
   });
 
   test("an image with no daemon accent has no colour to match", () => {
-    // Lingering character components must not leak a colour into surfaces
-    // tinting themselves to an avatar nobody can see.
     expect(
       resolveAvatarAccentHex({
         components: BUNDLED_COMPONENTS,
-        traits: traitsWithColor("orange"),
+        traits: null,
         customImageUrl: "blob:image",
       }),
     ).toBeNull();
@@ -99,6 +97,17 @@ describe("resolveAvatarAccentHex", () => {
         customImageUrl: null,
       }),
     ).toBeNull();
+  });
+
+  test("saved traits outrank an image, as they do in ChatAvatar", () => {
+    // The character is what renders, so its colour is the accent.
+    expect(
+      resolveAvatarAccentHex({
+        components: BUNDLED_COMPONENTS,
+        traits: traitsWithColor("orange"),
+        customImageUrl: "blob:image",
+      }),
+    ).toBe(ORANGE);
   });
 
   test("null while the avatar is still loading", () => {
