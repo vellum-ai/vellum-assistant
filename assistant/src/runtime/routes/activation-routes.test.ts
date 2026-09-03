@@ -318,6 +318,36 @@ describe("activation routes", () => {
     expect((await call(getProgressRoute)).tasks).toEqual({});
   });
 
+  test("POST start refuses a conversation deleted while it waited for the lock", async () => {
+    setActivationLockTimingForTesting({ waitMs: 1_000 });
+    mkdirSync(join(workspaceDir, "data"), { recursive: true });
+    const lockPath = getActivationProgressLockPath();
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: process.pid, at: Date.now() }),
+      "utf-8",
+    );
+
+    // The conversation is there when the call starts, so the fast-path check
+    // passes and the mutation queues behind the lock.
+    const pending = call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-1" },
+    }).catch((e: unknown) => e);
+
+    // Deleted while the mutation waits, the way a delete request landing on
+    // another connection would.
+    await Bun.sleep(50);
+    existingConversationIds.delete("conv-1");
+    rmSync(lockPath);
+
+    const err = await pending;
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(404);
+    // No link was written, so nothing is left pointing at a deleted row.
+    expect((await call(getProgressRoute)).tasks).toEqual({});
+  });
+
   test("POST start answers 503 while another process holds the progress lock", async () => {
     setActivationLockTimingForTesting({ waitMs: 40 });
     mkdirSync(join(workspaceDir, "data"), { recursive: true });

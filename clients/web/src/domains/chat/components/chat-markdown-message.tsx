@@ -49,7 +49,7 @@ import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path"
 import {
   toVellumWorkspaceHref,
   WORKSPACE_PATH_TAG,
-} from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/workspace-path-links";
 import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
 import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
@@ -282,18 +282,20 @@ function WorkspaceInlineImage({
       onClick={() => onOpenPreview(attachment)}
       className="cursor-zoom-in appearance-none border-0 bg-transparent p-0"
       aria-label={
-              alt
-                ? t("chatMarkdownMessage.expandImageAriaWithAlt", { alt })
-                : t("chatMarkdownMessage.expandImageAria")
-            }
+        alt
+          ? t("chatMarkdownMessage.expandImageAriaWithAlt", { alt })
+          : t("chatMarkdownMessage.expandImageAria")
+      }
     >
       {image}
     </button>
   );
 }
 
-export interface ChatMarkdownMessageProps
-  extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
+export interface ChatMarkdownMessageProps extends Omit<
+  MarkdownMessageProps,
+  "linkComponent" | "imageComponent"
+> {
   /**
    * Fallback for file links the document drawer cannot open: a reference with
    * no assistant to read it through, or a `vellum://host/` link with no

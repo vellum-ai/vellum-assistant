@@ -20,7 +20,7 @@ import {
   classifyAttachment,
   middleTruncate,
   type AttachmentIconKind,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 
 interface AttachmentChipProps {
   id: string;

@@ -5,7 +5,7 @@ import {
   toWorkspaceRelativePath,
   workspaceBasenameOf,
   workspaceDirOf,
-} from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/workspace-path-links";
 
 describe("toWorkspaceRelativePath — accepted shapes", () => {
   test("absolute path under the hosted /workspace mount", () => {

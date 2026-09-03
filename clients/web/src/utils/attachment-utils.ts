@@ -1,8 +1,18 @@
+/**
+ * Presentation helpers every attachment and file surface shares: the size
+ * string, the middle-truncated filename, the image test the vision gate
+ * reads, and the icon kind a file classifies as.
+ *
+ * Pure derivations over a name, a type, and a byte count, so a surface
+ * outside chat can render a file the same way the transcript does without
+ * reaching into chat.
+ */
+
 import {
   baseMimeType,
   extensionOf,
   GENERIC_MIME_TYPES,
-} from "@/domains/chat/utils/mime-sniff";
+} from "@/utils/mime-sniff";
 
 /**
  * Format a raw byte count into a short human-readable string (e.g. "12 KB", "3.4 MB").

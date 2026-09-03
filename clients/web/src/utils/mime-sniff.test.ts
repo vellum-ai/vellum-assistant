@@ -6,7 +6,7 @@ import {
   type LocalFileKind,
   resolveLocalFileType,
   sniffMimeType,
-} from "@/domains/chat/utils/mime-sniff";
+} from "@/utils/mime-sniff";
 
 function ascii(text: string): number[] {
   return [...text].map((char) => char.charCodeAt(0));

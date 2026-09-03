@@ -12,7 +12,7 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyAttachment,
   isImageAttachment,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 
 describe("isImageAttachment", () => {
   test("reads a type that names an image", () => {

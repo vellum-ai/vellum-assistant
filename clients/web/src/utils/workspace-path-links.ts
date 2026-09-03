@@ -1,6 +1,6 @@
 /**
- * Recognize workspace file paths written as bare inline code in chat — "the
- * draft is at `/workspace/drafts/notes.md`" — and normalize them to the
+ * Recognize workspace file paths written as bare inline code — "the draft is
+ * at `/workspace/drafts/notes.md`" — and normalize them to the
  * workspace-relative form the daemon's workspace routes speak.
  *
  * Recognition is conservative and produces only a *candidate*. Whether the

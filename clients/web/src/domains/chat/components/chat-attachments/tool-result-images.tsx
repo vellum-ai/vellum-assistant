@@ -8,9 +8,9 @@ import {
   downloadAttachment,
   fetchAttachmentContentBlob,
 } from "@/domains/chat/components/chat-attachments/download-attachment";
-import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
+import { estimateBase64Bytes } from "@/utils/attachment-utils";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
-import { sniffMimeType } from "@/domains/chat/utils/mime-sniff";
+import { sniffMimeType } from "@/utils/mime-sniff";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 

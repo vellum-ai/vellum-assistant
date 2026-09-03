@@ -16,8 +16,8 @@ import {
   type LocalFileKind,
   resolveLocalFileType,
   sniffMimeType,
-} from "@/domains/chat/utils/mime-sniff";
-import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/mime-sniff";
+import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
 
 export type LocalFileInfo =
