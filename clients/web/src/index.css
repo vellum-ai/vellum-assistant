@@ -1056,6 +1056,19 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   height: 0;
 }
 
+/* Companion capture picker list: hidden for the same reason and the same
+ * way as the sidebar above. The card floats over the user's desktop beside
+ * a surface that draws no scrollbars anywhere else, and a bottom fade already
+ * carries the "there is more" hint a visible thumb would otherwise
+ * duplicate. Trackpad/wheel scrolling is unaffected. */
+[data-slot="companion-capture-picker-list"] {
+  scrollbar-width: none;
+}
+[data-slot="companion-capture-picker-list"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 /* Capacitor mobile shells hide scrollbars entirely. The global scrollbar
  * styling above replaces native auto-hiding overlay indicators with visible
  * browser chrome. Scrolling and momentum are unaffected. The native-platform

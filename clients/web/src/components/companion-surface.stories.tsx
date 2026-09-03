@@ -530,6 +530,76 @@ export const InCallPicking: Story = {
 };
 
 /**
+ * The picker open before the host has answered: a skeleton in the list's own
+ * shape, so the card does not change size once the answer lands.
+ */
+export const InCallPickingLoading: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: <CompanionCapturePicker sources={null} />,
+  },
+};
+
+/**
+ * Reopened on a session already reading a window: the current target keeps
+ * its own mark rather than asking the choice again from nothing.
+ */
+export const InCallPickingCurrent: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    watching: true,
+    picking: true,
+    picker: (
+      <CompanionCapturePicker
+        current={{ kind: "window", windowId: 7 }}
+        sources={{
+          displays: [
+            { kind: "display", displayId: 1, index: 0, primary: true },
+          ],
+          tabs: [],
+          windows: [
+            { kind: "window", windowId: 7, title: "Groceries", app: "Notes" },
+            { kind: "window", windowId: 8, title: "", app: "Preview" },
+          ],
+        }}
+      />
+    ),
+  },
+};
+
+/**
+ * A desktop with more than the card's reservation can show at once: the fade
+ * at the bottom is the only hint, since the card never grows past what the
+ * canvas set aside for it.
+ */
+export const InCallPickingLongList: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: (
+      <CompanionCapturePicker
+        sources={{
+          displays: [
+            { kind: "display", displayId: 1, index: 0, primary: true },
+          ],
+          tabs: [],
+          windows: Array.from({ length: 12 }, (_, index) => ({
+            kind: "window" as const,
+            windowId: index + 1,
+            title: `Window ${index + 1}`,
+            app: "Finder",
+          })),
+        }}
+      />
+    ),
+  },
+};
+
+/**
  * The dial: Talk pressed, and the session it asked for not yet on the surface.
  *
  * Who is being called and the one control that means anything yet, the end.

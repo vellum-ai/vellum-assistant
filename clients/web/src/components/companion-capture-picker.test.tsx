@@ -137,4 +137,52 @@ describe("the capture picker", () => {
     );
     expect(card).not.toBeNull();
   });
+
+  /**
+   * Reopening the picker on a session already running is answered from the
+   * live target, not a blank choice.
+   */
+  test("marks the target a running session is reading", () => {
+    const { container } = render(
+      <CompanionCapturePicker
+        sources={SOURCES}
+        current={{ kind: "window", windowId: 7 }}
+      />,
+    );
+    const current = container.querySelector('button[aria-pressed="true"]');
+    expect(current?.getAttribute("aria-label")).toBe("Groceries (Notes)");
+    const others = [
+      ...container.querySelectorAll('button[aria-pressed="false"]'),
+    ]
+      .map((button) => button.getAttribute("aria-label"))
+      .sort();
+    expect(others).toEqual(
+      ["Screen 1", "Screen 2", "Pull request #42", "Preview"].sort(),
+    );
+  });
+
+  /**
+   * A tab is never marked current: the host reports back the window a picked
+   * tab resolved to, not the tab itself, so there is nothing here to compare
+   * a tab row against.
+   */
+  test("never marks a tab, since the host reports back its window instead", () => {
+    const { container } = render(
+      <CompanionCapturePicker
+        sources={SOURCES}
+        current={{ kind: "display", displayId: 1 }}
+      />,
+    );
+    const tab = container.querySelector(
+      'button[aria-label="Pull request #42"]',
+    );
+    expect(tab?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("stands in for the list with its own shape while loading", () => {
+    const { container } = render(<CompanionCapturePicker sources={null} />);
+    expect(
+      container.querySelectorAll("[aria-hidden] .animate-pulse").length,
+    ).toBeGreaterThan(0);
+  });
 });

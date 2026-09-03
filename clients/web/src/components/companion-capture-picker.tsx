@@ -1,5 +1,12 @@
-import { AppWindow, Monitor } from "lucide-react";
-import type { CSSProperties, ReactNode, Ref } from "react";
+import { AppWindow, Check, Monitor } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
@@ -8,6 +15,7 @@ import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -49,6 +57,9 @@ const CARD_WIDTH = 260;
  */
 const LIST_MAX_HEIGHT = 224;
 
+/** How many rows the loading state stands in for, in each of its two groups. */
+const SKELETON_ROWS = 3;
+
 export interface CompanionCapturePickerProps {
   /**
    * What the host listed, or `null` while it is still being asked. The card
@@ -56,6 +67,17 @@ export interface CompanionCapturePickerProps {
    * something before the list lands.
    */
   sources: CompanionCaptureSources | null;
+  /**
+   * What a running session actually reads, or `undefined` for the whole
+   * screen or when nothing is running. Marks the row it names, so reopening
+   * the picker on a live session shows where it stands rather than asking the
+   * choice again from nothing.
+   *
+   * Never a tab: the host resolves a picked tab to the window showing it, and
+   * reports that window back, not the tab. A tab row is therefore never marked
+   * current even while its own window is being read.
+   */
+  current?: WatchCaptureTarget;
   cardGrowth?: CompanionCardGrowth;
   avatarBox?: number;
   optionsBox?: number;
@@ -70,6 +92,7 @@ export interface CompanionCapturePickerProps {
 
 export function CompanionCapturePicker({
   sources,
+  current,
   cardGrowth = "up",
   avatarBox = COMPANION_BASE_AVATAR_BOX,
   optionsBox = COMPANION_BASE_AVATAR_BOX,
@@ -106,6 +129,8 @@ export function CompanionCapturePicker({
     sources.tabs.length === 0 &&
     sources.windows.length === 0;
 
+  const [listRef, overflowing] = useOverflowFade();
+
   return (
     <div
       ref={cardRef}
@@ -122,66 +147,101 @@ export function CompanionCapturePicker({
         event.stopPropagation();
       }}
     >
-      <div
-        className="flex flex-col overflow-y-auto px-1.5"
-        style={{ maxHeight: LIST_MAX_HEIGHT }}
-      >
-        {sources !== null && sources.displays.length > 0 && (
-          <Section title={t("companionSurface.captureScreens")}>
-            {sources.displays.map((display) => (
-              <Row
-                key={`display-${display.displayId}`}
-                icon={<Monitor className="size-4 shrink-0 text-white/70" />}
-                title={t("companionSurface.captureScreen", {
-                  n: display.index + 1,
-                })}
-                onClick={() => {
-                  onPick?.({ kind: "display", displayId: display.displayId });
-                }}
-              />
-            ))}
-          </Section>
-        )}
-        {sources !== null && sources.tabs.length > 0 && (
-          <Section title={t("companionSurface.captureTabs")}>
-            {sources.tabs.map((tab) => (
-              <Row
-                key={`tab-${tab.chromeWindowId}-${tab.tabIndex}`}
-                icon={<SourceIcon icon={tab.icon} />}
-                title={tab.title}
-                onClick={() => {
-                  onPick?.({
-                    kind: "tab",
-                    chromeWindowId: tab.chromeWindowId,
-                    tabIndex: tab.tabIndex,
-                  });
-                }}
-              />
-            ))}
-          </Section>
-        )}
-        {sources !== null && sources.windows.length > 0 && (
-          <Section title={t("companionSurface.captureWindows")}>
-            {sources.windows.map((window) => (
-              <Row
-                key={`window-${window.windowId}`}
-                icon={<SourceIcon icon={window.icon} />}
-                // The app's name stands in for a window that has none of its
-                // own, which is common enough (a palette, a player) that a row
-                // reading as blank would be a row nobody could pick on purpose.
-                title={window.title === "" ? window.app : window.title}
-                detail={window.title === "" ? undefined : window.app}
-                onClick={() => {
-                  onPick?.({ kind: "window", windowId: window.windowId });
-                }}
-              />
-            ))}
-          </Section>
-        )}
-        {empty && (
-          <span className="px-2 py-2 text-[12px] text-white/50">
-            {t("companionSurface.captureNothing")}
-          </span>
+      <div className="relative">
+        <div
+          data-slot="companion-capture-picker-list"
+          className="flex flex-col overflow-y-auto px-1.5"
+          style={{ maxHeight: LIST_MAX_HEIGHT }}
+        >
+          <div ref={listRef} className="flex flex-col">
+            {sources === null && <SkeletonList />}
+            {sources !== null && sources.displays.length > 0 && (
+              <Section title={t("companionSurface.captureScreens")} first>
+                {sources.displays.map((display) => (
+                  <Row
+                    key={`display-${display.displayId}`}
+                    icon={<Monitor className="size-4 shrink-0 text-white/70" />}
+                    title={t("companionSurface.captureScreen", {
+                      n: display.index + 1,
+                    })}
+                    current={
+                      current?.kind === "display" &&
+                      current.displayId === display.displayId
+                    }
+                    onClick={() => {
+                      onPick?.({
+                        kind: "display",
+                        displayId: display.displayId,
+                      });
+                    }}
+                  />
+                ))}
+              </Section>
+            )}
+            {sources !== null && sources.tabs.length > 0 && (
+              <Section
+                title={t("companionSurface.captureTabs")}
+                first={sources.displays.length === 0}
+              >
+                {sources.tabs.map((tab) => (
+                  <Row
+                    key={`tab-${tab.chromeWindowId}-${tab.tabIndex}`}
+                    icon={<SourceIcon icon={tab.icon} />}
+                    title={tab.title}
+                    onClick={() => {
+                      onPick?.({
+                        kind: "tab",
+                        chromeWindowId: tab.chromeWindowId,
+                        tabIndex: tab.tabIndex,
+                      });
+                    }}
+                  />
+                ))}
+              </Section>
+            )}
+            {sources !== null && sources.windows.length > 0 && (
+              <Section
+                title={t("companionSurface.captureWindows")}
+                first={
+                  sources.displays.length === 0 && sources.tabs.length === 0
+                }
+              >
+                {sources.windows.map((window) => (
+                  <Row
+                    key={`window-${window.windowId}`}
+                    icon={<SourceIcon icon={window.icon} />}
+                    // The app's name stands in for a window that has none of its
+                    // own, which is common enough (a palette, a player) that a row
+                    // reading as blank would be a row nobody could pick on purpose.
+                    title={window.title === "" ? window.app : window.title}
+                    detail={window.title === "" ? undefined : window.app}
+                    current={
+                      current?.kind === "window" &&
+                      current.windowId === window.windowId
+                    }
+                    onClick={() => {
+                      onPick?.({ kind: "window", windowId: window.windowId });
+                    }}
+                  />
+                ))}
+              </Section>
+            )}
+            {empty && (
+              <span className="px-2 py-3 text-[12px] text-white/50">
+                {t("companionSurface.captureNothing")}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* A hint that the list keeps going, not a scrollbar: the card never
+          grows past what the canvas reserves, so what does not fit is read by
+          scrolling rather than by resizing. Only drawn once the content
+          actually overflows, so a short list keeps its own last row crisp. */}
+        {overflowing && (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 rounded-b-2xl bg-gradient-to-t from-[#17181b] to-transparent"
+            aria-hidden
+          />
         )}
       </div>
     </div>
@@ -189,14 +249,56 @@ export function CompanionCapturePicker({
 }
 
 /**
+ * Whether the list's own content is taller than the room it is given, so the
+ * card can hint at what scrolling reveals instead of only stating it never
+ * changes.
+ *
+ * The ref this hands back belongs on an unconstrained wrapper *inside* the
+ * scrolling list, not the scrolling element itself: the list's own box is
+ * clamped to {@link LIST_MAX_HEIGHT}, so it never resizes when its content
+ * does, and a `ResizeObserver` on it would never fire for the one change this
+ * is watching for. The wrapper's natural height against that same clamp is
+ * the comparison that answers it.
+ */
+function useOverflowFade(): [Ref<HTMLDivElement>, boolean] {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      setOverflowing(entry.contentRect.height > LIST_MAX_HEIGHT);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+  return [ref, overflowing];
+}
+
+/**
  * One kind of thing to read, named once above its rows. A heading rather
  * than a divider because a tab row and a Chrome window row are otherwise the
  * same icon and nearly the same words.
  */
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  first = false,
+  children,
+}: {
+  title: string;
+  /** Whether this is the first section drawn, which carries no top hairline. */
+  first?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex flex-col">
-      <span className="px-2 pt-2 pb-1 text-[10px] tracking-wide text-white/40 uppercase select-none">
+    <div
+      className={`flex flex-col ${first ? "" : "mt-1 border-t border-white/5 pt-1"}`}
+    >
+      <span className="px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-white/35 uppercase select-none">
         {title}
       </span>
       {children}
@@ -208,12 +310,15 @@ function Row({
   icon,
   title,
   detail,
+  current = false,
   onClick,
 }: {
   icon: ReactNode;
   title: string;
   /** What the title belongs to, when the title alone does not say. */
   detail?: string;
+  /** Whether a running session is reading exactly this. */
+  current?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -222,15 +327,27 @@ function Row({
       // The row's whole text is its name: a reader is told the window and the
       // app it belongs to in one breath, the way a looking user reads both.
       aria-label={detail === undefined ? title : `${title} (${detail})`}
-      className="flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-white/85 transition-colors hover:bg-white/15"
+      aria-pressed={current}
+      className={`flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2 text-left text-[12px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:ring-inset ${
+        current
+          ? "bg-[#ff9f45]/10 text-white"
+          : "text-white/85 hover:bg-white/10 active:bg-white/15"
+      }`}
       onClick={onClick}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{title}</span>
-      {detail !== undefined && (
+      {detail !== undefined && !current && (
         <span className="max-w-[80px] shrink-0 truncate text-[11px] text-white/40">
           {detail}
         </span>
+      )}
+      {current && (
+        <Check
+          className="size-3.5 shrink-0 text-[#ff9f45]"
+          strokeWidth={2.5}
+          aria-hidden
+        />
       )}
     </button>
   );
@@ -238,10 +355,44 @@ function Row({
 
 /** The owning app's icon, or a window glyph where the host could read none. */
 function SourceIcon({ icon }: { icon?: string }) {
-  if (icon === undefined) {
-    return <AppWindow className="size-4 shrink-0 text-white/70" />;
-  }
   return (
-    <img src={icon} alt="" className="size-4 shrink-0" draggable={false} />
+    <span className="flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-[5px] ring-1 ring-white/10">
+      {icon === undefined ? (
+        <AppWindow className="size-3.5 text-white/70" />
+      ) : (
+        <img src={icon} alt="" className="size-full" draggable={false} />
+      )}
+    </span>
+  );
+}
+
+/**
+ * Rows that stand in for the list before the host has answered, in the same
+ * two-group shape the answer draws: a screen never named this early because
+ * displays resolve first and rarely more than one or two deep, then a longer
+ * run for whatever else the desktop turns out to hold.
+ *
+ * Shaped like the eventual rows rather than a spinner or a sentence, so the
+ * card does not change size or layout once the list actually lands.
+ */
+function SkeletonList() {
+  return (
+    <div className="flex flex-col gap-1 px-0.5 py-1.5" aria-hidden>
+      {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+        <SkeletonRow key={index} wide={index === 0} />
+      ))}
+    </div>
+  );
+}
+
+function SkeletonRow({ wide }: { wide: boolean }) {
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg px-2">
+      <span className="size-4 shrink-0 animate-pulse rounded-[5px] bg-white/10" />
+      <span
+        className="h-2 animate-pulse rounded-full bg-white/10"
+        style={{ width: wide ? "70%" : "45%" }}
+      />
+    </div>
   );
 }
