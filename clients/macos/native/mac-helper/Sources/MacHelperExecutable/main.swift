@@ -121,8 +121,9 @@ final class MacHelper: @unchecked Sendable {
         }
         // The windows a watch session could be scoped to, for the companion's
         // Teach picker and for the frame it draws around the picked one.
-        router.register("captureSources.list") { _ in
-            CaptureSources.list()
+        router.register("captureSources.list") { params in
+            let includeOffscreen = ((params as? [String: Any])?["includeOffscreen"] as? Bool) ?? false
+            return CaptureSources.list(includeOffscreen: includeOffscreen)
         }
         router.register("hotkey.fnPushToTalk") { [weak self] params in
             guard let self else {

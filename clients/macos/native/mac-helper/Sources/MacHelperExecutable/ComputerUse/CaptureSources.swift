@@ -12,8 +12,15 @@ import Foundation
 /// app is its frontmost one. Ids are `CGWindowID`s, the same ids a capture
 /// scoped to a window is asked for.
 enum CaptureSources {
-    static func list() -> [String: Any] {
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    /// `includeOffscreen` adds the windows on other Spaces and the minimized
+    /// ones, each marked `onScreen: false`. The shell asks for them when it
+    /// has to tell a window it can capture from a look-alike it cannot: a
+    /// Chrome window left on another Space shares its title and bounds with
+    /// nothing the shell could otherwise see.
+    static func list(includeOffscreen: Bool = false) -> [String: Any] {
+        let options: CGWindowListOption = includeOffscreen
+            ? [.excludeDesktopElements]
+            : [.optionOnScreenOnly, .excludeDesktopElements]
         let entries = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
         let myPID = ProcessInfo.processInfo.processIdentifier
         let hostPID = getppid()
@@ -48,6 +55,7 @@ enum CaptureSources {
 
             var window: [String: Any] = [
                 "windowId": UInt32(windowNumber),
+                "onScreen": (entry[kCGWindowIsOnscreen as String] as? Bool) ?? !includeOffscreen,
                 "pid": Int32(pid),
                 "app": (entry[kCGWindowOwnerName as String] as? String) ?? app?.localizedName ?? "",
                 "title": (entry[kCGWindowName as String] as? String) ?? "",
