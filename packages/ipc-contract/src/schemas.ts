@@ -2,10 +2,10 @@
  * Zod schemas for IPC payload types that main validates at the channel
  * boundary.
  *
- * Only types that flow renderer→main and are `.parse()`d / `.safeParse()`d
- * in a `handle()` or `on()` registration have schemas here. Types that
- * flow main→renderer (commands, hotkey catalogs, power events, etc.) are
- * plain TypeScript types in `./types.ts` — the renderer trusts main.
+ * Types that flow renderer→main and are `.parse()`d / `.safeParse()`d in a
+ * `handle()` or `on()` registration have schemas here. Most types that flow
+ * main→renderer (commands, hotkey catalogs, power events, etc.) are plain
+ * TypeScript types in `./types.ts`; the renderer trusts main.
  *
  * Consumers:
  *   - Main: `import { assistantStatusSchema } from "@vellumai/ipc-contract"`
@@ -43,6 +43,16 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Window attention
+// ---------------------------------------------------------------------------
+
+export const windowAttentionPayloadSchema = z.object({
+  visible: z.boolean(),
+  focused: z.boolean(),
+  minimized: z.boolean(),
 });
 
 // ---------------------------------------------------------------------------

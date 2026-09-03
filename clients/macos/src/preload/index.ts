@@ -30,6 +30,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
@@ -58,6 +59,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_READ_FRONT_SELECTION,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
@@ -67,6 +69,7 @@ import {
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
+  createWindowAttentionSubscriber,
 } from "@vellumai/electron-desktop/preload";
 
 export type {
@@ -192,6 +195,10 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_MODIFIER_HOLD,
           hold,
         ) as Promise<ModifierHoldRegistrationResult>,
+      readFrontSelection: (): Promise<HotkeySelection | null> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_READ_FRONT_SELECTION,
+        ) as Promise<HotkeySelection | null>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
@@ -391,6 +398,7 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
     },
+    onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
   },
   bundleConfirm: createBundleConfirmBridge(ipcRenderer),
   quickInput: {

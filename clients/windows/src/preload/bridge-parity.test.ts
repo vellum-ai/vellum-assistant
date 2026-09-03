@@ -91,6 +91,7 @@ const WINDOWS_ONLY_SURFACE = [
 // a configurable global chord, and has no hold of its own to register.
 const MACOS_ONLY_SURFACE = [
   "helper.hotkey.fnPushToTalk",
+  "helper.hotkey.readFrontSelection",
   "helper.hotkey.setModifierHold",
 ];
 

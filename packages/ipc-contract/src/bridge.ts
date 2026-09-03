@@ -45,6 +45,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
   Lockfile,
   LockfileWriteResult,
   LocalAssistantStatusResult,
@@ -64,6 +65,7 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
+  WindowAttentionPayload,
 } from "./types";
 
 /**
@@ -237,6 +239,11 @@ export interface VellumBridge {
       setModifierHold?(
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult>;
+      /**
+       * What is highlighted in the application in front, or `null` when
+       * nothing is. Absent on shells whose helper cannot read it.
+       */
+      readFrontSelection?(): Promise<HotkeySelection | null>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
@@ -476,6 +483,14 @@ export interface VellumBridge {
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }>;
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
+    /**
+     * Authoritative state of the window this renderer belongs to, pushed from
+     * main. Vellum windows disable background throttling, which also disables
+     * the Page Visibility API, so the renderer cannot read this for itself.
+     */
+    onWindowAttention(
+      callback: (payload: WindowAttentionPayload) => void,
+    ): () => void;
   };
   bundleConfirm: {
     getData(): Promise<BundleScanData | null>;

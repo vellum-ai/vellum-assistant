@@ -63,6 +63,12 @@ const helperWindowSchema = z.object({
   title: z.string(),
   bounds: boundsSchema,
   displayId: z.number().int().nonnegative().optional(),
+  /**
+   * Whether the window server is showing it right now. Absent from a helper
+   * asked for on-screen windows only, where every entry is; false only in a
+   * list asked for with the off-screen windows included.
+   */
+  onScreen: z.boolean().optional(),
 });
 
 export type HelperWindow = z.infer<typeof helperWindowSchema>;
@@ -212,7 +218,12 @@ export interface CaptureDisplay {
  * Everything this module asks of the desktop, so the tests can answer for it.
  */
 export interface CaptureSourceDeps {
-  listWindows: () => Promise<HelperWindow[]>;
+  /**
+   * The helper's windows: the on-screen ones, or every one it knows with
+   * `onScreen` saying which, when a pick has to be told apart from a window
+   * on another Space.
+   */
+  listWindows: (includeOffscreen?: boolean) => Promise<HelperWindow[]>;
   listDisplays: () => CaptureDisplay[];
   listChromeTabs: () => Promise<ChromeTab[]>;
   /**
@@ -248,8 +259,13 @@ const readIcon = (appPath: string): Promise<string | undefined> => {
 };
 
 export const defaultCaptureSourceDeps: CaptureSourceDeps = {
-  listWindows: async () =>
-    parseHelperWindows(await getSharedCuHelper().call("captureSources.list")),
+  listWindows: async (includeOffscreen = false) =>
+    parseHelperWindows(
+      await getSharedCuHelper().call(
+        "captureSources.list",
+        includeOffscreen ? { includeOffscreen: true } : undefined,
+      ),
+    ),
   listDisplays: () => {
     const primaryId = screen.getPrimaryDisplay().id;
     return screen.getAllDisplays().map((display) => ({
@@ -350,9 +366,9 @@ export async function listCaptureSources(
  * The Chrome window showing a tab with `title`, once Chrome has been told to
  * show it, or nothing when no window can be tied to that tab.
  *
- * By the bounds Chrome reports for the window after showing the tab, which
- * is the one signal that names that window and no other. Without them, by
- * title, since a Chrome window is titled after its active tab: the one
+ * By the bounds Chrome reports for the window after showing the tab together
+ * with the tab's title, and only when exactly one Chrome window the helper
+ * knows of, on screen or off, fits both. Without a placement, by title, since a Chrome window is titled after its active tab: the one
  * window with exactly that title, or the one window whose title Chrome
  * decorated around it. Never by z-order, and never one of several alike. The activation brings the tab's window forward when it can, but a
  * window Chrome could not restore (minimized, on another space) stays off the
@@ -368,20 +384,33 @@ export function chromeWindowFor(
   const chrome = windows.filter(isChromeWindow);
   // Chrome's own account of the window comes first. A window still
   // minimized after the activation is not on screen at all, whatever else
-  // is; and a window Chrome places is the Chrome window the helper lists
-  // at that rectangle, title or no title.
+  // is. Otherwise the window is the one Chrome window at that rectangle
+  // with that title, counted across every window the helper knows,
+  // on-screen or not: two maximized Chrome windows share a rectangle, and
+  // one left on another Space shares the title too, so a match that is not
+  // the only one, or is not itself on screen, names nothing for certain.
   if (placement) {
     if (placement.minimized) {
       return undefined;
     }
     const { bounds } = placement;
-    return chrome.find(
+    const at = chrome.filter(
       (w) =>
         Math.abs(w.bounds.x - bounds.x) <= 2 &&
         Math.abs(w.bounds.y - bounds.y) <= 2 &&
         Math.abs(w.bounds.width - bounds.width) <= 2 &&
         Math.abs(w.bounds.height - bounds.height) <= 2,
     );
+    // Exact and decorated titles count together: which of the two Chrome
+    // gives a window is not something this side can tell, so a window of
+    // either kind beside the other is an ambiguity, not a preference.
+    const candidates = at.filter(
+      (w) => w.title === title || (title !== "" && w.title.startsWith(title)),
+    );
+    if (candidates.length !== 1 || candidates[0]?.onScreen === false) {
+      return undefined;
+    }
+    return candidates[0];
   }
   // Without a placement, the title, and only a title that names one window. Two Chrome windows on the same page share a title,
   // and if the picked one stayed off screen the other is the one listed.
@@ -439,7 +468,9 @@ export async function resolveCapturePick(
   }
   let windows: HelperWindow[];
   try {
-    windows = await deps.listWindows();
+    // Every window, so a look-alike on another Space counts against the
+    // match rather than hiding behind the on-screen list.
+    windows = await deps.listWindows(true);
   } catch (err) {
     log.warn("[companion] could not list windows after showing the tab:", err);
     return null;

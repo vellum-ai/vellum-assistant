@@ -22,7 +22,7 @@
 
     <style name="AppThemeNoActionBarLaunchBase" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/launch_screen_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/vellum_mark</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/vellum_logo</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:background">@drawable/splash_screen</item>
     </style>

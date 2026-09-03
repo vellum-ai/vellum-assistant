@@ -83,6 +83,7 @@ const LINUX_ONLY_SURFACE = [
 // its hotkey surface is the shortcut chord alone.
 const MACOS_ONLY_SURFACE = [
   "helper.hotkey.fnPushToTalk",
+  "helper.hotkey.readFrontSelection",
   "helper.hotkey.setModifierHold",
 ];
 

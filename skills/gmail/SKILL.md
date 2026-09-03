@@ -467,12 +467,3 @@ Before composing any email that references a date or time:
 1. Check the `current_time:` field in the `<turn_context>` block for today's date and timezone
 2. Verify that "tomorrow" means the day after today's date, "next week" means the upcoming Monday–Friday, etc.
 3. If the email references a date from another message, cross-check it against the turn context to ensure it's in the future
-
-## Confidence Scores
-
-Medium and high risk operations require a confidence score between 0 and 1:
-
-- **0.9-1.0**: User explicitly requested this exact action
-- **0.7-0.8**: Action is strongly implied by context
-- **0.5-0.6**: Reasonable inference but some ambiguity
-- **Below 0.5**: Ask the user to confirm before proceeding

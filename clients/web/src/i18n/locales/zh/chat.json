@@ -516,12 +516,23 @@
   },
   "contactPromptCard": {
     "addContact": "添加联系人",
+    "addingToContact": "正在为 {name} 添加渠道",
     "cancel": "取消",
     "contactSaved": "联系人已保存",
     "dismiss": "忽略",
     "enterAddress": "输入 {channel} 地址",
+    "namePlaceholder": "名称",
+    "notesLabel": "备注",
     "save": "保存",
     "saving": "正在保存…"
+  },
+  "contactRecordCard": {
+    "contactMerged": "联系人已合并",
+    "merge": "合并",
+    "mergeDonorChannels": "从 {name} 转移",
+    "mergeSurvivorChannels": "已属于 {name}",
+    "mergeTitle": "将 {donor} 合并到 {survivor}？",
+    "mergeWarning": "这些渠道将转移到 {survivor}，并删除 {donor} 的记录。"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",

@@ -416,6 +416,37 @@ describe("sseService.attach — visibility-driven bounce", () => {
     expect(cancelMock).toHaveBeenCalledTimes(1);
   });
 
+  // A desktop window off screen is not a backgrounded client. The renderer
+  // keeps running, the assistant broadcasts notifications with no queue or
+  // redelivery, and the desktop has no push fallback, so a teardown here is
+  // every notification published while the window was away, lost.
+  test("does NOT schedule a teardown for a window_attention hide", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    eventBus.publish("app.hidden", { signal: "window_attention" });
+
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+  });
+
+  // The desktop case is a label check, not a latch: the browser and native
+  // paths are untouched by it.
+  test("a visibility hide after a window_attention hide still tears down", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    eventBus.publish("app.hidden", { signal: "window_attention" });
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
   test("a resume inside the grace window keeps the live socket (no teardown, no reopen)", async () => {
     // The core of the fix for the report: a quick tab-out-and-back must
     // NOT churn the connection. The grace timer is cancelled on resume and

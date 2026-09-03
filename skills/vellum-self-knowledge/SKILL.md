@@ -141,7 +141,7 @@ For questions the docs and CLI can't answer (internal architecture, how a specif
 5. Key source locations:
    - `assistant/` — Runtime (conversation loop, tool dispatch, memory, scheduling)
    - `gateway/` — Ingress boundary (webhooks, Telegram, Twilio, reverse proxy)
-   - `clients/` — Native macOS client
+   - `clients/` - End-user surfaces (web SPA, iOS, Android, macOS, Windows, Linux, Chrome extension)
    - `skills/` — Bundled skill definitions
    - `ARCHITECTURE.md` — Cross-system index
    - `assistant/ARCHITECTURE.md` — Runtime internals

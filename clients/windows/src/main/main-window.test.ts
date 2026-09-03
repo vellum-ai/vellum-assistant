@@ -224,6 +224,7 @@ const {
   dispatchToMain,
   ensureVisible,
   installMainWindow,
+  toggleVisibility,
 } = await import("./main-window");
 
 const destroyWindows = (): void => {
@@ -503,6 +504,66 @@ describe("Windows main window", () => {
     // THEN the overlay keeps its colors, and none are persisted
     expect(constructed[0]?.setTitleBarOverlay).not.toHaveBeenCalled();
     expect(writeTitleBarOverlayThemeMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The visible-and-focused read is module-private, so it is exercised
+   * through the one caller: a toggle hides a window that has the user's
+   * attention and shows one that does not.
+   */
+  test("toggling only hides a live window that is visible and focused", () => {
+    // GIVEN no window yet, a toggle creates one rather than hiding
+    toggleVisibility();
+    const first = constructed[0];
+    if (!first) {
+      throw new Error("expected a window");
+    }
+    expect(first.hide).not.toHaveBeenCalled();
+    first.emit("ready-to-show");
+
+    // WHEN the window is on screen but unfocused
+    first.state.focused = false;
+    toggleVisibility();
+
+    // THEN it is brought forward rather than hidden
+    expect(first.hide).not.toHaveBeenCalled();
+
+    // WHEN it is focused but off screen
+    first.state.focused = true;
+    first.state.visible = false;
+    toggleVisibility();
+
+    expect(first.hide).not.toHaveBeenCalled();
+    expect(first.state.visible).toBe(true);
+
+    // WHEN the window has been destroyed
+    first.state.destroyed = true;
+    toggleVisibility();
+
+    expect(first.hide).not.toHaveBeenCalled();
+  });
+
+  test("toggles a visible focused window to hidden and back", () => {
+    void ensureVisible();
+    const win = constructed[0];
+    if (!win) {
+      throw new Error("expected a window");
+    }
+    win.emit("ready-to-show");
+
+    // WHEN the window has the user's attention
+    toggleVisibility();
+
+    // THEN it hides
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(win.state.visible).toBe(false);
+
+    // WHEN it is off screen
+    toggleVisibility();
+
+    // THEN it comes back rather than hiding again
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(win.state.visible).toBe(true);
   });
 
   test("hides on close and allows close while quitting", () => {

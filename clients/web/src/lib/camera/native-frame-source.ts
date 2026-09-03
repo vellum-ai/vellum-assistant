@@ -175,6 +175,13 @@ interface CapturedSample {
    * it has nothing to do with.
    */
   readonly capturedAtMs: number;
+  /**
+   * When the bridge was asked, which is the earliest the picture can have been
+   * taken whatever bound `capturedAtMs` records. The gate's forced-keep arm is
+   * compared against this: a request issued before the ask cannot prove its
+   * picture postdates it, however late the answer lands.
+   */
+  readonly requestedAtMs: number;
 }
 
 /**
@@ -246,6 +253,24 @@ export interface NativeFrameSourceOptions {
 export interface NativeFrameSource {
   /** Begin polling. Starting an already-started source restarts its cadence. */
   start(): void;
+  /**
+   * Take one pair now, without waiting for the next tick.
+   *
+   * For the moment the owner knows a frame matters more than the cadence says
+   * it does, which the poll cannot see: at a sample a second the frame that
+   * answers a question asked now can be most of a second old. Nothing else
+   * about the pair changes, so what reaches the gate is a properly primed
+   * frame rather than a lone capture with no motion baseline.
+   *
+   * While a pair for this run is already out, the ask is remembered rather
+   * than raced: that pair's captures predate the ask, so the gate will not
+   * spend an arm on them, and a second pair beside it would queue on the
+   * bridge and blow its own gap bound. One follow-up pair is taken when the
+   * outstanding one settles. The memory dies with the run, so a flip or a stop
+   * drops it. Ignored on a source that is not polling: a stopped source
+   * samples nothing, however it is asked.
+   */
+  sampleNow(): void;
   /**
    * Refuse whatever is in flight, and keep polling.
    *
@@ -332,6 +357,16 @@ export function createNativeFrameSource(
    * interval over a frame nobody wants.
    */
   let samplingGeneration: number | null = null;
+  /**
+   * Whether a `sampleNow` arrived while this run's pair was already out.
+   *
+   * The pair in flight captured its frames before the ask, so it cannot be the
+   * answer: the gate refuses to spend an arm on a capture stamped before it.
+   * The ask is remembered instead, and the tick that holds the claim issues one
+   * follow-up pair when it settles. Cleared with the run it was made in: a
+   * flip or a stop makes it an ask about a camera that is gone.
+   */
+  let immediateWanted = false;
 
   /**
    * Issue one bridge call once the slot is free, and report when it was
@@ -431,7 +466,7 @@ export function createNativeFrameSource(
     if (!encoded || generation !== run) {
       return null;
     }
-    return { encoded, capturedAtMs };
+    return { encoded, capturedAtMs, requestedAtMs };
   }
 
   /** Decode one sample and reduce it through the shared chain. */
@@ -544,7 +579,10 @@ export function createNativeFrameSource(
         return;
       }
       onDecision(
-        gate.offer(judged.grid, second.capturedAtMs),
+        // The request time rides along as the capture's lower bound: the
+        // answer-time stamp can postdate a forced-keep arm that the picture
+        // itself predates, and the arm must not be spent on it.
+        gate.offer(judged.grid, second.capturedAtMs, second.requestedAtMs),
         second.capturedAtMs,
         judged.blob,
       );
@@ -559,12 +597,34 @@ export function createNativeFrameSource(
       // sample onto the bridge next to it.
       if (samplingGeneration === run) {
         samplingGeneration = null;
+        // An ask that arrived mid-pair gets its answer here: one follow-up
+        // pair, whose captures postdate the ask, on the run that heard it.
+        if (immediateWanted && generation === run) {
+          immediateWanted = false;
+          void sampleOnce();
+        }
       }
     }
   }
 
   function invalidate(): void {
     generation += 1;
+    immediateWanted = false;
+  }
+
+  function sampleNow(): void {
+    // The cadence's own claim, `samplingGeneration`, is what keeps this from
+    // running beside a tick.
+    if (timer === null) {
+      return;
+    }
+    // The pair already out captured before this ask, so it cannot answer it.
+    // Remember the ask and let that pair's tick issue the follow-up.
+    if (samplingGeneration === generation) {
+      immediateWanted = true;
+      return;
+    }
+    void sampleOnce();
   }
 
   function stop(): void {
@@ -582,5 +642,5 @@ export function createNativeFrameSource(
     }, intervalMs);
   }
 
-  return { start, invalidate, stop };
+  return { start, sampleNow, invalidate, stop };
 }

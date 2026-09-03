@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  accessRequestCardTitle,
   buildAccessRequestContextText,
   buildAccessRequestIdentityLine,
   buildAccessRequestReplyMechanics,
@@ -75,7 +76,7 @@ describe("notification decision strategy", () => {
       expect(copy.vellum!.body).toContain("What is the gate code?");
     });
 
-    test("guardian.question template puts free-text answer instructions in chat copy only", () => {
+    test("guardian.question template carries the question and no reply mechanics", () => {
       const signal = makeSignal({
         sourceEventName: "guardian.question",
         contextPayload: {
@@ -89,18 +90,14 @@ describe("notification decision strategy", () => {
       });
 
       const copy = composeFallbackCopy(signal, channels);
-      expect(copy.telegram).toBeDefined();
-      expect(copy.telegram!.body).toContain("A1B2C3");
-      expect(copy.telegram!.body).toContain("<your answer>");
-      expect(copy.telegram!.body).not.toContain("approve");
-      expect(copy.telegram!.body).not.toContain("reject");
-      expect(copy.telegram!.deliveryText).toContain("A1B2C3");
-      // Vellum copy is read by the bell and the banner, which act through
-      // the card: the question arrives without reply mechanics.
+      // The typed-reply instruction is the card's plainTextFallback, appended
+      // by a transport only when it sends text without buttons.
       expect(copy.vellum!.body).toBe("What is the gate code?");
+      expect(copy.telegram!.body).toBe("What is the gate code?");
+      expect(copy.telegram!.deliveryText).toBe("What is the gate code?");
     });
 
-    test("guardian.question template uses approve/reject instructions in chat copy for approval-kind request", () => {
+    test("guardian.question template carries no approve/reject directive for an approval-kind request", () => {
       const signal = makeSignal({
         sourceEventName: "guardian.question",
         contextPayload: {
@@ -113,34 +110,8 @@ describe("notification decision strategy", () => {
       });
 
       const copy = composeFallbackCopy(signal, channels);
-      expect(copy.telegram).toBeDefined();
-      expect(copy.telegram!.body).toContain("D4E5F6");
-      expect(copy.telegram!.body).toContain("approve");
-      expect(copy.telegram!.body).toContain("reject");
       expect(copy.vellum!.body).toBe("Allow running host_bash?");
-    });
-
-    test("guardian.question template uses approve/reject for tool-backed pending_question payloads", () => {
-      const signal = makeSignal({
-        sourceEventName: "guardian.question",
-        contextPayload: {
-          requestId: "req-voice-tool-1",
-          questionText: "Allow send_email to bob@example.com?",
-          requestCode: "A1B2C3",
-          requestKind: "pending_question",
-          callSessionId: "call-1",
-          activeGuardianRequestCount: 1,
-          toolName: "send_email",
-        },
-      });
-
-      const copy = composeFallbackCopy(signal, channels);
-      expect(copy.telegram).toBeDefined();
-      expect(copy.telegram!.body).toContain("A1B2C3");
-      expect(copy.telegram!.body).toContain("approve");
-      expect(copy.telegram!.body).toContain("reject");
-      expect(copy.telegram!.body).not.toContain("<your answer>");
-      expect(copy.vellum!.body).not.toContain("A1B2C3");
+      expect(copy.telegram!.body).toBe("Allow running host_bash?");
     });
 
     test("schedule.notify template uses message from payload", () => {
@@ -881,7 +852,8 @@ describe("notification decision strategy", () => {
       expect(stripped.body).toBe(context);
       expect(stripped.deliveryText).toBe(context);
       expect(stripped.conversationSeedMessage).toBe("Alice wants access.");
-      expect(stripped.title).toBe("Request code: A1B2C3");
+      // A mechanics-only title becomes the card's own title.
+      expect(stripped.title).toBe(accessRequestCardTitle(false));
     });
 
     test("hasInviteFlowDirective accepts only a positive reply directive", () => {

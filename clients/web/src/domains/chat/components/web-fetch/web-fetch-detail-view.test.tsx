@@ -116,11 +116,25 @@ describe("hostnameOf", () => {
   });
 });
 
+/**
+ * Render the view the way the registry does: the live `result` and status
+ * flags `ToolDetailBody` resolves, with the payload only as the input source.
+ */
+function renderView(detail: ReturnType<typeof payload>) {
+  return render(
+    <WebFetchDetailView
+      detail={detail}
+      result={detail.result}
+      streamedOutput={undefined}
+      isRunning={detail.status === "running"}
+      isError={detail.status === "error"}
+    />,
+  );
+}
+
 describe("WebFetchDetailView", () => {
   test("renders the source host, the notice, and the extracted content", () => {
-    const { getByText, getByTestId } = render(
-      <WebFetchDetailView detail={payload({})} />,
-    );
+    const { getByText, getByTestId } = renderView(payload({}));
     expect(getByText("cnbc.com")).toBeDefined();
     expect(getByText("200 OK")).toBeDefined();
     expect(
@@ -134,7 +148,7 @@ describe("WebFetchDetailView", () => {
   });
 
   test("never gives the fetched page an assistant id to resolve local files with", () => {
-    const { getByTestId } = render(<WebFetchDetailView detail={payload({})} />);
+    const { getByTestId } = renderView(payload({}));
     // Remote page text is the least-trusted content in the app: without an
     // assistant id a `vellum://workspace/…` reference it smuggles in stays an
     // inert card instead of pulling local workspace bytes into the panel.
@@ -144,9 +158,7 @@ describe("WebFetchDetailView", () => {
   });
 
   test("'View raw' toggles to the unparsed result", () => {
-    const { getByText, queryByTestId, container } = render(
-      <WebFetchDetailView detail={payload({})} />,
-    );
+    const { getByText, queryByTestId, container } = renderView(payload({}));
     // Parsed view first — the raw HTTP header is hidden.
     expect(queryByTestId("markdown")).not.toBeNull();
 
@@ -159,12 +171,29 @@ describe("WebFetchDetailView", () => {
   });
 
   test("an error result renders verbatim with no source card", () => {
-    const { getByText, queryByText } = render(
-      <WebFetchDetailView
-        detail={payload({ status: "error", result: "fetch failed: 403" })}
-      />,
+    const { getByText, queryByText } = renderView(
+      payload({ status: "error", result: "fetch failed: 403" }),
     );
     expect(getByText("fetch failed: 403")).toBeDefined();
     expect(queryByText("cnbc.com")).toBeNull();
+  });
+
+  test("shows a result that lands while the drawer is already open", () => {
+    // The drawer opened mid-fetch, so the payload snapshot is still running and
+    // empty; the live result is what `ToolDetailBody` resolved since.
+    const { getByText, getByTestId } = render(
+      <WebFetchDetailView
+        detail={payload({ status: "running", result: undefined })}
+        result={payload({}).result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />,
+    );
+
+    expect(getByText("cnbc.com")).toBeDefined();
+    expect(getByTestId("markdown").textContent).toContain(
+      "Michelob Ultra has overtaken",
+    );
   });
 });

@@ -238,6 +238,47 @@ async function enqueueStandaloneImagePersist(
 }
 
 /**
+ * How long a launching voice turn waits on a standalone image already in
+ * flight for its conversation.
+ *
+ * Sized for a write whose only remaining wait is the processing flag, which
+ * {@link acquireProcessingFlag} takes within a {@link PROCESSING_POLL_MS}
+ * poll of the turn leaving it free. Anything slower is a stalled store rather
+ * than the ordinary case, and the speaker gets an answer instead of a pause.
+ */
+export const SIGHT_FRAME_TURN_HOLD_MS = 800;
+
+/**
+ * The standalone-image persists this conversation has in flight, or null when
+ * it has none.
+ *
+ * For a caller deciding whether to wait for the picture before reading the
+ * conversation's history: a keep the client sent moments ago is counted from
+ * the tick its socket message was handled, well before any of it is written.
+ * The lookup is synchronous, so a conversation with nothing in flight pays one
+ * map read.
+ *
+ * The promise covers exactly the work queued when it was asked for. An image
+ * enqueued afterwards extends the chain past the tail this names, and belongs
+ * to whatever asks next.
+ *
+ * Settles, never rejects: the caller is choosing how long to wait, not whether
+ * the image landed.
+ */
+export function pendingStandaloneImagePersist(
+  conversationId: string,
+): Promise<void> | null {
+  const queue = standaloneImageQueues.get(conversationId);
+  if (!queue || queue.outstanding === 0) {
+    return null;
+  }
+  return queue.tail.then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+/**
  * Give up the upload behind a keep no message will ever carry: one a newer
  * frame replaced before it started, one whose wait for an idle conversation
  * ran out, and one whose write threw.

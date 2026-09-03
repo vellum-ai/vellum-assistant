@@ -1,6 +1,8 @@
 import { powerMonitor } from "electron";
 
-export type PresenceState = "active" | "idle" | "away";
+import type { DesktopPresenceState } from "@vellumai/service-contracts/desktop-presence";
+
+export type PresenceState = DesktopPresenceState;
 
 export const IDLE_THRESHOLD_MS = 10 * 60_000;
 export const POLL_INTERVAL_MS = 30_000;

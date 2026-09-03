@@ -312,7 +312,7 @@ describe("the Chrome window for a tab", () => {
     expect(chromeWindowFor(windows, "Inbox - ")?.windowId).toBe(4);
   });
 
-  test("is the window at the bounds Chrome reports, whatever the titles", () => {
+  test("is the one window at the bounds Chrome reports with the tab's title", () => {
     const placed = {
       minimized: false,
       bounds: { x: 0, y: 0, width: 600, height: 400 },
@@ -321,6 +321,7 @@ describe("the Chrome window for a tab", () => {
       chromeWindowFor(
         [
           chrome({ windowId: 6, title: "Inbox" }),
+          chrome({ windowId: 7, title: "Docs" }),
           chrome({
             windowId: 3,
             title: "Inbox",
@@ -340,6 +341,59 @@ describe("the Chrome window for a tab", () => {
             bounds: { x: 100, y: 0, width: 600, height: 400 },
           }),
         ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+  });
+
+  /**
+   * Two maximized Chrome windows on the same page are one rectangle and one
+   * title. The picked one may be the one on another Space, which the helper
+   * lists as off screen, so neither is named.
+   */
+  test("is nothing when an exact and a decorated title share the rectangle", () => {
+    const placed = {
+      minimized: false,
+      bounds: { x: 0, y: 0, width: 600, height: 400 },
+    };
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 6, title: "Inbox" }),
+          chrome({ windowId: 9, title: "Inbox - Google Chrome" }),
+        ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 9, title: "Inbox - Google Chrome" })],
+        "Inbox",
+        placed,
+      )?.windowId,
+    ).toBe(9);
+  });
+
+  test("is nothing when a look-alike shares the rectangle and the title", () => {
+    const placed = {
+      minimized: false,
+      bounds: { x: 0, y: 0, width: 600, height: 400 },
+    };
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 6, title: "Inbox", onScreen: true }),
+          chrome({ windowId: 8, title: "Inbox", onScreen: false }),
+        ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 8, title: "Inbox", onScreen: false })],
         "Inbox",
         placed,
       ),
@@ -411,14 +465,18 @@ describe("resolving a pick", () => {
   });
 
   test("a tab is shown, brought forward, and then is its window", async () => {
+    const asked: (boolean | undefined)[] = [];
     const d = deps({
       listChromeTabs: async () => [
         { chromeWindowId: 101, tabIndex: 2, active: false, title: "Docs" },
       ],
-      listWindows: async () => [
-        chrome({ windowId: 2, title: "Docs" }),
-        chrome({ windowId: 3, title: "Inbox" }),
-      ],
+      listWindows: async (includeOffscreen) => {
+        asked.push(includeOffscreen);
+        return [
+          chrome({ windowId: 2, title: "Docs" }),
+          chrome({ windowId: 3, title: "Inbox" }),
+        ];
+      },
     });
     expect(
       await resolveCapturePick(
@@ -427,6 +485,8 @@ describe("resolving a pick", () => {
       ),
     ).toEqual({ kind: "window", windowId: 2 });
     expect(d.activated).toEqual([[101, 2]]);
+    // Every window, so a look-alike on another Space is counted.
+    expect(asked).toEqual([true]);
   });
 
   test("a tab Chrome no longer has resolves to nothing", async () => {

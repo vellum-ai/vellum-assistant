@@ -14,6 +14,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.widget.ImageView;
+import androidx.core.splashscreen.SplashScreen;
 import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -53,6 +54,7 @@ public class MainActivity extends BridgeActivity {
     private boolean pendingNewChat;
     private Intent pendingVoiceLaunch;
     private View launchScreen;
+    private boolean launchScreenAttached;
     private boolean launchScreenReady;
     private SafeWebChromeClient webChromeClient;
 
@@ -63,6 +65,8 @@ public class MainActivity extends BridgeActivity {
             "Unable to apply the Android launch theme",
             () -> NativeLaunchScreenPlugin.applySavedTheme(this)
         );
+        SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
+        splashScreen.setKeepOnScreenCondition(() -> !launchScreenAttached);
         boolean recoveredProcess = NativeFailureGuard.get(
             "Unable to clear the recovered voice status",
             () -> VoiceLiveActivityPlugin.clearRecoveredStatus(this),
@@ -105,6 +109,7 @@ public class MainActivity extends BridgeActivity {
         );
         super.onCreate(savedInstanceState);
         NativeFailureGuard.run("Unable to show the Android launch screen", this::showLaunchScreen);
+        launchScreenAttached = true;
         NativeFailureGuard.run("Unable to deliver the Android voice launch", this::deliverPendingVoiceLaunch);
         NativeFailureGuard.run("Unable to configure the Android WebView", () -> {
             if (bridge != null) {
@@ -152,7 +157,7 @@ public class MainActivity extends BridgeActivity {
         }
         ImageView view = new ImageView(this);
         view.setBackgroundColor(NativeLaunchScreenPlugin.backgroundColor(this));
-        view.setImageResource(R.drawable.vellum_mark);
+        view.setImageResource(R.drawable.vellum_logo);
         view.setColorFilter(NativeLaunchScreenPlugin.foregroundColor(this));
         view.setScaleType(ImageView.ScaleType.CENTER);
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);

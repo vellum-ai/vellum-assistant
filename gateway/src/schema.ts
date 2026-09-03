@@ -1518,7 +1518,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Submit a contact address in response to a prompt",
           description:
-            "Authenticated gateway endpoint that accepts a contact address submitted by the user in response to a contacts/prompt IPC request. Writes the contact, notifies the daemon to unblock the waiting CLI call.",
+            "Authenticated gateway endpoint that accepts a contact address submitted by the user in response to a contacts/prompt IPC request. Binds the address to the contact the parked form targets, read back from the assistant, and otherwise resolves the contact from the address. Writes the contact, notifies the assistant to unblock the waiting CLI call.",
           operationId: "contactsPromptSubmitPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1535,8 +1535,13 @@ export function buildSchema(): Record<string, unknown> {
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
-            "409": { description: "Channel already exists for this contact" },
-            "503": { description: "Bearer token not configured" },
+            "409": {
+              description: "That address is already bound to another contact",
+            },
+            "503": {
+              description:
+                "Bearer token not configured, or the parked form's target could not be read (nothing was written)",
+            },
           },
         },
       },
@@ -1544,7 +1549,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Submit a contact record in response to a prompt",
           description:
-            "Authenticated gateway endpoint that accepts the create, update, or delete a guardian confirmed in the contact-record form the assistant broadcast. Writes the contact record (display name and notes only, never a channel), then notifies the assistant to unblock the waiting CLI call. A `cancelled: true` body resolves the waiting call without writing.",
+            "Authenticated gateway endpoint that accepts the create, update, delete, or merge a guardian confirmed in the contact-record form the assistant broadcast. A create or update writes display name and notes only, never a channel; a merge moves the donor's channels to the survivor and deletes the donor. Then notifies the assistant to unblock the waiting CLI call. A `cancelled: true` body resolves the waiting call without writing.",
           operationId: "contactsRecordSubmitPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
