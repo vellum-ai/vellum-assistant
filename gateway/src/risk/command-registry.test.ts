@@ -623,6 +623,20 @@ describe("command-registry", () => {
       expect(getAssistantPath("platform invoices get").baseRisk).toBe("low");
     });
 
+    // Every roadmap write lands on the public Vellum roadmap under the
+    // assistant's name, so none of them may drift back to a risk level an
+    // auto-approve policy would wave through.
+    test("roadmap reads are low and every roadmap write is at least medium", () => {
+      expect(getAssistantPath("roadmap").baseRisk).toBe("low");
+      expect(getAssistantPath("roadmap list").baseRisk).toBe("low");
+      expect(getAssistantPath("roadmap get").baseRisk).toBe("low");
+      expect(getAssistantPath("roadmap create").baseRisk).toBe("high");
+      expect(getAssistantPath("roadmap delete").baseRisk).toBe("high");
+      expect(getAssistantPath("roadmap update").baseRisk).toBe("medium");
+      expect(getAssistantPath("roadmap upvote").baseRisk).toBe("medium");
+      expect(getAssistantPath("roadmap unvote").baseRisk).toBe("medium");
+    });
+
     test("assistant schedules update escalates to high for script payloads", () => {
       const updateSpec = getAssistantPath("schedules update");
       expect(updateSpec.argRules).toBeDefined();

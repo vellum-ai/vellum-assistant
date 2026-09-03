@@ -1122,6 +1122,31 @@ describe("assistant subcommand classification", () => {
     });
     expect(result.riskLevel).toBe("low");
   });
+
+  // Roadmap writes are public and attributed to the assistant, so a real
+  // invocation of each must classify above the auto-approve floor.
+  const roadmapCases = [
+    { command: "assistant roadmap list --sort upvotes", risk: "low" },
+    { command: "assistant roadmap get dark-mode", risk: "low" },
+    {
+      command: "assistant roadmap update dark-mode --status planned",
+      risk: "medium",
+    },
+    { command: "assistant roadmap upvote dark-mode", risk: "medium" },
+    { command: "assistant roadmap unvote dark-mode", risk: "medium" },
+    {
+      command: 'assistant roadmap create --title "Add dark mode"',
+      risk: "high",
+    },
+    { command: "assistant roadmap delete dark-mode", risk: "high" },
+  ] as const;
+
+  for (const { command, risk } of roadmapCases) {
+    test(`${command} → ${risk}`, async () => {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe(risk);
+    });
+  }
 });
 
 describe("gateway contacts classification", () => {
@@ -1137,8 +1162,7 @@ describe("gateway contacts classification", () => {
 
   test("gateway contacts set-risk-threshold → high", async () => {
     const result = await classifier.classify({
-      command:
-        "gateway contacts set-risk-threshold contact-1 --threshold high",
+      command: "gateway contacts set-risk-threshold contact-1 --threshold high",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");
