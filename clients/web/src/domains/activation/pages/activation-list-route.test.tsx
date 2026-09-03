@@ -19,7 +19,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 
 import {
   ACTIVATION_PROGRESS_EMPTY,
@@ -55,17 +55,15 @@ const toasts: CapturedToast[] = [];
 // Every mock spreads the real module: `mock.module` replaces it for the whole
 // test process, so returning only the overridden export would erase the rest
 // for any file that loads it later.
-const progressModule = await import(
-  "@/domains/activation/hooks/use-activation-progress"
-);
+const progressModule =
+  await import("@/domains/activation/hooks/use-activation-progress");
 mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
   ...progressModule,
   useActivationProgress: () => ({ data: progress }),
 }));
 
-const launchModule = await import(
-  "@/domains/activation/hooks/use-launch-activation-task"
-);
+const launchModule =
+  await import("@/domains/activation/hooks/use-launch-activation-task");
 mock.module("@/domains/activation/hooks/use-launch-activation-task", () => ({
   ...launchModule,
   useLaunchActivationTask: () => ({
@@ -111,9 +109,8 @@ mock.module("@/utils/conversation-navigation", () => ({
   },
 }));
 
-const { ActivationListRoute } = await import(
-  "@/domains/activation/pages/activation-list-route"
-);
+const { ActivationListRoute } =
+  await import("@/domains/activation/pages/activation-list-route");
 
 const { starters } = getActivationList("smb");
 
@@ -129,6 +126,10 @@ function setArm(arm: string): void {
   useClientFeatureFlagStore
     .getState()
     .setStringFlags({ activationChecklist: arm }, null);
+  // The values a server response carries, and the fact that one has landed,
+  // are two writes on this store; the route waits for the second before it
+  // acts on the first.
+  useClientFeatureFlagStore.setState({ hydrated: true });
 }
 
 function renderRoute() {
@@ -140,7 +141,9 @@ beforeEach(() => {
   launchOutcome = { ok: true };
   setArm("smb");
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
-  useAssistantIdentityStore.getState().setIdentity("Vel", MIN_VERSION, "asst-1");
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Vel", MIN_VERSION, "asst-1");
 });
 
 afterEach(() => {
@@ -291,5 +294,87 @@ describe("ActivationListRoute launch failures", () => {
       expect(launched).toEqual([FIXTURE_STARTER_IDS[0]]);
     });
     expect(toasts).toEqual([]);
+  });
+});
+
+/**
+ * A cold load has neither the flag values nor the assistant's version in hand,
+ * and both read as "off" until they land. The route must not spend that window
+ * redirecting: this page is reached by a bookmark, a reload and a fresh tab.
+ */
+describe("ActivationListRoute before the gates settle", () => {
+  function PathProbe(): ReactNode {
+    const { pathname } = useLocation();
+    return <div data-testid="pathname">{pathname}</div>;
+  }
+
+  function renderWithPath() {
+    return render(
+      <>
+        <ActivationListRoute />
+        <PathProbe />
+      </>,
+      { wrapper },
+    );
+  }
+
+  test("stays put while the assistant's version is unknown", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(
+      routes.activationList,
+    );
+    expect(screen.queryByRole("listitem")).toBeNull();
+  });
+
+  // A gate that has said no has settled the question. Waiting on the other one
+  // for a second opinion it cannot change is how an arm switched off leaves a
+  // bookmark on a page that renders nothing at all.
+  test("hands the user back to chat on an arm that is off, whatever the version is doing", () => {
+    setArm("off");
+    useAssistantIdentityStore.getState().clearIdentity();
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(routes.assistant);
+  });
+
+  // `fetchAssistantIdentity` turns an unreachable runtime into a successful
+  // `null`, so the version never lands and never will. The wait has to end on
+  // the fetch settling, not on a version that is not coming.
+  test("hands the user back to chat once the identity fetch has given up", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    useAssistantIdentityStore.getState().markIdentityUnavailable("asst-1");
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(routes.assistant);
+  });
+
+  // The dead end is scoped like the version it stands in for: one recorded for
+  // the assistant the user just left says nothing about this one.
+  test("stays put when another assistant's identity fetch gave up", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    useAssistantIdentityStore.getState().markIdentityUnavailable("asst-other");
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(
+      routes.activationList,
+    );
+  });
+
+  test("stays put while the flag values are still in flight", () => {
+    useClientFeatureFlagStore.setState({ hydrated: false });
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(
+      routes.activationList,
+    );
+  });
+
+  test("hands the user back to chat once the gates have answered", () => {
+    setArm("off");
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(routes.assistant);
   });
 });

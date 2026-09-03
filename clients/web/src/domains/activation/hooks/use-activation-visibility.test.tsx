@@ -30,17 +30,15 @@ let progress: ActivationProgress | undefined;
 // Spread the real module: `mock.module` replaces it for every test file
 // sharing this process, so returning only the mocked export would erase the
 // rest for anything that loads it later.
-const progressModule = await import(
-  "@/domains/activation/hooks/use-activation-progress"
-);
+const progressModule =
+  await import("@/domains/activation/hooks/use-activation-progress");
 mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
   ...progressModule,
   useActivationProgress: () => ({ data: progress }),
 }));
 
-const { useActivationVisibility } = await import(
-  "@/domains/activation/hooks/use-activation-visibility"
-);
+const { useActivationVisibility } =
+  await import("@/domains/activation/hooks/use-activation-visibility");
 
 function wrapper(pathname: string) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -110,6 +108,23 @@ describe("useActivationVisibility gates", () => {
 
   test("hides everything on an onboarding route", () => {
     expect(visibility("/assistant/onboarding/research").surface).toBeNull();
+  });
+
+  // The page the user opened is the whole checklist; a modal over it hides
+  // what they came for and a pill beside it points at where they already are.
+  test("hides everything on the Inspiration List", () => {
+    expect(visibility("/assistant/suggestions").surface).toBeNull();
+  });
+
+  test("hides everything on a page nested under the Inspiration List", () => {
+    expect(visibility("/assistant/suggestions/task-1").surface).toBeNull();
+  });
+
+  // The match is on the segment boundary, so a sibling route that merely
+  // starts with the same characters still gets the pill.
+  test("shows the pill on a route that only shares the list's prefix", () => {
+    progress = ACTIVATION_PROGRESS_DISMISSED;
+    expect(visibility("/assistant/suggestions-archive").surface).toBe("pill");
   });
 
   test("hides everything while the in-chat tour is running", () => {
