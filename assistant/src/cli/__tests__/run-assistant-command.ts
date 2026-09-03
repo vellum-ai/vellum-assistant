@@ -1,6 +1,21 @@
+import { exitCodeFromIpcResult } from "../../ipc/cli-client.js";
+
 export interface AssistantCommandResult {
   stdout: string;
   stderr: string;
+}
+
+/**
+ * Stand-in for `exitFromIpcResult` in a `mock.module` factory. The real one
+ * ends the process, which would take the test runner with it. Same stderr line
+ * and same exit code, and the caller carries on to its own early return.
+ */
+export function reportIpcFailureWithoutExiting(r: {
+  error?: string;
+  statusCode?: number;
+}): void {
+  process.stderr.write((r.error ?? "Unknown error") + "\n");
+  process.exitCode = exitCodeFromIpcResult(r);
 }
 
 /**

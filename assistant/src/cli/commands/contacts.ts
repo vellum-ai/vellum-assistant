@@ -208,11 +208,16 @@ function parseFormTimeout(
 }
 
 interface ContactRecordPromptBody {
-  operation: "create" | "update" | "delete";
+  operation: "create" | "update" | "delete" | "merge";
+  /** The contact the write lands on. On a merge, the survivor. */
   contactId?: string;
   currentDisplayName?: string;
   currentNotes?: string;
   channels?: Array<{ type: string; address: string }>;
+  /** The contact being merged away. Present only on a merge. */
+  donorContactId?: string;
+  donorDisplayName?: string;
+  donorChannels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
   notesProposed?: boolean;
@@ -468,6 +473,12 @@ async function runRecordPrompt(
     contactId?: string;
     notesSaved?: boolean;
     nothingWritten?: boolean;
+    /**
+     * Whether a merge's surviving contact took the submitted name. Absent
+     * unless a rename was submitted. False means the merge committed and the
+     * survivor kept its old name.
+     */
+    renamed?: boolean;
     cancelled?: boolean;
   }>(
     "contacts_record_prompt",
@@ -499,6 +510,9 @@ async function runRecordPrompt(
   // what this command proposed is no guide to what was written.
   const notesLost = r.result.notesSaved === false;
   const nothingWritten = r.result.nothingWritten === true;
+  // A merge that could not apply the submitted name still merged, so this is a
+  // partial outcome to report rather than a failed command.
+  const renameLost = r.result.renamed === false;
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
@@ -516,7 +530,12 @@ async function runRecordPrompt(
     return;
   }
 
-  const verb = body.operation === "create" ? "Created" : "Updated";
+  // A merge names both contacts, so it leads with its own line instead of a
+  // verb in front of "contact".
+  const headline =
+    body.operation === "merge"
+      ? `Merged "${body.donorDisplayName}" into "${body.currentDisplayName}":`
+      : `${body.operation === "create" ? "Created" : "Updated"} contact:`;
 
   // The write is already done and the guardian has already answered. This read
   // is only for what to print, so a failure here reports the write with less
@@ -552,19 +571,25 @@ async function runRecordPrompt(
       ok: true,
       ...(written ? { contact: written } : { contactId }),
       ...(notesLost ? { notesSaved: false } : {}),
+      ...(renameLost ? { renamed: false } : {}),
     });
     return;
   }
 
   if (written) {
-    process.stdout.write(`${verb} contact:\n`);
-    process.stdout.write(formatContactDetail(written) + "\n");
+    process.stdout.write(`${headline}\n${formatContactDetail(written)}\n`);
   } else {
-    process.stdout.write(`${verb} contact: ${contactId}\n`);
+    process.stdout.write(`${headline} ${contactId}\n`);
     writeError(cmd, "Could not read the contact back to display it");
   }
   if (notesLost) {
     writeError(cmd, "The contact was saved, but its notes were not");
+  }
+  if (renameLost) {
+    writeError(
+      cmd,
+      "The contacts were merged, but the surviving contact was not renamed",
+    );
   }
 }
 
@@ -663,7 +688,7 @@ export function registerContactsCommand(program: Command): void {
       );
 
       // -----------------------------------------------------------------------
-      // create / update / delete
+      // create / update / delete / merge
       //
       // Each opens a form in the guardian's app and blocks on their answer.
       // The daemon writes nothing: the guardian's client posts the confirmed
@@ -815,6 +840,57 @@ export function registerContactsCommand(program: Command): void {
                 type: ch.type,
                 address: ch.address,
               })),
+              label: opts.label,
+              description: opts.description,
+            },
+            opts.timeout,
+            cmd,
+          );
+        },
+      );
+
+      subcommand(contacts, "merge").action(
+        async (
+          survivorId: string,
+          donorId: string,
+          opts: {
+            keepDonorName?: boolean;
+            label?: string;
+            description?: string;
+            timeout?: string;
+          },
+          cmd: Command,
+        ) => {
+          if (survivorId === donorId) {
+            writeError(
+              cmd,
+              `Cannot merge contact "${survivorId}" into itself. Pass the surviving id and a different donor id. Run 'assistant contacts list' to find contact ids.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const survivor = await readContactForPrompt(survivorId, cmd);
+          if (!survivor) {
+            return;
+          }
+          const donor = await readContactForPrompt(donorId, cmd);
+          if (!donor) {
+            return;
+          }
+          await runRecordPrompt(
+            {
+              operation: "merge",
+              contactId: survivorId,
+              currentDisplayName: survivor.displayName,
+              donorContactId: donorId,
+              donorDisplayName: donor.displayName,
+              // The confirmation says which access moves, so the guardian can
+              // see what the survivor ends up reachable at.
+              donorChannels: donor.channels.map((ch) => ({
+                type: ch.type,
+                address: ch.address,
+              })),
+              displayName: opts.keepDonorName ? donor.displayName : undefined,
               label: opts.label,
               description: opts.description,
             },

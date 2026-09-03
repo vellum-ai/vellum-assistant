@@ -94,6 +94,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "contacts create",
   "contacts update",
   "contacts delete",
+  "contacts merge",
   "contacts channels",
   "contacts channels add",
   "contacts channels update-status",
@@ -471,6 +472,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "contacts create", risk: "medium" },
   { path: "contacts update", risk: "medium" },
   { path: "contacts delete", risk: "high" },
+  {
+    path: "contacts merge",
+    risk: "medium",
+    reason:
+      "Deletes the donor record, but moves its channels to the survivor, so nobody loses access. The guardian confirms it on a form.",
+  },
   { path: "contacts channels add", risk: "medium" },
   { path: "contacts channels update-status", risk: "medium" },
   { path: "contacts invites create", risk: "high" },
