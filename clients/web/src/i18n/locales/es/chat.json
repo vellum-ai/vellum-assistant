@@ -87,6 +87,16 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Actividad anterior"
   },
+  "assistantDesktop": {
+    "busy": "Otro usuario está usando el escritorio.",
+    "connecting": "Conectando con el escritorio…",
+    "failed": "No se pudo iniciar el escritorio.",
+    "lost": "Se perdió la conexión con el escritorio.",
+    "openAria": "Abrir escritorio",
+    "reconnectButton": "Reconectar",
+    "title": "Escritorio",
+    "unavailable": "El escritorio no está disponible en este asistente."
+  },
   "assistantNavItem": {
     "newChat": "Chat nuevo"
   },
@@ -1197,16 +1207,6 @@
   "pluginPill": {
     "disableAria": "Desactivar {name} para este chat",
     "enableAria": "Activar {name} para este chat"
-  },
-  "podDesktop": {
-    "busy": "Otro usuario está usando el escritorio.",
-    "connecting": "Conectando con el escritorio…",
-    "failed": "No se pudo iniciar el escritorio.",
-    "lost": "Se perdió la conexión con el escritorio.",
-    "openAria": "Abrir escritorio",
-    "reconnectButton": "Reconectar",
-    "title": "Escritorio",
-    "unavailable": "El escritorio no está disponible en este asistente."
   },
   "preferencesMenu": {
     "admin": "Admin",

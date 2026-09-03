@@ -32,7 +32,7 @@ import {
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { makeAddrInUseError } from "../daemon/startup-error.js";
-import { isPodDesktopEnabled } from "../desktop/desktop-feature.js";
+import { isAssistantDesktopEnabled } from "../desktop/desktop-feature.js";
 import {
   DESKTOP_CLOSE,
   destroyDesktopSessionManager,
@@ -202,7 +202,10 @@ interface WatchStreamWebSocketData {
   session?: WatchStreamSession;
 }
 
-/** WebSocket data for `/v1/desktop/stream`: raw RFB bytes to the pod desktop. */
+/**
+ * WebSocket data for `/v1/desktop/stream`: raw RFB bytes to the assistant
+ * desktop.
+ */
 interface DesktopStreamWebSocketData {
   wsType: "desktop-stream";
   /** Bound at open time so message/close handlers reach this socket's pump. */
@@ -216,9 +219,9 @@ type AllWebSocketData =
   | WatchStreamWebSocketData
   | DesktopStreamWebSocketData;
 
-function podDesktopEnabled(): boolean {
+function assistantDesktopEnabled(): boolean {
   try {
-    return isPodDesktopEnabled(getConfig());
+    return isAssistantDesktopEnabled(getConfig());
   } catch (err) {
     log.warn({ err }, "Failed to read config for desktop stream gate");
     return false;
@@ -409,7 +412,7 @@ export class RuntimeHttpServer {
           }
           if (data.wsType === "desktop-stream") {
             log.info("Desktop stream WebSocket opened");
-            if (!podDesktopEnabled()) {
+            if (!assistantDesktopEnabled()) {
               ws.close(
                 DESKTOP_CLOSE.unavailable,
                 "Desktop is not available on this assistant",
@@ -822,7 +825,7 @@ export class RuntimeHttpServer {
       return this.handleWatchStreamUpgrade(req, server);
     }
 
-    // WebSocket upgrade for the pod desktop RFB stream, under the same
+    // WebSocket upgrade for the assistant desktop RFB stream, under the same
     // private-network restrictions and gateway-service token verification.
     if (
       path === "/v1/desktop/stream" &&

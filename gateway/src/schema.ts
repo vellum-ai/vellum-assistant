@@ -1161,7 +1161,7 @@ export function buildSchema(): Record<string, unknown> {
       },
       "/v1/desktop/stream": {
         get: {
-          summary: "Pod desktop stream WebSocket",
+          summary: "Assistant desktop stream WebSocket",
           description:
             "Accepts a WebSocket upgrade from the bound guardian for a containerized assistant's on-demand desktop and proxies raw RFB (VNC) bytes bidirectionally to the assistant runtime's /v1/desktop/stream, relaying the runtime's close codes verbatim.",
           operationId: "desktopStreamWebsocket",

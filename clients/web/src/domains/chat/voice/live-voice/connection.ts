@@ -38,7 +38,7 @@
  * cookie + CSRF + `Vellum-Organization-Id`.
  *
  * This module is the route-agnostic gateway WS transport shared by live voice,
- * watch (`domains/chat/watch`), and the pod desktop (`domains/chat/desktop`).
+ * watch (`domains/chat/watch`), and the assistant desktop (`domains/chat/desktop`).
  */
 
 import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";

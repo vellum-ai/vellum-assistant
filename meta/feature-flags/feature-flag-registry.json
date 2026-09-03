@@ -431,10 +431,10 @@
       "defaultEnabled": false
     },
     {
-      "id": "pod-desktop",
+      "id": "assistant-desktop",
       "scope": "assistant",
-      "key": "pod-desktop",
-      "label": "Pod Desktop",
+      "key": "assistant-desktop",
+      "label": "Assistant Desktop",
       "description": "Streams an interactive desktop from a containerized assistant pod to the web client over /v1/desktop/stream. Off: no desktop affordance is rendered. On: the chat header offers a desktop panel that views and controls the pod's display.",
       "defaultEnabled": false
     }
