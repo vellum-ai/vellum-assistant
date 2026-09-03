@@ -337,11 +337,15 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // `CGWindowListCreateDescriptionFromArray`: that call wants its ids as
         // raw values in the array, and an array bridged from Swift carries
         // numbers instead, so it answers with nothing for a window that is
-        // plainly there. The list call takes the id directly and answers
-        // with that one window.
+        // plainly there. The list call takes the id directly. The option
+        // promises only that the window is in the answer, not that it is
+        // alone there, so the entry is picked by its window number rather
+        // than taken from the front of the list.
         guard
             let descriptions = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowId) as? [[String: Any]],
-            let description = descriptions.first,
+            let description = descriptions.first(where: { entry in
+                (entry[kCGWindowNumber as String] as? Int).map { CGWindowID($0) } == windowId
+            }),
             let ownerPID = description[kCGWindowOwnerPID as String] as? Int
         else {
             return nil
