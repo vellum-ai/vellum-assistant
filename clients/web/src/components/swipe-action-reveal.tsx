@@ -182,14 +182,12 @@ export const SwipeActionReveal = forwardRef<
       // take precedence if there is ever a key collision.
       {...rest}
       // Marks a row that owns horizontal drags, so an enclosing panel gesture
-      // can stand down over it. The mobile drawer's swipe-to-close reads this
-      // to leave a row's own swipe actions alone. Only the armed branch carries
-      // it: with no actions there is nothing to yield to.
+      // (the mobile drawer's swipe-to-close) stands down over it. Only the
+      // armed branch carries it: with no actions there is nothing to yield to.
       //
-      // An attribute of its own rather than a `data-slot`, declared after the
-      // injected props: a parent using `asChild` hands the row a `data-slot`
-      // of its own (the pinned-app pill's `ContextMenu.Trigger` does), and a
-      // mark a gesture depends on has to be one a wrapper cannot overwrite.
+      // Its own attribute, declared after the injected props, because a parent
+      // using `asChild` hands the row a `data-slot` of its own: a mark a
+      // gesture depends on has to be one a wrapper cannot overwrite.
       data-swipe-action-row=""
       // Allow vertical scrolling to remain native while claiming horizontal
       // gestures for swipe-to-reveal, preventing the browser from
@@ -212,9 +210,11 @@ export const SwipeActionReveal = forwardRef<
             aria-hidden={offset >= 0}
             style={{
               transform: `translateX(${trailingShift}px)`,
-              // Remove hidden actions from tab order: they're only reachable
-              // after a swipe reveals them. Without this, tab navigation
-              // lands on buttons parked outside the clip.
+              // A parked layer is clipped and so already unhittable; this
+              // covers the closing transition, where `offset` is back to 0
+              // while the layer is still sliding out and a tap would otherwise
+              // land on an action on its way off screen. Tab order is the
+              // button's own `tabIndex`, not this.
               pointerEvents: offset >= 0 ? "none" : undefined,
             }}
           >
@@ -250,10 +250,7 @@ export const SwipeActionReveal = forwardRef<
           </div>
         ) : null}
 
-        {/* Content layer, sliding aside to admit the action layers. It paints
-            no fill of its own: the row keeps whatever surface it has on the
-            page, of whatever shape, because nothing here depends on it
-            covering anything. */}
+        {/* Content layer, sliding aside to admit the action layers. */}
         <div
           className={cn("relative", layerTransition)}
           style={{ transform: `translateX(${offset}px)` }}
