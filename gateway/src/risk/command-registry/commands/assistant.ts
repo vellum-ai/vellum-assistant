@@ -474,9 +474,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "contacts delete", risk: "high" },
   {
     path: "contacts merge",
-    risk: "medium",
+    risk: "high",
     reason:
-      "Deletes the donor record, but moves its channels to the survivor, so nobody loses access. The guardian confirms it on a form.",
+      "Permanently deletes the donor contact record, the same irreversible write that makes 'contacts delete' high. Its channels move to the survivor, so nobody loses access, but a policy that gates high operations should gate this one.",
   },
   { path: "contacts channels add", risk: "medium" },
   { path: "contacts channels update-status", risk: "medium" },

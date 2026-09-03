@@ -1148,12 +1148,12 @@ describe("gateway contacts classification", () => {
 describe("assistant contacts write classification", () => {
   const classifier = makeClassifier();
 
-  test("assistant contacts merge → medium", async () => {
+  test("assistant contacts merge → high", async () => {
     const result = await classifier.classify({
       command: "assistant contacts merge ct_1 ct_2",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("high");
   });
 
   test("assistant contacts channels add → medium", async () => {

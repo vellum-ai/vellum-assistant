@@ -292,10 +292,10 @@ Arguments:
 Opens a confirmation in the guardian's app naming both contacts and listing the
 channels that move. Nothing is merged unless they confirm.
 
-The donor's channels move to the survivor, both sets of notes are combined, the
-interaction counts are summed, and the donor record is deleted. Nobody loses
-access: every address that reached the donor reaches the survivor afterwards. A
-guardian contact cannot be the donor.
+The donor's channels move to the survivor, both sets of notes are combined, and
+the donor record is deleted. Nobody loses access: every address that reached the
+donor reaches the survivor afterwards. The survivor keeps its own interaction
+count; the donor's is not carried over. A guardian contact cannot be the donor.
 
 The survivor keeps its own name unless the guardian edits it on the form.
 --keep-donor-name seeds that field with the donor's name, for when the donor is

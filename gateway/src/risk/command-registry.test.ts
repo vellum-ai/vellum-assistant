@@ -590,7 +590,7 @@ describe("command-registry", () => {
       expect(getAssistantPath("contacts create").baseRisk).toBe("medium");
       expect(getAssistantPath("contacts update").baseRisk).toBe("medium");
       expect(getAssistantPath("contacts delete").baseRisk).toBe("high");
-      expect(getAssistantPath("contacts merge").baseRisk).toBe("medium");
+      expect(getAssistantPath("contacts merge").baseRisk).toBe("high");
       expect(getAssistantPath("contacts channels add").baseRisk).toBe("medium");
       expect(getAssistantPath("contacts channels update-status").baseRisk).toBe(
         "medium",
