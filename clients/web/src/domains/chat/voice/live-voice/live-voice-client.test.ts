@@ -144,6 +144,7 @@ async function connectAndGetSocket(
     turnDetection?: "manual" | "server_vad";
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
+    entry?: "companion";
   } = { assistantId: "assistant-1" },
 ): Promise<FakeWebSocket> {
   await client.connect(args);
@@ -240,6 +241,16 @@ describe("connect", () => {
     // every native session as a browser one. Under the test DOM (no Electron,
     // no Capacitor) the detected surface is "web".
     expect(ws.sentJson[0]).toMatchObject({ client: "web" });
+  });
+
+  test("sends the entry point on the start frame when given", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      entry: "companion",
+    });
+    ws.open();
+
+    expect(ws.sentJson[0]).toMatchObject({ type: "start", entry: "companion" });
   });
 
   test("includes turnDetection in the start frame when provided", async () => {

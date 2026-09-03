@@ -164,7 +164,7 @@ test("a deep-link start opens the room on the conversation it mints, not the pil
     .setActiveConversationId(PRIOR_CONVERSATION_ID);
   registerStarter();
 
-  requestVoiceStart(navigateFn);
+  requestVoiceStart(navigateFn, { entry: "deep_link" });
   await flushDrain();
 
   const draftId = useConversationStore.getState().activeConversationId;

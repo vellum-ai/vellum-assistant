@@ -23,7 +23,10 @@
 
 import { create } from "zustand";
 
-import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
+import type {
+  LiveVoiceEntry,
+  LiveVoiceMetricsServerFrame,
+} from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
 
@@ -284,8 +287,14 @@ export interface LiveVoiceSessionStarter {
   sendText(text: string): boolean;
 }
 
-/** The first turn a session takes on a caller's behalf, and what follows it. */
+/**
+ * What a caller hands the starter besides the ids: which control the start
+ * came from, and the first turn the session takes on the caller's behalf with
+ * what follows it.
+ */
 export interface LiveVoiceSeedOptions {
+  /** Which control asked for the session, for the daemon's telemetry. */
+  entry?: LiveVoiceEntry;
   seedText?: string;
   seedVisible?: boolean;
   endAfterSeedReply?: boolean;

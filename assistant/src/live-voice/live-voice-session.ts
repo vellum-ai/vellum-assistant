@@ -80,6 +80,7 @@ import { getSubagentManager } from "../subagent/index.js";
 import {
   liveVoiceEndScreen,
   liveVoiceSilenceReason,
+  liveVoiceStartScreen,
 } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import {
@@ -1493,7 +1494,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // credentials is precisely the one the failure rate needs to count, and
     // recording the start only once `ready` goes out would hide every such
     // session from both the numerator and the denominator.
-    recordLiveVoiceSessionStarted(this.context.sessionId);
+    recordLiveVoiceSessionStarted({
+      sessionId: this.context.sessionId,
+      screen: liveVoiceStartScreen(
+        this.context.startFrame.client,
+        this.context.startFrame.entry,
+      ),
+    });
 
     if (this.resolveCredentialReadiness) {
       const readiness = await this.resolveCredentialReadiness();
@@ -5261,6 +5268,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           sessionId: this.context.sessionId,
           ...(this.context.startFrame.client
             ? { client: this.context.startFrame.client }
+            : {}),
+          ...(this.context.startFrame.entry
+            ? { entry: this.context.startFrame.entry }
             : {}),
         },
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {

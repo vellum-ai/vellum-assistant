@@ -206,6 +206,7 @@ export function useLiveVoiceSessionController(
         // when the daemon's `ready` doesn't echo `server_vad`.
         void start(assistantId, conversationId ?? undefined, {
           handsFree: true,
+          ...(options?.entry ? { entry: options.entry } : {}),
           ...(options?.seedText ? { seedText: options.seedText } : {}),
           ...(options?.seedVisible ? { seedVisible: true } : {}),
           ...(options?.endAfterSeedReply ? { endAfterSeedReply: true } : {}),

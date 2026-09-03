@@ -14,10 +14,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
-import {
-  consumeShareInbox,
-  readShareInboxFiles,
-} from "@/runtime/share-inbox";
+import { consumeShareInbox, readShareInboxFiles } from "@/runtime/share-inbox";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
@@ -301,7 +298,9 @@ export function useGlobalDeepLinkConsumer(): void {
     // mints the fresh conversation the session binds to and lands on it from
     // there, reading the ref because it navigates after its own awaits.
     navigateRef.current(routes.assistant);
-    requestVoiceStart((to, options) => navigateRef.current(to, options));
+    requestVoiceStart((to, options) => navigateRef.current(to, options), {
+      entry: "deep_link",
+    });
   });
 
   // The Home Screen widgets' New Chat buttons. `navigateToNewConversation` is

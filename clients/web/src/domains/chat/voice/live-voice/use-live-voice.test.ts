@@ -119,7 +119,7 @@ function renderController(
 /** Start a session and drive it to the listening state (ready + capture). */
 async function startListening(
   h: ReturnType<typeof renderController>,
-  options?: { handsFree?: boolean },
+  options?: { handsFree?: boolean; entry?: "companion" },
 ) {
   await act(async () => {
     await h.view.result.current.start("assistant-1", "conv-1", options);
@@ -1204,6 +1204,25 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     });
     expect(new Int16Array(h.client.sentAudio[1]!)[0]).toBe(1234);
     expect(useLiveVoiceStore.getState().inputAmplitude).toBeCloseTo(0.4);
+  });
+
+  test("the entry point rides every connect the session makes, reconnects included", async () => {
+    // A socket blip does not change where the user started from, and the
+    // fresh daemon session behind the reconnect writes its own started row.
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true, entry: "companion" });
+    expect(h.client.connectArgs).toMatchObject({ entry: "companion" });
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(h.client.connectArgs).toMatchObject({ entry: "companion" });
   });
 
   test("muted survives a retryable reconnect — no hot mic after a blip", async () => {
