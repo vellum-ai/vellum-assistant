@@ -343,6 +343,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "follow-up-suggestions",
+      "scope": "client",
+      "key": "follow-up-suggestions",
+      "label": "Follow-up suggestion chips",
+      "description": "Render two tappable follow-up suggestion chips under the latest assistant reply. The chips prefill the composer with the suggestion the user picks; the daemon returns the suggestions either way.",
+      "defaultEnabled": false
+    },
+    {
       "id": "account-mfa",
       "scope": "client",
       "key": "account-mfa",

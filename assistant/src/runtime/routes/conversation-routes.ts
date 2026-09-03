@@ -2838,12 +2838,58 @@ function escapeXmlContent(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
+const MAX_REPLY_SUGGESTIONS = 2;
+
+/**
+ * Extract the suggestion candidates from a raw model response.
+ *
+ * Tagged output yields one candidate per `<reply>` block. Untagged output is
+ * treated as a single candidate, so a plain "Sure, tomorrow works" is still a
+ * usable chip. Candidates are cleaned to a single line, deduped
+ * case-insensitively, and capped at `MAX_REPLY_SUGGESTIONS`.
+ */
+function parseReplySuggestions(raw: string): string[] {
+  const blocks = [
+    ...raw.matchAll(/<reply>([\s\S]*?)(?=<\/reply>|<reply>|$)/gi),
+  ].map((match) => match[1]);
+  const candidates = blocks.length > 0 ? blocks : [raw];
+
+  const suggestions: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const cleaned = candidate
+      .replace(/<\/?reply>/gi, "")
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .trim()
+      .split("\n")[0]
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .trim();
+    if (!cleaned) {
+      continue;
+    }
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    suggestions.push(cleaned);
+    if (suggestions.length === MAX_REPLY_SUGGESTIONS) {
+      break;
+    }
+  }
+  return suggestions;
+}
+
+/**
+ * Ask the LLM for up to `MAX_REPLY_SUGGESTIONS` follow-ups the user might send
+ * next. Returns them in model order; the first is the ghost-text suggestion.
+ */
 async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
   priorUserText: string | null,
   conversationId: string,
-): Promise<string | null> {
+): Promise<string[]> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncatedAssistant = escapeXmlContent(
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText,
@@ -2856,40 +2902,42 @@ async function generateLlmSuggestion(
         : priorUserText;
 
   const systemPrompt = [
-    "You generate short, casual reply suggestions a user might type next in a chat.",
+    "You generate short, casual follow-up suggestions a user might send next in a chat.",
     "Match the tone and register of the preceding conversation.",
     "",
-    "CRITICAL — write from the USER'S perspective only, NEVER from the assistant's:",
-    "- The suggestion is what the USER will type into the chat input",
+    "CRITICAL: write from the USER'S perspective only, NEVER from the assistant's:",
+    "- Each suggestion is what the USER will send from the chat input",
     '- Use first-person "I" only if the user has used it in their prior messages',
-    '- NEVER start with phrases like "I can help", "Here\'s what", "Let me", "I\'d suggest" — those are assistant-voice',
-    "- Think: if you were the user reading the assistant's reply, what question or follow-up would you ask next?",
+    '- NEVER start with phrases like "I can help", "Here\'s what", "Let me", "I\'d suggest". Those are assistant-voice',
+    "- Think: if you were the user reading the assistant's reply, what would you ask or say next?",
     "",
-    "Output only the reply text inside the requested tags — no preamble, no commentary.",
+    "Output only the suggestions inside the requested tags. No preamble, no commentary, no numbering.",
   ].join("\n");
 
   const userPrompt =
     `Here is the end of a conversation:\n\n` +
     `<user_message>${truncatedUser ?? "(no prior user message)"}</user_message>\n` +
     `<assistant_message>${truncatedAssistant}</assistant_message>\n\n` +
-    `Write the USER'S next reply — what the user would type. Focus on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. ` +
-    `The reply must read as something typed BY the user, not something the assistant would say. Respond in this exact format:\n\n` +
-    `<reply>YOUR_REPLY_HERE</reply>`;
+    `Write the USER'S two most likely next messages. Focus on the LAST question or call-to-action in the assistant message. ` +
+    `Make the two distinct: they open different directions rather than rephrase each other. ` +
+    `Write each one as a short imperative or question in the user's voice, under 8 words, like "Explore Nina Simone's legacy". ` +
+    `Each must read as something typed BY the user, not something the assistant would say. Respond in this exact format:\n\n` +
+    `<reply>FIRST_SUGGESTION</reply>\n<reply>SECOND_SUGGESTION</reply>\n<done/>`;
 
-  // Single user message only — no assistant-role prefill. Anthropic
-  // rejects assistant prefill whenever the request triggers extended
-  // thinking (e.g. Opus 4.x at `effort: "xhigh"`), and the call-site
-  // config is user-controlled, so we can't statically guarantee a
-  // prefill-safe model. Keep `stop_sequences: ["</reply>"]` as an
-  // early-termination hint; the parser below handles both tagged and
-  // untagged responses so untagged "casual answer" replies still work.
+  // Single user message only, no assistant-role prefill. Anthropic rejects
+  // assistant prefill whenever the request triggers extended thinking (e.g.
+  // Opus 4.x at `effort: "xhigh"`), and the call-site config is
+  // user-controlled, so we can't statically guarantee a prefill-safe model.
+  // `stop_sequences: ["<done/>"]` is an early-termination hint that fires
+  // after the second block; the parser handles tagged and untagged responses
+  // alike, so untagged "casual answer" replies still work.
   //
-  // Force `thinking: disabled` + `effort: none` so the call works on any
-  // user profile — including thinking-enabled profiles (Opus 4.x at
-  // `effort: high|xhigh`, etc.) where Anthropic 400s on `temperature` ≠ 1
-  // when thinking is enabled or in adaptive mode. A 60-token reply chip
-  // doesn't benefit from extended thinking anyway, and burning thinking
-  // tokens here would be wasteful.
+  // Force `thinking: disabled` + `effort: none` so the call works on any user
+  // profile, including thinking-enabled profiles (Opus 4.x at `effort:
+  // high|xhigh`, etc.) where Anthropic 400s on `temperature` != 1 when
+  // thinking is enabled or in adaptive mode. Two short reply chips don't
+  // benefit from extended thinking, and burning thinking tokens here would be
+  // wasteful.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     {
@@ -2899,8 +2947,8 @@ async function generateLlmSuggestion(
       config: {
         callSite: "replySuggestion",
         conversationId,
-        max_tokens: 60,
-        stop_sequences: ["</reply>"],
+        max_tokens: 160,
+        stop_sequences: ["<done/>"],
         temperature: 0.7,
         thinking: { type: "disabled" },
         effort: "none",
@@ -2910,42 +2958,27 @@ async function generateLlmSuggestion(
 
   const textBlock = response.content.find((b) => b.type === "text");
   const raw = textBlock && "text" in textBlock ? textBlock.text : "";
-  // Prefer the content inside <reply>…</reply> when the model honors the
-  // tag format. If the response has no tags, fall back to the raw text —
-  // a plain "Sure, tomorrow works" without tags is still a valid chip.
-  const tagMatch = raw.match(/<reply>([\s\S]*?)(?:<\/reply>|$)/i);
-  const extracted = tagMatch ? tagMatch[1] : raw;
-  const stripped = extracted
-    .replace(/<\/?reply>/gi, "")
-    .replace(/^["'`]+|["'`]+$/g, "")
-    .trim();
+  const suggestions = parseReplySuggestions(raw);
 
-  if (!stripped) {
-    log.debug("Suggestion rejected: empty LLM response");
-    return null;
-  }
-
-  // Take first line only
-  const firstLine = stripped.split("\n")[0].trim();
-  if (!firstLine) {
+  if (suggestions.length === 0) {
     log.debug(
-      { rawLength: stripped.length },
-      "Suggestion rejected: empty after first-line extraction",
+      { rawLength: raw.length },
+      "Suggestions rejected: no usable text in LLM response",
     );
-    return null;
   }
-  return firstLine;
+  return suggestions;
 }
 
 export async function handleGetSuggestion(
   { queryParams }: RouteHandlerArgs,
   deps: {
-    suggestionCache: Map<string, string>;
-    suggestionInFlight: Map<string, Promise<string | null>>;
+    suggestionCache: Map<string, string[]>;
+    suggestionInFlight: Map<string, Promise<string[]>>;
   },
 ): Promise<Record<string, unknown>> {
   const noSuggestion = {
     suggestion: null,
+    suggestions: [] as string[],
     messageId: null,
     source: "none" as const,
   };
@@ -3017,10 +3050,15 @@ export async function handleGetSuggestion(
       return { ...noSuggestion, stale: true };
     }
 
-    // Return cached suggestion if we already generated one for this message
+    // Return cached suggestions if we already generated them for this message
     const cached = suggestionCache.get(msg.id);
     if (cached !== undefined) {
-      return { suggestion: cached, messageId: msg.id, source: "llm" as const };
+      return {
+        suggestion: cached[0] ?? null,
+        suggestions: cached,
+        messageId: msg.id,
+        source: "llm" as const,
+      };
     }
 
     // Find the most recent user message preceding this assistant turn so the
@@ -3055,19 +3093,20 @@ export async function handleGetSuggestion(
           suggestionInFlight.set(msg.id, promise);
         }
 
-        const llmSuggestion = await promise;
+        const llmSuggestions = await promise;
         suggestionInFlight.delete(msg.id);
 
-        if (llmSuggestion) {
+        if (llmSuggestions.length > 0) {
           // Evict oldest entries if cache is at capacity
           if (suggestionCache.size >= SUGGESTION_CACHE_MAX) {
             const oldest = suggestionCache.keys().next().value!;
             suggestionCache.delete(oldest);
           }
-          suggestionCache.set(msg.id, llmSuggestion);
+          suggestionCache.set(msg.id, llmSuggestions);
 
           return {
-            suggestion: llmSuggestion,
+            suggestion: llmSuggestions[0],
+            suggestions: llmSuggestions,
             messageId: msg.id,
             source: "llm" as const,
           };
@@ -3076,7 +3115,7 @@ export async function handleGetSuggestion(
         suggestionInFlight.delete(msg.id);
         log.warn(
           { err, conversationKey, messageId: msg.id },
-          "LLM suggestion failed",
+          "LLM suggestions failed",
         );
       }
     } else {
@@ -3126,8 +3165,8 @@ async function handleSearchConversations({
 // Module-level state
 // ---------------------------------------------------------------------------
 
-const suggestionCache = new Map<string, string>();
-const suggestionInFlight = new Map<string, Promise<string | null>>();
+const suggestionCache = new Map<string, string[]>();
+const suggestionInFlight = new Map<string, Promise<string[]>>();
 
 // ---------------------------------------------------------------------------
 // Route definitions
@@ -3378,9 +3417,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["chat.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Get reply suggestion",
+    summary: "Get reply suggestions",
     description:
-      "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
+      "Return up to two LLM-generated follow-up suggestions for the most recent assistant message.",
     tags: ["messages"],
     queryParams: [
       {
@@ -3404,6 +3443,7 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: z.object({
       suggestion: z.string().nullable(),
+      suggestions: z.array(z.string()),
       messageId: z.string().nullable(),
       source: z.string(),
       stale: z.boolean().optional(),

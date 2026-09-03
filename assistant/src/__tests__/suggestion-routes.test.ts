@@ -114,8 +114,8 @@ function makeArgs(params: { conversationKey?: string; messageId?: string }) {
 
 function makeDeps() {
   return {
-    suggestionCache: new Map<string, string>(),
-    suggestionInFlight: new Map<string, Promise<string | null>>(),
+    suggestionCache: new Map<string, string[]>(),
+    suggestionInFlight: new Map<string, Promise<string[]>>(),
   };
 }
 
@@ -443,8 +443,8 @@ describe("GET /v1/suggestion", () => {
 
     expect(messages.length).toBe(1);
     expect(messages[0].role).toBe("user");
-    expect(options.config?.stop_sequences).toEqual(["</reply>"]);
-    expect(options.config?.max_tokens).toBe(60);
+    expect(options.config?.stop_sequences).toEqual(["<done/>"]);
+    expect(options.config?.max_tokens).toBe(160);
     expect(messages[0].content[0].text).toContain("<assistant_message>");
     expect(messages[0].content[0].text).toContain("<user_message>");
   });
@@ -563,7 +563,7 @@ describe("GET /v1/suggestion", () => {
     // unless we explicitly opt out of thinking on this call site.
     //
     // Pinning `thinking: { type: "disabled" }` and `effort: "none"` ensures
-    // the call works on every profile shape. A 60-token reply chip doesn't
+    // the call works on every profile shape. Two short reply chips don't
     // benefit from extended thinking anyway.
     const provider = makeMockProvider("Quick reply");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
@@ -695,5 +695,203 @@ describe("GET /v1/suggestion", () => {
 
     const body = response as { suggestion: string | null };
     expect(body.suggestion).toBe("Let's do it");
+  });
+  test("returns both reply blocks with suggestion as the first", async () => {
+    const provider = makeMockProvider(
+      "<reply>Explore her early albums</reply>\n<reply>Compare her to Billie Holiday</reply>\n<done/>",
+    );
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-two",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Nina Simone reshaped protest song." }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestion: string; suggestions: string[] };
+
+    expect(body.suggestions).toEqual([
+      "Explore her early albums",
+      "Compare her to Billie Holiday",
+    ]);
+    expect(body.suggestion).toBe("Explore her early albums");
+  });
+
+  test("returns a one-item array when the model emits one block", async () => {
+    const provider = makeMockProvider(
+      "<reply>Explore her early albums</reply>",
+    );
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-one",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Nina Simone reshaped protest song." }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestion: string; suggestions: string[] };
+
+    expect(body.suggestions).toEqual(["Explore her early albums"]);
+    expect(body.suggestion).toBe("Explore her early albums");
+  });
+
+  test("collapses duplicate blocks case-insensitively", async () => {
+    const provider = makeMockProvider(
+      "<reply>Explore her early albums</reply>\n<reply>explore her EARLY albums</reply>",
+    );
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-dupe",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Nina Simone reshaped protest song." }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestion: string; suggestions: string[] };
+
+    expect(body.suggestions).toEqual(["Explore her early albums"]);
+    expect(body.suggestion).toBe("Explore her early albums");
+  });
+
+  test("caps the array at two even when the model emits more", async () => {
+    const provider = makeMockProvider(
+      "<reply>One</reply><reply>Two</reply><reply>Three</reply>",
+    );
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-three",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Pick a direction." }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestions: string[] };
+
+    expect(body.suggestions).toEqual(["One", "Two"]);
+  });
+
+  test("returns an empty array for malformed output without throwing", async () => {
+    const provider = makeMockProvider("<reply></reply>\n<reply>   </reply>");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-malformed",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Pick a direction." }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestion: string | null; suggestions: string[] };
+
+    expect(body.suggestion).toBeNull();
+    expect(body.suggestions).toEqual([]);
+  });
+
+  test("serves both suggestions from cache on the second call", async () => {
+    const provider = makeMockProvider(
+      "<reply>Explore her early albums</reply>\n<reply>Compare her to Billie Holiday</reply>",
+    );
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-cache-two",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Nina Simone reshaped protest song." }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    await handleGetSuggestion(args, deps);
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestion: string; suggestions: string[] };
+
+    expect(body.suggestions).toEqual([
+      "Explore her early albums",
+      "Compare her to Billie Holiday",
+    ]);
+    expect(body.suggestion).toBe("Explore her early albums");
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test("mirrors an untagged single suggestion into the array", async () => {
+    const provider = makeMockProvider("Sounds good to me");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-untagged-array",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: [{ type: "text", text: "Want to meet tomorrow?" }],
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(args, deps);
+    const body = res as { suggestion: string; suggestions: string[] };
+
+    expect(body.suggestions).toEqual(["Sounds good to me"]);
+    expect(body.suggestion).toBe("Sounds good to me");
   });
 });
