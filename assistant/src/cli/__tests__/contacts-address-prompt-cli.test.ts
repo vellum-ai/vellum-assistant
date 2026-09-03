@@ -49,8 +49,16 @@ const contact = {
 let promptResult: Record<string, unknown> = boundChannel;
 /** Whether `getContact` can see the id the command was given. */
 let contactExists = true;
-/** Who the address lookup reports as already holding the address. */
-let addressHolders: Array<{ id: string; displayName: string }> = [];
+/**
+ * Who the address lookup reports. `address` is the address that contact
+ * actually holds; it defaults to the queried one, since the search matches a
+ * substring and can return a contact holding something longer.
+ */
+let addressHolders: Array<{
+  id: string;
+  displayName: string;
+  address?: string;
+}> = [];
 
 /**
  * The ordinary answers. Held as a named function so `beforeEach` can put it
@@ -72,7 +80,26 @@ const baseIpcImplementation = async (
     return { ok: true, result: { ok: true, contact } };
   }
   if (operationId === "listContacts") {
-    return { ok: true, result: { ok: true, contacts: addressHolders } };
+    const query =
+      (options?.queryParams as {
+        channelAddress?: string;
+        channelType?: string;
+      }) ?? {};
+    return {
+      ok: true,
+      result: {
+        ok: true,
+        contacts: addressHolders.map((holder) => ({
+          ...holder,
+          channels: [
+            {
+              type: query.channelType ?? "email",
+              address: holder.address ?? query.channelAddress ?? "",
+            },
+          ],
+        })),
+      },
+    };
   }
   return { ok: true, result: promptResult };
 };
@@ -490,6 +517,56 @@ describe("contacts channels add", () => {
     expect(stderr).toContain("assistant contacts merge");
     expect(wasCalled("contacts_prompt")).toBe(true);
     expect(process.exitCode).toBeFalsy();
+  });
+
+  test("a bind that lands on a different contact is reported as a failure", async () => {
+    // An older gateway ignores the target and resolves by address, which is the
+    // duplicate this command exists to avoid. It answers ok, so the returned id
+    // is the only evidence.
+    promptResult = {
+      ok: true,
+      channelType: "email",
+      address: "alice@example.com",
+      channelId: "ch_9",
+      contactId: "ct_other",
+      verified: false,
+    };
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "channels",
+      "add",
+      "ct_1",
+      "--channel",
+      "email",
+    );
+
+    expect(stderr).toContain("ct_other");
+    expect(stderr).toContain("older than this CLI");
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("a contact holding a longer address is not flagged", async () => {
+    // The lookup matches a substring, so binding bob@example.com can return a
+    // contact holding bobby@example.com. Warning on that would name a stranger
+    // and point at an irreversible merge.
+    addressHolders = [
+      { id: "ct_2", displayName: "Bobby", address: "bobby@example.com" },
+    ];
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "channels",
+      "add",
+      "ct_1",
+      "--channel",
+      "email",
+      "--address",
+      "bob@example.com",
+    );
+
+    expect(stderr).toBe("");
+    expect(wasCalled("contacts_prompt")).toBe(true);
   });
 
   test("an address the target already holds is not a conflict", async () => {

@@ -217,7 +217,11 @@ async function readParkedPromptTarget(
     const result = await ipcCallAssistant("contact_prompt_flags", {
       body: { requestId },
     });
-    return result as ParkedPromptTarget;
+    // A daemon that answers with no object leaves nothing to read the target
+    // from, which is the same position as an unreachable one.
+    return result && typeof result === "object"
+      ? (result as ParkedPromptTarget)
+      : null;
   } catch (err) {
     log.warn(
       { err, requestId },

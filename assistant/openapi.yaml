@@ -6804,6 +6804,10 @@ paths:
                     type: boolean
                   nothingWritten:
                     type: boolean
+                  merged:
+                    type: boolean
+                  renamed:
+                    type: boolean
                   cancelled:
                     type: boolean
                 required:

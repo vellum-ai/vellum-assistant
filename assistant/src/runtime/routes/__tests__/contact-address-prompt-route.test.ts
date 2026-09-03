@@ -24,6 +24,7 @@ mock.module("../../assistant-event-hub.js", () => ({
 }));
 
 const { CONTACT_PROMPT_ROUTES } = await import("../contact-prompt-routes.js");
+const { resolveGuardianForm } = await import("../../guardian-form-registry.js");
 
 function routeFor(operationId: string) {
   const route = CONTACT_PROMPT_ROUTES.find(
@@ -54,6 +55,17 @@ async function settle(pending: Promise<unknown>, requestId: string) {
 
 describe("contacts_prompt binding target", () => {
   beforeEach(() => {
+    // A parked form outlives the test that opened it, and the handlers refuse
+    // to open a second one of the same kind, so each test starts by settling
+    // whatever the previous one left waiting.
+    for (const broadcast of broadcasts) {
+      if (typeof broadcast.requestId === "string") {
+        resolveGuardianForm(broadcast.requestId, {
+          ok: false,
+          error: "test cleanup",
+        });
+      }
+    }
     broadcasts = [];
     broadcastMock.mockClear();
   });
@@ -182,6 +194,26 @@ describe("contacts_prompt binding target", () => {
       "Another contact form is already open",
     );
     expect(broadcasts).toHaveLength(1);
+  });
+
+  test("a pending record form does not block an address form", async () => {
+    // Clients hold the two contact cards in separate slots and render both, so
+    // only a second card of the same kind replaces one.
+    const recordPrompt = routeFor("contacts_record_prompt");
+    void recordPrompt.handler({
+      body: { operation: "delete", contactId: "ct_9" },
+    });
+
+    const result = (await Promise.race([
+      addressPrompt.handler({ body: { channel: "email" } }),
+      new Promise((resolve) => setTimeout(() => resolve("parked"), 50)),
+    ])) as unknown;
+
+    // Parking is the success signal here: a refusal would settle immediately.
+    expect(result).toBe("parked");
+    expect(broadcasts.filter((b) => b.type === "contact_request")).toHaveLength(
+      1,
+    );
   });
 
   test("naming a contact and proposing notes is refused, and opens no form", async () => {
