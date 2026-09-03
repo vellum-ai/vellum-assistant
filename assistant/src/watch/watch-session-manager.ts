@@ -470,6 +470,9 @@ export class WatchSessionManager {
         ...(session.captureTarget
           ? { captureTarget: session.captureTarget }
           : {}),
+        // The helper's diff state is this session's alone, so its first
+        // observation is never described against the last session's.
+        stateKey: `watch:${session.sessionId}`,
       });
       if (session.stopped) {
         return;

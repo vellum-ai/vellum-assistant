@@ -232,6 +232,30 @@ describe("watch session manager", () => {
     manager.stop();
   });
 
+  test("keys the helper's state by the session, so no two share it", async () => {
+    const keys: (string | undefined)[] = [];
+    const manager = new WatchSessionManager({
+      now: () => nowMs,
+      observe: async (received) => {
+        keys.push(received.stateKey);
+        return richObservation();
+      },
+    });
+    const first = start(manager);
+    await settle();
+    manager.stop();
+    const second = start(manager);
+    await settle();
+    manager.stop();
+
+    expect(first.status).toBe("started");
+    expect(second.status).toBe("started");
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^watch:/);
+    expect(keys[1]).toMatch(/^watch:/);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
   test("names no target for a session started without one", async () => {
     const options: Parameters<typeof observeHostScreen>[0][] = [];
     const manager = new WatchSessionManager({

@@ -286,6 +286,15 @@ describe("the Chrome window for a tab", () => {
     expect(chromeWindowFor(windows, "Inbox - ")?.windowId).toBe(4);
   });
 
+  test("is nothing when two windows carry the exact title", () => {
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 6, title: "Inbox" }), ...windows],
+        "Inbox",
+      ),
+    ).toBeUndefined();
+  });
+
   test("is nothing when no title matches, never the frontmost window", () => {
     expect(chromeWindowFor(windows, "Gone")).toBeUndefined();
     expect(chromeWindowFor(windows, "")).toBeUndefined();

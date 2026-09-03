@@ -303,9 +303,9 @@ export async function listCaptureSources(
  * The Chrome window showing a tab with `title`, once Chrome has been told to
  * show it, or nothing when no window can be tied to that tab.
  *
- * By title, since a Chrome window is titled after its active tab: the exact
- * title, or the one window whose title Chrome decorated around it. Never by
- * z-order. The activation brings the tab's window forward when it can, but a
+ * By title, since a Chrome window is titled after its active tab: the one
+ * window with exactly that title, or the one window whose title Chrome
+ * decorated around it. Never by z-order, and never one of several alike. The activation brings the tab's window forward when it can, but a
  * window Chrome could not restore (minimized, on another space) stays off the
  * helper's on-screen list, and the frontmost Chrome window is then some
  * other page the user did not pick. Reading nothing is the only honest
@@ -316,11 +316,13 @@ export function chromeWindowFor(
   title: string,
 ): HelperWindow | undefined {
   const chrome = windows.filter(isChromeWindow);
-  const exact = chrome.find((w) => w.title === title);
-  if (exact !== undefined) {
-    return exact;
+  // Unique either way. Two Chrome windows on the same page share a title,
+  // and if the picked one stayed off screen the other is the one listed.
+  const exact = chrome.filter((w) => w.title === title);
+  if (exact.length === 1) {
+    return exact[0];
   }
-  if (title === "") {
+  if (exact.length > 1 || title === "") {
     return undefined;
   }
   const decorated = chrome.filter((w) => w.title.startsWith(title));
