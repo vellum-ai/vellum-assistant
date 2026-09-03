@@ -13,6 +13,7 @@
  */
 
 import { parseUsd } from "@/lib/billing/parse-usd";
+import { extraCreditUsd } from "@vellumai/billing";
 
 /**
  * The balance to display: the effective balance less whatever is still unused
@@ -29,5 +30,5 @@ export function displayedCreditsUsd(
   if (balanceUsd == null || availableUsd == null) {
     return balance;
   }
-  return Math.max(0, balanceUsd - availableUsd).toFixed(2);
+  return extraCreditUsd(balanceUsd, availableUsd).toFixed(2);
 }

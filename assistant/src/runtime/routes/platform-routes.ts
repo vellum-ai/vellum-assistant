@@ -28,6 +28,11 @@
  */
 
 import {
+  type BillingPlanId,
+  extraCreditUsd,
+  planCreditUsedFraction,
+} from "@vellumai/billing";
+import {
   type PlatformCredentialVerificationStatus,
   type PlatformVerifyCredentialResponse,
   PlatformVerifyCredentialResponseSchema,
@@ -539,36 +544,6 @@ function parseUsd(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-type BillingPlanId = "base" | "pro";
-
-/**
- * Share of the plan-included credit already used, clamped to 0..1, or null
- * when there is no honest reading. Mirrors the web client's
- * usePlanUsageBalance: the grant figures count only unexpired grants, so a
- * Pro subscription whose grants total nothing has used or expired everything
- * it was granted (a full bar), while a base plan in that position was never
- * granted anything (no reading). Unlike the web hook, an unknown plan still
- * yields the ratio when the figures allow one: the daemon fetches the plan
- * best-effort, and a computable ratio is honest without it.
- */
-function planCreditUsedFraction(
-  total: number | null,
-  remaining: number | null,
-  planId: BillingPlanId | null,
-): number | null {
-  if (total !== null && remaining !== null && total > 0) {
-    return Math.min(1, Math.max(0, (total - remaining) / total));
-  }
-  if (planId === "pro" && total !== null && total <= 0) {
-    return 1;
-  }
-  return null;
-}
-
-function roundToCents(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 async function handlePlatformCredits(
   _args: RouteHandlerArgs,
 ): Promise<PlatformCreditsResponse> {
@@ -631,7 +606,7 @@ async function handlePlatformCredits(
     extra_credit_remaining:
       planCreditRemaining === null
         ? null
-        : roundToCents(Math.max(0, remaining - planCreditRemaining)),
+        : extraCreditUsd(remaining, planCreditRemaining),
     credits_expiring_soon: parseUsd(summary.credits_expiring_soon_usd),
     next_credit_expiry_at:
       typeof summary.next_credit_expiry_at === "string"

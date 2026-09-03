@@ -73,6 +73,7 @@
     "@tiptap/starter-kit": "3.23.5",
     "@vellumai/assistant-api": "workspace:*",
     "@vellumai/avatar-catalog": "workspace:*",
+    "@vellumai/billing": "workspace:*",
     "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/design-library": "workspace:*",
     "@vellumai/environments": "workspace:*",

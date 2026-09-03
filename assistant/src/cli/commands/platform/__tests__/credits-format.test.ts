@@ -119,7 +119,7 @@ describe("formatCreditsLines", () => {
     const lines = formatCreditsLines({ ...BASE, credits_expiring_soon: 0 });
 
     expect(lines[4]).toBe(
-      "Expiry:    next plan-credit expiry 2026-10-01T00:00:00Z (nothing expires within 30 days)",
+      "Expiry:    next credit expiry 2026-10-01T00:00:00Z (nothing expires within 30 days)",
     );
   });
 

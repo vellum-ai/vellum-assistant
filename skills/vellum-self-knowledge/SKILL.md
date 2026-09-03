@@ -86,8 +86,8 @@ When `plan_credits_spent` is true, further managed usage draws on
 is out of credit. Plan credit mixes grants with different lifetimes
 (only the Pro bundle turns over with the billing cycle), so it has no single
 reset date: give `next_credit_expiry_at` and `credits_expiring_soon` for what
-expires next, and `currentPeriodEnd` from `platform subscription` only as the
-billing cycle boundary. When the grant fields are null, say the platform
+expires next (across all grants, not only plan credit), and `currentPeriodEnd`
+from `platform subscription` only as the billing cycle boundary. When the grant fields are null, say the platform
 reports no plan-credit figures rather than deriving them. The only spend
 figure `platform credits` reports is `daily_spend`: today's (UTC)
 spend counted against the daily credit limit, which excludes spend covered by

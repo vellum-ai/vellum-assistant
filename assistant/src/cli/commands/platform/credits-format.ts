@@ -71,7 +71,7 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
     );
   } else if (result.next_credit_expiry_at) {
     lines.push(
-      `Expiry:    next plan-credit expiry ${result.next_credit_expiry_at} (nothing expires within 30 days)`,
+      `Expiry:    next credit expiry ${result.next_credit_expiry_at} (nothing expires within 30 days)`,
     );
   }
   if (result.daily_spend !== null) {

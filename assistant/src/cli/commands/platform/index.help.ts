@@ -104,9 +104,9 @@ Fields:
 
 Grant fields are null when the platform does not report grant figures. Plan
 credit mixes grants with different lifetimes (only the Pro bundle turns over
-with the billing cycle), so it has no single reset date: next_credit_expiry_at
-is the earliest expiry, and 'assistant platform subscription' gives the
-billing cycle boundary.
+with the billing cycle), so it has no single reset date. next_credit_expiry_at
+is the earliest expiry across all grants, plan-included or not, and
+'assistant platform subscription' gives the billing cycle boundary.
 
 Requires platform credentials (run 'assistant platform connect' first or
 ensure VELLUM_PLATFORM_URL is set and credentials are stored).
