@@ -1,5 +1,14 @@
-import { addons } from "storybook/manager-api";
+// Storybook builds the manager with the classic JSX runtime, so React must be
+// in scope here even though the app tsconfig uses the automatic one.
+import React from "react";
+import { Button } from "storybook/internal/components";
+import { addons, types } from "storybook/manager-api";
 import { create } from "storybook/theming";
+
+import {
+  SIBLING_STORYBOOK_LABEL,
+  resolveSiblingStorybookUrl,
+} from "./sibling-storybook";
 
 // Storybook 10 only applies the manager theme once at bootup — calling
 // `addons.setConfig` again after init does not swap the theme live. So we
@@ -37,4 +46,20 @@ addons.setConfig({
   sidebar: {
     showRoots: true,
   },
+});
+
+addons.add("vellum/sibling-storybook", {
+  type: types.TOOL,
+  title: SIBLING_STORYBOOK_LABEL,
+  render: () => (
+    <Button asChild ariaLabel={false}>
+      <a
+        href={resolveSiblingStorybookUrl(window.location)}
+        target="_blank"
+        rel="noreferrer noopener"
+      >
+        {SIBLING_STORYBOOK_LABEL} ↗
+      </a>
+    </Button>
+  ),
 });
