@@ -14,7 +14,6 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 import {
@@ -36,6 +35,7 @@ import {
 import {
   installActivationFetchStub,
   mockActivationProgress,
+  recordActivationFunnelEvents,
   resetActivationFlagStore,
   seedActivationIdentity,
   setActivationArm,
@@ -48,39 +48,14 @@ import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 
 const progressMock = await mockActivationProgress();
-
-/**
- * Telemetry is caught at its transport rather than at `emitActivationEvent`.
- * `mock.module` replaces a module for every test file sharing the process, and
- * `use-launch-activation-task.test.tsx` already claims
- * `@/utils/activation-telemetry`; taking the same module here would silently
- * erase its mock in a combined run.
- */
-interface FunnelEvent {
-  step_name?: string;
-  screen?: string;
-}
-
-const events: FunnelEvent[] = [];
-const ingestModule = await import("@/lib/telemetry/ingest");
-// Captured by value: a module namespace's bindings are live, so reading the
-// export back after the mock is installed would hand out the mock.
-const { postTelemetryEvents: realPostTelemetryEvents } = ingestModule;
-mock.module("@/lib/telemetry/ingest", () => ({
-  ...ingestModule,
-  postTelemetryEvents: (posted: readonly object[]) => {
-    events.push(...(posted as FunnelEvent[]));
-  },
-}));
+const funnel = await recordActivationFunnelEvents();
+const { events } = funnel;
 
 // Both mocks outlive this file otherwise, and the surfaces that read the same
 // modules elsewhere would read this file's leftovers instead of their own.
 afterAll(() => {
   progressMock.restore();
-  mock.module("@/lib/telemetry/ingest", () => ({
-    ...ingestModule,
-    postTelemetryEvents: realPostTelemetryEvents,
-  }));
+  funnel.restore();
 });
 
 const { ActivationController } =
@@ -121,7 +96,7 @@ function renderSurfaces(): ReturnType<typeof render> {
 }
 
 beforeEach(() => {
-  events.length = 0;
+  funnel.clear();
   fetchStub = installActivationFetchStub();
   progressMock.set(ACTIVATION_PROGRESS_EMPTY);
   setActivationArm("smb");

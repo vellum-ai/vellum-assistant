@@ -12,12 +12,19 @@
  * otherwise re-emit its completion on every visit, and the funnel would count
  * one task as many.
  *
+ * The baseline belongs to one assistant. The controller stays mounted across a
+ * switch and every assistant works the same catalog, so a baseline carried over
+ * would report the tasks the next assistant had already finished as fresh
+ * completions and swallow the ones whose ids the last assistant had already
+ * reported. Each assistant's first snapshot is therefore its own baseline.
+ *
  * Every task is watched, starters and the rest of the catalog alike, because
  * the Inspiration List can launch any of them.
  */
 
 import { useEffect, useRef } from "react";
 
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
 
 import {
@@ -25,10 +32,16 @@ import {
   useActivationProgress,
 } from "./use-activation-progress";
 
+/** No assistant has been baselined yet, which `null` is a real value for. */
+const NO_BASELINE = Symbol("no-activation-baseline");
+
 export function useActivationCompletionTelemetry(): void {
   const { data: progress } = useActivationProgress();
-  /** Task ids already reported, plus the ones the session opened on. */
-  const reported = useRef<Set<string> | null>(null);
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  /** The assistant `reported` was built for. */
+  const baselineFor = useRef<string | null | typeof NO_BASELINE>(NO_BASELINE);
+  /** Task ids already reported, plus the ones this assistant opened on. */
+  const reported = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!progress) {
@@ -39,7 +52,8 @@ export function useActivationCompletionTelemetry(): void {
         (taskId) => activationRowStatus(progress.tasks[taskId]) === "done",
       ),
     );
-    if (reported.current === null) {
+    if (baselineFor.current !== activeAssistantId) {
+      baselineFor.current = activeAssistantId;
       reported.current = done;
       return;
     }
@@ -50,5 +64,5 @@ export function useActivationCompletionTelemetry(): void {
       reported.current.add(taskId);
       emitActivationEvent("activation_task_completed", { taskId });
     }
-  }, [progress]);
+  }, [progress, activeAssistantId]);
 }

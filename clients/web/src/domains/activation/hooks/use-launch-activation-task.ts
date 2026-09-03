@@ -39,6 +39,11 @@
  * two prompts in one thread and give the daemon two tasks pointing at the same
  * turn.
  *
+ * The funnel's arm and list are snapshotted at the click rather than read when
+ * the launch settles. Three round trips separate the two, and the user can
+ * switch assistants across them, which would file the launch under whichever
+ * checklist they landed on.
+ *
  * Launches run concurrently and are tracked as a set, because the list lets the
  * user start a second task while the first is still in flight. A single pending
  * id would clear on whichever launch settled first and hand every other row
@@ -59,7 +64,10 @@ import {
   sendBackgroundPrompt,
 } from "@/lib/background-conversation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { emitActivationEvent } from "@/utils/activation-telemetry";
+import {
+  captureActivationTelemetryContext,
+  emitActivationEvent,
+} from "@/utils/activation-telemetry";
 import { extractErrorMessage } from "@/utils/api-errors";
 
 import { readRawActivationTask } from "../catalog";
@@ -323,6 +331,9 @@ export function useLaunchActivationTask(
       // field, so the turn is typed engagement and activation analytics has to
       // count it. Only the catalog prompt is scripted.
       const scripted = !override;
+      // Read before the first await, and handed to every event this launch
+      // emits, so a switch mid-launch cannot refile it.
+      const telemetryContext = captureActivationTelemetryContext(listId);
 
       // The row is already working. Launching again would open a second
       // conversation for one task and leave the daemon two rows to mark done.
@@ -401,7 +412,11 @@ export function useLaunchActivationTask(
           };
         }
 
-        emitActivationEvent("activation_task_started", { taskId });
+        emitActivationEvent(
+          "activation_task_started",
+          { taskId },
+          telemetryContext,
+        );
         return { ok: true, conversationId };
       } finally {
         inFlight.current.delete(taskId);

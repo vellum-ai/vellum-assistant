@@ -12,6 +12,14 @@
  * a call site actually knows is which task or which surface, and that is all
  * it hands over.
  *
+ * A caller whose event is emitted after work it awaits is the one exception.
+ * Both seams are mutable global state that follows the active assistant, so an
+ * event resolved once the work settles is tagged with whatever list the user
+ * has switched to in the meantime rather than the one the action began on.
+ * Those callers snapshot the pair with {@link captureActivationTelemetryContext}
+ * at the start and hand it back at emit time, which overrides the resolution
+ * below; synchronous callers keep using it.
+ *
  * Lives beside `tips-telemetry.ts` rather than inside the activation domain
  * for the same reason that one does: the funnel emitter belongs to the
  * onboarding domain, and a domain module may not reach across to another.
@@ -56,11 +64,36 @@ export interface ActivationTelemetryDetail {
   kind?: "modal" | "all-done";
 }
 
+/**
+ * The arm and the list an activation action began on, for an event emitted
+ * after work the user can switch assistants during.
+ */
+export interface ActivationTelemetryContext {
+  /** The `activation-checklist` arm the client was on. */
+  arm: string;
+  /** The list the action belongs to, already defaulted to `"unknown"`. */
+  listId: string;
+}
+
+/**
+ * Snapshot the pair {@link emitActivationEvent} would resolve right now.
+ *
+ * `listId` may be named by a caller that already holds the list the action
+ * belongs to, which is the surface's own rather than the last one a render
+ * published.
+ */
+export function captureActivationTelemetryContext(
+  listId: string = readEffectiveActivationListId() ?? "unknown",
+): ActivationTelemetryContext {
+  return { arm: readActivationChecklistArm(), listId };
+}
+
 export function emitActivationEvent(
   event: ActivationTelemetryEvent,
   { taskId, kind }: ActivationTelemetryDetail = {},
+  context?: ActivationTelemetryContext,
 ): void {
-  const listId = readEffectiveActivationListId() ?? "unknown";
+  const { arm, listId } = context ?? captureActivationTelemetryContext();
   const qualifier = taskId ?? kind;
   emitOnboardingFunnelStepCompleted(
     { stepName: event, stepIndex: EVENT_STEP_INDICES[event] },
@@ -71,7 +104,7 @@ export function emitActivationEvent(
       // it with that, the same dimension-in-`screen` pattern the tips and tour
       // funnels use.
       screen: qualifier ? `${listId}/${qualifier}` : listId,
-      variant: readActivationChecklistArm(),
+      variant: arm,
     },
   );
 }

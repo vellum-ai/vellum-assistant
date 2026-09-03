@@ -39,7 +39,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
   telemetryIngestCreate: ingestMock,
 }));
 
-const { emitActivationEvent } = await import("@/utils/activation-telemetry");
+const { captureActivationTelemetryContext, emitActivationEvent } =
+  await import("@/utils/activation-telemetry");
 
 const ASSISTANT_ID = "asst-1";
 
@@ -184,6 +185,43 @@ describe("emitActivationEvent", () => {
       "activation_list_opened",
     ]);
     expect(seen.map((event) => event.step_index)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  // A launch's events are emitted once three round trips have settled, and the
+  // user can switch assistants across them. The pair the action began on is
+  // captured up front and wins over whatever the seams read by then.
+  it("prefers a captured arm and list over the current ones", () => {
+    resolveList("smb");
+    const context = captureActivationTelemetryContext();
+
+    // The switch is what the capture has to survive, and the hook that
+    // published the first list is unmounted by it.
+    cleanup();
+    resolveList("parent", "parent");
+    emitActivationEvent(
+      "activation_task_started",
+      { taskId: "pdf-proposal" },
+      context,
+    );
+
+    expect(eventFromCall(0)).toMatchObject({
+      screen: "smb/pdf-proposal",
+      ab_variant: "smb",
+    });
+  });
+
+  // The list a surface holds is the one the action belongs to; the published
+  // one is only the last a render resolved.
+  it("captures a list the caller names", () => {
+    resolveList("parent", "parent");
+    const context = captureActivationTelemetryContext("smb");
+
+    emitActivationEvent("activation_task_started", {}, context);
+
+    expect(eventFromCall(0)).toMatchObject({
+      screen: "smb",
+      ab_variant: "parent",
+    });
   });
 
   it("does not emit when analytics sharing is opted out", () => {

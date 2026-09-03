@@ -222,3 +222,61 @@ export async function mockActivationProgress(): Promise<ActivationProgressMock> 
     },
   };
 }
+
+/** The fields an activation funnel event is asserted on. */
+export interface ActivationFunnelEvent {
+  step_name?: string;
+  screen?: string;
+  ab_variant?: string;
+}
+
+export interface ActivationFunnelRecorder {
+  /** Every funnel event posted since the last {@link clear}, in order. */
+  events: ActivationFunnelEvent[];
+  /** Events whose `step_name` is `stepName`. */
+  matching: (stepName: string) => ActivationFunnelEvent[];
+  clear: () => void;
+  /** Puts the real ingest back. Call from `afterAll`. */
+  restore: () => void;
+}
+
+/**
+ * Record the funnel events the activation surfaces emit, caught at the ingest
+ * transport rather than at `emitActivationEvent`.
+ *
+ * `mock.module` replaces a module for every test file sharing the process, and
+ * `use-launch-activation-task.test.tsx` claims `@/utils/activation-telemetry`;
+ * a second file taking the same module would silently erase its mock in a
+ * combined run. Catching one layer down leaves that module alone and asserts
+ * the payload the emitter actually built.
+ *
+ * Call at module scope, before importing whatever is under test, and hand the
+ * `restore` to `afterAll`.
+ */
+export async function recordActivationFunnelEvents(): Promise<ActivationFunnelRecorder> {
+  const real = await import("@/lib/telemetry/ingest");
+  // Captured by value: a module namespace's bindings are live, so reading the
+  // export back after the mock is installed would hand out the mock.
+  const { postTelemetryEvents: realPost } = real;
+  const events: ActivationFunnelEvent[] = [];
+  mock.module("@/lib/telemetry/ingest", () => ({
+    ...real,
+    postTelemetryEvents: (posted: readonly object[]) => {
+      events.push(...(posted as ActivationFunnelEvent[]));
+    },
+  }));
+  return {
+    events,
+    matching: (stepName) =>
+      events.filter((event) => event.step_name === stepName),
+    clear: () => {
+      events.length = 0;
+    },
+    restore: () => {
+      mock.module("@/lib/telemetry/ingest", () => ({
+        ...real,
+        postTelemetryEvents: realPost,
+      }));
+    },
+  };
+}

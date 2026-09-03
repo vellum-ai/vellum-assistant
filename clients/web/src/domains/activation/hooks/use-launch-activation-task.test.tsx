@@ -38,7 +38,9 @@ import {
 } from "@/domains/activation/activation-test-fixtures";
 import {
   installActivationFetchStub,
+  resetActivationFlagStore,
   seedActivationIdentity,
+  setActivationArm,
   type ActivationFetchStub,
   type RecordedRequest,
 } from "@/domains/activation/activation-test-helpers";
@@ -116,6 +118,7 @@ afterAll(() => {
     ...telemetry,
     emitActivationEvent: realEmitActivationEvent,
   }));
+  resetActivationFlagStore();
 });
 
 const { useLaunchActivationTask } =
@@ -207,8 +210,8 @@ function cachedProgress(): ActivationProgress | undefined {
   return queryClient.getQueryData<ActivationProgress>(PROGRESS_KEY);
 }
 
-function launcher() {
-  const { result } = renderHook(() => useLaunchActivationTask("smb"), {
+function launcher(listId: string = "smb") {
+  const { result } = renderHook(() => useLaunchActivationTask(listId), {
     wrapper,
   });
   return result;
@@ -243,6 +246,7 @@ beforeEach(() => {
   queryClient = newQueryClient();
   emitMock.mockClear();
   fetchStub = installActivationFetchStub({ respond: answerLeg });
+  setActivationArm("smb");
   seedActivationIdentity("asst-1");
 });
 
@@ -500,9 +504,37 @@ describe("useLaunchActivationTask", () => {
       await result.current.launch("pdf-proposal");
     });
 
-    expect(emitMock).toHaveBeenCalledWith("activation_task_started", {
-      taskId: "pdf-proposal",
+    expect(emitMock).toHaveBeenCalledWith(
+      "activation_task_started",
+      { taskId: "pdf-proposal" },
+      { arm: "smb", listId: "smb" },
+    );
+  });
+
+  // Three round trips separate the click from the event, and the user can
+  // switch assistants across them. The funnel has to keep the launch under the
+  // checklist it was started from, not whichever one they landed on.
+  test("keeps the started event on the list the launch began from", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let launched: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      launched = result.current.launch("pdf-proposal");
     });
+
+    await act(async () => {
+      setActivationArm("parent");
+      seedActivationIdentity("asst-2");
+      releaseCreates();
+      await launched;
+    });
+
+    expect(emitMock).toHaveBeenCalledWith(
+      "activation_task_started",
+      { taskId: "pdf-proposal" },
+      { arm: "smb", listId: "smb" },
+    );
   });
 });
 
