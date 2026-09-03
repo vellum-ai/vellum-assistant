@@ -112,12 +112,14 @@ export function AssistantSleepStage() {
     return () => setVisible(false);
   }, [visible, setVisible]);
 
-  // A dismissal lasts as long as the sleep it was aimed at.
+  // A dismissal lasts as long as the sleep it was aimed at, and only that
+  // assistant's waking clears it: visiting an assistant that is awake reports
+  // no phase, and must not end a sleep somewhere else.
   useEffect(() => {
-    if (phase === null) {
+    if (phase === null && dismissedAssistantId === assistantId) {
       reset();
     }
-  }, [phase, reset]);
+  }, [phase, dismissedAssistantId, assistantId, reset]);
 
   // Traits from the assistant when it is reachable, else the last ones this
   // device saw it wearing. On a cold load the thing that serves them is the
@@ -157,12 +159,15 @@ export function AssistantSleepStage() {
   const imageUrl = customImageUrl ?? lastSeenImageUrl;
 
   // The catalog is bundled, so the eyes still draw while the assistant that
-  // serves `/avatar/character-components` is the thing asleep.
+  // serves `/avatar/character-components` is the thing asleep. The traits are
+  // not: with none known (an avatar-less assistant, or nothing recorded for
+  // this one) the stage is the line of copy alone, because the catalog's
+  // first creature is a character the user never chose.
   const eyes = useMemo(() => {
     // Measuring the art parses every eye path, so it waits until there is a
     // stage to draw: every conversation mounts this component, and almost
     // none of them are asleep.
-    if (!visible) {
+    if (!visible || !effectiveTraits) {
       return null;
     }
     const look = resolveVoiceRoomLook(
@@ -208,7 +213,6 @@ export function AssistantSleepStage() {
     <motion.button
       type="button"
       onClick={dismiss}
-      aria-label={t("assistantSleepStage.dismissLabel")}
       className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -226,7 +230,7 @@ export function AssistantSleepStage() {
           src={imageUrl}
           alt=""
           aria-hidden="true"
-          className="w-[clamp(120px,20vw,200px)] rounded-full object-cover opacity-60"
+          className="aspect-square w-[clamp(120px,20vw,200px)] rounded-full object-cover opacity-60"
         />
       ) : null}
 
@@ -236,6 +240,10 @@ export function AssistantSleepStage() {
       >
         {line}
       </span>
+      {/* The button's accessible name is its text, so the status is announced
+          before what a click does. No `aria-label`: it would replace the line
+          the sighted user reads with the action alone. */}
+      <span className="sr-only">{t("assistantSleepStage.dismissLabel")}</span>
     </motion.button>
   );
 }

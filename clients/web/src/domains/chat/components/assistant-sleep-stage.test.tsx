@@ -18,6 +18,8 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
+import { getCharacterComponents } from "@vellumai/avatar-catalog";
+
 import type { AssistantSleepPhase } from "@/components/status-banner";
 
 let phaseMock: AssistantSleepPhase | null = "waking";
@@ -27,12 +29,14 @@ mock.module("@/components/status-banner", () => ({
   useAssistantSleepPhase: () => phaseMock,
 }));
 
+let avatarMock: {
+  components: unknown;
+  traits: { bodyShape: string; eyeStyle: string; color: string } | null;
+  customImageUrl: string | null;
+} = { components: null, traits: null, customImageUrl: null };
+
 mock.module("@/hooks/use-assistant-avatar", () => ({
-  useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
-  }),
+  useAssistantAvatar: () => avatarMock,
 }));
 
 mock.module(
@@ -71,6 +75,7 @@ function renderAt(pathname: string) {
 beforeEach(() => {
   phaseMock = "waking";
   voiceRoomVisibleMock = false;
+  avatarMock = { components: null, traits: null, customImageUrl: null };
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   useAssistantIdentityStore.setState({ name: "Mel", version: null });
   useAssistantSleepStageStore.setState({
@@ -88,6 +93,34 @@ describe("AssistantSleepStage", () => {
 
     expect(screen.getByText("Mel is waking up…")).toBeTruthy();
     expect(useAssistantSleepStageStore.getState().visible).toBe(true);
+  });
+
+  test("draws the assistant's own eyes, and none when no traits are known", () => {
+    const { container, unmount } = renderAt("/assistant/conversations/c1");
+    // Nothing known: the catalog's first creature is not this assistant, so
+    // the stage is the line of copy alone.
+    expect(container.querySelector("svg")).toBeNull();
+    unmount();
+
+    const catalog = getCharacterComponents();
+    avatarMock = {
+      components: catalog,
+      traits: {
+        bodyShape: catalog.bodyShapes[1]!.id,
+        eyeStyle: catalog.eyeStyles[1]!.id,
+        color: catalog.colors[1]!.id,
+      },
+      customImageUrl: null,
+    };
+
+    const view = renderAt("/assistant/conversations/c1");
+    const svg = view.container.querySelector("svg");
+    expect(svg).not.toBeNull();
+    // The lid is the avatar's own color, clipped to the eyes' silhouette.
+    expect(svg!.querySelector("clipPath")).not.toBeNull();
+    expect(svg!.querySelector("rect")?.getAttribute("fill")).toBe(
+      catalog.colors[1]!.hex,
+    );
   });
 
   test("falls back to unnamed copy before the identity resolves", () => {

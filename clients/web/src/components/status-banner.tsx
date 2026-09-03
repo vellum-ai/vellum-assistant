@@ -1027,10 +1027,13 @@ function useAssistantBannerConfig(): BannerConfig | null {
  * conversation page; every other banner state is the banner's own business.
  *
  * It re-derives the whole banner config rather than having the banner publish
- * its phase: one derivation is one answer, so the stage and the banner can
- * never disagree about whether the assistant is asleep. The cost is a second
- * pass over local state, not a second request: the operational status is one
- * shared React Query entry.
+ * its phase, because the banner is not mounted everywhere the stage is (a
+ * pop-out window has no banner at all). The cost is a second pass over local
+ * state, not a second request: the operational status is one shared React
+ * Query entry. The two instances hold their own transient-state suppression
+ * history, so a stage mounted mid-wake can read no phase where the older
+ * banner still reads "waking"; that resolves in the safe direction, with the
+ * banner keeping the status rather than both surfaces going quiet.
  */
 export function useAssistantSleepPhase(): AssistantSleepPhase | null {
   return useAssistantBannerConfig()?.sleepPhase ?? null;
