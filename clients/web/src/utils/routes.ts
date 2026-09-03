@@ -151,6 +151,13 @@ export const routes = {
   personality: r("/assistant/personality"),
   memory: r("/assistant/memory"),
   /**
+   * The full activation task list, reached from the Preferences menu and from
+   * the checklist's celebration modal. Not an About Assistant section: it is
+   * launched from a menu rather than drilled into from the assistant
+   * overview, so it takes no sidebar highlight.
+   */
+  activationList: r("/assistant/suggestions"),
+  /**
    * The My Superpowers surface — skills and plugins combined into one
    * list. The legacy `/assistant/skills` and `/assistant/plugins` list
    * URLs redirect here (query params preserved) so old bookmarks and

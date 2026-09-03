@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/i18n";
 
-import { ChatPill } from "@/domains/chat/components/chat-pill";
+import { ChatPill } from "@/components/chat-pill";
 
 export type RefreshFeedback =
   | { kind: "no-change" }

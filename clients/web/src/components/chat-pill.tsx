@@ -1,27 +1,30 @@
-import clsx from "clsx";
 import { type ReactNode } from "react";
 
+import { cn } from "@vellumai/design-library";
+
 /**
- * Shared chrome for chat-overlay pills (small floating affordances
- * rendered above the composer in the chat view). Currently consumed
- * by `ScrollToLatestButton` and `RefreshFeedbackPill` so both share
- * a single visual language: lifted surface, rounded-full capsule,
- * label-sized text, soft drop shadow.
+ * Shared chrome for the app's small floating affordances: a lifted surface,
+ * a rounded-full capsule, label-sized text and a soft drop shadow.
+ *
+ * Consumed by the chat overlay pills (`ScrollToLatestButton`,
+ * `RefreshFeedbackPill`, the process-registry pills) and by the activation
+ * checklist's suggestions pill, which is why it is shared rather than owned
+ * by the chat domain.
  *
  * Renders as a `<button>` when `onClick` is provided, otherwise as a
  * non-interactive `<div>` with the role/aria-live the caller chooses
  * (e.g. `role="status"` for a polite announcement).
  *
- * The `tone` prop swaps the surface palette — "default" is the lifted
- * neutral surface, "negative" is the error-wash variant used by the
- * refresh-feedback error case.
+ * The `tone` prop swaps the surface palette: "default" is the lifted neutral
+ * surface, "negative" is the error-wash variant used by the refresh-feedback
+ * error case.
  */
 export type ChatPillTone = "default" | "negative";
 
 /**
- * "compact" — 12 px label, py-1.5. Original size, used by
- * `RefreshFeedbackPill`.
- * "regular" — 14 px body-medium, py-2. Matches the Figma "Go to Newest"
+ * "compact": 12 px label, py-1.5. Used by `RefreshFeedbackPill` and the
+ * activation suggestions pill.
+ * "regular": 14 px body-medium, py-2. Matches the Figma "Go to Newest"
  * pill spec at node 5010:103945.
  */
 export type ChatPillSize = "compact" | "regular";
@@ -44,7 +47,7 @@ interface ChatPillProps {
   /** aria-live for the non-interactive case. Ignored when `onClick`
    *  is set. */
   ariaLive?: "polite" | "assertive" | "off";
-  /** Extra className appended to the chrome — use sparingly. */
+  /** Extra className appended to the chrome. Use sparingly. */
   className?: string;
 }
 
@@ -73,7 +76,7 @@ export function ChatPill({
   ariaLive,
   className,
 }: ChatPillProps) {
-  const merged = clsx(
+  const merged = cn(
     BASE_CHROME,
     SIZE_CLASSES[size],
     TONE_CLASSES[tone],
@@ -87,7 +90,7 @@ export function ChatPill({
         onClick={onClick}
         aria-label={ariaLabel}
         aria-expanded={ariaExpanded}
-        className={clsx(merged, "cursor-pointer")}
+        className={cn(merged, "cursor-pointer")}
       >
         {children}
       </button>

@@ -12,7 +12,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { Typography } from "@vellumai/design-library";
 
 import { ActiveOverlayShell } from "@/domains/chat/components/active-overlay-shell";
-import { ChatPill } from "@/domains/chat/components/chat-pill";
+import { ChatPill } from "@/components/chat-pill";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { StackedChipsPill } from "@/domains/chat/process-registry/stacked-chips-pill";
 import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registry/types";
