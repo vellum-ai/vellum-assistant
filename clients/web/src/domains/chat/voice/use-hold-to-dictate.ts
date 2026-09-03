@@ -53,6 +53,9 @@ export interface HoldStart {
    * working in. A promise rather than a value so the microphone opens without
    * waiting on the read; what was selected cannot change while the keys are
    * held, and the transcript that needs it lands well after the read does.
+   * The helper answers only while the hold is still open, so a read that
+   * lands after the keys are up resolves to nothing rather than to whatever
+   * the user has moved on to.
    */
   selection: Promise<HotkeySelection | null>;
 }

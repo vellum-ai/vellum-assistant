@@ -275,9 +275,15 @@ final class MacHelper: @unchecked Sendable {
     }
 
     /// What the user has highlighted in the application in front, for the
-    /// hold that asks. Character counts only in the log; the text itself is
-    /// the user's.
+    /// hold that asks. Nothing once the hold has closed: a read that lands
+    /// after the keys are up would sample whatever the user moved on to, and
+    /// a hold over that is not the hold that was made. Character counts only
+    /// in the log; the text itself is the user's.
     private func readFrontSelection() -> [String: Any] {
+        guard isModifierHoldDown else {
+            log("front selection: skipped, no hold is open")
+            return [:]
+        }
         let readStarted = Date()
         let outcome = FrontSelection.read()
         let readMs = Int(Date().timeIntervalSince(readStarted) * 1000)
