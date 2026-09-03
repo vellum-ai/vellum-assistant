@@ -68,6 +68,23 @@ export interface ByokCreditRouteVerdict {
 }
 
 /**
+ * A query with no answer yet that may still get one.
+ *
+ * `isLoading` is pending AND fetching, which misses the offline case: the
+ * default network mode parks an enabled fetch at `fetchStatus: "paused"`,
+ * reporting neither a load nor an error, so a gap with the browser offline
+ * would otherwise read as an answer. A disabled query sits at `"idle"`
+ * instead, and that one is final: the version gates hold two of these reads
+ * closed on assistants whose daemon never serves them.
+ */
+function awaitsAnswer(query: {
+  isPending: boolean;
+  fetchStatus: "fetching" | "paused" | "idle";
+}): boolean {
+  return query.isPending && query.fetchStatus !== "idle";
+}
+
+/**
  * Whether the low/exhausted credit banners should stay down because the org's
  * default chat route doesn't spend managed credits and nothing else has been
  * spending them either, and whether that is settled enough to act on. See
@@ -218,6 +235,12 @@ export function useByokCreditRouteVerdict(
   // waits on a resolved assistant, so until one arrives the fail-open verdict
   // below rests on nothing.
   const cannotAskYet = assistantId == null;
+  const routeAwaitingAnswer =
+    awaitsAnswer(configQuery) ||
+    awaitsAnswer(connectionsQuery) ||
+    awaitsAnswer(conversationQuery) ||
+    awaitsAnswer(profilesQuery) ||
+    awaitsAnswer(defaultProviderQuery);
   // `isLoading` (pending AND fetching) distinguishes the initial in-flight
   // load, which suppresses to avoid a flash, from a disabled or errored
   // query, which must fail open below.
@@ -231,9 +254,9 @@ export function useByokCreditRouteVerdict(
     return { suppress: true, settled: false };
   }
   if (burnsManaged !== false) {
-    // Fail-open covers a genuine read failure as well as a missing assistant.
-    // The first is a final answer, the second is not.
-    return { suppress: false, settled: !cannotAskYet };
+    // Fail-open covers a genuine read failure as well as a missing assistant
+    // or an offline gap. The first is a final answer, the others are not.
+    return { suppress: false, settled: !cannotAskYet && !routeAwaitingAnswer };
   }
   // Route proven BYOK: stay down only while the spend probe positively
   // reports no recent burn (or is still loading). A failed probe fails open
@@ -246,6 +269,7 @@ export function useByokCreditRouteVerdict(
   const burnedRecently = totals ? Number(totals.total_usd) > 0 : null;
   return {
     suppress: burnedRecently !== true,
-    settled: !cannotAskYet && !totalsQuery.isLoading,
+    settled:
+      !cannotAskYet && !routeAwaitingAnswer && !awaitsAnswer(totalsQuery),
   };
 }

@@ -14,31 +14,47 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderHook } from "@testing-library/react";
 
-type QueryState = { data?: unknown; isLoading?: boolean; isError?: boolean };
+type Phase = "idle" | "fetching" | "paused" | "success" | "error";
 
-const IDLE: QueryState = { data: undefined, isLoading: false, isError: false };
-const LOADING: QueryState = {
-  data: undefined,
-  isLoading: true,
-  isError: false,
-};
+/**
+ * The flags TanStack reports for a phase, derived rather than listed so the
+ * double cannot drift from the real thing. The two that carry the weight:
+ * `isLoading` is pending AND fetching, so a paused fetch does not set it, and
+ * a disabled query is pending at an idle fetch, so it does not either. The
+ * gate has to tell those two apart.
+ */
+function queryState(phase: Phase, data?: unknown) {
+  const fetchStatus =
+    phase === "fetching" ? "fetching" : phase === "paused" ? "paused" : "idle";
+  const isPending =
+    phase === "idle" || phase === "fetching" || phase === "paused";
+  return {
+    data: phase === "success" ? data : undefined,
+    fetchStatus,
+    isPending,
+    isError: phase === "error",
+    isLoading: isPending && fetchStatus === "fetching",
+  };
+}
+
+/** Enabled, but parked by the default network mode with the browser offline. */
+const PAUSED = queryState("paused");
+const LOADING = queryState("fetching");
+/** Disabled: pending forever, and never going to fetch. */
+const DISABLED = queryState("idle");
 
 /** Staged state per query, keyed by the `_id` its options factory carries. */
-let queries: Record<string, QueryState> = {};
+let queries: Record<string, ReturnType<typeof queryState>> = {};
 
 const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
   ...actualReactQuery,
   useQuery: (opts: { queryKey?: [{ _id?: string }]; enabled?: boolean }) => {
     const id = opts.queryKey?.[0]?._id ?? "";
-    // A disabled query is pending with an idle fetch, so `isLoading` is false
-    // and no data arrives. That shape is the whole point of the "cannot ask
-    // yet" branch, so the double has to reproduce it rather than smooth it
-    // over.
     if (opts.enabled === false) {
-      return IDLE;
+      return DISABLED;
     }
-    return { ...IDLE, ...(queries[id] ?? IDLE) };
+    return queries[id] ?? DISABLED;
   },
 }));
 
@@ -94,10 +110,12 @@ function verdict(candidate = true, conversationId: string | null = null) {
 /** Every route query answered, so only the classifier's verdict is left. */
 function answerRouteQueries() {
   queries = {
-    config: { data: { llm: {} } },
-    connections: { data: { connections: [] } },
-    profiles: { data: { profiles: [] } },
-    defaultProvider: { data: { availability: { status: "available" } } },
+    config: queryState("success", { llm: {} }),
+    connections: queryState("success", { connections: [] }),
+    profiles: queryState("success", { profiles: [] }),
+    defaultProvider: queryState("success", {
+      availability: { status: "available" },
+    }),
   };
 }
 
@@ -159,7 +177,10 @@ describe("useByokCreditRouteVerdict", () => {
   test("a BYOK route with no recent burn suppresses, settled", () => {
     answerRouteQueries();
     burnsManaged = false;
-    queries = { ...queries, totals: { data: { total_usd: "0.00" } } };
+    queries = {
+      ...queries,
+      totals: queryState("success", { total_usd: "0.00" }),
+    };
     const v = verdict();
     expect(v).toEqual({ suppress: true, settled: true });
   });
@@ -167,15 +188,34 @@ describe("useByokCreditRouteVerdict", () => {
   test("a recent managed burn re-arms the banners", () => {
     answerRouteQueries();
     burnsManaged = false;
-    queries = { ...queries, totals: { data: { total_usd: "1.25" } } };
+    queries = {
+      ...queries,
+      totals: queryState("success", { total_usd: "1.25" }),
+    };
     const v = verdict();
     expect(v).toEqual({ suppress: false, settled: true });
+  });
+
+  test("an offline paused route read is unsettled", () => {
+    // The default network mode parks an enabled fetch without ever reporting
+    // a load or an error, so the gate has no route evidence and must not let
+    // a caller paint one.
+    answerRouteQueries();
+    queries = { ...queries, connections: PAUSED };
+    expect(verdict()).toEqual({ suppress: false, settled: false });
+  });
+
+  test("an offline paused spend probe is unsettled", () => {
+    answerRouteQueries();
+    burnsManaged = false;
+    queries = { ...queries, totals: PAUSED };
+    expect(verdict()).toEqual({ suppress: true, settled: false });
   });
 
   test("a failed spend probe fails open, and that is a final answer", () => {
     answerRouteQueries();
     burnsManaged = false;
-    queries = { ...queries, totals: { isError: true } };
+    queries = { ...queries, totals: queryState("error") };
     const v = verdict();
     expect(v).toEqual({ suppress: false, settled: true });
   });
