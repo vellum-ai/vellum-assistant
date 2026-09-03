@@ -1,4 +1,11 @@
+import { useEffect } from "react";
+
 import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip";
+import {
+  emitFollowUpSuggestionClick,
+  emitFollowUpSuggestionImpression,
+} from "@/domains/chat/follow-up-suggestion-events";
+import type { FollowUpSuggestionContext } from "@/domains/chat/follow-up-suggestion-events";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -52,10 +59,15 @@ export interface FollowUpSuggestionsProps {
   suggestions: readonly string[];
   /**
    * Invoked with the picked suggestion's text. The single click seam for the
-   * surface: whatever a chip press should also do (telemetry, for one) hangs
-   * here rather than on each chip.
+   * surface: whatever a chip press should also do hangs here rather than on
+   * each chip.
    */
   onSelect: (suggestion: string) => void;
+  /**
+   * Which reply the chips belong to. Required rather than optional so a mount
+   * site cannot render the surface without it being measurable.
+   */
+  context: FollowUpSuggestionContext;
 }
 
 /**
@@ -68,10 +80,31 @@ export interface FollowUpSuggestionsProps {
 export function FollowUpSuggestions({
   suggestions,
   onSelect,
+  context,
 }: FollowUpSuggestionsProps) {
   const { t } = useTranslation("chat");
   const visible = suggestions.slice(0, MAX_FOLLOW_UP_SUGGESTIONS);
-  if (visible.length === 0) {
+  const visibleCount = visible.length;
+  const { assistantId, conversationId, messageId, ghostTextSuppressed } =
+    context;
+
+  // One impression per reply. The effect's inputs are the identity of what was
+  // shown, not the `context` object, so a re-render that rebuilds the object
+  // does not re-report; the emitter's per-message claim covers a remount.
+  useEffect(() => {
+    emitFollowUpSuggestionImpression(
+      { assistantId, conversationId, messageId, ghostTextSuppressed },
+      Array.from({ length: visibleCount }, (_, index) => index),
+    );
+  }, [
+    assistantId,
+    conversationId,
+    messageId,
+    ghostTextSuppressed,
+    visibleCount,
+  ]);
+
+  if (visibleCount === 0) {
     return null;
   }
   return (
@@ -84,11 +117,14 @@ export function FollowUpSuggestions({
       aria-label={t("followUpSuggestions.groupAria")}
       className="grid w-full grid-cols-2 gap-2"
     >
-      {visible.map((suggestion) => (
+      {visible.map((suggestion, index) => (
         <ConversationStarterChip
           key={suggestion}
           label={suggestion}
-          onSelect={() => onSelect(suggestion)}
+          onSelect={() => {
+            emitFollowUpSuggestionClick(context, { index, suggestion });
+            onSelect(suggestion);
+          }}
         />
       ))}
     </div>

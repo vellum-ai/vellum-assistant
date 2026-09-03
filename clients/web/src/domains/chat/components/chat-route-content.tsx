@@ -1349,12 +1349,19 @@ export function ChatMainPanel({
       uiContext.hasPendingQuestion || uiContext.hasUncompletedVisibleSurface,
   });
 
-  const followUpSuggestionsSlot = showFollowUpSuggestions ? (
-    <FollowUpSuggestions
-      suggestions={followUpSuggestions}
-      onSelect={handleSelectFollowUp}
-    />
-  ) : undefined;
+  const followUpSuggestionsSlot =
+    showFollowUpSuggestions && lastCompleteAssistantMsgId != null ? (
+      <FollowUpSuggestions
+        suggestions={followUpSuggestions}
+        onSelect={handleSelectFollowUp}
+        context={{
+          assistantId,
+          conversationId: activeConversationId,
+          messageId: lastCompleteAssistantMsgId,
+          ghostTextSuppressed: followUpSuggestionsEnabled,
+        }}
+      />
+    ) : undefined;
 
   // -------------------------------------------------------------------------
   // JSX construction
