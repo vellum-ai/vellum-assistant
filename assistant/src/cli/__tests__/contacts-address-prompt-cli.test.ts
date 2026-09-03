@@ -569,6 +569,27 @@ describe("contacts channels add", () => {
     expect(wasCalled("contacts_prompt")).toBe(true);
   });
 
+  test("a phone number written differently is still flagged", async () => {
+    // The gateway canonicalizes before its own check, so a raw comparison here
+    // would open a form the gateway then refuses.
+    addressHolders = [
+      { id: "ct_2", displayName: "Bob", address: "+12125550100" },
+    ];
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "channels",
+      "add",
+      "ct_1",
+      "--channel",
+      "phone",
+      "--address",
+      "(212) 555-0100",
+    );
+
+    expect(stderr).toContain('already bound to "Bob" (ct_2)');
+  });
+
   test("an address the target already holds is not a conflict", async () => {
     addressHolders = [{ id: "ct_1", displayName: "Alice" }];
 

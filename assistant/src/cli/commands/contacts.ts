@@ -1,6 +1,8 @@
 import type { Command } from "commander";
 
+import type { ChannelId } from "../../channels/types.js";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import {
   GUARDIAN_FORM_DEFAULT_TIMEOUT_MS,
   GUARDIAN_FORM_MAX_TIMEOUT_MS,
@@ -425,13 +427,18 @@ async function warnIfAddressLooksTaken(
 
   // The search matches an address as a substring, so a returned contact may
   // hold a longer address that merely contains this one. Warning on that would
-  // name a stranger and point at an irreversible merge.
-  const wanted = address.trim().toLowerCase();
+  // name a stranger and point at an irreversible merge. The comparison
+  // canonicalizes the way the gateway's own check does, so a phone number
+  // written differently still counts as the same address.
+  const canonical = (value: string) =>
+    canonicalizeInboundIdentity(channelType as ChannelId, value) ??
+    value.trim().toLowerCase();
+  const wanted = canonical(address);
   const holder = (r.result?.contacts ?? []).find(
     (c) =>
       c.id !== targetContactId &&
       c.channels.some(
-        (ch) => ch.type === channelType && ch.address.toLowerCase() === wanted,
+        (ch) => ch.type === channelType && canonical(ch.address) === wanted,
       ),
   );
   if (!holder) {
