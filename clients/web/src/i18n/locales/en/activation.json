@@ -23,9 +23,11 @@
   "launch": {
     "noAssistant": "No assistant is connected right now.",
     "unknownTask": "That task is no longer available.",
-    "failed": "Could not start the task. Please try again."
+    "failed": "Could not start the task. Please try again.",
+    "openConversation": "Open conversation"
   },
   "page": {
-    "title": "Your first {count} things"
+    "title": "Your first {count} things",
+    "loading": "Loading suggestions"
   }
 }
