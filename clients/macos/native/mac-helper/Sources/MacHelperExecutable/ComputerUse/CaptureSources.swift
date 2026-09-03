@@ -66,4 +66,34 @@ enum CaptureSources {
 
         return ["windows": windows]
     }
+
+    /// The frontmost ordinary window on `displayId`, by the window server's
+    /// front-to-back order, or nil when nothing of another app is on it.
+    ///
+    /// What a watch session scoped to a display reads its accessibility tree
+    /// from: the focused window may be on another display entirely, and a
+    /// tree from there would describe something the frame never showed.
+    static func topmostWindowId(onDisplay displayId: CGDirectDisplayID) -> CGWindowID? {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        let entries = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let hostPID = getppid()
+        for entry in entries {
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
+                  let ownerPID = entry[kCGWindowOwnerPID as String] as? Int,
+                  let windowNumber = entry[kCGWindowNumber as String] as? Int
+            else { continue }
+            let pid = pid_t(ownerPID)
+            if pid == myPID || pid == hostPID { continue }
+            if let alpha = entry[kCGWindowAlpha as String] as? Double, alpha <= 0 { continue }
+            guard let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict),
+                  bounds.width >= 50, bounds.height >= 50
+            else { continue }
+            if ScreenCapture.displayHolding(bounds) == displayId {
+                return CGWindowID(windowNumber)
+            }
+        }
+        return nil
+    }
 }

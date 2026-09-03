@@ -379,14 +379,23 @@ enum HostCuActionRunner {
         var screenHeightPt: Int?
         var secondaryWindowsText: String?
 
-        // A window target reads that window's tree, focused or not, so the
-        // tree describes what the screenshot shows. Falls back to the focused
-        // window when the pick cannot be matched, which is still a tree.
-        var windowResult: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
-        if case .window(let windowId) = captureTarget {
+        // The tree stays inside what the screenshot shows. A window target
+        // reads that window's tree, focused or not; a display target reads
+        // the frontmost window on that display. Neither falls back to the
+        // focused window: it may be on another display or another app, and
+        // its text would then be filed against a frame that never showed it.
+        // A targeted read with no matching tree is a screenshot alone.
+        let windowResult: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+        switch captureTarget {
+        case .window(let windowId):
             windowResult = await enumerator.enumerateWindow(windowId: windowId)
-        }
-        if windowResult == nil {
+        case .display(let displayId):
+            if let windowId = CaptureSources.topmostWindowId(onDisplay: displayId) {
+                windowResult = await enumerator.enumerateWindow(windowId: windowId)
+            } else {
+                windowResult = nil
+            }
+        case nil:
             windowResult = await enumerator.enumerateCurrentWindow()
         }
 
@@ -406,8 +415,9 @@ enum HostCuActionRunner {
                 axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
             }
 
-            // Enumerate secondary windows on first step
-            if stepNumber <= 1 {
+            // Enumerate secondary windows on first step. Never for a targeted
+            // read: those windows are outside what the user agreed to show.
+            if stepNumber <= 1 && captureTarget == nil {
                 let secondaryWindows = await enumerator.enumerateSecondaryWindows(
                     excludingPID: result.pid,
                     maxWindows: 2
