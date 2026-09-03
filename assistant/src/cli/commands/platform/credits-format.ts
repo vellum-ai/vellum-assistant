@@ -13,6 +13,13 @@ export interface PlatformCreditsResult {
   daily_limit_snoozed: boolean;
   low_balance_threshold: number | null;
   low_balance_warning: boolean;
+  plan_credit_remaining: number | null;
+  plan_credit_total: number | null;
+  plan_credit_used_fraction: number | null;
+  plan_credits_spent: boolean;
+  extra_credit_remaining: number | null;
+  credits_expiring_soon: number | null;
+  next_credit_expiry_at: string | null;
 }
 
 /** Human-readable lines for `assistant platform credits`. */
@@ -22,6 +29,41 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
     `Remaining: ${formatCostUsd(result.remaining)} ${result.unit} (as of ${result.as_of})${staleNote}`,
     `Settled:   ${formatCostUsd(result.settled)}   Pending: ${formatCostUsd(result.pending)}`,
   ];
+  if (
+    result.plan_credit_remaining !== null &&
+    result.plan_credit_total !== null
+  ) {
+    const granted = formatCostUsd(result.plan_credit_total);
+    if (result.plan_credits_spent) {
+      lines.push(
+        `Plan:      plan credit used up (${granted} granted); managed usage now draws on extra credit`,
+      );
+    } else {
+      const pct =
+        result.plan_credit_used_fraction === null
+          ? ""
+          : ` (${Math.round(result.plan_credit_used_fraction * 100)}% used)`;
+      lines.push(
+        `Plan:      ${formatCostUsd(result.plan_credit_remaining)} of ${granted} plan credit left${pct}`,
+      );
+    }
+  }
+  if (result.extra_credit_remaining !== null) {
+    lines.push(
+      `Extra:     ${formatCostUsd(result.extra_credit_remaining)} bought or earned on top of plan credit`,
+    );
+  }
+  if (
+    result.credits_expiring_soon !== null &&
+    result.credits_expiring_soon > 0
+  ) {
+    const when = result.next_credit_expiry_at
+      ? ` (next expiry ${result.next_credit_expiry_at})`
+      : "";
+    lines.push(
+      `Expiring:  ${formatCostUsd(result.credits_expiring_soon)} within 30 days${when}`,
+    );
+  }
   if (result.daily_spend !== null) {
     const limit =
       result.daily_limit === null

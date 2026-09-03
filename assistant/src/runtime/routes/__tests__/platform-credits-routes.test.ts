@@ -46,6 +46,10 @@ const FULL_SUMMARY = {
   daily_limit_snoozed: true,
   low_balance_threshold_usd: "5.00",
   low_balance_warning: true,
+  available_usage_balance: "9.10",
+  total_usage_balance: "20.00",
+  credits_expiring_soon_usd: "9.10",
+  next_credit_expiry_at: "2026-10-01T00:00:00Z",
 };
 
 const realFetch = globalThis.fetch;
@@ -97,6 +101,38 @@ describe("platform_credits", () => {
       daily_limit_snoozed: true,
       low_balance_threshold: 5,
       low_balance_warning: true,
+      plan_credit_remaining: 9.1,
+      plan_credit_total: 20,
+      plan_credit_used_fraction: 0.545,
+      plan_credits_spent: false,
+      extra_credit_remaining: 33.07,
+      credits_expiring_soon: 9.1,
+      next_credit_expiry_at: "2026-10-01T00:00:00Z",
+    });
+  });
+
+  test("marks plan credit spent once the grants are used up", async () => {
+    stubFetch({ ...FULL_SUMMARY, available_usage_balance: "0.00" });
+
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: 1,
+      plan_credits_spent: true,
+      extra_credit_remaining: 42.17,
+    });
+  });
+
+  test("gives no used fraction for a zero grant total and clamps a refund overshoot", async () => {
+    stubFetch({ ...FULL_SUMMARY, total_usage_balance: "0.00" });
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_total: 0,
+      plan_credit_used_fraction: null,
+      plan_credits_spent: false,
+    });
+
+    stubFetch({ ...FULL_SUMMARY, available_usage_balance: "25.00" });
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: 0,
+      extra_credit_remaining: 17.17,
     });
   });
 
@@ -116,6 +152,13 @@ describe("platform_credits", () => {
       daily_limit_snoozed: false,
       low_balance_threshold: null,
       low_balance_warning: false,
+      plan_credit_remaining: null,
+      plan_credit_total: null,
+      plan_credit_used_fraction: null,
+      plan_credits_spent: false,
+      extra_credit_remaining: null,
+      credits_expiring_soon: null,
+      next_credit_expiry_at: null,
     });
   });
 

@@ -24625,12 +24625,13 @@ paths:
   /v1/platform/credits:
     get:
       operationId: platform_credits_get
-      summary: Get the organization's remaining credit balance and daily-limit state
+      summary: Get the organization's credit balance, plan-credit usage, and daily-limit state
       description:
         "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
-        billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which
-        excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the
-        low-balance warning state."
+        billing summary, plus plan-included credit usage (remaining, total, and the used fraction shown by the in-app
+        usage meter), extra credit bought or earned on top, credit expiring within 30 days, and the daily-limit state:
+        today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so
+        it is not total spend), the limit itself, and the low-balance warning state."
       tags:
         - platform
       responses:
@@ -24681,6 +24682,49 @@ paths:
                   low_balance_warning:
                     type: boolean
                     description: True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.
+                  plan_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unused credit (USD) remaining on the unexpired plan-included grants (initial credit, Pro credit bundle).
+                      Null when the platform did not report grant figures.
+                  plan_credit_total:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Total credit (USD) those plan-included grants were worth, net of refunds. Null when the platform did not
+                      report grant figures.
+                  plan_credit_used_fraction:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter.
+                      Null when grant figures are missing or the total is zero."
+                  plan_credits_spent:
+                    type: boolean
+                    description: True when the plan-included credit is fully used, so further managed usage draws on extra_credit_remaining.
+                  extra_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Credit (USD) bought or earned on top of the plan-included grants: remaining minus plan_credit_remaining,
+                      floored at zero. Null when grant figures are missing."
+                  credits_expiring_soon:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unexpired credit (USD) on grants that expire within the next 30 days. Null when the platform did not report
+                      it.
+                  next_credit_expiry_at:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Earliest upcoming expiry (ISO 8601) across grants that still hold credit, or null when none is scheduled.
                 required:
                   - remaining
                   - settled
@@ -24694,6 +24738,13 @@ paths:
                   - daily_limit_snoozed
                   - low_balance_threshold
                   - low_balance_warning
+                  - plan_credit_remaining
+                  - plan_credit_total
+                  - plan_credit_used_fraction
+                  - plan_credits_spent
+                  - extra_credit_remaining
+                  - credits_expiring_soon
+                  - next_credit_expiry_at
                 additionalProperties: false
   /v1/platform/disconnect:
     post:
