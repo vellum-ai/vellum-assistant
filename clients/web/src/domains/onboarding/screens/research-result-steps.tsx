@@ -418,9 +418,20 @@ export function ResearchResultsStep({
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
-  const visible = claims.filter((c) => !removed.has(c.claim));
+  // Copy and the list share this array: a blank or pruned claim must not keep
+  // the "found about you" results copy on screen over an empty panel.
+  const visible = claims.filter(
+    (c) => c.claim.trim().length > 0 && !removed.has(c.claim),
+  );
   const hasClaims = visible.length > 0;
   const canContinue = !loading;
+  const bodyKey = hasClaims
+    ? loading
+      ? "researchResultsStep.bodyLoadingWithClaims"
+      : "researchResultsStep.bodyReadyWithClaims"
+    : loading
+      ? "researchResultsStep.bodyLoadingEmpty"
+      : "researchResultsStep.bodyReadyEmpty";
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -428,12 +439,12 @@ export function ResearchResultsStep({
 
       {/* Bounded to the viewport bottom so a long claims list can't push the
           continue button off-screen on short windows. The button is a pinned
-          footer; everything above it scrolls as one region (min-h-0 lets it
-          shrink), so the claims stay reachable even when the window is shorter
-          than the heading + button alone. */}
+          footer; the region above it is flex-1 + min-h-0 so it gets a real
+          height and can scroll, instead of shrinking to zero around the
+          heading. Claim rows are shrink-0 so flex cannot collapse them. */}
       <div className="absolute bottom-0 left-1/2 top-[11%] sm:top-[8%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
-        <div className="flex min-h-0 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-          <div className="flex items-center gap-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          <div className="flex shrink-0 items-center gap-3">
             <MiniAssistant />
             <h1
               className="text-[2.2rem] leading-none"
@@ -442,26 +453,26 @@ export function ResearchResultsStep({
               {t("researchResultsStep.title")}
             </h1>
           </div>
-          <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-            {hasClaims
-              ? loading
-                ? t("researchResultsStep.bodyLoadingWithClaims")
-                : t("researchResultsStep.bodyReadyWithClaims")
-              : loading
-                ? t("researchResultsStep.bodyLoadingEmpty")
-                : t("researchResultsStep.bodyReadyEmpty")}
+          <p
+            className="mb-7 mt-2 shrink-0 text-[15px]"
+            style={{ color: tone.fgMuted }}
+          >
+            {t(bodyKey)}
           </p>
 
-          <div className="flex flex-col gap-3">
-            <AnimatePresence>
+          <div className="flex shrink-0 flex-col gap-3">
+            {/* `initial={false}` so claims already present when this step
+                mounts paint immediately. A y-offset enter inside overflow-y-auto
+                can sit clipped at opacity 0 if the animation never settles. */}
+            <AnimatePresence initial={false}>
               {visible.map((fact) => (
                 <motion.div
                   key={fact.claim}
                   layout
-                  initial={reduce ? false : { opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  initial={reduce ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
                   exit={reduce ? undefined : { opacity: 0, scale: 0.95 }}
-                  className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
+                  className="flex shrink-0 items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
                   style={{
                     backgroundColor: tone.isLight
                       ? "rgba(0,0,0,0.06)"
