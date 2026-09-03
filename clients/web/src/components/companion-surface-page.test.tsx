@@ -1039,6 +1039,37 @@ describe("the picker behind Teach", () => {
     expect(listSourcesMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * The list arrives after a round trip. A picker the user closed in the
+   * meantime is not answered by it, least of all with the whole-screen
+   * session a shell with nothing to list would otherwise start.
+   */
+  test("ignores a list that arrives after the picker was closed", async () => {
+    let answer: ((listed: typeof captureSources) => void) | null = null;
+    listSourcesMock.mockImplementationOnce(
+      () =>
+        new Promise<typeof captureSources>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.click(teachOf(container));
+    await waitFor(() => {
+      expect(pickerOf(container)).not.toBeNull();
+    });
+    fireEvent.click(teachOf(container));
+    expect(pickerOf(container)).toBeNull();
+
+    await act(async () => {
+      answer?.(null);
+      await Promise.resolve();
+    });
+
+    expect(toggleWatchMock).not.toHaveBeenCalled();
+    expect(pickerOf(container)).toBeNull();
+  });
+
   test("starts the whole-screen session on a shell with nothing to list", async () => {
     captureSources = null;
     const { container } = render(<CompanionSurfacePage />);

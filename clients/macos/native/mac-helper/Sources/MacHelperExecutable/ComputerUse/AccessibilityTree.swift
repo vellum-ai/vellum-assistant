@@ -315,8 +315,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// screenshot is scoped to it, so the tree has to describe that window
     /// rather than whichever one has focus. AX has no lookup by `CGWindowID`,
     /// so the window is described through the window server first and then
-    /// matched among its owner's AX windows by frame, or by title when the
-    /// frame does not line up (a sheet, a window mid-resize).
+    /// matched among its owner's AX windows by frame, or by a title no other
+    /// window of the app shares when the frame does not line up (a sheet, a
+    /// window mid-resize). Anything less certain yields no tree.
     func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         await Task.detached { [self] in
             enumerateWindowSync(windowId: windowId)
@@ -364,8 +365,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 && abs(frame.width - cgBounds.width) <= 2
                 && abs(frame.height - cgBounds.height) <= 2
         })
-        let byTitle = cgName.flatMap { name in
-            windows.first(where: { getStringAttribute($0, kAXTitleAttribute as CFString) == name })
+        // A title only stands in for the frame when it names exactly one of
+        // the app's windows. Two windows titled alike (two "Untitled"
+        // documents, two browser windows on the same page) would otherwise
+        // let the wrong one's tree be filed beside the right one's screenshot.
+        let byTitle: AXUIElement? = cgName.flatMap { name in
+            let titled = windows.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
+            return titled.count == 1 ? titled[0] : nil
         }
         guard let windowElement = byFrame ?? byTitle else {
             log.warning("enumerateWindow: no AX window of \(appName, privacy: .public) matches window \(windowId)")

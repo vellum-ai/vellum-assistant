@@ -286,8 +286,27 @@ describe("the Chrome window for a tab", () => {
     expect(chromeWindowFor(windows, "Inbox - ")?.windowId).toBe(4);
   });
 
-  test("is the frontmost Chrome window when no title matches", () => {
-    expect(chromeWindowFor(windows, "Gone")?.windowId).toBe(2);
+  test("is nothing when no title matches, never the frontmost window", () => {
+    expect(chromeWindowFor(windows, "Gone")).toBeUndefined();
+    expect(chromeWindowFor(windows, "")).toBeUndefined();
+  });
+
+  test("is nothing when a decorated title fits more than one window", () => {
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 5, title: "Inbox (1)" }), ...windows],
+        "Inbox",
+      )?.windowId,
+    ).toBe(3);
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 5, title: "Inbox (1)" }),
+          chrome({ windowId: 4, title: "Inbox - Google Chrome" }),
+        ],
+        "Inbox",
+      ),
+    ).toBeUndefined();
   });
 
   test("is nothing without a Chrome window", () => {

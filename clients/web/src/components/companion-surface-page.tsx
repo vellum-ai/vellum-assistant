@@ -122,6 +122,11 @@ export function CompanionSurfacePage() {
   // What the host listed for it, or null while the host is still being asked.
   const [captureSources, setCaptureSources] =
     useState<CompanionCaptureSources | null>(null);
+  // Which ask for the list is the current one. The answer arrives after a
+  // round trip, and a picker closed or reopened in the meantime must not be
+  // answered by it: a stale "nothing to list" would start a whole-screen
+  // session the user has just declined to choose.
+  const sourcesRequestRef = useRef(0);
   const [hovered, setHovered] = useState(false);
   // Which beat of the one-time introduction is on screen, or null when none is.
   // Main's, like the session: this window can reload mid-run, and a beat held
@@ -222,6 +227,7 @@ export function CompanionSurfacePage() {
   const inCall = call !== null || dialing;
   useEffect(() => {
     if (watching || !inCall) {
+      sourcesRequestRef.current += 1;
       setPicking(false);
     }
   }, [watching, inCall]);
@@ -240,12 +246,19 @@ export function CompanionSurfacePage() {
       return;
     }
     if (picking) {
+      sourcesRequestRef.current += 1;
       setPicking(false);
       return;
     }
     setCaptureSources(null);
     setPicking(true);
+    const request = ++sourcesRequestRef.current;
     void listCompanionCaptureSources().then((listed) => {
+      // The picker this answers is gone: closed by a press, by a session
+      // starting, by the call ending, or replaced by a newer ask.
+      if (request !== sourcesRequestRef.current) {
+        return;
+      }
       if (listed !== null) {
         setCaptureSources(listed);
         return;
@@ -258,6 +271,7 @@ export function CompanionSurfacePage() {
   };
 
   const onPick = (pick: CompanionCapturePick) => {
+    sourcesRequestRef.current += 1;
     setPicking(false);
     toggleCompanionWatch(pick);
   };
