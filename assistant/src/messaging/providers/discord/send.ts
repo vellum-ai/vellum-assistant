@@ -14,6 +14,7 @@ import { parseDiscordEmojiMention } from "@vellumai/gateway-client";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
+import { type AcknowledgedSend, acknowledgedSend } from "../send-result.js";
 import {
   callDiscordApi,
   callDiscordApiMultipart,
@@ -178,27 +179,13 @@ export class DiscordPartialSendError extends Error {
   }
 }
 
-/** Outcome of a Discord reply send. */
-export interface DiscordSendResult {
-  /**
-   * Channel-native id of the last chunk sent, for callers that need to address
-   * the message later. Undefined when the API response carried no id.
-   */
-  lastMessageId?: string;
-  /**
-   * Channel-native id of every chunk the send created, in send order. A chunk
-   * whose API response carried no id is absent, so a recorder never invents
-   * one. Empty when nothing was posted.
-   */
-  messageIds: string[];
-}
-
-function discordSendResult(messageIds: string[]): DiscordSendResult {
-  const lastMessageId = messageIds[messageIds.length - 1];
-  return lastMessageId !== undefined
-    ? { lastMessageId, messageIds }
-    : { messageIds };
-}
+/**
+ * Outcome of a Discord reply send: `lastMessageId` is the final chunk (the
+ * message carrying the buttons on an approval card) and `messageIds` every
+ * chunk the provider acknowledged, in send order. See
+ * {@link AcknowledgedSend} for why the two are derived separately.
+ */
+export type DiscordSendResult = AcknowledgedSend;
 
 /**
  * Discord's rendering of a settled message.
@@ -274,7 +261,7 @@ export async function sendDiscordReply(
   // row, so the message a press arrives on is the message the row can find.
   const components = approval ? buildDiscordApprovalComponents(approval) : [];
 
-  const messageIds: string[] = [];
+  const ids: Array<string | undefined> = [];
   for (const [index, chunk] of chunks.entries()) {
     try {
       const sent = await callDiscordApi<DiscordMessage>(
@@ -288,9 +275,7 @@ export async function sendDiscordReply(
             : {}),
         },
       );
-      if (typeof sent?.id === "string") {
-        messageIds.push(sent.id);
-      }
+      ids.push(typeof sent?.id === "string" ? sent.id : undefined);
     } catch (err) {
       // Nothing posted yet propagates plainly; a caller may retry or fall
       // back with the full text. Past the first chunk the delivered prefix
@@ -302,7 +287,7 @@ export async function sendDiscordReply(
         err,
         index,
         chunks.slice(index).join("\n"),
-        messageIds[messageIds.length - 1],
+        ids[ids.length - 1],
       );
     }
   }
@@ -311,7 +296,7 @@ export async function sendDiscordReply(
     { channelId: target.channelId, chunks: chunks.length },
     "Discord reply sent",
   );
-  return discordSendResult(messageIds);
+  return acknowledgedSend(ids);
 }
 
 export interface DiscordAttachmentResult {

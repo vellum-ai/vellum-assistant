@@ -172,6 +172,31 @@ describe("sendDiscordReply", () => {
     expect(result).toEqual({ messageIds: [] });
   });
 
+  test("a final chunk without an id leaves lastMessageId absent rather than naming an earlier chunk", async () => {
+    // The final chunk carries the buttons, so it is the one a later edit or
+    // withdrawal addresses; an earlier chunk's id must never stand in for it.
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
+    let posts = 0;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      posts += 1;
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        headers: {},
+        body: init?.body,
+      });
+      return new Response(JSON.stringify(posts === 1 ? { id: "msg-1" } : {}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await sendDiscordReply({ channelId: "C1" }, long);
+
+    expect(calls.length).toBeGreaterThan(1);
+    expect(result).toEqual({ messageIds: ["msg-1"] });
+  });
+
   test("sends nothing for blank text", async () => {
     await sendDiscordReply({ channelId: "C1" }, "   ");
     expect(calls).toHaveLength(0);

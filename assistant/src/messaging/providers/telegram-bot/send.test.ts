@@ -186,6 +186,21 @@ describe("sendTelegramReply message id capture", () => {
     expect(result.messageIds).toEqual([]);
   });
 
+  test("a final chunk without an id leaves lastMessageId absent rather than naming an earlier chunk", async () => {
+    // The final chunk carries the approval keyboard, so it is the one a later
+    // edit or withdrawal addresses; an earlier chunk's id must never stand in
+    // for it. Every acknowledged id is still reported for recording.
+    let call = 0;
+    callTelegramBotApiMock.mockImplementation(
+      async () => (call++ === 0 ? { message_id: 1 } : {}) as never,
+    );
+
+    const result = await sendTelegramReply("123", "x".repeat(4500), approval);
+
+    expect(callsTo("sendMessage")).toHaveLength(2);
+    expect(result).toEqual({ messageIds: ["1"] });
+  });
+
   test("a rich send acknowledges the message Telegram returned", async () => {
     callTelegramBotApiMock.mockImplementation(
       async () => ({ message_id: 7 }) as never,
