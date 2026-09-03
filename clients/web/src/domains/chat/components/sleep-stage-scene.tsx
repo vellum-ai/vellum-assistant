@@ -56,8 +56,16 @@ const LID_REST: Record<SleepStageScene, number> = {
 const LID_DRIFT = 0.12;
 /** The lid's own edge, as a share of the eye's height. */
 const LID_EDGE = 0.035;
-/** How far the edge band is darkened from the lid's color. */
-const LID_EDGE_DARKEN = 0.55;
+/** How far the edge band is darkened from the lid's color: enough to read as
+ *  an edge, not so much that it cuts the face in two. */
+const LID_EDGE_DARKEN = 0.72;
+/**
+ * Above this width-to-height ratio the eye is a slit rather than a disc, and
+ * a lid measured as a share of its height covers the whole thing (`grumpy`,
+ * whose art is already a squint, is 4.5:1). The lid eases off in proportion
+ * so a shallow eye keeps an eye's worth of ink under it.
+ */
+const SHALLOW_EYE_ASPECT = 3.2;
 /** One full drift, in seconds. */
 const LID_DRIFT_SECONDS = 4;
 
@@ -206,8 +214,11 @@ function StageEyes({
   // How far the lid has slid down over the eye. The slab hangs above the box
   // with its lower edge at the top of the eye at rest, so one translated
   // value closes the lid, drifts it, and opens it again.
-  const closed = LID_REST[scene] * bbox.h;
-  const deep = (LID_REST[scene] + LID_DRIFT) * bbox.h;
+  // Art much wider than it is tall keeps more of itself: see
+  // `SHALLOW_EYE_ASPECT`.
+  const shallow = Math.min(1, SHALLOW_EYE_ASPECT / (bbox.w / bbox.h));
+  const closed = LID_REST[scene] * shallow * bbox.h;
+  const deep = (LID_REST[scene] + LID_DRIFT) * shallow * bbox.h;
   const edge = LID_EDGE * bbox.h;
   const drifts = scene !== "woke" && !reduce;
 

@@ -25,6 +25,11 @@ import {
 const CATALOG = getCharacterComponents();
 const EYE_STYLES = CATALOG.eyeStyles.map((style) => style.id);
 const COLORS = CATALOG.colors.map((color) => color.id);
+/** A round-eyed default, so the first thing a reader sees is the common case
+ *  rather than `grumpy`, whose art is a shallow squint to begin with. */
+const DEFAULT_EYE_STYLE = EYE_STYLES.includes("bashful")
+  ? "bashful"
+  : EYE_STYLES[0]!;
 
 function eyesFor(eyeStyle: string, color: string) {
   return resolveSleepStageEyes(
@@ -78,7 +83,7 @@ const meta: Meta<StoryArgs> = {
   },
   args: {
     scene: "sleeping",
-    eyeStyle: EYE_STYLES[0]!,
+    eyeStyle: DEFAULT_EYE_STYLE,
     color: COLORS[0]!,
     line: "Mel Gibson is asleep",
   },
@@ -97,6 +102,32 @@ export const Waking: Story = {
 
 export const Woke: Story = {
   args: { scene: "woke", line: "Mel Gibson just woke up" },
+};
+
+/**
+ * Every eye style asleep at once. The lid is a share of the eye's height, so
+ * this is where a creature whose art is already a squint gets checked against
+ * one drawn as a pair of discs.
+ */
+export const EveryEyeStyle: Story = {
+  name: "Every eye style",
+  render: ({ color, scene }) => (
+    <div className="grid grid-cols-3 gap-4 bg-[var(--surface-base)] p-4">
+      {EYE_STYLES.map((eyeStyle) => (
+        <div
+          key={eyeStyle}
+          className="relative h-[320px] overflow-hidden rounded-xl border border-[var(--border-base)]"
+        >
+          <SleepStageView
+            scene={scene}
+            eyes={eyesFor(eyeStyle, color)}
+            line={eyeStyle}
+            dismissHint="Hide the sleep screen"
+          />
+        </div>
+      ))}
+    </div>
+  ),
 };
 
 /**
