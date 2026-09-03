@@ -900,6 +900,28 @@ describe("frame gate forced keep", () => {
     expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("forced");
   });
 
+  test("a capture begun before the ask cannot spend the arm, however late it lands", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    // A bridge request issued at 40 that answers at 60: the offer's stamp
+    // postdates the arm, but the picture cannot be proven to.
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 9 }), 60, 40).reason).toBe("rate-floor");
+    // The arm survives it, for a capture that provably began after the ask.
+    expect(gate.offer(scene({ seed: 9 }), 70, 65).reason).toBe("forced");
+  });
+
+  test("a capture begun at the ask's own moment consumes it", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 1 }), 60, 50).reason).toBe("forced");
+  });
+
   test("a reset drops an unspent arm", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);

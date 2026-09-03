@@ -258,8 +258,20 @@ export interface FrameGate {
    *
    * `nowMs` is a monotonic reading in milliseconds. The gate never reads a
    * clock itself, which is what makes it testable without faking time.
+   *
+   * `capturedSinceMs` is a lower bound on when the frame's picture was taken,
+   * defaulting to `nowMs`. It exists for a source whose offers trail their
+   * captures: a bridge call is issued, answers later, and decodes later still,
+   * so `nowMs` is only an upper bound on the picture's age. The one decision
+   * that needs the lower bound is a forced-keep arm, which must not be spent
+   * on a picture from before the ask. A source that offers what its camera
+   * shows right now leaves it unset.
    */
-  offer(grid: FrameGrid, nowMs: number): FrameGateDecision;
+  offer(
+    grid: FrameGrid,
+    nowMs: number,
+    capturedSinceMs?: number,
+  ): FrameGateDecision;
   /**
    * Record one frame as the motion baseline, without judging it.
    *
@@ -296,12 +308,15 @@ export interface FrameGate {
    * novelty and the heartbeat. The keep is recorded exactly as an ambient one,
    * so the next frame is judged against it rather than firing again behind it.
    *
-   * `nowMs` is also the arm's lower bound: a frame stamped before it was taken
-   * before the ask, which is exactly the stale scene the arm exists to get
-   * past. Such a frame is judged as an ambient one and leaves the arm standing
-   * for the first frame stamped at or after it. The comparison only means
-   * something because the arm and the offers are stamped from one clock, which
-   * every caller of this gate reads from `performance.now`.
+   * `nowMs` is also the arm's lower bound: only a frame whose picture provably
+   * postdates it may spend it. The proof an offer carries is its
+   * `capturedSinceMs`, the earliest its picture can have been taken, and a
+   * frame whose bound falls before the arm was taken before the ask: exactly
+   * the stale scene the arm exists to get past. Such a frame is judged as an
+   * ambient one and leaves the arm standing for the first frame whose bound
+   * reaches it. The comparison only means something because the arm and the
+   * offers are stamped from one clock, which every caller of this gate reads
+   * from `performance.now`.
    */
   armForcedKeep(nowMs: number): void;
   /**
@@ -447,10 +462,10 @@ export function createFrameGate(
   // eligibility is governed by `minIntervalMs` instead.
   let firstEligibleAtMs: number | null = null;
   // An unspent arm from `armForcedKeep`, or null when nothing is armed.
-  // `sinceMs` is when it was made, and only a frame stamped at or after that
-  // moment may spend it: an offer can carry a capture from before the ask,
-  // which is the very scene the arm exists to get past. `untilMs` is when it
-  // stops being answerable at all.
+  // `sinceMs` is when it was made, and only a frame whose capture lower bound
+  // reaches it may spend it: an offer can carry a capture from before the
+  // ask, which is the very scene the arm exists to get past. `untilMs` is
+  // when it stops being answerable at all.
   let forcedArm: { sinceMs: number; untilMs: number } | null = null;
 
   // Detail of the frame being decided right now. Held here rather than passed
@@ -488,7 +503,11 @@ export function createFrameGate(
   }
 
   return {
-    offer(grid: FrameGrid, nowMs: number): FrameGateDecision {
+    offer(
+      grid: FrameGrid,
+      nowMs: number,
+      capturedSinceMs?: number,
+    ): FrameGateDecision {
       if (grid.length !== FRAME_GRID_CELLS) {
         throw new Error(
           `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
@@ -526,14 +545,18 @@ export function createFrameGate(
         return skipFrame(nowMs, "featureless", motion, novelty);
       }
 
-      // Only a frame stamped after the arm may spend it: a native offer can
-      // carry a capture from before the ask, and force-keeping that one would
-      // send the stale scene the arm exists to get past. It falls through to
-      // the ambient rules and the arm stands for the next fresh frame.
+      // Only a frame whose picture provably postdates the arm may spend it: a
+      // native offer can carry a capture from before the ask, however late its
+      // stamp lands, and force-keeping that one would send the stale scene the
+      // arm exists to get past. It falls through to the ambient rules and the
+      // arm stands for the next fresh frame.
       // Through `keepFrame` like every other keep, so the rate floor's clock
       // and both baselines move with it and the next ambient frame is judged
       // against this one instead of firing again behind it.
-      if (forcedArm !== null && nowMs >= forcedArm.sinceMs) {
+      if (
+        forcedArm !== null &&
+        (capturedSinceMs ?? nowMs) >= forcedArm.sinceMs
+      ) {
         forcedArm = null;
         return keepFrame(nowMs, "forced", motion, novelty);
       }

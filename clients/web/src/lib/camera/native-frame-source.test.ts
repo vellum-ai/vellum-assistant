@@ -1794,6 +1794,56 @@ describe("native frame source out-of-cycle sample", () => {
     source.stop();
   });
 
+  test("a judged capture unresolved at the ask cannot spend the arm by answering late", async () => {
+    // Codex's residual interval: the pair's second bridge request is issued
+    // before the ask and still unresolved when speech begins. Its answer-time
+    // stamp postdates the arm, but the picture predates it, and only the
+    // request-time bound can tell the two apart.
+    const gate = createFrameGate({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      warmupMs: 0,
+    });
+    gate.reset(0);
+    const decisions: FrameGateDecision[] = [];
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: (decision) => decisions.push(decision),
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(capture.callCount()).toBe(1);
+
+    // The judged request goes out and hangs on the bridge.
+    capture.holdNext();
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
+    expect(decisions).toHaveLength(0);
+
+    // Speech starts while it is still unresolved.
+    await advance(40);
+    gate.armForcedKeep(clock);
+    source.sampleNow();
+
+    // The late answer lands after the arm. Judged plainly, arm intact.
+    capture.releaseHeld();
+    await settle();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.reason).toBe("first");
+
+    // The remembered follow-up, requested after the ask, spends it.
+    await finishPair();
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]?.reason).toBe("forced");
+    expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
   test("drops a remembered ask with the run that made it", async () => {
     const { gate, offers } = createRecordingGate();
     const capture = createCaptureStub();

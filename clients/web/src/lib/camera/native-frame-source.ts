@@ -175,6 +175,13 @@ interface CapturedSample {
    * it has nothing to do with.
    */
   readonly capturedAtMs: number;
+  /**
+   * When the bridge was asked, which is the earliest the picture can have been
+   * taken whatever bound `capturedAtMs` records. The gate's forced-keep arm is
+   * compared against this: a request issued before the ask cannot prove its
+   * picture postdates it, however late the answer lands.
+   */
+  readonly requestedAtMs: number;
 }
 
 /**
@@ -459,7 +466,7 @@ export function createNativeFrameSource(
     if (!encoded || generation !== run) {
       return null;
     }
-    return { encoded, capturedAtMs };
+    return { encoded, capturedAtMs, requestedAtMs };
   }
 
   /** Decode one sample and reduce it through the shared chain. */
@@ -572,7 +579,10 @@ export function createNativeFrameSource(
         return;
       }
       onDecision(
-        gate.offer(judged.grid, second.capturedAtMs),
+        // The request time rides along as the capture's lower bound: the
+        // answer-time stamp can postdate a forced-keep arm that the picture
+        // itself predates, and the arm must not be spent on it.
+        gate.offer(judged.grid, second.capturedAtMs, second.requestedAtMs),
         second.capturedAtMs,
         judged.blob,
       );
