@@ -67,13 +67,18 @@ enum CaptureSources {
         return ["windows": windows]
     }
 
-    /// The frontmost ordinary window on `displayId`, by the window server's
-    /// front-to-back order, or nil when nothing of another app is on it.
+    /// The frontmost ordinary window lying wholly on `displayId`, by the
+    /// window server's front-to-back order, or nil when no window of another
+    /// app does.
     ///
     /// What a watch session scoped to a display reads its accessibility tree
     /// from: the focused window may be on another display entirely, and a
     /// tree from there would describe something the frame never showed.
+    /// Wholly on the display rather than mostly, because a tree has no crop:
+    /// a window straddling two displays would file the text of the part the
+    /// frame never showed. Such a window is left to the screenshot.
     static func topmostWindowId(onDisplay displayId: CGDirectDisplayID) -> CGWindowID? {
+        let displayBounds = CGDisplayBounds(displayId)
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         let entries = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
         let myPID = ProcessInfo.processInfo.processIdentifier
@@ -90,7 +95,7 @@ enum CaptureSources {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict),
                   bounds.width >= 50, bounds.height >= 50
             else { continue }
-            if ScreenCapture.displayHolding(bounds) == displayId {
+            if displayBounds.contains(bounds) {
                 return CGWindowID(windowNumber)
             }
         }

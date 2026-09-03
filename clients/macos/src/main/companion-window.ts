@@ -845,6 +845,12 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   win.setAlwaysOnTop(true, "floating", -1);
 };
 
+/**
+ * Which pick is the current one, so a resolution that outlives the next
+ * press cannot dispatch. See the toggle handler.
+ */
+let pickGeneration = 0;
+
 const closeWatchFrame = (): void => {
   getFloatingWindow(WATCH_FRAME_KIND)?.close();
 };
@@ -1189,6 +1195,7 @@ export const installCompanionWindow = (): void => {
     z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
     ([pick]) => {
       if (pick === undefined) {
+        pickGeneration += 1;
         dispatchWithoutRaising({ kind: "toggleWatch" });
         return;
       }
@@ -1197,8 +1204,15 @@ export const installCompanionWindow = (): void => {
       // to make. A pick that cannot be resolved starts nothing, and says so
       // in the log; a whole-screen session in place of the tab the user
       // chose would read more than they agreed to.
+      //
+      // Only the latest pick may start anything. The round trip can be slow
+      // (the first one waits on the Automation prompt), the picker closes on
+      // the press, and a second pick made meanwhile would otherwise resolve
+      // beside the first: two toggles, one of which ends the session the
+      // other started. A press with no pick supersedes a pending one too.
+      const generation = ++pickGeneration;
       void resolveCapturePick(pick).then((target) => {
-        if (target === null) {
+        if (target === null || generation !== pickGeneration) {
           return;
         }
         dispatchWithoutRaising({ kind: "toggleWatch", target });

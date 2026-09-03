@@ -388,6 +388,21 @@ export const routeTree = [
         ),
     },
   },
+  // The frame's old URL. A shell that predates the rename still opens it,
+  // and a renderer newer than its shell has to draw the frame there rather
+  // than a not-found page over the desktop. Remove once no shipped shell
+  // opens it.
+  {
+    path: "/assistant/floating/companion-watch-glow",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-watch-frame-page").then(
+          (m) => m.CompanionWatchFramePage,
+        ),
+    },
+  },
 
   // Dictation overlay — live transcription pill rendered inside the
   // Electron dictation overlay BrowserWindow (a floating panel pinned
