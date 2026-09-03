@@ -5,8 +5,8 @@
  *
  * Extracted from `tool-detail-panel.tsx` so tool-specific activity renderers
  * (`domains/chat/components/tool-activity/`) can compose them without importing
- * the panel that in turn imports those renderers. `tool-detail-panel` re-exports
- * `CodeBlock` and `SectionLabel` so its existing consumers are unaffected.
+ * the panel that in turn imports those renderers. Every consumer imports them
+ * from here.
  */
 
 import { Check, Copy } from "lucide-react";
