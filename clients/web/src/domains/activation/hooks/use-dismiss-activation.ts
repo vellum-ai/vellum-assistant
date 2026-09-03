@@ -81,7 +81,7 @@ export function useDismissActivation(
           // Only a write the daemon accepted is worth refetching. A refused
           // one keeps the optimistic dismissal so the pill stays reachable
           // instead of a refetch restoring a modal the user already closed.
-          if (!response.ok) {
+          if (!response?.ok) {
             return;
           }
           void queryClient.invalidateQueries({
