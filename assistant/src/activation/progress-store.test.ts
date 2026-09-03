@@ -63,8 +63,10 @@ const {
   markActivationTurnComplete,
   readActivationProgress,
   resetActivationStepThrottleForTesting,
+  setActivationLockTimingForTesting,
   startActivationTask,
 } = await import("./progress-store.js");
+const { RouteError } = await import("../runtime/routes/errors.js");
 
 const THROTTLE_MS = 40;
 
@@ -85,6 +87,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetActivationStepThrottleForTesting();
+  setActivationLockTimingForTesting();
   if (origWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -1193,6 +1196,88 @@ describe("activation progress store", () => {
         "draft-email",
       ]);
       expect(stored.modalDismissedAt).not.toBeNull();
+    });
+
+    test("fails the write rather than racing a holder that never lets go", async () => {
+      setActivationLockTimingForTesting({ waitMs: 40 });
+      const lockPath = holdProgressLock();
+
+      const err = await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(503);
+      // Nothing was written behind the holder's back, and the lock is still
+      // the holder's.
+      expect(existsSync(getActivationProgressPath())).toBe(false);
+      expect(existsSync(lockPath)).toBe(true);
+    });
+
+    test("a step bump the lock refused is re-queued, and its retry lands it", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      setActivationLockTimingForTesting({ waitMs: 20 });
+      const lockPath = holdProgressLock();
+
+      // The hook swallows the rejection the same way the agent loop does.
+      await bumpActivationStepCount("conv-1").catch(() => {});
+      expect(readRawProgress().tasks["draft-email"].stepCount).toBe(0);
+
+      rmSync(lockPath);
+      await waitFor(
+        () => readRawProgress().tasks["draft-email"].stepCount === 1,
+      );
+    });
+
+    test("a completion the lock refused lands on its retry", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      setActivationLockTimingForTesting({ waitMs: 20, retryMs: 80 });
+      const lockPath = holdProgressLock();
+
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 2,
+        endedAwaitingUser: false,
+        artifacts: [],
+      });
+      expect(readRawProgress().tasks["draft-email"].status).toBe("started");
+
+      rmSync(lockPath);
+      await waitFor(
+        () => readRawProgress().tasks["draft-email"].status === "done",
+      );
+      expect(readRawProgress().tasks["draft-email"].stepCount).toBe(2);
+    });
+
+    test("a completion gives up after one retry rather than waiting forever", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      setActivationLockTimingForTesting({ waitMs: 20, retryMs: 30 });
+      const lockPath = holdProgressLock();
+
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 2,
+        endedAwaitingUser: false,
+        artifacts: [],
+      });
+      // Long enough for the one retry to run and fail against the lock too.
+      await Bun.sleep(200);
+      expect(readRawProgress().tasks["draft-email"].status).toBe("started");
+
+      // The retry is spent: a lock that frees afterwards does not revive it.
+      rmSync(lockPath);
+      await Bun.sleep(200);
+      expect(readRawProgress().tasks["draft-email"].status).toBe("started");
     });
   });
 

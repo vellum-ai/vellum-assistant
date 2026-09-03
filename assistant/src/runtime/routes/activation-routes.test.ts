@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ActivationProgress } from "../../api/responses/activation.js";
+import type { ConversationRow } from "../../persistence/conversation-crud.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -26,8 +27,60 @@ mock.module("../sync/sync-publisher.js", () => ({
   },
 }));
 
+/** The conversations the daemon can resolve, as the start route sees them. */
+const existingConversationIds = new Set<string>();
+
+function conversationRow(id: string): ConversationRow {
+  return {
+    id,
+    title: null,
+    createdAt: 1700000000000,
+    updatedAt: 1700000000000,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    contextCompactedAt: null,
+    historyStrippedAt: null,
+    slackContextCompactionWatermarkTs: null,
+    slackContextCompactionWatermarkAt: null,
+    conversationType: "standard",
+    source: "user",
+    originChannel: null,
+    originInterface: null,
+    forkParentConversationId: null,
+    forkParentMessageId: null,
+    forkStrategy: null,
+    isAutoTitle: 0,
+    scheduleJobId: null,
+    lastMessageAt: null,
+    archivedAt: null,
+    surfacedAt: null,
+    inferenceProfile: null,
+    enabledPlugins: null,
+    inferenceProfileSessionId: null,
+    inferenceProfileExpiresAt: null,
+    lastNotifiedInferenceProfile: null,
+    processingStartedAt: null,
+  };
+}
+
+// The start route resolves the conversation the way `POST /v1/messages` does.
+// Stubbed against a set the tests own, so a route test states which
+// conversations exist without standing up a database.
+const realConversationCrud =
+  await import("../../persistence/conversation-crud.js");
+mock.module("../../persistence/conversation-crud.js", () => ({
+  ...realConversationCrud,
+  getConversation: (id: string): ConversationRow | null =>
+    existingConversationIds.has(id) ? conversationRow(id) : null,
+}));
+
 const { ROUTES: ACTIVATION_ROUTES } = await import("./activation-routes.js");
 const { ROUTES: ALL_ROUTES } = await import("./index.js");
+const { getActivationProgressLockPath, setActivationLockTimingForTesting } =
+  await import("../../activation/progress-store.js");
 
 function findRoute(operationId: string): RouteDefinition {
   const route = ACTIVATION_ROUTES.find((r) => r.operationId === operationId);
@@ -56,9 +109,12 @@ beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishedOrigins.length = 0;
+  existingConversationIds.clear();
+  existingConversationIds.add("conv-1");
 });
 
 afterEach(() => {
+  setActivationLockTimingForTesting();
   if (origWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -248,6 +304,65 @@ describe("activation routes", () => {
 
     expect(Object.keys(result.tasks)).toEqual(["book-travel"]);
     expect(await call(getProgressRoute)).toEqual(result);
+  });
+
+  test("POST start rejects a conversation the daemon cannot resolve with a 404", async () => {
+    const err = await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-deleted" },
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(404);
+    // Nothing was recorded, so the row stays launchable.
+    expect((await call(getProgressRoute)).tasks).toEqual({});
+  });
+
+  test("POST start answers 503 while another process holds the progress lock", async () => {
+    setActivationLockTimingForTesting({ waitMs: 40 });
+    mkdirSync(join(workspaceDir, "data"), { recursive: true });
+    writeFileSync(
+      getActivationProgressLockPath(),
+      JSON.stringify({ pid: process.pid, at: Date.now() }),
+      "utf-8",
+    );
+
+    const err = await call(startTaskRoute, {
+      pathParams: { taskId: "draft-email" },
+      body: { conversationId: "conv-1" },
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(503);
+    expect((await call(getProgressRoute)).tasks).toEqual({});
+  });
+
+  test("POST dismiss answers 503 while another process holds the progress lock", async () => {
+    setActivationLockTimingForTesting({ waitMs: 40 });
+    mkdirSync(join(workspaceDir, "data"), { recursive: true });
+    writeFileSync(
+      getActivationProgressLockPath(),
+      JSON.stringify({ pid: process.pid, at: Date.now() }),
+      "utf-8",
+    );
+
+    const err = await call(dismissRoute, { body: { kind: "modal" } }).catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).statusCode).toBe(503);
+  });
+
+  test("the start route declares the answers it can give", () => {
+    expect(
+      Object.keys(startTaskRoute.additionalResponses ?? {}).sort(),
+    ).toEqual(["400", "404", "409", "503"]);
+    expect(Object.keys(dismissRoute.additionalResponses ?? {}).sort()).toEqual([
+      "400",
+      "409",
+      "503",
+    ]);
   });
 
   test("routes declare their policy, tags, and response body", () => {

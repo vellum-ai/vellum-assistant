@@ -21,9 +21,12 @@
  * hooks from interleaving a read-modify-write, and an exclusive lock file
  * beside the snapshot extends that to the daemon's sidecar workers, which
  * load this module against the same workspace and would otherwise read a
- * snapshot the daemon is about to replace. A write that cannot land
- * rejects, so a route never answers with state the next read would
- * contradict; the fire-and-forget turn hooks catch and log instead.
+ * snapshot the daemon is about to replace. Serialization is never traded
+ * away to make a write go through: a lock another process will not let go
+ * of fails the mutation with a 503 rather than racing its rename. A write
+ * that cannot land rejects, so a route never answers with state the next
+ * read would contradict; the fire-and-forget turn hooks catch, retry within
+ * their own bounds, and log.
  *
  * A conversation belongs to at most one task: {@link startActivationTask}
  * unlinks any other `started` task pointing at the same conversation, so
@@ -66,6 +69,7 @@ import {
   BadRequestError,
   ConflictError,
   InternalError,
+  ServiceUnavailableError,
 } from "../runtime/routes/errors.js";
 import { publishActivationProgressChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
@@ -373,10 +377,13 @@ const ACTIVATION_PROGRESS_LOCK_SUFFIX = ".lock";
 
 /**
  * How long a mutation waits for another process to finish before it gives up
- * and proceeds unlocked. Every holder does one small read and one rename, so
- * a wait this long means the holder is wedged rather than busy.
+ * and fails. Every holder does one small read and one rename, so a wait this
+ * long means the holder is wedged rather than busy.
  */
 const LOCK_WAIT_TIMEOUT_MS = 2_000;
+
+/** Live wait bound. Only {@link setActivationLockTimingForTesting} moves it. */
+let lockWaitTimeoutMs: number = LOCK_WAIT_TIMEOUT_MS;
 
 /** Pause between attempts while another process holds the lock. */
 const LOCK_RETRY_DELAY_MS = 15;
@@ -479,14 +486,20 @@ function progressLockIsStale(lockPath: string): boolean {
  * update.
  *
  * Returns whether the lock is held, and only a caller holding it releases it.
- * Failing to take it is not an error: after
- * {@link LOCK_WAIT_TIMEOUT_MS} the mutation proceeds unlocked rather than
- * failing, which is exactly the behaviour the store had before the lock
- * existed. A wedged holder must not turn a checklist write into a 500.
+ * `false` is the answer for a data directory that cannot hold a lock at all:
+ * there is no other writer to exclude on a path nothing can be written to,
+ * and the write that follows reports the real failure.
+ *
+ * A holder that will not let go is the other case, and it throws. Waiting out
+ * {@link LOCK_WAIT_TIMEOUT_MS} and then writing anyway would read a snapshot
+ * that holder is about to rename over and silently drop one of the two
+ * updates, so the mutation fails with a 503 instead: the caller learns its
+ * write did not land, which is the whole contract the routes and the hooks
+ * are built on.
  */
 async function acquireProgressLock(): Promise<boolean> {
   const lockPath = getActivationProgressLockPath();
-  const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
+  const deadline = Date.now() + lockWaitTimeoutMs;
   for (;;) {
     const attempt = tryAcquireProgressLock(lockPath);
     if (attempt === "acquired") {
@@ -503,9 +516,11 @@ async function acquireProgressLock(): Promise<boolean> {
     if (Date.now() >= deadline) {
       log.warn(
         { lockPath },
-        "Timed out waiting for the activation progress lock; writing without it",
+        "Timed out waiting for the activation progress lock; refusing the write",
       );
-      return false;
+      throw new ServiceUnavailableError(
+        "Activation progress is being updated by another process; try again",
+      );
     }
     await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
   }
@@ -533,7 +548,10 @@ let writeChain: Promise<unknown> = Promise.resolve();
  * the interprocess lock so a sidecar worker cannot either.
  *
  * Rejects when the snapshot cannot be persisted, so a route answers 500
- * rather than echoing state that only ever existed in memory. A snapshot a
+ * rather than echoing state that only ever existed in memory. A lock another
+ * process holds past {@link LOCK_WAIT_TIMEOUT_MS} rejects with a 503, which
+ * is the same promise kept a different way: the write is refused rather than
+ * raced, and the client is told to try again. A snapshot a
  * newer build wrote rejects too, with a 409: the document is left byte for
  * byte alone, and the caller is told the write did not land rather than
  * being handed a snapshot that looks like it did. That distinction is
@@ -895,7 +913,8 @@ async function flushStepBumps(conversationId: string): Promise<void> {
       stepFlushAttempts.delete(conversationId);
       throw err;
     }
-    // The write did not land, so the tool calls it carried are still
+    // The write did not land, whether the file refused it or another process
+    // held the lock past its wait, so the tool calls it carried are still
     // uncounted. Put them back (behind anything that arrived meanwhile) and
     // arm a bounded retry: a turn can end here, with no later tool call to
     // drive the flush.
@@ -941,6 +960,49 @@ export async function bumpActivationStepCount(
 // ---------------------------------------------------------------------------
 // Completion
 // ---------------------------------------------------------------------------
+
+/**
+ * How long a completion waits before its single retry. Long enough for a
+ * holder that was merely slow to finish or age out of
+ * {@link LOCK_STALE_MS}, short enough that the row leaves Working while the
+ * user is still watching it.
+ */
+const COMPLETION_RETRY_DELAY_MS = 1_000;
+
+/** Live retry delay. Only {@link setActivationLockTimingForTesting} moves it. */
+let completionRetryMs: number = COMPLETION_RETRY_DELAY_MS;
+
+/** Armed completion retries, keyed by conversation. */
+const completionRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Try one completion again, once, after {@link COMPLETION_RETRY_DELAY_MS}.
+ *
+ * Bounded on purpose: a second failure is a lock nothing here can break, and
+ * the checklist row is worth one more attempt rather than a timer per
+ * finished turn for the life of the process. The timer is unref'd so a
+ * pending retry never holds the process open, and one conversation arms at
+ * most one, so a second terminal turn cannot stack them.
+ */
+function armCompletionRetry(
+  conversationId: string,
+  complete: () => Promise<unknown>,
+): void {
+  if (completionRetryTimers.has(conversationId)) {
+    return;
+  }
+  const timer = setTimeout(() => {
+    completionRetryTimers.delete(conversationId);
+    void complete().catch((err: unknown) => {
+      log.warn(
+        { err, conversationId },
+        "Giving up on marking an activation task done: the progress file stayed locked",
+      );
+    });
+  }, completionRetryMs);
+  timer.unref?.();
+  completionRetryTimers.set(conversationId, timer);
+}
 
 function normalizeArtifacts(
   artifacts: readonly ActivationArtifact[],
@@ -1007,23 +1069,43 @@ export async function markActivationTurnComplete(params: {
   if (endedAwaitingUser) {
     return;
   }
-  await mutateActivationProgress((progress) => {
-    const taskId = findLinkedTaskId(progress, conversationId);
-    if (!taskId) {
-      return false;
+  const complete = (): Promise<ActivationProgress> =>
+    mutateActivationProgress((progress) => {
+      const taskId = findLinkedTaskId(progress, conversationId);
+      if (!taskId) {
+        return false;
+      }
+      const task = progress.tasks[taskId];
+      task.status = "done";
+      task.completedAt = new Date().toISOString();
+      task.stepCount = Math.max(
+        task.stepCount ?? 0,
+        Math.max(0, toolCallCount),
+      );
+      task.artifacts = normalizeArtifacts(artifacts);
+      return true;
+    });
+  try {
+    await complete();
+  } catch (err) {
+    if (!(err instanceof ServiceUnavailableError)) {
+      throw err;
     }
-    const task = progress.tasks[taskId];
-    task.status = "done";
-    task.completedAt = new Date().toISOString();
-    task.stepCount = Math.max(task.stepCount ?? 0, Math.max(0, toolCallCount));
-    task.artifacts = normalizeArtifacts(artifacts);
-    return true;
-  });
+    // Another process held the lock for the whole wait. Nothing else will
+    // drive this task to `done`: the turn is over, so there is no later tool
+    // call and no later terminal turn to try again from.
+    log.warn(
+      { err, conversationId },
+      "Activation progress was busy when a turn finished; retrying the completion once",
+    );
+    armCompletionRetry(conversationId, complete);
+  }
 }
 
 /**
- * Drop the in-process step-bump throttle state and the linked-conversation
- * index, optionally shortening the throttle window. Test-only seam:
+ * Drop the in-process step-bump throttle state, any armed completion retry,
+ * and the linked-conversation index, optionally shortening the throttle
+ * window. Test-only seam:
  * production code lets the trailing timers run at
  * {@link ACTIVATION_STEP_BUMP_THROTTLE_MS}.
  */
@@ -1037,6 +1119,24 @@ export function resetActivationStepThrottleForTesting(
   pendingStepBumps.clear();
   lastStepFlushAt.clear();
   stepFlushAttempts.clear();
+  for (const timer of completionRetryTimers.values()) {
+    clearTimeout(timer);
+  }
+  completionRetryTimers.clear();
   invalidateLinkIndex();
   stepThrottleMs = overrideMs ?? ACTIVATION_STEP_BUMP_THROTTLE_MS;
+}
+
+/**
+ * Shorten how long a mutation waits for a lock another process holds, and how
+ * long a busy completion waits before its one retry, so a test can exercise
+ * the contended paths in milliseconds. Test-only seam: production waits
+ * {@link LOCK_WAIT_TIMEOUT_MS} and {@link COMPLETION_RETRY_DELAY_MS}.
+ */
+export function setActivationLockTimingForTesting(overrides?: {
+  waitMs?: number;
+  retryMs?: number;
+}): void {
+  lockWaitTimeoutMs = overrides?.waitMs ?? LOCK_WAIT_TIMEOUT_MS;
+  completionRetryMs = overrides?.retryMs ?? COMPLETION_RETRY_DELAY_MS;
 }

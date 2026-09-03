@@ -692,6 +692,8 @@ paths:
           description: Malformed dismiss kind or list id
         "409":
           description: Stored progress was written by a newer build; the dismissal was not recorded
+        "503":
+          description: Stored progress is locked by another process; the dismissal was not recorded
   /v1/activation/progress:
     get:
       operationId: activation_progress_get
@@ -916,8 +918,12 @@ paths:
                 additionalProperties: false
         "400":
           description: Malformed task id, list id, or conversation id
+        "404":
+          description: No such conversation; the link was not recorded
         "409":
           description: Stored progress was written by a newer build; the link was not recorded
+        "503":
+          description: Stored progress is locked by another process; the link was not recorded
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post
