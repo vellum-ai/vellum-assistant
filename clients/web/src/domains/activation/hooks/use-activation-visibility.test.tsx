@@ -116,6 +116,17 @@ describe("useActivationVisibility gates", () => {
     expect(visibility("/assistant/suggestions").surface).toBeNull();
   });
 
+  test("hides everything on a page nested under the Inspiration List", () => {
+    expect(visibility("/assistant/suggestions/task-1").surface).toBeNull();
+  });
+
+  // The match is on the segment boundary, so a sibling route that merely
+  // starts with the same characters still gets the pill.
+  test("shows the pill on a route that only shares the list's prefix", () => {
+    progress = ACTIVATION_PROGRESS_DISMISSED;
+    expect(visibility("/assistant/suggestions-archive").surface).toBe("pill");
+  });
+
   test("hides everything while the in-chat tour is running", () => {
     useInChatOnboardingStore.setState({ prototypeActive: true });
     expect(visibility().surface).toBeNull();

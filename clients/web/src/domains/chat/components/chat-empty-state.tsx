@@ -5,7 +5,7 @@ import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-c
  * Empty-state hero for a fresh chat: the serif greeting headline. The
  * avatar itself lives in `ComposerPeek` (hanging from the top of the
  * screen, or peeking behind the input), not beside the headline.
- * Presentational only — the composer and conversation-starter chips are
+ * Presentational only: the composer and conversation-starter chips are
  * rendered by the parent `ChatBody` in the same flex column so that
  * greeting → composer → starters appear as one vertically-centered group.
  *
@@ -14,7 +14,7 @@ import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-c
  * inner `min-h-full` wrapper), not here. This component just renders its
  * content at natural height.
  *
- * See [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
+ * See [React: Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
  * for why the composer must stay at a fixed tree position rather than
  * being passed as a slot into this component.
  */
@@ -48,7 +48,7 @@ export function ChatEmptyState({
             <BusyIndicator size={10} />
           ) : (
             /* The serif brand headline (Figma "Brand/Medium": Instrument
-               Serif 32px) — larger than the old title tokens, scaled down
+               Serif 32px), larger than the old title tokens, scaled down
                a step on mobile. */
             <h1
               className="text-center text-[28px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[36px]"

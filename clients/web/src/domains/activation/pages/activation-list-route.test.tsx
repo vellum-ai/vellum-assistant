@@ -328,6 +328,40 @@ describe("ActivationListRoute before the gates settle", () => {
     expect(screen.queryByRole("listitem")).toBeNull();
   });
 
+  // A gate that has said no has settled the question. Waiting on the other one
+  // for a second opinion it cannot change is how an arm switched off leaves a
+  // bookmark on a page that renders nothing at all.
+  test("hands the user back to chat on an arm that is off, whatever the version is doing", () => {
+    setArm("off");
+    useAssistantIdentityStore.getState().clearIdentity();
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(routes.assistant);
+  });
+
+  // `fetchAssistantIdentity` turns an unreachable runtime into a successful
+  // `null`, so the version never lands and never will. The wait has to end on
+  // the fetch settling, not on a version that is not coming.
+  test("hands the user back to chat once the identity fetch has given up", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    useAssistantIdentityStore.getState().markIdentityUnavailable("asst-1");
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(routes.assistant);
+  });
+
+  // The dead end is scoped like the version it stands in for: one recorded for
+  // the assistant the user just left says nothing about this one.
+  test("stays put when another assistant's identity fetch gave up", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    useAssistantIdentityStore.getState().markIdentityUnavailable("asst-other");
+    renderWithPath();
+
+    expect(screen.getByTestId("pathname").textContent).toBe(
+      routes.activationList,
+    );
+  });
+
   test("stays put while the flag values are still in flight", () => {
     useClientFeatureFlagStore.setState({ hydrated: false });
     renderWithPath();

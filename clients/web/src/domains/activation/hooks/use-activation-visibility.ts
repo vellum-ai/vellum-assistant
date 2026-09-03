@@ -61,9 +61,16 @@ function isOnboardingRoute(pathname: string): boolean {
  * The Inspiration List is this checklist, in full and already launchable. A
  * modal over it hides what the user opened, and a pill beside it points at the
  * page they are on.
+ *
+ * Matched on the segment boundary rather than by prefix, so a sibling route
+ * that happens to share the first characters of this one (a
+ * `/assistant/suggestions-archive`) keeps the surfaces it is entitled to.
  */
 function isActivationListRoute(pathname: string): boolean {
-  return pathname.startsWith(routes.activationList);
+  return (
+    pathname === routes.activationList ||
+    pathname.startsWith(`${routes.activationList}/`)
+  );
 }
 
 /** How many of a list's three starters the daemon has marked done. */

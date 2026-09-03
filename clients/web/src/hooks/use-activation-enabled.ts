@@ -24,9 +24,51 @@ import {
   useActivationChecklistArm,
   type ActivationListId,
 } from "@/hooks/use-activation-checklist-flag";
-import { useAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
+import { useAssistantIdentitySettledFor } from "@/lib/backwards-compat/utils";
 import { useSupportsActivationProgress } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+
+/**
+ * What one of the two gates has to say.
+ *
+ * Both start on an input that reads exactly like "off": the flag store answers
+ * the registry default until the first server response, and the version gate
+ * answers `false` until identity lands for this assistant. Collapsing that into
+ * a boolean is what a surface that only hides wants and what a surface that
+ * navigates cannot use, so the third value is kept: `"unknown"` is a gate that
+ * has not spoken, and only `"disabled"` is a no.
+ */
+type ActivationGate = "unknown" | "enabled" | "disabled";
+
+/** The flag arm's gate. `"unknown"` until the first server response lands. */
+function useActivationArmGate(): ActivationGate {
+  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
+  const arm = useActivationChecklistArm();
+  if (!flagsHydrated) {
+    return "unknown";
+  }
+  return resolveActivationListId(arm) === null ? "disabled" : "enabled";
+}
+
+/**
+ * The daemon's gate: whether this assistant carries the `/v1/activation/*`
+ * routes every surface reads and writes.
+ *
+ * `"unknown"` only while the identity fetch is still in flight. A fetch that
+ * finished with nothing is a `"disabled"` answer, not a wait that never ends:
+ * an assistant whose version we will never learn cannot be shown launches the
+ * daemon may not be able to link.
+ */
+function useActivationVersionGate(
+  assistantId: string | null | undefined,
+): ActivationGate {
+  const supported = useSupportsActivationProgress(assistantId);
+  const identitySettled = useAssistantIdentitySettledFor(assistantId);
+  if (supported) {
+    return "enabled";
+  }
+  return identitySettled ? "disabled" : "unknown";
+}
 
 /**
  * The list the arm selects on `assistantId`, or `null` when either gate fails.
@@ -38,8 +80,8 @@ function useActivationEnabledListId(
   assistantId: string | null | undefined,
 ): ActivationListId | null {
   const arm = useActivationChecklistArm();
-  const supported = useSupportsActivationProgress(assistantId);
-  return supported ? resolveActivationListId(arm) : null;
+  const versionGate = useActivationVersionGate(assistantId);
+  return versionGate === "enabled" ? resolveActivationListId(arm) : null;
 }
 
 /**
@@ -75,18 +117,24 @@ export function useEffectiveActivationListId(
 /**
  * Whether the gates above can answer yet.
  *
- * Both of their inputs start on a value that reads exactly like "off": the flag
- * store answers the registry default until the first server response, and the
- * version gate answers `false` until identity lands for this assistant. A
- * surface that only hides is right to treat that as off and let the answer
- * arrive. A surface that navigates is not: the Inspiration List is reachable by
- * a bookmark, a reload and a fresh tab, and a redirect fired on the unsettled
- * answer takes the user to chat before either gate has spoken.
+ * A surface that only hides is right to treat an unspoken gate as off and let
+ * the answer arrive. A surface that navigates is not: the Inspiration List is
+ * reachable by a bookmark, a reload and a fresh tab, and a redirect fired on
+ * the unsettled answer takes the user to chat before either gate has spoken.
+ * Such a caller waits on this.
+ *
+ * Disabled wins outright. A gate that has said no has settled the question,
+ * and holding the page blank for a second opinion the answer cannot change is
+ * how an arm switched off, or an identity fetch that never lands, turns a
+ * bookmark into a page that renders nothing at all.
  */
 export function useActivationGatesSettled(
   assistantId: string | null | undefined,
 ): boolean {
-  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
-  const versionKnown = useAssistantVersionKnownFor(assistantId);
-  return flagsHydrated && versionKnown;
+  const armGate = useActivationArmGate();
+  const versionGate = useActivationVersionGate(assistantId);
+  if (armGate === "disabled" || versionGate === "disabled") {
+    return true;
+  }
+  return armGate !== "unknown" && versionGate !== "unknown";
 }
