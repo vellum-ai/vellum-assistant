@@ -27,7 +27,6 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
-import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
@@ -35,7 +34,6 @@ import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { openUrl } from "@/runtime/browser";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
 import { adminUrl, routes } from "@/utils/routes";
@@ -140,7 +138,9 @@ export function PreferencesMenu({
         {/* `truncate` is belt-and-braces: the label is a fixed short string,
             but the pill shares its row with New Chat and must never grow
             wide enough to overlap it at narrow viewports. */}
-        <span className="min-w-0 truncate">{t("preferencesMenu.preferences")}</span>
+        <span className="min-w-0 truncate">
+          {t("preferencesMenu.preferences")}
+        </span>
       </Button>
     ) : collapsed ? (
       /* Collapsed, the same tile every other rail entry reduces to: a circle
@@ -203,7 +203,9 @@ export function PreferencesMenu({
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
           <BottomSheet.Content className="max-h-[85dvh]">
             <BottomSheet.Header className="sr-only">
-              <BottomSheet.Title>{t("preferencesMenu.preferences")}</BottomSheet.Title>
+              <BottomSheet.Title>
+                {t("preferencesMenu.preferences")}
+              </BottomSheet.Title>
             </BottomSheet.Header>
             <BottomSheet.Body className="pt-0">{content}</BottomSheet.Body>
           </BottomSheet.Content>
@@ -269,12 +271,8 @@ function PreferencesMenuContent({
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
   /* The Inspiration List entry rides the same gate as every other activation
-     surface, resolved in the one place that owns it. The arm is read beside it
-     for the telemetry the entry emits, not as a second gate. */
-  const activationArm = useActivationChecklistArm();
-  const activationAssistantId =
-    useResolvedAssistantsStore.use.activeAssistantId();
-  const activationListId = useEffectiveActivationListId(activationAssistantId);
+     surface, resolved in the one place that owns it. */
+  const activationListId = useEffectiveActivationListId();
   const {
     enabled: showBillingRows,
     balance: effectiveBalance,
@@ -323,10 +321,7 @@ function PreferencesMenuContent({
           label={tActivation("menu.inspirationList")}
           onSelect={() => {
             onClose();
-            emitActivationEvent("activation_list_opened", {
-              arm: activationArm,
-              listId: activationListId,
-            });
+            emitActivationEvent("activation_list_opened");
             navigate(routes.activationList);
           }}
         />

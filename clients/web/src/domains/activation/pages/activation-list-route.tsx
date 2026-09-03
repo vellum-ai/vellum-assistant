@@ -26,10 +26,8 @@ import { Navigate, useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-  useActivationGatesSettled,
-  useEffectiveActivationListId,
-} from "@/hooks/use-activation-enabled";
+import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
+import { useActivationGatesSettled } from "@/hooks/use-activation-gate";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -44,8 +42,8 @@ export function ActivationListRoute() {
   const navigate = useNavigate();
   const { t } = useTranslation("activation");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const listId = useEffectiveActivationListId(assistantId);
-  const gatesSettled = useActivationGatesSettled(assistantId);
+  const listId = useEffectiveActivationListId();
+  const gatesSettled = useActivationGatesSettled();
   const { data: progress } = useActivationProgress();
 
   const { starters, items } = useAvailableActivationList(listId ?? "");

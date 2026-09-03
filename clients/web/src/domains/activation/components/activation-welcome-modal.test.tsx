@@ -23,22 +23,20 @@ import {
   ACTIVATION_PROGRESS_ONE_WORKING,
   FIXTURE_STARTER_IDS,
 } from "@/domains/activation/activation-test-fixtures";
+import {
+  installActivationFetchStub,
+  seedActivationIdentity,
+  type ActivationFetchStub,
+} from "@/domains/activation/activation-test-helpers";
 import { useActivationUiStore } from "@/domains/activation/activation-ui-store";
 import { getActivationList } from "@/domains/activation/catalog";
 import { ActivationWelcomeModal } from "@/domains/activation/components/activation-welcome-modal";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const { starters, items } = getActivationList("smb");
 const ASSISTANT_ID = "asst-1";
 
-interface CapturedRequest {
-  url: string;
-  body: Record<string, unknown>;
-}
-
-const requests: CapturedRequest[] = [];
-const originalFetch = globalThis.fetch;
+let fetchStub: ActivationFetchStub;
 let startStatus = 200;
 /**
  * Resolvers for the `start` writes still out, so a test can hold one launch
@@ -48,8 +46,8 @@ let heldStarts: (() => void)[] | null = null;
 
 /** The prompt bodies that reached `POST /v1/messages`. */
 function sentPrompts(): unknown[] {
-  return requests
-    .filter((request) => request.url.includes("/messages"))
+  return fetchStub
+    .matching("/messages")
     .map((request) => request.body.message ?? request.body.content);
 }
 
@@ -60,51 +58,41 @@ function json(body: unknown): Response {
   });
 }
 
-function installFetch(): void {
-  globalThis.fetch = (async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const url = input instanceof Request ? input.url : String(input);
-    let bodyText: string | undefined;
-    if (input instanceof Request) {
-      bodyText = await input.clone().text();
-    } else if (typeof init?.body === "string") {
-      bodyText = init.body;
-    }
-    requests.push({
-      url,
-      body: bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {},
+/**
+ * The start leg parks so a test can hold one launch open while it begins
+ * another, which the shared stub's status and body tables cannot express.
+ */
+async function answerRequest(request: {
+  url: string;
+}): Promise<Response | undefined> {
+  if (request.url.includes("/messages")) {
+    return json({
+      accepted: true,
+      messageId: "m1",
+      conversationId: "conv-1",
     });
-    if (url.includes("/messages")) {
-      return json({
-        accepted: true,
-        messageId: "m1",
-        conversationId: "conv-1",
+  }
+  if (request.url.includes("/activation/tasks/")) {
+    if (heldStarts) {
+      await new Promise<void>((resolve) => heldStarts?.push(resolve));
+    }
+    if (startStatus !== 200) {
+      return new Response(JSON.stringify({ detail: "task id rejected" }), {
+        status: startStatus,
+        headers: { "Content-Type": "application/json" },
       });
     }
-    if (url.includes("/activation/tasks/")) {
-      if (heldStarts) {
-        await new Promise<void>((resolve) => heldStarts?.push(resolve));
-      }
-      if (startStatus !== 200) {
-        return new Response(JSON.stringify({ detail: "task id rejected" }), {
-          status: startStatus,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return json({ taskId: "t", status: "started" });
-    }
-    if (url.includes("/conversations")) {
-      return json({
-        id: "conv-1",
-        conversationKey: "",
-        conversationType: "standard",
-        created: true,
-      });
-    }
-    return json({});
-  }) as typeof fetch;
+    return json({ taskId: "t", status: "started" });
+  }
+  if (request.url.includes("/conversations")) {
+    return json({
+      id: "conv-1",
+      conversationKey: "",
+      conversationType: "standard",
+      created: true,
+    });
+  }
+  return undefined;
 }
 
 /** Reads the address back so navigation can be asserted without a mock. */
@@ -137,21 +125,16 @@ function renderModal(
 }
 
 beforeEach(() => {
-  requests.length = 0;
   startStatus = 200;
   heldStarts = null;
-  installFetch();
-  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
-  useActivationUiStore.setState({
-    expandedTaskId: null,
-    showMore: false,
-    modalReopened: false,
-  });
+  fetchStub = installActivationFetchStub({ respond: answerRequest });
+  seedActivationIdentity(ASSISTANT_ID);
+  useActivationUiStore.getState().resetTransientState();
 });
 
 afterEach(() => {
   cleanup();
-  globalThis.fetch = originalFetch;
+  fetchStub.restore();
 });
 
 describe("ActivationWelcomeModal", () => {
@@ -194,9 +177,9 @@ describe("ActivationWelcomeModal", () => {
     await act(async () => {
       fireEvent.click(getByText(starters[0]!.chip));
     });
-    const start = requests.find((request) =>
-      request.url.includes(`/activation/tasks/${FIXTURE_STARTER_IDS[0]}/start`),
-    );
+    const start = fetchStub.matching(
+      `/activation/tasks/${FIXTURE_STARTER_IDS[0]}/start`,
+    )[0];
     expect(start?.body).toEqual({ conversationId: "conv-1", listId: "smb" });
   });
 
@@ -335,6 +318,27 @@ describe("ActivationWelcomeModal", () => {
     expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
     expect(
       getByRole("button", { name: "Show me the full list" }),
+    ).not.toBeNull();
+  });
+
+  // "Welcome!" over a checklist the user has just finished reads as a surface
+  // that was not watching, so the band carries the variant's own copy.
+  test("the welcome band greets a first visit", () => {
+    const { getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
+    expect(getByText("Welcome!")).not.toBeNull();
+  });
+
+  test("the celebration band congratulates instead of greeting", () => {
+    const { getByText, queryByText } = renderModal(
+      ACTIVATION_PROGRESS_ALL_DONE,
+      "all-done",
+    );
+    expect(getByText("You did it!")).not.toBeNull();
+    expect(queryByText("Welcome!")).toBeNull();
+    expect(
+      getByText(
+        "Three tasks down. The full list is here whenever you want more.",
+      ),
     ).not.toBeNull();
   });
 

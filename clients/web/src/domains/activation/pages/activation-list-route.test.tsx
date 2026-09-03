@@ -3,15 +3,28 @@
  * gates that decide whether the page may render at all, and the two actions a
  * row can take, including what a failed one says.
  *
- * The progress read, the launch, the capability signal and the toast are
+ * The progress read, the launch, the toast and conversation navigation are
  * mocked at their seams; each owns its own suite, and what is under test here
  * is the wiring between them. The version gate is not mocked: it reads the
  * identity store, which is the thing a bookmark against an old assistant
  * actually trips.
+ *
+ * Every mock spreads the real module and is put back in `afterAll`, because
+ * `mock.module` replaces a module for the whole test process: a mock that
+ * drops the other exports breaks whatever loads the module next, and one that
+ * is never restored outlives the file that installed it.
  */
 
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import {
   cleanup,
   fireEvent,
@@ -26,12 +39,15 @@ import {
   ACTIVATION_PROGRESS_LIST_MIXED,
   FIXTURE_STARTER_IDS,
 } from "@/domains/activation/activation-test-fixtures";
+import {
+  mockActivationProgress,
+  resetActivationFlagStore,
+  seedActivationIdentity,
+  setActivationArm,
+} from "@/domains/activation/activation-test-helpers";
 import { getActivationList } from "@/domains/activation/catalog";
-import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
-import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 interface LaunchOutcome {
@@ -46,24 +62,19 @@ interface CapturedToast {
   onAction?: () => void;
 }
 
-let progress: ActivationProgress | undefined;
 let launchOutcome: LaunchOutcome = { ok: true };
 const launched: string[] = [];
 const navigated: string[] = [];
 const toasts: CapturedToast[] = [];
 
-// Every mock spreads the real module: `mock.module` replaces it for the whole
-// test process, so returning only the overridden export would erase the rest
-// for any file that loads it later.
-const progressModule =
-  await import("@/domains/activation/hooks/use-activation-progress");
-mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
-  ...progressModule,
-  useActivationProgress: () => ({ data: progress }),
-}));
+const progressMock = await mockActivationProgress();
 
+// Each real export is captured by value before the mock goes in: a module
+// namespace's bindings are live, so reading one back afterwards would hand out
+// the mock rather than the original.
 const launchModule =
   await import("@/domains/activation/hooks/use-launch-activation-task");
+const { useLaunchActivationTask: realUseLaunchActivationTask } = launchModule;
 mock.module("@/domains/activation/hooks/use-launch-activation-task", () => ({
   ...launchModule,
   useLaunchActivationTask: () => ({
@@ -72,15 +83,15 @@ mock.module("@/domains/activation/hooks/use-launch-activation-task", () => ({
       return launchOutcome;
     },
     pendingTaskIds: new Set<string>(),
-    isPending: () => false,
   }),
 }));
 
 const toastModule = await import("@vellumai/design-library/components/toast");
+const { toast: realToast } = toastModule;
 mock.module("@vellumai/design-library/components/toast", () => ({
   ...toastModule,
   toast: {
-    ...toastModule.toast,
+    ...realToast,
     error: (
       message: string,
       options?: { action?: { label: string; onClick: () => void } },
@@ -94,20 +105,30 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   },
 }));
 
-const capabilitiesModule = await import("@/domains/activation/capabilities");
-mock.module("@/domains/activation/capabilities", () => ({
-  ...capabilitiesModule,
-  useAvailableCapabilityTags: () =>
-    new Set(capabilitiesModule.ACTIVATION_CAPABILITY_TAGS),
-}));
-
 const navigationModule = await import("@/utils/conversation-navigation");
+const { navigateToConversation: realNavigateToConversation } = navigationModule;
 mock.module("@/utils/conversation-navigation", () => ({
   ...navigationModule,
   navigateToConversation: (_navigate: unknown, conversationId: string) => {
     navigated.push(conversationId);
   },
 }));
+
+afterAll(() => {
+  progressMock.restore();
+  mock.module("@/domains/activation/hooks/use-launch-activation-task", () => ({
+    ...launchModule,
+    useLaunchActivationTask: realUseLaunchActivationTask,
+  }));
+  mock.module("@vellumai/design-library/components/toast", () => ({
+    ...toastModule,
+    toast: realToast,
+  }));
+  mock.module("@/utils/conversation-navigation", () => ({
+    ...navigationModule,
+    navigateToConversation: realNavigateToConversation,
+  }));
+});
 
 const { ActivationListRoute } =
   await import("@/domains/activation/pages/activation-list-route");
@@ -122,32 +143,20 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function setArm(arm: string): void {
-  useClientFeatureFlagStore
-    .getState()
-    .setStringFlags({ activationChecklist: arm }, null);
-  // The values a server response carries, and the fact that one has landed,
-  // are two writes on this store; the route waits for the second before it
-  // acts on the first.
-  useClientFeatureFlagStore.setState({ hydrated: true });
-}
-
 function renderRoute() {
   return render(<ActivationListRoute />, { wrapper });
 }
 
 beforeEach(() => {
-  progress = ACTIVATION_PROGRESS_EMPTY;
+  progressMock.set(ACTIVATION_PROGRESS_EMPTY);
   launchOutcome = { ok: true };
-  setArm("smb");
-  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
-  useAssistantIdentityStore
-    .getState()
-    .setIdentity("Vel", MIN_VERSION, "asst-1");
+  setActivationArm("smb");
+  seedActivationIdentity("asst-1");
 });
 
 afterEach(() => {
   cleanup();
+  resetActivationFlagStore();
   useAssistantIdentityStore.getState().clearIdentity();
   launched.length = 0;
   navigated.length = 0;
@@ -163,7 +172,7 @@ describe("ActivationListRoute", () => {
   });
 
   test("an arm that names no list hands the user back to chat", () => {
-    setArm("off");
+    setActivationArm("off");
     renderRoute();
 
     expect(screen.queryByRole("listitem")).toBeNull();
@@ -172,8 +181,8 @@ describe("ActivationListRoute", () => {
   test("the daemon's frozen list wins over the arm", () => {
     // A re-bucketed user keeps the checklist they started, the same rule the
     // modal and the pill follow.
-    setArm("parent");
-    progress = ACTIVATION_PROGRESS_LIST_MIXED;
+    setActivationArm("parent");
+    progressMock.set(ACTIVATION_PROGRESS_LIST_MIXED);
     renderRoute();
 
     expect(screen.getByText(starters[0]?.title ?? "")).toBeTruthy();
@@ -191,7 +200,7 @@ describe("ActivationListRoute", () => {
   });
 
   test("a finished row opens the conversation it ran in", () => {
-    progress = ACTIVATION_PROGRESS_LIST_MIXED;
+    progressMock.set(ACTIVATION_PROGRESS_LIST_MIXED);
     renderRoute();
 
     fireEvent.click(
@@ -206,8 +215,8 @@ describe("ActivationListRoute", () => {
   // `/v1/activation/*` routes can neither answer the progress read nor link a
   // launch, so every row would offer work it cannot do.
   test("an assistant below the activation floor hands the user back to chat", () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.11.0", "asst-1");
-    progress = ACTIVATION_PROGRESS_LIST_MIXED;
+    seedActivationIdentity("asst-1", "0.11.0");
+    progressMock.set(ACTIVATION_PROGRESS_LIST_MIXED);
     renderRoute();
 
     expect(screen.queryByRole("listitem")).toBeNull();
@@ -219,7 +228,7 @@ describe("ActivationListRoute before progress lands", () => {
   // An absent record reads as "never started", so a finished task rendered
   // against a progress read still in flight would offer to run again.
   test("no task can launch until the daemon has answered", () => {
-    progress = undefined;
+    progressMock.set(undefined);
     const { rerender } = renderRoute();
 
     expect(screen.getByRole("status")).toBeTruthy();
@@ -227,7 +236,7 @@ describe("ActivationListRoute before progress lands", () => {
     expect(screen.queryByRole("button")).toBeNull();
 
     // The answer arrives, carrying a task that is already done.
-    progress = ACTIVATION_PROGRESS_LIST_MIXED;
+    progressMock.set(ACTIVATION_PROGRESS_LIST_MIXED);
     rerender(<ActivationListRoute />);
 
     fireEvent.click(
@@ -332,7 +341,7 @@ describe("ActivationListRoute before the gates settle", () => {
   // for a second opinion it cannot change is how an arm switched off leaves a
   // bookmark on a page that renders nothing at all.
   test("hands the user back to chat on an arm that is off, whatever the version is doing", () => {
-    setArm("off");
+    setActivationArm("off");
     useAssistantIdentityStore.getState().clearIdentity();
     renderWithPath();
 
@@ -372,7 +381,7 @@ describe("ActivationListRoute before the gates settle", () => {
   });
 
   test("hands the user back to chat once the gates have answered", () => {
-    setArm("off");
+    setActivationArm("off");
     renderWithPath();
 
     expect(screen.getByTestId("pathname").textContent).toBe(routes.assistant);

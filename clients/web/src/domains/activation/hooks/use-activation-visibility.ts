@@ -8,22 +8,28 @@
  * The order is deliberate. The cheap local answer comes first
  * (`useEffectiveActivationListId`, which carries the flag arm, the daemon
  * support gate and the daemon's frozen list, the three every activation
- * surface shares), then the server read, then
- * the surfaces this one must not fight with: onboarding routes and the in-chat
- * tour own the screen while they run, the Inspiration List is already the whole
- * checklist, and a banner occupies the slot the pill would take.
+ * surface shares), then the server read, then the surfaces this one must not
+ * fight with: onboarding routes and the in-chat tour own the screen while they
+ * run, and the Inspiration List is already the whole checklist.
+ *
+ * A banner is the last gate and applies to the pill alone. It occupies the
+ * slot the pill would take, which is a reason to drop the pill and no reason
+ * at all to drop a blocking dialog: the welcome modal is the surface a
+ * first-time user is meant to meet, and hiding it behind any composer nudge
+ * would retire the checklist for whoever happens to have one.
  */
 
 import { useLocation } from "react-router";
 
+import type { ActivationListId } from "@/hooks/use-activation-checklist-flag";
 import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useBannerVisible } from "@/stores/banner-visibility-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 import { getActivationListIds } from "../catalog";
 import {
+  activationRowStatus,
   useActivationProgress,
   type ActivationProgress,
 } from "./use-activation-progress";
@@ -45,7 +51,7 @@ export interface ActivationVisibility {
    * The list the surfaces render, frozen by the daemon on the first write and
    * otherwise chosen by the flag arm. `null` whenever `surface` is `null`.
    */
-  listId: string | null;
+  listId: ActivationListId | null;
 }
 
 const HIDDEN: ActivationVisibility = { surface: null, listId: null };
@@ -79,13 +85,12 @@ export function doneStarterCount(
   listId: string,
 ): number {
   return getActivationListIds(listId).starters.filter(
-    (taskId) => progress.tasks[taskId]?.status === "done",
+    (taskId) => activationRowStatus(progress.tasks[taskId]) === "done",
   ).length;
 }
 
 export function useActivationVisibility(): ActivationVisibility {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const listId = useEffectiveActivationListId(assistantId);
+  const listId = useEffectiveActivationListId();
   const { data: progress } = useActivationProgress();
   const { pathname } = useLocation();
   const tourActive = useInChatOnboardingStore.use.prototypeActive();
@@ -97,8 +102,7 @@ export function useActivationVisibility(): ActivationVisibility {
   if (
     isOnboardingRoute(pathname) ||
     isActivationListRoute(pathname) ||
-    tourActive ||
-    bannerVisible
+    tourActive
   ) {
     return HIDDEN;
   }
@@ -125,7 +129,7 @@ export function useActivationVisibility(): ActivationVisibility {
     return { surface: "modal", listId };
   }
   if (doneCount < starters.length) {
-    return { surface: "pill", listId };
+    return bannerVisible ? HIDDEN : { surface: "pill", listId };
   }
   return HIDDEN;
 }

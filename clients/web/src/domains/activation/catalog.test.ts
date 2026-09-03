@@ -1,6 +1,6 @@
 /**
- * The catalog's coupling contract (PLAN section 6), enforced against the data
- * rather than against code.
+ * The catalog's coupling contract, enforced against the data rather than
+ * against code.
  *
  * Content is meant to be edited freely: copy, prompts, chips, icons, colors
  * and order all change without a code change. These tests fence in the parts
@@ -26,7 +26,6 @@ import {
 } from "@/domains/activation/catalog";
 import { ACTIVATION_ICONS } from "@/domains/activation/catalog-icons";
 import { ACTIVATION_LIST_IDS } from "@/hooks/use-activation-checklist-flag";
-import activationCopy from "@/i18n/locales/en/activation.json";
 import activationTasks from "@/i18n/locales/en/activation-tasks.json";
 import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 
@@ -164,8 +163,9 @@ describe("activation task pool", () => {
     }
   });
 
-  // The downloads page has one owner, so the catalog's copy of it must be the
-  // constant's exact value or the loader's repoint silently stops applying.
+  // The downloads page has one owner. The catalog names it as content, so this
+  // pins the copy to the constant the rest of the app links through: a
+  // downloads URL that moves has to move here too.
   test("the desktop download link is the shared downloads URL", () => {
     expect(TASKS["try-computer-use"]?.link?.url).toBe(VELLUM_DOWNLOADS_URL);
   });
@@ -181,49 +181,5 @@ describe("activation task pool", () => {
         );
       }
     }
-  });
-});
-
-/**
- * The surface copy is authored ahead of the components that read it (the
- * modal, the pill and the list page land in later PRs), so this pins the key
- * set the plan signed off on. Without it a rename or a deletion between now
- * and then goes unnoticed until a surface renders a raw key path.
- */
-describe("activation copy contract", () => {
-  test("the catalog exposes exactly the keys the surfaces read", () => {
-    const flatten = (value: unknown, prefix = ""): string[] =>
-      typeof value === "object" && value !== null
-        ? Object.entries(value).flatMap(([key, child]) =>
-            flatten(child, prefix ? `${prefix}.${key}` : key),
-          )
-        : [prefix];
-
-    expect(flatten(activationCopy).sort()).toEqual(
-      [
-        "welcome.title",
-        "welcome.subtitle",
-        "welcome.showMore",
-        "welcome.showFullList",
-        "welcome.later",
-        "row.customLabel",
-        "row.customPlaceholder",
-        "row.working",
-        "row.done",
-        "row.steps",
-        "row.send",
-        "row.openTask",
-        "pill.label",
-        "pill.progress",
-        "pill.aria",
-        "menu.inspirationList",
-        "launch.noAssistant",
-        "launch.unknownTask",
-        "launch.failed",
-        "launch.openConversation",
-        "page.title",
-        "page.loading",
-      ].sort(),
-    );
   });
 });

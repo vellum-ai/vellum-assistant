@@ -101,7 +101,7 @@ export function useAssistantScopedSupports(
  * version still held for the assistant the user just left says nothing about
  * this one.
  */
-export function useAssistantVersionKnownFor(
+function useAssistantVersionKnownFor(
   ownerAssistantId: string | null | undefined,
 ): boolean {
   const identityAssistantId = useAssistantIdentityStore.use.assistantId();

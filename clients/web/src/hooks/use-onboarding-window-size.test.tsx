@@ -12,7 +12,11 @@ mock.module("react-router", () => ({
   useLocation: () => ({ pathname: currentPath }),
 }));
 
+// Spread the real module: `mock.module` is process-global in bun, so a partial
+// shape erases the rest of it for every file that loads it later.
+const mainWindowModule = await import("@/runtime/main-window");
 mock.module("@/runtime/main-window", () => ({
+  ...mainWindowModule,
   setOnboardingWindow: setOnboardingWindowMock,
 }));
 

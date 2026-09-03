@@ -60,8 +60,12 @@ mock.module("react-router", () => ({
   useLocation: () => ({ pathname: mockPathname, search: mockSearch, hash: "" }),
 }));
 
+// Spread the real module: `mock.module` is process-global in bun, so a partial
+// shape erases the rest of it for every file that loads it later.
+const mainWindowModule = await import("@/runtime/main-window");
 const ensureMainWindowVisibleMock = mock(async () => undefined);
 mock.module("@/runtime/main-window", () => ({
+  ...mainWindowModule,
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
 }));
 
@@ -1125,9 +1129,7 @@ describe("deeplink.share", () => {
       await Promise.resolve();
     });
 
-    expect(navigateMock).toHaveBeenCalledWith(
-      routes.conversation("conv-xyz"),
-    );
+    expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-xyz"));
     const parked = usePendingDeepLinkStore.getState().pendingShareSend;
     expect(parked?.isNewDraft).toBe(false);
     expect(parked?.threadId).toBe("conv-xyz");

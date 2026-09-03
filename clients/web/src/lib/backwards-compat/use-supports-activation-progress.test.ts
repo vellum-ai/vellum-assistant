@@ -6,24 +6,26 @@ import {
   useSupportsActivationProgress,
 } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-const OWNER_ASSISTANT_ID = "asst-owner";
+const ACTIVE_ASSISTANT_ID = "asst-owner";
 
 function check(
   version: string | null,
-  identityAssistantId: string | null = OWNER_ASSISTANT_ID,
+  identityAssistantId: string | null = ACTIVE_ASSISTANT_ID,
 ): boolean {
   useAssistantIdentityStore
     .getState()
     .setIdentity("test-asst", version, identityAssistantId);
-  const { result } = renderHook(() =>
-    useSupportsActivationProgress(OWNER_ASSISTANT_ID),
-  );
+  const { result } = renderHook(() => useSupportsActivationProgress());
   return result.current;
 }
 
 beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: ACTIVE_ASSISTANT_ID,
+  });
 });
 
 afterEach(() => {
@@ -85,15 +87,13 @@ describe("useSupportsActivationProgress", () => {
     expect(check(MIN_VERSION, null)).toBe(false);
   });
 
-  test("returns false without an owner to scope to", () => {
+  test("returns false without an active assistant to scope to", () => {
     useAssistantIdentityStore
       .getState()
-      .setIdentity("test-asst", MIN_VERSION, OWNER_ASSISTANT_ID);
+      .setIdentity("test-asst", MIN_VERSION, ACTIVE_ASSISTANT_ID);
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
     expect(
-      renderHook(() => useSupportsActivationProgress(null)).result.current,
-    ).toBe(false);
-    expect(
-      renderHook(() => useSupportsActivationProgress(undefined)).result.current,
+      renderHook(() => useSupportsActivationProgress()).result.current,
     ).toBe(false);
   });
 });

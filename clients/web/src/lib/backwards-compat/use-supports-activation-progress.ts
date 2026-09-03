@@ -23,13 +23,16 @@
  * dev builds from before it do not, and later releases pass on the base
  * comparison alone with nothing predicted.
  *
- * Scoped to the assistant the surface reads for via
- * `useAssistantScopedSupports` (see its JSDoc in `./utils.ts`). Switching from
- * a new assistant to an older one changes the active id one render before the
- * identity fetch replaces the version, so an unscoped gate would stay `true`
- * across that render and enable the progress read against the older assistant,
- * caching a 404 for it.
+ * Scoped to the active assistant via `useAssistantScopedSupports` (see its
+ * JSDoc in `./utils.ts`). Switching from a new assistant to an older one
+ * changes the active id one render before the identity fetch replaces the
+ * version, so an unscoped gate would stay `true` across that render and enable
+ * the progress read against the older assistant, caching a 404 for it. The
+ * scoping is kept here, where that race lives, rather than handed to callers
+ * as a parameter every one of them would fill in the same way.
  */
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
 import { useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.8-dev.202609030107.d5d996d";
@@ -37,10 +40,9 @@ export const MIN_VERSION = "0.11.8-dev.202609030107.d5d996d";
 /**
  * Render-path gate for every activation surface. `false` while the version is
  * unknown or still held for another assistant, which keeps the feature hidden
- * until identity resolves for `ownerAssistantId`.
+ * until identity resolves for the active one.
  */
-export function useSupportsActivationProgress(
-  ownerAssistantId: string | null | undefined,
-): boolean {
-  return useAssistantScopedSupports(MIN_VERSION, ownerAssistantId);
+export function useSupportsActivationProgress(): boolean {
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  return useAssistantScopedSupports(MIN_VERSION, assistantId);
 }

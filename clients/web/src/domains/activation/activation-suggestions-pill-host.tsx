@@ -13,7 +13,6 @@
 
 import type { ReactNode } from "react";
 
-import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { emitActivationEvent } from "@/utils/activation-telemetry";
 
 import { useActivationUiStore } from "./activation-ui-store";
@@ -27,7 +26,6 @@ import {
 
 export function ActivationSuggestionsPillHost(): ReactNode {
   const { surface, listId } = useActivationVisibility();
-  const arm = useActivationChecklistArm();
   const { data: progress } = useActivationProgress();
   const openModal = useActivationUiStore.use.openModal();
 
@@ -40,7 +38,7 @@ export function ActivationSuggestionsPillHost(): ReactNode {
       done={doneStarterCount(progress, listId)}
       total={getActivationListIds(listId).starters.length}
       onClick={() => {
-        emitActivationEvent("activation_pill_clicked", { arm, listId });
+        emitActivationEvent("activation_pill_clicked");
         openModal();
       }}
     />

@@ -6,9 +6,9 @@
  * rather than being mixed here, so the modal and the full list page cannot
  * drift apart on the same task's colour.
  *
- * A finished task swaps the whole pair for the positive tokens and a check
- * (PLAN A21): the row's status has to read at a glance from across the modal,
- * which a recoloured disc alone does not do.
+ * A finished task swaps the whole pair for the positive tokens and a check:
+ * the row's status has to read at a glance from across the modal, which a
+ * recoloured disc alone does not do.
  */
 
 import { Check, type LucideIcon } from "lucide-react";

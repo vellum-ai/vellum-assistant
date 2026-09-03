@@ -19,6 +19,8 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 
+import type { ActivationSurface } from "./hooks/use-activation-visibility";
+
 interface ActivationUiState {
   /** The expanded row, or null when every row is collapsed. One at a time. */
   expandedTaskId: string | null;
@@ -30,6 +32,17 @@ interface ActivationUiState {
    * session, and it is cleared when they close it again.
    */
   modalReopened: boolean;
+  /**
+   * The surface the user has closed here, ahead of the daemon.
+   *
+   * The visible surface is derived from a server-backed read, so without this
+   * a blocking dialog would stay on screen until the write and its refetch
+   * landed, and a write that failed would leave it there for good. Naming the
+   * surface rather than holding a bare flag keeps the celebration reachable
+   * after the welcome modal has been closed: they are different surfaces and
+   * only one of them is closed at a time.
+   */
+  closedSurface: ActivationSurface | null;
 }
 
 interface ActivationUiActions {
@@ -37,7 +50,12 @@ interface ActivationUiActions {
   toggleTask: (taskId: string) => void;
   setExpandedTaskId: (taskId: string | null) => void;
   setShowMore: (showMore: boolean) => void;
-  /** Drops every transient choice; the next assistant starts from the default view. */
+  setClosedSurface: (surface: ActivationSurface | null) => void;
+  /**
+   * Drops every transient choice. The single reset: an expanded row, Show
+   * More, a pill reopen and a local dismissal all belong to one assistant's
+   * checklist, and the next assistant starts from the default view.
+   */
   resetTransientState: () => void;
   openModal: () => void;
   closeModal: () => void;
@@ -49,14 +67,21 @@ const useActivationUiStoreBase = create<ActivationUiStore>((set) => ({
   expandedTaskId: null,
   showMore: false,
   modalReopened: false,
+  closedSurface: null,
   toggleTask: (taskId) =>
     set((state) => ({
       expandedTaskId: state.expandedTaskId === taskId ? null : taskId,
     })),
   setExpandedTaskId: (taskId) => set({ expandedTaskId: taskId }),
   setShowMore: (showMore) => set({ showMore }),
+  setClosedSurface: (closedSurface) => set({ closedSurface }),
   resetTransientState: () =>
-    set({ expandedTaskId: null, showMore: false, modalReopened: false }),
+    set({
+      expandedTaskId: null,
+      showMore: false,
+      modalReopened: false,
+      closedSurface: null,
+    }),
   openModal: () => set({ modalReopened: true }),
   closeModal: () => set({ modalReopened: false }),
 }));

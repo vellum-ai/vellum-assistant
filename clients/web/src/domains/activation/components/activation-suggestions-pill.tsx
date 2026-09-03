@@ -9,7 +9,7 @@
  * state, and it retires itself the moment the third starter finishes, so a
  * second way to hide it would only make the checklist unreachable.
  *
- * Under 480px the word goes and the mascots plus the count stay (PLAN A7):
+ * Under 480px the word goes and the mascots plus the count stay:
  * the top bar has a search control and a notification bell beside it, and the
  * count is the part that carries information.
  */

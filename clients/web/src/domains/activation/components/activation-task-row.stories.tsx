@@ -94,6 +94,30 @@ export const DoneWithPill: Story = {
   args: { task: RECAP_TASK, progress: doneTaskProgress() },
 };
 
+/** The working row on the dark ground, where the spinner has least contrast. */
+export const WorkingDark: Story = {
+  args: { progress: startedTaskProgress() },
+  globals: { theme: "dark" },
+};
+
+/** The working row at phone width, where the pill shares the narrowest row. */
+export const WorkingMobile: Story = {
+  args: { progress: startedTaskProgress() },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+/** The counted done row on the dark ground. */
+export const DoneWithPillDark: Story = {
+  args: { task: RECAP_TASK, progress: doneTaskProgress() },
+  globals: { theme: "dark" },
+};
+
+/** The counted done row at phone width. */
+export const DoneWithPillMobile: Story = {
+  args: { task: RECAP_TASK, progress: doneTaskProgress() },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
 /** The expanded row on the dark ground, where the chip and field invert. */
 export const TodoExpandedDark: Story = {
   args: { expanded: true },
@@ -120,12 +144,48 @@ export const ListTodo: Story = {
   args: { task: COMPUTER_USE_TASK, surface: "list" },
 };
 
+/** The list row on the dark ground, where its call to action has to hold. */
+export const ListTodoDark: Story = {
+  args: { task: COMPUTER_USE_TASK, surface: "list" },
+  globals: { theme: "dark" },
+};
+
+/** The list row at phone width, where the call to action wraps first. */
+export const ListTodoMobile: Story = {
+  args: { task: COMPUTER_USE_TASK, surface: "list" },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
 /** A launch the list has fired and the daemon has not answered for yet. */
 export const ListPending: Story = {
   args: { surface: "list", pending: true },
 };
 
+/** The pending list row on the dark ground. */
+export const ListPendingDark: Story = {
+  args: { surface: "list", pending: true },
+  globals: { theme: "dark" },
+};
+
+/** The pending list row at phone width. */
+export const ListPendingMobile: Story = {
+  args: { surface: "list", pending: true },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
 /** A finished list row, where the file sits under the muted title. */
 export const ListDoneWithFile: Story = {
   args: { surface: "list", progress: doneWithArtifactProgress() },
+};
+
+/** The finished list row on the dark ground. */
+export const ListDoneWithFileDark: Story = {
+  args: { surface: "list", progress: doneWithArtifactProgress() },
+  globals: { theme: "dark" },
+};
+
+/** The finished list row at phone width, where the file card is tightest. */
+export const ListDoneWithFileMobile: Story = {
+  args: { surface: "list", progress: doneWithArtifactProgress() },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
