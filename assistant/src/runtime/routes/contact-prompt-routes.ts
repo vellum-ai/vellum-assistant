@@ -267,6 +267,18 @@ async function handleContactPrompt({
     };
   }
 
+  // Clients hold one contact card at a time, so a second broadcast replaces the
+  // first and leaves its command waiting on a form nobody can answer. Refusing
+  // here fails the second command immediately instead, which is a caller that
+  // can retry rather than one that hangs.
+  if (hasUnclaimedGuardianForm(CONTACT_FORMS)) {
+    return {
+      ok: false,
+      error:
+        "Another contact form is already open. Wait for it to be answered, then try again.",
+    };
+  }
+
   return openGuardianForm<ContactPromptResult>({
     kind: ADDRESS_FORM,
     timeoutMs,
