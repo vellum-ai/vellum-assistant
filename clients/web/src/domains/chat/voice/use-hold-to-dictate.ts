@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { HotkeySelection, KeyboardModifier } from "@vellumai/ipc-contract";
 
 import {
+  readFrontSelection,
   setModifierHold,
   subscribeToHotkeyEvents,
   supportsModifierHold,
@@ -44,11 +45,16 @@ export const HOLD_ARMING_MS = 220;
 /** What a hold began over. */
 export interface HoldStart {
   /**
-   * What the user had highlighted when the keys went down, when anything was.
-   * Read once, at the `down` edge, so a hold is about what was selected as it
-   * began and not about what the user clicks on while talking.
+   * What the user had highlighted as the hold armed, when anything was.
+   *
+   * Asked for at the arming edge and not at the press: every chord on the
+   * set passes through the held state, and a read on each of them would
+   * query, and on the copy path type into, whatever application the user is
+   * working in. A promise rather than a value so the microphone opens without
+   * waiting on the read; what was selected cannot change while the keys are
+   * held, and the transcript that needs it lands well after the read does.
    */
-  selection: HotkeySelection | null;
+  selection: Promise<HotkeySelection | null>;
 }
 
 export interface HoldToDictateHandlers {
@@ -115,23 +121,11 @@ export function useHoldToDictate({
       }
       if (event.state === "down") {
         cancelArming();
-        const selection = event.selection ?? null;
-        // The helper may have held the edge to read the selection. That time
-        // was part of the hold, so it comes off the arming delay rather than
-        // being added to it. A hold the read has already carried past the
-        // delay opens here and now: its `up` may be queued right behind this
-        // edge, and a deferred open would be cancelled by it.
-        const armingMs = HOLD_ARMING_MS - (event.heldMs ?? 0);
-        if (armingMs <= 0) {
-          open = true;
-          handlers.current.onHoldStart({ selection });
-          return;
-        }
         armingTimer = setTimeout(() => {
           armingTimer = null;
           open = true;
-          handlers.current.onHoldStart({ selection });
-        }, armingMs);
+          handlers.current.onHoldStart({ selection: readFrontSelection() });
+        }, HOLD_ARMING_MS);
         return;
       }
       endIfOpen();

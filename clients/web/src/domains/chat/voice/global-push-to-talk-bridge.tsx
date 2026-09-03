@@ -241,7 +241,7 @@ export function GlobalPushToTalkBridge({
   }, [navigate]);
   // What the hold in progress began over. Read when its transcript lands,
   // which decides whether the words go to the cursor or to the assistant.
-  const holdSelectionRef = useRef<HotkeySelection | null>(null);
+  const holdSelectionRef = useRef<Promise<HotkeySelection | null> | null>(null);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -333,8 +333,9 @@ export function GlobalPushToTalkBridge({
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
-      const selection = holdSelectionRef.current;
+      const pendingSelection = holdSelectionRef.current;
       holdSelectionRef.current = null;
+      const selection = pendingSelection ? await pendingSelection : null;
       if (selection !== null) {
         // Words over an editable selection may be asking for it changed. The
         // daemon reads them either way: an edit comes back to be put where

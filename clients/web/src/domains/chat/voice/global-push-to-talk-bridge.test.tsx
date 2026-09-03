@@ -60,10 +60,18 @@ let holdHandlers: {
 mock.module("@/domains/chat/voice/use-hold-to-dictate", () => ({
   HOLD_ARMING_MS: 220,
   useHoldToDictate: (options: {
-    onHoldStart: (start: HoldStart) => void;
+    onHoldStart: (start: {
+      selection: Promise<HoldStart["selection"]>;
+    }) => void;
     onHoldEnd: () => void;
   }) => {
-    holdHandlers = options;
+    // The hook hands the bridge a selection still being read; the tests
+    // describe what it will resolve to.
+    holdHandlers = {
+      onHoldStart: (start) =>
+        options.onHoldStart({ selection: Promise.resolve(start.selection) }),
+      onHoldEnd: options.onHoldEnd,
+    };
   },
 }));
 
@@ -465,6 +473,12 @@ describe("a hold over an editable selection", () => {
     truncated: false,
     editable: true,
   };
+  /**
+   * The transcript waits on the selection its hold was read over before it
+   * asks the daemon anything, so under fake timers the deadline is not yet
+   * ticking when `onTranscript` returns.
+   */
+  const selectionRead = () => Promise.resolve();
   const holdOver = (selection: HoldStart["selection"]) => {
     act(() => {
       holdHandlers?.onHoldStart({ selection });
@@ -520,6 +534,7 @@ describe("a hold over an editable selection", () => {
     jest.useFakeTimers();
     try {
       const run = voiceInput.onTranscript("make this friendlier");
+      await selectionRead();
       jest.advanceTimersByTime(8000);
       await act(async () => {
         await run;
@@ -543,6 +558,7 @@ describe("a hold over an editable selection", () => {
     jest.useFakeTimers();
     try {
       const run = voiceInput.onTranscript("make this friendlier");
+      await selectionRead();
       jest.advanceTimersByTime(20_000);
       await act(async () => {
         await run;

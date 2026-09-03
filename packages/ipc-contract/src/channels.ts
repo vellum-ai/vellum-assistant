@@ -55,6 +55,8 @@ export const HELPER_HOTKEY_SET_VOICE_MODE_CHORD =
   "vellum:helper:hotkey:setVoiceModeChord";
 export const HELPER_HOTKEY_SET_MODIFIER_HOLD =
   "vellum:helper:hotkey:setModifierHold";
+export const HELPER_HOTKEY_READ_FRONT_SELECTION =
+  "vellum:helper:hotkey:readFrontSelection";
 export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
 export const HELPER_HOTKEY_REGISTRATION_EVENT =
   "vellum:helper:hotkey:registration";

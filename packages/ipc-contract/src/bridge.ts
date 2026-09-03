@@ -45,6 +45,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
   Lockfile,
   LockfileWriteResult,
   LocalAssistantStatusResult,
@@ -237,6 +238,11 @@ export interface VellumBridge {
       setModifierHold?(
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult>;
+      /**
+       * What is highlighted in the application in front, or `null` when
+       * nothing is. Absent on shells whose helper cannot read it.
+       */
+      readFrontSelection?(): Promise<HotkeySelection | null>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };

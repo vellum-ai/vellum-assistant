@@ -1,18 +1,23 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
+import type { HotkeySelection } from "@vellumai/ipc-contract";
+
 import type { HotkeyEvent } from "@/runtime/hotkey";
 
 let holdSupported = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
+let frontSelection: HotkeySelection | null = null;
 const setModifierHold = mock(async (_hold: unknown) => ({
   ok: true as const,
   enabled: true,
 }));
+const readFrontSelection = mock(async () => frontSelection);
 
 mock.module("@/runtime/hotkey", () => ({
   supportsModifierHold: () => holdSupported,
   setModifierHold,
+  readFrontSelection,
   subscribeToHotkeyEvents: (callback: (event: HotkeyEvent) => void) => {
     emitHotkeyEvent = callback;
     return () => {
@@ -23,25 +28,35 @@ mock.module("@/runtime/hotkey", () => ({
 
 const { HOLD_ARMING_MS, useHoldToDictate } =
   await import("@/domains/chat/voice/use-hold-to-dictate");
+type HoldStart = Parameters<
+  Parameters<typeof useHoldToDictate>[0]["onHoldStart"]
+>[0];
 
-const press = (
-  selection?: HotkeyEvent["selection"],
-  heldMs?: HotkeyEvent["heldMs"],
-) => {
+const press = () => {
   act(() => {
-    emitHotkeyEvent?.({
-      kind: "modifierHold",
-      state: "down",
-      ...(selection ? { selection } : {}),
-      ...(heldMs !== undefined ? { heldMs } : {}),
-    });
+    emitHotkeyEvent?.({ kind: "modifierHold", state: "down" });
   });
 };
 
 const release = () => {
   act(() => {
-    emitHotkeyEvent?.({ kind: "modifierHold", state: "up" });
+    emitHotkeyEvent?.({
+      kind: "modifierHold",
+      state: "up",
+      reason: "released",
+    });
   });
+};
+
+/** What the start the hook reported will resolve its selection to. */
+const startedOver = async (
+  onHoldStart: ReturnType<typeof mock<(start: HoldStart) => void>>,
+): Promise<HotkeySelection | null> => {
+  const start = onHoldStart.mock.calls[0]?.[0];
+  if (!start) {
+    throw new Error("the hold never started");
+  }
+  return start.selection;
 };
 
 const settle = async (ms: number) => {
@@ -51,7 +66,7 @@ const settle = async (ms: number) => {
 };
 
 const renderHold = () => {
-  const onHoldStart = mock(() => {});
+  const onHoldStart = mock((_start: HoldStart) => {});
   const onHoldEnd = mock(() => {});
   const view = renderHook(() => useHoldToDictate({ onHoldStart, onHoldEnd }));
   return { onHoldStart, onHoldEnd, view };
@@ -60,7 +75,9 @@ const renderHold = () => {
 describe("hold to dictate", () => {
   beforeEach(() => {
     holdSupported = true;
+    frontSelection = null;
     setModifierHold.mockClear();
+    readFrontSelection.mockClear();
   });
 
   afterEach(() => {
@@ -78,58 +95,49 @@ describe("hold to dictate", () => {
     expect(onHoldStart).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * Every chord on these modifiers passes through the held state on its way to
-   * its own key, so a release inside the delay is someone typing Ctrl+Option+F
-   * rather than reaching for dictation.
-   */
-  test("hands the selection the hold began over to the start", async () => {
+  test("hands the selection the hold armed over to the start", async () => {
+    frontSelection = {
+      text: "the powerhouse of the cell",
+      truncated: false,
+      editable: false,
+    };
     const { onHoldStart } = renderHold();
-    press({
+    press();
+    await settle(HOLD_ARMING_MS + 20);
+    expect(await startedOver(onHoldStart)).toEqual({
       text: "the powerhouse of the cell",
       truncated: false,
       editable: false,
     });
-    await settle(HOLD_ARMING_MS + 20);
-    expect(onHoldStart).toHaveBeenCalledWith({
-      selection: {
-        text: "the powerhouse of the cell",
-        truncated: false,
-        editable: false,
-      },
-    });
     release();
   });
 
-  test("takes the time the helper held the edge off the arming delay", async () => {
-    const { onHoldStart } = renderHold();
-    press(
-      { text: "selected", truncated: false, editable: false },
-      HOLD_ARMING_MS - 20,
-    );
-    await settle(40);
-    expect(onHoldStart).toHaveBeenCalledTimes(1);
-    release();
-  });
-
-  test("opens on the edge when the helper's read has already outlasted the delay", async () => {
-    const { onHoldStart, onHoldEnd } = renderHold();
-    // The read took longer than the arming delay, and the user let go while
-    // it ran, so the `up` lands right behind the `down`.
-    press(
-      { text: "selected", truncated: false, editable: false },
-      HOLD_ARMING_MS + 30,
-    );
-    expect(onHoldStart).toHaveBeenCalledTimes(1);
-    release();
-    expect(onHoldEnd).toHaveBeenCalledTimes(1);
-  });
-
-  test("starts with no selection when the edge carried none", async () => {
+  test("starts with no selection when nothing was highlighted", async () => {
     const { onHoldStart } = renderHold();
     press();
     await settle(HOLD_ARMING_MS + 20);
-    expect(onHoldStart).toHaveBeenCalledWith({ selection: null });
+    expect(await startedOver(onHoldStart)).toBeNull();
+    release();
+  });
+
+  /**
+   * Every chord on these modifiers passes through the held state on its way to
+   * its own key. A read on each press would query, and on the copy path type
+   * into, whatever the user is working in, for a hold that was never one.
+   */
+  test("asks for the selection only once the hold has armed", async () => {
+    renderHold();
+
+    press();
+    await settle(HOLD_ARMING_MS / 3);
+    expect(readFrontSelection).not.toHaveBeenCalled();
+    release();
+    await settle(HOLD_ARMING_MS + 30);
+    expect(readFrontSelection).not.toHaveBeenCalled();
+
+    press();
+    await settle(HOLD_ARMING_MS + 30);
+    expect(readFrontSelection).toHaveBeenCalledTimes(1);
     release();
   });
 
