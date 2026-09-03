@@ -1,11 +1,9 @@
 import { PinOff, Rocket } from "lucide-react";
 
-import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
-import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -40,16 +38,16 @@ export interface PinnedAppNavItemProps {
  * most: it has no hover button and nothing to swipe, so the menu is its only
  * route to an unpin, reached by right click or by long press.
  *
- * On touch, the expanded row additionally reveals an Unpin button on a left
- * swipe. The tile omits that: it has nowhere to swipe to, and the actions a
- * swipe reveals are sized for a full-width row.
+ * The expanded row carries an unpin button on its trailing edge, revealed with
+ * the row where the device can hover and standing there where it cannot. The
+ * row has one command, so hiding it would leave a screen reader and a switch
+ * control nothing to announce, and a long press is not a control anything can
+ * name.
  *
- * A third path on the expanded row: an unpin button on its trailing edge,
- * revealed with the row where the device can hover and standing there where it
- * cannot. The row has one command, so hiding it would leave a screen reader and
- * a switch control nothing to announce: a swipe's buttons are outside the
- * accessibility tree until the swipe reveals them, and neither a swipe nor a
- * long press is a control anything can name.
+ * No swipe gesture. A pin is a `w-fit` pill, and a swipe row is full width by
+ * construction: it has to hold an action button at the rail's edge. Wrapping
+ * the pill in one puts a row-width box around a pill-width control, which is
+ * a third route to the one command the button above already offers.
  */
 export function PinnedAppNavItem({
   app,
@@ -164,25 +162,9 @@ export function PinnedAppNavItem({
     />
   );
 
-  /* Ungated: `SwipeActionReveal` arms the gesture only where a swipe is the
-     input, and passes through untouched everywhere else. */
-  const trailingActions: SwipeAction[] = [
-    {
-      id: "unpin",
-      label: t("pinnedAppNavItem.unpin"),
-      icon: PinOff,
-      variant: "destructive",
-      onSelect: () => onUnpin(app.id),
-    },
-  ];
-
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger>
-        <SwipeActionReveal trailingActions={trailingActions}>
-          {item}
-        </SwipeActionReveal>
-      </ContextMenu.Trigger>
+      <ContextMenu.Trigger>{item}</ContextMenu.Trigger>
       {menu}
     </ContextMenu.Root>
   );
