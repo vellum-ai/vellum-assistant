@@ -49,6 +49,7 @@ import {
 } from "@vellumai/electron-desktop/window-state";
 
 import {
+  getAccentHex,
   getAvatarPng,
   getCharacter,
   onAvatarChange,
@@ -433,12 +434,14 @@ let context: CompanionContext = {
 const currentState = (): CompanionSurfaceState => {
   const png = getAvatarPng();
   const character = getCharacter();
+  const accentHex = getAccentHex();
   return {
     growth,
     cardGrowth,
     avatarBox: geometry.avatarBox,
     optionsBox: geometry.optionsBox,
     character: character === null ? undefined : character,
+    accentHex: accentHex === null ? undefined : accentHex,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
     dialing,

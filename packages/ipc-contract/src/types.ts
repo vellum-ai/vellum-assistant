@@ -175,11 +175,7 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
+  "function" | "control" | "shift" | "option" | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -200,9 +196,7 @@ export type VoiceModeChord =
  * has to run for exactly as long as the keys are held can run across it.
  */
 export type HotkeyEventKind =
-  | "fnPushToTalk"
-  | "voiceModeChord"
-  | "modifierHold";
+  "fnPushToTalk" | "voiceModeChord" | "modifierHold";
 
 /**
  * What the user had highlighted in the application in front when a hold
@@ -239,8 +233,7 @@ export interface HotkeyEvent {
 }
 
 export type FnPushToTalkResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
 
@@ -249,8 +242,7 @@ export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = FnPushToTalkResult;
 
@@ -328,11 +320,7 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
+  "suspend" | "resume" | "lock" | "unlock" | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -410,8 +398,7 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -433,8 +420,7 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  | DictationOverlayState
-  | { kind: "dismiss" };
+  DictationOverlayState | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -673,12 +659,7 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
+  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -742,8 +723,7 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
+  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -1424,6 +1404,14 @@ export interface CompanionSurfaceState {
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
    */
   character?: CompanionCharacter;
+  /**
+   * The avatar's accent as `#rrggbb`: the colour the resting capsule and the
+   * display's edge glow light in. Carried apart from `character` because an
+   * uploaded image has an accent and no traits. `undefined` when the avatar
+   * has no colour yet, or on a shell that predates the field, where the
+   * surface falls back to the character's palette colour.
+   */
+  accentHex?: string;
   /**
    * The live-voice session the surface is showing, or `null` when none is
    * running.

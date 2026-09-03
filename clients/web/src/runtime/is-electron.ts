@@ -210,7 +210,10 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
-        setCharacter?(character: CompanionCharacter | null): void;
+        setCharacter?(
+          character: CompanionCharacter | null,
+          accentHex?: string | null,
+        ): void;
       };
       dock: {
         setBadge(count: number): void;

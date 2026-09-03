@@ -68,6 +68,7 @@ describe("ensureAvatarRaster", () => {
       traits: null,
       source: null,
       image: null,
+      accent: null,
     });
     expect(await ensureAvatarRaster()).toBeNull();
   });
@@ -83,6 +84,7 @@ describe("ensureAvatarRaster", () => {
       traits: null,
       source: "upload",
       image: { updatedAt: new Date().toISOString(), etag: "0123456789abcdef" },
+      accent: null,
     });
     const raster = await ensureAvatarRaster();
     expect(raster).not.toBeNull();
@@ -96,6 +98,7 @@ describe("ensureAvatarRaster", () => {
       traits: VALID_TRAITS,
       source: "builder",
       image: null,
+      accent: null,
     });
     // Force the unavailable path: a re-render attempt would return null.
     __setResvgCacheForTests({ available: false, error: new Error("nope") });
@@ -113,6 +116,7 @@ describe("ensureAvatarRaster", () => {
       traits: null,
       source: "upload",
       image: { updatedAt: new Date().toISOString(), etag: "0123456789abcdef" },
+      accent: null,
     });
     expect(await ensureAvatarRasterPath()).toBe(
       join(avatarDir, IMAGE_FILENAME),
@@ -130,6 +134,7 @@ describe("ensureAvatarRaster", () => {
       traits: null,
       source: "upload",
       image: { updatedAt: new Date().toISOString(), etag: "0123456789abcdef" },
+      accent: null,
     });
     expect(await ensureAvatarRaster()).toBeNull();
     rmSync(foreign, { recursive: true, force: true });
@@ -141,6 +146,7 @@ describe("ensureAvatarRaster", () => {
       traits: null,
       source: "upload",
       image: { updatedAt: new Date().toISOString(), etag: "0123456789abcdef" },
+      accent: null,
     });
     expect(await ensureAvatarRaster()).toBeNull();
     expect(existsSync(join(avatarDir, IMAGE_FILENAME))).toBe(false);
@@ -152,6 +158,7 @@ describe("ensureAvatarRaster", () => {
       traits: VALID_TRAITS,
       source: "builder",
       image: null,
+      accent: null,
     });
     __setResvgCacheForTests({ available: false, error: new Error("nope") });
     expect(await ensureAvatarRaster()).toBeNull();
@@ -166,6 +173,7 @@ describe("ensureAvatarRaster", () => {
         traits: VALID_TRAITS,
         source: "builder",
         image: null,
+        accent: null,
       });
       const raster = await ensureAvatarRaster();
       if (!isResvgAvailable()) {
@@ -192,6 +200,7 @@ describe("ensureAvatarRaster", () => {
         traits: null,
         source: null,
         image: null,
+        accent: null,
       }),
     ).toBeNull();
   });
@@ -204,6 +213,7 @@ describe("ensureAvatarRaster", () => {
         traits: null,
         source: null,
         image: null,
+        accent: null,
       });
       expect(await ensureAvatarRasterPath()).toBeNull();
     });
@@ -218,6 +228,7 @@ describe("ensureAvatarRaster", () => {
           updatedAt: new Date().toISOString(),
           etag: "0123456789abcdef",
         },
+        accent: null,
       });
       expect(await ensureAvatarRasterPath()).toBe(
         join(avatarDir, IMAGE_FILENAME),
@@ -236,6 +247,7 @@ describe("ensureAvatarRaster", () => {
           updatedAt: new Date().toISOString(),
           etag: "0123456789abcdef",
         },
+        accent: null,
       });
       expect(await ensureAvatarRasterPath()).toBe(
         join(avatarDir, IMAGE_FILENAME),
@@ -252,6 +264,7 @@ describe("ensureAvatarRaster", () => {
           updatedAt: new Date().toISOString(),
           etag: "0123456789abcdef",
         },
+        accent: null,
       });
       expect(await ensureAvatarRasterPath()).toBeNull();
     });
@@ -262,6 +275,7 @@ describe("ensureAvatarRaster", () => {
         traits: VALID_TRAITS,
         source: "builder",
         image: null,
+        accent: null,
       });
       __setResvgCacheForTests({ available: false, error: new Error("nope") });
       expect(await ensureAvatarRasterPath()).toBeNull();
@@ -276,6 +290,7 @@ describe("ensureAvatarRaster", () => {
           traits: VALID_TRAITS,
           source: "builder",
           image: null,
+          accent: null,
         });
         const path = await ensureAvatarRasterPath();
         if (!isResvgAvailable()) {

@@ -37,7 +37,6 @@ import {
   sectionIcon,
 } from "@/domains/chat/utils/sidebar-section-icon";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -99,14 +98,13 @@ export function SidebarSectionItem({
   const isAssistantSection = section.type === "assistant";
   /* The accent hex, for inking the header glyph in the avatar's own color
      (the New Chat treatment). Null keeps every other section off the avatar
-     query, and null accent (custom-image / still-loading avatar) is the
-     case where the glyph falls back to the tertiary ink anyway. */
-  const { components, traits } = useAssistantAvatar(
+     query, and a null accent (still-loading avatar, or an image with no
+     colour to read) is the case where the glyph falls back to the tertiary
+     ink anyway. */
+  const { accentHex: avatarAccentHex } = useAssistantAvatar(
     isAssistantSection ? assistantId : null,
   );
-  const accentHex = isAssistantSection
-    ? resolveAvatarAccentHex(components, traits)
-    : null;
+  const accentHex = isAssistantSection ? avatarAccentHex : null;
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:

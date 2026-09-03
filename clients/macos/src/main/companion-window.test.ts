@@ -215,6 +215,7 @@ mock.module("@vellumai/electron-desktop/floating-window", () => ({
 mock.module("@vellumai/electron-desktop/avatar", () => ({
   getAvatarPng: () => null,
   getCharacter: () => null,
+  getAccentHex: () => null,
   onAvatarChange: () => () => {},
 }));
 

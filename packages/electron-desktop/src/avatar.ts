@@ -28,6 +28,7 @@ type AvatarListener = () => void;
 
 let currentAvatarPng: Buffer | null = null;
 let currentCharacter: CompanionCharacter | null = null;
+let currentAccentHex: string | null = null;
 const listeners = new Set<AvatarListener>();
 
 /**
@@ -46,6 +47,13 @@ export const getAvatarPng = (): Buffer | null => currentAvatarPng;
  * and composes the character itself, which is the only way its eyes blink.
  */
 export const getCharacter = (): CompanionCharacter | null => currentCharacter;
+
+/**
+ * The avatar's accent as `#rrggbb`, or `null` when it has no colour yet.
+ * Published with the character because the two describe one avatar, and kept
+ * apart from it because an uploaded image has an accent and no traits.
+ */
+export const getAccentHex = (): string | null => currentAccentHex;
 
 /**
  * Subscribe to avatar changes. Returns an unsubscribe function. The listener
@@ -72,12 +80,17 @@ export const setAvatar = (png: Buffer | null): void => {
 };
 
 /**
- * Cache the character's traits (or `null` to clear) and notify subscribers.
- * Same listener set as the PNG: they describe one assistant, and a surface
- * that re-renders for one wants to re-render for the other.
+ * Cache the character's traits (or `null` to clear) and the avatar's accent,
+ * and notify subscribers. Same listener set as the PNG: they describe one
+ * assistant, and a surface that re-renders for one wants to re-render for the
+ * other.
  */
-export const setCharacter = (character: CompanionCharacter | null): void => {
+export const setCharacter = (
+  character: CompanionCharacter | null,
+  accentHex: string | null = null,
+): void => {
   currentCharacter = character;
+  currentAccentHex = accentHex;
   for (const listener of listeners) {
     listener();
   }
@@ -88,9 +101,11 @@ export const setCharacter = (character: CompanionCharacter | null): void => {
 // subclass), normalized to `Buffer` here so consumers have one type.
 const avatarPayloadSchema = z.tuple([z.instanceof(Uint8Array).nullable()]);
 
-// The three trait ids the character is composed from. Validated rather than
-// trusted because they are interpolated into a lookup the renderer performs;
-// unknown ids resolve to no character rather than throwing.
+// The three trait ids the character is composed from, and the avatar's accent.
+// Validated rather than trusted because the ids are interpolated into a lookup
+// the renderer performs and the accent into a CSS custom property; unknown ids
+// resolve to no character and a malformed accent to none rather than throwing.
+// The accent is optional so a renderer that predates it still validates.
 const characterPayloadSchema = z.tuple([
   z
     .object({
@@ -99,6 +114,11 @@ const characterPayloadSchema = z.tuple([
       color: z.string(),
     })
     .nullable(),
+  z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .nullable()
+    .optional(),
 ]);
 
 /**
@@ -120,9 +140,13 @@ export const installAvatarIpc = (): void => {
     setAvatar(png === null ? null : Buffer.from(png));
   });
 
-  on("vellum:icon:setCharacter", characterPayloadSchema, ([character]) => {
-    setCharacter(character);
-  });
+  on(
+    "vellum:icon:setCharacter",
+    characterPayloadSchema,
+    ([character, accentHex]) => {
+      setCharacter(character, accentHex ?? null);
+    },
+  );
 };
 
 // Test seam — exported only for unit-test setup so each test starts from a
@@ -131,5 +155,6 @@ export const __resetForTesting = (): void => {
   installed = false;
   currentAvatarPng = null;
   currentCharacter = null;
+  currentAccentHex = null;
   listeners.clear();
 };
