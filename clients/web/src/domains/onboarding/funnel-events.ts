@@ -232,12 +232,22 @@ export function emitResearchOnboardingStepCompleted(
   options: {
     userId?: string | null;
     outcome?: OnboardingFunnelStepOutcome;
+    /**
+     * Extra dimension on `screen` when it should differ from `step_name`.
+     * The face step stamps name source + region + signal here so locale
+     * surprise-me can be compared with a typed name without a new ingest field.
+     */
+    screen?: string;
+    /** A/B arm; research steps default to control unless a step overrides. */
+    variant?: OnboardingFunnelAbVariant;
   } = {},
 ): void {
   emitOnboardingFunnelStepCompleted(step, {
     userId: options.userId,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: options.outcome ?? "completed",
+    screen: options.screen,
+    variant: options.variant,
   });
 }
 

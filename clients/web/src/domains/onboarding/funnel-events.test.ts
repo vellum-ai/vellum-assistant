@@ -132,6 +132,26 @@ describe("onboarding funnel events", () => {
     });
   });
 
+  test("stamps the face-step naming dimensions on screen and variant", () => {
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.face, {
+      userId: "user-123",
+      screen: "surprise_me:nl:timezone",
+      variant: "locale_surprise_me",
+    });
+
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    expect(ingestPayload(0).events[0]).toMatchObject({
+      type: "onboarding",
+      step_name: "research_face",
+      step_index: 1,
+      screen: "surprise_me:nl:timezone",
+      funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      ab_variant: "locale_surprise_me",
+      outcome: "completed",
+      user_id: "user-123",
+    });
+  });
+
   test("stamps research-onboarding steps with the research funnel version", () => {
     emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
       userId: "user-123",

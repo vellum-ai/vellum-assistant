@@ -63,8 +63,13 @@ import {
 } from "@/domains/onboarding/research-onboarding-persistence";
 import { stampAssistantOnboarded } from "@/domains/onboarding/stamp-assistant-onboarded";
 import {
+  formatNamingFunnelScreen,
+  RESEARCH_NAMING_VARIANTS,
+} from "@/domains/onboarding/assistant-name-pool";
+import {
   emitResearchOnboardingStepCompleted,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
+  type OnboardingFunnelAbVariant,
   type OnboardingFunnelStepOutcome,
 } from "@/domains/onboarding/funnel-events";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
@@ -178,12 +183,15 @@ export function ResearchOnboardingRoute() {
   function goForwardTo(
     next: ResearchStep,
     outcome: OnboardingFunnelStepOutcome = "completed",
+    extras?: { screen?: string; variant?: OnboardingFunnelAbVariant },
   ) {
     emitResearchOnboardingStepCompleted(
       RESEARCH_ONBOARDING_FUNNEL_STEPS[step],
       {
         userId,
         outcome,
+        screen: extras?.screen,
+        variant: extras?.variant,
       },
     );
     setForwardStack([]);
@@ -1360,7 +1368,19 @@ export function ResearchOnboardingRoute() {
       <GiveMeAFaceScreen
         onContinue={(face) => {
           setFaceValues(face);
-          goForwardTo("intro");
+          goForwardTo(
+            "intro",
+            "completed",
+            face.naming
+              ? {
+                  screen: formatNamingFunnelScreen(face.naming),
+                  variant:
+                    face.naming.source === "surprise_me"
+                      ? RESEARCH_NAMING_VARIANTS.surpriseMe
+                      : RESEARCH_NAMING_VARIANTS.custom,
+                }
+              : undefined,
+          );
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}

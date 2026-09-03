@@ -70,10 +70,20 @@ mock.module("@/lib/tts/use-managed-voices", () => ({
   }),
 }));
 
+mock.module("@/i18n/system-locale", () => ({
+  systemLocales: () => ["en-US"],
+}));
+mock.module("@/utils/browser-timezone", () => ({
+  getBrowserTimezone: () => "America/New_York",
+}));
+
 const { useOnboardingAvatarPoolStore } =
   await import("@/domains/onboarding/onboarding-avatar-pool-store");
 const { GiveMeAFaceScreen } =
   await import("@/domains/onboarding/screens/give-me-a-face-screen");
+const { allNamesForRegion } = await import(
+  "@/domains/onboarding/assistant-name-pool"
+);
 
 let played: string[] = [];
 let paused = 0;
@@ -230,5 +240,66 @@ describe("GiveMeAFaceScreen voice audition", () => {
     expect(screen.queryByRole("button", { name: "Hear my voice" })).toBeNull();
     // The rest of the step is untouched.
     expect(screen.getByRole("button", { name: /Continue/ })).toBeTruthy();
+  });
+});
+
+describe("GiveMeAFaceScreen name default", () => {
+  test("defaults the name field to Surprise me, not Ziggy", () => {
+    renderScreen();
+
+    expect(screen.getByText("Surprise me")).toBeTruthy();
+    expect(screen.queryByText("Ziggy")).toBeNull();
+  });
+
+  test("keeps Surprise me when the avatar carousel moves", () => {
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: "Next character" }));
+
+    expect(screen.getByText("Surprise me")).toBeTruthy();
+    expect(screen.queryByText("Ziggy")).toBeNull();
+  });
+
+  test("resolves Surprise me to a locale-fitting name on Continue", () => {
+    const onContinue = mock(() => {});
+    renderScreen({ onContinue });
+
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    const values = (
+      onContinue.mock.calls[0] as unknown as [
+        {
+          name: string;
+          naming: { source: string; region: string; signal: string };
+        },
+      ]
+    )[0];
+    expect(values.name).not.toBe("Surprise me");
+    expect(values.name).not.toBe("");
+    expect(allNamesForRegion("en")).toContain(values.name);
+    expect(values.naming).toEqual({
+      source: "surprise_me",
+      region: "en",
+      signal: "agree",
+    });
+  });
+
+  test("a typed name, including non-ASCII, survives Continue", () => {
+    const onContinue = mock(() => {});
+    renderScreen({ onContinue });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit name" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Assistant name" }), {
+      target: { value: "민준" },
+    });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Assistant name" }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    const values = (
+      onContinue.mock.calls[0] as unknown as [
+        { name: string; naming: { source: string } },
+      ]
+    )[0];
+    expect(values.name).toBe("민준");
+    expect(values.naming.source).toBe("custom");
   });
 });

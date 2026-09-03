@@ -26,6 +26,11 @@ import {
 } from "lucide-react";
 
 import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
+import {
+  pickNameFromPool,
+  resolveAssistantNamePool,
+  type AssistantNamingChoice,
+} from "@/domains/onboarding/assistant-name-pool";
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
 import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
@@ -47,6 +52,12 @@ export interface GiveMeAFaceValues {
    * which case the assistant keeps the platform default.
    */
   voiceModel: string | null;
+  /**
+   * How the name was chosen. Set on every continue from this screen so the
+   * face-step funnel event can tell surprise-me / locale picks from a typed
+   * name. Optional on resumed snapshots that only stored the chosen name.
+   */
+  naming?: AssistantNamingChoice;
 }
 
 interface GiveMeAFaceScreenProps {
@@ -61,9 +72,6 @@ interface GiveMeAFaceScreenProps {
    */
   canAuditionVoice?: boolean;
 }
-
-/** Prefill names, cycled across the pool and swapped in as you change avatars. */
-const ASSISTANT_NAMES = ["Ziggy", "Quill", "Luna", "Remy", "Cleo", "Cade"];
 
 /** The carousel arrangement: who's centered + who sits in each edge slot. */
 interface Arrangement {
@@ -103,11 +111,12 @@ export function GiveMeAFaceScreen({
   }, [components, ensureGenerated]);
 
   const count = characters.length;
+  const namePool = useMemo(() => resolveAssistantNamePool(), []);
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
   const [name, setName] = useState("");
   const [editingName, setEditingName] = useState(false);
-  // Once the user edits the name, stop prefilling it from the avatar's default
-  // so their custom name survives cycling through avatars.
+  // Empty + not customized is the "Surprise me" default. Editing or shuffling
+  // freezes whatever the user picked so cycling avatars cannot replace it.
   const nameCustomized = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   // The current swap: the newly selected char + the slot it came from
@@ -131,14 +140,7 @@ export function GiveMeAFaceScreen({
     }
   }, [arrangement, setSelectedIndex]);
 
-  // Prefill the name for the centered avatar, swapping it as you cycle — but
-  // never clobber a name the user has typed.
   const centerChar = arrangement?.centerChar;
-  useEffect(() => {
-    if (centerChar != null && !nameCustomized.current) {
-      setName(ASSISTANT_NAMES[centerChar % ASSISTANT_NAMES.length]!);
-    }
-  }, [centerChar]);
 
   // Focus (and select) the field when entering edit mode.
   useEffect(() => {
@@ -217,29 +219,40 @@ export function GiveMeAFaceScreen({
 
   const ready = !!components && !!arrangement && !!centeredTraits;
 
+  function namingChoice(
+    source: AssistantNamingChoice["source"],
+  ): AssistantNamingChoice {
+    return {
+      source,
+      region: namePool.region,
+      signal: namePool.signal,
+    };
+  }
+
   function handleContinue() {
     if (centeredTraits) {
+      const source = nameCustomized.current ? "custom" : "surprise_me";
+      const resolvedName =
+        source === "surprise_me"
+          ? pickNameFromPool(namePool.names)
+          : name.trim();
       onContinue({
         traits: centeredTraits,
-        name: name.trim(),
+        name: resolvedName,
         voiceModel: centeredVoice?.model ?? null,
+        naming: namingChoice(source),
       });
     }
   }
 
   // Reroll both the name and the centered avatar's traits, each guaranteed to
   // differ from the current one. The name counts as a deliberate pick, so
-  // (like editing) it sticks across avatar cycling instead of being
-  // re-prefilled from the centered avatar.
+  // (like editing) it sticks across avatar cycling.
   function randomizeCharacter() {
     nameCustomized.current = true;
-    setName((current) => {
-      const options = ASSISTANT_NAMES.filter(
-        (candidate) => candidate !== current,
-      );
-      const pool = options.length > 0 ? options : ASSISTANT_NAMES;
-      return pool[Math.floor(Math.random() * pool.length)]!;
-    });
+    setName((current) =>
+      pickNameFromPool(namePool.names, { exclude: current }),
+    );
     if (components && arrangement && centeredTraits) {
       let traits = randomCharacterTraits(components);
       while (
@@ -343,10 +356,8 @@ export function GiveMeAFaceScreen({
                 aria-label={t("giveMeAFaceScreen.editName")}
                 className="flex cursor-pointer items-center gap-2.5"
               >
-                <span
-                  className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
-                >
-                  {name || t("giveMeAFaceScreen.namePlaceholder")}
+                <span className="text-2xl font-medium text-[var(--content-default)]">
+                  {name || t("giveMeAFaceScreen.surpriseMe")}
                 </span>
                 <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
               </button>
