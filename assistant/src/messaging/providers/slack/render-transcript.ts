@@ -20,6 +20,7 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../security/untrusted-content.js";
+import { resolveReactionEmoji } from "../../reaction-emoji.js";
 import {
   formatSlackTimezoneLabel,
   type SlackMessageMetadata,
@@ -487,7 +488,8 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
   const verb = meta.reaction.op === "added" ? "reacted" : "removed";
   const prep = meta.reaction.op === "added" ? "to" : "from";
   const target = parentAlias(meta.reaction.targetChannelTs);
-  return `[${time} ${actor} ${verb} ${meta.reaction.emoji} ${prep} ${target}]`;
+  const emoji = resolveReactionEmoji(meta.reaction).channelForm;
+  return `[${time} ${actor} ${verb} ${emoji} ${prep} ${target}]`;
 }
 
 /**

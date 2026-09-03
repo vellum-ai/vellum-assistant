@@ -492,7 +492,7 @@ describe("loadFromDb history repair", () => {
       .join("\n");
     expect(allText).not.toContain("[reaction]");
     expect(allText).toContain(
-      'Alice reacted with :thumbsup: to the message "Deploy is done"',
+      'Alice reacted with 👍 to the message "Deploy is done"',
     );
     expect(allText).toContain("<external_content");
   });
@@ -688,7 +688,7 @@ describe("loadFromDb history repair", () => {
       .filter((b) => b.type === "text")
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
-    expect(allText).toContain("reacted with :thumbsup: to an earlier message");
+    expect(allText).toContain("reacted with 👍 to an earlier message");
     expect(allText).not.toContain("secret text");
   });
 
@@ -744,7 +744,7 @@ describe("loadFromDb history repair", () => {
       .filter((b) => b.type === "text")
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
-    expect(allText).toContain(":tada:");
+    expect(allText).toContain("🎉");
     // The quote resolves through the split reply's later post id: the line
     // never degrades to the unresolved "an earlier message" form.
     expect(allText).not.toContain("an earlier message");
@@ -810,13 +810,9 @@ describe("loadFromDb history repair", () => {
       .join("\n");
     // The row itself is NOT fully deleted: its content stays.
     expect(allText).toContain("Deploy finished cleanly.");
-    // :tada: (surviving target) quotes; :eyes: (deleted target) does not.
-    const tadaLine = allText
-      .split("\n")
-      .find((line) => line.includes(":tada:"));
-    const eyesLine = allText
-      .split("\n")
-      .find((line) => line.includes(":eyes:"));
+    // 🎉 (surviving target) quotes; 👀 (deleted target) does not.
+    const tadaLine = allText.split("\n").find((line) => line.includes("🎉"));
+    const eyesLine = allText.split("\n").find((line) => line.includes("👀"));
     expect(tadaLine).toContain("Deploy finished cleanly.");
     expect(eyesLine).toContain("an earlier message");
   });
@@ -967,7 +963,7 @@ describe("loadFromDb history repair", () => {
       .filter((b) => b.type === "text")
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
-    expect(allText).toContain("Alice reacted with :tada:");
+    expect(allText).toContain("Alice reacted with 🎉");
     expect(allText).toContain('origin="U_REACTOR"');
   });
 
