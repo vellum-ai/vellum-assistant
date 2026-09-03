@@ -1066,6 +1066,23 @@ describe("the light a watch session puts on the display", () => {
     expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1080, height: 1920 });
   });
 
+  test("is placed again with the surface hidden", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    companionOpen = false;
+    displays[1] = {
+      ...displays[1],
+      bounds: { x: 1440, y: 0, width: 1080, height: 1920 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1080, height: 1920 });
+  });
+
   test("falls back to the surface's display for one that is gone", () => {
     send(
       "vellum:companion:setContext",
@@ -1251,6 +1268,30 @@ describe("the picker behind Teach", () => {
       await Bun.sleep(0);
       expect(dispatched.filter((c) => c.kind === "toggleWatch")).toEqual([]);
     }
+  });
+
+  test("a dial ending unanswered supersedes a pending pick", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = resolvedPickAsync;
+    resolvedPickAsync = async () => {
+      await gate;
+      return { kind: "window", windowId: 1 };
+    };
+    send("vellum:companion:startVoice");
+    send("vellum:companion:toggleWatch", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 1,
+    });
+    resolvedPickAsync = slow;
+    // The window asked for a session says no: the dial ends with no call.
+    send("vellum:voiceActivity:end");
+    release();
+    await Bun.sleep(0);
+    expect(dispatched.filter((c) => c.kind === "toggleWatch")).toEqual([]);
   });
 
   test("a press with no pick supersedes a pending one", async () => {

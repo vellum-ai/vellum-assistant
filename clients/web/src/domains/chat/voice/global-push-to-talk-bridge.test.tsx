@@ -56,20 +56,31 @@ type HoldStart = {
 let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
   onHoldEnd: () => void;
+  onDoubleTap: () => void;
 } | null = null;
-mock.module("@/domains/chat/voice/use-hold-to-dictate", () => ({
-  HOLD_ARMING_MS: 220,
-  useHoldToDictate: (options: {
-    onHoldStart: (start: HoldStart) => void;
+mock.module("@/domains/chat/voice/use-voice-key", () => ({
+  useVoiceKey: (options: {
+    onHoldStart: (start: {
+      selection: Promise<HoldStart["selection"]>;
+    }) => void;
     onHoldEnd: () => void;
+    onDoubleTap: () => void;
   }) => {
-    holdHandlers = options;
+    // The hook hands the bridge a selection still being read; the tests
+    // describe what it will resolve to.
+    holdHandlers = {
+      onHoldStart: (start) =>
+        options.onHoldStart({ selection: Promise.resolve(start.selection) }),
+      onHoldEnd: options.onHoldEnd,
+      onDoubleTap: options.onDoubleTap,
+    };
   },
 }));
 
 const askedTexts: string[] = [];
 let nextAskTaken = true;
 const announceAskRefusedMock = mock(() => undefined);
+const toggleVoiceMock = mock(() => undefined);
 mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
   askVoiceFromSurface: (_navigate: unknown, ask: string) => {
     askedTexts.push(ask);
@@ -77,6 +88,7 @@ mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
   },
   announceAskRefused: announceAskRefusedMock,
   startVoiceFromSurface: () => undefined,
+  toggleVoiceFromSurface: toggleVoiceMock,
 }));
 
 mock.module("@/domains/chat/hooks/use-dictation-overlay-sync", () => ({
@@ -186,6 +198,7 @@ afterEach(() => {
   askedTexts.length = 0;
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
+  toggleVoiceMock.mockClear();
   toastErrorMock.mockClear();
   useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
@@ -349,6 +362,16 @@ test("drives its own recorder, not whatever claimed dictation last", async () =>
  * assistant with the selection quoted ahead of them, and nothing is pasted or
  * cleaned up: the cleanup pass rewrites words meant for a document.
  */
+test("a double tap of the voice key is Talk", () => {
+  renderBridge("a1");
+
+  act(() => {
+    holdHandlers?.onDoubleTap();
+  });
+
+  expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
+});
+
 describe("a hold over a selection", () => {
   test("asks the assistant instead of pasting", async () => {
     nextTextInsertionStatus = "inserted";
@@ -465,6 +488,12 @@ describe("a hold over an editable selection", () => {
     truncated: false,
     editable: true,
   };
+  /**
+   * The transcript waits on the selection its hold was read over before it
+   * asks the daemon anything, so under fake timers the deadline is not yet
+   * ticking when `onTranscript` returns.
+   */
+  const selectionRead = () => Promise.resolve();
   const holdOver = (selection: HoldStart["selection"]) => {
     act(() => {
       holdHandlers?.onHoldStart({ selection });
@@ -520,6 +549,7 @@ describe("a hold over an editable selection", () => {
     jest.useFakeTimers();
     try {
       const run = voiceInput.onTranscript("make this friendlier");
+      await selectionRead();
       jest.advanceTimersByTime(8000);
       await act(async () => {
         await run;
@@ -543,6 +573,7 @@ describe("a hold over an editable selection", () => {
     jest.useFakeTimers();
     try {
       const run = voiceInput.onTranscript("make this friendlier");
+      await selectionRead();
       jest.advanceTimersByTime(20_000);
       await act(async () => {
         await run;

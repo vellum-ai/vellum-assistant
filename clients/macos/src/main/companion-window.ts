@@ -707,6 +707,14 @@ const setDialing = (next: boolean): void => {
     return;
   }
   dialing = next;
+  // A dial ending, however it ends (answered, declined, cancelled from the
+  // pill, or timed out), takes the row a pick was made from with it unless
+  // a session answered. A pick still resolving must not start a session
+  // over a bar that closed; a session that did answer will have its own
+  // Teach press.
+  if (!next && call === null) {
+    pickGeneration += 1;
+  }
   syncCallSurface();
   pushState();
 };
@@ -736,6 +744,20 @@ const avatarCentre = (win: {
  * never moved.
  */
 const refreshGrowth = (): void => {
+  // A frame around the whole screen follows the surface from display to
+  // display, and one around a picked display is placed again from that
+  // display's bounds, which the same events (a display arriving, leaving,
+  // rotating or rescaling) can move under it. One around a picked window
+  // follows the window instead. Before either early return below: a drag
+  // across displays need not change either growth, and a session outlives
+  // the surface being hidden, so its frame has to follow the display with
+  // no surface on screen at all.
+  if (
+    getFloatingWindow(WATCH_FRAME_KIND) !== null &&
+    context.captureTarget?.kind !== "window"
+  ) {
+    syncWatchFrame();
+  }
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
     return;
@@ -746,18 +768,6 @@ const refreshGrowth = (): void => {
     y: Math.round(centre.y),
   });
   const { workArea } = display;
-  // A frame around the whole screen follows the surface from display to
-  // display, and one around a picked display is placed again from that
-  // display's bounds, which the same events (a display arriving, leaving,
-  // rotating or rescaling) can move under it. One around a picked window
-  // follows the window instead. Before the early return below, since a drag
-  // across displays need not change either growth.
-  if (
-    getFloatingWindow(WATCH_FRAME_KIND) !== null &&
-    context.captureTarget?.kind !== "window"
-  ) {
-    syncWatchFrame();
-  }
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {

@@ -55,6 +55,8 @@ export const HELPER_HOTKEY_SET_VOICE_MODE_CHORD =
   "vellum:helper:hotkey:setVoiceModeChord";
 export const HELPER_HOTKEY_SET_MODIFIER_HOLD =
   "vellum:helper:hotkey:setModifierHold";
+export const HELPER_HOTKEY_READ_FRONT_SELECTION =
+  "vellum:helper:hotkey:readFrontSelection";
 export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
 export const HELPER_HOTKEY_REGISTRATION_EVENT =
   "vellum:helper:hotkey:registration";
@@ -143,6 +145,9 @@ export const CONNECTIVITY_RETRY = "vellum:connectivity:retry";
 // Notifications
 export const NOTIFICATIONS_SHOW = "vellum:notifications:show";
 export const NOTIFICATIONS_ACTION = "vellum:notifications:action";
+
+// Window attention
+export const WINDOW_ATTENTION = "vellum:window:attention";
 
 // Bundle confirm
 export const BUNDLE_CONFIRM_GET_DATA = "vellum:bundleConfirm:getData";

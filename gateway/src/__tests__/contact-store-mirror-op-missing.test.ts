@@ -171,11 +171,15 @@ describe("mergeContacts — unknown mirror op escalation", () => {
     );
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact, mirrored } = await store.mergeContacts(
+      "ct_keep",
+      "ct_merge",
+    );
     await flushMirrorOpReporterForTesting();
 
     // Gateway (source of truth) merge stands: donor gone, channel moved.
-    expect(result!.id).toBe("ct_keep");
+    expect(contact!.id).toBe("ct_keep");
+    expect(mirrored).toBe(false);
     const db = getGatewayDb();
     expect(
       db
@@ -221,10 +225,14 @@ describe("mergeContacts — unknown mirror op escalation", () => {
     );
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact, mirrored } = await store.mergeContacts(
+      "ct_keep",
+      "ct_merge",
+    );
     await flushMirrorOpReporterForTesting();
 
-    expect(result!.id).toBe("ct_keep");
+    expect(contact!.id).toBe("ct_keep");
+    expect(mirrored).toBe(false);
     expect(
       getGatewayDb()
         .select()

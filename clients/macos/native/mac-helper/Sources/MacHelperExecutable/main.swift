@@ -121,8 +121,9 @@ final class MacHelper: @unchecked Sendable {
         }
         // The windows a watch session could be scoped to, for the companion's
         // Teach picker and for the frame it draws around the picked one.
-        router.register("captureSources.list") { _ in
-            CaptureSources.list()
+        router.register("captureSources.list") { params in
+            let includeOffscreen = ((params as? [String: Any])?["includeOffscreen"] as? Bool) ?? false
+            return CaptureSources.list(includeOffscreen: includeOffscreen)
         }
         // captureSources.raise is not registered here: it talks to another
         // app over AX, so it is dispatched off the main queue in
@@ -155,6 +156,15 @@ final class MacHelper: @unchecked Sendable {
             }
             let modifiers = object["modifiers"] as? [String] ?? []
             return try self.setModifierHold(enable: enable, modifiers: modifiers)
+        }
+        // What is highlighted in the application in front, read when the app
+        // asks rather than on every press: a hold that has outlasted the
+        // chords passing through it is the one worth reading for.
+        router.register("selection.read") { [weak self] _ in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            return self.readFrontSelection()
         }
         router.register("permission.status") { [weak self] params in
             guard let self else {
@@ -251,37 +261,47 @@ final class MacHelper: @unchecked Sendable {
         )
     }
 
-    func emitModifierHold(state: String) {
-        var params: [String: Any] = [
-            "kind": "modifierHold",
-            "state": state,
-        ]
-        if state == "down" {
+    func emitModifierHold(edge: ModifierHoldDetector.Edge) {
+        var params: [String: Any] = ["kind": "modifierHold"]
+        switch edge {
+        case .down:
             guard !isModifierHoldDown else { return }
             isModifierHoldDown = true
-            // What the user had highlighted when the keys went down travels
-            // with the edge, so the hold can be about it. The read holds the
-            // edge for as long as it takes, and the edge says how long that
-            // was. Character counts only in the log; the text itself is the
-            // user's.
-            let readStarted = Date()
-            let outcome = FrontSelection.read()
-            let heldMs = Int(Date().timeIntervalSince(readStarted) * 1000)
-            params["heldMs"] = heldMs
-            if let selection = outcome.selection {
-                params["selection"] = [
-                    "text": selection.text,
-                    "truncated": selection.truncated,
-                    "editable": selection.editable,
-                ]
-            }
-            log("modifier hold down: selection \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(heldMs)")
-        } else if state == "up" {
+            params["state"] = "down"
+        case .up(let reason):
             guard isModifierHoldDown else { return }
             isModifierHoldDown = false
+            params["state"] = "up"
+            params["reason"] = reason.rawValue
         }
 
         writeNotification(method: "hotkey.event", params: params)
+    }
+
+    /// What the user has highlighted in the application in front, for the
+    /// hold that asks. Nothing once the hold has closed: a read that lands
+    /// after the keys are up would sample whatever the user moved on to, and
+    /// a hold over that is not the hold that was made. Character counts only
+    /// in the log; the text itself is the user's.
+    private func readFrontSelection() -> [String: Any] {
+        guard isModifierHoldDown else {
+            log("front selection: skipped, no hold is open")
+            return [:]
+        }
+        let readStarted = Date()
+        let outcome = FrontSelection.read()
+        let readMs = Int(Date().timeIntervalSince(readStarted) * 1000)
+        log("front selection: \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(readMs)")
+        guard let selection = outcome.selection else {
+            return [:]
+        }
+        return [
+            "selection": [
+                "text": selection.text,
+                "truncated": selection.truncated,
+                "editable": selection.editable,
+            ],
+        ]
     }
 
     /// Every modifier this keyboard reports, so anything outside the configured
@@ -315,7 +335,7 @@ final class MacHelper: @unchecked Sendable {
             ordinaryKeyHeld: { self.anyOrdinaryKeyIsDown() }
         )
         for edge in edges {
-            emitModifierHold(state: edge.rawValue)
+            emitModifierHold(edge: edge)
         }
     }
 
@@ -379,7 +399,7 @@ final class MacHelper: @unchecked Sendable {
             emitHotkey(state: edge.rawValue)
         }
         for edge in modifierHoldDetector.keyDown() {
-            emitModifierHold(state: edge.rawValue)
+            emitModifierHold(edge: edge)
         }
     }
 
@@ -922,7 +942,7 @@ final class MacHelper: @unchecked Sendable {
     /// microphone open with nothing left to close it.
     private func cancelModifierHold() {
         for edge in modifierHoldDetector.cancel() {
-            emitModifierHold(state: edge.rawValue)
+            emitModifierHold(edge: edge)
         }
     }
 

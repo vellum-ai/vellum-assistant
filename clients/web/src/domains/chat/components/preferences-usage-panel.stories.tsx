@@ -28,11 +28,19 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  configGetQueryKey,
+  inferenceProviderconnectionsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
+/** Stands in for the resolved assistant the route classifier reads. */
+const STORY_ASSISTANT_ID = "asst_storybook";
 
 const CYCLE_START = "2026-08-01T00:00:00Z";
 const CYCLE_END = "2026-09-01T00:00:00Z";
@@ -89,13 +97,13 @@ function PanelOnly() {
  * two-decimal shape the menu formats it to.
  */
 function PanelWithCredits() {
-  const usage = usePreferencesUsage();
+  const { usage, settled } = usePreferencesUsage();
   const {
     enabled: showBillingRows,
     balance,
     availableUsageBalance,
   } = useBillingBalanceStatus();
-  const showCredits = showsMenuCredits(usage);
+  const showCredits = showsMenuCredits(usage, settled);
 
   return (
     <>
@@ -140,6 +148,8 @@ function SeededPanel({
       useAssistantLifecycleStore.getState().assistantState;
     const previousOrgId =
       useOrganizationStore.getState().persistedOrganizationId;
+    const previousAssistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
 
     useAuthStore.setState({ platformSession: "present" });
     useAssistantLifecycleStore.setState({
@@ -148,6 +158,13 @@ function SeededPanel({
     // The org-header gate reports "resolving", never "ready", while a platform
     // session exists with no organization id to scope requests to.
     useOrganizationStore.setState({ persistedOrganizationId: "org_storybook" });
+    // The usage panel withholds both of its readings until the BYOK route
+    // classifier settles, and that classifier asks nothing at all without a
+    // resolved assistant. Left unseeded, every story below renders the
+    // neutral pre-settle bar instead of the state it documents.
+    useResolvedAssistantsStore
+      .getState()
+      .setActiveAssistantId(STORY_ASSISTANT_ID);
 
     client.setQueryData(
       organizationsBillingSubscriptionRetrieveOptions().queryKey,
@@ -165,6 +182,17 @@ function SeededPanel({
       total_usage_balance: totalUsageUsd,
       available_usage_balance: availableUsageUsd,
     });
+    // The two ungated reads the classifier makes. Primed so it settles on the
+    // first render rather than flickering through neutral while two daemon
+    // fetches fail; no BYOK connection means the managed reading these
+    // stories document. The other three reads stay disabled: two sit behind
+    // version gates the unseeded identity store leaves closed, and the
+    // conversation read needs a conversation the menu has not got.
+    const daemonPath = { path: { assistant_id: STORY_ASSISTANT_ID } };
+    client.setQueryData(configGetQueryKey(daemonPath), { llm: {} });
+    client.setQueryData(inferenceProviderconnectionsGetQueryKey(daemonPath), {
+      connections: [],
+    });
 
     return () => {
       useAuthStore.setState({ platformSession: previousAuth });
@@ -172,6 +200,9 @@ function SeededPanel({
         assistantState: previousLifecycle,
       });
       useOrganizationStore.setState({ persistedOrganizationId: previousOrgId });
+      useResolvedAssistantsStore
+        .getState()
+        .setActiveAssistantId(previousAssistantId);
     };
   }, [availableUsageUsd, balanceUsd, client, free, totalUsageUsd]);
 

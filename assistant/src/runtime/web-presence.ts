@@ -2,9 +2,9 @@
  * Web presence policy.
  *
  * Answers exactly one question for notification producers: is the user
- * demonstrably looking at this specific conversation in a web browser tab
- * right now? Producers use the answer to skip an APNs push the user would
- * see on screen anyway.
+ * demonstrably looking at this specific conversation in a browser tab or a
+ * desktop app window right now? Producers use the answer to skip an APNs
+ * push the user would see on screen anyway.
  *
  * Fails open by design, the same posture as desktop presence
  * (`runtime/desktop-presence.ts`): presence is in-memory, best-effort, and
@@ -14,12 +14,16 @@
  * goes out. A missed notification is strictly worse than a redundant one.
  *
  * Deliberately separate from desktop presence: a web report is scoped to one
- * conversation (the tab's focused thread), not the whole app. The Electron
- * desktop renderer detects its own host OS and tags its turns
- * `macos`/`windows` (`detectClientOs()` in the web client), so an Electron
- * turn is already covered by `isDesktopAttended()` and never reaches this
- * gate. Do not fold this into `setClientPresence` / the `macos`-scoped
- * desktop-attendance path.
+ * conversation (the client's focused thread), not the whole app, and it is
+ * consulted for every turn rather than only a desktop-originated one.
+ * `notifications/assistant-reply-producer.ts` calls this unconditionally,
+ * while the `isDesktopAttended()` read beside it is `clientOs`-gated. The
+ * Electron desktop renderer registers as a `web` client and reports here too
+ * (`hooks/use-web-presence-report.ts` in the web client), which is what lets
+ * a desktop window already showing the conversation suppress a push for a
+ * turn sent from the phone. Do not fold this into `setClientPresence` / the
+ * `macos`-scoped desktop-attendance path: that one answers whether the user
+ * is at the computer, this one whether the conversation is on screen.
  */
 
 import { getLogger } from "../util/logger.js";

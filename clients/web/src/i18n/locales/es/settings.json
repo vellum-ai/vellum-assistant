@@ -2189,8 +2189,6 @@
     "customKey": "Personalizada",
     "defaultBadge": "Predeterminado",
     "enableVoiceShortcut": "Activar el atajo del modo de voz",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn necesita Monitorización de entrada. Concédela en Ajustes del Sistema o define un atajo personalizado.",
     "focusedTabNote": "Pulsar para hablar solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunos atajos (p. ej., Ctrl+T) antes de que la página los detecte. Para PTT siempre activo, usa la aplicación de escritorio de Vellum.",
     "grantMicrophoneAccessHint": "Concede acceso al micrófono para enumerar tus dispositivos de entrada disponibles.",
     "interruptSensitivityAriaLabel": "Sensibilidad a interrupciones",
@@ -2208,7 +2206,6 @@
     "pauseBeforeReplyDescription": "Cuánto espera el asistente después de que dejas de hablar antes de responder. Una pausa más larga te permite reunir tus ideas a mitad de frase sin ser interrumpido.",
     "pauseBeforeReplyLabel": "Pausa antes de responder",
     "pressShortcut": "Pulsa un atajo…",
-    "recommendedBadge": "Recomendado",
     "recordingPrompt": "Pulsa una combinación o una tecla…",
     "resetToDefaults": "Restablecer valores predeterminados",
     "savedMicrophone": "Micrófono guardado",
@@ -2232,6 +2229,20 @@
     "voiceShortcutSubtitle": "Pulsa el atajo para iniciar o terminar una conversación de voz, desde cualquier parte de la aplicación.",
     "voiceShortcutSubtitleDesktop": "Atajo global para iniciar o terminar una conversación de voz.",
     "voiceShortcutTitle": "Atajo del modo de voz"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "Permitir Monitorización de entrada",
+    "customHint": "Mantén pulsadas dos o más de Cmd, Ctrl, Opción y Mayús, y suéltalas.",
+    "customLabel": "Personalizada",
+    "fnDictationNote": "Si el Dictado de macOS se inicia al pulsar Fn dos veces, desactívalo en Teclado, dentro de Ajustes del Sistema.",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "La tecla no se puede observar hasta que se permita la Monitorización de entrada.",
+    "offLabel": "Desactivada",
+    "recordingPrompt": "Mantén pulsadas teclas modificadoras…",
+    "refusedNote": "No se pudo observar la tecla. Reinicia la app para volver a intentarlo.",
+    "subtitle": "Mantenla pulsada para dictar en el cursor o preguntar sobre una selección. Púlsala dos veces para iniciar o terminar una llamada.",
+    "title": "Tecla de voz",
+    "voiceOverNote": "Control y Opción es la tecla modificadora de VoiceOver. Si usas VoiceOver, sus comandos tomarán estas teclas primero."
   },
   "voicePickerCard": {
     "changeButton": "Cambiar",

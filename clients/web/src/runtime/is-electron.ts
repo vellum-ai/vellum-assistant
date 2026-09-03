@@ -45,6 +45,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  HotkeySelection,
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairingPollResult,
@@ -76,6 +77,7 @@ import type {
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -100,6 +102,7 @@ export type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  HotkeySelection,
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
@@ -168,6 +171,7 @@ declare global {
           setModifierHold?(
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
+          readFrontSelection?(): Promise<HotkeySelection | null>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;
@@ -353,6 +357,9 @@ declare global {
         ): Promise<{ success: boolean; errorMessage?: string }>;
         onAction(
           callback: (event: NotificationActionEvent) => void,
+        ): () => void;
+        onWindowAttention?(
+          callback: (payload: WindowAttentionPayload) => void,
         ): () => void;
       };
       popout?: {

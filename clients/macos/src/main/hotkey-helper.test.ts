@@ -145,6 +145,17 @@ const invokeFnPushToTalkFrom = (enable: boolean, sender: FakeWebContents) =>
     enable,
   ) as Promise<unknown>;
 
+const invokeSetModifierHold = (hold: unknown) =>
+  handlers["vellum:helper:hotkey:setModifierHold"](
+    { sender: defaultSender },
+    hold,
+  ) as Promise<unknown>;
+
+const invokeReadFrontSelection = () =>
+  handlers["vellum:helper:hotkey:readFrontSelection"]({
+    sender: defaultSender,
+  }) as Promise<unknown>;
+
 const invokePing = () =>
   handlers["vellum:helper:ping"]({ sender: defaultSender }) as Promise<unknown>;
 
@@ -493,14 +504,14 @@ describe("installHotkeyHelper", () => {
     );
   });
 
-  test("carries the selection a hold began over through to the owner", async () => {
+  test("carries the reason a hold closed through to the owner", async () => {
     installHotkeyHelper();
 
     const pending = invokeFnPushToTalk(true);
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
-        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down","selection":{"text":"the powerhouse","truncated":false,"editable":true}}}\n',
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"up","reason":"chord"}}\n',
       ),
     );
     lastChild?.stdout.emit(
@@ -511,41 +522,110 @@ describe("installHotkeyHelper", () => {
     expect(await pending).toEqual({ ok: true, enabled: true });
     expect(defaultSender.send).toHaveBeenCalledWith(
       "vellum:helper:hotkey:event",
-      {
-        kind: "modifierHold",
-        state: "down",
-        selection: { text: "the powerhouse", truncated: false, editable: true },
-      },
+      { kind: "modifierHold", state: "up", reason: "chord" },
     );
+  });
+
+  test("reads what is highlighted in the application in front", async () => {
+    installHotkeyHelper();
+
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"selection":{"text":"the powerhouse","truncated":false,"editable":true}}}\n',
+      ),
+    );
+
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"selection.read"');
+    expect(await pending).toEqual({
+      text: "the powerhouse",
+      truncated: false,
+      editable: true,
+    });
   });
 
   test("reads a selection that says nothing about editability as read-only", async () => {
     installHotkeyHelper();
 
-    const pending = invokeFnPushToTalk(true);
+    const pending = invokeReadFrontSelection();
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
-        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down","selection":{"text":"the powerhouse","truncated":false}}}\n',
+        '{"jsonrpc":"2.0","id":1,"result":{"selection":{"text":"the powerhouse","truncated":false}}}\n',
       ),
     );
+
+    expect(await pending).toEqual({
+      text: "the powerhouse",
+      truncated: false,
+      editable: false,
+    });
+  });
+
+  test("reads nothing highlighted as no selection", async () => {
+    installHotkeyHelper();
+
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\n'),
+    );
+
+    expect(await pending).toBeNull();
+  });
+
+  test("reads a refused selection as no selection", async () => {
+    installHotkeyHelper();
+
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"no front app"}}\n',
+      ),
+    );
+
+    expect(await pending).toBeNull();
+  });
+
+  /**
+   * The hold's consumer is a microphone that closes on the `up` of the binding
+   * that opened it, so the edge a dead helper owes has to be that binding's,
+   * and has to say the user did not let go.
+   */
+  test("closes a hold the helper died holding with a cancelled edge", async () => {
+    __setSupervisorOptionsForTesting({
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+    });
+    installHotkeyHelper();
+
+    const pending = invokeSetModifierHold({
+      kind: "modifierOnly",
+      modifiers: ["control", "option"],
+    });
+    // Registrations are chained, so the request reaches the helper a tick
+    // after the call.
+    await wait(5);
     lastChild?.stdout.emit(
       "data",
       Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
-
     expect(await pending).toEqual({ ok: true, enabled: true });
-    expect(defaultSender.send).toHaveBeenCalledWith(
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down"}}\n',
+      ),
+    );
+    lastChild?.emit("close", 1, null);
+    await wait(5);
+
+    expect(defaultSender.send).toHaveBeenLastCalledWith(
       "vellum:helper:hotkey:event",
-      {
-        kind: "modifierHold",
-        state: "down",
-        selection: {
-          text: "the powerhouse",
-          truncated: false,
-          editable: false,
-        },
-      },
+      { kind: "modifierHold", state: "up", reason: "cancelled" },
     );
   });
 

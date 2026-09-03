@@ -16,10 +16,7 @@ import { BackgroundTaskStatusBadge } from "@/domains/chat/components/background-
 import { backgroundTaskGlyph } from "@/domains/chat/components/background-task-glyph";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { DetailShell } from "@/components/detail-shell";
-import {
-  CodeBlock,
-  SectionLabel,
-} from "@/domains/chat/components/tool-detail-panel";
+import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {

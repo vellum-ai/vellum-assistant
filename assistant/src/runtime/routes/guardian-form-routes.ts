@@ -39,9 +39,11 @@ const ClaimParams = RequestIdParams.extend({
 /**
  * Hand a writer's report to the call parked on the form.
  *
- * Everything but `requestId` and `error` is passed through untouched, so a
- * form's result is whatever its writer chose to send. An `error` is what makes
- * it a failure; there is no other flag.
+ * `requestId` and `error` belong to the rail, and an `error` is what makes the
+ * outcome a failure. Every other field reaches the parked caller, on a failure
+ * as well as on a success, so a writer can mark an outcome rather than only
+ * describe it (a dismissal sends `cancelled`). The rail's own fields land last,
+ * so a writer's `ok` cannot overturn its `error`.
  */
 export function resolveFormFromCallback({ body = {} }: RouteHandlerArgs): {
   resolved: boolean;
@@ -54,7 +56,7 @@ export function resolveFormFromCallback({ body = {} }: RouteHandlerArgs): {
     body as never;
 
   const result: GuardianFormResult = error
-    ? { ok: false, error }
+    ? { ...rest, ok: false, error }
     : { ok: true, ...rest };
   return resolveGuardianForm(requestId, result);
 }

@@ -30,7 +30,7 @@ export function PreferencesUsagePanel({
   conversationId,
 }: PreferencesUsagePanelProps) {
   const { t } = useTranslation("chat");
-  const usage = usePreferencesUsage({ conversationId });
+  const { usage, settled } = usePreferencesUsage({ conversationId });
 
   if (!usage) {
     return null;
@@ -43,6 +43,13 @@ export function PreferencesUsagePanel({
   // extra usage credits in the bar's place. An empty wallet keeps the red
   // reading whether or not the BYOK-aware `exhausted` raises the strip below.
   const { spent, exhausted, usingExtraCredits } = usage;
+  // The bar's length comes off the summary alone, so it is drawn as soon as
+  // there is a ratio. Which of the two readings it means is a separate
+  // question answered by queries that land later, and painting an alarm
+  // colour before they do would make the panel flash red on its way to a
+  // state that was never alarming. Neutral until then: honest at 100%, and
+  // the one thing that cannot be wrong.
+  const alarming = settled && spent && !usingExtraCredits;
 
   return (
     <div className="my-2 flex flex-col gap-1" data-testid="preferences-usage">
@@ -60,7 +67,7 @@ export function PreferencesUsagePanel({
               as="span"
               variant="body-small-default"
               className={
-                spent && !usingExtraCredits
+                alarming
                   ? "whitespace-nowrap text-[var(--system-negative-strong)]"
                   : "whitespace-nowrap text-[var(--content-secondary)]"
               }
@@ -78,26 +85,31 @@ export function PreferencesUsagePanel({
             />
           </div>
         </div>
-        {usingExtraCredits ? (
-          /* Body-small: at 14px the line would wrap inside the w-64 popover,
-             and at 12px it still spans close to the bar's full width.
-             `truncate` guards the longer locales against wrapping. */
-          <Typography
-            as="span"
-            variant="body-small-default"
-            className="w-full truncate text-[var(--system-mid-strong)]"
-          >
-            {t("preferencesUsagePanel.extraCredits")}
-          </Typography>
-        ) : (
-          <ProgressBar
-            value={usage.ratio}
-            height={10}
-            aria-label={title}
-            fillColor={spent ? "var(--system-negative-strong)" : undefined}
-            className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-          />
-        )}
+        {/* The bar is 10px and the line's box is 12px, so the slot reserves
+            the taller of the two: settling from one to the other then costs
+            no reflow in the popover above it. */}
+        <div className="flex min-h-3 items-center">
+          {usingExtraCredits ? (
+            /* Body-small: at 14px the line would wrap inside the w-64 popover,
+               and at 12px it still spans close to the bar's full width.
+               `truncate` guards the longer locales against wrapping. */
+            <Typography
+              as="span"
+              variant="body-small-default"
+              className="w-full truncate text-[var(--system-mid-strong)]"
+            >
+              {t("preferencesUsagePanel.extraCredits")}
+            </Typography>
+          ) : (
+            <ProgressBar
+              value={usage.ratio}
+              height={10}
+              aria-label={title}
+              fillColor={alarming ? "var(--system-negative-strong)" : undefined}
+              className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
+            />
+          )}
+        </div>
       </div>
       {exhausted ? (
         <div className="flex min-h-8 items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">

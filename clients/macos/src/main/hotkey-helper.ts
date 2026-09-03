@@ -11,6 +11,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_READ_FRONT_SELECTION,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
@@ -27,7 +28,9 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeyEventKind,
   HotkeyEventState,
+  HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
@@ -68,6 +71,10 @@ export type MacHelperPermissionStatus =
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.enum(["fnPushToTalk", "modifierHold"]),
   state: z.enum(["down", "up"]),
+  reason: z.enum(["released", "chord", "cancelled"]).optional(),
+});
+
+const FRONT_SELECTION_SCHEMA = z.object({
   selection: z
     .object({
       text: z.string(),
@@ -77,7 +84,6 @@ const HOTKEY_EVENT_SCHEMA = z.object({
       editable: z.boolean().default(false),
     })
     .optional(),
-  heldMs: z.number().optional(),
 });
 
 const HOTKEY_RESULT_SCHEMA = z.object({
@@ -202,6 +208,28 @@ const applyModifierHold = async (
       ok: false,
       reason: err instanceof Error ? err.message : String(err),
     };
+  }
+};
+
+/**
+ * What is highlighted in the application in front, or `null` when nothing is
+ * or the helper cannot say. A refusal reads as no selection rather than as an
+ * error: the hold that asks lands its words at the cursor either way.
+ */
+const readFrontSelection = async (): Promise<HotkeySelection | null> => {
+  try {
+    const result = await client.call("selection.read");
+    const parsed = FRONT_SELECTION_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      log.warn("[mac-helper] selection read returned an invalid result");
+      return null;
+    }
+    return parsed.data.selection ?? null;
+  } catch (err) {
+    log.warn(
+      `[mac-helper] selection read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
   }
 };
 
@@ -438,7 +466,7 @@ let helperRegistered = false;
 let helperRegistrationSync: Promise<FnPushToTalkResult> | null = null;
 let restoreHotkeyAfterRestart = false;
 let restoreHotkeyInFlight = false;
-let pttIsDown = false;
+let openEdgeKind: HotkeyEventKind | null = null;
 
 const shouldRegisterHelper = (): boolean => hotkeyOwners.size > 0;
 
@@ -562,7 +590,7 @@ const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
 };
 
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
-  pttIsDown = event.state === "down";
+  openEdgeKind = event.state === "down" ? event.kind : null;
   const ownerId = activeHotkeyOwnerId ?? newestOwnerId();
   const activeOwner = ownerId !== null ? hotkeyOwners.get(ownerId) : null;
   const owner =
@@ -573,10 +601,21 @@ const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
   owner.webContents.send("vellum:helper:hotkey:event", event);
 };
 
+/**
+ * Close whichever edge the dead helper left open. A hold's consumer is a
+ * microphone, and it closes on the `up` of the binding that opened it, so the
+ * synthetic edge has to carry that binding's kind and say it was not the user
+ * letting go.
+ */
 const sendSyntheticHotkeyUpIfNeeded = (): void => {
-  if (!pttIsDown) return;
-  pttIsDown = false;
-  sendHotkeyEventToOwner({ kind: "fnPushToTalk", state: "up" });
+  const kind = openEdgeKind;
+  if (kind === null) return;
+  openEdgeKind = null;
+  sendHotkeyEventToOwner(
+    kind === "modifierHold"
+      ? { kind, state: "up", reason: "cancelled" }
+      : { kind, state: "up" },
+  );
 };
 
 const sendHelperStateToRenderers = (state: MacHelperState): void => {
@@ -728,6 +767,10 @@ export const installHotkeyHelper = (): void => {
     },
   );
 
+  handle(HELPER_HOTKEY_READ_FRONT_SELECTION, z.tuple([]), () =>
+    readFrontSelection(),
+  );
+
   handle(
     HELPER_DICTATION_SET_PARTIALS,
     z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
@@ -792,7 +835,7 @@ export const __resetForTesting = (): void => {
   helperRegistrationSync = null;
   restoreHotkeyAfterRestart = false;
   restoreHotkeyInFlight = false;
-  pttIsDown = false;
+  openEdgeKind = null;
   unsubscribeHotkeyEvents?.();
   unsubscribeHotkeyEvents = null;
   unsubscribeHelperState?.();

@@ -1,6 +1,6 @@
 /**
- * Tests for what `contacts create` / `update` / `delete` put in front of the
- * guardian.
+ * Tests for what `contacts create` / `update` / `delete` / `merge` put in
+ * front of the guardian.
  *
  * The form is seeded from these bodies and the guardian submits what it shows,
  * so a field the CLI leaves empty is a field the guardian unknowingly writes
@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { GUARDIAN_FORM_SETTLE_MS } from "../../util/guardian-form-timeouts.js";
+import { reportIpcFailureWithoutExiting } from "./run-assistant-command.js";
 
 interface IpcCall {
   operationId: string;
@@ -42,8 +43,28 @@ const contact = {
 /** What a contact with no notes actually looks like on the wire. */
 const contactWithoutNotes = { ...contact, notes: null };
 
-let contactForRead: Record<string, unknown> = contact;
-/** Make the display readback fail, as a transient IPC hiccup would. */
+/** The duplicate a merge folds into `contact`. */
+const donor = {
+  id: "ct_2",
+  displayName: "Bob",
+  notes: null,
+  contactType: "human",
+  createdAt: 0,
+  updatedAt: 0,
+  interactionCount: 0,
+  channels: [
+    {
+      id: "ch_2",
+      contactId: "ct_2",
+      type: "phone",
+      address: "+15555550142",
+    },
+  ],
+};
+
+/** What `getContact` answers with, by id. An id it does not hold reads as 404. */
+let contactsById: Record<string, Record<string, unknown>> = {};
+/** Make every read fail, as a transient IPC hiccup would. */
 let readFails = false;
 
 /**
@@ -56,6 +77,12 @@ let readFails = false;
 let notesSaved: boolean | undefined;
 /** Whether the daemon reports that nothing the guardian submitted landed. */
 let nothingWritten: boolean | undefined;
+/** Whether the guardian closed the form instead of answering it. */
+let dismissed = false;
+/** Whether a merge's survivor took the submitted name. Absent unless renamed. */
+let renamed: boolean | undefined;
+/** Whether a merge reached the assistant's own copy of the contacts. */
+let mirrored: boolean | undefined;
 
 const baseIpcImplementation = async (
   operationId: string,
@@ -64,15 +91,32 @@ const baseIpcImplementation = async (
 ) => {
   calls.push({ operationId, options, callOptions });
   if (operationId === "getContact") {
-    if (readFails) {
+    const id = (options as { pathParams?: { id?: string } } | undefined)
+      ?.pathParams?.id;
+    const found = id === undefined ? undefined : contactsById[id];
+    if (readFails || !found) {
       // 404-shaped, as a gateway-backed read reports a contact it cannot see.
       return { ok: false, error: "Contact not found", statusCode: 404 };
     }
-    return { ok: true, result: { ok: true, contact: contactForRead } };
+    return { ok: true, result: { ok: true, contact: found } };
+  }
+  if (dismissed) {
+    // The rail keeps the human-readable reason alongside the marker.
+    return {
+      ok: true,
+      result: { ok: false, error: "Cancelled by user", cancelled: true },
+    };
   }
   return {
     ok: true,
-    result: { ok: true, contactId: contact.id, notesSaved, nothingWritten },
+    result: {
+      ok: true,
+      contactId: contact.id,
+      notesSaved,
+      nothingWritten,
+      renamed,
+      mirrored,
+    },
   };
 };
 
@@ -82,9 +126,11 @@ const actualCliClient = await import("../../ipc/cli-client.js");
 mock.module("../../ipc/cli-client.js", () => ({
   ...actualCliClient,
   cliIpcCall: cliIpcCallMock,
+  exitFromIpcResult: reportIpcFailureWithoutExiting,
 }));
 
-const { runAssistantCommand } = await import("./run-assistant-command.js");
+const { runAssistantCommand, runAssistantCommandFull } =
+  await import("./run-assistant-command.js");
 
 function recordPromptBody(): Record<string, unknown> {
   const call = calls.find((c) => c.operationId === "contacts_record_prompt");
@@ -95,10 +141,13 @@ function recordPromptBody(): Record<string, unknown> {
 describe("contacts record prompts", () => {
   beforeEach(() => {
     calls = [];
-    contactForRead = contact;
+    contactsById = { ct_1: contact, ct_2: donor };
     readFails = false;
     notesSaved = undefined;
     nothingWritten = undefined;
+    dismissed = false;
+    renamed = undefined;
+    mirrored = undefined;
     // Global and sticky: the failure-path cases below set it, and a later test
     // asserting success would otherwise read their exit code as its own.
     // Cleared to 0 rather than undefined, which does not reset it.
@@ -149,7 +198,7 @@ describe("contacts record prompts", () => {
     // `notes` is nullable on the wire, and the daemon's schema takes a string
     // or nothing. Passing the null through would reject the request and the
     // guardian would never see a form.
-    contactForRead = contactWithoutNotes;
+    contactsById.ct_1 = contactWithoutNotes;
 
     await runAssistantCommand(
       "contacts",
@@ -314,16 +363,228 @@ describe("contacts record prompts", () => {
     expect(body.channels).toEqual([]);
   });
 
-  // The refusing side of that branch (an update against a contact the read
-  // cannot see, or a delete for an id nothing knows about) has no test: it
-  // ends in `exitFromIpcResult`, which calls `process.exit` and takes the test
-  // runner with it.
-
   test("update refuses when neither --name nor --notes is given", async () => {
     await runAssistantCommand("contacts", "update", "ct_1");
 
     expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(
       false,
+    );
+  });
+
+  describe("merge", () => {
+    test("both contacts are read, and the form carries what moves", async () => {
+      const { stdout } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+      );
+
+      // Both reads come first: the confirmation names the pair it is about,
+      // so a bad id fails before the guardian sees anything.
+      expect(calls.slice(0, 2).map((c) => c.operationId)).toEqual([
+        "getContact",
+        "getContact",
+      ]);
+
+      const body = recordPromptBody();
+      expect(body.operation).toBe("merge");
+      expect(body.contactId).toBe("ct_1");
+      expect(body.currentDisplayName).toBe("Alice");
+      expect(body.donorContactId).toBe("ct_2");
+      expect(body.donorDisplayName).toBe("Bob");
+      // The guardian confirms which access moves, not just which ids, and the
+      // card lists the survivor's own channels beside it: two contacts can
+      // share a name, so the addresses are what tell them apart.
+      expect(body.donorChannels).toEqual([
+        { type: "phone", address: "+15555550142" },
+      ]);
+      expect(body.channels).toEqual([
+        { type: "email", address: "alice@example.com" },
+      ]);
+      // No name is proposed, so the survivor keeps its own.
+      expect(body.displayName).toBeUndefined();
+      // A merge reparents channels rather than cascading them away, so there
+      // is nothing for a staleness guard to protect.
+      expect(body.expectedChannels).toBeUndefined();
+
+      expect(stdout).toContain('Merged "Bob" into "Alice"');
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    test("--keep-donor-name proposes the donor's name for the survivor", async () => {
+      await runAssistantCommand(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+        "--keep-donor-name",
+      );
+
+      expect(recordPromptBody().displayName).toBe("Bob");
+    });
+
+    test("merging a contact with itself is refused before any form", async () => {
+      const { stderr } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_1",
+      );
+
+      expect(stderr).toContain("itself");
+      expect(
+        calls.some((c) => c.operationId === "contacts_record_prompt"),
+      ).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("merging away the guardian is refused before any form", async () => {
+      // The gateway refuses this, so opening the form would spend a
+      // confirmation on a write that cannot land.
+      contactsById = {
+        ct_1: contact,
+        ct_2: { ...donor, role: "guardian" },
+      };
+
+      const { stderr } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+      );
+
+      expect(stderr).toContain("guardian");
+      expect(stderr).toContain("assistant contacts merge ct_2 ct_1");
+      expect(
+        calls.some((c) => c.operationId === "contacts_record_prompt"),
+      ).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("an unknown donor id fails before the guardian sees a form", async () => {
+      await runAssistantCommandFull("contacts", "merge", "ct_1", "ct_missing");
+
+      expect(
+        calls.some((c) => c.operationId === "contacts_record_prompt"),
+      ).toBe(false);
+      expect(process.exitCode).toBe(2);
+    });
+
+    test("a merge whose rename could not land still reports the merge", async () => {
+      // The merge committed. Reporting it as failed would invite a retry
+      // against a donor that no longer exists.
+      renamed = false;
+
+      const { stdout, stderr } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+        "--keep-donor-name",
+      );
+
+      expect(stdout).toContain('Merged "Bob" into "Alice"');
+      expect(stderr).toContain("not renamed");
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    test("a merge the assistant's own copy did not get still reports the merge", async () => {
+      // The gateway half committed and the donor is gone from it, so a failure
+      // here would describe a merge that happened as one that did not.
+      mirrored = false;
+
+      const { stdout, stderr } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+      );
+
+      expect(stdout).toContain('Merged "Bob" into "Alice"');
+      expect(stderr).toContain("not cleaned up");
+      expect(stderr).toContain("notes were not combined");
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    test("--json reports the surviving contact and the uncleaned copy", async () => {
+      mirrored = false;
+
+      const { stdout } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+        "--json",
+      );
+
+      expect(JSON.parse(stdout)).toEqual({
+        ok: true,
+        contact,
+        mirrored: false,
+      });
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    test("--json reports the surviving contact and the lost rename", async () => {
+      renamed = false;
+
+      const { stdout } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+        "--keep-donor-name",
+        "--json",
+      );
+
+      expect(JSON.parse(stdout)).toEqual({
+        ok: true,
+        contact,
+        renamed: false,
+      });
+    });
+  });
+
+  describe("a dismissed form", () => {
+    const operations: [string, string[]][] = [
+      ["create", ["contacts", "create", "--name", "Alice"]],
+      ["update", ["contacts", "update", "ct_1", "--name", "Alice Chen"]],
+      ["delete", ["contacts", "delete", "ct_1"]],
+      ["merge", ["contacts", "merge", "ct_1", "ct_2"]],
+    ];
+
+    test.each(operations)(
+      "%s reports it as a clean exit",
+      async (_op, argv) => {
+        // Nothing was written and nothing failed, so an error envelope here
+        // would read as a write that went wrong.
+        dismissed = true;
+
+        const { stdout, stderr } = await runAssistantCommandFull(...argv);
+
+        expect(stdout).toContain("Cancelled: nothing was written");
+        expect(stderr).toBe("");
+        expect(process.exitCode).toBe(130);
+      },
+    );
+
+    test.each(operations)(
+      "%s --json emits one object carrying the marker",
+      async (_op, argv) => {
+        dismissed = true;
+
+        const { stdout, stderr } = await runAssistantCommandFull(
+          ...argv,
+          "--json",
+        );
+
+        // Parsing the whole of stdout is the assertion that it is one object:
+        // a second would make this throw.
+        expect(JSON.parse(stdout)).toEqual({ ok: true, cancelled: true });
+        expect(stderr).toBe("");
+        expect(process.exitCode).toBe(130);
+      },
     );
   });
 });

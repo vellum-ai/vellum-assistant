@@ -516,12 +516,23 @@
   },
   "contactPromptCard": {
     "addContact": "新增聯絡人",
+    "addingToContact": "正在為 {name} 新增管道",
     "cancel": "取消",
     "contactSaved": "聯絡人已儲存",
     "dismiss": "關閉",
     "enterAddress": "輸入 {channel} 位址",
+    "namePlaceholder": "名稱",
+    "notesLabel": "備註",
     "save": "儲存",
     "saving": "正在儲存…"
+  },
+  "contactRecordCard": {
+    "contactMerged": "聯絡人已合併",
+    "merge": "合併",
+    "mergeDonorChannels": "從 {name} 轉移",
+    "mergeSurvivorChannels": "已屬於 {name}",
+    "mergeTitle": "將 {donor} 合併至 {survivor}？",
+    "mergeWarning": "這些管道將轉移至 {survivor}，並刪除 {donor} 的記錄。"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",

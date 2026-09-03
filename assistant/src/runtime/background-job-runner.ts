@@ -436,6 +436,16 @@ export async function runBackgroundJob(
         jobName: opts.jobName,
         sourceChannel: "assistant_tool",
         sourceContextId: conversationId,
+        // Presence suppression is only safe when this conversation already
+        // rendered the failure. A carried `turnFailure` is that proof: every
+        // path that stamps a failed turn outcome emits `conversation_error`
+        // first. The other arrivals here render nothing to duplicate. A
+        // timeout leaves `processMessage` running, so the transcript still
+        // reads as an in-progress turn, and bootstrap or message-persistence
+        // throws never reach the agent loop at all.
+        ...(turnFailure !== undefined
+          ? { presenceConversationId: conversationId }
+          : {}),
         errorKind,
         errorMessage: error.message,
         ...(failureCode !== undefined ? { failureCode } : {}),

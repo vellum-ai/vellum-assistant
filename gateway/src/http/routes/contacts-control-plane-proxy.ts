@@ -806,7 +806,8 @@ export async function updateContactChannelCore(params: {
  * Shared by the HTTP `handleMergeContacts` and the gateway IPC
  * `merge_contacts` route. Runs `ContactStore.mergeContacts` (gateway DB
  * transaction + best-effort assistant mirror), emits `contacts_changed`, and
- * returns the survivor contact payload.
+ * returns the survivor contact payload alongside `mirrored`, which says
+ * whether the assistant-side half of the merge landed.
  *
  * Throws `MergeContactsError` for validation failures; unexpected errors
  * propagate so each transport surfaces a 500-equivalent — never a silent
@@ -815,21 +816,52 @@ export async function updateContactChannelCore(params: {
 export async function mergeContactsCore(params: {
   keepId: string;
   mergeId: string;
-}): Promise<{ ok: true; contact?: Record<string, unknown> }> {
+}): Promise<{
+  ok: true;
+  contact?: Record<string, unknown>;
+  mirrored: boolean;
+}> {
   const { keepId, mergeId } = params;
   const store = new ContactStore();
-  const contact = await store.mergeContacts(keepId, mergeId);
+  const { contact, mirrored } = await store.mergeContacts(keepId, mergeId);
 
   // Emit contacts_changed so connected clients refresh.
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});
 
-  log.info({ keepId, mergeId }, "merge_contacts: handled natively");
+  log.info({ keepId, mergeId, mirrored }, "merge_contacts: handled natively");
   return {
     ok: true,
     contact: contact ? toContactPayload(contact) : undefined,
+    mirrored,
   };
+}
+
+/**
+ * Whether the notes a submission carried reached the assistant mirror.
+ *
+ * Notes live only in that mirror and the write to it is best-effort, so a
+ * committed gateway contact can be missing them and the caller has to be told.
+ * Read the mirror directly rather than through the contact shape, which reports
+ * an unreachable mirror as null info: indistinguishable from empty notes, so
+ * clearing notes during an outage would look like it worked. An absent entry is
+ * unknown, and unknown counts as not saved.
+ */
+export async function notesReachedMirror(
+  contactId: string,
+  notes: string | null,
+): Promise<boolean> {
+  const info = await fetchInfoForContacts([contactId]).catch(() => null);
+  const entry = info?.get(contactId);
+  const saved = entry !== undefined && (entry.notes ?? "") === (notes ?? "");
+  if (!saved) {
+    log.error(
+      { contactId, mirrorRead: entry !== undefined },
+      "contact notes did not reach the assistant mirror",
+    );
+  }
+  return saved;
 }
 
 /**
@@ -954,24 +986,9 @@ export async function upsertContactRecordCore(params: {
   // upsertContact logs a mirror failure and returns as if it had worked. The
   // name is in the gateway row either way, so a lost mirror write is a partial
   // outcome rather than a failed one, and the caller is told which it got.
-  // Read back from the mirror rather than trusting the returned shape, which
-  // falls back to echoing the input when the read-back itself fails.
   let notesSaved: boolean | undefined;
   if (params.notes !== undefined) {
-    // Read the mirror directly rather than through the contact shape, which
-    // reports an unreachable mirror as null info: indistinguishable from empty
-    // notes, so clearing notes during an outage would look like it worked. An
-    // absent entry is unknown, and unknown is reported as not saved.
-    const info = await fetchInfoForContacts([contact.id]).catch(() => null);
-    const entry = info?.get(contact.id);
-    notesSaved =
-      entry !== undefined && (entry.notes ?? "") === (params.notes ?? "");
-    if (!notesSaved) {
-      log.error(
-        { contactId: contact.id, mirrorRead: entry !== undefined },
-        "upsert_contact_record: notes did not reach the assistant mirror",
-      );
-    }
+    notesSaved = await notesReachedMirror(contact.id, params.notes);
   }
 
   void ipcCallAssistant("emit_event", {

@@ -28,7 +28,7 @@ import {
   MOBILE_CONTROL_CLASS,
   MOBILE_GLYPH_CLASS,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
-import { markHoldDictation } from "@/utils/hold-to-dictate";
+import { markHoldDictation } from "@/utils/voice-key";
 
 const addBreadcrumbSpy = mock((_breadcrumb: unknown) => {});
 mock.module("@sentry/react", () => ({

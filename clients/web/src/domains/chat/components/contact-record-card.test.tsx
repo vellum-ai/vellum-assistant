@@ -334,6 +334,166 @@ describe("ContactRecordCard", () => {
     expect(screen.getByText(/no channels/i)).toBeDefined();
   });
 
+  test("merge names both contacts and the channels moving over", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          donorContactId: "c-2",
+          donorDisplayName: "Alice C",
+          donorChannels: [
+            { type: "email", address: "alice@example.com" },
+            { type: "phone", address: "+15555550142" },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Merge Alice C into Alice Chen?")).toBeDefined();
+    expect(screen.getByText(/alice@example.com/)).toBeDefined();
+    expect(screen.getByText(/\+15555550142/)).toBeDefined();
+  });
+
+  test("merge shows the survivor's channels too, so same-named records are distinguishable", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          channels: [{ type: "email", address: "survivor@example.com" }],
+          donorContactId: "c-2",
+          donorDisplayName: "Alice Chen",
+          donorChannels: [{ type: "phone", address: "+15555550142" }],
+        }}
+      />,
+    );
+
+    // Two contacts can share a name, so the addresses on each side are what
+    // say which record survives.
+    expect(screen.getByText(/survivor@example.com/)).toBeDefined();
+    expect(screen.getByText(/\+15555550142/)).toBeDefined();
+  });
+
+  test("merge says so when the donor has no channels to move", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          donorContactId: "c-2",
+          donorDisplayName: "Alice C",
+          donorChannels: [],
+          channels: [{ type: "email", address: "survivor@example.com" }],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/no channels/i)).toBeDefined();
+    expect(screen.getByText(/survivor@example.com/)).toBeDefined();
+  });
+
+  test("merge offers the surviving name and no notes field", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          donorContactId: "c-2",
+          donorDisplayName: "Alice C",
+        }}
+      />,
+    );
+
+    // The store combines the two contacts' notes, so the form does not offer
+    // them: the name is the only thing the guardian decides.
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].value).toBe("Alice Chen");
+  });
+
+  test("merge submits the name the guardian picked for the survivor", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          donorContactId: "c-2",
+          donorDisplayName: "Alice C",
+        }}
+      />,
+    );
+
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    fireEvent.change(inputs[0], { target: { value: "Alice C. Chen" } });
+    fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({ displayName: "Alice C. Chen" });
+  });
+
+  test("a merge that keeps the surviving name says nothing about it", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          donorContactId: "c-2",
+          donorDisplayName: "Alice C",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({ displayName: undefined });
+  });
+
+  test("a merge cannot be submitted with a blank surviving name", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          donorContactId: "c-2",
+          donorDisplayName: "Alice C",
+        }}
+      />,
+    );
+
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    fireEvent.change(inputs[0], { target: { value: "   " } });
+
+    const merge = screen.getByRole("button", {
+      name: "Merge",
+    }) as HTMLButtonElement;
+    expect(merge.disabled).toBe(true);
+  });
+
   test("dismissing does not submit", () => {
     const onSubmit = mock(noop);
     const onCancel = mock(noop);

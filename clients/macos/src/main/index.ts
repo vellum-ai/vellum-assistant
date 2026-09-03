@@ -66,6 +66,7 @@ import {
 import "./auxiliary-windows.client";
 import { installDock } from "./dock";
 import { installShare } from "./share";
+import { installWindowAttentionFeature } from "./window-attention";
 import {
   installEscapeMonitor,
   setDictationRecording,
@@ -462,6 +463,7 @@ app
       logger: log,
     });
     installNotifications();
+    installWindowAttentionFeature();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.

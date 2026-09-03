@@ -15,6 +15,7 @@ import {
 } from "@/lib/billing/byok-credit-route";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { useSupportsInferenceProfiles } from "@/lib/backwards-compat/use-supports-inference-profiles";
+import { awaitsAnswer } from "@/lib/query-awaits-answer";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -49,9 +50,30 @@ function useUtcDay(): string {
 }
 
 /**
+ * The route classification, and how much of it a caller may act on.
+ *
+ * `suppress` holds the balance banners down. A banner treats "route unknown"
+ * and "route spends the wallet" the same way, so an unresolved classification
+ * folds safely into it, and only into it.
+ *
+ * A caller making a positive claim needs the two facts `suppress` cannot
+ * carry. `settled` is false while the classification may still change.
+ * `routeBurnsManaged` is true only for a route derived as managed, which a
+ * fail-open null and a proven BYOK route both are not. Neither is the
+ * negation of `suppress`, and reading them as one turns a missing answer into
+ * an assertion.
+ */
+export interface ByokCreditRouteVerdict {
+  suppress: boolean;
+  settled: boolean;
+  routeBurnsManaged: boolean;
+}
+
+/**
  * Whether the low/exhausted credit banners should stay down because the org's
  * default chat route doesn't spend managed credits and nothing else has been
- * spending them either.
+ * spending them either, plus what a positive claim about that route may rest
+ * on. See {@link ByokCreditRouteVerdict} for why those are separate answers.
  *
  * A BYOK default profile makes an exhausted managed balance irrelevant to
  * chat: turns dispatch on the user's own key and never fail on the platform's
@@ -83,11 +105,11 @@ function useUtcDay(): string {
  *   `inferenceProfile` until the row exists. Read only when
  *   `conversationId` is null.
  */
-export function useSuppressCreditBannersForByok(
+export function useByokCreditRouteVerdict(
   candidate: boolean,
   conversationId?: string | null,
   draftProfile?: string | null,
-): boolean {
+): ByokCreditRouteVerdict {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const routeQueriesEnabled = candidate && assistantId != null;
   const configQuery = useQuery({
@@ -189,9 +211,25 @@ export function useSuppressCreditBannersForByok(
     refetchInterval: 5 * 60_000,
   });
 
+  // Only a positively managed route. A null (a read missing or failed) is not
+  // one, and neither is a proven BYOK route whose banners the spend probe
+  // re-arms: spend on another surface says nothing about where this
+  // conversation's next turn dispatches.
+  const routeBurnsManaged = burnsManaged === true;
+
   if (!candidate) {
-    return false;
+    return { suppress: false, settled: true, routeBurnsManaged };
   }
+  // Idle and empty is "not asked yet", not "answered no": every route query
+  // waits on a resolved assistant, so until one arrives the fail-open verdict
+  // below rests on nothing.
+  const cannotAskYet = assistantId == null;
+  const routeAwaitingAnswer =
+    awaitsAnswer(configQuery) ||
+    awaitsAnswer(connectionsQuery) ||
+    awaitsAnswer(conversationQuery) ||
+    awaitsAnswer(profilesQuery) ||
+    awaitsAnswer(defaultProviderQuery);
   // `isLoading` (pending AND fetching) distinguishes the initial in-flight
   // load, which suppresses to avoid a flash, from a disabled or errored
   // query, which must fail open below.
@@ -202,19 +240,30 @@ export function useSuppressCreditBannersForByok(
     profilesQuery.isLoading ||
     defaultProviderQuery.isLoading
   ) {
-    return true;
+    return { suppress: true, settled: false, routeBurnsManaged };
   }
   if (burnsManaged !== false) {
-    return false;
+    // Fail-open covers a genuine read failure as well as a missing assistant
+    // or an offline gap. The first is a final answer, the others are not.
+    return {
+      suppress: false,
+      settled: !cannotAskYet && !routeAwaitingAnswer,
+      routeBurnsManaged,
+    };
   }
   // Route proven BYOK: stay down only while the spend probe positively
   // reports no recent burn (or is still loading). A failed probe fails open
   // like every other unknown in this gate: a burn may have happened and the
   // banners must not stay hidden on missing data.
   if (totalsQuery.isError) {
-    return false;
+    return { suppress: false, settled: true, routeBurnsManaged };
   }
   const totals = totalsQuery.data;
   const burnedRecently = totals ? Number(totals.total_usd) > 0 : null;
-  return burnedRecently !== true;
+  return {
+    suppress: burnedRecently !== true,
+    settled:
+      !cannotAskYet && !routeAwaitingAnswer && !awaitsAnswer(totalsQuery),
+    routeBurnsManaged,
+  };
 }
