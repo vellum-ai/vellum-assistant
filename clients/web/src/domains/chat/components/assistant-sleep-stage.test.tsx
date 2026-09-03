@@ -110,7 +110,7 @@ describe("AssistantSleepStage", () => {
     const { container, unmount } = renderAt("/assistant/conversations/c1");
     // Nothing known: the catalog's first creature is not this assistant, so
     // the stage is the line of copy alone.
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("[data-slot=sleep-stage-eyes]")).toBeNull();
     unmount();
 
     const catalog = getCharacterComponents();
@@ -125,7 +125,7 @@ describe("AssistantSleepStage", () => {
     };
 
     const view = renderAt("/assistant/conversations/c1");
-    const svg = view.container.querySelector("svg");
+    const svg = view.container.querySelector("[data-slot=sleep-stage-eyes]");
     expect(svg).not.toBeNull();
     // The lid is the avatar's own color, clipped to the eyes' silhouette.
     expect(svg!.querySelector("clipPath")).not.toBeNull();

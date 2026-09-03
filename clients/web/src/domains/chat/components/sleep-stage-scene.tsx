@@ -14,18 +14,23 @@
  *   lids from wherever they were, so the open is one movement out of the
  *   sleep rather than a cut to a new picture.
  *
- * The lid is a rectangle wearing the eyes' own silhouette (a `clipPath` of
- * the eye paths), so it closes each eye over its top and leaves the gap
- * between them empty. It is painted in the avatar's own color, which is what
- * makes a closed eye read as that creature's eyelid and not as a grey bar.
+ * The lid is a slab wearing the eyes' own silhouette (a `clipPath` of the eye
+ * paths), so it closes each eye over its top and leaves the gap between them
+ * empty. It is painted in the avatar's own color, with its lower edge banded
+ * in a darker shade of that same color: the band is what reads as an eyelid
+ * rather than as a color fill stopping halfway down the eye. Lid and band
+ * slide as one group, so the edge stays welded to the lid through every
+ * drift and the whole way open.
  */
 
+import { X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useId } from "react";
 
 import { resolveVoiceRoomLook } from "@/domains/chat/voice/voice-room/voice-room-eyes";
 import type { SleepStageScene } from "@/stores/assistant-sleep-stage-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { darkenHex } from "@/utils/avatar-tone";
 import { tightPathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 
 export type { SleepStageScene };
@@ -49,6 +54,10 @@ const LID_REST: Record<SleepStageScene, number> = {
 };
 /** How much further the lids sink at the bottom of a sleeping drift. */
 const LID_DRIFT = 0.12;
+/** The lid's own edge, as a share of the eye's height. */
+const LID_EDGE = 0.035;
+/** How far the edge band is darkened from the lid's color. */
+const LID_EDGE_DARKEN = 0.55;
 /** One full drift, in seconds. */
 const LID_DRIFT_SECONDS = 4;
 
@@ -121,7 +130,7 @@ export function SleepStageView({
       type="button"
       onClick={onDismiss}
       data-scene={scene}
-      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
+      className="group absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
       initial={reduce ? false : { opacity: 0 }}
       // Waking runs the whole exit here: the eyes hold open for a beat and
       // then the stage itself fades, so the conversation arrives behind a
@@ -157,6 +166,18 @@ export function SleepStageView({
         />
       ) : null}
 
+      {/* What a click does, shown only under the pointer: the stage is one
+          big button, so this is an affordance rather than a control of its
+          own (a nested button would be invalid, and would take the click). */}
+      {woke ? null : (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute right-4 top-4 flex size-8 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--content-secondary)_25%,transparent)] bg-[color-mix(in_srgb,var(--surface-overlay)_70%,transparent)] text-[color:var(--content-secondary)] opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </span>
+      )}
+
       <span
         className="block text-center text-[28px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[36px]"
         style={{ fontFamily: "var(--font-serif)" }}
@@ -182,13 +203,18 @@ function StageEyes({
 }) {
   const clipId = useId();
   const { bbox } = eyes;
-  const rest = LID_REST[scene] * bbox.h;
+  // How far the lid has slid down over the eye. The slab hangs above the box
+  // with its lower edge at the top of the eye at rest, so one translated
+  // value closes the lid, drifts it, and opens it again.
+  const closed = LID_REST[scene] * bbox.h;
   const deep = (LID_REST[scene] + LID_DRIFT) * bbox.h;
+  const edge = LID_EDGE * bbox.h;
   const drifts = scene !== "woke" && !reduce;
 
   return (
     <svg
       aria-hidden="true"
+      data-slot="sleep-stage-eyes"
       viewBox={`${bbox.x} ${bbox.y} ${bbox.w} ${bbox.h}`}
       className="h-auto w-[clamp(140px,26vw,240px)] shrink-0"
     >
@@ -202,27 +228,38 @@ function StageEyes({
       {eyes.paths.map((path, i) => (
         <path key={i} d={path.svgPath} fill={path.color} />
       ))}
-      <motion.rect
-        clipPath={`url(#${clipId})`}
-        x={bbox.x}
-        y={bbox.y}
-        width={bbox.w}
-        fill={eyes.lidColor}
-        initial={{ height: rest }}
-        animate={drifts ? { height: [rest, deep, rest] } : { height: rest }}
-        transition={
-          drifts
-            ? {
-                duration: LID_DRIFT_SECONDS,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }
-            : {
-                duration: reduce ? 0 : WOKE_OPEN_SECONDS,
-                ease: "easeOut",
-              }
-        }
-      />
+      {/* The clip sits on a group of its own: on the moving group it would
+          travel with the transform and stop following the eye. */}
+      <g clipPath={`url(#${clipId})`}>
+        <motion.g
+          initial={{ y: closed }}
+          animate={drifts ? { y: [closed, deep, closed] } : { y: closed }}
+          transition={
+            drifts
+              ? {
+                  duration: LID_DRIFT_SECONDS,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+              : { duration: reduce ? 0 : WOKE_OPEN_SECONDS, ease: "easeOut" }
+          }
+        >
+          <rect
+            x={bbox.x}
+            y={bbox.y - bbox.h}
+            width={bbox.w}
+            height={bbox.h}
+            fill={eyes.lidColor}
+          />
+          <rect
+            x={bbox.x}
+            y={bbox.y - edge}
+            width={bbox.w}
+            height={edge}
+            fill={darkenHex(eyes.lidColor, LID_EDGE_DARKEN)}
+          />
+        </motion.g>
+      </g>
     </svg>
   );
 }
