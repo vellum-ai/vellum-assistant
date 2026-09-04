@@ -30,7 +30,8 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-RUN bun install --frozen-lockfile --ignore-scripts \
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --ignore-scripts \
     --filter='./assistant' --filter='./assistant/src/api'
 
 # Final stage
@@ -104,7 +105,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-COPY --from=builder /app /app
+COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog

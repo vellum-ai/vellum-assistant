@@ -29,7 +29,11 @@ import type {
 } from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
-import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
+import type {
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -490,6 +494,38 @@ export interface LiveVoiceState {
    * while the transport comes back.
    */
   screenShareTarget: WatchCaptureTarget | null;
+  /**
+   * Whether the user has the mouse down on the shared surface, drawing.
+   *
+   * The reason it is here rather than left to the drawing itself: while it is
+   * true nothing is sent. A frame taken mid-stroke is a circle half drawn,
+   * around nothing in particular, and the cadence that would take it is the
+   * user's own voice, which is exactly what they are doing while they draw.
+   *
+   * Published from the macOS companion's frame window through main, so it is
+   * false on every other host and on a session nobody is drawing on, which is
+   * the cadence behaving as it always did.
+   */
+  shareDrawing: boolean;
+  /**
+   * The last drawing the user finished on the shared surface, or null before
+   * they have made one.
+   *
+   * `id` is what makes a release an event rather than a value: two identical
+   * circles drawn in the same place are two things the user did, and a
+   * consumer watching the strokes alone would see the second as no change at
+   * all. It counts up within a session and resets with one.
+   *
+   * The strokes are fractions of the shared surface (see
+   * `CompanionAnnotationStroke`), so they are drawn onto whatever size the
+   * frame comes back at without anything else having to be carried.
+   */
+  shareAnnotation: {
+    id: number;
+    strokes: readonly CompanionAnnotationStroke[];
+    /** The colour they were drawn in, so the copy on the frame matches. */
+    ink: string;
+  } | null;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -677,6 +713,19 @@ export interface LiveVoiceActions {
   setUtteranceOpen: (utteranceOpen: boolean) => void;
   /** Set or clear what the session is being shown. See `screenShareTarget`. */
   setScreenShareTarget: (screenShareTarget: WatchCaptureTarget | null) => void;
+  /**
+   * Record a mark the user is making on the shared surface: the hand going
+   * down, or coming off with the strokes it left.
+   *
+   * One action for both edges, because they are one gesture and the order
+   * matters: the release has to arrive at a consumer that already knows the
+   * hand was down, or the frame it holds back is a frame it never held.
+   */
+  setShareAnnotation: (
+    phase: CompanionAnnotationPhase,
+    strokes: readonly CompanionAnnotationStroke[],
+    ink: string,
+  ) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -912,6 +961,8 @@ const INITIAL_SESSION_STATE: Omit<
   controls: null,
   utteranceOpen: false,
   screenShareTarget: null,
+  shareDrawing: false,
+  shareAnnotation: null,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -1219,7 +1270,38 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
   setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
-  setScreenShareTarget: (screenShareTarget) => set({ screenShareTarget }),
+  setScreenShareTarget: (screenShareTarget) =>
+    set({
+      screenShareTarget,
+      // A share that ends takes the drawing on it with it: the marks belong to
+      // a surface that is no longer being shown, and a `drawing` left true
+      // would hold the next share's first frame for a hand that is long since
+      // off the mouse.
+      shareDrawing: false,
+      shareAnnotation: null,
+    }),
+  setShareAnnotation: (phase, strokes, ink) =>
+    set((s) => {
+      if (phase === "drawing") {
+        return { shareDrawing: true };
+      }
+      // A release carrying nothing is the hand being let go of on the layer's
+      // behalf: the mode was turned off, or the share ended, while a stroke
+      // was still being made. It lifts the hold and no more. Counting it as a
+      // drawing would send a frame of a surface with nothing on it, for a
+      // mark the user never finished.
+      if (strokes.length === 0) {
+        return { shareDrawing: false };
+      }
+      return {
+        shareDrawing: false,
+        shareAnnotation: {
+          id: (s.shareAnnotation?.id ?? 0) + 1,
+          strokes,
+          ink,
+        },
+      };
+    }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>

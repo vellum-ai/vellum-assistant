@@ -10,6 +10,8 @@
 
 import { isElectron } from "@/runtime/is-electron";
 import type {
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
@@ -133,6 +135,36 @@ export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
 }
 
 /**
+ * Let the user draw on the surface they are sharing, or give the mouse back
+ * to the desktop.
+ *
+ * Unlike every other press here the answer does not come from the window
+ * holding the session: the mode is main's, since it is main that decides
+ * whether the frame around the shared surface is click-through. What comes
+ * back is `annotating` on the pushed state.
+ */
+export function setCompanionAnnotating(annotating: boolean): void {
+  bridge()?.setAnnotating?.(annotating);
+}
+
+/**
+ * A mark the user is drawing on the shared surface, from the frame's own
+ * window: the hand still on it, or off it with the strokes it left.
+ *
+ * The only call in this module made from the frame's window. Strokes are
+ * fractions of that window, which is the shared surface exactly, so the side
+ * that draws them onto a captured frame needs nothing else to place them
+ * beyond `ink`, the colour they were drawn in.
+ */
+export function annotateCompanionShare(
+  phase: CompanionAnnotationPhase,
+  strokes: readonly CompanionAnnotationStroke[],
+  ink: string,
+): void {
+  bridge()?.annotateShare?.(phase, strokes, ink);
+}
+
+/**
  * One frame of what the user is sharing, as the helper takes it.
  *
  * The one call in this module made from the app's own window on a cadence
@@ -149,6 +181,25 @@ export function captureCompanionScreen(
     return Promise.resolve(null);
   }
   return companion.captureScreen(target).catch(() => null);
+}
+
+/**
+ * A preview of one row of the picker, as a JPEG data URL.
+ *
+ * Resolves to nothing off Electron, on a shell that has no previews to give,
+ * and whenever the helper would not take one, which the picker reads the same
+ * way every time: the tile falls back to the owning app's icon. Nothing here
+ * is awaited before the tiles are drawn, so the grid is pressable while the
+ * pictures are still landing.
+ */
+export function captureCompanionSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  const companion = bridge();
+  if (!companion?.captureSourceThumbnail) {
+    return Promise.resolve(null);
+  }
+  return companion.captureSourceThumbnail(target).catch(() => null);
 }
 
 /**

@@ -225,14 +225,17 @@ export interface FrameGateOptions {
  *   camera, where 30% of frames are turned away as unchanged.
  *
  * Which is why `minIntervalMs` is the other number to argue about. Images
- * persist inline in conversation history and are re-sent on every turn, so at
- * this floor a ten-minute call is on the order of a hundred images re-sent
- * repeatedly. Retention has to be solved alongside this regardless of tuning.
+ * persist inline in conversation history and are re-sent on every turn, and
+ * this floor caps a saturating view at twenty keeps a minute, so a ten-minute
+ * call is on the order of two hundred images re-sent repeatedly. Retention has
+ * to be solved alongside this regardless of tuning. The floor buys freshness
+ * for that price: it is the whole gap between an ask and a frame of the scene
+ * the user is asking about.
  */
 export const DEFAULT_FRAME_GATE_OPTIONS: FrameGateOptions = {
   noveltyThreshold: 0.6,
   settleThreshold: 0.08,
-  minIntervalMs: 5_000,
+  minIntervalMs: 3_000,
   maxIntervalMs: 30_000,
   settleGraceMs: 5_000,
   warmupMs: 600,

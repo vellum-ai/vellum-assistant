@@ -22,7 +22,8 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-RUN bun install --frozen-lockfile --ignore-scripts --production \
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --ignore-scripts --production \
     --filter='./gateway'
 
 # Runtime stage
@@ -45,7 +46,7 @@ COPY --from=builder /usr/local/bin/bun /usr/local/bin/bun
 RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
 
-COPY --from=builder --chown=gateway:gateway /app /app
+COPY --link --from=builder --chown=1001:1001 /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY --chown=gateway:gateway packages/assistant-client /app/packages/assistant-client

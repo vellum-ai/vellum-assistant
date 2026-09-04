@@ -132,6 +132,40 @@ export type VellumCommand =
    */
   | { kind: "setScreenShare"; target?: WatchCaptureTarget }
   /**
+   * A mark the user has drawn over the surface a call is being shown.
+   *
+   * `drawing` is the pointer down and every move under it. The mark is still
+   * being made, so the window holding the session holds its frames: a view
+   * sent mid-stroke would be of a circle half drawn, around nothing.
+   * `released` is the hand coming off, which is the moment the mark means
+   * something, and it carries every stroke still on the overlay.
+   *
+   * Strokes rather than a picture, because the overlay is never in the
+   * pixels: a capture excludes Vellum's own windows (`ScreenCapture.swift`),
+   * so the window that takes the frame is the one that has to draw them onto
+   * it. See {@link CompanionAnnotationStroke} for the coordinates.
+   *
+   * Like `setScreenShare`, this does not raise the app: the user is drawing
+   * on their own work, and raising Vellum would cover the thing they are
+   * pointing at.
+   */
+  | {
+      kind: "annotateShare";
+      phase: CompanionAnnotationPhase;
+      strokes: readonly CompanionAnnotationStroke[];
+      /**
+       * The colour the marks were drawn in, as `#rrggbb`.
+       *
+       * Carried rather than resolved again on the other side. The frame's
+       * window is the one that drew them, and the assistant's accent is
+       * resolved there from state that window has and the window taking the
+       * frames does not (the character's own palette). Sending the colour is
+       * what makes the copy on the frame the same drawing the user made,
+       * rather than a second resolution that can differ.
+       */
+      ink: string;
+    }
+  /**
    * Answer the question the surface asks once a watch session's summary is
    * written: open it now, or not.
    *
@@ -1066,6 +1100,53 @@ export const companionBaselineFor = (avatarBox: number): number =>
   (COMPANION_BASE_AVATAR_IMAGE / 2) * companionScaleFor(avatarBox);
 
 /**
+ * The height of the pill the surface rests in once a pointer has grown it, at
+ * the authored avatar box.
+ *
+ * Here rather than in the renderer alone because main places the window by it:
+ * the grown pill is centred on the avatar and reaches further below that
+ * centre than the creature does, so a placement that did not know this number
+ * would rest the surface low enough to hang the pill's lower rim off the
+ * bottom of the display. Two readings of it is a pill drawn somewhere main did
+ * not leave room for.
+ */
+export const COMPANION_BASE_RESTING_PILL_HEIGHT = 35;
+
+/**
+ * How far past the call bar's own box its lit edge is drawn, at the authored
+ * options box. Small, and it still decides whether the light lands on screen.
+ */
+export const COMPANION_BASE_CALL_RING = 2;
+
+/**
+ * How far below the avatar's centre the lowest thing the surface can draw
+ * sits, for a given pair of boxes.
+ *
+ * **The whole surface, not the state it happens to be in.** The window is
+ * placed once and does not move when the pointer arrives or a call starts, so
+ * the room kept under it has to answer for every state it can enter from
+ * there. Three things are centred on that point and each is the lowest at some
+ * size: the creature's own artwork, the pill a pointer grows around it, and
+ * the call's bar, which stands on the centre rather than beside it and is
+ * sized by the options box instead of the avatar's.
+ *
+ * Whole points, as every distance the window is placed by is: the options
+ * sizes are not whole multiples of the authored box, and a reach carrying a
+ * repeating fraction is an avatar centre that lands between points.
+ */
+export const companionLowerReachFor = (
+  avatarBox: number,
+  optionsBox: number,
+): number =>
+  Math.round(
+    Math.max(
+      companionBaselineFor(avatarBox),
+      (COMPANION_BASE_RESTING_PILL_HEIGHT / 2) * companionScaleFor(avatarBox),
+      optionsBox / 2 + COMPANION_BASE_CALL_RING * companionScaleFor(optionsBox),
+    ),
+  );
+
+/**
  * That gap for a given pair of boxes.
  *
  * Scaled by the smaller of the two, because the gap is breathing room and the
@@ -1275,6 +1356,66 @@ export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
 export type WatchCaptureTarget =
   | { kind: "display"; displayId: number }
   | { kind: "window"; windowId: number };
+
+/**
+ * Which edge of a drawing an `annotateShare` command is: the hand still on
+ * it, or the hand off it. See the command.
+ */
+export type CompanionAnnotationPhase = "drawing" | "released";
+
+/**
+ * One mark the user drew over the shared surface, as the points the pointer
+ * passed through.
+ *
+ * **In fractions of the shared surface, from `0` to `1`.** The overlay is a
+ * window sized in points and the frame is a JPEG scaled to fit a bound, so
+ * neither side's pixels mean anything to the other; a fraction of the surface
+ * is the one description both agree on, and it survives the scaling that
+ * happens between them.
+ *
+ * A polyline rather than a shape, because the user is drawing freehand and a
+ * circle they made is not a circle anything should straighten. Thinned on the
+ * way in ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send
+ * a point per frame.
+ */
+export interface CompanionAnnotationStroke {
+  points: readonly { x: number; y: number }[];
+}
+
+/**
+ * How far the pointer must travel before a stroke takes another point, in
+ * fractions of the shared surface's smaller side.
+ *
+ * A stroke is sampled off pointer moves, which arrive at the display's rate
+ * and land on the same pixel whenever the hand pauses. Roughly a couple of
+ * points on a laptop display: below the width of the line being drawn, so
+ * the thinning is invisible, and enough that a deliberate circle is tens of
+ * points rather than hundreds.
+ */
+export const COMPANION_ANNOTATION_MIN_STEP = 0.002;
+
+/**
+ * How much of a drawing crosses the bridge: strokes per command, and points
+ * per stroke.
+ *
+ * Bounds rather than a promise about how anyone draws. The command is
+ * validated in main, and a drawing is the one payload on this surface whose
+ * size is set by how long a user holds the mouse down. Past either bound the
+ * oldest is dropped, so a very long stroke keeps its recent shape.
+ */
+export const COMPANION_ANNOTATION_MAX_STROKES = 24;
+export const COMPANION_ANNOTATION_MAX_POINTS = 512;
+
+/**
+ * How thick the line is, in fractions of the shared surface's smaller side.
+ *
+ * A fraction for the reason the points are one: the overlay draws in the
+ * window's points and the frame is drawn on in the JPEG's pixels, and a mark
+ * that weighed differently in the two would be a heavier or fainter line in
+ * the transcript than the one the user made. About five points on a laptop
+ * display: a deliberate circle, not a highlighter.
+ */
+export const COMPANION_ANNOTATION_STROKE = 0.006;
 
 /**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
@@ -1677,6 +1818,26 @@ export interface CompanionSurfaceState {
    * way: the control this decides starts capturing the user's screen.
    */
   screenShareEnabled?: boolean;
+  /**
+   * Whether the frame around the shared surface is taking the mouse, so the
+   * user can draw on what they are showing.
+   *
+   * The one thing on this state main owns outright rather than passes on. It
+   * is a fact about a window main opened and main makes click-through, and
+   * the two windows that read it read it for opposite reasons: the frame
+   * because it is the one drawing, and the pill because it draws the control
+   * that turned it on. A mode either of them kept for itself would be a mode
+   * the other could disagree with.
+   *
+   * Never on without a share, and lowered by main when one ends: a screen
+   * that has stopped being shown is a screen the user's clicks belong to.
+   *
+   * Read it as `annotating === true`, for the reason `watching` is read that
+   * way: a shell that predates the field is one whose frame takes no mouse,
+   * and a control drawn held down over a frame that is not would be a lie
+   * about where the next click goes.
+   */
+  annotating?: boolean;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the

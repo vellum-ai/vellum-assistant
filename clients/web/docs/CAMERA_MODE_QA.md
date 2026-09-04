@@ -69,14 +69,31 @@ scrim.
       with a side inset, its switches take a tap, and tapping the feed outside
       it dismisses it without taking a photo. It is never announced as a modal
       dialog that traps VoiceOver, and it never arrives dead to touch.
-- [ ] The kept-frame switch reaches the thumbnail. Enter Live, wait for the
-      crimson thumbnail beside the photo strip, then turn "Kept frame" off. The
+- [ ] The kept-frame switch reaches the thumbnail. On a fresh profile the
+      switch is off and Live draws no thumbnail: enter Live, sit through
+      several keeps, and only the photo strip is in the row. Turn "Kept frame"
+      on and the next keep draws beside the strip. Turn it off again and the
       thumbnail goes, the row it sat in goes with it when no photos are in the
       strip, and the assistant keeps answering questions about what the camera
-      is pointed at. Turn it back on and the next keep draws again.
+      is pointed at.
+- [ ] A device that used voice before converges too. On a profile that already
+      has a `vellum:voice-prefs` payload, the switch is off on the first launch
+      after this change whatever that payload said, and the thumbnail does not
+      draw until the panel turns it on. Turn it on and relaunch: it stays on.
+      A value written from here is the first one that is a choice, since every
+      earlier payload carries either nothing for the field or the default of
+      the day that a setter captured wholesale.
 - [ ] Both switches survive a reload and a second tab. Set them, background and
       relaunch the app: they come back as set. With two web tabs open, a change
       in one is reflected in the other's panel.
+- [ ] An older build does not eat a newer one's preferences. Only checkable
+      around a rollback or with two builds side by side. Let the newer build
+      write `vellum:voice-prefs`, then open the older one: it reads the
+      preferences it understands and shows them, and the key on disk is
+      untouched, still carrying the newer build's stamp and any field the older
+      one has no name for. Changing a preference in the older build moves it on
+      screen for that session and still does not write. Roll forward and
+      everything the newer build stored is intact.
 - [ ] The readout row appears only where the readout does. On a staff or
       flagged session the panel has two rows; on an ordinary session it has one.
       This panel is the only place the readout is switched on and off, so check
@@ -119,8 +136,73 @@ scrim.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
-      one. The crimson ring leaves the shutter and is visible on both, and
+      one. The accent ring leaves the shutter and is visible on both, and
       nothing flashes the whole screen.
+- [ ] The camera wears the assistant's colour. Call an assistant that has an
+      avatar accent and open the camera: the Live pill's fill, the shutter ring
+      while Live runs, the "Live · Tap to stop" hint, the pill's dot while the
+      assistant talks, and the kept-frame ring are all that accent. Call an
+      assistant with no accent (an uploaded image the daemon read no colour
+      from) and the same chrome is the camera's crimson. The Live pill wears a
+      hair-darker crimson than the ring beside it there, which is that fill
+      held to the same text floor every accent is held to.
+- [ ] A colourless call keeps its own colours while the app moves on. Start a
+      call with an assistant that has no accent, then switch the app to an
+      assistant that does while the call runs. The call's room stays crimson
+      and its waves stay indigo: neither picks up the newly selected
+      assistant's colour. This is the one to watch after any change to how the
+      room publishes its accent, since the failure is silent and looks like a
+      theme rather than a bug.
+- [ ] A pale accent and a dark one both read. Repeat the row above with the
+      lightest accent the palette offers (yellow) and a dark one. The Live
+      pill's label flips with the fill: near-black on the yellow, white on the
+      dark accent, and the whole pill including the separator and the assistant
+      name follows it. The dot while the assistant talks flips with it, dark on
+      the yellow and pale on the dark accent, so it always reads against the
+      fill it sits on. A mid-grey accent from an uploaded image is the case
+      worth a third look: no black-or-white ink clears the small-text floor on
+      those, so the pill fills with the accent nudged to the near edge of that
+      band instead. Expect the pill to read very slightly darker or lighter
+      than the ring beside it there, by a step most eyes cannot find without
+      the two side by side; anything bigger than a nudge is a bug. The accent
+      itself is never nudged, so the hint and the
+      shutter ring over the feed are whatever colour the assistant is; if one of
+      those fails it fails on the waves and the shimmer too, and the fix belongs
+      in the avatar accent system rather than in the camera.
+- [ ] The Live pill's second word is not dimmed. On the filled pill the
+      session's word, or the assistant's name in its place, is the same
+      strength as "Live" in front of it; on the glass Photo pill it sits back a
+      step. The filled pill has no strength to give away: it wears the accent
+      adjusted to land on the text floor exactly, so a word drawn at 80% there
+      composites back under it. The faint separator between the two stays faint
+      in both, since it is a mark rather than a word.
+- [ ] The Live pill is opaque and the same colour on every frame. Point the
+      camera at something black and then at something white with Live running.
+      The pill does not change shade with the frame behind it, which is what
+      makes its label's contrast a property of the fill rather than of the
+      view. True on every engine, including the iOS 15 row below. The glass
+      Photo pill beside it does still let the frame through, and is the one
+      place that is wanted.
+- [ ] The idle and user dots on a pale fill. Those two stay white in every
+      mode, so on the yellow fill they are pale marks on a pale fill (about
+      1.6:1 for the user's, lower for the half-lit idle one). Note whether they
+      read. They are 6px state marks rather than text, and inking them would
+      cost the colour jump that tells the user's dot from the assistant's, so
+      this is a design call rather than a contrast bug.
+- [ ] iOS 15 keeps the whole pink pill. On a device or simulator older than
+      16.2, where `color-mix()` does not exist, the Live pill draws all three
+      of the crimson fill, white text, and the rose dot, whatever accent the
+      assistant has. It is the same clamped crimson the newer engines fall back
+      to and it is equally opaque, so the label reads 4.56 there as well. The
+      failure to look for is a split set: near-black text on the crimson fill,
+      or a dot mixed for an accent the pill is not wearing. Either means
+      something escaped the feature query the three share.
+- [ ] iOS 15's one visible difference. On those engines the shutter ring, the
+      Live hint and the thumb ring still follow the assistant's accent, since
+      each is one property with nothing to keep in step, while the capture
+      pulse and the kept-frame ring stay crimson. A teal ring emitting a pink
+      pulse is that mismatch and is expected: the alternative is spending the
+      accent everywhere on those engines to fix one 500ms animation.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection
@@ -131,10 +213,10 @@ scrim.
       as in the browser, and letting go takes no photo. Tap to stop and the
       shutter takes ordinary photos again.
 - [ ] Keeps pulse behind the native preview. With Live running, hold the phone
-      steady on a subject. Within a few seconds the crimson held-frame thumbnail
-      appears beside the photo strip and a frame lands in the transcript; move
-      to a new subject and another follows. Nothing ever pulsing is the
-      slow-bridge case in the section below, not a hang.
+      steady on a subject. Within a few seconds the accented held-frame
+      thumbnail appears beside the photo strip and a frame lands in the
+      transcript; move to a new subject and another follows. Nothing ever
+      pulsing is the slow-bridge case in the section below, not a hang.
 
 ### Live on iPhone
 
@@ -198,16 +280,16 @@ hands-free and push-to-talk, on iOS, Android and desktop web.
       and speak: no keep follows the speech.
 
 - [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
-      second the haptic fires, the ring goes crimson, the pill says Live and the
-      hint changes to "Live · Tap to stop". Letting go takes no photo, so
-      nothing joins the strip and nothing new lands in the transcript.
+      second the haptic fires, the ring takes the accent, the pill says Live
+      and the hint changes to "Live · Tap to stop". Letting go takes no photo,
+      so nothing joins the strip and nothing new lands in the transcript.
 - [ ] Every keep is felt. With Live running on a subject the gate keeps from,
-      one light tap lands with each crimson thumbnail and no others: a scene the
-      gate skips is silent, and so is a keep that never reaches the call. Turn
-      the phone to airplane mode mid-Live and hold it on a new subject: through
-      the reconnect gap nothing taps, because nothing was shared. The tap is
-      what the feature has instead of a screen the user is looking at, since
-      Live is aimed at the thing being talked about.
+      one light tap lands with each accented thumbnail and no others: a scene
+      the gate skips is silent, and so is a keep that never reaches the call.
+      Turn the phone to airplane mode mid-Live and hold it on a new subject:
+      through the reconnect gap nothing taps, because nothing was shared. The
+      tap is what the feature has instead of a screen the user is looking at,
+      since Live is aimed at the thing being talked about.
 - [ ] The tap is not the shutter's. Take ordinary photos: no haptic fires on a
       tap, only on the hold that enters Live and on the keeps that follow.
 - [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
@@ -237,7 +319,7 @@ Handsets, not simulators: the iOS Simulator provides no camera feed, so it
 answers nothing here.
 
 - [ ] The capture row fits the narrowest phone. On a 320pt-wide device, take
-      three photos and then hold for Live: the three receipts and the crimson
+      three photos and then hold for Live: the three receipts and the accented
       kept frame sit in one row above the shutter. Nothing is clipped at the
       right edge, nothing scrolls or wraps, and the row is on its own line
       rather than reaching the shutter or the flip control. Storybook's
@@ -315,7 +397,7 @@ answers nothing here.
       release takes no photo. Tap Space and one photo is taken, the same as a
       click. The page never scrolls under either.
 - [ ] Leaving and re-entering Live quickly shows nothing for a few seconds. Stop
-      Live and start it again: the first keep can take up to five seconds. That
+      Live and start it again: the first keep can take up to three seconds. That
       is the gate's rate floor, which survives the reset by design; it is not a
       stall.
 - [ ] Escape minimizes the room from camera mode, and the camera releases.
@@ -346,7 +428,7 @@ the redesign is called shipped.
       themselves. Watch it both ways in Storybook (Chat/Voice/CameraShutter,
       flip the `mode` control) and confirm the overshoot reads as a record
       button starting rather than a circle being resized.
-- [ ] Desktop fidelity. The chrome is shared, so the crimson accent and the pill
+- [ ] Desktop fidelity. The chrome is shared, so the capture accent and the pill
       apply to the desktop camera view too, minus the OS chrome and the sheet
       grabber. Confirm that is wanted on desktop.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber

@@ -150,6 +150,8 @@ let mockAvatarData: {
   components: unknown;
   traits: unknown;
   customImageUrl: string | null;
+  /** The daemon-derived accent, absent for the avatars that carry none. */
+  accentHex?: string | null;
 } = { components: null, traits: null, customImageUrl: null };
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({ ...mockAvatarData }),
@@ -1746,6 +1748,44 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 });
 
+/**
+ * The room scopes the CALL assistant's accent to its own box, so the chrome
+ * inside it (the camera pill and shutter, the waves) tints from the assistant
+ * on the line rather than whichever one the document root is carrying.
+ */
+describe("VoiceRoom: the accent the room scopes to itself", () => {
+  const roomStyle = () =>
+    document.querySelector("[data-voice-room]")?.getAttribute("style") ?? "";
+
+  test("declares the accent, the surface it fills, and the ink together", () => {
+    seedAvatar("character");
+    // The palette's light one: white on it is about 1.6:1, so a surface that
+    // fills itself with the accent has to be told to ink in the near-black.
+    mockAvatarData = { ...mockAvatarData, accentHex: "#E9C91A" };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(roomStyle()).toContain("--avatar-accent: #E9C91A");
+    expect(roomStyle()).toContain("--avatar-accent-fill: #E9C91A");
+    expect(roomStyle()).toContain("--avatar-accent-ink: #1A1A1A");
+  });
+
+  test("shadows all three for an assistant with no colour to read", () => {
+    // Not absence: custom properties inherit, so leaving them out would let a
+    // colourless call wear the accent the document root is carrying for
+    // whichever assistant the app has selected. `initial` resolves each one to
+    // the guaranteed-invalid value, which sends every consumer below to its
+    // OWN fallback, and those differ (indigo waves, crimson camera).
+    seedAvatar("character");
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(roomStyle()).toContain("--avatar-accent: initial");
+    expect(roomStyle()).toContain("--avatar-accent-fill: initial");
+    expect(roomStyle()).toContain("--avatar-accent-ink: initial");
+  });
+});
+
 describe("VoiceRoom: the bands read the same for every avatar", () => {
   // The bands are the room's account of whose turn it is, so an avatar that
   // changed where they sit, or what answers the user, would make one session
@@ -2536,8 +2576,13 @@ describe("VoiceRoom: camera", () => {
   describe("the kept-frame thumbnail", () => {
     const keptFrame = () => screen.queryByTestId("voice-room-sight-frame");
 
-    /** Open the camera with a frame already held. */
+    /**
+     * Open the camera with a frame already held, and the preference turned on
+     * the way the camera panel turns it on. It ships off, so the drawing this
+     * block is about only exists once a call has asked for it.
+     */
     async function openCameraHoldingAFrame(): Promise<void> {
+      useVoicePrefsStore.setState({ showKeptFrame: true });
       mockHeldFrame = {
         attachmentId: "att-kept-1",
         previewUrl: "blob:kept-frame",

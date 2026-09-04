@@ -28,13 +28,24 @@
  * **It draws the session and holds none of it.** The window is pushed the
  * same state the companion surface is, and draws when that state says a
  * session is reading the screen. Where the window sits is the shell's; this
- * page only paints to its own edges. Nothing here is interactive: the page is
- * decoration on a desktop it does not own.
+ * page only paints to its own edges.
+ *
+ * The page takes the mouse in exactly one case: while a call is being shown
+ * this surface and the user has turned drawing on, when the marks they make
+ * on it go to the call with the next frame
+ * (`companion-share-annotation.tsx`). Main is what makes the window take
+ * presses at all, so the two cannot disagree about where a click on the
+ * shared surface goes. Everything else here is decoration on a desktop it
+ * does not own.
  */
 
 import { useEffect, useRef, useState } from "react";
 
-import { companionAccentHexFor } from "@/components/companion-accent";
+import {
+  companionAccentHexFor,
+  COMPANION_DEFAULT_ACCENT,
+} from "@/components/companion-accent";
+import { CompanionShareAnnotation } from "@/components/companion-share-annotation";
 import {
   getCompanionState,
   subscribeCompanionState,
@@ -127,6 +138,13 @@ export function CompanionWatchFramePage() {
       ? undefined
       : { ["--companion-ring-accent" as string]: accentHex };
 
+  // Read the same way `watching` is, and for the sharper version of the same
+  // reason: this one decides whether the window under the pointer takes the
+  // click. Main makes the window interactive and says so here, so a shell
+  // that never mentions it is one whose frame is click-through, and a drawing
+  // layer mounted over that would swallow presses that go nowhere.
+  const annotating = state?.annotating === true;
+
   return (
     <div
       className="pointer-events-none h-screen w-screen bg-transparent"
@@ -151,6 +169,13 @@ export function CompanionWatchFramePage() {
           className="companion-watch-frame-flash fixed inset-0"
           style={accentStyle}
         />
+      )}
+      {/* Drawn in the same accent as the edge around it, since the marks and
+          the border say one thing about one session. The border may leave its
+          colour to the class when nothing resolves; ink on a canvas cannot,
+          so the default the class carries is named for it. */}
+      {annotating && (
+        <CompanionShareAnnotation ink={accentHex ?? COMPANION_DEFAULT_ACCENT} />
       )}
     </div>
   );

@@ -227,7 +227,10 @@ export function CameraStatusPill({
             "size-[6px] flex-none rounded-full",
             voiceState === "idle" && "bg-white/50",
             voiceState === "user" && "bg-white",
-            voiceState === "assistant" && "bg-[var(--camera-accent-soft)]",
+            // The accent softened, since the capture colour goes muddy at 6px:
+            // toward white on the glass pill, toward the ink on the Live fill,
+            // so it reads on either. See `.camera-accent-soft-dot`.
+            voiceState === "assistant" && "camera-accent-soft-dot",
             // The blink is the "a voice is live right now" signal. Held static
             // under reduced motion here as well as in the keyframe's own media
             // block, matching the `voice-caret-blink` convention.
@@ -242,7 +245,15 @@ export function CameraStatusPill({
                 name to an ellipsis, and the mode word beside it stays whole. */}
             <span
               data-testid="camera-status-word"
-              className="truncate opacity-80"
+              className={cn(
+                "truncate",
+                // The de-emphasis is the glass pill's alone. Its scrim leaves
+                // contrast to spend; the Live fill is the accent adjusted to
+                // land exactly on the text floor, so an alpha under 1 there
+                // spends what the fill does not have. See `.camera-live-fill`
+                // and `legibleAccentFill`.
+                mode === "photo" && "opacity-80",
+              )}
             >
               {voiceWord}
             </span>

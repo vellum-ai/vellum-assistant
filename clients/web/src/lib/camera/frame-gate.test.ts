@@ -159,6 +159,14 @@ function noveltyBetween(baseline: FrameGrid, candidate: FrameGrid): number {
   return decision.novelty ?? Number.NaN;
 }
 
+describe("shipped frame gate defaults", () => {
+  test("the rate floor is three seconds, which is what a call pays for freshness", () => {
+    // Pinned because it is the one default with a cost attached: every second
+    // taken off it raises the ceiling on images a long call re-sends.
+    expect(DEFAULT_FRAME_GATE_OPTIONS.minIntervalMs).toBe(3_000);
+  });
+});
+
 describe("createFrameGate", () => {
   test("rejects a grid of the wrong size", () => {
     const gate = createFrameGate(TEST_OPTIONS);

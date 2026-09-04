@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  companionAnnotationInkSchema,
+  companionAnnotationStrokeSchema,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  COMPANION_BASE_RESTING_PILL_HEIGHT,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_SIZES,
+  companionLowerReachFor,
   companionBoxFor,
   companionCardSideFor,
   companionNearEdgeFor,
@@ -265,12 +269,20 @@ let capturedFrame: {
   height: number;
 } | null = { jpegBase64: "/9j/", width: 16, height: 9 };
 
+/** What the helper was asked to take a picker preview of. */
+const thumbnailsAsked: unknown[] = [];
+let capturedThumbnail: string | null = "data:image/jpeg;base64,/9j/";
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
   captureTargetFrame: async (target: unknown) => {
     framesAsked.push(target);
     return capturedFrame;
+  },
+  captureSourceThumbnail: async (target: unknown) => {
+    thumbnailsAsked.push(target);
+    return capturedThumbnail;
   },
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
@@ -332,6 +344,9 @@ type GlowWindow = {
   hide: () => void;
   showInactive: () => void;
   isVisible: () => boolean;
+  /** Whether presses go through it, which is the whole of drawing mode. */
+  clickThrough: boolean;
+  setIgnoreMouseEvents: (ignore: boolean) => void;
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
@@ -375,6 +390,11 @@ const openGlow = (options: {
       window.visible = true;
     },
     isVisible: () => window.visible,
+    // How main opens it, and where it goes back to whenever drawing is off.
+    clickThrough: true,
+    setIgnoreMouseEvents: (ignore) => {
+      window.clickThrough = ignore;
+    },
   };
   glow = window;
   return window;
@@ -694,6 +714,38 @@ const centreOf = (
   y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
 });
 
+describe("the room kept under the surface", () => {
+  /**
+   * The window is placed once and does not move when the pointer arrives or a
+   * call starts, so the room under it answers for every state it can enter
+   * from there. Each of the three is the lowest at some size.
+   */
+  test("clears the pill a pointer grows, not only the creature", () => {
+    const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
+    const grownPill =
+      centre.y +
+      (COMPANION_BASE_RESTING_PILL_HEIGHT / 2) *
+        companionScaleFor(GEOMETRY.avatarBox);
+
+    expect(grownPill).toBeLessThanOrEqual(25 + 875);
+  });
+
+  test("clears the call's bar, which the options box sizes", () => {
+    for (const geometry of [GEOMETRY, BIG_OPTIONS]) {
+      const centre = defaultAvatarCentre(WORK_AREA, geometry);
+      expect(centre.y + geometry.optionsBox / 2).toBeLessThanOrEqual(25 + 875);
+    }
+  });
+
+  /** And a drag can put the surface no lower than the same rule allows. */
+  test("holds a drag to the same room", () => {
+    const dragged = centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY));
+    expect(dragged.y).toBe(
+      900 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+    );
+  });
+});
+
 describe("placeCanvas", () => {
   test("puts the avatar exactly where a position inside the work area asks", () => {
     expect(
@@ -716,10 +768,28 @@ describe("placeCanvas", () => {
     ).toBe(22);
   });
 
-  test("holds the avatar at the bottom edge rather than past it", () => {
+  /**
+   * The lowest thing the surface can draw lands on the edge, not its box. The
+   * box carries the glow and the bob's slack, and stopping short of the edge
+   * by however much of it is empty reads as the surface refusing to go where
+   * it is dragged. See `companionLowerReachFor` for what is measured instead.
+   */
+  test("holds the surface's lowest ink on the bottom edge", () => {
     expect(
       centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y,
-    ).toBe(900 - 22);
+    ).toBe(
+      900 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+    );
+  });
+
+  /** And the slack grows with the creature, so the rule has to be read per size. */
+  test("reads that bottom off the size the creature is drawn at", () => {
+    expect(
+      centreOf(
+        placeCanvas({ x: 700, y: 9000 }, WORK_AREA, BIG_CREATURE),
+        BIG_CREATURE,
+      ).y,
+    ).toBe(900 - companionLowerReachFor(BIG_CREATURE.avatarBox, BIG_CREATURE.optionsBox));
   });
 
   /**
@@ -728,9 +798,15 @@ describe("placeCanvas", () => {
    * corner is exactly where the surface is meant to rest.
    */
   test("lets the avatar reach the corner the surface opens in", () => {
+    const reach = companionLowerReachFor(
+      GEOMETRY.avatarBox,
+      GEOMETRY.optionsBox,
+    );
     expect(
-      centreOf(placeCanvas({ x: 1440 - 22, y: 900 - 22 }, WORK_AREA, GEOMETRY)),
-    ).toEqual({ x: 1440 - 22, y: 900 - 22 });
+      centreOf(
+        placeCanvas({ x: 1440 - 22, y: 900 - reach }, WORK_AREA, GEOMETRY),
+      ),
+    ).toEqual({ x: 1440 - 22, y: 900 - reach });
   });
 
   test("clamps against the display it is given, not the primary one", () => {
@@ -786,10 +862,29 @@ describe("placeCanvas", () => {
 });
 
 describe("defaultAvatarCentre", () => {
-  test("opens at the bottom centre of the work area", () => {
+  /**
+   * The margin is to the creature's visible bottom, so it is the same gap off
+   * the edge at every size rather than that gap plus the box's own slack.
+   */
+  test("opens a margin above the work area's bottom edge", () => {
     const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
     expect(centre.x).toBe(720);
-    expect(centre.y).toBe(25 + 875 - 24 - GEOMETRY.avatarBox / 2);
+    expect(centre.y).toBe(
+      25 + 875 - 2 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+    );
+  });
+
+  /**
+   * The gap a user actually sees, which is the whole point of measuring it
+   * this way: the same 8pt under a creature at any size.
+   */
+  test("leaves the same visible gap at every size", () => {
+    for (const geometry of [GEOMETRY, BIG_CREATURE, BIG_OPTIONS]) {
+      const centre = defaultAvatarCentre(WORK_AREA, geometry);
+      const visibleBottom =
+        centre.y + companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
+      expect(25 + 875 - visibleBottom).toBe(2);
+    }
   });
 
   test("centres on the display it is given, not the primary one", () => {
@@ -1169,11 +1264,20 @@ describe("the glide between the pill's home and the call's place", () => {
       x: origin.x + BIG_OPTIONS.canvasWidth / 2,
       y: origin.y + avatarOffsetFor(state().cardGrowth, BIG_OPTIONS),
     });
-    expect(centreInNewCanvas()).toEqual(bottomCentre);
+    // The glide's own target, carried into the new canvas and held to what
+    // that canvas allows: a larger pill reaches further below the avatar, so
+    // the room kept under the surface grows with it and the target the glide
+    // was headed for is now lower than the new geometry permits. See
+    // `companionLowerReachFor`.
+    const bigBottomCentre = centreOf(
+      placeCanvas(bottomCentre, SCREEN, BIG_OPTIONS),
+      BIG_OPTIONS,
+    );
+    expect(centreInNewCanvas()).toEqual(bigBottomCentre);
     // Still there a frame or more later, where the old glide would have been
     // passing through a point short of it.
     await wait(MID_FLIGHT_MS);
-    expect(centreInNewCanvas()).toEqual(bottomCentre);
+    expect(centreInNewCanvas()).toEqual(bigBottomCentre);
     send("vellum:voiceActivity:end");
     await settle();
     expect(centreInNewCanvas()).toEqual(home);
@@ -1196,8 +1300,10 @@ describe("the glide between the pill's home and the call's place", () => {
       x: placed.origin.x + GEOMETRY.canvasWidth / 2,
       y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, GEOMETRY),
     });
+    // Inside by the rule the clamp actually applies: the creature's visible
+    // bottom on the edge, not its box's.
     expect(centre().y).toBeLessThanOrEqual(
-      shrunk.height - GEOMETRY.avatarBox / 2,
+      shrunk.height - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 
@@ -2752,6 +2858,19 @@ describe("Share on the companion surface", () => {
     expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
   });
 
+  test("takes a picker preview of one row from the helper", async () => {
+    const preview = invocable.get("vellum:companion:captureSourceThumbnail");
+    expect(preview).toBeDefined();
+    expect(await preview?.([{ kind: "window", windowId: 7 }])).toBe(
+      "data:image/jpeg;base64,/9j/",
+    );
+    expect(thumbnailsAsked).toEqual([{ kind: "window", windowId: 7 }]);
+    // A window that closed between the list and the grid is a tile with no
+    // picture, not a failed call.
+    capturedThumbnail = null;
+    expect(await preview?.([{ kind: "display", displayId: 2 }])).toBeNull();
+  });
+
   test("carries the share and whether one may start to the surface", () => {
     send(
       "vellum:companion:setContext",
@@ -2794,5 +2913,182 @@ describe("Share on the companion surface", () => {
     expect(state().screenShare).toBeUndefined();
     expect(state().screenShareEnabled).toBe(false);
     expect(glow).toBeNull();
+  });
+});
+
+/**
+ * Drawing on the shared surface.
+ *
+ * Main's half of it is the mode: whether the frame it opened takes the mouse.
+ * That is the part no renderer can hold and the part that, left on by
+ * mistake, is a transparent window eating every click on a display.
+ */
+describe("companion window: drawing on what is shared", () => {
+  /** The accent the frame's window drew the marks in, sent with them. */
+  const INK = "#a78bfa";
+
+  // The context and the mode are main's own, and outlive a case. Cleared
+  // rather than assumed, so each of these starts on a desktop with nothing
+  // shared and a frame that is click-through.
+  beforeEach(() => {
+    send("vellum:companion:setContext", context());
+  });
+
+  const shareDisplay = (): void => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+  };
+
+  test("the frame is click-through until drawing is turned on", () => {
+    shareDisplay();
+    expect(glow?.clickThrough).toBe(true);
+    expect(state().annotating).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+    expect(state().annotating).toBe(true);
+  });
+
+  test("a second press gives the mouse back to the desktop", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.clickThrough).toBe(true);
+    expect(state().annotating).toBe(false);
+  });
+
+  /**
+   * The mode can never be armed ahead of a share, or it would take a
+   * display's clicks the moment one started.
+   */
+  test("refuses the mode with nothing shared", () => {
+    send("vellum:companion:setAnnotating", true);
+    expect(state().annotating).toBe(false);
+  });
+
+  /**
+   * The frame prefers a watch session's target when both are running, so the
+   * frame would be around the surface being read while the frames sent are of
+   * the surface being shared. A mark on one would arrive on the other.
+   */
+  test("refuses the mode while a watch session owns the frame", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    send("vellum:companion:setAnnotating", true);
+    expect(state().annotating).toBe(false);
+  });
+
+  test("a share that ends takes the mode with it", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setContext", context());
+    expect(state().annotating).toBe(false);
+  });
+
+  test("a watch session starting mid-drawing takes the mode with it", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(state().annotating).toBe(false);
+  });
+
+  test("hands a finished mark to the window holding the session", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    dispatched.length = 0;
+    const strokes = [{ points: [{ x: 0.25, y: 0.5 }] }];
+    send("vellum:companion:annotateShare", "released", strokes, INK);
+    expect(dispatched).toEqual([
+      { kind: "annotateShare", phase: "released", strokes, ink: INK },
+    ]);
+  });
+
+  /** The hand going down is what stops the frames, so it travels too. */
+  test("hands on the hand going down as well as coming off", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    dispatched.length = 0;
+    send("vellum:companion:annotateShare", "drawing", [], INK);
+    expect(dispatched).toEqual([
+      { kind: "annotateShare", phase: "drawing", strokes: [], ink: INK },
+    ]);
+  });
+
+  /**
+   * Lowering the mode is what unmounts the layer, and the layer lets go of
+   * the hand on its way out, so that release always arrives after the mode is
+   * already off. Refusing it would refuse it exactly on the path it exists
+   * for, leaving the session suppressing every frame for a hand that came off
+   * with the mode.
+   */
+  test("lets a bare release through after the mode has gone", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    dispatched.length = 0;
+    send("vellum:companion:annotateShare", "released", [], INK);
+    expect(dispatched).toEqual([
+      { kind: "annotateShare", phase: "released", strokes: [], ink: INK },
+    ]);
+  });
+
+  /**
+   * The coordinates are fractions of the frame, and the frame is only around
+   * the shared surface while the mode holds. A mark arriving outside it
+   * describes nothing.
+   */
+  test("drops a mark sent while the mode is off", () => {
+    shareDisplay();
+    dispatched.length = 0;
+    send(
+      "vellum:companion:annotateShare",
+      "released",
+      [{ points: [{ x: 0.5, y: 0.5 }] }],
+      INK,
+    );
+    expect(dispatched).toHaveLength(0);
+  });
+
+  /**
+   * The coordinates are fractions of the shared surface, so a point outside
+   * `0`..`1` describes somewhere that surface does not reach. Checked against
+   * the schema rather than through a send, because the registrar drops what
+   * fails to parse and a dropped command is indistinguishable here from one
+   * this handler refused for its own reasons.
+   */
+  /** The colour is a canvas fill on the other side, so it is checked here. */
+  test("the wire refuses a colour that is not one", () => {
+    expect(companionAnnotationInkSchema.safeParse("red").success).toBe(false);
+    expect(companionAnnotationInkSchema.safeParse(INK).success).toBe(true);
+  });
+
+  test("the wire refuses a mark that falls outside the surface", () => {
+    expect(
+      companionAnnotationStrokeSchema.safeParse({
+        points: [{ x: 4, y: 0.5 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      companionAnnotationStrokeSchema.safeParse({
+        points: [{ x: 0.25, y: 0.5 }],
+      }).success,
+    ).toBe(true);
   });
 });

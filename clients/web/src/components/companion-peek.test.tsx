@@ -6,6 +6,7 @@ import { avatarPeekMetrics } from "@/utils/avatar-peek-metrics";
 
 import {
   CompanionPeek,
+  frameFor,
   PEEK_EDGES,
   PEEK_EXPOSED_MAX,
   PEEK_INTERVAL_SECONDS,
@@ -13,14 +14,15 @@ import {
   peekDelayMs,
   peekGeometry,
   pickEdge,
+  type PeekEdge,
 } from "./companion-peek";
 
 afterEach(() => {
   cleanup();
 });
 
-/** The capsule the surface actually draws: 28 by 10. */
-const CAPSULE = { width: 28, height: 10 };
+/** The marker the surface actually draws: 64 by 14. */
+const CAPSULE = { width: 64, height: 14 };
 
 /** A clock fast enough to watch in a test, and still a range. */
 const FAST = { min: 0.01, max: 0.02 };
@@ -131,11 +133,13 @@ describe("the gap between peeks", () => {
 });
 
 describe("which edge the creature comes out of", () => {
-  test("is a coin toss between the top and the bottom", () => {
+  test("is a uniform draw over the three places on the rim", () => {
     expect(pickEdge(() => 0)).toBe("top");
-    expect(pickEdge(() => 0.49)).toBe("top");
-    expect(pickEdge(() => 0.5)).toBe("bottom");
-    expect(pickEdge(() => 0.999)).toBe("bottom");
+    expect(pickEdge(() => 0.33)).toBe("top");
+    expect(pickEdge(() => 0.34)).toBe("topLeft");
+    expect(pickEdge(() => 0.66)).toBe("topLeft");
+    expect(pickEdge(() => 0.67)).toBe("topRight");
+    expect(pickEdge(() => 0.999)).toBe("topRight");
   });
 
   /** Each draw is its own, so the same edge can come up twice running. */
@@ -145,9 +149,25 @@ describe("which edge the creature comes out of", () => {
     expect(new Set(draws)).toEqual(new Set(PEEK_EDGES));
   });
 
-  /** Each edge turns the frame, so the eyes clear whichever rim they cross. */
-  test("turns the frame to face out of the chosen edge", () => {
-    const turns: Record<string, string> = {};
+  /**
+   * Every place is the top rim, so nothing is turned and the creature always
+   * rises the same way. What the draw changes is where along the rim it comes
+   * up: a quarter, a half, or three quarters of the way along.
+   */
+  test("puts each place along the capsule's top rim", () => {
+    const box = { width: 32, height: 18 };
+    const at = (edge: PeekEdge) => frameFor(edge, box, CAPSULE).slot;
+
+    expect(at("top").left).toBe(CAPSULE.width / 2 - box.width / 2);
+    expect(at("topLeft").left).toBe(CAPSULE.width / 4 - box.width / 2);
+    expect(at("topRight").left).toBe((CAPSULE.width * 3) / 4 - box.width / 2);
+    for (const edge of PEEK_EDGES) {
+      expect(at(edge).bottom).toBe("100%");
+    }
+  });
+
+  /** The rise is drawn wherever the draw put it, and says which place it is. */
+  test("draws the place it drew", () => {
     for (const edge of PEEK_EDGES) {
       const { container } = render(
         <CompanionPeek
@@ -159,13 +179,8 @@ describe("which edge the creature comes out of", () => {
         />,
       );
       expect(peekOf(container)?.getAttribute("data-edge")).toBe(edge);
-      const clip =
-        peekOf(container)?.querySelector<HTMLElement>(".overflow-hidden");
-      turns[edge] = clip?.style.transform ?? "";
       cleanup();
     }
-    expect(turns.top).toBe("rotate(0deg)");
-    expect(turns.bottom).toBe("rotate(180deg)");
   });
 });
 
