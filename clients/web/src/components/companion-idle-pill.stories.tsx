@@ -426,10 +426,12 @@ const HOLLOW = {
   // Nothing to blur behind a fill that is not there. Kept as a dial because
   // the moment any fill comes back it is the next thing to turn.
   blur: 0,
-  glow: 1.3,
+  glow: 1,
   // Thick enough to be a band rather than a hairline, which is what holds the
-  // shape together once there is no fill inside it.
-  rimWidth: 3.5,
+  // shape together once there is no fill inside it. Backed off from 3.5, where
+  // the band starts reading as a frame around the creature rather than as the
+  // creature's own outline.
+  rimWidth: 2.5,
   accentHex: "#5EEAD4",
   content: "creature",
 } satisfies IdlePillProps;
