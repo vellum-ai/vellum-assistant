@@ -10,6 +10,7 @@ import { type ReactNode, useMemo } from "react";
 
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
+import { LinuxAppBanner } from "@/components/nudges/linux-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { NativeAppBanner } from "@/components/nudges/native-app-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
@@ -49,6 +50,7 @@ export function useChatBannerSlots({
   const {
     showBanner,
     mobilePromotion,
+    isOnLinux,
     nudge,
     showGitHubBanner,
     githubNudge,
@@ -63,6 +65,11 @@ export function useChatBannerSlots({
           {mobilePromotion ? (
             <NativeAppBanner
               promotion={mobilePromotion}
+              onDownload={nudge.handleDownload}
+              onDismiss={nudge.handleBannerDismiss}
+            />
+          ) : isOnLinux ? (
+            <LinuxAppBanner
               onDownload={nudge.handleDownload}
               onDismiss={nudge.handleBannerDismiss}
             />
@@ -99,6 +106,7 @@ export function useChatBannerSlots({
   }, [
     showBanner,
     mobilePromotion,
+    isOnLinux,
     nudge,
     showGitHubBanner,
     githubNudge,
