@@ -547,42 +547,51 @@ function parseUsd(value: string | null | undefined): number | null {
 async function handlePlatformCredits(
   _args: RouteHandlerArgs,
 ): Promise<PlatformCreditsResponse> {
-  const [summary, planId] = await Promise.all([
-    fetchPlatformJson(
-      "/v1/organizations/billing/summary/",
-      "credit balance",
-    ) as Promise<{
-      settled_balance_usd: string;
-      pending_compute_usd: string;
-      effective_balance_usd: string;
-      is_degraded: boolean;
-      daily_spend_usd?: string;
-      daily_credit_limit_usd?: string | null;
-      daily_limit_reached?: boolean;
-      daily_limit_snoozed?: boolean;
-      low_balance_threshold_usd?: string;
-      low_balance_warning?: boolean;
-      available_usage_balance?: string;
-      total_usage_balance?: string;
-      credits_expiring_soon_usd?: string;
-      next_credit_expiry_at?: string | null;
-    }>,
-    // The plan only decides the zero-grant edge case, so a failed
-    // subscription read degrades that one reading to null rather than
-    // failing the balance.
-    fetchBillingSubscription()
-      .then((subscription) => subscription.plan_id)
-      .catch((): BillingPlanId | null => null),
-  ]);
+  const summary = (await fetchPlatformJson(
+    "/v1/organizations/billing/summary/",
+    "credit balance",
+  )) as {
+    settled_balance_usd: string;
+    pending_compute_usd: string;
+    effective_balance_usd: string;
+    is_degraded: boolean;
+    daily_spend_usd?: string;
+    daily_credit_limit_usd?: string | null;
+    daily_limit_reached?: boolean;
+    daily_limit_snoozed?: boolean;
+    low_balance_threshold_usd?: string;
+    low_balance_warning?: boolean;
+    available_usage_balance?: string;
+    total_usage_balance?: string;
+    credits_expiring_soon_usd?: string;
+    next_credit_expiry_at?: string | null;
+  };
 
   const remaining = Number(summary.effective_balance_usd);
   const planCreditRemaining = parseUsd(summary.available_usage_balance);
   const planCreditTotal = parseUsd(summary.total_usage_balance);
-  const usedFraction = planCreditUsedFraction(
+  let usedFraction = planCreditUsedFraction(
     planCreditTotal,
     planCreditRemaining,
-    planId,
+    null,
   );
+  if (
+    usedFraction === null &&
+    planCreditTotal !== null &&
+    planCreditTotal <= 0
+  ) {
+    // Only the zero-grant reading depends on the plan, so the subscription is
+    // read lazily and best-effort: a slow or failed read degrades that one
+    // reading to null instead of delaying or failing the balance.
+    const planId = await fetchBillingSubscription()
+      .then((subscription) => subscription.plan_id)
+      .catch((): BillingPlanId | null => null);
+    usedFraction = planCreditUsedFraction(
+      planCreditTotal,
+      planCreditRemaining,
+      planId,
+    );
+  }
 
   return {
     remaining,

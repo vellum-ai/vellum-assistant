@@ -99,8 +99,7 @@ describe("platform_credits", () => {
 
     const result = await creditsHandler({});
 
-    expect(fetchedUrls).toContain(SUMMARY_URL);
-    expect(fetchedUrls).toContain(SUBSCRIPTION_URL);
+    expect(fetchedUrls).toEqual([SUMMARY_URL]);
     expect(result).toMatchObject({
       remaining: 42.17,
       settled: 50,
@@ -149,6 +148,7 @@ describe("platform_credits", () => {
       plan_credits_spent: true,
       extra_credit_remaining: 42.17,
     });
+    expect(fetchedUrls).toEqual([SUMMARY_URL, SUBSCRIPTION_URL]);
   });
 
   test("gives a base plan with no grants no reading, and clamps a refund overshoot", async () => {
