@@ -120,7 +120,8 @@ Object.defineProperty(process, "resourcesPath", {
   writable: true,
 });
 
-const { setPointerOnCompanion } = await import("./companion-pointer");
+const { setPointerOnCompanion } =
+  await import("@vellumai/electron-desktop/companion-pointer");
 
 const {
   __resetForTesting,

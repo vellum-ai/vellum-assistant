@@ -18,7 +18,7 @@ import {
   type CompanionSurfaceState,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
-import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
+import { companionSizeSubmenus } from "./companion-menu";
 
 // The module under test reaches `main-window.ts` to hand Talk to the renderer
 // that owns the live-voice session, and that chain loads `electron-store`, a
@@ -26,6 +26,12 @@ import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu
 // resolve off-Electron. Only the import chain needs satisfying here: these
 // cases exercise the anchor, which touches no store. Same shape as
 // `window-state.test.ts`, which mocks it for the same reason.
+// The package's own test setup does not stand in for `electron-log`, which
+// reaches the Electron binary's `app` on import. Nothing here reads the log.
+mock.module("./app-logger", () => ({
+  default: { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} },
+}));
+
 mock.module("electron-store", () => ({
   default: class {
     get(_key: string, fallback?: unknown) {
@@ -125,9 +131,11 @@ const register =
   (
     channel: string,
     schema: { parse: (input: unknown) => unknown },
-    fn: (args: never) => unknown,
+    fn: (args: never, event: never) => unknown,
   ): void => {
-    into.set(channel, (args) => fn(schema.parse(args) as never));
+    into.set(channel, (args) =>
+      fn(schema.parse(args) as never, undefined as never),
+    );
   };
 
 /**
@@ -166,9 +174,6 @@ const fireAppEvent = (event: string, ...args: unknown[]): void => {
 
 mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
-  systemPreferences: {
-    getAnimationSettings: () => ({ prefersReducedMotion: reducedMotion }),
-  },
   app: {
     on: (event: string, listener: (...args: unknown[]) => void) => {
       appListeners.push({ event, listener });
@@ -290,31 +295,32 @@ mock.module("./companion-capture-sources", () => ({
   },
 }));
 
-mock.module("./ipc", () => ({
-  on: register(listeners),
-  handle: register(invocable),
-}));
-
 /** Main's show/hide/destroy listeners, so a case can fire one. */
 const visibilityListeners: (() => void)[] = [];
 
-mock.module("./main-window", () => ({
-  // Its existence decides whether a press is dispatched straight into a
-  // renderer or has to build one first, and whether a visibility change is the
-  // window being destroyed; whether it is showing decides, with the app's
-  // activation, whether the surface is on the screen.
-  current: () => (mainWindowOpen ? mainWindow : null),
+/**
+ * The desktop the surface is installed on. The app's window existing decides
+ * whether a press is dispatched straight into a renderer or has to build one
+ * first, and whether a visibility change is the window being destroyed;
+ * whether it is showing decides, with the app's activation, whether the
+ * surface is on the screen.
+ */
+const platform = {
+  on: register(listeners),
+  handle: register(invocable),
+  currentMainWindow: () => (mainWindowOpen ? mainWindow : null),
   dispatchToMain: (command: VellumCommand) => {
     dispatched.push(command);
   },
-  ensureVisible: () => {
+  ensureMainWindowVisible: () => {
     windowsRaised += 1;
     return Promise.resolve();
   },
   onMainWindowVisibilityChange: (listener: () => void) => {
     visibilityListeners.push(listener);
   },
-}));
+  prefersReducedMotion: () => reducedMotion,
+};
 
 /**
  * The display's edge glow, which main opens for a watch session and closes
@@ -400,7 +406,7 @@ const openGlow = (options: {
   return window;
 };
 
-mock.module("@vellumai/electron-desktop/floating-window", () => ({
+mock.module("./floating-window", () => ({
   createFloatingWindow: (options: {
     kind: string;
     width: number;
@@ -419,7 +425,7 @@ mock.module("@vellumai/electron-desktop/floating-window", () => ({
     kind === "companion" ? (companionOpen ? surface : null) : glow,
 }));
 
-mock.module("@vellumai/electron-desktop/avatar", () => ({
+mock.module("./avatar", () => ({
   getAvatarPng: () => null,
   getCharacter: () => null,
   getAccentHex: () => null,
@@ -437,7 +443,7 @@ let flags: Record<string, boolean> = { "companion-surface": true };
 /** Main's `featureFlags` listeners, so a case can fire a targeting change. */
 const flagListeners: (() => void)[] = [];
 
-mock.module("@vellumai/electron-desktop/settings", () => ({
+mock.module("./settings", () => ({
   readSetting: () => flags,
   onSettingChange: (_key: string, listener: () => void) => {
     flagListeners.push(listener);
@@ -457,7 +463,7 @@ const sizes: Record<CompanionSizeAxis, CompanionSize> = {
   options: "small",
 };
 
-mock.module("@vellumai/electron-desktop/window-state", () => ({
+mock.module("./window-state", () => ({
   readCompanionSize: (axis: CompanionSizeAxis) => sizes[axis],
   readCompanionHidden: () => false,
   writeCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => {
@@ -491,8 +497,10 @@ const {
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
   installCompanionWindow,
+  configureCompanionWindow,
 } = await import("./companion-window");
 
+configureCompanionWindow(platform);
 installCompanionWindow();
 
 /**
@@ -739,7 +747,9 @@ describe("the room kept under the surface", () => {
 
   /** And a drag can put the surface no lower than the same rule allows. */
   test("holds a drag to the same room", () => {
-    const dragged = centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY));
+    const dragged = centreOf(
+      placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY),
+    );
     expect(dragged.y).toBe(
       900 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
@@ -789,7 +799,10 @@ describe("placeCanvas", () => {
         placeCanvas({ x: 700, y: 9000 }, WORK_AREA, BIG_CREATURE),
         BIG_CREATURE,
       ).y,
-    ).toBe(900 - companionLowerReachFor(BIG_CREATURE.avatarBox, BIG_CREATURE.optionsBox));
+    ).toBe(
+      900 -
+        companionLowerReachFor(BIG_CREATURE.avatarBox, BIG_CREATURE.optionsBox),
+    );
   });
 
   /**
@@ -870,7 +883,10 @@ describe("defaultAvatarCentre", () => {
     const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
     expect(centre.x).toBe(720);
     expect(centre.y).toBe(
-      25 + 875 - 2 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+      25 +
+        875 -
+        2 -
+        companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 
@@ -882,7 +898,8 @@ describe("defaultAvatarCentre", () => {
     for (const geometry of [GEOMETRY, BIG_CREATURE, BIG_OPTIONS]) {
       const centre = defaultAvatarCentre(WORK_AREA, geometry);
       const visibleBottom =
-        centre.y + companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
+        centre.y +
+        companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
       expect(25 + 875 - visibleBottom).toBe(2);
     }
   });
@@ -1303,7 +1320,8 @@ describe("the glide between the pill's home and the call's place", () => {
     // Inside by the rule the clamp actually applies: the creature's visible
     // bottom on the edge, not its box's.
     expect(centre().y).toBeLessThanOrEqual(
-      shrunk.height - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+      shrunk.height -
+        companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 
@@ -2676,7 +2694,7 @@ describe("the Watch flag on the pushed state", () => {
 
 // The identity main holds, which is what opens the surface after a sign-in.
 // Imported after the mocks for the same reason the module under test is.
-const { setName } = await import("@vellumai/electron-desktop/identity");
+const { setName } = await import("./identity");
 
 describe("the surface while the app is in front", () => {
   test("steps off the screen when the app comes forward", () => {
