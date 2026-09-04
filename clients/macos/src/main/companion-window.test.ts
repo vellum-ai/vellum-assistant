@@ -829,7 +829,7 @@ describe("defaultAvatarCentre", () => {
     const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
     expect(centre.x).toBe(720);
     expect(centre.y).toBe(
-      25 + 875 - 8 - companionBaselineFor(GEOMETRY.avatarBox),
+      25 + 875 - 2 - companionBaselineFor(GEOMETRY.avatarBox),
     );
   });
 
@@ -842,7 +842,7 @@ describe("defaultAvatarCentre", () => {
       const centre = defaultAvatarCentre(WORK_AREA, geometry);
       const visibleBottom =
         centre.y + companionBaselineFor(geometry.avatarBox);
-      expect(25 + 875 - visibleBottom).toBe(8);
+      expect(25 + 875 - visibleBottom).toBe(2);
     }
   });
 

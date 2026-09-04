@@ -280,8 +280,14 @@ export const geometryFor = (
  * front of the thing it was put there to help with. Resting on that edge
  * leaves it a strip of its own under everything else, which is the shape of
  * the bargain: seen when looked for, out of the way when not.
+ *
+ * Two points rather than none. The clamp will take the creature all the way
+ * down to the edge and a drag can put it there, but opening flush against it
+ * leaves the lit rim's own bloom with nowhere to fall, and a glow cut off by
+ * the bottom of the display reads as the surface being clipped rather than as
+ * it resting on something.
  */
-const DEFAULT_MARGIN = 8;
+const DEFAULT_MARGIN = 2;
 
 let growth: CompanionGrowth = "right";
 
@@ -2108,6 +2114,20 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
+      // **The canvas is allowed off the bottom of the screen.** Without this
+      // macOS quietly slides a window back until its whole frame is inside the
+      // work area, and this canvas carries `dropBelow` points of empty space
+      // under the creature to hold a pill that is usually not drawn. So a
+      // surface asked to sit on the bottom edge was handed back a position a
+      // whole `dropBelow` higher, and the creature came to rest that far up:
+      // 40pt at the authored size, whatever margin was asked for. The clamp in
+      // `placeCanvas` keeps the *creature* on screen, which is the thing worth
+      // keeping there; the empty canvas around it is free to hang off.
+      //
+      // The same refusal at the top is worked around instead of lifted (see
+      // `placeCanvas`), because a canvas over the menu bar would put the
+      // introduction's card behind it.
+      enableLargerThanScreen: true,
       // **Unfocusable, like the dictation overlay.** `type: "panel"` already
       // makes the window non-activating, so clicking it never brings Vellum
       // forward; this goes further and stops it taking key status, because a
