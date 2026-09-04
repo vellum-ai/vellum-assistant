@@ -108,7 +108,7 @@ describe("readLinuxEnvironment", () => {
     expect(env.desktop).toEqual([]);
   });
 
-  test("returns a null distro when /etc/os-release is missing", () => {
+  test("returns a null distro when no os-release file is readable", () => {
     const paths: string[] = [];
     const env = readLinuxEnvironment(
       {},
@@ -120,8 +120,40 @@ describe("readLinuxEnvironment", () => {
       }),
     );
 
-    expect(paths).toEqual(["/etc/os-release"]);
+    expect(paths).toEqual(["/etc/os-release", "/usr/lib/os-release"]);
     expect(env.distro).toBeNull();
+  });
+
+  test("falls back to /usr/lib/os-release only when /etc has none", () => {
+    const paths: string[] = [];
+    const env = readLinuxEnvironment(
+      {},
+      io({
+        readTextFile: (filePath) => {
+          paths.push(filePath);
+          return filePath === "/usr/lib/os-release" ? "ID=fedora\n" : null;
+        },
+      }),
+    );
+
+    expect(paths).toEqual(["/etc/os-release", "/usr/lib/os-release"]);
+    expect(env.distro?.id).toBe("fedora");
+  });
+
+  test("does not read the fallback when /etc/os-release is present", () => {
+    const paths: string[] = [];
+    const env = readLinuxEnvironment(
+      {},
+      io({
+        readTextFile: (filePath) => {
+          paths.push(filePath);
+          return "ID=debian\n";
+        },
+      }),
+    );
+
+    expect(paths).toEqual(["/etc/os-release"]);
+    expect(env.distro?.id).toBe("debian");
   });
 
   test("returns a null distro when os-release carries none of the fields", () => {

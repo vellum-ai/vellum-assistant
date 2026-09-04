@@ -3,7 +3,9 @@ import { accessSync, constants, readFileSync } from "node:fs";
 
 import log from "./logger";
 
-const OS_RELEASE_PATH = "/etc/os-release";
+// os-release precedence per the freedesktop spec: /etc wins, /usr/lib is
+// the fallback on distros that ship no /etc copy.
+const OS_RELEASE_PATHS = ["/etc/os-release", "/usr/lib/os-release"];
 const DBUS_SEND_TIMEOUT_MS = 2_000;
 
 /** How the current graphical session talks to its display server. */
@@ -80,7 +82,7 @@ export function readLinuxEnvironment(
   cached = {
     sessionType: readSessionType(env),
     desktop: readDesktop(env),
-    distro: parseOsRelease(io.readTextFile(OS_RELEASE_PATH)),
+    distro: readDistro(io),
     appImagePath,
     appImageWritable:
       appImagePath === null ? null : io.isWritable(appImagePath),
@@ -161,11 +163,17 @@ function readDesktop(env: NodeJS.ProcessEnv): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function parseOsRelease(contents: string | null): LinuxDistro | null {
-  if (contents === null) {
-    return null;
+function readDistro(io: LinuxEnvironmentIo): LinuxDistro | null {
+  for (const filePath of OS_RELEASE_PATHS) {
+    const contents = io.readTextFile(filePath);
+    if (contents !== null) {
+      return parseOsRelease(contents);
+    }
   }
+  return null;
+}
 
+function parseOsRelease(contents: string): LinuxDistro | null {
   const fields = new Map<string, string>();
   for (const line of contents.split("\n")) {
     const trimmed = line.trim();
