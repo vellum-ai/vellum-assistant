@@ -60,6 +60,7 @@ const BACKGROUND_SOURCES = new Set([
 const LOCAL_OWNER_INTERFACES = new Set([
   "macos",
   "windows",
+  "linux",
   "web",
   "vellum",
   "cli",

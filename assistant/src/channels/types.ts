@@ -299,6 +299,20 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 }
 
 /**
+ * Whether a surface runs the shared Electron desktop renderer. macOS and Linux
+ * ship the same renderer, so a UI capability one has the other has too; the
+ * Windows client has its own and answers these questions separately.
+ *
+ * Accepts a plain string because callers hold either an `InterfaceId` or the
+ * loosely typed `clientOS` capability field.
+ */
+export function usesSharedDesktopRenderer(
+  surface: string | null | undefined,
+): boolean {
+  return surface === "macos" || surface === "linux";
+}
+
+/**
  * Host proxy capabilities that an interface can support. macOS supports all
  * of them, Windows and Linux withhold app control, and chrome-extension
  * supports only host_browser through the Chrome DevTools Protocol proxy.

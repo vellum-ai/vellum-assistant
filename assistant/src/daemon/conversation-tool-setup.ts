@@ -12,6 +12,7 @@ import {
   type HostProxyCapability,
   parseClientOs,
   supportsHostProxy,
+  usesSharedDesktopRenderer,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -891,9 +892,13 @@ export function isToolActiveForContext(
     return !hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
-    if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
-      // macOS has no UI handler for question_request yet; hiding the tool
-      // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
+    if (
+      name === "ask_question" &&
+      usesSharedDesktopRenderer(channelCapabilities?.clientOS)
+    ) {
+      // The shared desktop renderer (macOS, Linux) has no UI handler for
+      // question_request yet; hiding the tool avoids a 5-minute prompter
+      // timeout when the LLM would otherwise call it.
       return false;
     }
     return !hasNoClient;

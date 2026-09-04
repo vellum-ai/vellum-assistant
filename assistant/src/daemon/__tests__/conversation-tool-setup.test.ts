@@ -732,6 +732,23 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
     ).toBe(false);
   });
 
+  test("ask_question is NOT active when clientOS is linux", () => {
+    // Linux runs the same renderer as macOS, so it lacks the handler too.
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: {
+            channel: "linux",
+            supportsDynamicUi: true,
+            clientOS: "linux",
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
   test("ask_question is active when channelCapabilities is undefined (backwards-compat)", () => {
     expect(
       isToolActiveForContext("ask_question", makeCtx({ hasNoClient: false })),
