@@ -56,6 +56,11 @@ import {
   REFUSAL_FALLBACK_TEXT,
 } from "@vellumai/plugin-api";
 
+import { resolveCallSiteConfig } from "../../../../config/llm-resolver.js";
+import { getConfig } from "../../../../config/loader.js";
+import { isSendUserMessageFlagOn } from "../../../../config/send-user-message-gate.js";
+import { hasSendUserMessageCall } from "../../../../daemon/handlers/user-facing-content.js";
+import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
@@ -78,6 +83,49 @@ export const NUDGE_TEXT =
   "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text." +
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
   "</system_notice>";
+
+/**
+ * Canonical nudge text for a turn that ended without reaching the user through
+ * `send_user_message`. Shown to the LLM, not the user.
+ */
+export const SEND_USER_MESSAGE_NUDGE_TEXT =
+  "<system_notice>Nothing you wrote reached the user. Call send_user_message with a 1 to 3 sentence reply now." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
+
+/** Watchdog check name for both tool-gated reply outcomes. */
+const SEND_USER_MESSAGE_CHECK = "send_user_message_delivery";
+
+/**
+ * Model the main-agent call site resolves to, for the telemetry tag. Null when
+ * config or resolution is unavailable: the counter is observability, never a
+ * reason to fail a turn.
+ */
+function resolvedMainAgentModel(): string | null {
+  try {
+    return resolveCallSiteConfig("mainAgent", getConfig().llm).model ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function recordSendUserMessageOutcome(
+  outcome: "nudge" | "fallback",
+  conversationId: string,
+): void {
+  try {
+    recordWatchdogEvent({
+      checkName: SEND_USER_MESSAGE_CHECK,
+      detail: {
+        outcome,
+        model: resolvedMainAgentModel(),
+        conversation_id: conversationId,
+      },
+    });
+  } catch {
+    // Telemetry is best-effort; a recording failure must not affect the turn.
+  }
+}
 
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
@@ -140,6 +188,45 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText
   ) {
     ctx.content = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    return;
+  }
+
+  // Tool-gated reply surface: nothing the model wrote as plain text reaches
+  // the user, so "visible" means a `send_user_message` call carried text this
+  // response cycle. This turn holds no tool call at all (the guard above), so
+  // a cycle with no such call anywhere is a turn ending in silence: nudge once
+  // for a real reply, and after that let the turn end — the loop then surfaces
+  // the raw final text as the fallback rather than delivering nothing.
+  //
+  // Owned entirely here: the legacy empty-turn nudge below asks for plain
+  // text, which is exactly what the gate makes invisible.
+  if (
+    ctx.callSite === "mainAgent" &&
+    isSendUserMessageFlagOn() &&
+    !cycleMessages.some(
+      (message) =>
+        isAssistantTurn(message) && hasSendUserMessageCall(message.content),
+    )
+  ) {
+    if (!isEmptyResponseNudged(ctx.conversationId)) {
+      markEmptyResponseNudged(ctx.conversationId);
+      ctx.messages.push({
+        role: "user",
+        content: [{ type: "text", text: SEND_USER_MESSAGE_NUDGE_TEXT }],
+      });
+      ctx.decision = "continue";
+      recordSendUserMessageOutcome("nudge", ctx.conversationId);
+      ctx.logger.warn(
+        { plugin: "empty-response", conversationId: ctx.conversationId },
+        "Turn ended without a send_user_message call — nudging for a reply",
+      );
+      return;
+    }
+    recordSendUserMessageOutcome("fallback", ctx.conversationId);
+    ctx.logger.warn(
+      { plugin: "empty-response", conversationId: ctx.conversationId },
+      "Turn ended without a send_user_message call after a nudge — surfacing the raw reply",
+    );
     return;
   }
 

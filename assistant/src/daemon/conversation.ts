@@ -37,6 +37,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { isSendUserMessageActiveForTurn } from "../config/send-user-message-gate.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -1019,6 +1020,7 @@ export class Conversation {
           personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
+          sendUserMessageTool: isSendUserMessageActiveForTurn(this),
         });
   }
 

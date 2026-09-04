@@ -1,5 +1,6 @@
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-gate.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
 import {
@@ -54,6 +55,7 @@ import {
 } from "../tools/sensitive-output-placeholders.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { joinWithSpacing } from "../util/text-spacing.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
 import {
   deepRepairHistory,
@@ -564,6 +566,20 @@ interface AgentLoopRunOptionsBase {
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
   callSite?: LLMCallSite;
+  /**
+   * Route this run's user-facing text through the `send_user_message` tool
+   * instead of streamed assistant text. The daemon sets it for main-agent runs
+   * when the `send-user-message` flag is on; every other caller leaves it
+   * unset and keeps today's streaming.
+   *
+   * When set, `text_delta` events are dropped and each `send_user_message`
+   * call's message is streamed in their place. The model-native history and
+   * the persisted assistant row still carry the raw text blocks, so the model
+   * sees its own scratchpad when the conversation resumes. The one exception
+   * is the fallback: a run that ends without ever calling the tool surfaces
+   * its final text, so a turn is never silently swallowed.
+   */
+  suppressAssistantText?: boolean;
   /**
    * Whether the connected client can render dynamic UI surfaces this turn,
    * surfaced to post-tool-use hooks via {@link PostToolUseContext}. Defaults to
@@ -1106,6 +1122,7 @@ export class AgentLoop {
       requestId,
       onCheckpoint,
       callSite,
+      suppressAssistantText = false,
       supportsDynamicUi = true,
       trust,
       overrideProfile,
@@ -1131,6 +1148,10 @@ export class AgentLoop {
     let newMessagesStart = history.length;
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
+    // Set once a `send_user_message` call this run carried text to the user.
+    // Only meaningful under {@link suppressAssistantText}, where it decides
+    // whether the final raw text still has to be surfaced as the fallback.
+    let sentUserMessageThisRun = false;
     // One deep history-repair recovery per turn: a second consecutive ordering
     // rejection means the repair could not recover, so the error surfaces
     // instead of looping. Turn-scoped, so each turn recovers afresh.
@@ -1678,6 +1699,13 @@ export class AgentLoop {
               if (deferAssistantOutput) {
                 return;
               }
+              // Under the tool-gated reply surface the model's plain text is a
+              // private scratchpad: it stays in history and in the persisted
+              // row, but nothing streams it. `send_user_message` carries what
+              // the user reads (see `emitUserFacingToolText`).
+              if (suppressAssistantText) {
+                return;
+              }
               // Apply sensitive-output placeholder substitution (chunk-safe)
               if (substitutionMap.size > 0) {
                 const combined = streamingPending + event.text;
@@ -1949,8 +1977,21 @@ export class AgentLoop {
         // Sensitive-output substitution is applied to match what the live stream
         // would have shown. A no-op when text already streamed live — that
         // stream stands. Call only for a turn being kept.
-        const emitFinalAssistantText = (content: ContentBlock[]): void => {
+        const emitFinalAssistantText = (
+          content: ContentBlock[],
+          opts: { turnEnding: boolean },
+        ): void => {
           if (streamedVisibleText) {
+            return;
+          }
+          // Under the tool-gated reply surface the raw text is private working
+          // notes, so it is surfaced only as the fallback: the turn is ending
+          // and no `send_user_message` call ever reached the user. Anything
+          // else stays unsent, which is the point of the gate.
+          if (
+            suppressAssistantText &&
+            (sentUserMessageThisRun || !opts.turnEnding)
+          ) {
             return;
           }
           const finalText = applySubstitutions(
@@ -1959,6 +2000,45 @@ export class AgentLoop {
           );
           if (finalText.length > 0) {
             onEvent({ type: "text_delta", text: finalText });
+          }
+        };
+
+        /**
+         * Stream the messages this call's `send_user_message` blocks carry.
+         * Emitted just before `message_complete` so the daemon's ordinary
+         * `text_delta` handling (sensitive-value swap, live mirror, partial
+         * flush) runs against the still-in-flight assistant row, and the
+         * streamed text matches what the persisted row projects: the blocks
+         * are joined exactly as the history renderer joins its text blocks.
+         */
+        const emitUserFacingToolText = (content: ContentBlock[]): void => {
+          if (!suppressAssistantText) {
+            return;
+          }
+          const messages: string[] = [];
+          for (const block of content) {
+            if (block.type !== "tool_use") {
+              continue;
+            }
+            if (block.name !== SEND_USER_MESSAGE_TOOL_NAME) {
+              continue;
+            }
+            const message = block.input["message"];
+            if (typeof message === "string" && message.trim().length > 0) {
+              messages.push(message);
+            }
+          }
+          if (messages.length === 0) {
+            return;
+          }
+          sentUserMessageThisRun = true;
+          const text = applySubstitutions(
+            joinWithSpacing(messages),
+            substitutionMap,
+          );
+          if (text.length > 0) {
+            streamedVisibleText = true;
+            onEvent({ type: "text_delta", text });
           }
         };
 
@@ -2039,7 +2119,12 @@ export class AgentLoop {
                 block.type !== "web_search_tool_result",
             ),
           };
-          emitFinalAssistantText(safeAssistantMessage.content);
+          // A truncated turn keeps no tool calls (they were stripped above), so
+          // it is the turn's end and its text is the tool-gated fallback when
+          // nothing reached the user.
+          emitFinalAssistantText(safeAssistantMessage.content, {
+            turnEnding: true,
+          });
           if (
             maxTokensDecision === "continue" &&
             postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
@@ -2127,9 +2212,13 @@ export class AgentLoop {
           // streamed nothing. Honoring a retry on an already-streamed visible
           // reply would leave the user looking at an answer the transcript
           // then silently replaces, with no retraction — so accept the turn
-          // instead of discarding visible output.
+          // instead of discarding visible output. Under the tool-gated reply
+          // surface a text-only turn streamed nothing either, so the nudge
+          // retry that asks for a `send_user_message` call stays available.
           const replyWasStreamedLive =
-            responseHasVisibleText && !deferAssistantOutput;
+            responseHasVisibleText &&
+            !deferAssistantOutput &&
+            !suppressAssistantText;
           if (replyWasStreamedLive) {
             rlog.warn(
               { turn: toolUseTurns },
@@ -2151,9 +2240,16 @@ export class AgentLoop {
           }
         }
 
-        // The turn is being kept: surface the finalized text if the client saw
-        // nothing live (a deferred stream, or a hook-rewritten empty turn).
-        emitFinalAssistantText(assistantMessage.content);
+        // The turn is being kept. Stream what `send_user_message` carries
+        // first: under the tool-gated surface that IS the reply, and emitting
+        // it here keeps it ahead of `message_complete` and of the tool events.
+        emitUserFacingToolText(assistantMessage.content);
+        // Surface the finalized text if the client saw nothing live (a
+        // deferred stream, a hook-rewritten empty turn, or the tool-gated
+        // fallback where no `send_user_message` call ever reached the user).
+        emitFinalAssistantText(assistantMessage.content, {
+          turnEnding: toolUseBlocks.length === 0,
+        });
 
         history.push(assistantMessage);
 

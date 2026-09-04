@@ -11,6 +11,7 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { projectPersistedAssistantContent } from "../daemon/handlers/user-facing-content.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
@@ -225,7 +226,12 @@ export async function emitAssistantReplyNotification(params: {
     // first: a lock screen renders none of it, and an embed-only reply has to
     // reduce to empty for the fallback to be reachable. A reply with neither
     // text nor media stays silent.
-    const text = stringifyMessageContent(assistantRow.content);
+    // The push preview quotes what the user reads, so it walks the same
+    // user-facing projection the transcript does: under the tool-gated reply
+    // surface the model's plain text is private working notes.
+    const text = stringifyMessageContent(
+      projectPersistedAssistantContent(assistantRow.content),
+    );
     const preview =
       sanitizeMultilineMessagePreview(stripMarkdownForPreview(text)) ||
       sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));
