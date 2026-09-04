@@ -81,6 +81,9 @@ bash scripts/generate-icon.sh
 echo "Building web frontend..."
 bun run build:web
 
+echo "Building native helper..."
+bun scripts/build-native-helper.ts --arch "$ARCH"
+
 echo "Generating CLI lockfile..."
 bash scripts/generate-cli-lockfile.sh
 bunx electron-vite build

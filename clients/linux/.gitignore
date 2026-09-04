@@ -5,3 +5,5 @@ build/
 resources/bun
 resources/web-dist
 resources/cli-lockfile
+resources/native-helper
+native/linux-helper/target/
