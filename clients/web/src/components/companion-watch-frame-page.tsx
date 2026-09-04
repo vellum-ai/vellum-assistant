@@ -2,11 +2,16 @@
  * The frame around what is being read: a border, and nothing inside it.
  *
  * Drawn in its own click-through window, which the macOS shell opens for a
- * watch session, sizes to whatever the session reads (a display, or the one
- * window the user picked), moves with it, and closes after it
- * (`clients/macos/src/main/companion-window.ts`). The surface being read says
- * so on its own edge, the way a shared screen is framed, so a capture is never
- * something only a ring on a creature in one corner admits to.
+ * watch session or a call's screen share, sizes to whatever is being read (a
+ * display, or the one window or tab the user picked), moves with it, and
+ * closes after it (`clients/macos/src/main/companion-window.ts`). The surface
+ * being read says so on its own edge, the way a shared screen is framed, so a
+ * capture is never something only a ring on a creature in one corner admits
+ * to.
+ *
+ * Both kinds of read get the same border, because the fact the border states
+ * is the same one: this surface is leaving the machine. Which control started
+ * it is the pill's business, not the desktop's.
  *
  * A border and no glow, deliberately. A frame's job is to say exactly where
  * the read stops, and light bleeding inward from the edge says the opposite:
@@ -85,8 +90,20 @@ export function CompanionWatchFramePage() {
 
   // Read as the surface reads it: only a positive answer is a session, since
   // the alternative is framing a screen nobody is reading.
-  const lit = state?.watching === true;
-  const observedCaptures = useObservedCaptures(state?.captureCount ?? 0, lit);
+  const watching = state?.watching === true;
+  // A target on the state is the share, since main sends the pick itself and
+  // absence is nothing shared. The shell has already sized this window to it,
+  // so what is left is to draw.
+  const sharing = state?.screenShare !== undefined;
+  const lit = watching || sharing;
+  // Counted against the watch session alone. `captureCount` is that session's
+  // total and a share does not advance it, so a share left holding the frame
+  // after a watch ended would sit on the last count that session reported and
+  // flash for a read nobody took.
+  const observedCaptures = useObservedCaptures(
+    state?.captureCount ?? 0,
+    watching,
+  );
 
   return (
     <div
@@ -108,7 +125,7 @@ export function CompanionWatchFramePage() {
           treatments or the second is invisible inside the first. Keyed by the
           captures this window has watched arrive, so each one remounts the
           element and replays a one-shot animation. */}
-      {lit && observedCaptures > 0 && (
+      {watching && observedCaptures > 0 && (
         <div
           key={observedCaptures}
           className="companion-watch-frame-flash fixed inset-0"

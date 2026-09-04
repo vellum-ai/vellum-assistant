@@ -97,6 +97,79 @@ describe("the frame around what is read", () => {
     expect(frameOf(container)).toBeNull();
   });
 
+  /**
+   * A share is the other way a surface leaves the machine, and the shell
+   * opens and places this window for it exactly as it does for a watch. Only
+   * the page was refusing to draw.
+   */
+  test("draws for a screen a call is sharing", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(frameOf(container)).not.toBeNull();
+  });
+
+  test("draws for a window or tab a call is sharing", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      screenShare: { kind: "window", windowId: 42 },
+    });
+    expect(frameOf(container)).not.toBeNull();
+  });
+
+  test("stays while a share outlives the watch beside it", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      watching: true,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    pushState({
+      ...STATE,
+      watching: false,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(frameOf(container)).not.toBeNull();
+  });
+
+  test("goes once the share is stopped", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    pushState({ ...STATE, call: LISTENING_CALL });
+    expect(frameOf(container)).toBeNull();
+  });
+
+  /**
+   * `captureCount` is the watch session's total and a share does not advance
+   * it. A share still holding the frame after the watch ended would otherwise
+   * sit on that session's last count and flash for a read nobody took.
+   */
+  test("does not flash for a share left holding the frame", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      watching: true,
+      captureCount: 3,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    pushState({
+      ...STATE,
+      watching: false,
+      captureCount: 4,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(container.querySelector(".companion-watch-frame-flash")).toBeNull();
+  });
+
   test("reads a state that says nothing about it as empty", () => {
     const { container } = render(<CompanionWatchFramePage />);
     pushState({ ...STATE });
