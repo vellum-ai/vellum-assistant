@@ -25,17 +25,6 @@ import type {
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
-/**
- * The colour a watch session lights the surface in: the creature's ring, and
- * the edge of the display being read.
- *
- * Fixed rather than the assistant's own accent, because the accent already
- * means "a turn is running" and a screen being read is a different fact about
- * the machine. Amber is the tone the host burns for a live capture, so the
- * surface agrees with the menu bar above it.
- */
-export const COMPANION_CAPTURE_ACCENT = "#ff9f45";
-
 const HEX_PATTERN = /^#[0-9a-f]{6}$/i;
 
 function usableHex(value: string | undefined): string | undefined {

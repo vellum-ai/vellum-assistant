@@ -82,12 +82,42 @@ describe("the frame around what is read", () => {
     expect(frameOf(container)).toBeNull();
   });
 
-  test("draws in the capture colour, not the assistant's", () => {
+  /**
+   * The edge and the call pill are one light. A colour of the frame's own
+   * would leave the user to work out that two unrelated lights on the same
+   * desktop were about one session.
+   */
+  test("draws in the running call's accent", () => {
     const { container } = render(<CompanionWatchFramePage />);
     pushState({ ...STATE, call: LISTENING_CALL, watching: true });
     expect(
       frameOf(container)?.style.getPropertyValue("--companion-ring-accent"),
-    ).toBe("#ff9f45");
+    ).toBe("#5eead4");
+  });
+
+  test("falls back to the accent the app published", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      accentHex: "#a78bfa",
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(
+      frameOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("#a78bfa");
+  });
+
+  /**
+   * Handing CSS an unusable value drops the custom property and takes the
+   * border's colour with it, so an accent that does not parse is left unset
+   * and the class keeps its own.
+   */
+  test("leaves the colour to the class when no accent resolves", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({ ...STATE, accentHex: "not a colour", watching: true });
+    expect(
+      frameOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("");
   });
 
   test("goes once the session is over", () => {

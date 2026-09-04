@@ -18,6 +18,14 @@
  * it dims the thing the user is working on and makes the boundary a
  * gradient. The edge is the whole signal.
  *
+ * Drawn in the assistant's own accent, the colour the call pill is already
+ * ringed in, and resolved through the same `companionAccentHexFor` the
+ * surface uses so the two lights cannot come apart. The frame is one end of
+ * something the pill is the other end of: a screen going to *this* assistant.
+ * A colour of its own would have made the border a second, unrelated light on
+ * the same desktop, and the user would be left to work out that the amber
+ * edge and the teal pill were about one session.
+ *
  * **It draws the session and holds none of it.** The window is pushed the
  * same state the companion surface is, and draws when that state says a
  * session is reading the screen. Where the window sits is the shell's; this
@@ -27,7 +35,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
+import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   getCompanionState,
   subscribeCompanionState,
@@ -105,6 +113,21 @@ export function CompanionWatchFramePage() {
     watching,
   );
 
+  // The assistant's colour, resolved exactly as the surface resolves it: the
+  // running call's first, then what the app published with the character,
+  // then the character's own palette. Left unset when none of them parse,
+  // which hands the class its own default rather than dropping the custom
+  // property and taking the border's colour with it.
+  const accentHex = companionAccentHexFor(
+    state?.call ?? null,
+    state?.accentHex,
+    state?.character,
+  );
+  const accentStyle =
+    accentHex === undefined
+      ? undefined
+      : { ["--companion-ring-accent" as string]: accentHex };
+
   return (
     <div
       className="pointer-events-none h-screen w-screen bg-transparent"
@@ -114,9 +137,7 @@ export function CompanionWatchFramePage() {
       {lit && (
         <div
           className="companion-watch-frame fixed inset-0"
-          style={{
-            ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
-          }}
+          style={accentStyle}
         />
       )}
       {/* One capture, as a single brightening of the same edge. The frame
@@ -129,9 +150,7 @@ export function CompanionWatchFramePage() {
         <div
           key={observedCaptures}
           className="companion-watch-frame-flash fixed inset-0"
-          style={{
-            ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
-          }}
+          style={accentStyle}
         />
       )}
     </div>
