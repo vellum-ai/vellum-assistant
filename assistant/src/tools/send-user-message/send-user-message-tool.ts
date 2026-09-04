@@ -17,7 +17,7 @@
 
 import { z } from "zod";
 
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-gate.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
   invalidToolInputResult,

@@ -1,6 +1,6 @@
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-gate.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
 import {
@@ -48,6 +48,7 @@ import {
   isContextOverflowError,
   NATIVE_WEB_SEARCH_TOOL_NAME,
 } from "../providers/types.js";
+import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
@@ -65,6 +66,29 @@ import {
 } from "./history-repair/history-repair.js";
 
 const log = getLogger("agent-loop");
+
+/** Watchdog check name for both tool-gated reply outcomes. */
+const SEND_USER_MESSAGE_CHECK = "send_user_message_delivery";
+
+/**
+ * Count one outcome of the tool-gated reply surface: the model was nudged for
+ * a `send_user_message` call, or the run ended without one and the raw text
+ * was surfaced as the fallback. Tagged with the model that served the call.
+ * Best-effort observability, never a reason to fail a turn.
+ */
+function recordSendUserMessageOutcome(
+  outcome: "nudge" | "fallback",
+  model: string | undefined,
+): void {
+  try {
+    recordWatchdogEvent({
+      checkName: SEND_USER_MESSAGE_CHECK,
+      detail: { outcome, model: model ?? null },
+    });
+  } catch {
+    // Telemetry must not affect the turn.
+  }
+}
 
 /** Fraction of the preflight budget at which a checkpoint triggers mid-loop compaction. */
 const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
@@ -1964,6 +1988,7 @@ export class AgentLoop {
               content: structuredClone(message.content),
               messages: [...history],
               stopReason: response.stopReason,
+              assistantTextSuppressed: suppressAssistantText,
               decision: "stop",
             };
             const result = await traceAsyncSection(
@@ -2033,6 +2058,9 @@ export class AgentLoop {
         ): AssistantTextVisibility | undefined => {
           if (!suppressAssistantText) {
             return undefined;
+          }
+          if (fallbackSurfaced) {
+            recordSendUserMessageOutcome("fallback", response.model);
           }
           return fallbackSurfaced ? "visible" : "private";
         };
@@ -2272,6 +2300,12 @@ export class AgentLoop {
               { turn: toolUseTurns, retry: postModelCallContinues },
               "post-model-call requested a retry — re-querying the model",
             );
+            // On a suppressed run with nothing sent, this retry IS the
+            // send-user-message nudge (the default `empty-response` plugin
+            // owns the decision, the counter is the host's).
+            if (suppressAssistantText && !sentUserMessageThisRun) {
+              recordSendUserMessageOutcome("nudge", response.model);
+            }
             history = postModelCallMessages;
             continue;
           } else {
@@ -2723,6 +2757,7 @@ export class AgentLoop {
             content: [],
             messages: [...history],
             stopReason: null,
+            assistantTextSuppressed: suppressAssistantText,
             error: err,
             decision: "stop",
           };

@@ -56,11 +56,6 @@ import {
   REFUSAL_FALLBACK_TEXT,
 } from "@vellumai/plugin-api";
 
-import { resolveCallSiteConfig } from "../../../../config/llm-resolver.js";
-import { getConfig } from "../../../../config/loader.js";
-import { isSendUserMessageFlagOn } from "../../../../config/send-user-message-gate.js";
-import { hasSendUserMessageCall } from "../../../../daemon/handlers/user-facing-content.js";
-import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
@@ -93,38 +88,24 @@ export const SEND_USER_MESSAGE_NUDGE_TEXT =
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
   "</system_notice>";
 
-/** Watchdog check name for both tool-gated reply outcomes. */
-const SEND_USER_MESSAGE_CHECK = "send_user_message_delivery";
-
 /**
- * Model the main-agent call site resolves to, for the telemetry tag. Null when
- * config or resolution is unavailable: the counter is observability, never a
- * reason to fail a turn.
+ * LLM-facing name of the tool a suppressed run's reply travels on. Spelled
+ * here as a literal, like the memory block keys the storage schema names, so
+ * the plugin stays self-contained: it reads its own turn content and imports
+ * nothing from the host. The host's declaration is
+ * `config/send-user-message-gate.ts`.
  */
-function resolvedMainAgentModel(): string | null {
-  try {
-    return resolveCallSiteConfig("mainAgent", getConfig().llm).model ?? null;
-  } catch {
-    return null;
-  }
-}
+const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
 
-function recordSendUserMessageOutcome(
-  outcome: "nudge" | "fallback",
-  conversationId: string,
-): void {
-  try {
-    recordWatchdogEvent({
-      checkName: SEND_USER_MESSAGE_CHECK,
-      detail: {
-        outcome,
-        model: resolvedMainAgentModel(),
-        conversation_id: conversationId,
-      },
-    });
-  } catch {
-    // Telemetry is best-effort; a recording failure must not affect the turn.
-  }
+/** Whether the content carries a `send_user_message` call with real text. */
+function hasSendUserMessageCall(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (block) =>
+      block.type === "tool_use" &&
+      block.name === SEND_USER_MESSAGE_TOOL_NAME &&
+      typeof (block.input as { message?: unknown })?.message === "string" &&
+      (block.input as { message: string }).message.trim().length > 0,
+  );
 }
 
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
@@ -202,7 +183,7 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // text, which is exactly what the gate makes invisible.
   if (
     ctx.callSite === "mainAgent" &&
-    isSendUserMessageFlagOn() &&
+    ctx.assistantTextSuppressed === true &&
     !cycleMessages.some(
       (message) =>
         isAssistantTurn(message) && hasSendUserMessageCall(message.content),
@@ -215,14 +196,12 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
         content: [{ type: "text", text: SEND_USER_MESSAGE_NUDGE_TEXT }],
       });
       ctx.decision = "continue";
-      recordSendUserMessageOutcome("nudge", ctx.conversationId);
       ctx.logger.warn(
         { plugin: "empty-response", conversationId: ctx.conversationId },
         "Turn ended without a send_user_message call — nudging for a reply",
       );
       return;
     }
-    recordSendUserMessageOutcome("fallback", ctx.conversationId);
     ctx.logger.warn(
       { plugin: "empty-response", conversationId: ctx.conversationId },
       "Turn ended without a send_user_message call after a nudge — surfacing the raw reply",

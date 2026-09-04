@@ -8,15 +8,18 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import * as featureFlags from "../../config/assistant-feature-flags.js";
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-gate.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
 import type { Conversation } from "../conversation.js";
 import { isToolActiveForContext } from "../conversation-tool-setup.js";
 
 let flagSpy: ReturnType<typeof spyOn> | undefined;
 
 function setFlag(enabled: boolean): void {
-  flagSpy = spyOn(featureFlags, "isAssistantFeatureFlagEnabled").mockImplementation(
-    (key: string) => (key === "send-user-message" ? enabled : false),
+  flagSpy = spyOn(
+    featureFlags,
+    "isAssistantFeatureFlagEnabled",
+  ).mockImplementation((key: string) =>
+    key === "send-user-message" ? enabled : false,
   );
 }
 
@@ -36,9 +39,9 @@ afterEach(() => {
 describe("send_user_message tool availability", () => {
   test("is unavailable when the flag is off", () => {
     setFlag(false);
-    expect(
-      isToolActiveForContext(SEND_USER_MESSAGE_TOOL_NAME, ctx()),
-    ).toBe(false);
+    expect(isToolActiveForContext(SEND_USER_MESSAGE_TOOL_NAME, ctx())).toBe(
+      false,
+    );
   });
 
   test("is available on a main-agent turn when the flag is on", () => {
