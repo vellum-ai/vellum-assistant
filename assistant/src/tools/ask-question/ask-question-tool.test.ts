@@ -187,6 +187,44 @@ describe("AskQuestionTool.execute", () => {
     expect(result.isError).toBe(false);
   });
 
+  test("says so when the user answered in the chat instead of the card", async () => {
+    const q2 = {
+      question: "Preferred time?",
+      options: [
+        { id: "morning", label: "Morning" },
+        { id: "afternoon", label: "Afternoon" },
+      ],
+    };
+    setNextResult({
+      entries: [
+        {
+          questionId: "q1",
+          decision: "free_text",
+          text: "banana, after lunch",
+        },
+        { questionId: "q2", decision: "skipped" },
+      ],
+      overall: "completed",
+      answeredInChat: true,
+    });
+
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, q2] },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const lines = String(result.content).split("\n");
+    // The model is told where the answer came from, then reads the batch: the
+    // typed text on the first question, the rest unanswered, so it can map the
+    // reply onto them itself.
+    expect(lines[0]).toContain("replied in the chat");
+    expect(lines.slice(1)).toEqual([
+      `Question "${singleQ.question}" → Free text: banana, after lunch`,
+      `Question "${q2.question}" → Skipped`,
+    ]);
+  });
+
   test("formats skipped result", async () => {
     setNextResult(singleCompleted({ decision: "skipped" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
