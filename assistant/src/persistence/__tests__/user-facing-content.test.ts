@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { ContentBlock } from "../../../providers/types.js";
+import type { ContentBlock } from "../../providers/types.js";
 import {
   assistantTextVisibilityOf,
   hasSendUserMessageCall,

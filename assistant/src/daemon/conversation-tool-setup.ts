@@ -17,7 +17,7 @@ import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import {
-  isSendUserMessageActiveForTurn,
+  resolveSendUserMessageActive,
   SEND_USER_MESSAGE_TOOL_NAME,
 } from "../config/send-user-message-gate.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
@@ -833,7 +833,7 @@ export function isToolActiveForContext(
   // keep streamed assistant text, so offering them a delivery tool nothing
   // reads would silently swallow their replies.
   if (name === SEND_USER_MESSAGE_TOOL_NAME) {
-    return isSendUserMessageActiveForTurn(ctx);
+    return resolveSendUserMessageActive(ctx);
   }
   // The react capability follows the transport's declaration: the tool is on
   // the wire exactly when the turn's channel transport implements `react`,

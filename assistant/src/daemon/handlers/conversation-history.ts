@@ -4,6 +4,7 @@ import {
   searchConversations,
 } from "../../persistence/conversation-queries.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
+import { projectPersistedAssistantContent } from "../../persistence/user-facing-content.js";
 import { renderHistoryContent } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -84,7 +85,12 @@ export function getMessageContent(
       }));
     }
   } catch {
-    text = extractTextFromStoredMessageContent(dbMessage.content) || undefined;
+    // Same projection as the render above: the raw-extract fallback must not
+    // become the one path that shows a private scratchpad.
+    text =
+      extractTextFromStoredMessageContent(
+        projectPersistedAssistantContent(dbMessage.content, dbMessage.metadata),
+      ) || undefined;
   }
 
   return {

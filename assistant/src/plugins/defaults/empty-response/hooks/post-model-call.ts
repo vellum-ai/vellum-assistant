@@ -108,6 +108,33 @@ function hasSendUserMessageCall(content: ReadonlyArray<ContentBlock>): boolean {
   );
 }
 
+/**
+ * Whether the user has been told the OUTCOME of this cycle's work, not merely
+ * that work started.
+ *
+ * The signal is the LAST assistant response that called any tool. A response
+ * whose only tool calls are `send_user_message` reported on everything before
+ * it; a response that sends a message alongside other tool calls is a progress
+ * update, and what those tools found has not reached the user. A cycle with no
+ * tool-bearing response at all told the user nothing.
+ */
+function userWasToldOutcome(cycleMessages: ReadonlyArray<Message>): boolean {
+  for (let i = cycleMessages.length - 1; i >= 0; i--) {
+    const message = cycleMessages[i];
+    if (!isAssistantTurn(message) || !hasToolUse(message.content)) {
+      continue;
+    }
+    const toolCalls = message.content.filter(
+      (block) => block.type === "tool_use",
+    );
+    return (
+      hasSendUserMessageCall(message.content) &&
+      toolCalls.every((block) => block.name === SEND_USER_MESSAGE_TOOL_NAME)
+    );
+  }
+  return false;
+}
+
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
@@ -173,21 +200,20 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   }
 
   // Tool-gated reply surface: nothing the model wrote as plain text reaches
-  // the user, so "visible" means a `send_user_message` call carried text this
-  // response cycle. This turn holds no tool call at all (the guard above), so
-  // a cycle with no such call anywhere is a turn ending in silence: nudge once
-  // for a real reply, and after that let the turn end — the loop then surfaces
-  // the raw final text as the fallback rather than delivering nothing.
+  // the user, so the turn is only answered when a `send_user_message` call
+  // reported the OUTCOME. This response holds no tool call at all (the guard
+  // above), so it is the terminal one: if the last tool-bearing response was
+  // work rather than a report — a progress update sent alongside that work
+  // counts as work — the turn is ending in silence. Nudge once for a real
+  // reply, and after that let the turn end; the loop then surfaces this
+  // response's raw text as the fallback rather than delivering nothing.
   //
   // Owned entirely here: the legacy empty-turn nudge below asks for plain
   // text, which is exactly what the gate makes invisible.
   if (
     ctx.callSite === "mainAgent" &&
     ctx.assistantTextSuppressed === true &&
-    !cycleMessages.some(
-      (message) =>
-        isAssistantTurn(message) && hasSendUserMessageCall(message.content),
-    )
+    !userWasToldOutcome(cycleMessages)
   ) {
     if (!isEmptyResponseNudged(ctx.conversationId)) {
       markEmptyResponseNudged(ctx.conversationId);
