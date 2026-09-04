@@ -187,6 +187,7 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   inScope: "guardian_requests_in_scope",
   getByCallSession: "guardian_requests_get_by_call_session",
   getByPendingQuestion: "guardian_requests_get_by_pending_question",
+  sweepPendingForReminders: "guardian_requests_sweep_pending_for_reminders",
 } as const;
 
 /**
@@ -538,6 +539,33 @@ export const ListExpiredPendingGuardianRequestsIpcParamsSchema = z.object({
 
 export type ListExpiredPendingGuardianRequestsIpcParams = z.infer<
   typeof ListExpiredPendingGuardianRequestsIpcParamsSchema
+>;
+
+/**
+ * Request for `guardian_requests_sweep_pending_for_reminders`.
+ * `olderThanMs` controls the age threshold — requests pending longer than this
+ * with no `followupState` are returned. `now` defaults gateway-side.
+ */
+export const SweepPendingForRemindersIpcParamsSchema = z.object({
+  olderThanMs: z.number().positive().optional(),
+  now: z.number().optional(),
+});
+
+export type SweepPendingForRemindersIpcParams = z.infer<
+  typeof SweepPendingForRemindersIpcParamsSchema
+>;
+
+/**
+ * Response for `guardian_requests_sweep_pending_for_reminders`: the full rows
+ * due for a reminder, so the daemon can fan out delivery without a follow-up
+ * read that could fail after the state is marked.
+ */
+export const SweepPendingForRemindersIpcResponseSchema = z.object({
+  pending: z.array(GuardianRequestSchema),
+});
+
+export type SweepPendingForRemindersIpcResponse = z.infer<
+  typeof SweepPendingForRemindersIpcResponseSchema
 >;
 
 // ---------------------------------------------------------------------------

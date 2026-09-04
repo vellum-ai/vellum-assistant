@@ -271,6 +271,8 @@ export {
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
   DELIVERY_STATUS,
   ListExpiredPendingGuardianRequestsIpcParamsSchema,
+  SweepPendingForRemindersIpcParamsSchema,
+  SweepPendingForRemindersIpcResponseSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
 } from "./guardian-request-contract.js";
@@ -309,6 +311,8 @@ export type {
   ListPendingGuardianRequestsByDestinationIpcParams,
   ListPendingGuardianRequestsByScopeIpcParams,
   ListExpiredPendingGuardianRequestsIpcParams,
+  SweepPendingForRemindersIpcParams,
+  SweepPendingForRemindersIpcResponse,
   UpdateGuardianRequestDeliveryIpcParams,
   UpdateGuardianRequestIpcParams,
 } from "./guardian-request-contract.js";
