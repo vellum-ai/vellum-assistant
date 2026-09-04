@@ -183,10 +183,14 @@ import { useVoiceRoomSight } from "./use-voice-room-sight";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
 
 import {
+  CAMERA_PILL_INSET,
   SAFE_AREA_BOTTOM,
   SAFE_AREA_LEFT,
   SAFE_AREA_RIGHT,
   SAFE_AREA_TOP,
+  VOICE_ROOM_CORNER_GAP,
+  VOICE_ROOM_CORNER_LEFT,
+  VOICE_ROOM_CORNER_RIGHT,
 } from "./voice-room-layout";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
@@ -218,35 +222,6 @@ import {
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
-
-/**
- * Gap between a corner control and the room's edges. One constant so the
- * top-right exit and the bottom control row sit on the same rhythm.
- */
-const CORNER_GAP = "1.25rem";
-
-/**
- * The band the camera status pill is centred in, on the same line as the
- * room's corner chrome. A configured assistant name is arbitrarily long, so
- * without a bound the pill runs under that chrome and off a phone-width room.
- *
- * ONE reserve, taken off both edges: the deepest of the room's corner offset
- * and the two safe-area insets, plus the 3.25rem control a corner holds, plus
- * the 0.5rem gap the pill and that control never close. Each corner holds a
- * single control, so one control's width covers both, and one value covers
- * both sides because a display cutout is not symmetric: a reserve computed per
- * side would differ by the difference between the insets and carry the pill
- * half that far off the room's centre line, which is the line the eye reads it
- * against. The corner controls still hug their own side's inset, so the
- * shallow side gets more clearance than it strictly needs.
- *
- * The pill's floor survives both ends of that. A 320pt portrait room has no
- * side insets to deepen the reserve, and the landscape rooms where the insets
- * do get deep are hundreds of points wider than they are tall. Either way the
- * band stays wider than the pill's own floor, so a long name truncates inside
- * the ceiling the band gives it rather than overhanging a corner.
- */
-const CAMERA_PILL_INSET = `calc(max(${CORNER_GAP}, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
 
 /**
  * The tier the camera's view-options panel renders on, above every layer the
@@ -928,10 +903,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // {@link CAMERA_PILL_INSET}.
   const topBandVars = {
     "--room-chrome-top": fullscreen
-      ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
+      ? `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_TOP})`
       : cameraSheet
-        ? `calc(${CORNER_GAP} + ${SAFE_AREA_TOP})`
-        : CORNER_GAP,
+        ? `calc(${VOICE_ROOM_CORNER_GAP} + ${SAFE_AREA_TOP})`
+        : VOICE_ROOM_CORNER_GAP,
     "--room-grabber-top": cameraSheet
       ? `calc(0.5rem + ${SAFE_AREA_TOP})`
       : "0.5rem",
@@ -1144,7 +1119,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           surface="voice"
           collapsible
           className="absolute top-[calc(var(--room-chrome-top)+3.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
-          style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
+          style={{ left: VOICE_ROOM_CORNER_LEFT }}
         />
       ) : null}
 
@@ -1212,7 +1187,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         <div
           // Mirrors the minimize corner, so the two read as a matched pair on
           // the room's own band; see `--room-chrome-top`.
-          style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
+          style={{ left: VOICE_ROOM_CORNER_LEFT }}
           className="absolute top-[var(--room-chrome-top)] z-10 flex"
         >
           <CameraViewSettings panelHost={viewOptionsHost} />
@@ -1262,7 +1237,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         // An equal gap from both edges, so the control reads as sitting in the
         // corner rather than floating near it. The top comes off the room's own
         // band, shared with the camera pill; see `--room-chrome-top`.
-        style={{ right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})` }}
+        style={{ right: VOICE_ROOM_CORNER_RIGHT }}
         className="absolute top-[var(--room-chrome-top)] z-10 flex"
       >
         <VoiceRoomControl
@@ -1372,7 +1347,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           // to stay off the thing that hangs up, and it is the GAP that
           // guarantees that, not the number.
           style={{
-            bottom: `calc(6.125rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
+            bottom: `calc(6.125rem + max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
           }}
         >
           {errorMessage ? (
@@ -1495,7 +1470,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         className="absolute inset-x-0 z-10 flex items-center justify-center gap-4"
         // The bottom edge IS the screen's on the sheet and fullscreen, so the
         // home-indicator inset is real here in a way the top inset was not.
-        style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
+        style={{ bottom: `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
         <VoiceRoomControl
           label={
