@@ -24,11 +24,10 @@ mock.module("../../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const { buildSystemPrompt, ensurePromptFiles } = await import(
-  "../system-prompt.js"
-);
+const { buildSystemPrompt, ensurePromptFiles } =
+  await import("../system-prompt.js");
 
-const HEADING = "The User Only Reads send_user_message";
+const HEADING = "Your Plain Text Is Private";
 
 describe("send_user_message system prompt section", () => {
   beforeEach(() => {
@@ -51,5 +50,10 @@ describe("send_user_message system prompt section", () => {
     expect(prompt).toContain(HEADING);
     expect(prompt).toContain("private scratchpad");
     expect(prompt).toContain("send_user_message");
+    // The section states only what a tool description cannot: that plain text
+    // is invisible, and the "talk before you work" override. How to write a
+    // message belongs to the tool description, so none of it repeats here.
+    expect(prompt).not.toContain("1 to 3 plain sentences");
+    expect(prompt).not.toContain("no technical narration");
   });
 });

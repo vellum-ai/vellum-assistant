@@ -441,10 +441,13 @@ export async function runAgentLoopImpl(
   ctx.currentCallSite = turnCallSite;
 
   // Whether this turn routes its user-facing text through `send_user_message`:
-  // the flag is on and the turn is a main-agent turn. Drives the loop's
-  // suppression of streamed assistant text; the tool surface and the prompt
-  // section derive the same answer from the conversation.
+  // the flag is on and the turn is a main-agent turn. Resolved once and pinned
+  // on the conversation, because the loop's suppression is fixed for the whole
+  // run: the tool surface, the reserved row's visibility marker, and the
+  // prompt section all read this snapshot instead of the live flag, so a
+  // remote flag change mid-turn cannot contradict what the run is doing.
   const sendUserMessageActive = isSendUserMessageActiveForTurn(ctx);
+  ctx.currentTurnSendUserMessageActive = sendUserMessageActive;
 
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
@@ -1899,6 +1902,11 @@ export async function runAgentLoopImpl(
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
+            : {}),
+          // The marker the row was stamped with, so the live row gets the same
+          // per-row treatment the history projection will hand it.
+          ...(state.lastAssistantTextVisibility
+            ? { assistantTextVisibility: state.lastAssistantTextVisibility }
             : {}),
         });
         if (shouldEmitQueuedConversationNotices) {

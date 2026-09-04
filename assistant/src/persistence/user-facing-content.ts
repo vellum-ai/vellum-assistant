@@ -21,8 +21,8 @@
  * read-side projection moves the text.
  */
 
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
-import type { ContentBlock } from "../../providers/types.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
+import type { ContentBlock } from "../providers/types.js";
 
 /**
  * Whether an assistant row's plain text was shown to the user.
@@ -186,4 +186,18 @@ export function projectPersistedAssistantContent(
   return projectUserFacingContent(parsed as ContentBlock[], {
     toolGated: true,
   });
+}
+
+/**
+ * {@link projectPersistedAssistantContent} in the stored string shape, for the
+ * readers that hand raw `messages.content` to a text extractor (bookmark
+ * previews, search excerpts). Returns the input unchanged for an unmarked row,
+ * so those readers keep their existing behavior byte for byte.
+ */
+export function projectPersistedRowText(
+  stored: string,
+  metadata: unknown,
+): string {
+  const projected = projectPersistedAssistantContent(stored, metadata);
+  return typeof projected === "string" ? projected : JSON.stringify(projected);
 }

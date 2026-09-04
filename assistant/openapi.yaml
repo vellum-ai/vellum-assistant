@@ -21263,6 +21263,11 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        assistantTextVisibility:
+                          type: string
+                          enum:
+                            - private
+                            - visible
                         reaction:
                           type: object
                           properties:

@@ -35,6 +35,11 @@ export const MessageCompleteEventSchema = z.object({
   /** Soft warnings produced while resolving attachments (e.g. format
    *  conversions, size truncations). Display-only — not blocking. */
   attachmentWarnings: z.array(z.string()).optional(),
+  /** How the completed row's plain text reached the user, mirroring the field
+   *  of the same name on `ConversationMessage`. Set only on a turn that routed
+   *  its reply through the `send_user_message` tool, so a client can give the
+   *  live row the same per-row treatment it will get from history. */
+  assistantTextVisibility: z.enum(["private", "visible"]).optional(),
 });
 
 export type MessageCompleteEvent = z.infer<typeof MessageCompleteEventSchema>;

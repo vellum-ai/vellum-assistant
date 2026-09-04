@@ -10,7 +10,6 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
-import type { AssistantTextVisibility } from "../daemon/handlers/user-facing-content.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -27,6 +26,7 @@ import {
   timeSyncSection,
   traceAsyncSection,
 } from "../persistence/slow-sync-log.js";
+import type { AssistantTextVisibility } from "../persistence/user-facing-content.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
@@ -1186,10 +1186,14 @@ export class AgentLoop {
     let newMessagesStart = history.length;
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
-    // Set once a `send_user_message` call this run carried text to the user.
-    // Only meaningful under {@link suppressAssistantText}, where it decides
-    // whether the final raw text still has to be surfaced as the fallback.
-    let sentUserMessageThisRun = false;
+    // Whether the user has been told the OUTCOME of the work so far, not
+    // merely that work started. True only while the most recent tool-bearing
+    // response was `send_user_message` and nothing else: a response that sends
+    // a message alongside other tool calls is a progress update, and whatever
+    // those tools found has not reached the user yet. Only meaningful under
+    // {@link suppressAssistantText}, where it decides whether a terminal
+    // response's raw text still has to be surfaced as the fallback.
+    let userToldOutcome = false;
     // One deep history-repair recovery per turn: a second consecutive ordering
     // rejection means the repair could not recover, so the error surfaces
     // instead of looping. Turn-scoped, so each turn recovers afresh.
@@ -2027,12 +2031,10 @@ export class AgentLoop {
           }
           // Under the tool-gated reply surface the raw text is private working
           // notes, so it is surfaced only as the fallback: the turn is ending
-          // and no `send_user_message` call ever reached the user. Anything
-          // else stays unsent, which is the point of the gate.
-          if (
-            suppressAssistantText &&
-            (sentUserMessageThisRun || !opts.turnEnding)
-          ) {
+          // and the user was never told the outcome. A message sent alongside
+          // other tool calls is a progress update, so it does not count.
+          // Anything else stays unsent, which is the point of the gate.
+          if (suppressAssistantText && (userToldOutcome || !opts.turnEnding)) {
             return false;
           }
           const finalText = applySubstitutions(
@@ -2093,7 +2095,6 @@ export class AgentLoop {
           if (messages.length === 0) {
             return;
           }
-          sentUserMessageThisRun = true;
           const text = applySubstitutions(
             joinWithSpacing(messages),
             substitutionMap,
@@ -2303,7 +2304,7 @@ export class AgentLoop {
             // On a suppressed run with nothing sent, this retry IS the
             // send-user-message nudge (the default `empty-response` plugin
             // owns the decision, the counter is the host's).
-            if (suppressAssistantText && !sentUserMessageThisRun) {
+            if (suppressAssistantText && !userToldOutcome) {
               recordSendUserMessageOutcome("nudge", response.model);
             }
             history = postModelCallMessages;
@@ -2314,6 +2315,19 @@ export class AgentLoop {
               "post-model-call retry backstop reached — accepting the turn",
             );
           }
+        }
+
+        // What this response's tool calls say about the user's knowledge: a
+        // response whose only tool calls are `send_user_message` reported the
+        // outcome of everything before it; a response that also calls other
+        // tools is announcing work whose result the user has not seen. A
+        // response with no tool calls at all is the terminal one and leaves
+        // the answer where the last tool-bearing response left it.
+        if (toolUseBlocks.length > 0) {
+          const sendCalls = toolUseBlocks.filter(
+            (block) => block.name === SEND_USER_MESSAGE_TOOL_NAME,
+          ).length;
+          userToldOutcome = sendCalls > 0 && sendCalls === toolUseBlocks.length;
         }
 
         // The turn is being kept. Stream what `send_user_message` carries

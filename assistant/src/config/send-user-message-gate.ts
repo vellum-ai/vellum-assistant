@@ -78,3 +78,22 @@ export function isSendUserMessageActiveForTurn(
 ): boolean {
   return isSendUserMessageTurnScope(scope) && isSendUserMessageFlagOn();
 }
+
+/**
+ * The turn's answer, taken from the snapshot the turn runner pinned at turn
+ * start. Every consumer inside a live turn (tool availability, the reserved
+ * row's marker, the prompt section) reads this rather than the flag, so a
+ * remote flag change mid-turn cannot contradict the loop's own suppression,
+ * which is fixed for the run. Falls back to a live evaluation for callers
+ * outside a turn, where there is no snapshot to honor.
+ */
+export function resolveSendUserMessageActive(
+  scope: SendUserMessageTurnScope & {
+    currentTurnSendUserMessageActive?: boolean;
+  },
+): boolean {
+  return (
+    scope.currentTurnSendUserMessageActive ??
+    isSendUserMessageActiveForTurn(scope)
+  );
+}

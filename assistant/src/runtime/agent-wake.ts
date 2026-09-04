@@ -93,7 +93,6 @@ import {
   classifyDiskPressureTurnPolicy,
   type DiskPressureTurnPolicyDecision,
 } from "../daemon/disk-pressure-policy.js";
-import { sendUserMessageText } from "../daemon/handlers/user-facing-content.js";
 import { looksLikeContextOverflowError } from "../daemon/parse-actual-tokens-from-error.js";
 import type {
   SubagentToolGateMode,
@@ -118,6 +117,7 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
+import { sendUserMessageText } from "../persistence/user-facing-content.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import {
