@@ -1808,11 +1808,10 @@ describe("the resting avatar's idle motion", () => {
 /**
  * The pill the surface rests in.
  *
- * At rest this was a 10pt capsule in the assistant's colour with the creature
- * tucked away behind it. It is a pill now: the creature stands in a lit
- * outline wider than it is tall, which is findable on a busy desktop where a
- * marker was not, and hollow, so it takes almost none of the screen away from
- * whatever the user is actually working in.
+ * A lit outline wider than it is tall, hollow, with the creature tucked behind
+ * it until a pointer arrives. The edge is what makes it findable on a busy
+ * desktop, and being hollow is what keeps it from taking the screen away from
+ * whatever the user is working in.
  */
 describe("the pill the surface rests in", () => {
   test("draws a hollow marker at rest, with no fill behind it", () => {
@@ -1888,9 +1887,9 @@ describe("the pill the surface rests in", () => {
 
   /**
    * The marker does not. Sizing the creature is a statement about the
-   * creature, and someone who wanted a big mascot has not asked for a big
-   * lozenge sitting over their work all day. The rim holds at one thickness
-   * for the same reason.
+   * creature, and someone who wants a big mascot has not asked for a big
+   * lozenge sitting over their work all day. The rim holds one thickness for
+   * the same reason.
    */
   test("draws the marker and the rim at one size on every setting", () => {
     const { container } = render(
@@ -1916,6 +1915,39 @@ describe("the pill the surface rests in", () => {
     );
 
     expect(restingPillOf(container).style.opacity).toBe("0");
+  });
+
+  /**
+   * Faded is not gone. Opacity leaves the box where it is, and this one is
+   * drawn after the pill that carries content and centred on the same point
+   * the call's bar stands on, so without this a live call hands its presses to
+   * an invisible sheet instead of to mute and end.
+   */
+  test("stops taking the pointer once it is not the shape on screen", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+
+    expect(restingPillOf(container).style.pointerEvents).toBe("none");
+  });
+
+  test("takes the pointer while it is the shape on screen", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    expect(restingPillOf(container).style.pointerEvents).toBe("");
+  });
+
+  /**
+   * A reader who asked for stillness keeps the cross-fade and loses the
+   * growth: the box going from a marker to a frame is travel across the
+   * screen, which is the thing they asked not to have.
+   */
+  test("drops the growth for a reader who asked for stillness", () => {
+    reducedMotion = true;
+
+    const { container } = render(<CompanionSurface phase="hover" hovered />);
+
+    expect(restingPillOf(container).style.transitionProperty).toBe("opacity");
   });
 
   /** Hover opens no pill, so the resting one is still the shape on screen. */

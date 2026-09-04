@@ -270,9 +270,9 @@ export const geometryFor = (
  *
  * From the *visible* bottom, not the avatar's box. The box runs a good way
  * past the artwork on every side to hold the glow and the bob's slack (see
- * `companionBaselineFor`), so a margin measured against it is the stated gap
- * plus however much slack the current size carries: 36pt at the default size
- * where 24 was written, and more at every size above it.
+ * `companionBaselineFor`), so a margin measured against it would be this gap
+ * plus however much slack the current size carries, growing with every step of
+ * the scale.
  *
  * Small, because the surface floats over whatever the user is working in and
  * the bottom of a window is where that application keeps its own controls. A
@@ -281,11 +281,11 @@ export const geometryFor = (
  * leaves it a strip of its own under everything else, which is the shape of
  * the bargain: seen when looked for, out of the way when not.
  *
- * Two points rather than none. The clamp will take the creature all the way
- * down to the edge and a drag can put it there, but opening flush against it
- * leaves the lit rim's own bloom with nowhere to fall, and a glow cut off by
- * the bottom of the display reads as the surface being clipped rather than as
- * it resting on something.
+ * Two points rather than none. The clamp takes the creature all the way down
+ * to the edge and a drag can put it there, but opening flush against it leaves
+ * the lit rim's own bloom with nowhere to fall, and a glow cut off by the
+ * bottom of the display reads as the surface being clipped rather than as it
+ * resting on something.
  */
 const DEFAULT_MARGIN = 2;
 
@@ -739,7 +739,7 @@ export const placeCanvas = (
   // The box holds the glow and the bob's slack, and slack is not something the
   // user can see: clamping to it stops the creature short of the edge by
   // however much of it is empty, which reads as the surface refusing to go
-  // where it was dragged. Upward and sideways the box still decides, since the
+  // where it is dragged. Upward and sideways the box still decides, since the
   // canvas above has its own bound below and the sides are where a half box is
   // deliberately allowed to hang past the edge.
   const baseline = companionBaselineFor(geometry.avatarBox);
@@ -2117,12 +2117,12 @@ export const openCompanionWindow = (): void => {
       // **The canvas is allowed off the bottom of the screen.** Without this
       // macOS quietly slides a window back until its whole frame is inside the
       // work area, and this canvas carries `dropBelow` points of empty space
-      // under the creature to hold a pill that is usually not drawn. So a
-      // surface asked to sit on the bottom edge was handed back a position a
-      // whole `dropBelow` higher, and the creature came to rest that far up:
-      // 40pt at the authored size, whatever margin was asked for. The clamp in
-      // `placeCanvas` keeps the *creature* on screen, which is the thing worth
-      // keeping there; the empty canvas around it is free to hang off.
+      // under the creature to hold a pill that is usually not drawn. A surface
+      // asked to sit on the bottom edge is then handed back a position a whole
+      // `dropBelow` higher, and the creature rests that far up whatever margin
+      // it was given: 40pt at the authored size. The clamp in `placeCanvas`
+      // keeps the *creature* on screen, which is the thing worth keeping
+      // there; the empty canvas around it is free to hang off.
       //
       // The same refusal at the top is worked around instead of lifted (see
       // `placeCanvas`), because a canvas over the menu bar would put the

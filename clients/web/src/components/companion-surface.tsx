@@ -234,26 +234,25 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 /**
  * The pill the surface rests in, in its two sizes.
  *
- * At rest this used to be a 10pt capsule painted whole in the assistant's
- * colour. It is a pill now, and the difference is the edge: the shape is a lit
- * line in that same colour with nothing inside it, which is findable on a busy
- * desktop where a small block of colour is not, and which takes almost none of
- * the screen away from whatever the user is actually working in.
+ * The shape is a lit line in the assistant's colour with nothing inside it.
+ * The edge is what makes it findable on a busy desktop, where a small block of
+ * colour is not, and being hollow is what keeps it from taking the screen away
+ * from whatever the user is actually working in.
  *
- * **Two sizes, because the shape answers the pointer.** `idle` is the marker,
- * and it is a marker: the creature is tucked behind it and peeks out of it
- * every few seconds, the way it always has. `active` is what a hand arriving
- * grows it into, big enough for the creature to stand up in. That growth is
- * the whole of what hover does here, and it is why the creature coming out and
- * the pill opening read as one gesture rather than two.
+ * **Two sizes, because the shape answers the pointer.** `idle` is the marker:
+ * the creature is tucked behind it and peeks out of it every few seconds.
+ * `active` is what a hand arriving grows it into, big enough for the creature
+ * to stand up in. That growth is the whole of what hover does here, and it is
+ * why the creature coming out and the pill opening read as one gesture rather
+ * than two.
  *
  * **Only `active` scales with the creature.** It has to contain it, so at
- * `ridiculous` it is five times the pill it is at `small`. `idle` is drawn at
- * one size on every setting for the reason the capsule was: sizing the
- * creature is a statement about the creature, and someone who wanted a big
- * mascot when they look at it has not asked for a big lozenge sitting over
- * their work all day. The rim holds at one thickness for the same reason, so
- * the line stays a line instead of thickening into a frame.
+ * `ridiculous` it is five times the pill it is at `small`. `idle` holds one
+ * size on every setting: sizing the creature is a statement about the
+ * creature, and someone who wants a big mascot when they look at it has not
+ * asked for a big lozenge sitting over their work all day. The rim holds one
+ * thickness for the same reason, so the line stays a line instead of
+ * thickening into a frame.
  */
 const RESTING_PILL = {
   /** The marker. Wider than the artwork it stands in for, and hollow. */
@@ -1153,6 +1152,16 @@ export function CompanionSurface({
         style={{
           width: inUnits(restingBox.width),
           height: inUnits(restingBox.height),
+          // **Faded is not gone.** Opacity leaves the box where it is, and
+          // this one is drawn after the pill that carries content and centred
+          // on the same point the call's bar stands on, so a live call would
+          // hand its presses to an invisible sheet instead of to mute and
+          // end. It takes the pointer only while it is the shape on screen.
+          pointerEvents: expanded ? "none" : undefined,
+          // A reader who asked for stillness keeps the cross-fade and loses
+          // the growth: the box going from a marker to a frame is travel
+          // across the screen, which is the thing they asked not to have.
+          transitionProperty: reduce ? "opacity" : undefined,
           // Centred on the point the host put the window around, which is the
           // point the creature holds. The creature is a sibling drawn on that
           // same point, so centring the pill on it is what puts the creature
@@ -1448,7 +1457,7 @@ function Avatar({
 
         The pill it rises over is hollow, which costs the peek nothing: the
         rise is drawn through a clip that shows only the slice above the rim,
-        so what hides the rest of the creature is the clip and never the fill.
+        so what hides the rest of the creature is the clip and never a fill.
 
         Rides the marker's own scale and fade, so it is drawn at the marker's
         one size on every setting and goes with it when the creature comes out
@@ -1468,9 +1477,9 @@ function Avatar({
           }}
         />
       ) : null}
-      {/* The creature standing up out of the marker, rather than blinking into
-        it. A wrapper of its own because the scale is a `transform` and the bob
-        below already owns one. */}
+      {/* The creature standing up out of the marker. A wrapper of its own
+        because the scale is a `transform` and the bob below already owns
+        one. */}
       <div
         className="transition-[opacity,transform] duration-300"
         style={{

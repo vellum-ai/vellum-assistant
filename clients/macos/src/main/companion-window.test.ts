@@ -738,7 +738,7 @@ describe("placeCanvas", () => {
   /**
    * The creature's visible bottom lands on the edge, not its box's. The box
    * carries the glow and the bob's slack, and stopping the creature a slack's
-   * worth short of the edge reads as the surface refusing to go where it was
+   * worth short of the edge reads as the surface refusing to go where it is
    * dragged. At the authored size that slack is 8pt of the 22pt half box.
    */
   test("holds the creature's visible bottom on the bottom edge", () => {
