@@ -16,7 +16,7 @@ const PANES = {
       windows: "ms-settings:privacy-microphone",
     },
     linuxCommand:
-      "gnome-control-center privacy (GNOME) or systemsettings kcm_pulseaudio (KDE)",
+      "gnome-control-center sound (GNOME) or systemsettings kcm_pulseaudio (KDE)",
   },
   speech_recognition: {
     label: "Speech Recognition privacy",
@@ -76,7 +76,7 @@ export async function run(
   if (platform === "linux") {
     return {
       content: meta.linuxCommand
-        ? `Linux has no settings URL for ${meta.label}. Offer to run the settings command for the user's desktop: ${meta.linuxCommand}.`
+        ? `No settings pane was opened. Linux has no settings URL for ${meta.label}. Offer to run the settings command for the user's desktop: ${meta.linuxCommand}.`
         : `Linux has no ${meta.label} settings pane to open. Tell the user this is not gated by the desktop on Linux.`,
       isError: false,
     };

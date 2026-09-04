@@ -59,15 +59,17 @@ const LINUX_REMEDIATION: Record<PermissionType, string> = {
   full_disk_access:
     "check the file ownership and permissions on the path, since Linux has no Full Disk Access gate",
   accessibility:
-    "add your user to the input group and sign in again, then enable accessibility (AT-SPI) for the desktop session",
-  screen_recording: "grant screen sharing in the desktop portal prompt",
+    "check whether this build supports accessibility for the current desktop; use a custom Talk shortcut where available, without changing input-device permissions",
+  screen_recording:
+    "start screen sharing from Vellum and approve the desktop portal prompt if offered; a saved sharing choice does not prove current access",
   calendar:
     "grant calendar access in the account settings for your calendar app",
   contacts:
     "grant contacts access in the account settings for your address book",
   photos: "check the file permissions on the pictures directory",
   location: "enable location services in your desktop privacy settings",
-  microphone: "allow microphone access in the desktop portal prompt",
+  microphone:
+    "check the selected input device and mute state in the desktop sound settings, and approve a recording prompt if one is shown",
   camera: "allow camera access in the desktop portal prompt",
 };
 
@@ -127,7 +129,7 @@ export const requestSystemPermissionTool = {
     "Request a system permission via macOS System Settings or Windows Settings, " +
     "or get the Linux remediation steps when the client is Linux. " +
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
-    "Do not explain how to open System Settings manually - this tool handles it with a clickable button.",
+    "On macOS and Windows, use the returned settings link. On Linux, relay the guidance without claiming a permission was granted.",
   category: "system",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.High,

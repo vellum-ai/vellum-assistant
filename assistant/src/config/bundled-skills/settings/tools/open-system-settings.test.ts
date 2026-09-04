@@ -93,7 +93,7 @@ describe("open_system_settings tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("gnome-control-center privacy");
+    expect(result.content).toContain("gnome-control-center sound");
     expect(result.content).toContain("systemsettings kcm_pulseaudio");
     expect(result.content).not.toContain("x-apple.systempreferences");
     expect(result.content).not.toContain("ms-settings:");
@@ -118,7 +118,7 @@ describe("open_system_settings tool", () => {
     const result = await run({ pane: "microphone" }, makeContext());
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("gnome-control-center privacy");
+    expect(result.content).toContain("gnome-control-center sound");
     expect(sentMessages).toEqual([]);
   });
 });

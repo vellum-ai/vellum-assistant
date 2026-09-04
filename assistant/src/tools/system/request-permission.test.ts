@@ -66,7 +66,14 @@ describe("request_system_permission", () => {
       { permission_type: "accessibility" },
       ctx("linux"),
     );
-    expect(accessibility.content).toContain("input group");
+    expect(accessibility.content).toContain("custom Talk shortcut");
+    expect(accessibility.content).not.toContain("add your user");
+
+    const microphone = await requestSystemPermissionTool.execute(
+      { permission_type: "microphone" },
+      ctx("linux"),
+    );
+    expect(microphone.content).toContain("sound settings");
   });
 
   test("names the client OS in the unroutable message", async () => {
