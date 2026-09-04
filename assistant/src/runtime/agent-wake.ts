@@ -84,7 +84,6 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { isSendUserMessageFlagOn } from "../config/send-user-message-gate.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
@@ -689,10 +688,10 @@ function inspectWakeOutput(
   // "produced output" when the final assistant message is just a summary
   // — we must persist the entire tail so the DB mirrors in-memory
   // history.
-  // A `send_user_message` call counts as output on its own: under the
-  // tool-gated reply surface it IS the reply, and a run that reached the user
-  // only through the tool still has a tail worth persisting and emitting.
-  const toolGated = isSendUserMessageFlagOn();
+  // A `send_user_message` call counts as output on its own: on a turn that
+  // routes its reply through the tool it IS the reply, and a run that reached
+  // the user only through the tool still has a tail worth persisting and
+  // emitting.
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
   for (const msg of tailMessages) {
@@ -707,7 +706,7 @@ function inspectWakeOutput(
         }
       } else if (block.type === "tool_use") {
         toolUseNames.push(block.name);
-        if (toolGated && sendUserMessageText(block) !== null) {
+        if (sendUserMessageText(block) !== null) {
           hasVisibleText = true;
         }
       }
