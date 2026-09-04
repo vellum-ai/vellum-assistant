@@ -72,15 +72,18 @@ export function SidebarShell({
 
   const electron = isElectron();
 
-  // In the macOS Electron shell the window controls (traffic lights) sit in an
-  // inline title-bar zone at the top of the renderer (see `ChatLayoutHeader` /
-  // the desktop app's `MAIN_TRAFFIC_LIGHT_POSITION`). Unlike chat, this shell
-  // has no inline header row, so reserve top space to clear the controls AND
-  // match the chat layout, whose sidebar/content sits below the 44px title bar
-  // plus the 16px content inset (`p-4`), i.e. 60px (3.75rem) from the top.
-  // Windows and Linux draw their own title bar above the renderer, so there is
-  // nothing to clear there and the inset stays at the standard 1rem.
-  const macosShell = detectElectronHostOS() === "macos";
+  // macOS and Windows hide the native title bar and put its band inside the
+  // renderer instead: macOS keeps the traffic lights there (see
+  // `ChatLayoutHeader` / the desktop app's `MAIN_TRAFFIC_LIGHT_POSITION`) and
+  // Windows overlays the caption controls plus the `WindowDragRegion` menu
+  // bar. Unlike chat, this shell has no inline header row, so reserve top
+  // space to clear that band AND match the chat layout, whose sidebar/content
+  // sits below the 44px title bar plus the 16px content inset (`p-4`), i.e.
+  // 60px (3.75rem) from the top. Linux keeps its window manager decorations
+  // outside the renderer, so it needs no clearance, and off Electron the
+  // inset stays at the standard 1rem.
+  const hostOS = detectElectronHostOS();
+  const inlineTitleBar = hostOS === "macos" || hostOS === "windows";
 
   const mobileBackLabel = isMenuRoute
     ? t("sidebarShell.backFrom", { title })
@@ -120,7 +123,7 @@ export function SidebarShell({
       ref={swipeContainerRef}
       className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
       style={{
-        paddingTop: macosShell ? "3.75rem" : "1rem",
+        paddingTop: inlineTitleBar ? "3.75rem" : "1rem",
       }}
     >
       {/* Mobile header */}
