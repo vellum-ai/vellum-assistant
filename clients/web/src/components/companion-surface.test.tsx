@@ -218,8 +218,8 @@ const avatarOf = (container: HTMLElement): HTMLElement => {
 };
 
 /**
- * The pill the surface rests in: the lit outline the creature stands in, drawn
- * beside the avatar's box rather than inside it.
+ * The lit line the surface rests in, drawn beside the avatar's box rather than
+ * inside it: the marker, and the ring it draws in to on the creature's edge.
  *
  * Found by the shadow it is the only thing on the surface to carry, since it
  * has no fill and no class of its own to name it by.
@@ -230,6 +230,19 @@ const restingPillOf = (container: HTMLElement): HTMLElement => {
   );
   if (found === undefined) {
     throw new Error("Expected the resting pill to render");
+  }
+  return found;
+};
+
+/**
+ * The box that line is drawn in, which is what the pointer is hit-tested
+ * against and what takes the press: the marker's own footprint, whatever the
+ * line inside it is doing.
+ */
+const restingFootprintOf = (container: HTMLElement): HTMLElement => {
+  const found = restingPillOf(container).parentElement;
+  if (found === null) {
+    throw new Error("Expected the resting pill's footprint to render");
   }
   return found;
 };
@@ -1825,16 +1838,29 @@ describe("the pill the surface rests in", () => {
   });
 
   /**
-   * Hover is the shape answering the pointer: the marker grows into the frame
-   * the creature stands up in, and the growth and the standing are one
-   * gesture.
+   * Hover is the shape answering the pointer: the marker draws in onto the
+   * creature's own artwork and goes out as the creature stands up, so the two
+   * are one gesture and what is left is the creature.
+   *
+   * Inward rather than outward. The marker is wide and the creature is not, so
+   * a pill that grew into a frame read as the surface swelling and then a
+   * creature appearing inside it, which is two events.
    */
-  test("grows to hold the whole creature under the pointer", () => {
+  test("draws in onto the creature under the pointer", () => {
     const { container } = render(<CompanionSurface phase="hover" hovered />);
 
     const pill = restingPillOf(container);
-    expect(pill.style.width).toBe("150px");
-    expect(pill.style.height).toBe("35px");
+    // The creature's own artwork, squared, so the line lands as a ring on its
+    // edge. Narrower than the 64pt marker it came from, which is the point.
+    expect(pill.style.width).toBe("28px");
+    expect(pill.style.height).toBe("28px");
+  });
+
+  /** And it is gone by the time it gets there. */
+  test("goes out as the creature comes out", () => {
+    const { container } = render(<CompanionSurface phase="hover" hovered />);
+
+    expect(restingPillOf(container).style.opacity).toBe("0");
   });
 
   /**
@@ -1860,18 +1886,18 @@ describe("the pill the surface rests in", () => {
   test("centres itself on the creature", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    const pill = restingPillOf(container);
-    expect(pill.style.left).toBe("50%");
-    expect(pill.style.transform).toBe("translate(-50%, -50%)");
-    expect(pill.style.top).toBe(avatarOf(container).style.top);
+    const footprint = restingFootprintOf(container);
+    expect(footprint.style.left).toBe("50%");
+    expect(footprint.style.transform).toBe("translate(-50%, -50%)");
+    expect(footprint.style.top).toBe(avatarOf(container).style.top);
   });
 
   /**
-   * The grown pill has to contain the creature, so it takes the avatar's box
-   * the way the creature does: one drawn at `ridiculous` standing in a 35pt
-   * frame would wear it as a belt.
+   * The ring lands on the creature, so it takes the avatar's box the way the
+   * creature does: one that stopped at the authored size would close inside a
+   * creature drawn at `ridiculous` rather than on its edge.
    */
-  test("scales the grown pill with the creature", () => {
+  test("scales the ring it closes on with the creature", () => {
     const { container } = render(
       <CompanionSurface
         phase="hover"
@@ -1881,8 +1907,8 @@ describe("the pill the surface rests in", () => {
     );
 
     const pill = restingPillOf(container);
-    expect(pill.style.width).toBe("300px");
-    expect(pill.style.height).toBe("70px");
+    expect(pill.style.width).toBe("56px");
+    expect(pill.style.height).toBe("56px");
   });
 
   /**
@@ -1918,6 +1944,28 @@ describe("the pill the surface rests in", () => {
   });
 
   /**
+   * **The reach is not the drawing.** The box the line is drawn in holds the
+   * marker's size for as long as the creature is out, so a hand that arrived
+   * on the marker's end is still on the surface once the line has drawn away
+   * from under it.
+   *
+   * Without this the surface flickers under a stationary pointer: the line
+   * leaves, the pointer lands on the desktop, the creature tucks back, and the
+   * marker returns under the same pointer to start again.
+   */
+  test("keeps the marker's reach in every phase", () => {
+    for (const phase of PHASES) {
+      const { container } = render(
+        <CompanionSurface phase={phase} hovered={phase !== "resting"} />,
+      );
+
+      const footprint = restingFootprintOf(container);
+      expect(footprint.style.width).toBe("64px");
+      expect(footprint.style.height).toBe("14px");
+    }
+  });
+
+  /**
    * Faded is not gone. Opacity leaves the box where it is, and this one is
    * drawn after the pill that carries content and centred on the same point
    * the call's bar stands on, so without this a live call hands its presses to
@@ -1928,21 +1976,20 @@ describe("the pill the surface rests in", () => {
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
 
-    expect(restingPillOf(container).style.pointerEvents).toBe("none");
+    expect(restingFootprintOf(container).style.pointerEvents).toBe("none");
   });
 
   test("takes the pointer while it is the shape on screen", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    expect(restingPillOf(container).style.pointerEvents).toBe("");
+    expect(restingFootprintOf(container).style.pointerEvents).toBe("");
   });
 
   /**
-   * A reader who asked for stillness keeps the cross-fade and loses the
-   * growth: the box going from a marker to a frame is travel across the
-   * screen, which is the thing they asked not to have.
+   * A reader who asked for stillness keeps the fade and loses the draw-in: the
+   * line travelling in across the screen is the thing they asked not to have.
    */
-  test("drops the growth for a reader who asked for stillness", () => {
+  test("drops the draw-in for a reader who asked for stillness", () => {
     reducedMotion = true;
 
     const { container } = render(<CompanionSurface phase="hover" hovered />);
@@ -1950,16 +1997,9 @@ describe("the pill the surface rests in", () => {
     expect(restingPillOf(container).style.transitionProperty).toBe("opacity");
   });
 
-  /** Hover opens no pill, so the resting one is still the shape on screen. */
-  test("stays drawn under the pointer", () => {
-    const { container } = render(<CompanionSurface phase="hover" hovered />);
-
-    expect(restingPillOf(container).style.opacity).toBe("1");
-  });
-
   /**
    * The largest thing on screen at rest is what a hand reaches for to move the
-   * surface, and a 150pt shape that ignored the press would read as broken.
+   * surface, and a marker that ignored the press would read as broken.
    */
   test("is a drag handle, as the creature and the pill both are", () => {
     const onSurfacePointerDown = mock(() => {});
@@ -1970,7 +2010,7 @@ describe("the pill the surface rests in", () => {
       />,
     );
 
-    fireEvent.pointerDown(restingPillOf(container));
+    fireEvent.pointerDown(restingFootprintOf(container));
     expect(onSurfacePointerDown).toHaveBeenCalled();
   });
 

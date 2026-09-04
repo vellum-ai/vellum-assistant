@@ -540,9 +540,17 @@ export function CompanionSurfacePage() {
     // Reading a box forces layout, and this runs on every pixel of every
     // mouse-move the host forwards, so each is read exactly once.
     const pillRect = pillRef.current?.getBoundingClientRect() ?? null;
-    // Whichever pill is drawn is the one the pointer can be on, and exactly
-    // one of them ever is: the pill that carries content has no width until
-    // there is content, and the resting pill fades out the moment there is.
+    // The pill that carries content takes precedence, and it has no width
+    // until there is content, so the resting one answers for every state that
+    // draws no row.
+    //
+    // **The resting rect is the marker's footprint, not the lit line inside
+    // it.** The line draws in onto the creature and goes out the moment a hand
+    // arrives; the footprint does not, precisely so that hand is still on the
+    // surface afterwards. A reach that shrank with the drawing would drop the
+    // pointer onto the desktop and flicker the creature in and out under a
+    // stationary hand.
+    //
     // The resting one is centred on the creature rather than beside it, so the
     // creature's rect falls inside it and the bridge between them comes out
     // degenerate, which is the right answer for two shapes with no gap.
