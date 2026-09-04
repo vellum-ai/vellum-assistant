@@ -1132,6 +1132,81 @@ describe("the companion surface's call bar", () => {
 });
 
 /**
+ * What the session is doing, on a bar that does not move while it says it.
+ *
+ * The line is the one thing in the call row that changes on its own: the
+ * session pushes a new phase several times a call, and an activity line under
+ * it. A box as wide as those words would hand the pill a different width for
+ * each of them, so the bar would breathe and its controls slide sideways over
+ * whatever the user is actually working in.
+ */
+describe("the companion surface's call status line", () => {
+  const lineOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("span.truncate");
+
+  const widthOf = (
+    content: Partial<VoiceActivityState>,
+  ): string | undefined => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, ...content }}
+      />,
+    );
+    return lineOf(container)?.style.width;
+  };
+
+  test("holds one width across every phase and activity the session sends", () => {
+    expect(widthOf({ label: "Listening…" })).toBe("120px");
+    expect(widthOf({ label: "Reconnecting…" })).toBe("120px");
+    expect(widthOf({ label: "Listening…", detail: "Reading a file" })).toBe(
+      "120px",
+    );
+    expect(widthOf({ label: "Listening…", detail: "x".repeat(400) })).toBe(
+      "120px",
+    );
+  });
+
+  /**
+   * A line past the box is cut, not bought room for: the pill is a fixed
+   * canvas away from a ceiling it may not cross, and the first words of an
+   * activity line are the ones worth reading.
+   */
+  test("truncates a line longer than its box rather than growing for it", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, detail: "x".repeat(400) }}
+      />,
+    );
+    const line = lineOf(container);
+    expect(line?.className).toContain("truncate");
+    // No cap that a shorter line could sit under: the width is the same
+    // number whatever is in it.
+    expect(line?.className).not.toContain("max-w-");
+  });
+
+  /**
+   * The more specific of the two, which is what the surface has to say when
+   * it has more to say than its phase.
+   */
+  test("says the activity where there is one and the phase otherwise", () => {
+    const { container: plain } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(lineOf(plain)?.textContent).toBe("Listening");
+
+    const { container: busy } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, detail: "Reading a file" }}
+      />,
+    );
+    expect(lineOf(busy)?.textContent).toBe("Reading a file");
+  });
+});
+
+/**
  * The creature is the call button.
  *
  * A press on it starts a call when idle and goes back to Vellum on a call;
