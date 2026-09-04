@@ -143,9 +143,12 @@ scrim.
       name follows it. The dot while the assistant talks flips with it, dark on
       the yellow and pale on the dark accent, so it always reads against the
       fill it sits on. A mid-grey accent from an uploaded image is the case
-      worth a third look, since that is where the two inks are closest: the
-      label takes whichever measures higher and should still be comfortable.
-      The accent itself is not clamped, so the hint and the
+      worth a third look: no black-or-white ink clears the small-text floor on
+      those, so the pill fills with the accent nudged to the near edge of that
+      band instead. Expect the pill to read very slightly darker or lighter
+      than the ring beside it there, by a step most eyes cannot find without
+      the two side by side; anything bigger than a nudge is a bug. The accent
+      itself is never nudged, so the hint and the
       shutter ring over the feed are whatever colour the assistant is; if one of
       those fails it fails on the waves and the shimmer too, and the fix belongs
       in the avatar accent system rather than in the camera.

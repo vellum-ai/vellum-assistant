@@ -1757,7 +1757,7 @@ describe("VoiceRoom: the accent the room scopes to itself", () => {
   const roomStyle = () =>
     document.querySelector("[data-voice-room]")?.getAttribute("style") ?? "";
 
-  test("declares the accent and the ink that reads on it together", () => {
+  test("declares the accent, the surface it fills, and the ink together", () => {
     seedAvatar("character");
     // The palette's light one: white on it is about 1.6:1, so a surface that
     // fills itself with the accent has to be told to ink in the near-black.
@@ -1766,6 +1766,7 @@ describe("VoiceRoom: the accent the room scopes to itself", () => {
     render(<VoiceRoom />);
 
     expect(roomStyle()).toContain("--avatar-accent: #E9C91A");
+    expect(roomStyle()).toContain("--avatar-accent-fill: #E9C91A");
     expect(roomStyle()).toContain("--avatar-accent-ink: #1A1A1A");
   });
 

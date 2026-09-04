@@ -457,6 +457,12 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * whatever the lens is pointed at. The pill keeps its blur for the legacy path
  * below, where the fill is still translucent.
  *
+ * It fills with `--avatar-accent-fill` rather than the accent itself. Between
+ * the two inks' passing regions is a band of mid-tones that carry no readable
+ * text at all, and that var is the accent moved to the near edge of it (see
+ * `legibleAccentFill`). The ring, the hint and the thumb ring keep the accent
+ * itself, since a mark over video has no foreground to fail.
+ *
  * The dot softens toward the ink rather than toward white, so it moves opposite
  * the fill by construction: near-black on a light accent, near-white on a dark
  * one, and at least 3:1 against the fill for every accent the palette ships.
@@ -485,7 +491,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 @supports (background-color: color-mix(in srgb, red 50%, blue)) {
   .camera-live-fill {
-    background-color: var(--camera-accent);
+    /* The accent as a surface text can sit on, which for most accents is the
+     * accent itself, and the crimson when the assistant has none. */
+    --camera-live-fill: var(--avatar-accent-fill, var(--camera-accent));
+    background-color: var(--camera-live-fill);
     color: var(--avatar-accent-ink, #fff);
   }
 
@@ -493,7 +502,7 @@ html[data-page-transition="pop"]::view-transition-new(root) {
     background-color: color-mix(
       in srgb,
       var(--avatar-accent-ink, #fff) 77%,
-      var(--camera-accent)
+      var(--camera-live-fill)
     );
   }
 }

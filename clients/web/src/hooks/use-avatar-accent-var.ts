@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { contrastForeground } from "@/utils/avatar-tone";
+import { contrastForeground, legibleAccentFill } from "@/utils/avatar-tone";
 
 /**
  * The CSS custom property carrying the active assistant's avatar accent hex
@@ -25,12 +25,24 @@ export const AVATAR_ACCENT_CSS_VAR = "--avatar-accent";
 export const AVATAR_ACCENT_INK_CSS_VAR = "--avatar-accent-ink";
 
 /**
- * The accent pair as an inline style, for an element that scopes the accent to
+ * The accent as a surface that can be FILLED with it and still carry text:
+ * the accent itself wherever text reads on it, and the nearest colour where it
+ * does otherwise (see `legibleAccentFill`). Chrome drawn over video rather than
+ * under text keeps reading {@link AVATAR_ACCENT_CSS_VAR}, which is the colour
+ * the assistant actually is.
+ *
+ * Published and cleared with the other two.
+ */
+export const AVATAR_ACCENT_FILL_CSS_VAR = "--avatar-accent-fill";
+
+/**
+ * The accent trio as an inline style, for an element that scopes the accent to
  * itself rather than reading the document's. Empty for an assistant with no
  * accent, which leaves every consumer on its own fallback.
  *
- * One function so the two vars cannot be published apart: an element carrying
- * an accent with no ink is a filled surface guessing at its own foreground.
+ * One function so the three cannot be published apart: the ink is chosen
+ * against the fill, and an element carrying any two of them is a surface
+ * painted in one colour and lettered for another.
  */
 export function avatarAccentVars(
   accentHex: string | null | undefined,
@@ -38,15 +50,18 @@ export function avatarAccentVars(
   if (!accentHex) {
     return {};
   }
+  const fill = legibleAccentFill(accentHex);
   return {
     [AVATAR_ACCENT_CSS_VAR]: accentHex,
-    [AVATAR_ACCENT_INK_CSS_VAR]: contrastForeground(accentHex),
+    [AVATAR_ACCENT_FILL_CSS_VAR]: fill,
+    [AVATAR_ACCENT_INK_CSS_VAR]: contrastForeground(fill),
   };
 }
 
 /** Every property {@link useAvatarAccentVar} owns on the document root. */
 const ACCENT_VAR_NAMES = [
   AVATAR_ACCENT_CSS_VAR,
+  AVATAR_ACCENT_FILL_CSS_VAR,
   AVATAR_ACCENT_INK_CSS_VAR,
 ] as const;
 

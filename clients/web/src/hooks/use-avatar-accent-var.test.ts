@@ -3,6 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 
 import {
   AVATAR_ACCENT_CSS_VAR,
+  AVATAR_ACCENT_FILL_CSS_VAR,
   AVATAR_ACCENT_INK_CSS_VAR,
   avatarAccentVars,
   getPublishedAvatarAccentHex,
@@ -14,6 +15,8 @@ const ORANGE = "#E9642F";
 const YELLOW = "#E9C91A";
 /** An uploaded image's colour dark enough to take white. */
 const NAVY = "#20336B";
+/** A grey in the band where neither ink clears the small-text floor. */
+const MID_GREY = "#7C7C7C";
 
 const readVar = (name: string) =>
   document.documentElement.style.getPropertyValue(name);
@@ -21,6 +24,7 @@ const readVar = (name: string) =>
 afterEach(() => {
   cleanup();
   document.documentElement.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+  document.documentElement.style.removeProperty(AVATAR_ACCENT_FILL_CSS_VAR);
   document.documentElement.style.removeProperty(AVATAR_ACCENT_INK_CSS_VAR);
 });
 
@@ -47,21 +51,35 @@ describe("the --avatar-accent custom property", () => {
     // Cleared together with the accent: an ink with no accent under it would
     // tell a fallback-coloured surface to paint for a colour it is not wearing.
     expect(readVar(AVATAR_ACCENT_CSS_VAR)).toBe("");
+    expect(readVar(AVATAR_ACCENT_FILL_CSS_VAR)).toBe("");
     expect(readVar(AVATAR_ACCENT_INK_CSS_VAR)).toBe("");
   });
 });
 
 describe("avatarAccentVars", () => {
-  test("pairs the accent with the ink WCAG picks for it", () => {
-    // Light enough that white is about 1.6:1, so the ink is the near-black.
+  test("carries the accent, the surface it fills, and the ink on that surface", () => {
+    // Light enough that white is about 1.6:1, so the ink is the near-black,
+    // and text reads on the accent itself, so the fill is the accent.
     expect(avatarAccentVars(YELLOW)).toEqual({
       [AVATAR_ACCENT_CSS_VAR]: YELLOW,
+      [AVATAR_ACCENT_FILL_CSS_VAR]: YELLOW,
       [AVATAR_ACCENT_INK_CSS_VAR]: "#1A1A1A",
     });
     expect(avatarAccentVars(NAVY)).toEqual({
       [AVATAR_ACCENT_CSS_VAR]: NAVY,
+      [AVATAR_ACCENT_FILL_CSS_VAR]: NAVY,
       [AVATAR_ACCENT_INK_CSS_VAR]: "#FFFFFF",
     });
+  });
+
+  test("a mid-grey keeps its accent and fills with a colour text reads on", () => {
+    // The accent stays what the assistant is, for the chrome drawn over video;
+    // only the surface that has to carry a label moves.
+    const vars = avatarAccentVars(MID_GREY);
+
+    expect(vars[AVATAR_ACCENT_CSS_VAR]).toBe(MID_GREY);
+    expect(vars[AVATAR_ACCENT_FILL_CSS_VAR]).not.toBe(MID_GREY);
+    expect(vars[AVATAR_ACCENT_INK_CSS_VAR]).toBe("#FFFFFF");
   });
 
   test("publishes nothing at all for an assistant with no accent", () => {
