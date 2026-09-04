@@ -258,6 +258,13 @@
     "toggleLabel": "Enable auto-reload",
     "updateError": "Failed to save auto-reload settings. Please try again."
   },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "Turn off auto-reload",
+    "message": "Auto-reload requires a daily credit limit. Set one to save your auto-reload settings, or turn auto-reload off.",
+    "save": "Save",
+    "saving": "Saving…",
+    "title": "Set a daily credit limit"
+  },
   "autoTopUpDisableConfirm": {
     "disable": "Disable",
     "disabling": "Disabling…",

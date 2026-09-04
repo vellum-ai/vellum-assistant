@@ -258,6 +258,13 @@
     "toggleLabel": "Activar recarga automática",
     "updateError": "No se pudo guardar la configuración de la recarga automática. Inténtalo de nuevo."
   },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "Desactivar la recarga automática",
+    "message": "La recarga automática requiere un límite diario de créditos. Establece uno para guardar la configuración de recarga automática, o desactiva la recarga automática.",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "title": "Establece un límite diario de créditos"
+  },
   "autoTopUpDisableConfirm": {
     "disable": "Desactivar",
     "disabling": "Desactivando…",

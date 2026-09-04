@@ -258,6 +258,13 @@
     "toggleLabel": "启用自动充值",
     "updateError": "未能保存自动充值设置。请重试。"
   },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "禁用自动充值",
+    "message": "自动充值需要设置每日积分限额。请设置一个限额以保存自动充值设置，或禁用自动充值。",
+    "save": "保存",
+    "saving": "保存中…",
+    "title": "设置每日积分限额"
+  },
   "autoTopUpDisableConfirm": {
     "disable": "禁用",
     "disabling": "禁用中…",
