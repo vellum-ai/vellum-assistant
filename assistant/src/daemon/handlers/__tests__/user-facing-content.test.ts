@@ -8,7 +8,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { ContentBlock } from "../../../providers/types.js";
 import {
+  assistantTextVisibilityOf,
   hasSendUserMessageCall,
+  isPrivateAssistantText,
+  projectPersistedAssistantContent,
   projectUserFacingContent,
   sendUserMessageText,
 } from "../user-facing-content.js";
@@ -39,7 +42,11 @@ describe("projectUserFacingContent", () => {
       sendCall("Checking your calendar."),
     ];
     expect(projectUserFacingContent(content, { toolGated: true })).toEqual([
-      { type: "thinking", thinking: "I should check the calendar.", signature: "" },
+      {
+        type: "thinking",
+        thinking: "I should check the calendar.",
+        signature: "",
+      },
       { type: "text", text: "Checking your calendar." },
     ] as unknown as ContentBlock[]);
   });
@@ -101,6 +108,78 @@ describe("sendUserMessageText", () => {
     expect(sendUserMessageText(sendCall(""))).toBeNull();
     expect(sendUserMessageText(sendCall(42))).toBeNull();
     expect(sendUserMessageText(null)).toBeNull();
+  });
+});
+
+describe("assistantTextVisibilityOf", () => {
+  test("reads the marker from a raw metadata string and a parsed record", () => {
+    expect(
+      assistantTextVisibilityOf('{"assistantTextVisibility":"private"}'),
+    ).toBe("private");
+    expect(
+      assistantTextVisibilityOf({ assistantTextVisibility: "visible" }),
+    ).toBe("visible");
+  });
+
+  test("is undefined for an unmarked, malformed, or unknown-value row", () => {
+    expect(assistantTextVisibilityOf(undefined)).toBeUndefined();
+    expect(assistantTextVisibilityOf("{not json")).toBeUndefined();
+    expect(assistantTextVisibilityOf('{"sentAt":1}')).toBeUndefined();
+    expect(
+      assistantTextVisibilityOf({ assistantTextVisibility: "later" }),
+    ).toBeUndefined();
+  });
+
+  test("only a private row is projected", () => {
+    expect(isPrivateAssistantText({ assistantTextVisibility: "private" })).toBe(
+      true,
+    );
+    expect(isPrivateAssistantText({ assistantTextVisibility: "visible" })).toBe(
+      false,
+    );
+    expect(isPrivateAssistantText(undefined)).toBe(false);
+  });
+});
+
+describe("projectPersistedAssistantContent", () => {
+  const stored = JSON.stringify([
+    { type: "text", text: "working notes" },
+    {
+      type: "tool_use",
+      id: "tu_1",
+      name: "send_user_message",
+      input: { message: "Done." },
+    },
+  ]);
+
+  test("projects a row marked private", () => {
+    const projected = projectPersistedAssistantContent(
+      stored,
+      '{"assistantTextVisibility":"private"}',
+    );
+    expect(projected).toEqual([
+      { type: "thinking", thinking: "working notes", signature: "" },
+      { type: "text", text: "Done." },
+    ] as unknown as ContentBlock[]);
+  });
+
+  test("leaves a fallback row (visible) and an unmarked row untouched", () => {
+    expect(
+      projectPersistedAssistantContent(
+        stored,
+        '{"assistantTextVisibility":"visible"}',
+      ),
+    ).toBe(stored);
+    expect(projectPersistedAssistantContent(stored, undefined)).toBe(stored);
+  });
+
+  test("leaves a legacy string row untouched even when marked", () => {
+    expect(
+      projectPersistedAssistantContent(
+        "plain legacy text",
+        '{"assistantTextVisibility":"private"}',
+      ),
+    ).toBe("plain legacy text");
   });
 });
 

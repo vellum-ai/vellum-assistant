@@ -31,6 +31,15 @@ function collect(events: AgentEvent[]): (event: AgentEvent) => void {
   return (event) => events.push(event);
 }
 
+function visibilityMarks(events: AgentEvent[]): Array<string | undefined> {
+  return events
+    .filter(
+      (e): e is Extract<AgentEvent, { type: "message_complete" }> =>
+        e.type === "message_complete",
+    )
+    .map((e) => e.assistantTextVisibility);
+}
+
 function streamedText(events: AgentEvent[]): string {
   return events
     .filter(
@@ -80,7 +89,11 @@ describe("agent loop under the tool-gated reply surface", () => {
   test("streams the tool's message and never the model's plain text", async () => {
     const { provider } = createMockProvider([
       textAndSend("The user wants their calendar. Checking.", "Checking now."),
-      textAndSend("Nothing left to do.", "You have two meetings today.", "tu_2"),
+      textAndSend(
+        "Nothing left to do.",
+        "You have two meetings today.",
+        "tu_2",
+      ),
       textResponse("Wrapping up."),
     ]);
     const events: AgentEvent[] = [];
@@ -99,10 +112,15 @@ describe("agent loop under the tool-gated reply surface", () => {
     const assistantText = history
       .filter((m) => m.role === "assistant")
       .flatMap((m) => m.content)
-      .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
       .map((b) => b.text)
       .join(" ");
     expect(assistantText).toContain("The user wants their calendar");
+    // Every row of a suppressed run is marked private, so the read-side
+    // projection hides the scratchpad without consulting the flag.
+    expect(visibilityMarks(events).every((v) => v === "private")).toBe(true);
   });
 
   test("streams the model's text when the option is unset", async () => {
@@ -117,6 +135,8 @@ describe("agent loop under the tool-gated reply surface", () => {
       trust,
     });
     expect(streamedText(events)).toBe("You have two meetings today.");
+    // An ordinary run marks nothing, so its rows render exactly as today.
+    expect(visibilityMarks(events)).toEqual([undefined]);
   });
 
   test("surfaces the final text when the tool was never called", async () => {
@@ -137,6 +157,9 @@ describe("agent loop under the tool-gated reply surface", () => {
       suppressAssistantText: true,
     });
     expect(streamedText(events)).toBe("Two meetings today.");
+    // The fallback row is marked visible: the user saw this text, so history
+    // and channel delivery have to carry it too.
+    expect(visibilityMarks(events)).toEqual(["visible"]);
   });
 
   test("keeps working notes unsent on an intermediate tool-bearing turn", async () => {
