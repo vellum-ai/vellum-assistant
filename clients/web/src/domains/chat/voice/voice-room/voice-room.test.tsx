@@ -2536,8 +2536,13 @@ describe("VoiceRoom: camera", () => {
   describe("the kept-frame thumbnail", () => {
     const keptFrame = () => screen.queryByTestId("voice-room-sight-frame");
 
-    /** Open the camera with a frame already held. */
+    /**
+     * Open the camera with a frame already held, and the preference turned on
+     * the way the camera panel turns it on. It ships off, so the drawing this
+     * block is about only exists once a call has asked for it.
+     */
     async function openCameraHoldingAFrame(): Promise<void> {
+      useVoicePrefsStore.setState({ showKeptFrame: true });
       mockHeldFrame = {
         attachmentId: "att-kept-1",
         previewUrl: "blob:kept-frame",

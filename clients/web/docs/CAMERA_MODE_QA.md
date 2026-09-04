@@ -69,11 +69,18 @@ scrim.
       with a side inset, its switches take a tap, and tapping the feed outside
       it dismisses it without taking a photo. It is never announced as a modal
       dialog that traps VoiceOver, and it never arrives dead to touch.
-- [ ] The kept-frame switch reaches the thumbnail. Enter Live, wait for the
-      crimson thumbnail beside the photo strip, then turn "Kept frame" off. The
+- [ ] The kept-frame switch reaches the thumbnail. On a fresh profile the
+      switch is off and Live draws no thumbnail: enter Live, sit through
+      several keeps, and only the photo strip is in the row. Turn "Kept frame"
+      on and the next keep draws beside the strip. Turn it off again and the
       thumbnail goes, the row it sat in goes with it when no photos are in the
       strip, and the assistant keeps answering questions about what the camera
-      is pointed at. Turn it back on and the next keep draws again.
+      is pointed at.
+- [ ] A device that had the thumbnail keeps it. On a profile that used voice
+      before, the switch is still on and the thumbnail still draws. The shipped
+      default reaches only profiles that never persisted a voice preference,
+      which is deliberate: a stored `on` is a choice, and nothing here can tell
+      it apart from one an older default wrote.
 - [ ] Both switches survive a reload and a second tab. Set them, background and
       relaunch the app: they come back as set. With two web tabs open, a change
       in one is reflected in the other's panel.

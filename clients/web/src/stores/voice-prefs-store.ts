@@ -131,9 +131,9 @@ export interface VoicePrefsState {
    * Live gave the call.
    *
    * A view preference, not a capture one: sampling, sending and the
-   * transcript record of every kept frame are the same either way. On by
-   * default, because the thumbnail is the only place the surface itself says
-   * a frame just went.
+   * transcript record of every kept frame are the same either way. Off by
+   * default, so the viewfinder is only the scene the user is aiming at; the
+   * camera panel is where a call turns the one visible keep signal on.
    */
   showKeptFrame: boolean;
 }
@@ -168,7 +168,7 @@ const INITIAL_STATE: VoicePrefsState = {
   pauseBeforeReplyMs: null,
   interruptSensitivity: null,
   flashMode: "off",
-  showKeptFrame: true,
+  showKeptFrame: false,
 };
 
 // ---------------------------------------------------------------------------

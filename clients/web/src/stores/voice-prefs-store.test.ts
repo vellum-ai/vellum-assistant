@@ -19,7 +19,7 @@ beforeEach(() => {
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
     flashMode: "off",
-    showKeptFrame: true,
+    showKeptFrame: false,
   });
 });
 
@@ -87,29 +87,29 @@ describe("useVoicePrefsStore — voice-mode preferences", () => {
     expect(persisted.pauseBeforeReplyMs).toBe(1500);
     expect(persisted.interruptSensitivity).toBe("low");
     expect(persisted.flashMode).toBe("auto");
-    expect(persisted.showKeptFrame).toBe(true);
+    expect(persisted.showKeptFrame).toBe(false);
   });
 });
 
 describe("useVoicePrefsStore: the kept-frame thumbnail", () => {
-  test("ships on, so a call keeps Live's one visible signal until it is turned off", () => {
+  test("ships off; the camera panel is where a call turns the signal on", () => {
     // The shipped value rather than the reset above, which is a test fixture.
-    expect(useVoicePrefsStore.getInitialState().showKeptFrame).toBe(true);
+    expect(useVoicePrefsStore.getInitialState().showKeptFrame).toBe(false);
   });
 
   test("setShowKeptFrame flips only that field, and survives a reload", () => {
-    useVoicePrefsStore.getState().setShowKeptFrame(false);
+    useVoicePrefsStore.getState().setShowKeptFrame(true);
 
-    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
     expect(useVoicePrefsStore.getState().flashMode).toBe("off");
 
     const persisted = JSON.parse(
       localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
     ).state;
-    expect(persisted.showKeptFrame).toBe(false);
+    expect(persisted.showKeptFrame).toBe(true);
 
-    useVoicePrefsStore.getState().setShowKeptFrame(true);
-    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
+    useVoicePrefsStore.getState().setShowKeptFrame(false);
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
   });
 });
 
