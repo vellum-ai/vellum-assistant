@@ -114,18 +114,20 @@ export function isAndroidBrowser(): boolean {
  * Returns true when the current browser is running on a Linux desktop.
  *
  * Linux browsers carry either the `X11` platform token or the literal `Linux`
- * token. Android carries `Linux` too (it is a Linux kernel) and ChromeOS
- * carries `X11; CrOS`, and neither can run the Linux desktop app, so both are
- * excluded.
+ * token. Both tokens are shared with systems that cannot run the Linux build,
+ * so those are excluded first: Android carries `Linux` (it is a Linux kernel),
+ * and ChromeOS (`X11; CrOS`) and the BSDs (`X11; FreeBSD amd64`) carry `X11`.
  *
  * Always returns `false` during SSR (no `navigator`).
  */
+const NON_LINUX_UNIX = /Android|CrOS|FreeBSD|OpenBSD|NetBSD|DragonFly|SunOS/i;
+
 export function isLinuxBrowser(): boolean {
   if (typeof navigator === "undefined") {
     return false;
   }
   const ua = navigator.userAgent;
-  if (/Android|CrOS/i.test(ua)) {
+  if (NON_LINUX_UNIX.test(ua)) {
     return false;
   }
   return /Linux|X11/i.test(ua);

@@ -83,6 +83,8 @@ const LINUX_TOUCH_UA =
   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const LINUX_FIREFOX_UA =
   "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
+const FREEBSD_UA =
+  "Mozilla/5.0 (X11; FreeBSD amd64; rv:128.0) Gecko/20100101 Firefox/128.0";
 const ORIGINAL_MATCH_MEDIA = window.matchMedia;
 
 function setUserAgent(ua: string): void {
@@ -486,6 +488,11 @@ describe("isLinuxBrowser", () => {
 
   test("is false on ChromeOS, which carries the X11 token", () => {
     setUserAgent(CHROMEOS_TOUCH_UA);
+    expect(isLinuxBrowser()).toBe(false);
+  });
+
+  test("is false on a BSD, which carries X11 without Linux", () => {
+    setUserAgent(FREEBSD_UA);
     expect(isLinuxBrowser()).toBe(false);
   });
 
