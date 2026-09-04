@@ -192,18 +192,26 @@ export function sttProvidersForHostOS(
   hostOS: ElectronHostOS | null,
   windowsCopy: NativeSttProviderCopy,
 ): readonly STTProvider[] {
-  if (hostOS !== "windows") {
-    return STT_PROVIDERS;
+  switch (hostOS) {
+    case "windows":
+      return STT_PROVIDERS.map((provider) =>
+        provider.id === MACOS_NATIVE_STT_PROVIDER_ID
+          ? {
+              id: MACOS_NATIVE_STT_PROVIDER_ID,
+              requiresNativeDictation: true,
+              ...windowsCopy,
+            }
+          : provider,
+      );
+    case "linux":
+      // No on-device recognizer on Linux yet, so drop the entry rather than
+      // offer one that cannot transcribe.
+      return STT_PROVIDERS.filter(
+        (provider) => provider.id !== MACOS_NATIVE_STT_PROVIDER_ID,
+      );
+    default:
+      return STT_PROVIDERS;
   }
-  return STT_PROVIDERS.map((provider) =>
-    provider.id === MACOS_NATIVE_STT_PROVIDER_ID
-      ? {
-          id: MACOS_NATIVE_STT_PROVIDER_ID,
-          requiresNativeDictation: true,
-          ...windowsCopy,
-        }
-      : provider,
-  );
 }
 
 // ---------------------------------------------------------------------------

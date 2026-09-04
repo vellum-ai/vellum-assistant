@@ -307,6 +307,7 @@
   },
   "downloadFeedback": {
     "failed": "Download failed",
+    "revealLinux": "Show in file manager",
     "revealMac": "Show in Finder",
     "revealWindows": "Show in File Explorer",
     "saved": "Saved to Downloads",
@@ -615,6 +616,7 @@
     "accessibilityLabel": "Accessibility",
     "checking": "Checking permissions...",
     "dockIcon": "Dock icon",
+    "launcherIcon": "app launcher icon",
     "microphoneDescription": "Allows your assistant to capture audio for voice input and recordings.",
     "microphoneLabel": "Microphone",
     "notificationBadgesDescription": "Allows your assistant to show unseen conversation counts on the {surface}.",

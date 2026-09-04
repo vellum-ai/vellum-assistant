@@ -1,9 +1,20 @@
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { t } from "@/i18n";
+import { t, type ParseKeys } from "@/i18n";
 import { revealDownload } from "@/runtime/downloads";
-import { detectElectronHostOS } from "@/runtime/platform-detection";
+import {
+  resolveDesktopHostOS,
+  type ElectronHostOS,
+} from "@/runtime/platform-detection";
+
+/** Reveal-action label per desktop host, named for that host's file manager. */
+const REVEAL_LABEL_KEYS: Readonly<Record<ElectronHostOS, ParseKeys<"common">>> =
+  {
+    macos: "downloadFeedback.revealMac",
+    windows: "downloadFeedback.revealWindows",
+    linux: "downloadFeedback.revealLinux",
+  };
 
 /**
  * The one consumer of the `download.*` bus signals: every user-visible
@@ -45,10 +56,7 @@ export function useDownloadFeedback(): void {
       description: filename,
       ...(id !== undefined && {
         action: {
-          label:
-            detectElectronHostOS() === "windows"
-              ? t("downloadFeedback.revealWindows")
-              : t("downloadFeedback.revealMac"),
+          label: t(REVEAL_LABEL_KEYS[resolveDesktopHostOS()]),
           onClick: () => {
             void revealDownload(id);
           },

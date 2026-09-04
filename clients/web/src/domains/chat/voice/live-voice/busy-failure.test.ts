@@ -10,6 +10,9 @@ describe("describeBusyFailure", () => {
     expect(describeBusyFailure({ client: "web" }, null).message).toBe(
       "Voice is already active in another browser tab.",
     );
+    expect(describeBusyFailure({ client: "linux" }, null).message).toBe(
+      "Voice is already active in the Linux app.",
+    );
   });
 
   test("falls back to unplaced copy for a holder it cannot name", () => {

@@ -78,6 +78,7 @@ mock.module("@/runtime/dock", () => ({
 
 mock.module("@/runtime/platform-detection", () => ({
   detectElectronHostOS: () => hostOS,
+  resolveDesktopHostOS: () => hostOS ?? "macos",
 }));
 
 const { SystemPermissionsCard } = await import("./system-permissions-card");
@@ -115,6 +116,16 @@ describe("SystemPermissionsCard", () => {
       screen.getByText(/unseen conversation counts on the taskbar icon/),
     ).toBeTruthy();
     expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
+  });
+
+  test("names the app launcher icon as the badge surface on a Linux host", () => {
+    unreadBadgeSurface = "app launcher icon";
+
+    render(<SystemPermissionsCard />);
+
+    expect(
+      screen.getByText(/unseen conversation counts on the app launcher icon/),
+    ).toBeTruthy();
   });
 
   test("does not mirror Notification Badges from the Notifications permission", () => {
