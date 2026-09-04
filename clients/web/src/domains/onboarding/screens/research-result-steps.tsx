@@ -13,7 +13,8 @@
  * are the REAL research output — the route fires the research turn against the
  * hatched assistant (see `research-runner.ts`) and threads the parsed
  * `{ claims, suggestions }` in here. Each step falls back to a graceful
- * loading / empty presentation while the turn is still streaming.
+ * loading presentation while the turn is still streaming. Settled empty
+ * results do not keep this card on screen: the route skips ahead.
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -423,20 +424,45 @@ export function ResearchResultsStep({
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
-  // Copy and the list share this array: a blank or pruned claim must not keep
-  // the "found about you" results copy on screen over an empty panel.
+  // Copy and the list share this array. A blank or pruned claim is not a
+  // visible row, so it cannot keep the results copy (or this card) on screen.
   const visible = claims.filter(
     (c) => c.claim.trim().length > 0 && !removed.has(c.claim),
   );
   const hasClaims = visible.length > 0;
   const canContinue = !loading;
+  const onContinueRef = useRef(onContinue);
+  onContinueRef.current = onContinue;
+  const advancedRef = useRef(false);
+
+  // Settled with nothing visible: leave this card. The route skips the same
+  // way when research lands empty (after aggregator filtering). Pruning the
+  // last row is the in-step case. A hatch-error hold keeps `loading` false
+  // with an empty list and `removed` empty; skip continue there so retry can
+  // refill this step (the route also holds when `hatchError` is set).
+  useEffect(() => {
+    if (loading || hasClaims || advancedRef.current) {
+      return;
+    }
+    if (removed.size === 0) {
+      return;
+    }
+    advancedRef.current = true;
+    onContinueRef.current([...removed]);
+  }, [loading, hasClaims, removed]);
+
+  // Do not paint the settled empty card. The looking-you-up carousel and the
+  // route skip cover "research found nothing"; this return covers the frame
+  // after the last prune (and any empty mount) before the next step lands.
+  if (!hasClaims && !loading) {
+    return null;
+  }
+
   const bodyKey = hasClaims
     ? loading
       ? "researchResultsStep.bodyLoadingWithClaims"
       : "researchResultsStep.bodyReadyWithClaims"
-    : loading
-      ? "researchResultsStep.bodyLoadingEmpty"
-      : "researchResultsStep.bodyReadyEmpty";
+    : "researchResultsStep.bodyLoadingEmpty";
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>

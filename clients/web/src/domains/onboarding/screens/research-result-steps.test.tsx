@@ -1,10 +1,12 @@
 /**
- * Research-results step: copy and the visible claims list must agree.
+ * Research-results step: copy and the visible claims list must agree, and an
+ * empty list must not keep the user on this card.
  *
- * A research turn can settle with card-worthy facts, or with nothing that
- * survived aggregator filtering. Either way the body copy has to match what
- * the list actually renders. Claims that exist must stay in the document, not
- * get clipped out of an overflow region.
+ * Aggregator filtering can leave nothing to show; pruning can empty the list
+ * the same way. The settled empty card is not rendered. Pruning the last row
+ * continues automatically. A research turn that settled empty is skipped by
+ * the route (see research-onboarding-route.test.tsx) so this step does not
+ * continue on an empty mount (that would walk past a hatch-error hold).
  *
  * Single-file `bun test` only: `mock.module` leaks across files in this repo,
  * so run this file on its own (or via scripts/run-tests.ts).
@@ -82,7 +84,7 @@ function renderStep(
 afterEach(cleanup);
 
 describe("ResearchResultsStep copy / list agreement", () => {
-  test("empty-after-filter uses the empty-state copy and renders no rows", () => {
+  test("empty-after-filter does not paint the results card", () => {
     const { claims, droppedClaims } = parseResearchResultStreaming(
       JSON.stringify({
         claims: [
@@ -104,13 +106,18 @@ describe("ResearchResultsStep copy / list agreement", () => {
     expect(claims).toEqual([]);
     expect(droppedClaims).toEqual(["Lives in Dallas", "Works at Acme"]);
 
-    renderStep({ claims, loading: false });
+    const onContinue = mock(() => {});
+    renderStep({ claims, loading: false, onContinue });
 
-    expect(screen.getByText(COPY.bodyReadyEmpty)).toBeTruthy();
+    expect(screen.queryByText(COPY.title)).toBeNull();
+    expect(screen.queryByText(COPY.bodyReadyEmpty)).toBeNull();
     expect(screen.queryByText(COPY.bodyReadyWithClaims)).toBeNull();
     expect(screen.queryByText("Lives in Dallas")).toBeNull();
-    expect(screen.queryByText("Works at Acme")).toBeNull();
     expect(screen.queryByRole("button", { name: COPY.notMe })).toBeNull();
+    // The route skips this step when research settles empty. Continuing from
+    // an empty mount would mark findings reviewed and walk past a hatch-error
+    // hold.
+    expect(onContinue).not.toHaveBeenCalled();
   });
 
   test("visible claims use the results copy and stay in the document", () => {
@@ -133,8 +140,9 @@ describe("ResearchResultsStep copy / list agreement", () => {
     expect(screen.getByRole("button", { name: COPY.notMe })).toBeTruthy();
   });
 
-  test("pruning the last visible claim swaps to the empty-state copy", () => {
-    renderStep({ claims: [KEPT_CLAIM], loading: false });
+  test("pruning the last visible claim advances instead of showing an empty card", () => {
+    const onContinue = mock(() => {});
+    renderStep({ claims: [KEPT_CLAIM], loading: false, onContinue });
 
     expect(screen.getByText(COPY.bodyReadyWithClaims)).toBeTruthy();
 
@@ -144,7 +152,10 @@ describe("ResearchResultsStep copy / list agreement", () => {
       }),
     );
 
-    expect(screen.getByText(COPY.bodyReadyEmpty)).toBeTruthy();
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(onContinue.mock.calls[0]?.[0]).toEqual([KEPT_CLAIM.claim]);
+    expect(screen.queryByText(COPY.title)).toBeNull();
+    expect(screen.queryByText(COPY.bodyReadyEmpty)).toBeNull();
     expect(screen.queryByText(COPY.bodyReadyWithClaims)).toBeNull();
     expect(screen.queryByText(KEPT_CLAIM.claim)).toBeNull();
     expect(screen.queryByRole("button", { name: COPY.notMe })).toBeNull();
