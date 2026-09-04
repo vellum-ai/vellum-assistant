@@ -21,7 +21,7 @@
  * read-side projection moves the text.
  */
 
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-gate.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
 import type { ContentBlock } from "../../providers/types.js";
 
 /**

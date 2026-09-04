@@ -3,10 +3,13 @@
  *
  * When the `send-user-message` flag is on, a main-agent turn's plain
  * assistant text is a private scratchpad the user never sees and the
- * `send_user_message` tool is the only channel that reaches them. The tool
- * name constant lives here alongside the gate so the tool definition, the
- * per-conversation availability filter, the agent-loop suppression seam, and
- * the user-facing content projection all read one declaration.
+ * `send_user_message` tool is the only channel that reaches them.
+ *
+ * Import this module only where the gate is evaluated at runtime: it reaches
+ * the feature-flag resolver and, through it, the gateway IPC client. A module
+ * that only needs the tool's name imports
+ * {@link ./send-user-message-constants.js} instead, which has no imports at
+ * all. Both names are re-exported here so a runtime evaluator reads one module.
  *
  * The gate is scoped to the main agent. Subagents, live-voice, calls, and
  * background workers resolve their own call sites and keep streamed assistant
@@ -17,12 +20,12 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 import type { AssistantConfig } from "./schema.js";
 import type { LLMCallSite } from "./schemas/llm.js";
+import { SEND_USER_MESSAGE_FLAG } from "./send-user-message-constants.js";
 
-/** Registry flag id (and key) for the tool-gated reply surface. */
-export const SEND_USER_MESSAGE_FLAG = "send-user-message" as const;
-
-/** LLM-facing name of the tool that delivers user-facing text. */
-export const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
+export {
+  SEND_USER_MESSAGE_FLAG,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "./send-user-message-constants.js";
 
 /** Whether the `send-user-message` flag is on for this assistant. */
 export function isSendUserMessageEnabled(config?: AssistantConfig): boolean {
