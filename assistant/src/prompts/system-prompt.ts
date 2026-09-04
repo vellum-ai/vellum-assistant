@@ -419,6 +419,14 @@ export interface BuildSystemPromptOptions {
    * is selected, the conversation is marked as an activation session.
    */
   conversationId?: string;
+  /**
+   * Whether this turn's user-facing text goes through the `send_user_message`
+   * tool. Renders the `01-send-user-message` section. Set by the conversation
+   * for a main-agent turn with the `send-user-message` flag on; every other
+   * prompt build leaves it unset, so the section stays out of the prompt for
+   * subagents, calls, live-voice, and background workers.
+   */
+  sendUserMessageTool?: boolean;
 }
 
 /**
@@ -488,6 +496,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     ...options,
     hasNoClient,
     isContainerized: getIsContainerized(),
+    sendUserMessageTool: options?.sendUserMessageTool === true,
     workspaceDir: getWorkspaceDir(),
     userSlug,
     channelSlug,
