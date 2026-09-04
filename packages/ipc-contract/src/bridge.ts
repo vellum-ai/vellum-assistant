@@ -649,11 +649,12 @@ export interface VellumBridge {
      */
     answerWatchRetro(open: boolean): void;
     /**
-     * Answer the offer of Vellum's version of a dictation another app
-     * pasted. See the `answerDictationOffer` command; every answer travels,
-     * since the window that made the offer is the one holding it.
+     * Answer the offer a dictation's words are standing on, naming the offer
+     * the card was drawn against. See the `answerDictationOffer` command;
+     * every answer travels, since the window that made the offer is the one
+     * holding it.
      */
-    answerDictationOffer(answer: DictationOfferAnswer): void;
+    answerDictationOffer(answer: DictationOfferAnswer, offerId: string): void;
     /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.

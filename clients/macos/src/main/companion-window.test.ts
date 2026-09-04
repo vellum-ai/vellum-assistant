@@ -2286,12 +2286,14 @@ describe("the offer of Vellum's dictation on the surface", () => {
       ...context(),
       dictationOffer: {
         reason: "claimed",
+        id: "offer-1",
         app: "Wispr Flow",
         text: "Send me the files.",
       },
     });
     expect(state().dictationOffer).toEqual({
       reason: "claimed",
+      id: "offer-1",
       app: "Wispr Flow",
       text: "Send me the files.",
     });
@@ -2307,6 +2309,7 @@ describe("the offer of Vellum's dictation on the surface", () => {
       ...context(),
       dictationOffer: {
         reason: "claimed",
+        id: "offer-1",
         app: "Wispr Flow",
         text: "Send me the files.",
       },
@@ -2330,13 +2333,13 @@ describe("the offer of Vellum's dictation on the surface", () => {
    */
   test("forwards every answer without raising the app", () => {
     for (const answer of ["use", "quit", "copy", "dismiss"] as const) {
-      send("vellum:companion:answerDictationOffer", answer);
+      send("vellum:companion:answerDictationOffer", answer, "offer-2");
     }
     expect(dispatched).toEqual([
-      { kind: "answerDictationOffer", answer: "use" },
-      { kind: "answerDictationOffer", answer: "quit" },
-      { kind: "answerDictationOffer", answer: "copy" },
-      { kind: "answerDictationOffer", answer: "dismiss" },
+      { kind: "answerDictationOffer", answer: "use", offerId: "offer-2" },
+      { kind: "answerDictationOffer", answer: "quit", offerId: "offer-2" },
+      { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
+      { kind: "answerDictationOffer", answer: "dismiss", offerId: "offer-2" },
     ]);
     expect(windowsRaised).toBe(0);
   });
@@ -2351,11 +2354,12 @@ describe("the offer of Vellum's dictation on the surface", () => {
       ...context(),
       dictationOffer: {
         reason: "no-text-field",
+        id: "offer-2",
         text: "onions, tomatoes, and a bag of rice",
       },
     });
 
-    send("vellum:companion:answerDictationOffer", "copy");
+    send("vellum:companion:answerDictationOffer", "copy", "offer-2");
 
     expect(copied).toEqual(["onions, tomatoes, and a bag of rice"]);
   });
@@ -2366,12 +2370,13 @@ describe("the offer of Vellum's dictation on the surface", () => {
       ...context(),
       dictationOffer: {
         reason: "no-text-field",
+        id: "offer-2",
         text: "onions, tomatoes, and a bag of rice",
       },
     });
 
     for (const answer of ["use", "quit", "dismiss"] as const) {
-      send("vellum:companion:answerDictationOffer", answer);
+      send("vellum:companion:answerDictationOffer", answer, "offer-2");
     }
 
     expect(copied).toEqual([]);
@@ -2382,11 +2387,36 @@ describe("the offer of Vellum's dictation on the surface", () => {
    * the window that published it is the one that has to stop.
    */
   test("a copy with nothing waiting takes nothing and still answers", () => {
-    send("vellum:companion:answerDictationOffer", "copy");
+    send("vellum:companion:answerDictationOffer", "copy", "offer-2");
 
     expect(copied).toEqual([]);
     expect(dispatched).toEqual([
-      { kind: "answerDictationOffer", answer: "copy" },
+      { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
+    ]);
+  });
+
+  /**
+   * A press on a card the surface has not repainted yet, after a new hold
+   * has already replaced the offer here. The pasteboard is not given words
+   * the user never read, and the answer still travels named so the window
+   * publishing the new offer can drop it too.
+   */
+  test("a copy naming an offer that has been replaced takes nothing", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: {
+        reason: "no-text-field",
+        id: "offer-3",
+        text: "the words that took its place",
+      },
+    });
+    dispatched.length = 0;
+
+    send("vellum:companion:answerDictationOffer", "copy", "offer-2");
+
+    expect(copied).toEqual([]);
+    expect(dispatched).toEqual([
+      { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
     ]);
   });
 });

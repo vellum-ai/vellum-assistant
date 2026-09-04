@@ -1,6 +1,9 @@
 import type { DictationOfferAnswer } from "@vellumai/ipc-contract";
 
-import { clearDictationOffer } from "@/domains/chat/voice/dictation-offer-store";
+import {
+  clearDictationOffer,
+  useDictationOfferStore,
+} from "@/domains/chat/voice/dictation-offer-store";
 import type { DictationOffer } from "@/domains/chat/voice/dictation-offer-store";
 import { frontmostApp, quitApp } from "@/runtime/running-apps";
 import {
@@ -27,11 +30,17 @@ const defaultDeps: DictationOfferActionDeps = {
  * the ones that act on nothing here: the companion draws it until this side
  * stops publishing it.
  *
+ * Acts only on the offer the press was drawn against. The surface can be a
+ * frame behind this window, so a press can arrive after a new hold has put
+ * different words up, and answering those would act on words the user never
+ * saw. That press is dropped and the standing offer is left alone.
+ *
  * Returns what was done, for the log and the tests: `replaced` (the other
  * app's paste undone and Vellum's words inserted), `quit` (the other app
  * asked to quit), `copied` (main has put the words on the pasteboard),
  * `dismissed`, `moved-on` (the user has since left the application the paste
- * went into, so nothing is touched), or `none` (no offer stood).
+ * went into, so nothing is touched), `stale` (the press named an offer that
+ * no longer stands), or `none` (no offer stood at all).
  *
  * An answer that does not belong to the offer standing is treated as a
  * dismissal rather than acted on: the card picks its answers from the
@@ -40,8 +49,21 @@ const defaultDeps: DictationOfferActionDeps = {
  */
 export async function answerDictationOffer(
   answer: DictationOfferAnswer,
+  offerId: string,
   deps: DictationOfferActionDeps = defaultDeps,
-): Promise<"replaced" | "quit" | "copied" | "dismissed" | "moved-on" | "none"> {
+): Promise<
+  "replaced" | "quit" | "copied" | "dismissed" | "moved-on" | "stale" | "none"
+> {
+  const standing = useDictationOfferStore.getState().offer;
+  if (standing === null) {
+    return "none";
+  }
+  if (standing.id !== offerId) {
+    console.info(
+      `dictation: offer answer ${answer} dropped, names an offer that no longer stands`,
+    );
+    return "stale";
+  }
   const offer = clearDictationOffer();
   if (offer === null) {
     return "none";

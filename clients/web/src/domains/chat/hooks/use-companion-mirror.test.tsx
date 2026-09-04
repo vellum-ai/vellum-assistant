@@ -328,7 +328,7 @@ describe("the dictation offer the companion mirror publishes", () => {
     render(<Mirror />);
     setDictationOffer(WISPR, "Send me the files.", null);
     await waitFor(() => {
-      expect(latest().dictationOffer).toEqual({
+      expect(latest().dictationOffer).toMatchObject({
         reason: "claimed",
         app: "Wispr Flow",
         text: "Send me the files.",

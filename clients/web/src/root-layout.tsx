@@ -401,7 +401,7 @@ export function RootLayout() {
       if (command.kind !== "answerDictationOffer") {
         return;
       }
-      void answerDictationOffer(command.answer);
+      void answerDictationOffer(command.answer, command.offerId);
     },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so

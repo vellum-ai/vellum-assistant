@@ -192,11 +192,11 @@ enum FrontSelection {
     /// caret's attributes, and taking the role as a second opinion would hand
     /// it a paste and call the words delivered.
     ///
-    /// The rest is for the elements that will not say. A missing or failed
-    /// settability answer proves nothing either way, so the two weaker marks
-    /// get their turn: a text control's role, and a selected text range,
-    /// which is the generic sign of something with a caret in it and catches
-    /// the editors that answer to neither of the others.
+    /// The rest is for the elements that will not say. A settability answer
+    /// the element did not give proves nothing either way, so the two weaker
+    /// marks get their turn: a text control's role, and a selected text
+    /// range, which is the generic sign of something with a caret in it and
+    /// catches the editors that answer to neither of the others.
     private static func takesText(_ element: AXUIElement, role: String?) -> Bool {
         if isDisabled(element) {
             return false
@@ -220,8 +220,8 @@ enum FrontSelection {
 
     /// What an element says about writing its text: that it can be written,
     /// that it cannot, or nothing usable. The third is its own answer because
-    /// the two below it are only worth asking once this one has come back
-    /// empty.
+    /// the two weaker marks in `takesText` are only worth asking once this
+    /// one has come back empty.
     private enum Settability {
         case settable
         case fixed
@@ -229,20 +229,32 @@ enum FrontSelection {
     }
 
     private static func settability(_ element: AXUIElement) -> Settability {
-        var answered = false
+        var conclusiveNos = 0
         for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
             var settable = DarwinBoolean(false)
-            guard AXUIElementIsAttributeSettable(
+            let status = AXUIElementIsAttributeSettable(
                 element, attribute as CFString, &settable
-            ) == .success else {
-                continue
-            }
-            if settable.boolValue {
+            )
+            if status == .success, settable.boolValue {
                 return .settable
             }
-            answered = true
+            // An attribute the element does not have is a no as firm as an
+            // attribute it has and will not let this process write: either
+            // way there is nothing here to put text into. Everything else is
+            // the ask failing rather than the element answering, the 50ms
+            // timeout expiring as `cannotComplete` above all, and proves
+            // nothing about the attribute it was asking after.
+            if status == .success
+                || status == .attributeUnsupported
+                || status == .noValue {
+                conclusiveNos += 1
+            }
         }
-        return answered ? .fixed : .unknown
+        // **Both, or neither.** The two attributes are independent and either
+        // one alone establishes editability, so a no from one beside a
+        // timeout from the other is not a no about the element. Calling it
+        // one would withhold the paste from an editor that was merely slow.
+        return conclusiveNos == 2 ? .fixed : .unknown
     }
 
     /// Whether the element says it is disabled. Only an explicit no counts: a

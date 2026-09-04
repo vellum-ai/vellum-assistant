@@ -44,6 +44,7 @@ let captureSources: {
 } | null = null;
 const listSourcesMock = mock(async () => captureSources);
 const answerRetroMock = mock((_open: boolean) => undefined);
+const answerOfferMock = mock((_answer: string, _offerId: string) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
 const sendControlMock = mock((_control: { action: string }) => undefined);
@@ -92,6 +93,7 @@ const resetState = () => {
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
   delete STATE.character;
+  delete STATE.dictationOffer;
 };
 
 /**
@@ -137,7 +139,7 @@ mock.module("@/runtime/companion-surface", () => ({
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
-  answerCompanionDictationOffer: () => undefined,
+  answerCompanionDictationOffer: answerOfferMock,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
   showCompanionContextMenu: contextMenuMock,
@@ -160,6 +162,7 @@ afterEach(() => {
   setScreenShareMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
+  answerOfferMock.mockClear();
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
   sendControlMock.mockClear();
@@ -1139,6 +1142,69 @@ describe("the picker behind Teach", () => {
 
     expect(toggleWatchMock).toHaveBeenCalledWith();
     expect(pickerOf(container)).toBeNull();
+  });
+});
+
+/**
+ * The card holding out a dictation's words. This page owns neither the words
+ * nor the pasteboard, so all it does with a press is name what was pressed
+ * and which offer it was drawn against.
+ */
+describe("the offer of a dictation's words", () => {
+  const offerCardOf = (container: HTMLElement): HTMLElement =>
+    container.querySelector<HTMLElement>("[data-companion-dictation-offer]") ??
+    (() => {
+      throw new Error("Expected the offer card to render");
+    })();
+
+  const answerOf = (container: HTMLElement, label: string): HTMLButtonElement =>
+    Array.from(offerCardOf(container).querySelectorAll("button")).find(
+      (button) => button.textContent === label,
+    ) ??
+    (() => {
+      throw new Error(`Expected a ${label} answer`);
+    })();
+
+  test("draws nothing while no words are waiting", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    expect(
+      container.querySelector("[data-companion-dictation-offer]"),
+    ).toBeNull();
+  });
+
+  /**
+   * The offer is named on the way out. The surface can be a frame behind the
+   * window holding the words, and an answer that named nothing would act on
+   * whichever offer had arrived by then.
+   */
+  test("an answer names the offer the card was drawn against", async () => {
+    STATE.dictationOffer = {
+      reason: "no-text-field",
+      id: "offer-7",
+      text: "onions, tomatoes, and a bag of rice",
+    };
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => offerCardOf(container));
+
+    fireEvent.click(answerOf(container, "Copy"));
+
+    expect(answerOfferMock).toHaveBeenCalledWith("copy", "offer-7");
+  });
+
+  test("a discard travels the same way", async () => {
+    STATE.dictationOffer = {
+      reason: "no-text-field",
+      id: "offer-7",
+      text: "onions, tomatoes, and a bag of rice",
+    };
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => offerCardOf(container));
+
+    fireEvent.click(answerOf(container, "Discard"));
+
+    expect(answerOfferMock).toHaveBeenCalledWith("dismiss", "offer-7");
   });
 });
 

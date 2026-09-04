@@ -1597,19 +1597,28 @@ export const installCompanionWindow = (): void => {
    * **Copy is done here** rather than passed on with the rest. Main owns the
    * pasteboard, and the two windows either side of this one cannot use it: a
    * renderer's clipboard write needs a focused document, and the surface's
-   * window is a click-through canvas that never takes focus. The answer still
-   * travels afterwards, because the window publishing the offer is the one
-   * that has to stop.
+   * window is a click-through canvas that never takes focus.
+   *
+   * The words copied are the offer the press names, not whichever offer is
+   * standing when it arrives. A hold that replaces an offer reaches here
+   * before it reaches the surface, and a press from that gap would otherwise
+   * put words the user never read onto their pasteboard. The answer travels
+   * either way, and travels named, because the window publishing the offer
+   * has the same gap to guard against.
    */
   on(
     "vellum:companion:answerDictationOffer",
-    z.tuple([z.enum(["use", "quit", "copy", "dismiss"])]),
-    ([answer]) => {
+    z.tuple([z.enum(["use", "quit", "copy", "dismiss"]), z.string()]),
+    ([answer, offerId]) => {
       const offered = context.dictationOffer;
-      if (answer === "copy" && offered !== undefined) {
+      if (answer === "copy" && offered?.id === offerId) {
         clipboard.writeText(offered.text);
       }
-      dispatchWithoutRaising({ kind: "answerDictationOffer", answer });
+      dispatchWithoutRaising({
+        kind: "answerDictationOffer",
+        answer,
+        offerId,
+      });
     },
   );
 

@@ -37,6 +37,19 @@ function deps(front: string | null) {
   };
 }
 
+/**
+ * The offer standing right now, which is what a press on its card names. The
+ * ids are minted inside the store, so a case reads one back rather than
+ * choosing it.
+ */
+function standingId(): string {
+  const { offer } = useDictationOfferStore.getState();
+  if (offer === null) {
+    throw new Error("Expected an offer to be standing");
+  }
+  return offer.id;
+}
+
 afterEach(() => {
   clearDictationOffer();
 });
@@ -45,7 +58,9 @@ describe("answering the dictation offer", () => {
   test("use undoes the other app's paste and inserts Vellum's words", async () => {
     setDictationOffer(WISPR, "Send me the files.", "com.example.editor");
     const d = deps("com.example.editor");
-    expect(await answerDictationOffer("use", d.deps)).toBe("replaced");
+    expect(await answerDictationOffer("use", standingId(), d.deps)).toBe(
+      "replaced",
+    );
     expect(d.calls).toEqual(["undo", "insert Send me the files."]);
     expect(useDictationOfferStore.getState().offer).toBeNull();
   });
@@ -57,7 +72,9 @@ describe("answering the dictation offer", () => {
   test("use does nothing once the user has left the application", async () => {
     setDictationOffer(WISPR, "Send me the files.", "com.example.editor");
     const d = deps("com.example.browser");
-    expect(await answerDictationOffer("use", d.deps)).toBe("moved-on");
+    expect(await answerDictationOffer("use", standingId(), d.deps)).toBe(
+      "moved-on",
+    );
     expect(d.calls).toEqual([]);
     expect(useDictationOfferStore.getState().offer).toBeNull();
   });
@@ -65,20 +82,26 @@ describe("answering the dictation offer", () => {
   test("use still acts when the front application was never known", async () => {
     setDictationOffer(WISPR, "words", null);
     const d = deps("com.example.editor");
-    expect(await answerDictationOffer("use", d.deps)).toBe("replaced");
+    expect(await answerDictationOffer("use", standingId(), d.deps)).toBe(
+      "replaced",
+    );
   });
 
   test("quit asks the other app to quit and nothing else", async () => {
     setDictationOffer(WISPR, "words", "com.example.editor");
     const d = deps("com.example.editor");
-    expect(await answerDictationOffer("quit", d.deps)).toBe("quit");
+    expect(await answerDictationOffer("quit", standingId(), d.deps)).toBe(
+      "quit",
+    );
     expect(d.calls).toEqual(["quit com.electron.wispr-flow"]);
   });
 
   test("dismiss takes the offer down and touches nothing", async () => {
     setDictationOffer(WISPR, "words", "com.example.editor");
     const d = deps("com.example.editor");
-    expect(await answerDictationOffer("dismiss", d.deps)).toBe("dismissed");
+    expect(await answerDictationOffer("dismiss", standingId(), d.deps)).toBe(
+      "dismissed",
+    );
     expect(d.calls).toEqual([]);
     expect(useDictationOfferStore.getState().offer).toBeNull();
   });
@@ -90,7 +113,9 @@ describe("answering the dictation offer", () => {
   test("copy takes the offer down and touches no application", async () => {
     setUnplacedDictationOffer("onions, tomatoes, and a bag of rice");
     const d = deps("com.example.editor");
-    expect(await answerDictationOffer("copy", d.deps)).toBe("copied");
+    expect(await answerDictationOffer("copy", standingId(), d.deps)).toBe(
+      "copied",
+    );
     expect(d.calls).toEqual([]);
     expect(useDictationOfferStore.getState().offer).toBeNull();
   });
@@ -104,7 +129,9 @@ describe("answering the dictation offer", () => {
   test("an answer the standing offer cannot honour is a dismissal", async () => {
     setUnplacedDictationOffer("onions, tomatoes, and a bag of rice");
     const d = deps("com.example.editor");
-    expect(await answerDictationOffer("use", d.deps)).toBe("dismissed");
+    expect(await answerDictationOffer("use", standingId(), d.deps)).toBe(
+      "dismissed",
+    );
     expect(d.calls).toEqual([]);
     expect(useDictationOfferStore.getState().offer).toBeNull();
   });
@@ -113,8 +140,31 @@ describe("answering the dictation offer", () => {
     const d = deps("com.example.editor");
     const quit = mock(d.deps.quitApp);
     expect(
-      await answerDictationOffer("use", { ...d.deps, quitApp: quit }),
+      await answerDictationOffer("use", "offer-1", {
+        ...d.deps,
+        quitApp: quit,
+      }),
     ).toBe("none");
     expect(d.calls).toEqual([]);
+  });
+
+  /**
+   * The surface can be a frame behind this window, so a press can arrive
+   * after a new hold has put different words up. Acting on it would answer a
+   * question the user was never asked with words they never read, and would
+   * take down an offer they have not seen yet.
+   */
+  test("a press naming an offer that has been replaced is dropped", async () => {
+    setDictationOffer(WISPR, "first", "com.example.editor");
+    const stale = standingId();
+    setUnplacedDictationOffer("second");
+    const d = deps("com.example.editor");
+
+    expect(await answerDictationOffer("copy", stale, d.deps)).toBe("stale");
+
+    expect(d.calls).toEqual([]);
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      text: "second",
+    });
   });
 });

@@ -5,12 +5,14 @@ import { CompanionDictationOffer } from "@/components/companion-dictation-offer"
 
 const OFFER = {
   reason: "claimed",
+  id: "offer-1",
   app: "Wispr Flow",
   text: "Send me the files.",
 } as const;
 
 const UNPLACED = {
   reason: "no-text-field",
+  id: "offer-2",
   text: "onions, tomatoes, and a bag of rice",
 } as const;
 

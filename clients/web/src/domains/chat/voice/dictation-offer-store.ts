@@ -23,6 +23,13 @@ import {
  */
 interface OfferedWords {
   /**
+   * Which offer this is. Minted here, published with the words, and carried
+   * back on the answer, so a press made against an offer this store has
+   * already replaced is dropped rather than applied to the words that took
+   * its place. See {@link CompanionDictationOffer.id}.
+   */
+  id: string;
+  /**
    * The hold's words, bounded at {@link COMPANION_DICTATION_OFFER_MAX}. The
    * same value the companion shows and every answer acts on, so what is read
    * is what lands.
@@ -155,6 +162,7 @@ function putOffer(
   useDictationOfferStore.setState({
     offer: {
       ...reason,
+      id: crypto.randomUUID(),
       text: text.slice(0, COMPANION_DICTATION_OFFER_MAX),
       expiry,
     },

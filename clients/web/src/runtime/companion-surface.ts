@@ -165,15 +165,19 @@ export function answerCompanionWatchRetro(open: boolean): void {
 }
 
 /**
- * Answer the offer of Vellum's dictation: use it in place of what another app
- * pasted, get that app off the key, or leave it. Every answer leaves this
- * renderer, for the reason the retro's does: the window that made the offer
- * is the one holding it.
+ * Answer the offer a dictation's words are standing on: use them in place of
+ * what another app pasted, get that app off the key, take them to the
+ * clipboard, or leave them. Every answer leaves this renderer, for the reason
+ * the retro's does: the window that made the offer is the one holding it.
+ *
+ * The offer is named rather than assumed, since this window can be a frame
+ * behind the one holding it. See {@link CompanionDictationOffer.id}.
  */
 export function answerCompanionDictationOffer(
   answer: DictationOfferAnswer,
+  offerId: string,
 ): void {
-  bridge()?.answerDictationOffer?.(answer);
+  bridge()?.answerDictationOffer?.(answer, offerId);
 }
 
 /**

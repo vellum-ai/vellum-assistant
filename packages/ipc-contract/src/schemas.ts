@@ -184,11 +184,13 @@ export const companionContextSchema = z.object({
     .discriminatedUnion("reason", [
       z.object({
         reason: z.literal("claimed"),
+        id: z.string().max(64),
         app: z.string().max(80),
         text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
       }),
       z.object({
         reason: z.literal("no-text-field"),
+        id: z.string().max(64),
         text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
       }),
     ])

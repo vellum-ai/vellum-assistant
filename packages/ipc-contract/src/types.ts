@@ -151,9 +151,11 @@ export type VellumCommand =
    * Answer the offer the surface makes when a dictation ends with its words
    * still in hand: put Vellum's version in place of what another app pasted,
    * get that app off the key, take the words to the clipboard, or leave
-   * things as they are. See {@link CompanionDictationOffer}.
+   * things as they are. `offerId` names the offer the card was drawn
+   * against, and an answer to one that no longer stands is dropped. See
+   * {@link CompanionDictationOffer}.
    */
-  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer }
+  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer; offerId: string }
   /**
    * Start a live-voice session, or end the one that is running.
    *
@@ -1214,9 +1216,26 @@ export type CompanionWatchRetro = "pending" | "ready";
  * key, and nowhere to "use" the words when nothing takes text. `text` is
  * bounded at {@link COMPANION_DICTATION_OFFER_MAX} on both.
  */
+interface OfferedDictation {
+  /**
+   * Which offer this is, minted where the words are parked and carried back
+   * on the answer.
+   *
+   * The same bargain {@link VoiceActivityControl.requestId} makes. A hold
+   * replacing an offer reaches main before it reaches the surface, so a press
+   * on the card still on screen can arrive after main is already holding
+   * different words. Copying those would put on the pasteboard something the
+   * user never read, and dismissing them would answer a question they were
+   * never asked, so the press names its offer and a press for one that no
+   * longer stands is dropped.
+   */
+  id: string;
+  text: string;
+}
+
 export type CompanionDictationOffer =
-  | { reason: "claimed"; app: string; text: string }
-  | { reason: "no-text-field"; text: string };
+  | (OfferedDictation & { reason: "claimed"; app: string })
+  | (OfferedDictation & { reason: "no-text-field" });
 
 /**
  * The most an offered dictation can be, in characters. One bound for the

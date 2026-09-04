@@ -654,7 +654,9 @@ export function CompanionSurfacePage() {
         onWatchRetro={answerCompanionWatchRetro}
         // Out through main to the window that made the offer, for the reason
         // the retro's answer goes: this page holds neither the words nor the
-        // application they went into.
+        // application they went into. The answer names the offer it was drawn
+        // against, since this page can be a frame behind the window holding
+        // it.
         dictationOffer={dictationOffer}
         offer={
           dictationOffer !== undefined ? (
@@ -665,7 +667,9 @@ export function CompanionSurfacePage() {
               avatarBox={avatarBox}
               optionsBox={optionsBox}
               cardRef={offerRef}
-              onAnswer={answerCompanionDictationOffer}
+              onAnswer={(answer) => {
+                answerCompanionDictationOffer(answer, dictationOffer.id);
+              }}
             />
           ) : null
         }

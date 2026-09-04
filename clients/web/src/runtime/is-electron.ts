@@ -407,7 +407,10 @@ declare global {
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;
         answerWatchRetro?(open: boolean): void;
-        answerDictationOffer?(answer: DictationOfferAnswer): void;
+        answerDictationOffer?(
+          answer: DictationOfferAnswer,
+          offerId: string,
+        ): void;
         activate?(): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;

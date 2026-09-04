@@ -1307,6 +1307,7 @@ describe("the offer of Vellum's dictation", () => {
         phase="offer"
         dictationOffer={{
           reason: "claimed",
+          id: "offer-1",
           app: "Wispr Flow",
           text: "Send me the files.",
         }}
@@ -1327,6 +1328,7 @@ describe("the offer of Vellum's dictation", () => {
         phase="offer"
         dictationOffer={{
           reason: "no-text-field",
+          id: "offer-2",
           text: "onions, tomatoes, and a bag of rice",
         }}
         offer={<div data-testid="offer-card" />}

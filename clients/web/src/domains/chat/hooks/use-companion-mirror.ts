@@ -153,9 +153,14 @@ function currentOffer(): CompanionDictationOffer | undefined {
     return undefined;
   }
   if (offer.reason === "no-text-field") {
-    return { reason: "no-text-field", text: offer.text };
+    return { reason: "no-text-field", id: offer.id, text: offer.text };
   }
-  return { reason: "claimed", app: offer.app.name, text: offer.text };
+  return {
+    reason: "claimed",
+    id: offer.id,
+    app: offer.app.name,
+    text: offer.text,
+  };
 }
 
 /**
@@ -269,6 +274,7 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.screenShareEnabled === b.screenShareEnabled &&
     a.dictating === b.dictating &&
     a.dictationText === b.dictationText &&
+    a.dictationOffer?.id === b.dictationOffer?.id &&
     a.dictationOffer?.reason === b.dictationOffer?.reason &&
     offerApp(a.dictationOffer) === offerApp(b.dictationOffer) &&
     a.dictationOffer?.text === b.dictationOffer?.text
