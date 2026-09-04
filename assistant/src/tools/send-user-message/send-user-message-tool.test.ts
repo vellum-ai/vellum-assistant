@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-gate.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
 import { sendUserMessageTool } from "./send-user-message-tool.js";
 
 describe("send_user_message tool", () => {
