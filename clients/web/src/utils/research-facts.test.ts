@@ -273,6 +273,31 @@ describe("parseResearchResultStreaming — dropped aggregator-only claims", () =
   const payload = (claims: unknown[]): string =>
     JSON.stringify({ claims, suggestions: [] });
 
+  test("an all-aggregator payload leaves claims empty", () => {
+    // Every source is a people-search directory, so nothing survives onto the
+    // card. The results step must treat this as empty, not as "found about you".
+    const { claims, droppedClaims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Lives in Dallas",
+          confidence: "confident",
+          sources: [
+            "https://www.spokeo.com/example-user",
+            "https://profiles.beenverified.com/example-user",
+          ],
+        },
+        {
+          claim: "Works at Acme",
+          confidence: "maybe",
+          sources: ["https://whitepages.com/example-user"],
+        },
+      ]),
+    );
+
+    expect(claims).toEqual([]);
+    expect(droppedClaims).toEqual(["Lives in Dallas", "Works at Acme"]);
+  });
+
   test("surfaces an aggregator-only claim's text in droppedClaims", () => {
     // The claim is hidden from the card AND reported as dropped, so the flow can
     // scrub the wrong-person fact from the assistant's memory (not just hide it).

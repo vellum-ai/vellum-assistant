@@ -853,6 +853,18 @@ describe("ResearchOnboardingRoute paid return", () => {
       expect(screen.getByTestId("looking-step").dataset.ready).toBe("true"),
     );
   });
+
+  test("skips the results step when research settles with no claims", async () => {
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "results" }));
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("results-step")).toBeNull();
+  });
 });
 
 // Retrying the hatch must restart everything that already resolved against the

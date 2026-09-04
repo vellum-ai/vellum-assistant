@@ -13,7 +13,8 @@
  * are the REAL research output — the route fires the research turn against the
  * hatched assistant (see `research-runner.ts`) and threads the parsed
  * `{ claims, suggestions }` in here. Each step falls back to a graceful
- * loading / empty presentation while the turn is still streaming.
+ * loading presentation while the turn is still streaming. Settled empty
+ * results do not keep this card on screen: the route skips ahead.
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -415,12 +416,51 @@ export function ResearchResultsStep({
   const { t } = useTranslation("onboarding");
   const tone = DARK_TONE;
   const reduce = useReducedMotion();
+  // `useReducedMotion` is `null` until the media query resolves. Treat that
+  // unknown window like reduced motion: do not mount rows at opacity 0. Copy
+  // already counts them as visible, so a stuck enter would show results copy
+  // over a blank list.
+  const animatePresence = reduce === false;
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
-  const visible = claims.filter((c) => !removed.has(c.claim));
+  // Copy and the list share this array. A blank or pruned claim is not a
+  // visible row, so it cannot keep the results copy (or this card) on screen.
+  const visible = claims.filter(
+    (c) => c.claim.trim().length > 0 && !removed.has(c.claim),
+  );
   const hasClaims = visible.length > 0;
   const canContinue = !loading;
+  const advancedRef = useRef(false);
+
+  // Settled with nothing visible: leave this card. The route skips the same
+  // way when research lands empty (after aggregator filtering). Pruning the
+  // last row is the in-step case. A hatch-error hold keeps `loading` false
+  // with an empty list and `removed` empty; skip continue there so retry can
+  // refill this step (the route also holds when `hatchError` is set).
+  useEffect(() => {
+    if (loading || hasClaims || advancedRef.current) {
+      return;
+    }
+    if (removed.size === 0) {
+      return;
+    }
+    advancedRef.current = true;
+    onContinue([...removed]);
+  }, [loading, hasClaims, removed, onContinue]);
+
+  // Do not paint the settled empty card. The looking-you-up carousel and the
+  // route skip cover "research found nothing"; this return covers the frame
+  // after the last prune (and any empty mount) before the next step lands.
+  if (!hasClaims && !loading) {
+    return null;
+  }
+
+  const bodyKey = hasClaims
+    ? loading
+      ? "researchResultsStep.bodyLoadingWithClaims"
+      : "researchResultsStep.bodyReadyWithClaims"
+    : "researchResultsStep.bodyLoadingEmpty";
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -428,12 +468,12 @@ export function ResearchResultsStep({
 
       {/* Bounded to the viewport bottom so a long claims list can't push the
           continue button off-screen on short windows. The button is a pinned
-          footer; everything above it scrolls as one region (min-h-0 lets it
-          shrink), so the claims stay reachable even when the window is shorter
-          than the heading + button alone. */}
+          footer; the region above it is flex-1 + min-h-0 so it gets a real
+          height and can scroll, instead of shrinking to zero around the
+          heading. Claim rows are shrink-0 so flex cannot collapse them. */}
       <div className="absolute bottom-0 left-1/2 top-[11%] sm:top-[8%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
-        <div className="flex min-h-0 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-          <div className="flex items-center gap-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          <div className="flex shrink-0 items-center gap-3">
             <MiniAssistant />
             <h1
               className="text-[2.2rem] leading-none"
@@ -442,26 +482,25 @@ export function ResearchResultsStep({
               {t("researchResultsStep.title")}
             </h1>
           </div>
-          <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-            {hasClaims
-              ? loading
-                ? t("researchResultsStep.bodyLoadingWithClaims")
-                : t("researchResultsStep.bodyReadyWithClaims")
-              : loading
-                ? t("researchResultsStep.bodyLoadingEmpty")
-                : t("researchResultsStep.bodyReadyEmpty")}
+          <p
+            className="mb-7 mt-2 shrink-0 text-[15px]"
+            style={{ color: tone.fgMuted }}
+          >
+            {t(bodyKey)}
           </p>
 
-          <div className="flex flex-col gap-3">
-            <AnimatePresence>
+          <div className="flex shrink-0 flex-col gap-3">
+            <AnimatePresence initial={false}>
               {visible.map((fact) => (
                 <motion.div
                   key={fact.claim}
-                  layout
-                  initial={reduce ? false : { opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduce ? undefined : { opacity: 0, scale: 0.95 }}
-                  className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
+                  layout={animatePresence}
+                  initial={animatePresence ? { opacity: 0 } : false}
+                  animate={{ opacity: 1 }}
+                  exit={
+                    animatePresence ? { opacity: 0, scale: 0.95 } : undefined
+                  }
+                  className="flex shrink-0 items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
                   style={{
                     backgroundColor: tone.isLight
                       ? "rgba(0,0,0,0.06)"
