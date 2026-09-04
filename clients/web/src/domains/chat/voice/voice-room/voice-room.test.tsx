@@ -515,6 +515,17 @@ describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
 
 const roomDialog = () =>
   screen.queryByRole("dialog", { name: "Voice session" });
+/**
+ * What the room reserves at each edge of the camera pill's band, read off the
+ * vars it publishes. Equal reserves are what put the pill on the room's centre
+ * line rather than on the centre of whatever the corners leave over.
+ */
+const bandInsets = () => {
+  const style = roomDialog()?.getAttribute("style") ?? "";
+  const read = (name: string) =>
+    style.match(new RegExp(`--camera-pill-${name}: ([^;]+)`))?.[1] ?? "";
+  return { left: read("left"), right: read("right") };
+};
 /** The control row's ✕: the room's only way to end a session. */
 const endButton = () =>
   screen.queryByRole("button", { name: "End voice session" });
@@ -1284,9 +1295,16 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
   });
 });
 
-describe("VoiceRoom: top-right corner", () => {
+/**
+ * The chrome band's two corners: the view options on the left, the minimize on
+ * the right, and the pill centred between the equal reserves they take.
+ */
+describe("VoiceRoom: the chrome band's corners", () => {
+  /** The absolute box a corner control is positioned by. */
+  const cornerBox = (control: HTMLElement) => control.closest("div.absolute");
+
   test("holds the minimize and nothing else", () => {
-    // With no viewfinder up the corner is down to one control. A cluster of
+    // With no viewfinder up the band is down to one control. A cluster of
     // small chrome competed with the room's own cast, so the in-session
     // settings gear was deleted; voice and listening language are picked in
     // Settings.
@@ -1308,12 +1326,34 @@ describe("VoiceRoom: top-right corner", () => {
       fireEvent.click(cameraToggle()!);
     });
 
-    // Inboard of minimize, which keeps the extreme corner: the light exit is
-    // the one muscle memory reaches for without looking.
-    expect(screen.getByTestId("camera-view-settings")).not.toBeNull();
-    expect(minimizeButton()).not.toBeNull();
-    // The pill's band gives up the two-control cluster on that side.
-    expect(roomDialog()?.getAttribute("style")).toContain(")) + 7.25rem)");
+    // A box of its own rather than a seat beside the minimize: sharing a box
+    // with either neighbour is what would push the pill off the room's centre.
+    // Which edge each box hangs off is an inline `max()`, which happy-dom
+    // drops, so the side itself is a QA row; what the suite holds is that the
+    // two are separate boxes on the same band, in reading order.
+    const settingsBox = cornerBox(screen.getByTestId("camera-view-settings"));
+    const minimizeBox = cornerBox(minimizeButton()!);
+    expect(Boolean(settingsBox)).toBe(true);
+    expect(settingsBox === minimizeBox).toBe(false);
+    expect(settingsBox?.contains(minimizeButton())).toBe(false);
+    expect(settingsBox?.className).toContain(
+      "absolute top-[var(--room-chrome-top)] z-10 flex",
+    );
+    expect(minimizeBox?.className).toContain(
+      "absolute top-[var(--room-chrome-top)] z-10 flex",
+    );
+    // Reading order: options, then the pill it does not sit inside, then the
+    // exit.
+    const chrome = Array.from(
+      roomDialog()?.querySelectorAll(
+        "[data-testid='camera-view-settings'], [data-testid='camera-status-pill-slot'], [aria-label='Minimize voice room']",
+      ) ?? [],
+    ).map((node) => node.getAttribute("data-testid") ?? "minimize");
+    expect(chrome).toEqual([
+      "camera-view-settings",
+      "camera-status-pill-slot",
+      "minimize",
+    ]);
 
     await act(async () => {
       fireEvent.click(cameraToggle()!);
@@ -1339,11 +1379,52 @@ describe("VoiceRoom: top-right corner", () => {
     });
 
     expect(screen.getByTestId("voice-room-viewfinder")).not.toBeNull();
+    // Nowhere at all, rather than an empty box left standing in the corner.
     expect(screen.queryByTestId("camera-view-settings")).toBeNull();
     expect(screen.queryByTestId("camera-view-settings-host")).toBeNull();
-    // Minimize stands alone up there, so the pill's band gives up one control
-    // rather than holding a gap for a button that is not drawn.
-    expect(roomDialog()?.getAttribute("style")).toContain(")) + 3.75rem)");
+    // Minimize stands alone up there, in the box it holds in every room.
+    expect(cornerBox(minimizeButton()!)?.className).toContain(
+      "absolute top-[var(--room-chrome-top)] z-10 flex",
+    );
+  });
+
+  test("centres the pill on the room whether or not the options are offered", async () => {
+    // Equal reserves on both edges of the band, so the slot's midpoint is the
+    // room's midpoint. Reserving only for the corner that happens to be
+    // occupied would slide the pill sideways as Live comes and goes.
+    stubMediaDevices(async () => fakeStream());
+    seedLiveCapableAssistant();
+    startOwnedSession("listening");
+    const withOptions = render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("camera-view-settings")).not.toBeNull();
+    expect(bandInsets()).toEqual({
+      left: "calc(max(1.25rem, var(--safe-area-inset-left, env(safe-area-inset-left, 0px))) + 3.75rem)",
+      right:
+        "calc(max(1.25rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) + 3.75rem)",
+    });
+
+    withOptions.unmount();
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // The left corner is empty here, and the band does not claim the room it
+    // gave up: an empty corner and an occupied one reserve the same.
+    expect(screen.queryByTestId("camera-view-settings")).toBeNull();
+    expect(bandInsets()).toEqual({
+      left: "calc(max(1.25rem, var(--safe-area-inset-left, env(safe-area-inset-left, 0px))) + 3.75rem)",
+      right:
+        "calc(max(1.25rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) + 3.75rem)",
+    });
   });
 
   /**
@@ -2080,17 +2161,16 @@ describe("VoiceRoom: camera", () => {
     expect(screen.getByTestId("camera-status-pill").textContent).toContain(
       "Photo",
     );
-    // On the corner chrome's own line and centred in the band that chrome
-    // leaves, so a long assistant name truncates inside a ceiling instead of
-    // running under the cluster. This assistant cannot run Live, so the corner
-    // holds minimize alone and the band gives up one control's worth.
+    // On the corner chrome's own line, and centred between the reserve each
+    // corner takes, so a long assistant name truncates inside a ceiling
+    // instead of running under a control.
     expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
       "left-[var(--camera-pill-left)] right-[var(--camera-pill-right)]",
     );
-    expect(roomDialog()?.getAttribute("style")).toContain(
-      "--camera-pill-right: calc(max(1.25rem, var(--safe-area-inset-right",
+    expect(bandInsets().left).toContain(
+      "calc(max(1.25rem, var(--safe-area-inset-left",
     );
-    expect(roomDialog()?.getAttribute("style")).toContain(")) + 3.75rem)");
+    expect(bandInsets().right).toContain(")) + 3.75rem)");
     // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
     // bottom scrim lies over the shutter and the whole control row.
     const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");

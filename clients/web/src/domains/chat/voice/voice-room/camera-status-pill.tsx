@@ -201,14 +201,17 @@ export function CameraStatusPill({
         // it knows what corner chrome the pill has to keep clear of.
         "inline-flex min-w-[9rem] max-w-full items-center justify-center",
         "rounded-full",
-        "px-3 py-[5px]",
+        "px-4 py-[7px]",
         "text-label-medium-default",
         // Blur rather than a heavier fill: the frame behind can be any
         // brightness, and an opaque chip over a viewfinder reads as a hole.
         MODE_CONTAINER_CLASSES[mode],
-        // The token's 11px at the design's 600. Rebinding the weight var beats
-        // a `font-semibold` beside it: both set `font-weight`, and which one
-        // wins is Tailwind's utility ordering rather than the order written.
+        // The label token at the design's 13px and 600. Rebinding the vars
+        // beats `text-[13px] font-semibold` beside it: each pair sets the same
+        // property, and which one wins is Tailwind's utility ordering rather
+        // than the order written. The scale's label sizes stop at 11px, so the
+        // size is a rebinding for the same reason the weight is.
+        "[--text-label-medium-default-size:13px]",
         "[--text-label-medium-default-weight:600]",
       )}
     >
@@ -216,12 +219,12 @@ export function CameraStatusPill({
           assistive tech; the room's live region speaks the sentence. */}
       <span
         aria-hidden
-        className="inline-flex min-w-0 items-center gap-[7px] whitespace-nowrap"
+        className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap"
       >
         <span
           data-testid="camera-status-dot"
           className={cn(
-            "size-[5px] flex-none rounded-full",
+            "size-[6px] flex-none rounded-full",
             voiceState === "idle" && "bg-white/50",
             voiceState === "user" && "bg-white",
             voiceState === "assistant" && "bg-[var(--camera-accent-soft)]",
