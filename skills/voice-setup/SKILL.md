@@ -66,7 +66,7 @@ The Talk shortcut starts or ends a voice conversation.
 
 - **macOS:** Offer **Fn** or a custom global chord. Fn is the Mac-specific helper path and can require Input Monitoring. If macOS refuses Fn registration, direct the user to **System Settings > Privacy & Security > Input Monitoring**, then have them reopen Vellum. A custom chord should be one the user can spare system-wide.
 - **Windows:** Fn is unavailable because Windows does not receive the hardware Fn key. Recommend a custom chord for system-wide Talk. The app also offers **Ctrl+Shift** and **Alt** taps, but those bare-modifier choices work only while a Vellum window is focused. Warn that another global shortcut can prevent a custom chord from registering.
-- **Linux:** Fn is unavailable for the same reason. Recommend a custom chord for system-wide Talk, which the app registers through the desktop environment. Do not offer a system-wide bare-modifier hold such as **Ctrl+Shift** or **Alt**: it needs the native helper's keyboard monitor, which no current Linux build ships, so those holds work only while a Vellum window is focused. When the helper does ship it will read raw key events from `/dev/input`, which needs the user's account in the `input` group, but do not send anyone through that change today. Warn that the desktop environment or another app can already own a chord, in which case it never reaches Vellum.
+- **Linux:** Fn is unavailable for the same reason. A custom chord is the only working option: the client registers it as a global shortcut through the desktop session. Do not offer **Ctrl+Shift** or **Alt**, because Linux rejects modifier-only bindings entirely, focused or not. Those need the native helper's keyboard monitor, which no current Linux build ships, so do not send anyone through host permission changes for them yet. Warn that the desktop environment or another app can already own a chord, in which case it never reaches Vellum.
 
 Ask which behavior they want, then use `navigate_settings_tab` with `tab: "Voice"` so they can record the desktop-owned shortcut. Do not claim that `voice_config_update` changed this shortcut.
 
@@ -118,7 +118,7 @@ Desktop Talk starts a live voice session. Its audio is transcribed through the a
 3. Apply the platform-specific checks:
    - **macOS:** Fn requires the native helper and may require Input Monitoring. The Globe key can also be assigned to macOS Dictation or the emoji picker, so suggest a custom chord if both actions fire.
    - **Windows:** Fn cannot work. A Ctrl+Shift or Alt tap requires Vellum to be focused. For use from another app, record a custom global chord and make sure no other app owns it.
-   - **Linux:** Fn cannot work, and a system-wide Ctrl+Shift or Alt hold cannot work either until the native helper ships. Say so rather than sending the user through host permission changes, and move them to a custom chord. A chord is registered through the desktop environment, so confirm no compositor or app shortcut already owns it.
+   - **Linux:** Fn cannot work, and a Ctrl+Shift or Alt binding is rejected outright, so neither is a fix. Say so rather than sending the user through host permission changes, and move them to a custom chord. The chord is registered through the desktop session, so confirm no compositor or app shortcut already owns it.
 4. If the user reports Speech Recognition permission as denied or not determined, call `open_system_settings` with `pane: "speech_recognition"` and the current `platform`.
 5. If the Windows or Linux shortcut fires but capture does not start, restart Vellum from the tray menu and retry.
 
@@ -137,9 +137,9 @@ This path applies to the microphone button's one-shot dictation, not Desktop Tal
 1. If the user reports Speech Recognition permission as denied or unknown, open the platform's privacy page with `open_system_settings`.
 2. Ask whether dictation partials appear. If capture starts without partials, troubleshoot the native helper and local recognizer.
 3. On Windows, the helper uses an installed Windows speech recognizer and prefers the current Windows display language. If no matching recognizer is installed, add that language's speech feature or select an installed language.
-4. On Linux, dictation runs through the native helper, which no current build ships, so it reports unavailable rather than failing silently. Confirm that is what the app showed and tell the user the feature is not available yet instead of troubleshooting further.
+4. On Linux, dictation runs through the native helper, which no current build ships, so it reports unavailable rather than failing silently. Confirm that is what the app showed, tell the user the feature is not available yet, and stop here. A restart cannot change the result.
 5. Reduce background noise or move closer to the microphone.
-6. On Windows and Linux, restart Vellum from the tray menu and retry. This relaunches Vellum and its one-shot dictation helper.
+6. On Windows, restart Vellum from the tray menu and retry. This relaunches Vellum and its one-shot dictation helper.
 
 ### "Changed a setting but it didn't work"
 
