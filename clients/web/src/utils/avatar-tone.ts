@@ -115,16 +115,31 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0);
 }
 
+/** WCAG contrast ratio between two #rrggbb hexes, 1 to 21. */
+function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort(
+    (x, y) => y - x,
+  );
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
 /**
- * Black or white, whichever has the higher WCAG contrast ratio against
- * `bg`. Stricter than {@link toneForBg}'s YIQ heuristic — mid-tone
- * saturated colors (teal, orange) correctly get dark text here, where the
- * YIQ rule would pick white. Use for text that must stay readable on a
- * solid fill of the avatar color.
+ * {@link FG_DARK} or {@link FG_LIGHT}, whichever has the higher WCAG contrast
+ * ratio against `bg`. An exact tie takes the light one.
+ *
+ * Both ratios are measured against the two values this returns, not against
+ * pure black and white. A near-black loses to white at a lower background
+ * luminance than #000000 does, so a luminance cutoff read off the pure pair
+ * hands dark ink to a band of mid-tone backgrounds that white reads better on.
+ *
+ * Stricter than {@link toneForBg}'s YIQ heuristic, which gives white to the
+ * mid-tone saturated colors (teal, orange) that want dark text. Use for text
+ * that must stay readable on a solid fill of the avatar color.
  */
 export function contrastForeground(bg: string): string {
-  // White wins only below L ≈ 0.179 — the point where (L + 0.05)² = 0.0525.
-  return relativeLuminance(bg) > 0.179 ? FG_DARK : FG_LIGHT;
+  return contrastRatio(FG_DARK, bg) > contrastRatio(FG_LIGHT, bg)
+    ? FG_DARK
+    : FG_LIGHT;
 }
 
 /** Build a tone object from a background hex. */

@@ -11,7 +11,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { toneForBg } from "./avatar-tone";
+import { contrastForeground, toneForBg } from "./avatar-tone";
+
+const FG_DARK = "#1A1A1A";
+const FG_LIGHT = "#FFFFFF";
 
 /** WCAG relative luminance of a #rrggbb hex, mirroring avatar-tone internals. */
 function luminance(hex: string): number {
@@ -35,6 +38,43 @@ function contrastRatio(a: string, b: string): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi! + 0.05) / (lo! + 0.05);
 }
+
+describe("contrastForeground", () => {
+  test("a light background takes the near-black", () => {
+    expect(contrastForeground("#E9C91A")).toBe(FG_DARK);
+    expect(contrastForeground("#F2C94C")).toBe(FG_DARK);
+  });
+
+  test("a dark background takes the white", () => {
+    expect(contrastForeground("#17191C")).toBe(FG_LIGHT);
+    expect(contrastForeground("#20336B")).toBe(FG_LIGHT);
+  });
+
+  test("a mid-tone background takes whichever actually measures higher", () => {
+    // The near-black loses here, by a ratio the caller can check: 3.83 against
+    // white's 4.54. A cutoff read off pure black hands this one dark ink.
+    expect(contrastRatio(FG_DARK, "#767676")).toBeLessThan(
+      contrastRatio(FG_LIGHT, "#767676"),
+    );
+    expect(contrastForeground("#767676")).toBe(FG_LIGHT);
+  });
+
+  test("the crossover is the luminance where the two ratios meet", () => {
+    // The two 8-bit greys either side of it, so the pair brackets the point
+    // rather than pinning a constant nothing computes. #7C7C7C is the near
+    // tie: 4.170 dark against 4.174 white.
+    expect(contrastForeground("#7C7C7C")).toBe(FG_LIGHT);
+    expect(contrastForeground("#7D7D7D")).toBe(FG_DARK);
+    expect(luminance("#7C7C7C")).toBeLessThan(0.201687);
+    expect(luminance("#7D7D7D")).toBeGreaterThan(0.201687);
+  });
+
+  test("every avatar palette colour keeps the ink it ships with", () => {
+    for (const hex of ["#4C9B50", "#E9642F", "#DB4B77", "#A665C9", "#0E9B8B"]) {
+      expect(contrastForeground(hex)).toBe(FG_DARK);
+    }
+  });
+});
 
 describe("toneForBg bubble tokens", () => {
   test("dark avatar → soft white lift, white text (dark blended surface)", () => {

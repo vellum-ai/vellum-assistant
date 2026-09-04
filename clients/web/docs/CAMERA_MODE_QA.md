@@ -142,7 +142,10 @@ scrim.
       dark accent, and the whole pill including the separator and the assistant
       name follows it. The dot while the assistant talks flips with it, dark on
       the yellow and pale on the dark accent, so it always reads against the
-      fill it sits on. The accent itself is not clamped, so the hint and the
+      fill it sits on. A mid-grey accent from an uploaded image is the case
+      worth a third look, since that is where the two inks are closest: the
+      label takes whichever measures higher and should still be comfortable.
+      The accent itself is not clamped, so the hint and the
       shutter ring over the feed are whatever colour the assistant is; if one of
       those fails it fails on the waves and the shimmer too, and the fix belongs
       in the avatar accent system rather than in the camera.
