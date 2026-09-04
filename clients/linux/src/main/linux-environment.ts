@@ -21,6 +21,7 @@ export interface LinuxDistro {
 }
 
 export interface LinuxEnvironment {
+  /** Desktop session, independent of Electron running through XWayland. */
   sessionType: LinuxSessionType;
   /** `XDG_CURRENT_DESKTOP` entries, lowercased, e.g. `["ubuntu", "gnome"]`. */
   desktop: string[];
@@ -88,7 +89,8 @@ export function readLinuxEnvironment(
       appImagePath === null ? null : io.isWritable(appImagePath),
   };
 
-  log.info("[linux-environment] probed session:", cached);
+  const { appImagePath: _appImagePath, ...metadata } = cached;
+  log.info("[linux-environment] probed session:", metadata);
 
   return cached;
 }
