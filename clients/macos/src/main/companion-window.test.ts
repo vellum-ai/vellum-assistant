@@ -3096,8 +3096,12 @@ describe("companion window: pointing at what is shared", () => {
     expect(state().coachmarks).toBeUndefined();
   });
 
-  /** A share moving to another surface keeps the marks it was given. */
-  test("holds the marks while the share moves target", () => {
+  /**
+   * The fractions would survive a move to another display or window and
+   * describe that surface instead, so the marks come down with the surface
+   * they were measured against rather than with the share as a whole.
+   */
+  test("a share moving to another surface takes the marks with it", () => {
     shareDisplay();
     send("vellum:companion:setCoachmarks", [MARK]);
     send(
@@ -3107,6 +3111,28 @@ describe("companion window: pointing at what is shared", () => {
         screenShare: { kind: "window", windowId: 9 },
       }),
     );
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  test("marks placed on the surface it moved to stand", () => {
+    shareDisplay();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "window", windowId: 9 },
+      }),
+    );
+    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(state().coachmarks).toEqual([MARK]);
+  });
+
+  /** A context republished unchanged is not a surface that moved. */
+  test("holds the marks while the share stays where it is", () => {
+    shareDisplay();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    shareDisplay();
     expect(state().coachmarks).toEqual([MARK]);
   });
 

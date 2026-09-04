@@ -33,8 +33,8 @@ import type { CompanionCoachmark } from "@vellumai/ipc-contract";
  * `FLIP_X` and running the full width it may take ends exactly at the far
  * edge, so neither flip can leave one hanging off the surface.
  */
-export const CAPTION_FLIP_X = 0.6;
-export const CAPTION_FLIP_Y = 0.85;
+const CAPTION_FLIP_X = 0.6;
+const CAPTION_FLIP_Y = 0.85;
 export const CAPTION_MAX_WIDTH = 0.4;
 
 /** Which corner of a mark its caption hangs from. */

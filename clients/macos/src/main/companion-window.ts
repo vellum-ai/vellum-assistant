@@ -1073,19 +1073,58 @@ const NO_COACHMARKS: readonly CompanionCoachmark[] = [];
 let coachmarks: readonly CompanionCoachmark[] = NO_COACHMARKS;
 
 /**
- * Point at things on the shared surface, or take down what is pointed at.
+ * The surface the standing marks were measured against, or nothing when none
+ * stand.
  *
- * Idempotent, and run after every change to the context as well as on the
- * ask, for the reason {@link setAnnotating} is: a mark that outlives its
- * share is a ring around whatever has since moved under it.
+ * Held beside them because a share can move to another display or window
+ * while they are up. The fractions would survive that move and describe the
+ * new surface instead, putting a ring around whatever lies at those
+ * coordinates there.
  */
+let coachmarkTarget: WatchCaptureTarget | undefined;
+
+/** Whether two picks name the one surface. */
+const sameCaptureTarget = (
+  a: WatchCaptureTarget | undefined,
+  b: WatchCaptureTarget | undefined,
+): boolean => {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  if (a.kind === "display") {
+    return b.kind === "display" && a.displayId === b.displayId;
+  }
+  return b.kind === "window" && a.windowId === b.windowId;
+};
+
+/** Point at things on the shared surface, or take down what is pointed at. */
 const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
   const resolved = framesTheShare() ? next : NO_COACHMARKS;
-  if (resolved === coachmarks) {
+  const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
+  if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
     return;
   }
   coachmarks = resolved;
+  coachmarkTarget = against;
   pushState();
+};
+
+/**
+ * Take the marks down when what they describe is gone: the share ended, a
+ * watch session took the frame, or the share moved to another surface.
+ *
+ * Run after every change to the context, for the reason {@link setAnnotating}
+ * is run there: a mark that outlives the surface it was measured against is a
+ * ring around whatever has since moved under it.
+ */
+const syncCoachmarks = (): void => {
+  if (
+    framesTheShare() &&
+    sameCaptureTarget(context.screenShare, coachmarkTarget)
+  ) {
+    return;
+  }
+  setCoachmarks(NO_COACHMARKS);
 };
 
 /**
@@ -1252,7 +1291,7 @@ const syncWatchFrame = (): void => {
   // surface they were measured against. The pushed state that follows carries
   // every fact at once.
   setAnnotating(annotating);
-  setCoachmarks(coachmarks);
+  syncCoachmarks();
   const framed = framedTarget();
   if (framed === null) {
     stopFollowingWindow();
