@@ -151,7 +151,7 @@ test("seeds and synchronizes a persisted setting through the backend", () => {
   installLoginItemIpc();
 
   // The pre-existing autostart entry seeds the empty setting.
-  expect(stored).toBe(true);
+  expect<boolean | null>(stored).toBe(true);
 
   handlers.get("vellum:launchAtLogin:set")?.([false]);
   notify();
