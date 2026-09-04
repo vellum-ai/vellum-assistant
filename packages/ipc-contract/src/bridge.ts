@@ -26,6 +26,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionCoachmark,
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
@@ -660,6 +661,20 @@ export interface VellumBridge {
       strokes: readonly CompanionAnnotationStroke[],
       ink: string,
     ): void;
+    /**
+     * Point at things on the surface a call is being shown, or take down
+     * whatever is being pointed at by sending none.
+     *
+     * Main's own state for the reason `setAnnotating` is, and with the same
+     * consequence: the marks are fractions of the surface the frame is drawn
+     * around, so only main can say whether they still describe anything.
+     * What comes back is `coachmarks` on `onState`, which the frame's window
+     * draws.
+     *
+     * Absent on a shell that predates the marks, the bargain
+     * `setScreenShare` makes.
+     */
+    setCoachmarks?(marks: readonly CompanionCoachmark[]): void;
     /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame
