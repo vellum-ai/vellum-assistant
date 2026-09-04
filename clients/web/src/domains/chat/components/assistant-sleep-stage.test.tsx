@@ -63,6 +63,11 @@ const { useAssistantSleepStageStore } =
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 
+/** The stage's one control: its surface is inert. */
+function closeButton() {
+  return screen.getByRole("button", { name: "Hide the sleep screen" });
+}
+
 function renderAt(pathname: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -172,7 +177,7 @@ describe("AssistantSleepStage", () => {
   test("a click hands the status back to the banner", () => {
     renderAt("/assistant/conversations/c1");
 
-    fireEvent.click(screen.getByText("Mel is waking up…"));
+    fireEvent.click(closeButton());
 
     expect(screen.queryByText("Mel is waking up…")).toBeNull();
     expect(useAssistantSleepStageStore.getState().visible).toBe(false);
@@ -181,7 +186,7 @@ describe("AssistantSleepStage", () => {
 
   test("a dismissal survives a remount of the same assistant's stage", () => {
     const view = renderAt("/assistant/conversations/c1");
-    fireEvent.click(screen.getByText("Mel is waking up…"));
+    fireEvent.click(closeButton());
     view.unmount();
 
     // What a window crossing the mobile breakpoint does: `ChatLayout` moves
@@ -206,6 +211,15 @@ describe("AssistantSleepStage", () => {
     renderAt("/assistant/conversations/c1");
 
     expect(screen.getByText("Mel is asleep")).toBeTruthy();
+  });
+
+  test("a click on the stage itself does not dismiss it", () => {
+    renderAt("/assistant/conversations/c1");
+
+    fireEvent.click(screen.getByText("Mel is waking up…"));
+
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+    expect(useAssistantSleepStageStore.getState().dismissed).toBe(false);
   });
 
   test("leaves a sleep that begins mid-session to the banner", () => {
@@ -266,7 +280,7 @@ describe("AssistantSleepStage", () => {
     renderAt("/assistant/conversations/c1");
     expect(screen.getByText("Mel is asleep")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Mel is asleep"));
+    fireEvent.click(closeButton());
 
     expect(screen.queryByText("Mel is asleep")).toBeNull();
     expect(useAssistantSleepStageStore.getState().forcedScene).toBeNull();
@@ -274,7 +288,7 @@ describe("AssistantSleepStage", () => {
 
   test("a dismissal does not carry over to another sleeping assistant", () => {
     renderAt("/assistant/conversations/c1");
-    fireEvent.click(screen.getByText("Mel is waking up…"));
+    fireEvent.click(closeButton());
     expect(screen.queryByText("Mel is waking up…")).toBeNull();
 
     act(() => {

@@ -28,9 +28,10 @@
  * while the voice room, a takeover of the same box, is up. `ChatLayout` makes
  * the covered thread `inert` for as long as the stage is drawn.
  *
- * **Clicking it hands the page back.** The whole stage is a button; one click
- * dismisses it and the banner returns to carrying the status. The dismissal is
- * scoped to that assistant's current sleep.
+ * **A close button hands the page back.** The stage's surface is inert, so a
+ * stray click on the conversation it covers cannot dismiss it by accident;
+ * the close button in its corner can, and the banner then returns to carrying
+ * the status. The dismissal is scoped to that assistant's current sleep.
  *
  * **Waking is played, not cut.** When the assistant comes back while the stage
  * is up, the lids open, the copy says so for a beat, and the stage fades to
@@ -288,7 +289,7 @@ export function AssistantSleepStage() {
       eyes={eyes}
       imageUrl={imageUrl}
       line={sceneLine(t, scene, assistantName)}
-      dismissHint={t("assistantSleepStage.dismissLabel")}
+      dismissLabel={t("assistantSleepStage.dismissLabel")}
       onDismiss={dismiss}
     />
   );

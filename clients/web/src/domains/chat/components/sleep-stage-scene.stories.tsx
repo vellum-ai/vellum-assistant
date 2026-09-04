@@ -66,7 +66,7 @@ function Scene({ scene, eyeStyle, color, line }: StoryArgs) {
         scene={scene}
         eyes={eyesFor(eyeStyle, color)}
         line={line}
-        dismissHint="Hide the sleep screen"
+        dismissLabel="Hide the sleep screen"
       />
     </Stage>
   );
@@ -122,7 +122,7 @@ export const EveryEyeStyle: Story = {
             scene={scene}
             eyes={eyesFor(eyeStyle, color)}
             line={eyeStyle}
-            dismissHint="Hide the sleep screen"
+            dismissLabel="Hide the sleep screen"
           />
         </div>
       ))}
@@ -170,7 +170,7 @@ function Sequence({ eyeStyle, color }: { eyeStyle: string; color: string }) {
         scene={beat.scene}
         eyes={eyesFor(eyeStyle, color)}
         line={beat.line}
-        dismissHint="Hide the sleep screen"
+        dismissLabel="Hide the sleep screen"
       />
     </Stage>
   );

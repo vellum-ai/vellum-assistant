@@ -117,8 +117,8 @@ export interface SleepStageViewProps {
   imageUrl?: string | null;
   /** The line under the eyes, already resolved for the scene and the name. */
   line: string;
-  /** Screen-reader-only copy for what clicking the stage does. */
-  dismissHint: string;
+  /** The close button's accessible name. */
+  dismissLabel: string;
   onDismiss?: () => void;
 }
 
@@ -127,18 +127,16 @@ export function SleepStageView({
   eyes,
   imageUrl = null,
   line,
-  dismissHint,
+  dismissLabel,
   onDismiss,
 }: SleepStageViewProps) {
   const reduce = Boolean(useReducedMotion());
   const woke = scene === "woke";
 
   return (
-    <motion.button
-      type="button"
-      onClick={onDismiss}
+    <motion.div
       data-scene={scene}
-      className="group absolute inset-0 z-30 flex cursor-pointer flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
+      className="group absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
       initial={reduce ? false : { opacity: 0 }}
       // Waking runs the whole exit here: the eyes hold open for a beat and
       // then the stage itself fades, so the conversation arrives behind a
@@ -174,32 +172,33 @@ export function SleepStageView({
         />
       ) : null}
 
-      {/* What a click does, shown only under the pointer. The stage is one
-          big button, so this is an affordance rather than a control of its
-          own: a nested button would be invalid, and a click anywhere on the
-          stage (this corner included) already dismisses it. It stays
-          `pointer-events-none` so the click always lands on the stage
-          itself. */}
+      {/* The one control on the stage: the surface itself is inert, so a
+          stray click on the page it is covering cannot dismiss it by
+          accident. Hidden until hover where there is a pointer to hover
+          with, and always on where there is not (`(hover: hover)` is false
+          on a touch screen), which is the same treatment the attachment
+          overlay's download button gets. */}
       {woke ? null : (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute right-4 top-4 flex size-8 scale-90 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--content-secondary)_25%,transparent)] bg-[color-mix(in_srgb,var(--surface-overlay)_70%,transparent)] text-[color:var(--content-secondary)] opacity-0 transition duration-200 group-hover:scale-100 group-hover:border-[color-mix(in_srgb,var(--content-secondary)_45%,transparent)] group-hover:text-[color:var(--content-default)] group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100 group-active:scale-95"
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={dismissLabel}
+          className="absolute right-4 top-4 flex size-8 cursor-pointer items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--content-secondary)_25%,transparent)] bg-[color-mix(in_srgb,var(--surface-overlay)_70%,transparent)] text-[color:var(--content-secondary)] transition duration-200 hover:border-[color-mix(in_srgb,var(--content-secondary)_45%,transparent)] hover:text-[color:var(--content-default)] focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] active:scale-95 [@media(hover:hover)]:scale-90 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:scale-100 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:scale-100 [@media(hover:hover)]:group-focus-within:opacity-100"
         >
           <X className="size-4" aria-hidden="true" />
-        </span>
+        </button>
       )}
 
+      {/* The banner stands down while the stage is up, so this line is what
+          announces the status: a live region rather than decoration. */}
       <span
+        role="status"
         className="block text-center text-[28px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[36px]"
         style={{ fontFamily: "var(--font-serif)" }}
       >
         {line}
       </span>
-      {/* The button's accessible name is its text, so the status is announced
-          before what a click does. No `aria-label`: it would replace the line
-          the sighted user reads with the action alone. */}
-      <span className="sr-only">{dismissHint}</span>
-    </motion.button>
+    </motion.div>
   );
 }
 
