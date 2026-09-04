@@ -7,6 +7,7 @@ import {
   AVATAR_ACCENT_INK_CSS_VAR,
   avatarAccentVars,
   getPublishedAvatarAccentHex,
+  scopedAvatarAccentVars,
   useAvatarAccentVar,
 } from "./use-avatar-accent-var";
 
@@ -87,6 +88,27 @@ describe("avatarAccentVars", () => {
     // colour AND the fallback ink it was designed with.
     expect(avatarAccentVars(null)).toEqual({});
     expect(avatarAccentVars(undefined)).toEqual({});
+  });
+});
+
+describe("scopedAvatarAccentVars", () => {
+  test("carries the same trio as the publisher when there is an accent", () => {
+    expect(scopedAvatarAccentVars(YELLOW)).toEqual(avatarAccentVars(YELLOW));
+  });
+
+  test("shadows all three when there is none, rather than leaving them out", () => {
+    // A nested element that publishes nothing inherits the root's accent,
+    // which belongs to whichever assistant the app has selected rather than
+    // the one this subtree is about. `initial` cuts the inheritance and hands
+    // each consumer back its own fallback, which is the point: they differ.
+    expect(scopedAvatarAccentVars(null)).toEqual({
+      [AVATAR_ACCENT_CSS_VAR]: "initial",
+      [AVATAR_ACCENT_FILL_CSS_VAR]: "initial",
+      [AVATAR_ACCENT_INK_CSS_VAR]: "initial",
+    });
+    expect(scopedAvatarAccentVars(undefined)).toEqual(
+      scopedAvatarAccentVars(null),
+    );
   });
 });
 

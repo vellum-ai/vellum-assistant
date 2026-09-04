@@ -36,6 +36,7 @@
 import type { CSSProperties } from "react";
 
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { legibleAccentFill } from "@/utils/avatar-tone";
 
 /**
  * Crimson: the capture accent an assistant with no colour of its own falls back
@@ -43,6 +44,17 @@ import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
  * actively sampling is the assistant's own colour wherever there is one.
  */
 export const CAMERA_ACCENT = "#cf4370";
+
+/**
+ * The crimson as a surface the pill's label can sit on, which is a hair darker
+ * than the crimson itself: white on the raw colour measures 4.48 against a
+ * floor of 4.5, and this clears it at 4.56.
+ *
+ * Derived rather than written down, so it cannot drift from the clamp every
+ * accent already goes through. CSS cannot read it, so `index.css` repeats the
+ * value as the fallback in `.camera-live-fill` and a test holds the two equal.
+ */
+export const CAMERA_FILL_FALLBACK = legibleAccentFill(CAMERA_ACCENT);
 
 /**
  * The ink a glyph takes on a fill bright enough to lose a white one: the mic

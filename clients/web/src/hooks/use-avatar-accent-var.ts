@@ -36,9 +36,12 @@ export const AVATAR_ACCENT_INK_CSS_VAR = "--avatar-accent-ink";
 export const AVATAR_ACCENT_FILL_CSS_VAR = "--avatar-accent-fill";
 
 /**
- * The accent trio as an inline style, for an element that scopes the accent to
- * itself rather than reading the document's. Empty for an assistant with no
- * accent, which leaves every consumer on its own fallback.
+ * The accent trio as an inline style, for the element that PUBLISHES an
+ * accent. Empty for an assistant with no accent, since nothing above the
+ * document root can be inherited and every consumer wants its own fallback.
+ *
+ * An element nested under a publisher needs {@link scopedAvatarAccentVars}
+ * instead, which has an inherited value to shadow.
  *
  * One function so the three cannot be published apart: the ink is chosen
  * against the fill, and an element carrying any two of them is a surface
@@ -64,6 +67,30 @@ const ACCENT_VAR_NAMES = [
   AVATAR_ACCENT_FILL_CSS_VAR,
   AVATAR_ACCENT_INK_CSS_VAR,
 ] as const;
+
+/**
+ * The same trio for a subtree NESTED under the document root's, where absence
+ * has to be declared rather than left out.
+ *
+ * Custom properties inherit, so an element that publishes nothing inherits the
+ * root's accent, which belongs to the assistant the app has selected rather
+ * than the one this subtree is about. A colourless call under a coloured
+ * assistant would then wear that assistant's colour. The three names take the
+ * CSS-wide `initial` instead, which resolves a custom property to the
+ * guaranteed-invalid value and sends every `var(--x, fallback)` below to its
+ * OWN fallback: the waves to their indigo, the camera chrome to its crimson.
+ * A concrete trio here could only pick one of those and would be wrong for the
+ * other.
+ */
+export function scopedAvatarAccentVars(
+  accentHex: string | null | undefined,
+): Record<string, string> {
+  const published = avatarAccentVars(accentHex);
+  if (Object.keys(published).length > 0) {
+    return published;
+  }
+  return Object.fromEntries(ACCENT_VAR_NAMES.map((name) => [name, "initial"]));
+}
 
 /**
  * Latest value published by {@link useAvatarAccentVar}, for readers that

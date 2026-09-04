@@ -524,8 +524,12 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 @supports (background-color: color-mix(in srgb, red 50%, blue)) {
   .camera-live-fill {
     /* The accent as a surface text can sit on, which for most accents is the
-     * accent itself, and the crimson when the assistant has none. */
-    --camera-live-fill: var(--avatar-accent-fill, var(--camera-accent));
+     * accent itself. The literal is the crimson through the same clamp, for an
+     * assistant with no accent at all: the raw crimson leaves a 13px label at
+     * 4.48 where the floor is 4.5, and every accented pill is held to that
+     * floor. `CAMERA_FILL_FALLBACK` in `camera-mode-paint.ts` derives it, and a
+     * test holds the two equal. */
+    --camera-live-fill: var(--avatar-accent-fill, #cd426f);
     background-color: var(--camera-live-fill);
     color: var(--avatar-accent-ink, #fff);
   }

@@ -1770,14 +1770,19 @@ describe("VoiceRoom: the accent the room scopes to itself", () => {
     expect(roomStyle()).toContain("--avatar-accent-ink: #1A1A1A");
   });
 
-  test("declares neither for an assistant with no colour to read", () => {
-    // Absent rather than a neutral pair: every consumer's own fallback colour
-    // ships with the ink it was drawn for.
+  test("shadows all three for an assistant with no colour to read", () => {
+    // Not absence: custom properties inherit, so leaving them out would let a
+    // colourless call wear the accent the document root is carrying for
+    // whichever assistant the app has selected. `initial` resolves each one to
+    // the guaranteed-invalid value, which sends every consumer below to its
+    // OWN fallback, and those differ (indigo waves, crimson camera).
     seedAvatar("character");
     startOwnedSession("listening");
     render(<VoiceRoom />);
 
-    expect(roomStyle()).not.toContain("--avatar-accent");
+    expect(roomStyle()).toContain("--avatar-accent: initial");
+    expect(roomStyle()).toContain("--avatar-accent-fill: initial");
+    expect(roomStyle()).toContain("--avatar-accent-ink: initial");
   });
 });
 

@@ -135,7 +135,16 @@ scrim.
       while Live runs, the "Live · Tap to stop" hint, the pill's dot while the
       assistant talks, and the kept-frame ring are all that accent. Call an
       assistant with no accent (an uploaded image the daemon read no colour
-      from) and the same chrome is the camera's crimson.
+      from) and the same chrome is the camera's crimson. The Live pill wears a
+      hair-darker crimson than the ring beside it there, which is that fill
+      held to the same text floor every accent is held to.
+- [ ] A colourless call keeps its own colours while the app moves on. Start a
+      call with an assistant that has no accent, then switch the app to an
+      assistant that does while the call runs. The call's room stays crimson
+      and its waves stay indigo: neither picks up the newly selected
+      assistant's colour. This is the one to watch after any change to how the
+      room publishes its accent, since the failure is silent and looks like a
+      theme rather than a bug.
 - [ ] A pale accent and a dark one both read. Repeat the row above with the
       lightest accent the palette offers (yellow) and a dark one. The Live
       pill's label flips with the fill: near-black on the yellow, white on the
@@ -174,7 +183,10 @@ scrim.
 - [ ] iOS 15 keeps the whole pink pill. On a device or simulator older than
       16.2, where `color-mix()` does not exist, the Live pill draws all three
       of the crimson fill at 90%, white text, and the rose dot, whatever accent
-      the assistant has. The failure to look for is a split set: near-black
+      the assistant has. That is the raw crimson rather than the clamped one,
+      so its label sits at 4.48 against a 4.5 floor there and nowhere else; the
+      shipped legacy look is held byte for byte on purpose. The failure to look
+      for is a split set: near-black
       text on the crimson fill (3.3:1), or a dot mixed for an accent the pill
       is not wearing. Either means something escaped the feature query the
       three share. The shutter ring, the Live hint and the thumb ring do follow
