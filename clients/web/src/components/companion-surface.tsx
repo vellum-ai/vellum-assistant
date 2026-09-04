@@ -328,6 +328,35 @@ const TRANSCRIPT_WIDTH = 244;
 const OFFER_WIDTH = 200;
 
 /**
+ * The width of the call's status line: what the session is doing, and where
+ * the turn says more than its phase does, what it is doing it to.
+ *
+ * Stated for the reason the transcript's is. The line is passed through from
+ * the session, so it changes several times a call ("Listening…" to
+ * "Thinking…" to "Reading a file"), and a box as wide as its content
+ * would hand the pill a different width for each of them: the bar would
+ * breathe in and out under the user's hand while the controls on it slid
+ * sideways, on a surface that floats over another app's work. So the line has
+ * one width whatever is in it, the pill takes its call width once, and a line
+ * longer than the box is truncated rather than bought room for.
+ *
+ * Wide enough for the phase copy in the languages the app ships, with room for
+ * the short activity lines a turn adds; anything past that is a line long
+ * enough that its first words are the ones worth reading.
+ */
+const CALL_LINE_WIDTH = 120;
+
+/**
+ * The controls at the end of the call row, together: five buttons of a
+ * 16-point glyph in 8 points of padding either side, the gap between each
+ * pair, and the gap between the line and the first of them.
+ *
+ * Only used to state the call's fallback below, which is exact rather than a
+ * guess now that the line beside them has a width of its own.
+ */
+const CALL_CONTROLS_WIDTH = 5 * 32 + 5 * 4;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -369,10 +398,14 @@ export const FALLBACK_WIDTHS: Record<
   // The offer's line beside the icon and the row's own clearance, with a
   // stated width for the reason the transcript's has one.
   offer: OFFER_WIDTH + 32,
-  // The line and the five controls of the handlebar, with Teach and Share
-  // both held down and so spelling their names out, which is the widest a
-  // call draws.
-  call: 372,
+  // The line and the five controls of the handlebar, which is the widest a
+  // call draws: Teach and Share are absent on a page that offers neither, and
+  // the dial and the approval both stand fewer controls in the same row. The
+  // line has a stated width, so this is the state's actual width rather than a
+  // guess at one.
+  // The `4` is the line's own lead-in, which is a margin rather than one of
+  // the row's gaps.
+  call: 4 + CALL_LINE_WIDTH + CALL_CONTROLS_WIDTH,
 };
 
 export interface CompanionSurfaceProps {
@@ -1740,12 +1773,15 @@ function CallBody({
 
   return (
     <>
-      {/* Sized to its content, not shrunk to fit. The pill measures this row to
-          decide how wide to be, so a label that collapses under pressure would
-          measure its own collapsed self: the width and the truncation would
-          chase each other down. The cap is what keeps a pathological label from
-          growing the pill without bound. */}
-      <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+      {/* One width, whatever the session is saying. See
+          {@link CALL_LINE_WIDTH}. `shrink-0` because the pill measures this row
+          to decide how wide to be, and a box that collapsed under pressure
+          would measure its own collapsed self: the width and the truncation
+          would chase each other down. */}
+      <span
+        className="ml-1 shrink-0 truncate text-[12px] text-white/85"
+        style={{ width: CALL_LINE_WIDTH }}
+      >
         {line}
       </span>
       {/* Beside what the session is doing rather than beside the end control:
