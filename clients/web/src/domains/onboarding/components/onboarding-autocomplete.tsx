@@ -16,7 +16,9 @@
  *
  * The tag field splits on commas from the input's *value*, not from a key
  * handler, so a hardware keyboard, a soft keyboard that reports `Unidentified`
- * keydowns, IME composition, paste, and autofill all produce the same chips.
+ * keydowns, paste, and autofill all produce the same chips. During IME
+ * composition the provisional value is kept as the query; comma splitting
+ * runs on compositionend once the IME commits.
  *
  * Suggestions are selected on `mousedown` (not click) with `preventDefault` so
  * the input never blurs out from under the selection.
@@ -264,6 +266,7 @@ export function TagAutocompleteInput({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
+  const isComposingRef = useRef(false);
 
   const items = useMemo(
     () => filterSuggestions(suggestions, query, values),
@@ -417,7 +420,22 @@ export function TagAutocompleteInput({
           value={query}
           onChange={(e) => {
             setOpen(true);
+            if (
+              isComposingRef.current ||
+              (e.nativeEvent as InputEvent).isComposing
+            ) {
+              setQuery(e.target.value);
+              return;
+            }
             applyInputValue(e.target.value);
+          }}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            isComposingRef.current = false;
+            setOpen(true);
+            applyInputValue(e.currentTarget.value);
           }}
           onPaste={handlePaste}
           onFocus={() => setOpen(true)}

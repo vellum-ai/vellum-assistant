@@ -156,4 +156,26 @@ describe("TagAutocompleteInput", () => {
     expect(chips()).toBe("Reading|Painting");
     expect(input.value).toBe("");
   });
+
+  test("defers comma splitting until IME composition ends", () => {
+    render(<TagField />);
+    const input = screen.getByRole<HTMLInputElement>("combobox");
+
+    fireEvent.compositionStart(input);
+    const composingChange = createEvent.change(input, {
+      target: { value: "Reading," },
+    });
+    Object.defineProperty(composingChange.nativeEvent, "isComposing", {
+      value: true,
+    });
+    fireEvent(input, composingChange);
+
+    expect(chips()).toBe("");
+    expect(input.value).toBe("Reading,");
+
+    fireEvent.compositionEnd(input);
+
+    expect(chips()).toBe("Reading");
+    expect(input.value).toBe("");
+  });
 });
