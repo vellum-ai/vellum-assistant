@@ -81,7 +81,7 @@ mock.module("@/runtime/dock", () => ({
 
 mock.module("@/runtime/platform-detection", () => ({
   detectElectronHostOS: () => hostOS,
-  resolveDesktopHostOS: () => hostOS,
+  resolveDesktopHostOS: () => hostOS ?? "macos",
 }));
 
 const { SystemPermissionsCard } = await import("./system-permissions-card");
