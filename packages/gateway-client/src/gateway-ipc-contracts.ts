@@ -399,6 +399,7 @@ export const ContactsIdentitySnapshotIpcResponseSchema = z.object({
 
 export type ContactsIdentitySnapshotIpcResponse = z.infer<
   typeof ContactsIdentitySnapshotIpcResponseSchema
+>;
 
 // ── webhook ingress routes ───────────────────────────────────────────────────
 // The gateway owns the registry of subpaths this assistant answers from
