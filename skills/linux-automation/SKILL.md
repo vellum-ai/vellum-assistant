@@ -51,8 +51,8 @@ Applications are described by desktop entries, and the entry's file name is its 
 grep -l -i "calculator" /usr/share/applications/*.desktop ~/.local/share/applications/*.desktop 2>/dev/null
 
 # Launch by desktop ID, which applies the entry's own environment and scaling
-gio launch org.gnome.Calculator.desktop
-gtk-launch org.gnome.Calculator   # fallback when gio is unavailable
+gtk-launch org.gnome.Calculator
+gio launch /usr/share/applications/org.gnome.Calculator.desktop   # takes a path, not an ID
 
 # Open a file, folder, or URL with the user's default handler
 xdg-open ~/Documents
@@ -84,7 +84,7 @@ Most desktop services expose D-Bus interfaces. Introspect before calling so the 
 # List session services and inspect one
 busctl --user list
 gdbus introspect --session --dest org.freedesktop.portal.Desktop \
-  --object-path /org/freedesktop/portal/desktop --only-properties
+  --object-path /org/freedesktop/portal/desktop
 
 # Call a documented method
 gdbus call --session --dest org.freedesktop.FileManager1 \
@@ -162,7 +162,7 @@ Use keyboard input only after activation succeeds. Never use keyboard input to t
 ## Troubleshooting
 
 - An empty window list on a Wayland session is expected, not a failure. Native Wayland clients are invisible to X11 tools by design. Do not work around it with blind keystrokes.
-- `gio launch` fails on a desktop entry that needs a terminal or a field code. Run the entry's `Exec` line directly in that case, after reading it.
+- A launcher fails on a desktop entry that needs a terminal or a field code. Run the entry's `Exec` line directly in that case, after reading it.
 - App names, window titles, and settings labels are localized. Prefer desktop IDs, window classes, and process IDs.
 - A D-Bus call that reports an unknown method usually means the service version differs. Introspect the live object instead of trusting documentation for another release.
 - `host_bash` is non-interactive. Do not use commands that wait for terminal input, and never run `sudo`, which cannot prompt for a password.

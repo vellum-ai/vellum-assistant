@@ -30,7 +30,7 @@ Before using a desktop tool, check `client_os`:
 ## Available Tools
 
 - `voice_config_update` changes shared voice settings such as the legacy macOS PTT activation key, conversation timeout, speech providers, and TTS voice ID.
-- `open_system_settings` opens the correct macOS System Settings or Windows Settings privacy page. Call it only when `client_os` is `macos`, `windows`, or `linux`, and pass that value as `platform`. On Linux there is no shared settings URI scheme, so the tool returns the desktop settings command to offer the user instead of opening a page.
+- `open_system_settings` opens the correct macOS System Settings or Windows Settings privacy page. Call it only when `client_os` is `macos`, `windows`, or `linux`, and pass that value as `platform`. On Linux there is no shared settings URI scheme, so the tool returns the desktop settings command to offer the user instead of opening a page. If the tool rejects `linux` on the user's build, do not retry: name the settings path for their desktop and continue.
 - `navigate_settings_tab` opens Vellum settings. Use it for review, or when the desktop-owned Talk shortcut must be recorded in the app.
 - `assistant credentials prompt` collects API keys securely for ElevenLabs or Deepgram.
 
@@ -51,7 +51,7 @@ If access is denied or the user is unsure:
 3. Give the matching instruction:
    - **macOS:** In **System Settings > Privacy & Security > Microphone**, turn on **Vellum** or **Vellum Assistant**.
    - **Windows:** In **Settings > Privacy & security > Microphone**, turn on **Microphone access** and **Let desktop apps access your microphone**. Windows groups non-packaged desktop apps under the desktop-app toggle rather than always showing an individual Vellum switch.
-   - **Linux:** There is no per-app microphone toggle on most desktops. Run the settings command the tool returns, then check the sound settings input tab for the right device, an unmuted level, and an input meter that moves while the user speaks. If the session routes capture through a portal, the first recording shows a portal prompt the user has to allow.
+   - **Linux:** There is no per-app microphone toggle on most desktops. Open the desktop's sound settings, GNOME Settings > Sound or System Settings > Audio on KDE, and check the input tab for the right device, an unmuted level, and an input meter that moves while the user speaks. If the session routes capture through a portal, the first recording shows a portal prompt the user has to allow.
 4. Ask the user to return after changing it, then verify with the short recording test in section 4.
 
 If the user confirms access is granted, continue without opening system settings.
@@ -66,7 +66,7 @@ The Talk shortcut starts or ends a voice conversation.
 
 - **macOS:** Offer **Fn** or a custom global chord. Fn is the Mac-specific helper path and can require Input Monitoring. If macOS refuses Fn registration, direct the user to **System Settings > Privacy & Security > Input Monitoring**, then have them reopen Vellum. A custom chord should be one the user can spare system-wide.
 - **Windows:** Fn is unavailable because Windows does not receive the hardware Fn key. Recommend a custom chord for system-wide Talk. The app also offers **Ctrl+Shift** and **Alt** taps, but those bare-modifier choices work only while a Vellum window is focused. Warn that another global shortcut can prevent a custom chord from registering.
-- **Linux:** Fn is unavailable for the same reason. Recommend a custom chord for system-wide Talk. Holding a bare modifier such as **Ctrl+Shift** or **Alt** system-wide needs the native helper's keyboard monitor, which reads raw key events. The Voice settings permissions card reports that as **Input monitoring** and carries the remediation, which is adding the user's account to the `input` group and signing out and back in. Without it, those holds work only while a Vellum window is focused. Warn that the desktop environment or another app can already own a chord, in which case it never reaches Vellum.
+- **Linux:** Fn is unavailable for the same reason. Recommend a custom chord for system-wide Talk. Holding a bare modifier such as **Ctrl+Shift** or **Alt** system-wide needs the native helper's keyboard monitor, which reads raw key events. That needs read access to `/dev/input`, so the remedy is adding the user's account to the `input` group and signing out and back in. Until the helper reports it, the Voice settings permissions card shows input monitoring as not applicable rather than as a denial, so treat the group membership as the check. Without it, those holds work only while a Vellum window is focused. Warn that the desktop environment or another app can already own a chord, in which case it never reaches Vellum.
 
 Ask which behavior they want, then use `navigate_settings_tab` with `tab: "Voice"` so they can record the desktop-owned shortcut. Do not claim that `voice_config_update` changed this shortcut.
 
@@ -118,7 +118,7 @@ Desktop Talk starts a live voice session. Its audio is transcribed through the a
 3. Apply the platform-specific checks:
    - **macOS:** Fn requires the native helper and may require Input Monitoring. The Globe key can also be assigned to macOS Dictation or the emoji picker, so suggest a custom chord if both actions fire.
    - **Windows:** Fn cannot work. A Ctrl+Shift or Alt tap requires Vellum to be focused. For use from another app, record a custom global chord and make sure no other app owns it.
-   - **Linux:** Fn cannot work. Open the Voice settings permissions card: if **Input monitoring** is not granted, a system-wide Ctrl+Shift or Alt hold cannot fire, and the card's remediation is the fix. A custom chord is registered through the desktop environment, so confirm no compositor or app shortcut already owns it.
+   - **Linux:** Fn cannot work. A system-wide Ctrl+Shift or Alt hold needs the helper's keyboard monitor, so check that the user's account is in the `input` group and that they signed out and back in since. A custom chord is registered through the desktop environment, so confirm no compositor or app shortcut already owns it.
 4. If the user reports Speech Recognition permission as denied or not determined, call `open_system_settings` with `pane: "speech_recognition"` and the current `platform`.
 5. If the Windows or Linux shortcut fires but capture does not start, restart Vellum from the tray menu and retry.
 

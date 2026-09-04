@@ -136,13 +136,16 @@ bun run scripts/update-config.ts --event <key> --clear-sounds
 
 ## Mode 5: Preview a sound on Linux
 
-The desktop app plays these sounds itself, so a preview is only needed when the user wants to hear a file before assigning it. On Linux, play it on the host with `host_bash`, trying the players in order until one succeeds:
+The desktop app plays these sounds itself, so a preview is only needed when the user wants to hear a file before assigning it. `host_bash` runs on the connected Linux desktop, so pass it a path that exists there and try the players in order until one succeeds:
 
 ```bash
-dir={workspaceDir}/data/sounds   # unquoted so a leading ~ expands
-f="$dir/<filename>"
+# host_bash, on the Linux desktop
+dir={workspaceDir}   # unquoted so a leading ~ expands
+f="$dir/data/sounds/<filename>"
 paplay "$f" || aplay "$f" || ffplay -nodisp -autoexit "$f"
 ```
+
+That workspace path only resolves when the assistant runs on the same machine as the desktop app. For a remote assistant the sandbox and the desktop are separate filesystems, so confirm the file exists on the host before playing it, and otherwise ask the user to play it from their file manager instead of guessing a host path.
 
 `paplay` ships in `pulseaudio-utils` and works on PulseAudio and PipeWire sessions. `aplay` ships in `alsa-utils` and talks to ALSA directly. `ffplay` comes with `ffmpeg` and is the only one of the three that reliably plays `.mp3` and `.m4a`.
 
