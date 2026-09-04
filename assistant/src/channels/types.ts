@@ -299,14 +299,14 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 }
 
 /**
- * Whether a surface runs the shared Electron desktop renderer. macOS and Linux
- * ship the same renderer, so a UI capability one has the other has too; the
- * Windows client has its own and answers these questions separately.
+ * Whether a desktop surface exposes the full desktop UI: dashboards, dynamic
+ * UI and voice input. The macOS and Linux clients do; the Windows client does
+ * not carry them yet and is answered separately.
  *
  * Accepts a plain string because callers hold either an `InterfaceId` or the
  * loosely typed `clientOS` capability field.
  */
-export function usesSharedDesktopRenderer(
+export function supportsDesktopUiSurface(
   surface: string | null | undefined,
 ): boolean {
   return surface === "macos" || surface === "linux";

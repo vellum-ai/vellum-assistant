@@ -732,8 +732,9 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
     ).toBe(false);
   });
 
-  test("ask_question is NOT active when clientOS is linux", () => {
-    // Linux runs the same renderer as macOS, so it lacks the handler too.
+  test("ask_question is active when clientOS is linux", () => {
+    // The Linux shell serves the clients/web renderer, which handles
+    // question_request, so the macOS exception must not widen to it.
     expect(
       isToolActiveForContext(
         "ask_question",
@@ -746,7 +747,7 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
           },
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("ask_question is active when channelCapabilities is undefined (backwards-compat)", () => {

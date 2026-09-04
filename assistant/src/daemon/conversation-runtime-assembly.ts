@@ -18,7 +18,7 @@ import {
 import {
   type ChannelId,
   parseInterfaceId,
-  usesSharedDesktopRenderer,
+  supportsDesktopUiSurface,
 } from "../channels/types.js";
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
@@ -305,7 +305,7 @@ export function resolveChannelCapabilities(
 
   switch (channel) {
     case "vellum": {
-      const supportsDesktopUi = usesSharedDesktopRenderer(iface);
+      const supportsDesktopUi = supportsDesktopUiSurface(iface);
       return {
         channel,
         dashboardCapable: supportsDesktopUi,
