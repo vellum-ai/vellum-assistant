@@ -12,23 +12,20 @@ import {
 /**
  * A bench for the idle companion, not the idle companion.
  *
- * Today the surface at rest is a 10pt capsule in the assistant's colour
- * (`CompanionSurface`, phase `resting`): a marker that asks for nothing and,
- * on a busy desktop, is close to nothing to find. The alternative on the table
- * is the shape Wispr Flow rests in: a pill that is genuinely a pill, wider than
- * it is tall, semi opaque rather than solid, and legible because its edge is
- * lit rather than because its fill is dark.
+ * The surface rests in a lit hollow pill, and the rim it wears is one of
+ * several the shape could have. This is where they are compared: nine edge
+ * treatments drawn from the same fill, the same width and the same creature,
+ * so the only difference between any two of them is the edge, with width,
+ * height, fill, blur, glow and rim thickness as ranges rather than opinions.
  *
- * That is two questions, and they are both dials rather than opinions: **how
- * wide** the resting pill wants to be, and **what its edge does**. So both are
- * controls here, and every rim is drawn from the same fill and the same
- * creature so the only difference between two of them is the edge.
+ * {@link TheEdgeAlone} is the setting `CompanionSurface` actually draws, held
+ * against every desktop. The rest are the alternatives it was chosen over, and
+ * the ones a later pass would look at again.
  *
  * Nothing in this file is imported by the app. It is a stories file so the
  * candidates can be looked at, argued about and thrown away without a
- * production component existing for a shape nobody has picked yet. When one
- * wins, it moves into `companion-surface.tsx` as the resting phase and this
- * file goes.
+ * production component existing for a shape nobody has picked. **It is a
+ * bench, so it is disposable**: once the rim is settled for good, delete it.
  */
 
 /** The desktop the pill floats over, which is what decides whether it reads. */
@@ -650,15 +647,15 @@ export const OnEveryDesktop: Story = {
 };
 
 /**
- * The candidate beside what ships today.
+ * A candidate beside what ships.
  *
  * The real `CompanionSurface` at rest, on the same desktop and at the same
  * scale, because every one of these rims looks like an improvement until it is
- * put next to the thing it would replace. What the capsule has and none of
- * these do is that it asks for nothing; what it lacks is that on the busy
- * desktop it is a smudge.
+ * put next to the thing it would replace. Note the two are not the same shape:
+ * the surface rests as a marker with the creature tucked behind it and grows
+ * only under the pointer, where the bench draws the grown size throughout.
  */
-export const BesideTodaysCapsule: Story = {
+export const BesideWhatShips: Story = {
   parameters: { layout: "fullscreen" },
   render: (args) => (
     <div
@@ -666,7 +663,7 @@ export const BesideTodaysCapsule: Story = {
       style={{ background: BACKDROPS[args.backdrop] }}
     >
       <div className="flex flex-col gap-3">
-        <Note>Today: the resting capsule</Note>
+        <Note>What ships: the resting marker</Note>
         <div className="relative h-11 w-11">
           <CompanionSurface
             phase="resting"

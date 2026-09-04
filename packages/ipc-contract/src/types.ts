@@ -1100,6 +1100,53 @@ export const companionBaselineFor = (avatarBox: number): number =>
   (COMPANION_BASE_AVATAR_IMAGE / 2) * companionScaleFor(avatarBox);
 
 /**
+ * The height of the pill the surface rests in once a pointer has grown it, at
+ * the authored avatar box.
+ *
+ * Here rather than in the renderer alone because main places the window by it:
+ * the grown pill is centred on the avatar and reaches further below that
+ * centre than the creature does, so a placement that did not know this number
+ * would rest the surface low enough to hang the pill's lower rim off the
+ * bottom of the display. Two readings of it is a pill drawn somewhere main did
+ * not leave room for.
+ */
+export const COMPANION_BASE_RESTING_PILL_HEIGHT = 35;
+
+/**
+ * How far past the call bar's own box its lit edge is drawn, at the authored
+ * options box. Small, and it still decides whether the light lands on screen.
+ */
+export const COMPANION_BASE_CALL_RING = 2;
+
+/**
+ * How far below the avatar's centre the lowest thing the surface can draw
+ * sits, for a given pair of boxes.
+ *
+ * **The whole surface, not the state it happens to be in.** The window is
+ * placed once and does not move when the pointer arrives or a call starts, so
+ * the room kept under it has to answer for every state it can enter from
+ * there. Three things are centred on that point and each is the lowest at some
+ * size: the creature's own artwork, the pill a pointer grows around it, and
+ * the call's bar, which stands on the centre rather than beside it and is
+ * sized by the options box instead of the avatar's.
+ *
+ * Whole points, as every distance the window is placed by is: the options
+ * sizes are not whole multiples of the authored box, and a reach carrying a
+ * repeating fraction is an avatar centre that lands between points.
+ */
+export const companionLowerReachFor = (
+  avatarBox: number,
+  optionsBox: number,
+): number =>
+  Math.round(
+    Math.max(
+      companionBaselineFor(avatarBox),
+      (COMPANION_BASE_RESTING_PILL_HEIGHT / 2) * companionScaleFor(avatarBox),
+      optionsBox / 2 + COMPANION_BASE_CALL_RING * companionScaleFor(optionsBox),
+    ),
+  );
+
+/**
  * That gap for a given pair of boxes.
  *
  * Scaled by the smaller of the two, because the gap is breathing room and the

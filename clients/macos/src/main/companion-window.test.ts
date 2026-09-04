@@ -5,9 +5,10 @@ import {
   companionAnnotationStrokeSchema,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  COMPANION_BASE_RESTING_PILL_HEIGHT,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_SIZES,
-  companionBaselineFor,
+  companionLowerReachFor,
   companionBoxFor,
   companionCardSideFor,
   companionNearEdgeFor,
@@ -477,7 +478,6 @@ const {
   cardGrowthFor,
   avatarOffsetFor,
   companionContextMenuTemplate,
-  callAvatarCentre,
   defaultAvatarCentre,
   geometryFor,
   placeCanvas,
@@ -714,37 +714,35 @@ const centreOf = (
   y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
 });
 
-describe("callAvatarCentre", () => {
+describe("the room kept under the surface", () => {
   /**
-   * The bar stands on the avatar's centre rather than beside it, so its own
-   * half box hangs below, and the lit edge it wears is drawn a hair outside
-   * that again. Measuring a call by the creature's visible bottom instead
-   * leaves the bar's bottom edge and its light hanging past the screen.
+   * The window is placed once and does not move when the pointer arrives or a
+   * call starts, so the room under it answers for every state it can enter
+   * from there. Each of the three is the lowest at some size.
    */
-  test("keeps the bar's own bottom the margin above the edge", () => {
-    const centre = callAvatarCentre(WORK_AREA, GEOMETRY);
-    const barBottom = centre.y + GEOMETRY.optionsBox / 2;
+  test("clears the pill a pointer grows, not only the creature", () => {
+    const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
+    const grownPill =
+      centre.y +
+      (COMPANION_BASE_RESTING_PILL_HEIGHT / 2) *
+        companionScaleFor(GEOMETRY.avatarBox);
 
-    expect(25 + 875 - barBottom).toBeGreaterThanOrEqual(2);
+    expect(grownPill).toBeLessThanOrEqual(25 + 875);
   });
 
-  /** Higher than where the surface rests, because the bar reaches lower. */
-  test("sits above where the surface rests", () => {
-    expect(callAvatarCentre(WORK_AREA, GEOMETRY).y).toBeLessThan(
-      defaultAvatarCentre(WORK_AREA, GEOMETRY).y,
+  test("clears the call's bar, which the options box sizes", () => {
+    for (const geometry of [GEOMETRY, BIG_OPTIONS]) {
+      const centre = defaultAvatarCentre(WORK_AREA, geometry);
+      expect(centre.y + geometry.optionsBox / 2).toBeLessThanOrEqual(25 + 875);
+    }
+  });
+
+  /** And a drag can put the surface no lower than the same rule allows. */
+  test("holds a drag to the same room", () => {
+    const dragged = centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY));
+    expect(dragged.y).toBe(
+      900 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
-  });
-
-  /** The reach is the options box, so a larger pill starts higher still. */
-  test("reads the reach off the pill's own size", () => {
-    expect(callAvatarCentre(WORK_AREA, BIG_OPTIONS).y).toBeLessThan(
-      callAvatarCentre(WORK_AREA, GEOMETRY).y,
-    );
-  });
-
-  test("centres on the display it is given, not the primary one", () => {
-    const secondary = { x: 1440, y: 0, width: 2560, height: 1415 };
-    expect(callAvatarCentre(secondary, GEOMETRY).x).toBe(1440 + 1280);
   });
 });
 
@@ -771,15 +769,17 @@ describe("placeCanvas", () => {
   });
 
   /**
-   * The creature's visible bottom lands on the edge, not its box's. The box
-   * carries the glow and the bob's slack, and stopping the creature a slack's
-   * worth short of the edge reads as the surface refusing to go where it is
-   * dragged. At the authored size that slack is 8pt of the 22pt half box.
+   * The lowest thing the surface can draw lands on the edge, not its box. The
+   * box carries the glow and the bob's slack, and stopping short of the edge
+   * by however much of it is empty reads as the surface refusing to go where
+   * it is dragged. See `companionLowerReachFor` for what is measured instead.
    */
-  test("holds the creature's visible bottom on the bottom edge", () => {
+  test("holds the surface's lowest ink on the bottom edge", () => {
     expect(
       centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y,
-    ).toBe(900 - 14);
+    ).toBe(
+      900 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+    );
   });
 
   /** And the slack grows with the creature, so the rule has to be read per size. */
@@ -789,7 +789,7 @@ describe("placeCanvas", () => {
         placeCanvas({ x: 700, y: 9000 }, WORK_AREA, BIG_CREATURE),
         BIG_CREATURE,
       ).y,
-    ).toBe(900 - companionBaselineFor(BIG_CREATURE.avatarBox));
+    ).toBe(900 - companionLowerReachFor(BIG_CREATURE.avatarBox, BIG_CREATURE.optionsBox));
   });
 
   /**
@@ -798,9 +798,15 @@ describe("placeCanvas", () => {
    * corner is exactly where the surface is meant to rest.
    */
   test("lets the avatar reach the corner the surface opens in", () => {
+    const reach = companionLowerReachFor(
+      GEOMETRY.avatarBox,
+      GEOMETRY.optionsBox,
+    );
     expect(
-      centreOf(placeCanvas({ x: 1440 - 22, y: 900 - 14 }, WORK_AREA, GEOMETRY)),
-    ).toEqual({ x: 1440 - 22, y: 900 - 14 });
+      centreOf(
+        placeCanvas({ x: 1440 - 22, y: 900 - reach }, WORK_AREA, GEOMETRY),
+      ),
+    ).toEqual({ x: 1440 - 22, y: 900 - reach });
   });
 
   test("clamps against the display it is given, not the primary one", () => {
@@ -864,7 +870,7 @@ describe("defaultAvatarCentre", () => {
     const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
     expect(centre.x).toBe(720);
     expect(centre.y).toBe(
-      25 + 875 - 2 - companionBaselineFor(GEOMETRY.avatarBox),
+      25 + 875 - 2 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 
@@ -876,7 +882,7 @@ describe("defaultAvatarCentre", () => {
     for (const geometry of [GEOMETRY, BIG_CREATURE, BIG_OPTIONS]) {
       const centre = defaultAvatarCentre(WORK_AREA, geometry);
       const visibleBottom =
-        centre.y + companionBaselineFor(geometry.avatarBox);
+        centre.y + companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
       expect(25 + 875 - visibleBottom).toBe(2);
     }
   });
@@ -1026,10 +1032,7 @@ describe("the surface a call takes", () => {
     x: origin.x + GEOMETRY.canvasWidth / 2,
     y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
   });
-  // Where a call puts the avatar, which is a hair higher than where the
-  // surface rests: the bar hangs lower below that centre than the creature
-  // does. See `callAvatarCentre`.
-  const bottomCentre = callAvatarCentre(SCREEN, GEOMETRY);
+  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
   /** Somewhere the user parked the pill, away from where a call puts it. */
   const park = (): { x: number; y: number } => {
     send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
@@ -1121,10 +1124,7 @@ describe("the glide between the pill's home and the call's place", () => {
     x: origin.x + GEOMETRY.canvasWidth / 2,
     y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
   });
-  // Where a call puts the avatar, which is a hair higher than where the
-  // surface rests: the bar hangs lower below that centre than the creature
-  // does. See `callAvatarCentre`.
-  const bottomCentre = callAvatarCentre(SCREEN, GEOMETRY);
+  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
   const park = (): { x: number; y: number } => {
     send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
     return centre();
@@ -1264,11 +1264,20 @@ describe("the glide between the pill's home and the call's place", () => {
       x: origin.x + BIG_OPTIONS.canvasWidth / 2,
       y: origin.y + avatarOffsetFor(state().cardGrowth, BIG_OPTIONS),
     });
-    expect(centreInNewCanvas()).toEqual(bottomCentre);
+    // The glide's own target, carried into the new canvas and held to what
+    // that canvas allows: a larger pill reaches further below the avatar, so
+    // the room kept under the surface grows with it and the target the glide
+    // was headed for is now lower than the new geometry permits. See
+    // `companionLowerReachFor`.
+    const bigBottomCentre = centreOf(
+      placeCanvas(bottomCentre, SCREEN, BIG_OPTIONS),
+      BIG_OPTIONS,
+    );
+    expect(centreInNewCanvas()).toEqual(bigBottomCentre);
     // Still there a frame or more later, where the old glide would have been
     // passing through a point short of it.
     await wait(MID_FLIGHT_MS);
-    expect(centreInNewCanvas()).toEqual(bottomCentre);
+    expect(centreInNewCanvas()).toEqual(bigBottomCentre);
     send("vellum:voiceActivity:end");
     await settle();
     expect(centreInNewCanvas()).toEqual(home);
@@ -1294,7 +1303,7 @@ describe("the glide between the pill's home and the call's place", () => {
     // Inside by the rule the clamp actually applies: the creature's visible
     // bottom on the edge, not its box's.
     expect(centre().y).toBeLessThanOrEqual(
-      shrunk.height - companionBaselineFor(GEOMETRY.avatarBox),
+      shrunk.height - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 

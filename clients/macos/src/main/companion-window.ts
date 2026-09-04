@@ -33,7 +33,7 @@ import {
   companionPadFor,
   companionScaleFor,
   WATCH_FLAG,
-  companionBaselineFor,
+  companionLowerReachFor,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
@@ -735,18 +735,20 @@ export const placeCanvas = (
   // the minimum, which `Math.min` then resolves toward the top-left corner
   // rather than producing a position outside the display.
   const half = geometry.avatarBox / 2;
-  // Downward the clamp is the creature's visible bottom rather than its box's.
+  // Downward the clamp is the lowest thing the surface can draw, not its box.
   // The box holds the glow and the bob's slack, and slack is not something the
-  // user can see: clamping to it stops the creature short of the edge by
-  // however much of it is empty, which reads as the surface refusing to go
-  // where it is dragged. Upward and sideways the box still decides, since the
-  // canvas above has its own bound below and the sides are where a half box is
-  // deliberately allowed to hang past the edge.
-  const baseline = companionBaselineFor(geometry.avatarBox);
+  // user can see: clamping to it stops the surface short of the edge by
+  // however much of it is empty. Reading the creature's artwork alone is the
+  // other mistake, since a pointer grows a pill around it and a call stands a
+  // bar on the same point, both of which reach lower. See
+  // `companionLowerReachFor`. Upward and sideways the box still decides: the
+  // canvas above has its own bound below, and the sides are where a half box
+  // is deliberately allowed to hang past the edge.
+  const reach = companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
   const minCentreX = workArea.x + half;
   const maxCentreX = workArea.x + workArea.width - half;
   const minCentreY = workArea.y + half;
-  const maxCentreY = workArea.y + workArea.height - baseline;
+  const maxCentreY = workArea.y + workArea.height - reach;
   const centreX = Math.min(Math.max(avatarCentre.x, minCentreX), maxCentreX);
   const wantedY = Math.min(Math.max(avatarCentre.y, minCentreY), maxCentreY);
 
@@ -771,9 +773,10 @@ export const placeCanvas = (
  * room to grow either way, and low so it sits under the window the user is
  * working in rather than over it.
  *
- * The margin is measured to the creature's visible bottom, so the answer is
- * the same distance off the edge at every size rather than that distance plus
- * whatever slack the box carries. See {@link DEFAULT_MARGIN}.
+ * The margin is measured to the lowest thing the surface can draw from this
+ * point, so the same gap is left under it at every size and in every state it
+ * can enter without the window moving. See {@link DEFAULT_MARGIN} and
+ * `companionLowerReachFor`.
  *
  * Exported for its tests and pure for the same reason as {@link placeCanvas}.
  */
@@ -786,51 +789,7 @@ export const defaultAvatarCentre = (
     workArea.y +
     workArea.height -
     DEFAULT_MARGIN -
-    companionBaselineFor(geometry.avatarBox),
-});
-
-/**
- * How far the call's bar reaches below the avatar's centre, in points.
- *
- * The bar stands on that centre rather than beside it, so its own half box is
- * what hangs below, and the lit edge it wears on a call is drawn a hair
- * outside that box again. Both are authored in the units the surface is drawn
- * in and scale with the options box, which is what sizes the bar.
- *
- * This is larger than the creature's {@link companionBaselineFor}, which is
- * why a call needs a placement of its own: sat where the creature wants to
- * sit, the bar's bottom edge and its light fall past the screen.
- */
-const CALL_RING_REACH = 2;
-
-const callReachBelow = (geometry: CompanionGeometry): number =>
-  // Whole points, as every distance the window is placed by is: the options
-  // sizes are not whole multiples of the authored box, and a reach carrying a
-  // repeating fraction is an avatar centre that lands between points and a
-  // position main and the window server disagree about by a rounding.
-  Math.round(
-    geometry.optionsBox / 2 +
-      CALL_RING_REACH * companionScaleFor(geometry.optionsBox),
-  );
-
-/**
- * Where the avatar's centre goes for a call: the bottom centre of the display,
- * a margin above the bar's own bottom edge.
- *
- * The same margin off the same edge as {@link defaultAvatarCentre}, measured
- * to a different piece of the surface. At rest the lowest thing drawn is the
- * creature; on a call it is the bar the creature stands on the middle of, and
- * measuring a call by the creature leaves the bar's bottom edge and its lit
- * ring hanging past the bottom of the screen.
- *
- * Exported for its tests and pure for the same reason as {@link placeCanvas}.
- */
-export const callAvatarCentre = (
-  workArea: { x: number; y: number; width: number; height: number },
-  geometry: CompanionGeometry,
-): { x: number; y: number } => ({
-  x: workArea.x + workArea.width / 2,
-  y: workArea.y + workArea.height - DEFAULT_MARGIN - callReachBelow(geometry),
+    companionLowerReachFor(geometry.avatarBox, geometry.optionsBox),
 });
 
 /**
@@ -1339,7 +1298,7 @@ const syncCallSurface = (): void => {
     const display = displayUnder(callHome);
     glideAvatarTo(
       win,
-      callAvatarCentre(display.workArea, geometry),
+      defaultAvatarCentre(display.workArea, geometry),
       display.workArea,
     );
     return;

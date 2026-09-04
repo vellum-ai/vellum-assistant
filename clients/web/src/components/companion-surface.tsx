@@ -29,6 +29,7 @@ import type {
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
+  COMPANION_BASE_RESTING_PILL_HEIGHT,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
@@ -257,8 +258,15 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 const RESTING_PILL = {
   /** The marker. Wider than the artwork it stands in for, and hollow. */
   idle: { width: 64, height: 14 },
-  /** What a pointer grows it into: the frame the whole creature stands in. */
-  active: { width: 150, height: 35 },
+  /**
+   * What a pointer grows it into: the frame the whole creature stands in.
+   *
+   * The height is the contract's, because main places the window by it: this
+   * shape reaches further below the avatar's centre than the creature does,
+   * and a placement that did not know how far would hang its lower rim off
+   * the bottom of the display.
+   */
+  active: { width: 150, height: COMPANION_BASE_RESTING_PILL_HEIGHT },
   /** The lit line's thickness, at every size and every setting. */
   rim: 2.5,
   /** How far that line throws light, as the nearer of its two blooms. */
