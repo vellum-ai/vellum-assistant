@@ -528,7 +528,6 @@
     "addingToContact": "正在為 {name} 新增管道",
     "cancel": "取消",
     "contactSaved": "聯絡人已儲存",
-    "dismiss": "關閉",
     "enterAddress": "輸入 {channel} 位址",
     "namePlaceholder": "名稱",
     "notesLabel": "備註",
