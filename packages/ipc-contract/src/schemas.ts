@@ -157,6 +157,18 @@ export const companionAnnotationStrokeSchema = z.object({
 
 export const companionAnnotationPhaseSchema = z.enum(["drawing", "released"]);
 
+/**
+ * The colour a drawing was made in, as `#rrggbb`.
+ *
+ * Narrower than {@link cssColorSchema} below, which exists for the title bar
+ * and takes everything Chromium's parser does. This one ends up as a canvas
+ * fill in the window that draws the marks onto a frame, so the one notation
+ * the accent is ever expressed in is the only one worth accepting.
+ */
+export const companionAnnotationInkSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/);
+
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),

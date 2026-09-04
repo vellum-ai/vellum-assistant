@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  companionAnnotationInkSchema,
   companionAnnotationStrokeSchema,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
@@ -2814,6 +2815,9 @@ describe("Share on the companion surface", () => {
  * mistake, is a transparent window eating every click on a display.
  */
 describe("companion window: drawing on what is shared", () => {
+  /** The accent the frame's window drew the marks in, sent with them. */
+  const INK = "#a78bfa";
+
   // The context and the mode are main's own, and outlive a case. Cleared
   // rather than assumed, so each of these starts on a desktop with nothing
   // shared and a frame that is click-through.
@@ -2901,9 +2905,9 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:setAnnotating", true);
     dispatched.length = 0;
     const strokes = [{ points: [{ x: 0.25, y: 0.5 }] }];
-    send("vellum:companion:annotateShare", "released", strokes);
+    send("vellum:companion:annotateShare", "released", strokes, INK);
     expect(dispatched).toEqual([
-      { kind: "annotateShare", phase: "released", strokes },
+      { kind: "annotateShare", phase: "released", strokes, ink: INK },
     ]);
   });
 
@@ -2912,9 +2916,9 @@ describe("companion window: drawing on what is shared", () => {
     shareDisplay();
     send("vellum:companion:setAnnotating", true);
     dispatched.length = 0;
-    send("vellum:companion:annotateShare", "drawing", []);
+    send("vellum:companion:annotateShare", "drawing", [], INK);
     expect(dispatched).toEqual([
-      { kind: "annotateShare", phase: "drawing", strokes: [] },
+      { kind: "annotateShare", phase: "drawing", strokes: [], ink: INK },
     ]);
   });
 
@@ -2926,9 +2930,12 @@ describe("companion window: drawing on what is shared", () => {
   test("drops a mark sent while the mode is off", () => {
     shareDisplay();
     dispatched.length = 0;
-    send("vellum:companion:annotateShare", "released", [
-      { points: [{ x: 0.5, y: 0.5 }] },
-    ]);
+    send(
+      "vellum:companion:annotateShare",
+      "released",
+      [{ points: [{ x: 0.5, y: 0.5 }] }],
+      INK,
+    );
     expect(dispatched).toHaveLength(0);
   });
 
@@ -2939,6 +2946,12 @@ describe("companion window: drawing on what is shared", () => {
    * fails to parse and a dropped command is indistinguishable here from one
    * this handler refused for its own reasons.
    */
+  /** The colour is a canvas fill on the other side, so it is checked here. */
+  test("the wire refuses a colour that is not one", () => {
+    expect(companionAnnotationInkSchema.safeParse("red").success).toBe(false);
+    expect(companionAnnotationInkSchema.safeParse(INK).success).toBe(true);
+  });
+
   test("the wire refuses a mark that falls outside the surface", () => {
     expect(
       companionAnnotationStrokeSchema.safeParse({

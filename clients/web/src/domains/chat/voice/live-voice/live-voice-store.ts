@@ -523,6 +523,8 @@ export interface LiveVoiceState {
   shareAnnotation: {
     id: number;
     strokes: readonly CompanionAnnotationStroke[];
+    /** The colour they were drawn in, so the copy on the frame matches. */
+    ink: string;
   } | null;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
@@ -722,6 +724,7 @@ export interface LiveVoiceActions {
   setShareAnnotation: (
     phase: CompanionAnnotationPhase,
     strokes: readonly CompanionAnnotationStroke[],
+    ink: string,
   ) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
@@ -1277,18 +1280,28 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       shareDrawing: false,
       shareAnnotation: null,
     }),
-  setShareAnnotation: (phase, strokes) =>
-    set((s) =>
-      phase === "drawing"
-        ? { shareDrawing: true }
-        : {
-            shareDrawing: false,
-            shareAnnotation: {
-              id: (s.shareAnnotation?.id ?? 0) + 1,
-              strokes,
-            },
-          },
-    ),
+  setShareAnnotation: (phase, strokes, ink) =>
+    set((s) => {
+      if (phase === "drawing") {
+        return { shareDrawing: true };
+      }
+      // A release carrying nothing is the hand being let go of on the layer's
+      // behalf: the mode was turned off, or the share ended, while a stroke
+      // was still being made. It lifts the hold and no more. Counting it as a
+      // drawing would send a frame of a surface with nothing on it, for a
+      // mark the user never finished.
+      if (strokes.length === 0) {
+        return { shareDrawing: false };
+      }
+      return {
+        shareDrawing: false,
+        shareAnnotation: {
+          id: (s.shareAnnotation?.id ?? 0) + 1,
+          strokes,
+          ink,
+        },
+      };
+    }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>

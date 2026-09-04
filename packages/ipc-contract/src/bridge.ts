@@ -658,6 +658,7 @@ export interface VellumBridge {
     annotateShare?(
       phase: CompanionAnnotationPhase,
       strokes: readonly CompanionAnnotationStroke[],
+      ink: string,
     ): void;
     /**
      * One frame of `target`, as the helper takes it, for the window holding a

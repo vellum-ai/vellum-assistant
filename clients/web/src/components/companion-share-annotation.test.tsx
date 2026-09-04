@@ -28,6 +28,9 @@ const {
  */
 const SIDE = 1000;
 
+/** The assistant accent the frame resolved, which the marks are drawn in. */
+const INK = "#a78bfa";
+
 beforeEach(() => {
   sent.length = 0;
   // The window is what the shell sizes to the shared surface, and what the
@@ -75,7 +78,7 @@ const up = (layer: Element, x: number, y: number): void => {
  */
 describe("drawing on what the call is shown", () => {
   test("says the hand is down before anything has been drawn", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     down(layerOf(container), 100, 100);
     expect(sent).toHaveLength(1);
     expect(sent[0]?.phase).toBe("drawing");
@@ -87,7 +90,7 @@ describe("drawing on what the call is shown", () => {
    * talking as they draw, which is exactly what the cadence takes frames on.
    */
   test("sends nothing more for as long as the hand stays down", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
     move(layer, 200, 200);
@@ -97,7 +100,7 @@ describe("drawing on what the call is shown", () => {
   });
 
   test("sends the mark the moment the hand comes off", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
     move(layer, 500, 500);
@@ -113,7 +116,7 @@ describe("drawing on what the call is shown", () => {
    * fraction is the one description both ends agree on.
    */
   test("describes the mark in fractions of the surface", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 250, 500);
     move(layer, 750, 500);
@@ -129,7 +132,7 @@ describe("drawing on what the call is shown", () => {
    * at tens of points rather than hundreds.
    */
   test("drops a move that went nowhere", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 500, 500);
     move(layer, 500, 500);
@@ -139,7 +142,7 @@ describe("drawing on what the call is shown", () => {
   });
 
   test("keeps a move that went somewhere", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 500, 500);
     move(layer, 600, 500);
@@ -153,7 +156,7 @@ describe("drawing on what the call is shown", () => {
    * pointing at.
    */
   test("sends every mark still on the overlay, not only the last", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
     up(layer, 100, 100);
@@ -163,7 +166,7 @@ describe("drawing on what the call is shown", () => {
   });
 
   test("a press that never moved is a dot rather than nothing", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 400, 400);
     up(layer, 400, 400);
@@ -172,7 +175,7 @@ describe("drawing on what the call is shown", () => {
   });
 
   test("a press that moved is a line", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
     move(layer, 900, 900);
@@ -186,7 +189,7 @@ describe("drawing on what the call is shown", () => {
    * they have to clear up themselves.
    */
   test("the mark fades and is taken away once it has been sent", async () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
     move(layer, 900, 900);
@@ -203,12 +206,67 @@ describe("drawing on what the call is shown", () => {
   });
 
   /**
+   * The pointer capture taken on the press deliberately keeps the drag alive
+   * once the hand leaves the shared surface, so a mark drawn off the edge
+   * arrives as a fraction outside the surface. The wire refuses those, and it
+   * refuses the whole command: the marks would be lost *and* the session
+   * would go on holding its frames, since the `drawing` that stopped them had
+   * already gone.
+   */
+  test("holds a mark drawn off the edge inside the surface", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    down(layer, 500, 500);
+    move(layer, -400, 500);
+    move(layer, 500, SIDE + 900);
+    up(layer, 500, SIDE + 900);
+    const points = sent.at(-1)?.strokes[0]?.points ?? [];
+    expect(points.length).toBeGreaterThan(1);
+    for (const point of points) {
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.x).toBeLessThanOrEqual(1);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeLessThanOrEqual(1);
+    }
+  });
+
+  /**
+   * The layer goes away when the mode is turned off or the share ends, either
+   * of which can land mid-stroke. Only a release lifts the hold on the
+   * session's frames, so one has to go even though the mark never finished.
+   */
+  test("lets go of the hand when it goes away mid-stroke", () => {
+    const { container, unmount } = render(
+      <CompanionShareAnnotation ink={INK} />,
+    );
+    down(layerOf(container), 300, 300);
+    unmount();
+    const released = sent.filter((one) => one.phase === "released");
+    expect(released).toHaveLength(1);
+    // Carrying nothing, so the window holding the session reads it as the
+    // hand being let go of rather than as a drawing worth a frame.
+    expect(released[0]?.strokes).toHaveLength(0);
+  });
+
+  test("says nothing on the way out when no mark was in flight", () => {
+    const { container, unmount } = render(
+      <CompanionShareAnnotation ink={INK} />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    up(layer, 100, 100);
+    sent.length = 0;
+    unmount();
+    expect(sent).toHaveLength(0);
+  });
+
+  /**
    * The pointer can leave the shared surface mid-drag, and the release then
    * arrives as a cancel. A stroke that never ended would hold the session's
    * frames for a hand that is no longer on the mouse.
    */
   test("a cancelled press ends the mark the way letting go does", () => {
-    const { container } = render(<CompanionShareAnnotation />);
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
     move(layer, 500, 500);

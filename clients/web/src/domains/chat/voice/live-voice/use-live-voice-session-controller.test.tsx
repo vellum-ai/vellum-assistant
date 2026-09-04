@@ -309,6 +309,7 @@ describe("starter registration", () => {
       assistantId: "assistant-1",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
@@ -393,6 +394,7 @@ describe("re-draining on an assistant switch", () => {
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     // Spent, rather than left parked for the TTL to throw away.
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
@@ -441,6 +443,7 @@ describe("re-draining on an assistant switch", () => {
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });

@@ -29,7 +29,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
 import { annotateCompanionShare } from "@/runtime/companion-surface";
 import {
   COMPANION_ANNOTATION_MAX_POINTS,
@@ -49,6 +48,9 @@ import {
  */
 export const COMPANION_INK_HOLD_MS = 500;
 export const COMPANION_INK_FADE_MS = 900;
+
+/** A fraction of the shared surface, held inside it. */
+const clamp = (value: number): number => Math.min(Math.max(value, 0), 1);
 
 /** One mark on the overlay, and whether it has been sent. */
 interface LiveStroke {
@@ -98,7 +100,7 @@ function useWindowBox(): { width: number; height: number } {
   return box;
 }
 
-export function CompanionShareAnnotation() {
+export function CompanionShareAnnotation({ ink }: { ink: string }) {
   const [strokes, setStrokes] = useState<readonly LiveStroke[]>([]);
   /**
    * The marks, as the handlers see them.
@@ -117,6 +119,13 @@ export function CompanionShareAnnotation() {
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const box = useWindowBox();
   const aspect = box.height === 0 ? 1 : box.width / box.height;
+  // The colour as the unmount sees it, kept in step after each render rather
+  // than during one: the release below runs outside any render, and the
+  // accent can change under a call while a mark is being made.
+  const inkRef = useRef(ink);
+  useEffect(() => {
+    inkRef.current = ink;
+  }, [ink]);
 
   useEffect(() => {
     const pending = timers.current;
@@ -125,6 +134,15 @@ export function CompanionShareAnnotation() {
         clearTimeout(timer);
       }
       pending.clear();
+      // **Never leave a hand down behind us.** `drawing` is what stops the
+      // session sending frames, and only a `released` lifts it. This layer
+      // goes away when the user turns the mode off or the share ends, either
+      // of which can land mid-stroke, and a stroke with no release would hold
+      // the next share's frames for a hand that came off long ago.
+      if (drawing.current !== null) {
+        drawing.current = null;
+        annotateCompanionShare("released", [], inkRef.current);
+      }
     };
   }, []);
 
@@ -142,12 +160,22 @@ export function CompanionShareAnnotation() {
    * fills it. Client coordinates are already window-relative, so there is
    * nothing to subtract, and nothing here reads a layout box on a
    * mouse-move.
+   *
+   * **Clamped, and that is not a formality.** The pointer capture taken on
+   * the press deliberately keeps a drag alive after the hand leaves the
+   * shared surface, so a mark that runs off the edge arrives here as a
+   * fraction below zero or above one. The wire refuses those (a fraction
+   * outside the surface describes nowhere), and it refuses the whole
+   * command, which would drop the `released` after a `drawing` had already
+   * gone: the marks would be lost and the session would go on holding its
+   * frames for a hand that is no longer down. The edge of the surface is the
+   * truthful place for a mark drawn past it.
    */
   const pointOf = (
     event: React.PointerEvent<SVGSVGElement>,
   ): { x: number; y: number } => ({
-    x: box.width === 0 ? 0 : event.clientX / box.width,
-    y: box.height === 0 ? 0 : event.clientY / box.height,
+    x: box.width === 0 ? 0 : clamp(event.clientX / box.width),
+    y: box.height === 0 ? 0 : clamp(event.clientY / box.height),
   });
 
   const handleDown = (event: React.PointerEvent<SVGSVGElement>): void => {
@@ -165,7 +193,7 @@ export function CompanionShareAnnotation() {
     // The hand is down: whatever cadence the session was sending frames on, it
     // stops here. This is the half of the feature that is not about drawing,
     // and the half the user only notices when it is missing.
-    annotateCompanionShare("drawing", []);
+    annotateCompanionShare("drawing", [], ink);
   };
 
   const handleMove = (event: React.PointerEvent<SVGSVGElement>): void => {
@@ -218,6 +246,7 @@ export function CompanionShareAnnotation() {
       sent
         .slice(-COMPANION_ANNOTATION_MAX_STROKES)
         .map((stroke) => ({ points: stroke.points })),
+      ink,
     );
     const spent = new Set(sent.map((stroke) => stroke.id));
     const timer = setTimeout(() => {
@@ -243,7 +272,13 @@ export function CompanionShareAnnotation() {
       onPointerCancel={handleUp}
     >
       {strokes.map((stroke) => (
-        <Ink key={stroke.id} stroke={stroke} box={box} width={width} />
+        <Ink
+          key={stroke.id}
+          stroke={stroke}
+          box={box}
+          width={width}
+          ink={ink}
+        />
       ))}
     </svg>
   );
@@ -260,10 +295,12 @@ function Ink({
   stroke,
   box,
   width,
+  ink,
 }: {
   stroke: LiveStroke;
   box: { width: number; height: number };
   width: number;
+  ink: string;
 }) {
   const className = stroke.spent
     ? "companion-share-ink companion-share-ink-spent"
@@ -278,7 +315,7 @@ function Ink({
         cx={first.x * box.width}
         cy={first.y * box.height}
         r={width / 2}
-        fill={COMPANION_CAPTURE_ACCENT}
+        fill={ink}
       />
     );
   }
@@ -289,7 +326,7 @@ function Ink({
         .map((point) => `${point.x * box.width},${point.y * box.height}`)
         .join(" ")}
       fill="none"
-      stroke={COMPANION_CAPTURE_ACCENT}
+      stroke={ink}
       strokeWidth={width}
       strokeLinecap="round"
       strokeLinejoin="round"

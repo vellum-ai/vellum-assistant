@@ -570,8 +570,9 @@ const bridge: VellumBridge = {
     annotateShare: (
       phase: CompanionAnnotationPhase,
       strokes: readonly CompanionAnnotationStroke[],
+      ink: string,
     ): void => {
-      ipcRenderer.send("vellum:companion:annotateShare", phase, strokes);
+      ipcRenderer.send("vellum:companion:annotateShare", phase, strokes, ink);
     },
     captureScreen: (
       target: WatchCaptureTarget,

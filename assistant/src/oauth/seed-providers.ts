@@ -980,7 +980,9 @@ export const PROVIDER_SEED_DATA: Record<
     // on it. Enterprise-only and org-admin-only scopes (file_variables:*,
     // library_analytics:read, org:*) are offered but not requested by
     // default, because Figma rejects the whole authorization request if the
-    // app cannot grant a requested scope.
+    // app cannot grant a requested scope. `selections:read` is withheld for
+    // that same reason: it is not offered in the app's OAuth scope list, so
+    // requesting it would fail the entire authorization.
     defaultScopes: [
       "current_user:read",
       "file_content:read",
@@ -995,7 +997,6 @@ export const PROVIDER_SEED_DATA: Record<
       "library_content:read",
       "library_assets:read",
       "team_library_content:read",
-      "selections:read",
     ],
     availableScopes: [
       {

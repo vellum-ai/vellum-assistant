@@ -18,6 +18,7 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  companionAnnotationInkSchema,
   companionAnnotationPhaseSchema,
   companionAnnotationStrokeSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
@@ -1649,12 +1650,13 @@ export const installCompanionWindow = (): void => {
       z
         .array(companionAnnotationStrokeSchema)
         .max(COMPANION_ANNOTATION_MAX_STROKES),
+      companionAnnotationInkSchema,
     ]),
-    ([phase, strokes]) => {
+    ([phase, strokes, ink]) => {
       if (!annotating) {
         return;
       }
-      dispatchWithoutRaising({ kind: "annotateShare", phase, strokes });
+      dispatchWithoutRaising({ kind: "annotateShare", phase, strokes, ink });
     },
   );
 

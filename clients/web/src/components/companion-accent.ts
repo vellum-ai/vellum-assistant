@@ -26,15 +26,15 @@ import type {
 } from "@vellumai/ipc-contract";
 
 /**
- * The colour a watch session lights the surface in: the creature's ring, and
- * the edge of the display being read.
+ * The accent to draw in when none of the three sources resolves one.
  *
- * Fixed rather than the assistant's own accent, because the accent already
- * means "a turn is running" and a screen being read is a different fact about
- * the machine. Amber is the tone the host burns for a live capture, so the
- * surface agrees with the menu bar above it.
+ * The same value `--companion-ring-accent` falls back to in `index.css`,
+ * named here for the one caller that cannot leave the colour to CSS: ink on a
+ * canvas has to be a colour, and a drawing the user makes before an avatar
+ * has one still has to be visible and still has to match its own copy on the
+ * frame that goes to the call.
  */
-export const COMPANION_CAPTURE_ACCENT = "#ff9f45";
+export const COMPANION_DEFAULT_ACCENT = "#5eead4";
 
 const HEX_PATTERN = /^#[0-9a-f]{6}$/i;
 

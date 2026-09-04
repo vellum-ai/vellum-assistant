@@ -432,7 +432,7 @@ export function RootLayout() {
       }
       useLiveVoiceStore
         .getState()
-        .setShareAnnotation(command.phase, command.strokes);
+        .setShareAnnotation(command.phase, command.strokes, command.ink);
     },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);

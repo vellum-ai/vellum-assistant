@@ -153,13 +153,15 @@ export function setCompanionAnnotating(annotating: boolean): void {
  *
  * The only call in this module made from the frame's window. Strokes are
  * fractions of that window, which is the shared surface exactly, so the side
- * that draws them onto a captured frame needs nothing else to place them.
+ * that draws them onto a captured frame needs nothing else to place them
+ * beyond `ink`, the colour they were drawn in.
  */
 export function annotateCompanionShare(
   phase: CompanionAnnotationPhase,
   strokes: readonly CompanionAnnotationStroke[],
+  ink: string,
 ): void {
-  bridge()?.annotateShare?.(phase, strokes);
+  bridge()?.annotateShare?.(phase, strokes, ink);
 }
 
 /**

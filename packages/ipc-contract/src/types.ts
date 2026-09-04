@@ -153,6 +153,17 @@ export type VellumCommand =
       kind: "annotateShare";
       phase: CompanionAnnotationPhase;
       strokes: readonly CompanionAnnotationStroke[];
+      /**
+       * The colour the marks were drawn in, as `#rrggbb`.
+       *
+       * Carried rather than resolved again on the other side. The frame's
+       * window is the one that drew them, and the assistant's accent is
+       * resolved there from state that window has and the window taking the
+       * frames does not (the character's own palette). Sending the colour is
+       * what makes the copy on the frame the same drawing the user made,
+       * rather than a second resolution that can differ.
+       */
+      ink: string;
     }
   /**
    * Answer the question the surface asks once a watch session's summary is

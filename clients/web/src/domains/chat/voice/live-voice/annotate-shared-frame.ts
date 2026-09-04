@@ -13,9 +13,13 @@
  * possible at all: the helper hands back a JPEG scaled to fit a bound, and a
  * fraction means the same thing at any size. Nothing here needs to know what
  * the surface was, how big it is, or where on the desktop it sits.
+ *
+ * The colour travels with them rather than being resolved again here. The
+ * window that drew the marks resolved the assistant's accent from state it
+ * has and this one does not, and a second resolution that came out differently
+ * would put a drawing in the transcript in a colour the user never saw.
  */
 
-import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   COMPANION_ANNOTATION_STROKE,
@@ -50,6 +54,7 @@ const HALO_COLOR = "rgba(0, 0, 0, 0.35)";
 export async function annotateSharedFrame(
   frame: File,
   strokes: readonly CompanionAnnotationStroke[],
+  ink: string,
 ): Promise<File> {
   if (strokes.length === 0) {
     return frame;
@@ -70,7 +75,7 @@ export async function annotateSharedFrame(
     if ("close" in image) {
       image.close();
     }
-    draw(context, strokes, width, height);
+    draw(context, strokes, width, height, ink);
     const blob = await encode(canvas);
     if (blob === null) {
       return frame;
@@ -107,6 +112,7 @@ export function draw(
   strokes: readonly CompanionAnnotationStroke[],
   width: number,
   height: number,
+  ink: string,
 ): void {
   // The same side the fraction means, so a mark drawn on a display and the
   // same mark on a tall window carry the same weight relative to what they
@@ -119,7 +125,7 @@ export function draw(
   // a dark line through it wherever two marks cross.
   for (const pass of [
     { color: HALO_COLOR, lineWidth: line * HALO_SCALE },
-    { color: COMPANION_CAPTURE_ACCENT, lineWidth: line },
+    { color: ink, lineWidth: line },
   ]) {
     context.strokeStyle = pass.color;
     context.fillStyle = pass.color;

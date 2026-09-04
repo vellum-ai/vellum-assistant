@@ -81,18 +81,23 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare, SCREEN_SHARE_MIN_FRAME_GAP_MS } =
-  await import("./use-live-voice-screen-share");
+const { useLiveVoiceScreenShare, SCREEN_SHARE_MIN_FRAME_GAP_MS } = await import(
+  "./use-live-voice-screen-share"
+);
 const { useLiveVoiceStore } = await import("./live-voice-store");
-const { makeControlsSpies, seedLiveVoiceSession } =
-  await import("./live-voice-fakes.test-helper");
-const { useAssistantIdentityStore } =
-  await import("@/stores/assistant-identity-store");
+const { makeControlsSpies, seedLiveVoiceSession } = await import(
+  "./live-voice-fakes.test-helper"
+);
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
 
 const ASSISTANT_ID = "asst_share";
 /** A dev build off `main` published after the `sight_frame` handler merged. */
 const SUPPORTING_VERSION = "0.11.7-dev.202609010300.b432fb7";
 const WINDOW: WatchCaptureTarget = { kind: "window", windowId: 7 };
+/** The colour the frame's window drew the marks in. */
+const INK = "#a78bfa";
 /** A mark around the middle of whatever is shared. */
 const CIRCLE = {
   points: [
@@ -303,12 +308,20 @@ describe("useLiveVoiceScreenShare: cadence", () => {
 describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
   const draw = (): void => {
     act(() => {
-      useLiveVoiceStore.getState().setShareAnnotation("drawing", []);
+      useLiveVoiceStore.getState().setShareAnnotation("drawing", [], INK);
     });
   };
   const release = (): void => {
     act(() => {
-      useLiveVoiceStore.getState().setShareAnnotation("released", [CIRCLE]);
+      useLiveVoiceStore
+        .getState()
+        .setShareAnnotation("released", [CIRCLE], INK);
+    });
+  };
+  /** The layer letting go on the user's behalf: the mode went off mid-stroke. */
+  const abandon = (): void => {
+    act(() => {
+      useLiveVoiceStore.getState().setShareAnnotation("released", [], INK);
     });
   };
 
@@ -344,11 +357,14 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     renderShare();
     share(WINDOW);
     await flush();
-    expect(annotated).toEqual([0]);
+    // A frame the cadence took is never handed to the drawing at all: there
+    // is nothing to draw, and decoding and re-encoding it to draw nothing
+    // would cost a picture's worth of work per frame.
+    expect(annotated).toEqual([]);
     draw();
     release();
     await flush();
-    expect(annotated).toEqual([0, 1]);
+    expect(annotated).toEqual([1]);
   });
 
   /**
@@ -400,6 +416,27 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     share({ kind: "display", displayId: 2 });
     await flush();
     expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The layer sends a release carrying nothing when it goes away mid-stroke,
+   * so the hold is lifted for a hand that is no longer down. It is not a
+   * drawing: a frame taken for it would be of a surface with nothing on it,
+   * for a mark the user never finished.
+   */
+  test("an abandoned stroke lifts the hold without costing a frame", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    abandon();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().shareDrawing).toBe(false);
+
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
   });
 
   /** A share that ends takes the drawing on it with it. */

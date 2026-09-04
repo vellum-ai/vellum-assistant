@@ -409,6 +409,7 @@ declare global {
         annotateShare?(
           phase: CompanionAnnotationPhase,
           strokes: readonly CompanionAnnotationStroke[],
+          ink: string,
         ): void;
         captureScreen?(
           target: WatchCaptureTarget,

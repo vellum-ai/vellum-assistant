@@ -69,6 +69,12 @@ import type {
 /** Where a failure is filed, so the tag says which source it came from. */
 const ERROR_CONTEXT = "live-voice screen share: capture/upload frame";
 
+/** A mark the user finished on the shared surface, and the colour of it. */
+type SharedDrawing = {
+  strokes: readonly CompanionAnnotationStroke[];
+  ink: string;
+};
+
 /**
  * The least time between two frames. The two edges of a very short utterance
  * (a "yes", a cough the VAD opened on) would otherwise be two frames of the
@@ -87,7 +93,7 @@ export const SCREEN_SHARE_MIN_FRAME_GAP_MS = 1500;
 async function produceSharedFrame(
   target: WatchCaptureTarget,
   filename: string,
-  strokes: readonly CompanionAnnotationStroke[],
+  drawing: SharedDrawing | null,
 ): Promise<File | null> {
   const frame = await captureCompanionScreen(target);
   if (frame === null) {
@@ -96,10 +102,10 @@ async function produceSharedFrame(
   const bytes = Uint8Array.from(atob(frame.jpegBase64), (char) =>
     char.charCodeAt(0),
   );
-  return annotateSharedFrame(
-    new File([bytes], filename, { type: "image/jpeg" }),
-    strokes,
-  );
+  const file = new File([bytes], filename, { type: "image/jpeg" });
+  return drawing === null
+    ? file
+    : annotateSharedFrame(file, drawing.strokes, drawing.ink);
 }
 
 export function useLiveVoiceScreenShare(): void {
@@ -135,16 +141,16 @@ export function useLiveVoiceScreenShare(): void {
     /**
      * Take a frame and send it.
      *
-     * `strokes` is what the user drew on the surface, which is empty for
-     * every frame the cadence takes on its own. A drawing bypasses the floor
-     * below: the floor is there so a cough is not two frames of the same
-     * view, where a mark is a deliberate act and the user has just watched
-     * themselves make it.
+     * `drawing` is what the user drew on the surface, and is null for every
+     * frame the cadence takes on its own. A drawing bypasses the floor below:
+     * the floor is there so a cough is not two frames of the same view, where
+     * a mark is a deliberate act and the user has just watched themselves
+     * make it.
      */
-    const share = (strokes: readonly CompanionAnnotationStroke[] = []): void => {
+    const share = (drawing: SharedDrawing | null = null): void => {
       const now = performance.now();
       if (
-        strokes.length === 0 &&
+        drawing === null &&
         now - lastFrameAt < SCREEN_SHARE_MIN_FRAME_GAP_MS
       ) {
         return;
@@ -155,7 +161,7 @@ export function useLiveVoiceScreenShare(): void {
         .capture({
           assistantId,
           produceFrame: async (filename) => {
-            const frame = await produceSharedFrame(target, filename, strokes);
+            const frame = await produceSharedFrame(target, filename, drawing);
             missed = frame === null;
             return frame;
           },
@@ -217,7 +223,7 @@ export function useLiveVoiceScreenShare(): void {
       const drawn = session.shareAnnotation;
       if (drawn !== undefined && drawn !== null && drawn.id !== annotation) {
         annotation = drawn.id;
-        share(drawn.strokes);
+        share({ strokes: drawn.strokes, ink: drawn.ink });
         return;
       }
       // The hand is still down. Whatever moved, it is not worth a frame: the
