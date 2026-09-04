@@ -111,7 +111,7 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
 export const requestSystemPermissionInputSchema = z.looseObject({
   permission_type: z
     .enum(PERMISSION_TYPES)
-    .describe("The system permission (macOS or Windows) to request"),
+    .describe("The system permission (macOS, Windows or Linux) to request"),
   activity: z
     .string()
     .describe(
@@ -124,7 +124,8 @@ export const requestSystemPermissionInputSchema = z.looseObject({
 export const requestSystemPermissionTool = {
   name: "request_system_permission",
   description:
-    "Request a system permission via macOS System Settings or Windows Settings. " +
+    "Request a system permission via macOS System Settings or Windows Settings, " +
+    "or get the Linux remediation steps when the client is Linux. " +
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
     "Do not explain how to open System Settings manually - this tool handles it with a clickable button.",
   category: "system",
