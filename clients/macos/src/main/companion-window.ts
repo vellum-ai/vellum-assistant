@@ -790,6 +790,50 @@ export const defaultAvatarCentre = (
 });
 
 /**
+ * How far the call's bar reaches below the avatar's centre, in points.
+ *
+ * The bar stands on that centre rather than beside it, so its own half box is
+ * what hangs below, and the lit edge it wears on a call is drawn a hair
+ * outside that box again. Both are authored in the units the surface is drawn
+ * in and scale with the options box, which is what sizes the bar.
+ *
+ * This is larger than the creature's {@link companionBaselineFor}, which is
+ * why a call needs a placement of its own: sat where the creature wants to
+ * sit, the bar's bottom edge and its light fall past the screen.
+ */
+const CALL_RING_REACH = 2;
+
+const callReachBelow = (geometry: CompanionGeometry): number =>
+  // Whole points, as every distance the window is placed by is: the options
+  // sizes are not whole multiples of the authored box, and a reach carrying a
+  // repeating fraction is an avatar centre that lands between points and a
+  // position main and the window server disagree about by a rounding.
+  Math.round(
+    geometry.optionsBox / 2 +
+      CALL_RING_REACH * companionScaleFor(geometry.optionsBox),
+  );
+
+/**
+ * Where the avatar's centre goes for a call: the bottom centre of the display,
+ * a margin above the bar's own bottom edge.
+ *
+ * The same margin off the same edge as {@link defaultAvatarCentre}, measured
+ * to a different piece of the surface. At rest the lowest thing drawn is the
+ * creature; on a call it is the bar the creature stands on the middle of, and
+ * measuring a call by the creature leaves the bar's bottom edge and its lit
+ * ring hanging past the bottom of the screen.
+ *
+ * Exported for its tests and pure for the same reason as {@link placeCanvas}.
+ */
+export const callAvatarCentre = (
+  workArea: { x: number; y: number; width: number; height: number },
+  geometry: CompanionGeometry,
+): { x: number; y: number } => ({
+  x: workArea.x + workArea.width / 2,
+  y: workArea.y + workArea.height - DEFAULT_MARGIN - callReachBelow(geometry),
+});
+
+/**
  * Where the surface opens with no remembered position: the bottom centre of
  * the display under the cursor.
  *
@@ -1295,7 +1339,7 @@ const syncCallSurface = (): void => {
     const display = displayUnder(callHome);
     glideAvatarTo(
       win,
-      defaultAvatarCentre(display.workArea, geometry),
+      callAvatarCentre(display.workArea, geometry),
       display.workArea,
     );
     return;

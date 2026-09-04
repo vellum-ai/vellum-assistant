@@ -477,6 +477,7 @@ const {
   cardGrowthFor,
   avatarOffsetFor,
   companionContextMenuTemplate,
+  callAvatarCentre,
   defaultAvatarCentre,
   geometryFor,
   placeCanvas,
@@ -711,6 +712,40 @@ const centreOf = (
 ) => ({
   x: placed.origin.x + geometry.canvasWidth / 2,
   y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
+});
+
+describe("callAvatarCentre", () => {
+  /**
+   * The bar stands on the avatar's centre rather than beside it, so its own
+   * half box hangs below, and the lit edge it wears is drawn a hair outside
+   * that again. Measuring a call by the creature's visible bottom instead
+   * leaves the bar's bottom edge and its light hanging past the screen.
+   */
+  test("keeps the bar's own bottom the margin above the edge", () => {
+    const centre = callAvatarCentre(WORK_AREA, GEOMETRY);
+    const barBottom = centre.y + GEOMETRY.optionsBox / 2;
+
+    expect(25 + 875 - barBottom).toBeGreaterThanOrEqual(2);
+  });
+
+  /** Higher than where the surface rests, because the bar reaches lower. */
+  test("sits above where the surface rests", () => {
+    expect(callAvatarCentre(WORK_AREA, GEOMETRY).y).toBeLessThan(
+      defaultAvatarCentre(WORK_AREA, GEOMETRY).y,
+    );
+  });
+
+  /** The reach is the options box, so a larger pill starts higher still. */
+  test("reads the reach off the pill's own size", () => {
+    expect(callAvatarCentre(WORK_AREA, BIG_OPTIONS).y).toBeLessThan(
+      callAvatarCentre(WORK_AREA, GEOMETRY).y,
+    );
+  });
+
+  test("centres on the display it is given, not the primary one", () => {
+    const secondary = { x: 1440, y: 0, width: 2560, height: 1415 };
+    expect(callAvatarCentre(secondary, GEOMETRY).x).toBe(1440 + 1280);
+  });
 });
 
 describe("placeCanvas", () => {
@@ -991,7 +1026,10 @@ describe("the surface a call takes", () => {
     x: origin.x + GEOMETRY.canvasWidth / 2,
     y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
   });
-  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
+  // Where a call puts the avatar, which is a hair higher than where the
+  // surface rests: the bar hangs lower below that centre than the creature
+  // does. See `callAvatarCentre`.
+  const bottomCentre = callAvatarCentre(SCREEN, GEOMETRY);
   /** Somewhere the user parked the pill, away from where a call puts it. */
   const park = (): { x: number; y: number } => {
     send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
@@ -1083,7 +1121,10 @@ describe("the glide between the pill's home and the call's place", () => {
     x: origin.x + GEOMETRY.canvasWidth / 2,
     y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
   });
-  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
+  // Where a call puts the avatar, which is a hair higher than where the
+  // surface rests: the bar hangs lower below that centre than the creature
+  // does. See `callAvatarCentre`.
+  const bottomCentre = callAvatarCentre(SCREEN, GEOMETRY);
   const park = (): { x: number; y: number } => {
     send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
     return centre();
