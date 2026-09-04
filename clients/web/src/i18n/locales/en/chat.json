@@ -892,6 +892,7 @@
   "liveVoiceBusy": {
     "android": "Voice is already active in the Android app.",
     "ios": "Voice is already active in the iOS app.",
+    "linux": "Voice is already active in the Linux app.",
     "macos": "Voice is already active in the Mac app.",
     "unknown": "Voice is already active somewhere else.",
     "web": "Voice is already active in another browser tab.",

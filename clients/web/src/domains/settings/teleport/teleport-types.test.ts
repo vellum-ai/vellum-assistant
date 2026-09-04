@@ -63,6 +63,18 @@ describe("destination copy", () => {
       "teleportCard.localDescriptionWindows",
     ]);
   });
+
+  it("uses Linux description keys for local desktop destinations", () => {
+    expect(
+      (["docker", "platform", "local"] as const).map((destination) =>
+        destinationDescriptionKey(destination, "linux"),
+      ),
+    ).toEqual([
+      "teleportCard.dockerDescriptionLinux",
+      "teleportCard.platformDescription",
+      "teleportCard.localDescriptionLinux",
+    ]);
+  });
 });
 
 describe("parseVersionMismatch", () => {

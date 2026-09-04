@@ -305,6 +305,7 @@
   },
   "downloadFeedback": {
     "failed": "下载失败",
+    "revealLinux": "在文件管理器中显示",
     "revealMac": "在访达中显示",
     "revealWindows": "在文件资源管理器中显示",
     "saved": "已保存到“下载”",
@@ -613,6 +614,7 @@
     "accessibilityLabel": "辅助功能",
     "checking": "正在检查权限...",
     "dockIcon": "程序坞图标",
+    "launcherIcon": "应用启动器图标",
     "microphoneDescription": "允许您的助手捕获音频用于语音输入和录音。",
     "microphoneLabel": "麦克风",
     "notificationBadgesDescription": "允许您的助手在 {surface} 上显示未读对话计数。",
