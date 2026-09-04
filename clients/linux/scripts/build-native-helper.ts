@@ -13,11 +13,12 @@ const linuxRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const crateRoot = join(linuxRoot, "native", "linux-helper");
 const EXECUTABLE = "vellum-linux-helper";
 
-// One static binary per architecture, each built on a native runner. We do not
-// cross-compile: the gnu targets need a matching linker and sysroot.
+// musl, not gnu: the binary ships inside an AppImage that has to load on
+// distributions older than the build host, and a gnu build bakes in the host's
+// glibc version. One static binary per architecture, each on a native runner.
 const TARGETS = {
-  arm64: "aarch64-unknown-linux-gnu",
-  x64: "x86_64-unknown-linux-gnu",
+  arm64: "aarch64-unknown-linux-musl",
+  x64: "x86_64-unknown-linux-musl",
 } as const;
 
 type Arch = keyof typeof TARGETS;
@@ -63,6 +64,10 @@ const build = async (arch: Arch): Promise<void> => {
     );
   }
   const target = TARGETS[arch];
+  const rustup = Bun.which("rustup");
+  if (rustup) {
+    await run([rustup, "target", "add", target]);
+  }
   await run([cargo(), "build", "--release", "--target", target]);
   const outputDir = join(linuxRoot, "resources", "native-helper", arch);
   await mkdir(outputDir, { recursive: true });

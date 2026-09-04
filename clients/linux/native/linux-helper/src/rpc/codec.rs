@@ -4,7 +4,7 @@ use std::io::BufRead;
 
 use serde_json::{json, Value};
 
-use crate::rpc::error::{RpcError, INVALID_REQUEST, PARSE_ERROR};
+use crate::rpc::error::{RpcError, INVALID_PARAMS, INVALID_REQUEST, PARSE_ERROR};
 
 /// Frames past this size are dropped instead of buffered, so a peer that
 /// never writes a newline cannot exhaust helper memory.
@@ -94,10 +94,14 @@ pub fn decode(frame: &[u8]) -> Result<Request, (Option<Value>, RpcError)> {
     if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0") || method.is_empty() {
         return Err((id, invalid()));
     }
+    let params = object.get("params").cloned();
+    if !matches!(params, None | Some(Value::Object(_) | Value::Array(_))) {
+        return Err((id, RpcError::new(INVALID_PARAMS, "Invalid params")));
+    }
     Ok(Request {
         id,
         method: method.to_string(),
-        params: object.get("params").cloned(),
+        params,
     })
 }
 
@@ -154,6 +158,9 @@ mod tests {
         assert!(matches!(decode(b"{ not json"), Err((None, error)) if error.code == PARSE_ERROR));
         let framed = br#"{"jsonrpc":"1.0","id":4,"method":"ping"}"#;
         assert!(matches!(decode(framed), Err((Some(_), error)) if error.code == INVALID_REQUEST));
+        // JSON-RPC 2.0 params must be structured.
+        let scalar = br#"{"jsonrpc":"2.0","id":5,"method":"ping","params":7}"#;
+        assert!(matches!(decode(scalar), Err((Some(_), error)) if error.code == INVALID_PARAMS));
     }
 
     #[test]

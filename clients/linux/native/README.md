@@ -45,8 +45,8 @@ bun run test:native-helper   # cargo fmt --check, clippy -D warnings, test
 bun run build:native-helper  # into resources/native-helper/<arch>/
 ```
 
-Builds are native per architecture (`x86_64-unknown-linux-gnu` on an x64
-runner, `aarch64-unknown-linux-gnu` on an arm64 runner); we do not
-cross-compile. `scripts/pack.sh` builds the helper before electron-builder
+Builds target musl (`x86_64-unknown-linux-musl` on an x64 runner,
+`aarch64-unknown-linux-musl` on an arm64 runner) so the AppImage loads on
+distributions older than the build host; we do not cross-compile. `scripts/pack.sh` builds the helper before electron-builder
 picks it up through `extraResources`. Development and CI artifacts are
 unsigned; release signing is owned by the release workflow.
