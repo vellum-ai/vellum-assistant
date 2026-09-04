@@ -87,6 +87,16 @@
   "assistantContentDisclosure": {
     "earlierActivity": "較早的活動"
   },
+  "assistantDesktop": {
+    "busy": "桌面正由其他使用者使用中。",
+    "connecting": "正在連線至桌面…",
+    "failed": "桌面無法啟動。",
+    "lost": "與桌面的連線已中斷。",
+    "openAria": "開啟桌面",
+    "reconnectButton": "重新連線",
+    "title": "桌面",
+    "unavailable": "此助理不支援桌面。"
+  },
   "assistantNavItem": {
     "newChat": "新增聊天"
   },

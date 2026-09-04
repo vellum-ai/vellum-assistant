@@ -27,6 +27,7 @@ export const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
   "/v1/live-voice",
   "/v1/stt/stream",
   "/v1/watch/stream",
+  "/v1/desktop/stream",
 ] as const;
 
 /**

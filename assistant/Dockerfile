@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y \
     bubblewrap \
     ca-certificates \
     curl \
+    dbus-x11 \
     debootstrap \
     debian-archive-keyring \
     debconf \
@@ -85,20 +86,27 @@ RUN apt-get update && apt-get install -y \
     lsof \
     make \
     mount \
+    openbox \
     openssl \
     procps \
     python3 \
     python3-pip \
     sqlite3 \
     sudo \
+    tigervnc-standalone-server \
+    tint2 \
     util-linux \
     util-linux-extra \
     unzip \
     uuid-runtime \
     vim \
     wget \
+    xauth \
     xclip \
+    xcompmgr \
     xdg-utils \
+    xfonts-base \
+    xterm \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder instead of re-installing
@@ -106,6 +114,13 @@ COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
 COPY --link --from=builder /app /app
+
+# Bake Playwright's Chromium for the assistant desktop so the first viewer never
+# waits on a download; its shared libraries are in the apt list above. Only
+# node_modules is needed, so this sits before the source copies and survives
+# them changing.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN cd /app/assistant && bunx playwright install chromium && chmod -R a+rX /opt/ms-playwright
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog
