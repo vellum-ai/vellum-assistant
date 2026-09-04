@@ -446,6 +446,14 @@
       "label": "Model-First Profile Create",
       "description": "Reverses the two questions the web client's New Model modal asks when creating an inference profile. Off: the modal asks for a provider first and then offers that provider's models. On: it opens on one searchable list of every catalog model the assistant can reach, deduplicated across providers, and only then asks which provider serves the chosen model. That second question is skipped when a single provider serves it, answered with radio cards when several do, and turned into an inline connect form (API key, setup, or ChatGPT sign-in) when the chosen route has no connection yet. Editing an existing profile is unchanged either way, and both flows persist the same profile shape.",
       "defaultEnabled": false
+    },
+    {
+      "id": "send-user-message",
+      "scope": "both",
+      "key": "send-user-message",
+      "label": "Send User Message Tool",
+      "description": "Route all user-facing assistant text through the send_user_message tool instead of streamed assistant text",
+      "defaultEnabled": false
     }
   ]
 }

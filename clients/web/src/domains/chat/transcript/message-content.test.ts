@@ -4,9 +4,11 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
+  activityItemsToCardData,
   groupContentBlocks,
   isBackgroundBashCall,
   isRunWorkflowCall,
+  isSendUserMessageCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
   isTaskProgressSurface,
@@ -381,6 +383,23 @@ describe("isSuppressedUiTool", () => {
     );
   });
 
+  test("suppresses send_user_message, which renders as the prose it carries", () => {
+    expect(
+      isSuppressedUiTool(toolCall({ id: "x", name: "send_user_message" })),
+    ).toBe(true);
+    // Suppressed even carrying a confirmation: the tool has no confirmation
+    // policy, so a chip for it would only ever duplicate the reply.
+    expect(
+      isSuppressedUiTool(
+        toolCall({
+          id: "x",
+          name: "send_user_message",
+          pendingConfirmation: { requestId: "req-1" },
+        }),
+      ),
+    ).toBe(true);
+  });
+
   test("does not suppress ui_* with a pending confirmation, or non-ui tools", () => {
     expect(
       isSuppressedUiTool(
@@ -421,5 +440,77 @@ describe("isTaskProgressSurface", () => {
     expect(
       isTaskProgressSurface(surface({ template: "weather_forecast" })),
     ).toBe(false);
+  });
+});
+
+describe("isSendUserMessageCall", () => {
+  test("matches the reply tool only", () => {
+    expect(
+      isSendUserMessageCall(toolCall({ id: "x", name: "send_user_message" })),
+    ).toBe(true);
+    expect(isSendUserMessageCall(toolCall({ id: "x", name: "bash" }))).toBe(
+      false,
+    );
+  });
+});
+
+describe("send_user_message in the transcript projection", () => {
+  test("opens no activity group of its own", () => {
+    // GIVEN the live block order of a tool-gated turn: the reply arrives as a
+    // text delta, then the call that carried it
+    const blocks: ConversationContentBlock[] = [
+      { type: "text", text: "Here you go." },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-send", name: "send_user_message" }),
+      },
+    ];
+
+    // WHEN grouped
+    // THEN only the prose survives. A trailing activity run would draw a
+    // shimmering "Thinking" row under the reply while streaming.
+    expect(groupContentBlocks(blocks)).toEqual([
+      { type: "text", text: "Here you go." },
+    ]);
+  });
+
+  test("does not split the activity run around it", () => {
+    // GIVEN work either side of a reply the model sent mid-turn
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-send", name: "send_user_message" }),
+      },
+      { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+    ];
+
+    // WHEN grouped
+    // THEN the two real steps merge into one run, as they would had the reply
+    // never been sent
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [
+          { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+          { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+        ],
+      },
+    ]);
+  });
+
+  test("counts no step and draws no chip when it reaches the card data", () => {
+    const { cardItems, toolCalls } = activityItemsToCardData([
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-send", name: "send_user_message" }),
+      },
+    ]);
+
+    expect(toolCalls.map((tc) => tc.id)).toEqual(["call-a"]);
+    expect(cardItems).toEqual([
+      { kind: "toolCall", toolCall: toolCall({ id: "call-a" }) },
+    ]);
   });
 });

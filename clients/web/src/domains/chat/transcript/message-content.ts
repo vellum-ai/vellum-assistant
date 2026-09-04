@@ -63,6 +63,24 @@ function hasToolCallId(
   return typeof toolCall.id === "string" && toolCall.id.length > 0;
 }
 
+/**
+ * The tool a tool-gated turn calls to say something to the user. Its argument
+ * is the reply itself, which the daemon also streams as ordinary assistant
+ * text and projects into a `text` block on the persisted row, so the call is
+ * never a step the transcript has anything to draw.
+ */
+export const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
+
+/**
+ * Whether a tool call is the user-facing reply channel rather than a step of
+ * the assistant's work. The reply reaches the transcript as text, so drawing
+ * the call as well would show the same sentence twice, once as prose and once
+ * as a chip naming the tool that carried it.
+ */
+export function isSendUserMessageCall(tc: ChatMessageToolCall): boolean {
+  return tc.name === SEND_USER_MESSAGE_TOOL_NAME;
+}
+
 export interface GroupContentBlocksOptions {
   /**
    * Split inline `<thinking>`/`<think>` tags out of text blocks into
@@ -169,6 +187,16 @@ export function groupContentBlocks(
       if (!hasToolCallId(block.toolCall)) {
         continue;
       }
+      // A `send_user_message` call is dropped rather than grouped, the way a
+      // pointer surface is: its message is already a text block beside it, and
+      // grouping it would open an activity run holding nothing renderable,
+      // which draws a shimmering "Thinking" row under the reply for the rest of
+      // a streaming turn and counts a step no card has anything to show.
+      // Leaving the open run open lets the tool calls either side of it merge
+      // into one run, the way they would had the call never been made.
+      if (isSendUserMessageCall(block.toolCall)) {
+        continue;
+      }
       openActivity().items.push({
         type: "tool_use",
         toolCall: block.toolCall,
@@ -235,11 +263,16 @@ export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
 }
 
 /**
- * UI surface tools are rendered by the inline surface widget, not as tool-call
- * chips — unless they carry a pending confirmation, in which case the chip must
- * render so the inline confirmation card is visible.
+ * Tool calls that draw no chip of their own. UI surface tools are rendered by
+ * the inline surface widget, unless they carry a pending confirmation, in
+ * which case the chip must render so the inline confirmation card is visible.
+ * `send_user_message` is rendered as the prose it carries, and has no
+ * confirmation policy, so it is suppressed unconditionally.
  */
 export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
+  if (isSendUserMessageCall(tc)) {
+    return true;
+  }
   return (
     !tc.pendingConfirmation &&
     (tc.name === "ui_show" ||
@@ -340,7 +373,8 @@ export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
  */
 export function isTaskProgressSurface(surface: Surface): boolean {
   const data = surface.data as
-    { template?: string; templateData?: { steps?: unknown } } | undefined;
+    | { template?: string; templateData?: { steps?: unknown } }
+    | undefined;
   return (
     data?.template === "task_progress" &&
     Array.isArray(data.templateData?.steps) &&
