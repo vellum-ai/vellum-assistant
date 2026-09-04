@@ -85,6 +85,72 @@ describe("messagePlainText", () => {
   });
 });
 
+describe("a tool-gated turn's plain text", () => {
+  /**
+   * A `send_user_message` turn reaches the two views by different routes: live,
+   * the daemon streams one delta per model call carrying that call's messages
+   * already joined, and the fold lands it as one text block; from history, the
+   * server projects each call into its own text block. Copy, the Copy button,
+   * and the stall watchdog all read this one function, so the two routes must
+   * agree byte for byte or a settled turn reads as server progress forever.
+   */
+  it("folds the same whether the messages arrive joined or as separate blocks", () => {
+    const live: Pick<DisplayMessage, "contentBlocks"> = {
+      // One delta, joined by the daemon before it left.
+      contentBlocks: [{ type: "text", text: "Found it. Sending now." }],
+    };
+    const fromHistory: Pick<DisplayMessage, "contentBlocks"> = {
+      contentBlocks: [
+        { type: "text", text: "Found it." },
+        { type: "text", text: "Sending now." },
+      ],
+    };
+
+    expect(messagePlainText(live)).toBe(messagePlainText(fromHistory));
+    expect(messagePlainText(live)).toBe("Found it. Sending now.");
+  });
+
+  it("agrees across a turn split by tool work between two replies", () => {
+    // Live: a delta, the tool run, then a second delta, so two text blocks.
+    const live: Pick<DisplayMessage, "contentBlocks"> = {
+      contentBlocks: [
+        { type: "text", text: "Checking." },
+        {
+          type: "tool_use",
+          toolCall: { id: "tc-1", name: "web_fetch", input: {} },
+        },
+        { type: "text", text: "All set." },
+      ],
+    };
+    // History: the scratchpad projects to thinking, each call to its text.
+    const fromHistory: Pick<DisplayMessage, "contentBlocks"> = {
+      contentBlocks: [
+        { type: "thinking", thinking: "private working notes" },
+        { type: "text", text: "Checking." },
+        {
+          type: "tool_use",
+          toolCall: { id: "tc-1", name: "web_fetch", input: {} },
+        },
+        { type: "text", text: "All set." },
+      ],
+    };
+
+    expect(messagePlainText(live)).toBe(messagePlainText(fromHistory));
+    expect(messagePlainText(live)).toBe("Checking. All set.");
+  });
+
+  it("is copyable when the tool carried the only user-visible text", () => {
+    expect(
+      messageCopyText({
+        contentBlocks: [
+          { type: "thinking", thinking: "private working notes" },
+          { type: "text", text: "Here you go." },
+        ],
+      }),
+    ).toBe("Here you go.");
+  });
+});
+
 describe("messageCopyText", () => {
   it("offers nothing for a row deleted on its channel", () => {
     expect(

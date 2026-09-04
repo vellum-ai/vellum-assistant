@@ -77,6 +77,7 @@ import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -169,6 +170,9 @@ export function TranscriptMessageBody({
   const { t } = useTranslation("chat");
   const inlineAssistantIntermediates =
     useClientFeatureFlagStore.use.inlineAssistantIntermediates();
+  // Assistant-scoped, because it describes what the daemon this transcript
+  // came from does with a turn, not a preference of the device reading it.
+  const sendUserMessage = useAssistantFeatureFlagStore.use.sendUserMessage();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -1178,11 +1182,13 @@ export function TranscriptMessageBody({
   const finalResponseGroupIndex = groups.findLastIndex(
     (group) => group.type === "text" && group.text.trim().length > 0,
   );
-  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
-  // no group is collapsible, so the whole response renders inline at full
-  // size and none of the collapsed styling applies.
+  // Two reasons no group is collapsible, after which the whole response
+  // renders inline at full size and none of the collapsed styling applies: the
+  // per-user opt-out, and a tool-gated assistant, whose reply is a deliberate
+  // `send_user_message` and whose prose is reasoning the transcript already
+  // shows as thinking, so there is no "earlier" prose left to fold away.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
-    if (inlineAssistantIntermediates) {
+    if (inlineAssistantIntermediates || sendUserMessage) {
       return [];
     }
     if (groupIndex >= finalResponseGroupIndex) {

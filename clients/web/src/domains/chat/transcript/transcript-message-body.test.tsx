@@ -333,6 +333,7 @@ import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-mess
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const noop = () => {};
 
@@ -794,6 +795,101 @@ describe("TranscriptMessageBody", () => {
         inlineAssistantIntermediates: false,
       });
     }
+  });
+
+  test("renders all activity inline when the assistant is tool-gated", () => {
+    // A tool-gated assistant's prose is reasoning, and its reply is a
+    // deliberate `send_user_message`, so there is no "earlier" prose to fold.
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    try {
+      const { queryByRole, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "tool-gated-response",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("I will check that."),
+              toolUseBlock({
+                id: "tc-check",
+                name: "bash",
+                input: {},
+                completedAt: 1,
+              }),
+              textBlock("Here is the final answer."),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("I will check that.")).not.toBeNull();
+      expect(queryByText("Here is the final answer.")).not.toBeNull();
+    } finally {
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+    }
+  });
+
+  test("renders a projected tool-gated history row through the thinking UI", () => {
+    // The server projects a tool-gated row before it ships: the raw prose
+    // arrives as thinking, each `send_user_message` call as its own text
+    // block. Nothing new renders it; it reads as an ordinary reasoning row
+    // above the reply.
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    try {
+      const { container, queryByRole, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "tool-gated-history",
+            role: "assistant",
+            contentBlocks: [
+              thinkingBlock("private working notes"),
+              textBlock("Found it."),
+              textBlock("Sending now."),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(
+        container.querySelectorAll("[data-testid='thought-process-link']")
+          .length,
+      ).toBe(1);
+      expect(queryByText("Found it.")).not.toBeNull();
+      expect(queryByText("Sending now.")).not.toBeNull();
+    } finally {
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+    }
+  });
+
+  test("draws no chip and no trailing thinking row for a send_user_message call", () => {
+    // The live block order of a tool-gated turn: the daemon streams the reply
+    // as text just before the call that carried it lands.
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "tool-gated-live",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here you go."),
+            toolUseBlock({
+              id: "tc-send",
+              name: "send_user_message",
+              input: { message: "Here you go." },
+            }),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Here you go.")).not.toBeNull();
+    expect(container.textContent).not.toContain("send_user_message");
+    expect(container.textContent).not.toContain("Thinking");
   });
 
   test("renders the answered question card for a settled ask_question", () => {
@@ -1755,7 +1851,9 @@ describe("TranscriptMessageBody", () => {
     );
 
     expect(
-      container.querySelector("[data-testid='surface'][data-surface-id='s-keep']"),
+      container.querySelector(
+        "[data-testid='surface'][data-surface-id='s-keep']",
+      ),
     ).not.toBeNull();
   });
 
