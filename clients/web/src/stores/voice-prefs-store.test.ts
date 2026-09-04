@@ -200,20 +200,56 @@ describe("useVoicePrefsStore: a payload from a newer build", () => {
     ).toBe("set by a later release");
   });
 
-  test("writing it back is what this build cannot avoid, and how far it goes", async () => {
+  test("survives the write zustand makes after every migration", async () => {
     // Zustand re-persists after ANY migration it runs, at its own version and
-    // through its own partialize, and a migration cannot opt out of that. So
-    // the values survive the round trip but the stamp regresses and the fields
-    // this build has no name for leave the payload. Pinned rather than wished
-    // away: the newer tab's next write restores both.
-    localStorage.setItem(VOICE_PREFS_STORE_KEY, JSON.stringify(FUTURE));
+    // through its own partialize, and a migration cannot opt out of that. The
+    // storage refuses that one write instead, so hydrating an older bundle
+    // over a newer payload (a rollback, or a stale tab loading this module)
+    // leaves the payload exactly as the newer build wrote it.
+    const raw = JSON.stringify(FUTURE);
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, raw);
 
     await useVoicePrefsStore.persist.rehydrate();
 
-    expect(stored().state.showKeptFrame).toBe(true);
-    expect(stored().state.flashMode).toBe("auto");
+    expect(localStorage.getItem(VOICE_PREFS_STORE_KEY)).toBe(raw);
+  });
+
+  test("a write this build makes while it is on disk is refused", async () => {
+    // The cost of the rule, taken deliberately: this build's own edit lives
+    // for the session and never reaches the key. A preference the user can set
+    // again beats fields no one can recover.
+    const raw = JSON.stringify(FUTURE);
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, raw);
+    await useVoicePrefsStore.persist.rehydrate();
+
+    useVoicePrefsStore.getState().setFlashMode("on");
+
+    expect(useVoicePrefsStore.getState().flashMode).toBe("on");
+    expect(localStorage.getItem(VOICE_PREFS_STORE_KEY)).toBe(raw);
+  });
+
+  test("a write at this build's own version is not blocked", async () => {
+    localStorage.setItem(
+      VOICE_PREFS_STORE_KEY,
+      JSON.stringify({ state: { flashMode: "auto" }, version: 1 }),
+    );
+    await useVoicePrefsStore.persist.rehydrate();
+
+    useVoicePrefsStore.getState().setFlashMode("on");
+
+    expect(stored().state.flashMode).toBe("on");
     expect(stored().version).toBe(1);
-    expect(stored().state.futureOnlyField).toBeUndefined();
+  });
+
+  test("a payload nothing can parse does not block the write", async () => {
+    // Failing open. A key that cannot be read is not a newer schema, and
+    // treating it as one would leave the key unwritable for good.
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, "{ not json");
+
+    useVoicePrefsStore.getState().setFlashMode("on");
+
+    expect(stored().state.flashMode).toBe("on");
+    expect(stored().version).toBe(1);
   });
 
   test("a storage event carrying one is not read at all", async () => {

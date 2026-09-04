@@ -86,6 +86,14 @@ scrim.
 - [ ] Both switches survive a reload and a second tab. Set them, background and
       relaunch the app: they come back as set. With two web tabs open, a change
       in one is reflected in the other's panel.
+- [ ] An older build does not eat a newer one's preferences. Only checkable
+      around a rollback or with two builds side by side. Let the newer build
+      write `vellum:voice-prefs`, then open the older one: it reads the
+      preferences it understands and shows them, and the key on disk is
+      untouched, still carrying the newer build's stamp and any field the older
+      one has no name for. Changing a preference in the older build moves it on
+      screen for that session and still does not write. Roll forward and
+      everything the newer build stored is intact.
 - [ ] The readout row appears only where the readout does. On a staff or
       flagged session the panel has two rows; on an ordinary session it has one.
       This panel is the only place the readout is switched on and off, so check
