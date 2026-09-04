@@ -578,6 +578,47 @@ describe("the companion surface's revealed labels", () => {
 });
 
 /**
+ * The card a dictation with nowhere to land leaves beside the creature.
+ *
+ * It arrives over a resting surface, which is the state with the least on it:
+ * the microphone shut some time ago and no pill is open. What the surface owes
+ * it is the creature, out of its capsule, so the card points at something.
+ */
+describe("the offer of a dictation that landed nowhere", () => {
+  test("draws the card beside a resting surface", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        offer={<div data-testid="offer">the words</div>}
+      />,
+    );
+
+    expect(container.querySelector('[data-testid="offer"]')).not.toBeNull();
+  });
+
+  /**
+   * The same bargain the introduction's first beat makes. A card describing
+   * words the user just said, pointing at a capsule, describes nothing.
+   */
+  test("brings the creature out of its capsule for it", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        offer={<div data-testid="offer">the words</div>}
+      />,
+    );
+
+    expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
+  });
+
+  test("leaves the creature tucked away when nothing is waiting", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    expect(bobOf(container)?.parentElement?.style.opacity).not.toBe("1");
+  });
+});
+
+/**
  * Teach, and the session it toggles.
  *
  * A thing done from inside the call, so it rides the call row and not the idle

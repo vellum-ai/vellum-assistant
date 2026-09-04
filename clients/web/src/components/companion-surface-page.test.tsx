@@ -43,6 +43,7 @@ let captureSources: {
 } | null = null;
 const listSourcesMock = mock(async () => captureSources);
 const answerRetroMock = mock((_open: boolean) => undefined);
+const answerOfferMock = mock((_copy: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
 const sendControlMock = mock((_control: { action: string }) => undefined);
@@ -89,6 +90,7 @@ const resetState = () => {
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
   delete STATE.character;
+  delete STATE.dictationOffer;
 };
 
 /**
@@ -133,6 +135,7 @@ mock.module("@/runtime/companion-surface", () => ({
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
+  answerCompanionDictationOffer: answerOfferMock,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
   showCompanionContextMenu: contextMenuMock,
@@ -154,6 +157,7 @@ afterEach(() => {
   toggleWatchMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
+  answerOfferMock.mockClear();
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
   sendControlMock.mockClear();
@@ -1133,6 +1137,110 @@ describe("the picker behind Teach", () => {
 
     expect(toggleWatchMock).toHaveBeenCalledWith();
     expect(pickerOf(container)).toBeNull();
+  });
+});
+
+/**
+ * The card a dictation with nowhere to land leaves on the surface.
+ *
+ * The bug it answers is a silent one: a hold that ended over something that
+ * does not take text used to lose everything the user said. So what these
+ * cases hold is that the words are drawn, that both answers reach the host,
+ * and that the card takes the presses meant for it.
+ */
+describe("the offer of a dictation that landed nowhere", () => {
+  const offerOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("[data-companion-dictation-offer]");
+
+  const answerOf = (
+    container: HTMLElement,
+    label: string,
+  ): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
+    if (!found) {
+      throw new Error(`Expected ${label} to render`);
+    }
+    return found;
+  };
+
+  test("draws nothing while no words are waiting", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    expect(offerOf(container)).toBeNull();
+  });
+
+  /**
+   * Whole rather than the tail the pill draws: the user is reading this to
+   * decide whether it is worth keeping.
+   */
+  test("draws the words a state carries, whole", async () => {
+    STATE.dictationOffer = "onions, tomatoes, and a bag of rice";
+    const { container } = render(<CompanionSurfacePage />);
+
+    const card = await waitFor(() => {
+      const found = offerOf(container);
+      if (!found) {
+        throw new Error("Expected the offer");
+      }
+      return found;
+    });
+
+    expect(card.textContent).toContain("onions, tomatoes, and a bag of rice");
+  });
+
+  test("Copy takes the words through the host", async () => {
+    STATE.dictationOffer = "onions, tomatoes, and a bag of rice";
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      if (!offerOf(container)) {
+        throw new Error("Expected the offer");
+      }
+    });
+
+    fireEvent.click(answerOf(container, "Copy"));
+
+    expect(answerOfferMock).toHaveBeenCalledWith(true);
+  });
+
+  /**
+   * A dismissal travels too. The window holding the words is the one that
+   * would otherwise go on offering them.
+   */
+  test("Discard answers the host as well", async () => {
+    STATE.dictationOffer = "onions, tomatoes, and a bag of rice";
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      if (!offerOf(container)) {
+        throw new Error("Expected the offer");
+      }
+    });
+
+    fireEvent.click(answerOf(container, "Discard"));
+
+    expect(answerOfferMock).toHaveBeenCalledWith(false);
+  });
+
+  test("makes the window clickable while the pointer is on the card", async () => {
+    STATE.dictationOffer = "onions, tomatoes, and a bag of rice";
+    const { container } = render(<CompanionSurfacePage />);
+    const canvas = canvasOf(container);
+    await pinSurface(container);
+    const card = await waitFor(() => {
+      const found = offerOf(container);
+      if (!found) {
+        throw new Error("Expected the offer");
+      }
+      return found;
+    });
+    pin(card, { left: 100, right: 360, top: 400, bottom: 600 });
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 500 });
+
+    expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
   });
 });
 

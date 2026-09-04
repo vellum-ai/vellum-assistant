@@ -174,6 +174,13 @@ mock.module("electron", () => ({
   // test imports it, and an export missing from a whole-module mock fails the
   // file at load rather than in the case that uses it.
   Menu: { buildFromTemplate: () => ({ popup: () => undefined }) },
+  // The pasteboard the offer's Copy writes to. Recorded rather than counted,
+  // since what a case has to be able to say is which words were taken.
+  clipboard: {
+    writeText: (text: string) => {
+      copied.push(text);
+    },
+  },
   shell: { openExternal: () => Promise.resolve() },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
@@ -185,6 +192,9 @@ mock.module("electron", () => ({
     },
   },
 }));
+
+/** Every text main has put on the pasteboard, most recent last. */
+const copied: string[] = [];
 
 /** Main's display listeners, so a case can rearrange the displays. */
 const screenListeners: { event: string; listener: () => void }[] = [];
@@ -480,6 +490,7 @@ beforeEach(() => {
   ];
   windowBounds = null;
   boundsAsked.length = 0;
+  copied.length = 0;
   resolvedPick = null;
   picksResolved.length = 0;
   // The user is working somewhere else, with the app's window open behind
@@ -878,6 +889,109 @@ describe("the dial", () => {
     send("vellum:voiceActivity:control", { action: "endSession" });
 
     expect(dispatched).toEqual([]);
+  });
+});
+
+/**
+ * The offer a dictation with nowhere to land leaves on the surface, and what
+ * answering it does.
+ *
+ * The copy is main's on purpose: main holds the words and the pasteboard, and
+ * the surface's own window never takes focus. It also means the words outlive
+ * the window that dictated them, which is the whole reason they are held here
+ * rather than there.
+ */
+describe("the offer of a dictation that landed nowhere", () => {
+  beforeEach(() => {
+    send("vellum:companion:setContext", context());
+  });
+
+  test("reaches the surface as it was published", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ dictationOffer: "onions, tomatoes, and a bag of rice" }),
+    );
+
+    expect(state().dictationOffer).toBe("onions, tomatoes, and a bag of rice");
+  });
+
+  test("a copy takes the words to the pasteboard and closes the offer", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ dictationOffer: "onions, tomatoes, and a bag of rice" }),
+    );
+    dispatched.length = 0;
+
+    send("vellum:companion:answerDictationOffer", true);
+
+    expect(copied).toEqual(["onions, tomatoes, and a bag of rice"]);
+    expect(state().dictationOffer).toBeUndefined();
+    expect(dispatched).toEqual([{ kind: "answerDictationOffer" }]);
+  });
+
+  /**
+   * A dismissal still travels: the window that put the words up is the one
+   * that would otherwise republish them on its next context.
+   */
+  test("a dismissal takes nothing and still answers the window", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ dictationOffer: "onions, tomatoes, and a bag of rice" }),
+    );
+    dispatched.length = 0;
+
+    send("vellum:companion:answerDictationOffer", false);
+
+    expect(copied).toEqual([]);
+    expect(state().dictationOffer).toBeUndefined();
+    expect(dispatched).toEqual([{ kind: "answerDictationOffer" }]);
+  });
+
+  /**
+   * Neither answer raises the app. The user is working somewhere else, which
+   * is the only reason the words needed offering at all.
+   */
+  test("neither answer brings Vellum forward", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ dictationOffer: "onions, tomatoes, and a bag of rice" }),
+    );
+    windowsRaised = 0;
+
+    send("vellum:companion:answerDictationOffer", true);
+
+    expect(windowsRaised).toBe(0);
+  });
+
+  test("an answer with nothing waiting copies nothing", () => {
+    dispatched.length = 0;
+
+    send("vellum:companion:answerDictationOffer", true);
+
+    expect(copied).toEqual([]);
+    expect(dispatched).toEqual([]);
+  });
+
+  /**
+   * The window that dictated the words going away does not take them with it.
+   * Every other claim in the context is dropped there because it says
+   * something is happening in a window that no longer exists; this one is the
+   * words themselves, and they exist nowhere else the user can reach.
+   */
+  test("outlives the window that published it", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        dictating: "listening",
+        dictationOffer: "onions, tomatoes, and a bag of rice",
+      }),
+    );
+    mainWindowOpen = false;
+
+    fireVisibilityChange();
+
+    expect(state().dictating).toBeUndefined();
+    expect(state().dictationOffer).toBe("onions, tomatoes, and a bag of rice");
   });
 });
 

@@ -113,6 +113,15 @@ final class MacHelper: @unchecked Sendable {
             }
             return self.readFrontSelection()
         }
+        // Where a paste would land, asked when there are words to paste rather
+        // than when a hold opens. No hold guard: the hold is over by then, and
+        // the words exist whether or not a key is still down.
+        router.register("focus.read") { [weak self] _ in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            return self.readFrontFocus()
+        }
         router.register("permission.status") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
@@ -230,6 +239,15 @@ final class MacHelper: @unchecked Sendable {
                 "truncated": selection.truncated,
                 "editable": selection.editable,
             ],
+        ]
+    }
+
+    private func readFrontFocus() -> [String: Any] {
+        let focus = FrontSelection.readFocus()
+        log("front focus: \(focus.logLine)")
+        return [
+            "focused": focus.focused,
+            "takesText": focus.takesText,
         ]
     }
 

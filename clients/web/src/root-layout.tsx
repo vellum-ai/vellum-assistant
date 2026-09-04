@@ -23,6 +23,7 @@ import {
   cancelPendingVoiceStart,
   startVoiceFromSurface,
 } from "@/domains/chat/voice/live-voice/start-voice-request";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import {
   clearWatchRetro,
   useWatchRetroStore,
@@ -404,6 +405,13 @@ export function RootLayout() {
       handleToggleWatchCommand(
         command.kind === "toggleWatch" ? command.target : undefined,
       );
+    },
+    // The offer the companion drew for a dictation with nowhere to land has
+    // been answered. Nothing here reads the answer: main holds the words and
+    // main did the copy, so all that is left is to stop claiming they are
+    // still waiting.
+    answerDictationOffer: () => {
+      useVoiceRecordingStore.getState().setDictationOffer(null);
     },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);

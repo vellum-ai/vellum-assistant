@@ -134,6 +134,17 @@ export type VellumCommand =
    */
   | { kind: "answerWatchRetro"; open: boolean }
   /**
+   * The words a dictation had nowhere to put have been answered for, so stop
+   * offering them.
+   *
+   * Carries no answer of its own: the copy is main's, since main holds the
+   * text and the clipboard, and the window this reaches holds only the claim
+   * that something is still waiting. Both answers send it for the reason
+   * `answerWatchRetro` sends both: a dismissal kept on the surface would leave
+   * this window ready to redraw the offer on its next push.
+   */
+  | { kind: "answerDictationOffer" }
+  /**
    * Start a live-voice session, or end the one that is running.
    *
    * The keyboard's version of Talk. It differs from `startVoice` in the one
@@ -620,6 +631,15 @@ export interface ShowNotificationPayload {
 export type TextInsertionResult =
   | { status: "inserted" }
   | { status: "vellum-focused" }
+  /**
+   * Nothing in the application in front takes text, so no paste was sent and
+   * the clipboard was left alone.
+   *
+   * Its own answer rather than one of the failures below, because nothing
+   * failed: the words were never handed to the system. The caller still holds
+   * them and is the side that decides where they go instead.
+   */
+  | { status: "no-text-field" }
   | { status: "automation-denied" }
   | { status: "blocked" };
 
@@ -1336,6 +1356,19 @@ export interface CompanionContext {
    * is why it is shown and not what gets inserted anywhere.
    */
   dictationText?: string;
+  /**
+   * A finished dictation the front application had nowhere to put, whole.
+   *
+   * Whole rather than the tail {@link CompanionContext.dictationText} carries,
+   * because these are the words themselves rather than a sight of them going
+   * past: the surface is where the user reads them and the copy is taken from
+   * here. Unbounded for the same reason, and bounded in practice by how long a
+   * person holds a key down.
+   *
+   * Absent means there is nothing waiting to be offered, which is the state
+   * every dictation that landed leaves behind.
+   */
+  dictationOffer?: string;
 }
 
 /**
@@ -1421,6 +1454,8 @@ export interface CompanionSurfaceState {
   dictating?: CompanionDictating;
   /** See {@link CompanionContext.dictationText}. */
   dictationText?: string;
+  /** See {@link CompanionContext.dictationOffer}. */
+  dictationOffer?: string;
   growth: CompanionGrowth;
   /**
    * Which side of the avatar the canvas reserves the card's height on, and with

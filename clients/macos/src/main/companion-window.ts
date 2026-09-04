@@ -2,6 +2,7 @@ import {
   BrowserWindow,
   Menu,
   app,
+  clipboard,
   screen,
   systemPreferences,
   type Display,
@@ -568,6 +569,10 @@ const currentState = (): CompanionSurfaceState => {
     // Passed through as it arrived. Bounded by the publisher and again by the
     // schema, so nothing here has to decide how much of it is too much.
     dictationText: context.dictationText,
+    // Passed through as it arrived, for the reason `watchRetro` is: the one
+    // value it can hold is words waiting to be taken, and absence is the only
+    // way to say none are.
+    dictationOffer: context.dictationOffer,
     // Read on every rebuild rather than captured once, because the evaluation
     // lands after launch: the app's window has to sign in and fetch it first,
     // and a targeting change can move it again while the app runs.
@@ -1510,6 +1515,41 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * The answer to the offer a dictation with nowhere to go left on the
+   * surface: take the words, or let them go.
+   *
+   * **The copy happens here.** Main is holding the text and main owns the
+   * clipboard; the surface's window is a click-through canvas that never takes
+   * focus, so routing a copy through it would be a longer path to the same
+   * pasteboard. It also means the words survive the window that dictated them:
+   * an offer outlives its publisher on purpose, and a copy that needed that
+   * publisher would be a promise this surface could not keep.
+   *
+   * The app is never raised, on either answer. The whole point of the offer is
+   * that the user is working somewhere else and their words were about to be
+   * lost there.
+   *
+   * The offer is dropped here as well as announced, so the card goes away on
+   * the press rather than on a round trip through a window that may be gone.
+   */
+  on(
+    "vellum:companion:answerDictationOffer",
+    z.tuple([z.boolean()]),
+    ([copy]) => {
+      const offered = context.dictationOffer;
+      if (offered === undefined) {
+        return;
+      }
+      if (copy) {
+        clipboard.writeText(offered);
+      }
+      context = { ...context, dictationOffer: undefined };
+      pushState();
+      dispatchWithoutRaising({ kind: "answerDictationOffer" });
+    },
+  );
+
+  /**
    * The assistant's name and what the window holding it knows about the turn
    * and the sessions it is running.
    *
@@ -1710,7 +1750,10 @@ export const installCompanionWindow = (): void => {
    * The watch flag and the dictation, which are the two things in the context
    * that claim a microphone or a socket is open in that window. The name and
    * the tail are a record of what was said and this surface is still where it
-   * is read, the same bargain `working` is given by `clearCompanionWorking`.
+   * is read, the same bargain `working` is given by `clearCompanionWorking`. An
+   * offer waiting to be answered is left standing for the same reason and
+   * more so: those words exist nowhere else the user can reach, and the copy
+   * that hands them over is main's rather than that window's.
    */
   onMainWindowVisibilityChange(() => {
     if (currentMainWindow() !== null) {

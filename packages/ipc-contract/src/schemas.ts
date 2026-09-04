@@ -167,6 +167,10 @@ export const companionContextSchema = z.object({
   // the boundary as well as at the publisher, since the surface draws one line
   // and the length is the only part of this a sender controls.
   dictationText: z.string().max(COMPANION_DICTATION_TAIL).catch("").default(""),
+  // Optional and unbounded, unlike the tail above it. Absence is how a
+  // publisher says nothing is waiting to be offered, and a length cap here
+  // would be a cap on how much of what the user said they are given back.
+  dictationOffer: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------

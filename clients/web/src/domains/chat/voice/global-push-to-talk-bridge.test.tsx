@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 type TextInsertionStatus =
   | "inserted"
   | "vellum-focused"
+  | "no-text-field"
   | "automation-denied"
   | "blocked"
   | "unavailable";
@@ -277,6 +278,61 @@ describe("GlobalPushToTalkBridge", () => {
       useConversationStore.getState().draftConversationIds.has(draftId ?? ""),
     ).toBe(true);
     expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
+  /**
+   * The whole point of this change: a hold that ends over something that does
+   * not take text used to lose every word. Nothing failed here, so nothing is
+   * announced as a failure; the words go up on the companion to be copied.
+   */
+  test("offers the transcript when nothing in front takes text", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(useVoiceRecordingStore.getState().dictationOffer).toBe(
+      "onions, tomatoes, and a bag of rice",
+    );
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The offer needs the companion surface to be on screen, and the user can
+   * turn that off. The composer is the floor under it either way, so the words
+   * are somewhere the user can reach even then.
+   */
+  test("still soft-lands those words in the composer", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(useComposerStore.getState().input).toBe(
+      "onions, tomatoes, and a bag of rice",
+    );
+  });
+
+  /**
+   * The overlay's error state says a paste was refused. Nothing was refused
+   * here and nothing was sent, so a check is the truthful thing for it to
+   * draw.
+   */
+  test("does not mark the recording as an insertion failure", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(
+      useVoiceRecordingStore.getState().dictationInsertionError,
+    ).toBeNull();
   });
 
   test("uses stable toast IDs for repeated voice errors", () => {

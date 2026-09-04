@@ -101,6 +101,90 @@ enum FrontSelection {
     /// not the moment to keep raising it.
     private nonisolated(unsafe) static var promptedForTrust = false
 
+    /// What the focused control in the application in front is, for a paste
+    /// that is about to be sent there.
+    ///
+    /// A read of its own rather than a by-product of `read()`: that one is
+    /// asked once, at the top of a hold, and answers a question about text
+    /// the user highlighted. This one is asked at the end, when the words
+    /// exist and the only question left is whether anything will take them.
+    /// Nothing is copied and no keystroke is sent, so it costs one
+    /// Accessibility round trip.
+    struct Focus {
+        /// Whether the application in front reports a focused element at all.
+        let focused: Bool
+        /// Whether that element takes text. See `takesText`.
+        let takesText: Bool
+        let role: String?
+        var bundleId: String?
+        var trusted = true
+
+        var logLine: String {
+            "trusted=\(trusted) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") takesText=\(takesText)"
+        }
+    }
+
+    /// Where a paste sent to the application in front would land.
+    ///
+    /// Untrusted reads as somewhere to paste. Without the Accessibility grant
+    /// this cannot see a text field that is genuinely there, and withholding
+    /// the words on a read that cannot see anything would turn a missing
+    /// permission into dictation that never types.
+    static func readFocus() -> Focus {
+        guard AXIsProcessTrusted() else {
+            return Focus(
+                focused: false,
+                takesText: true,
+                role: nil,
+                bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                trusted: false
+            )
+        }
+        let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        ) == .success,
+            let focusedValue = focusedRef,
+            CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
+        else {
+            return Focus(focused: false, takesText: false, role: nil, bundleId: bundleId)
+        }
+        let focused = focusedValue as! AXUIElement
+        AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
+        let role = stringAttribute(focused, kAXRoleAttribute as CFString)
+        return Focus(
+            focused: true,
+            takesText: takesText(focused, role: role),
+            role: role,
+            bundleId: bundleId
+        )
+    }
+
+    /// Whether text pasted right now would land in this element.
+    ///
+    /// Three answers in order of how much they prove, and any one of them is
+    /// enough. The element says its text can be set, which is what a text
+    /// control says and a read-only view does not. Its role is one of the
+    /// text controls, which covers a control that reports a value it will not
+    /// let this process write. Or it reports a selected text range, which is
+    /// the generic mark of something with a caret in it, and is what catches
+    /// the editors that answer to neither of the first two.
+    private static func takesText(_ element: AXUIElement, role: String?) -> Bool {
+        if isEditable(element) {
+            return true
+        }
+        if let role, textControlRoles.contains(role) {
+            return true
+        }
+        var rangeRef: CFTypeRef?
+        return AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success
+    }
+
     /// The current selection, and how it was found.
     static func read() -> Outcome {
         var outcome = Outcome(trusted: AXIsProcessTrusted())

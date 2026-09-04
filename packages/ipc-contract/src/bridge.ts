@@ -593,6 +593,16 @@ export interface VellumBridge {
      */
     answerWatchRetro(open: boolean): void;
     /**
+     * Answer the offer a dictation with nowhere to go left on the surface:
+     * copy the words to the clipboard, or dismiss them.
+     *
+     * The copy is main's rather than this renderer's: main is holding the
+     * text, and the surface's window is a click-through canvas that never
+     * takes focus. What comes back either way is `dictationOffer` going absent
+     * on `onState`.
+     */
+    answerDictationOffer(copy: boolean): void;
+    /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.
      */

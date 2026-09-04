@@ -6,8 +6,12 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => true,
 }));
 
-const { setCompanionContext, clearCompanionWorking, setCompanionDictation } =
-  await import("./companion-surface");
+const {
+  setCompanionContext,
+  clearCompanionWorking,
+  setCompanionDictation,
+  setCompanionDictationOffer,
+} = await import("./companion-surface");
 
 const sent: CompanionContext[] = [];
 
@@ -163,5 +167,43 @@ describe("setCompanionDictation", () => {
     fresh.setCompanionDictation("listening", "hello");
 
     expect(seen).toHaveLength(0);
+  });
+});
+
+/**
+ * The words a dictation had nowhere to put. Corrected in place the way the
+ * running dictation's are, and for the same reason: this arrives once the
+ * recording is over, long after the context it belongs beside was built.
+ */
+describe("setCompanionDictationOffer", () => {
+  test("keeps the context it was published beside", () => {
+    setCompanionContext({ assistantName: "Ziggy", working: true });
+    sent.length = 0;
+
+    setCompanionDictationOffer("onions, tomatoes, and a bag of rice");
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.dictationOffer).toBe("onions, tomatoes, and a bag of rice");
+    expect(sent[0]?.assistantName).toBe("Ziggy");
+    expect(sent[0]?.working).toBe(true);
+  });
+
+  test("says nothing when the same words are offered again", () => {
+    setCompanionDictationOffer("onions, tomatoes, and a bag of rice");
+    sent.length = 0;
+
+    setCompanionDictationOffer("onions, tomatoes, and a bag of rice");
+
+    expect(sent).toHaveLength(0);
+  });
+
+  test("publishes the offer being taken back down", () => {
+    setCompanionDictationOffer("onions, tomatoes, and a bag of rice");
+    sent.length = 0;
+
+    setCompanionDictationOffer(undefined);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.dictationOffer).toBeUndefined();
   });
 });

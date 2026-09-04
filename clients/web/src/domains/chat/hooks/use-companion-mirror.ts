@@ -127,6 +127,11 @@ function currentContext(): CompanionContext {
     // surface is the only thing on screen to say so.
     dictating: dictatingPhase(),
     dictationText: dictationTail(),
+    // The words a dictation had nowhere to put, whole. Unlike the tail above
+    // it this is not about a microphone that is open: it arrives once the
+    // recording is over, and stands until the user answers it.
+    dictationOffer:
+      useVoiceRecordingStore.getState().dictationOffer ?? undefined,
   };
 }
 
@@ -195,7 +200,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     sameTarget(a.captureTarget, b.captureTarget) &&
     a.watchTargets === b.watchTargets &&
     a.dictating === b.dictating &&
-    a.dictationText === b.dictationText
+    a.dictationText === b.dictationText &&
+    a.dictationOffer === b.dictationOffer
   );
 }
 
@@ -221,12 +227,17 @@ export function useCompanionMirror(): void {
     // The words that came with it. Declared beside the phase because `sync`
     // writes both, and `sync` runs before the subscriptions are set up.
     let dictationText = dictationTail();
+    // The offer the same store carries, which moves on neither of the two
+    // edges above: it is put up after a dictation has finished and taken down
+    // when the user answers it.
+    let dictationOffer = useVoiceRecordingStore.getState().dictationOffer;
 
     const sync = (): void => {
       const context = currentContext();
       working = context.working;
       dictating = context.dictating;
       dictationText = context.dictationText ?? "";
+      dictationOffer = context.dictationOffer ?? null;
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -279,6 +290,14 @@ export function useCompanionMirror(): void {
     // what the surface draws.
     const onDictationMaybeFlipped = (): void => {
       if (dictatingPhase() !== dictating) {
+        sync();
+        return;
+      }
+      // Words put up to be offered, or taken back down. Through `sync` rather
+      // than corrected in place: it moves twice per dictation at most, so
+      // nothing is saved by the narrower path, and the whole context is what
+      // the surface then has to be right about.
+      if (useVoiceRecordingStore.getState().dictationOffer !== dictationOffer) {
         sync();
         return;
       }

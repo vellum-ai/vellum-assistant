@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { TextInsertionResult } from "@vellumai/ipc-contract";
 
 import { runAppleScript } from "./appleScriptExecutor";
+import { frontAppTakesText } from "./hotkey-helper";
 import { handle } from "./ipc";
 import log from "./logger";
 
@@ -40,6 +41,15 @@ export type TextInsertionDeps = {
   restoreClipboardSnapshot: (snapshot: ClipboardSnapshot) => void;
   readClipboardText: () => string;
   writeClipboardText: (text: string) => void;
+
+  /**
+   * Whether the application in front has something focused that takes text.
+   *
+   * Injected rather than imported at the call site so a case can drive both
+   * answers; see `frontAppTakesText`, which answers yes to everything but a
+   * confident no.
+   */
+  frontAppTakesText: () => Promise<boolean>;
 
   runAppleScript: (script: string) => Promise<unknown>;
   warn: (...args: unknown[]) => void;
@@ -130,6 +140,8 @@ const defaultDeps: TextInsertionDeps = {
   readClipboardText: () => clipboard.readText(),
   writeClipboardText: (text) => clipboard.writeText(text),
 
+  frontAppTakesText,
+
   runAppleScript,
   warn: (...args) => log.warn(...args),
   setTimeout,
@@ -172,6 +184,16 @@ export const typeIntoFrontAppWithDeps = async (
 ): Promise<TextInsertionResult> => {
   if (deps.getFocusedWindow() !== null) {
     return { status: "vellum-focused" };
+  }
+
+  // **Asked before the clipboard is touched.** A paste sent where nothing
+  // takes text lands on whatever the keystroke happens to mean there, and the
+  // application reports nothing back, so this is the only moment the words can
+  // still be saved. Withholding leaves the user's clipboard exactly as it was:
+  // they have not asked for it to be spent, and what happens to the words
+  // instead is the caller's to offer.
+  if (!(await deps.frontAppTakesText())) {
+    return { status: "no-text-field" };
   }
 
   // **The application is not hidden to hand focus over.** Nothing here has it:

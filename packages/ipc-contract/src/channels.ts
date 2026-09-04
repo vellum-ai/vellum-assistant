@@ -192,6 +192,8 @@ export const COMPANION_TOGGLE_WATCH = "vellum:companion:toggleWatch";
 export const COMPANION_LIST_CAPTURE_SOURCES =
   "vellum:companion:listCaptureSources";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
+export const COMPANION_ANSWER_DICTATION_OFFER =
+  "vellum:companion:answerDictationOffer";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";

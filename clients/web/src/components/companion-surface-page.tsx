@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
   introPhase,
@@ -17,6 +18,7 @@ import {
 import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
+  answerCompanionDictationOffer,
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   getCompanionState,
@@ -98,6 +100,12 @@ export function CompanionSurfacePage() {
     undefined,
   );
   const [dictationText, setDictationText] = useState("");
+  // The words a dictation had nowhere to put, or undefined when none are
+  // waiting. Main's, like the session: this window can reload while the card
+  // is up, and words held here would go with it.
+  const [dictationOffer, setDictationOffer] = useState<string | undefined>(
+    undefined,
+  );
   // The assistant's name, for the introduction's first beat. Empty until the
   // app's window has published one.
   const [assistantName, setAssistantName] = useState("");
@@ -150,6 +158,10 @@ export function CompanionSurfacePage() {
   // The picker's card, hit-tested for the reason the introduction's is: every
   // row on it is a press.
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  // The offer's card, hit-tested for the reason the other two cards are: both
+  // of its answers are presses, and a click-through window would drop them on
+  // whatever application is behind it.
+  const offerRef = useRef<HTMLDivElement | null>(null);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -189,6 +201,9 @@ export function CompanionSurfacePage() {
       setWatching(state.watching === true);
       setDictating(state.dictating);
       setDictationText(state.dictationText ?? "");
+      // Passed through as it arrived, absence included: absence is how a state
+      // says nothing is waiting to be offered.
+      setDictationOffer(state.dictationOffer);
       setWatchRetro(state.watchRetro);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
@@ -467,8 +482,17 @@ export function CompanionSurfacePage() {
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
+    // The offer's card, for the same reason and for as long as it is drawn.
+    const offerCard = offerRef.current;
+    const onOffer =
+      offerCard !== null &&
+      containsPoint(
+        offerCard.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     setHovered(onSurface);
-    setInteractive(onSurface || onIntro || onPicker);
+    setInteractive(onSurface || onIntro || onPicker || onOffer);
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
@@ -676,6 +700,22 @@ export function CompanionSurfacePage() {
               onPick={onPick}
             />
           ) : null
+        }
+        // Beside the creature while words are waiting to be taken. The answer
+        // leaves this window the way every press does, and the copy itself is
+        // main's: it is holding the words.
+        offer={
+          dictationOffer === undefined ? null : (
+            <CompanionDictationOffer
+              text={dictationOffer}
+              growth={growth}
+              cardGrowth={cardGrowth}
+              avatarBox={avatarBox}
+              optionsBox={optionsBox}
+              cardRef={offerRef}
+              onAnswer={answerCompanionDictationOffer}
+            />
+          )
         }
         // Out through main and back down into whichever renderer holds the
         // session. This page has no session to act on: it draws one.

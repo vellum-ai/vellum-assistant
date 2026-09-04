@@ -28,11 +28,14 @@ const textSnapshot = (text: string): ClipboardSnapshot => ({
 
 const createHarness = ({
   focused = false,
+  takesText = true,
   initialClipboard = "previous clipboard",
   initialClipboardSnapshot,
   runAppleScript = () => Promise.resolve(),
 }: {
   focused?: boolean;
+  /** Whether the application in front has somewhere for the words to go. */
+  takesText?: boolean;
   initialClipboard?: string;
   initialClipboardSnapshot?: ClipboardSnapshot;
   runAppleScript?: () => Promise<unknown>;
@@ -48,6 +51,7 @@ const createHarness = ({
   return {
     deps: {
       getFocusedWindow: () => (focused ? ({} as never) : null),
+      frontAppTakesText: () => Promise.resolve(takesText),
       readClipboardSnapshot: () => clipboardSnapshot,
       restoreClipboardSnapshot: (snapshot: ClipboardSnapshot) => {
         clipboardSnapshot = snapshot;
@@ -135,6 +139,40 @@ describe("typeIntoFrontApp", () => {
     harness.flushTimers();
 
     expect(harness.getClipboardText()).toBe("new user copy");
+  });
+
+  /**
+   * The bug this guard exists for: the words used to go to the clipboard and
+   * a paste used to be sent whatever was in front, so a hold that ended over
+   * a web page or a file list lost everything the user said and reported that
+   * it had been inserted.
+   */
+  test("sends no paste when nothing in front takes text", async () => {
+    const harness = createHarness({ takesText: false });
+
+    await expect(
+      typeIntoFrontAppWithDeps("dictated text", harness.deps),
+    ).resolves.toEqual({ status: "no-text-field" });
+
+    expect(harness.runAppleScript).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The user has not asked for their clipboard to be spent, and the words are
+   * about to be offered to them instead. Taking the clipboard for a paste that
+   * never happened would be the one part of the old behaviour worth keeping
+   * out of the new one.
+   */
+  test("leaves the clipboard alone when it withholds the paste", async () => {
+    const harness = createHarness({
+      takesText: false,
+      initialClipboard: "user clipboard",
+    });
+
+    await typeIntoFrontAppWithDeps("dictated text", harness.deps);
+
+    expect(harness.writes).toEqual([]);
+    expect(harness.getClipboardText()).toBe("user clipboard");
   });
 
   test("maps Automation denial to a settings result", async () => {

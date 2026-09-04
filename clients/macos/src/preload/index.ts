@@ -518,6 +518,9 @@ const bridge: VellumBridge = {
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },
+    answerDictationOffer: (copy: boolean): void => {
+      ipcRenderer.send("vellum:companion:answerDictationOffer", copy);
+    },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
     },

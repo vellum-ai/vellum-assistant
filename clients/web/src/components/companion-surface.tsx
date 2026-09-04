@@ -599,6 +599,17 @@ export interface CompanionSurfaceProps {
    */
   picker?: ReactNode;
   /**
+   * The card offering words a dictation had nowhere to put, composed by the
+   * caller for the reason the introduction is.
+   *
+   * Unlike the other two this one can be drawn over a resting surface: it
+   * arrives once a dictation is over, which is a moment with nothing else on
+   * the pill. It brings the creature out of its capsule the way the
+   * introduction's first beat does, so the card is beside something rather
+   * than beside a shape.
+   */
+  offer?: ReactNode;
+  /**
    * What a keyboard dictation has got to, when one is running. See
    * {@link CompanionDictating}.
    */
@@ -641,6 +652,7 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
+  offer,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -783,6 +795,15 @@ export function CompanionSurface({
    * that reads it is deciding whether the creature is on screen at all.
    */
   const introDrawn = intro !== null && intro !== undefined;
+  /**
+   * Whether a card is drawn beside a surface that is otherwise at rest.
+   *
+   * The introduction and the offer both do it, and both need the creature out
+   * of its capsule for the same reason: a card pointing at a capsule is a card
+   * about nothing.
+   */
+  const restingCardDrawn =
+    introDrawn || (offer !== null && offer !== undefined);
 
   const style: CSSProperties = inCall
     ? {
@@ -990,7 +1011,7 @@ export function CompanionSurface({
         // (`introPhase` answers null for `meet`), so the phase is `resting`
         // with a card pointing at a creature that is not drawn. A card
         // introducing the capsule is the one thing this collapse must not do.
-        collapsed={!creatureOut && !introDrawn}
+        collapsed={!creatureOut && !restingCardDrawn}
         // The capsule is drawn at one size on every setting, so it counters
         // what this node carries. That is the avatar's box over the authored
         // one: the options scale on the box above cancels against `avatarRel`.
@@ -1023,6 +1044,7 @@ export function CompanionSurface({
       />
       {intro}
       {picker}
+      {offer}
     </div>
   );
 }

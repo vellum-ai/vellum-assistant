@@ -390,6 +390,7 @@ declare global {
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;
         answerWatchRetro?(open: boolean): void;
+        answerDictationOffer?(copy: boolean): void;
         activate?(): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;

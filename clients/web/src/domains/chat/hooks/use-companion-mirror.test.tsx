@@ -615,6 +615,65 @@ describe("dictating", () => {
 });
 
 /**
+ * The words a dictation had nowhere to put, which reach the surface after the
+ * recording that produced them is already over and stand until answered.
+ */
+describe("the offer of a dictation that landed nowhere", () => {
+  const recording = useVoiceRecordingStore.getState;
+
+  test("says nothing while nothing is waiting", () => {
+    render(<Mirror />);
+
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  /**
+   * Published from a phase that is already idle: the paste is attempted after
+   * the transcript is final, so by the time this is known the microphone has
+   * been shut for some time.
+   */
+  test("publishes the whole transcript once it is put up", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().reset();
+
+    act(() => {
+      recording().setDictationOffer("everything the user said");
+    });
+
+    expect(latest().dictationOffer).toBe("everything the user said");
+    expect(latest().dictating).toBeUndefined();
+  });
+
+  test("takes it back down when it is answered", () => {
+    render(<Mirror />);
+    act(() => {
+      recording().setDictationOffer("everything the user said");
+    });
+
+    act(() => {
+      recording().setDictationOffer(null);
+    });
+
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  /** Speaking again is an answer: the last offer was aimed somewhere else. */
+  test("is dropped by the next dictation", () => {
+    render(<Mirror />);
+    act(() => {
+      recording().setDictationOffer("everything the user said");
+    });
+
+    act(() => {
+      recording().startRecording({ hold: true });
+    });
+
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+});
+
+/**
  * The mount itself, with nothing arranged around it.
  *
  * The effect publishes once before wiring any subscription, so anything the

@@ -129,6 +129,19 @@ export function answerCompanionWatchRetro(open: boolean): void {
 }
 
 /**
+ * Answer the offer a dictation with nowhere to go left on the surface: take
+ * the words to the clipboard, or let them go.
+ *
+ * Both answers leave this renderer, and the copy itself is main's: main is the
+ * side holding the text, and this window is a click-through canvas with no
+ * clipboard of its own worth using. What comes back either way is the offer
+ * going absent on the next pushed state.
+ */
+export function answerCompanionDictationOffer(copy: boolean): void {
+  bridge()?.answerDictationOffer?.(copy);
+}
+
+/**
  * Bring Vellum forward on the conversation the user was last in, which is what
  * pressing the avatar asks for.
  *
@@ -205,6 +218,28 @@ export function setCompanionDictation(
     return;
   }
   setCompanionContext({ ...lastContext, dictating, dictationText });
+}
+
+/**
+ * Put words a dictation had nowhere to land on the surface, or take the offer
+ * back down.
+ *
+ * Corrects the last context in place for the reason
+ * {@link setCompanionDictation} does: this arrives on its own schedule, after
+ * the dictation it came from is already over, and rebuilding the whole context
+ * for it would reselect a conversation tail that has nothing to do with it.
+ *
+ * Silent until a context has been published, since a surface with no assistant
+ * beside it is not somewhere to offer anything.
+ */
+export function setCompanionDictationOffer(offer: string | undefined): void {
+  if (lastContext === null) {
+    return;
+  }
+  if (lastContext.dictationOffer === offer) {
+    return;
+  }
+  setCompanionContext({ ...lastContext, dictationOffer: offer });
 }
 
 export function clearCompanionWorking(): void {
