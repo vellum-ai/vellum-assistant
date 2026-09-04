@@ -547,6 +547,7 @@
   },
   "contactRecordCard": {
     "cancel": "Cancel",
+    "channelType": "{channel}:",
     "contactDeleted": "Contact deleted",
     "contactMerged": "Contacts merged",
     "contactSaved": "Contact saved",
@@ -560,9 +561,11 @@
     "mergeSurvivorChannels": "Already on {name}",
     "mergeTitle": "Merge {donor} into {survivor}?",
     "mergeWarning": "These channels move to {survivor}, and the {donor} record is deleted.",
+    "nameLabel": "Name",
     "namePlaceholder": "Name",
     "noChannels": "This contact has no channels.",
-    "notesPlaceholder": "Notes (optional)",
+    "notesLabel": "Notes",
+    "notesPlaceholder": "Add custom note",
     "save": "Save",
     "saving": "Saving…",
     "updateTitle": "Update {name}"

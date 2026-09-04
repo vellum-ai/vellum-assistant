@@ -536,12 +536,16 @@
     "saving": "正在儲存…"
   },
   "contactRecordCard": {
+    "channelType": "{channel}：",
     "contactMerged": "聯絡人已合併",
     "merge": "合併",
     "mergeDonorChannels": "從 {name} 轉移",
     "mergeSurvivorChannels": "已屬於 {name}",
     "mergeTitle": "將 {donor} 合併至 {survivor}？",
-    "mergeWarning": "這些管道將轉移至 {survivor}，並刪除 {donor} 的記錄。"
+    "mergeWarning": "這些管道將轉移至 {survivor}，並刪除 {donor} 的記錄。",
+    "nameLabel": "姓名",
+    "notesLabel": "備註",
+    "notesPlaceholder": "新增備註"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",

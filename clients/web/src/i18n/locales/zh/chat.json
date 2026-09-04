@@ -536,12 +536,16 @@
     "saving": "正在保存…"
   },
   "contactRecordCard": {
+    "channelType": "{channel}：",
     "contactMerged": "联系人已合并",
     "merge": "合并",
     "mergeDonorChannels": "从 {name} 转移",
     "mergeSurvivorChannels": "已属于 {name}",
     "mergeTitle": "将 {donor} 合并到 {survivor}？",
-    "mergeWarning": "这些渠道将转移到 {survivor}，并删除 {donor} 的记录。"
+    "mergeWarning": "这些渠道将转移到 {survivor}，并删除 {donor} 的记录。",
+    "nameLabel": "姓名",
+    "notesLabel": "备注",
+    "notesPlaceholder": "添加备注"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",

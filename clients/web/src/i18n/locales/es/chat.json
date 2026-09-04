@@ -543,6 +543,7 @@
   },
   "contactRecordCard": {
     "cancel": "Cancelar",
+    "channelType": "{channel}:",
     "contactDeleted": "Contacto eliminado",
     "contactMerged": "Contactos combinados",
     "contactSaved": "Contacto guardado",
@@ -556,9 +557,11 @@
     "mergeSurvivorChannels": "Ya están en {name}",
     "mergeTitle": "¿Combinar a {donor} con {survivor}?",
     "mergeWarning": "Estos canales pasan a {survivor} y se elimina el registro de {donor}.",
+    "nameLabel": "Nombre",
     "namePlaceholder": "Nombre",
     "noChannels": "Este contacto no tiene canales.",
-    "notesPlaceholder": "Notas (opcional)",
+    "notesLabel": "Notas",
+    "notesPlaceholder": "Añadir una nota",
     "save": "Guardar",
     "saving": "Guardando…",
     "updateTitle": "Actualizar a {name}"

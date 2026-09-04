@@ -287,6 +287,7 @@
   },
   "contactRecordCard": {
     "cancel": "Отмена",
+    "channelType": "{channel}:",
     "contactDeleted": "Контакт удалён",
     "contactMerged": "Контакты объединены",
     "contactSaved": "Контакт сохранён",
@@ -300,9 +301,11 @@
     "mergeSurvivorChannels": "Уже у {name}",
     "mergeTitle": "Объединить {donor} с {survivor}?",
     "mergeWarning": "Эти каналы перейдут к {survivor}, а запись {donor} будет удалена.",
+    "nameLabel": "Имя",
     "namePlaceholder": "Имя",
     "noChannels": "У этого контакта нет каналов.",
-    "notesPlaceholder": "Заметки (необязательно)",
+    "notesLabel": "Заметки",
+    "notesPlaceholder": "Добавить заметку",
     "save": "Сохранить",
     "saving": "Сохранение…",
     "updateTitle": "Обновить: {name}"
