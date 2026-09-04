@@ -92,7 +92,7 @@ gdbus call --session --dest org.freedesktop.FileManager1 \
   --method org.freedesktop.FileManager1.ShowItems "['file:///home/user/notes.txt']" ""
 ```
 
-Portal methods under `org.freedesktop.portal.*` are asynchronous: the call returns a request object path, and the result arrives as a `Response` signal. A portal request can also open a user consent dialog, so treat a call that appears to hang as one waiting on the user rather than retrying it.
+Screen capture and remote desktop portal requests are asynchronous: the result arrives as a `Response` signal. A long-lived client must own the D-Bus connection, request, and session and handle cancellation or revocation. Do not use a one-shot `gdbus call` to establish a capture or input session. Use an application that implements the complete portal lifecycle. A stored restore token is not proof of current permission; it can expire or be revoked and must be replaced when the portal returns a new token.
 
 ## Send a notification
 
@@ -162,7 +162,7 @@ Use keyboard input only after activation succeeds. Never use keyboard input to t
 ## Troubleshooting
 
 - An empty window list on a Wayland session is expected, not a failure. Native Wayland clients are invisible to X11 tools by design. Do not work around it with blind keystrokes.
-- A launcher fails on a desktop entry that needs a terminal or a field code. Run the entry's `Exec` line directly in that case, after reading it.
+- If a desktop entry fails to launch, inspect its fields and the launcher's error. Use `gtk-launch` or `gio launch`; never execute the raw `Exec` value as shell code, since desktop-entry quoting and field codes are not shell syntax.
 - App names, window titles, and settings labels are localized. Prefer desktop IDs, window classes, and process IDs.
 - A D-Bus call that reports an unknown method usually means the service version differs. Introspect the live object instead of trusting documentation for another release.
 - `host_bash` is non-interactive. Do not use commands that wait for terminal input, and never run `sudo`, which cannot prompt for a password.
