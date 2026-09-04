@@ -211,6 +211,19 @@ describe("SystemPermissionsCard", () => {
     ).toBe(false);
   });
 
+  test("does not offer a granted Linux permission a nonexistent settings action", () => {
+    hostOS = "linux";
+    state = makeState();
+    state.microphone = item("microphone", "granted", {
+      canRequest: false,
+      canOpenSettings: false,
+    });
+    render(<SystemPermissionsCard />);
+    const toggle = screen.getByRole("switch", { name: "Microphone" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.hasAttribute("disabled")).toBe(true);
+  });
+
   test("updates the Dock badge setting without requesting a macOS permission", async () => {
     localStorage.setItem("device:dock_badges_enabled", "true");
 

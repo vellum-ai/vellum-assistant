@@ -292,12 +292,11 @@ export function SystemPermissionsCard({
 
       const copy = systemPermissionCopy(meta.id, t, hostOS);
 
-      // A host that can neither prompt nor open a settings pane for a kind
-      // has nothing for the toggle to do, so do not offer a dead control.
-      // A granted row is exempt: it stays clickable so the user can go and
-      // revoke, which is what `handleSystemToggle` does with it.
+      // macOS and Windows retain settings links for revoking granted access.
       const noRemediation =
-        !item.canRequest && !item.canOpenSettings && item.status !== "granted";
+        !item.canRequest &&
+        !item.canOpenSettings &&
+        (hostOS === "linux" || item.status !== "granted");
 
       return {
         id: meta.id,
