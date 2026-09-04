@@ -7,7 +7,8 @@ import * as androidpublisher from "@googleapis/androidpublisher";
 
 const ANDROID_PUBLISHER_SCOPE =
   "https://www.googleapis.com/auth/androidpublisher";
-const INTERNAL_TRACK = "internal";
+const PLAY_TRACKS = ["internal", "production"] as const;
+type PlayTrack = (typeof PLAY_TRACKS)[number];
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -15,6 +16,7 @@ const { values } = parseArgs({
     bundle: { type: "string" },
     "package-id": { type: "string" },
     "release-name": { type: "string" },
+    track: { type: "string" },
   },
   strict: true,
 });
@@ -28,6 +30,7 @@ async function main(): Promise<void> {
   const bundlePath = requireArgument("bundle", values.bundle);
   const packageId = requireArgument("package-id", values["package-id"]);
   const releaseName = requireArgument("release-name", values["release-name"]);
+  const track = requireTrack(values.track);
 
   const auth = new androidpublisher.auth.GoogleAuth({
     scopes: [ANDROID_PUBLISHER_SCOPE],
@@ -67,9 +70,9 @@ async function main(): Promise<void> {
     await publisher.edits.tracks.update({
       packageName: packageId,
       editId,
-      track: INTERNAL_TRACK,
+      track,
       requestBody: {
-        track: INTERNAL_TRACK,
+        track,
         releases: [
           {
             name: releaseName,
@@ -86,7 +89,7 @@ async function main(): Promise<void> {
     });
 
     console.log(
-      `Published ${packageId} version code ${versionCode} to the Google Play ${INTERNAL_TRACK} track`
+      `Published ${packageId} version code ${versionCode} to the Google Play ${track} track`
     );
   } catch (error) {
     await deleteEdit(publisher, packageId, editId);
@@ -100,6 +103,16 @@ function requireArgument(name: string, value: string | undefined): string {
   }
 
   return value;
+}
+
+function requireTrack(value: string | undefined): PlayTrack {
+  const track = requireArgument("track", value);
+
+  if (!PLAY_TRACKS.includes(track as PlayTrack)) {
+    throw new Error(`--track must be one of: ${PLAY_TRACKS.join(", ")}`);
+  }
+
+  return track as PlayTrack;
 }
 
 async function deleteEdit(
