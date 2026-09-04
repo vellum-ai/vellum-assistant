@@ -5,6 +5,7 @@ import {
   EyeOff,
   Mic,
   MicOff,
+  Pencil,
   ScreenShare,
   ScrollText,
   Volume2,
@@ -328,6 +329,35 @@ const TRANSCRIPT_WIDTH = 244;
 const OFFER_WIDTH = 200;
 
 /**
+ * The width of the call's status line: what the session is doing, and where
+ * the turn says more than its phase does, what it is doing it to.
+ *
+ * Stated for the reason the transcript's is. The line is passed through from
+ * the session, so it changes several times a call ("Listening…" to
+ * "Thinking…" to "Reading a file"), and a box as wide as its content
+ * would hand the pill a different width for each of them: the bar would
+ * breathe in and out under the user's hand while the controls on it slid
+ * sideways, on a surface that floats over another app's work. So the line has
+ * one width whatever is in it, the pill takes its call width once, and a line
+ * longer than the box is truncated rather than bought room for.
+ *
+ * Wide enough for the phase copy in the languages the app ships, with room for
+ * the short activity lines a turn adds; anything past that is a line long
+ * enough that its first words are the ones worth reading.
+ */
+const CALL_LINE_WIDTH = 120;
+
+/**
+ * The controls at the end of the call row, together: five buttons of a
+ * 16-point glyph in 8 points of padding either side, the gap between each
+ * pair, and the gap between the line and the first of them.
+ *
+ * Only used to state the call's fallback below, which is exact rather than a
+ * guess now that the line beside them has a width of its own.
+ */
+const CALL_CONTROLS_WIDTH = 5 * 32 + 5 * 4;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -369,10 +399,14 @@ export const FALLBACK_WIDTHS: Record<
   // The offer's line beside the icon and the row's own clearance, with a
   // stated width for the reason the transcript's has one.
   offer: OFFER_WIDTH + 32,
-  // The line and the five controls of the handlebar, with Teach and Share
-  // both held down and so spelling their names out, which is the widest a
-  // call draws.
-  call: 372,
+  // The line and the five controls of the handlebar, which is the widest a
+  // call draws: Teach and Share are absent on a page that offers neither, and
+  // the dial and the approval both stand fewer controls in the same row. The
+  // line has a stated width, so this is the state's actual width rather than a
+  // guess at one.
+  // The `4` is the line's own lead-in, which is a margin rather than one of
+  // the row's gaps.
+  call: 4 + CALL_LINE_WIDTH + CALL_CONTROLS_WIDTH,
 };
 
 export interface CompanionSurfaceProps {
@@ -542,6 +576,24 @@ export interface CompanionSurfaceProps {
    */
   onStopShare?: () => void;
   /**
+   * Whether the frame around the shared surface is taking the mouse, which
+   * draws Draw held down for as long as it is.
+   *
+   * The one state on this row that is the shell's rather than the session's:
+   * it is a fact about a window the shell opened. Off unless positively on,
+   * the way {@link CompanionSurfaceProps.watching} is read, and for a version
+   * of the same reason: a control drawn held down over a frame that is not
+   * taking presses is a promise about where the user's next click goes.
+   */
+  annotating?: boolean;
+  /**
+   * The press of Draw, carrying the state it is asking for rather than being
+   * a toggle. The mode is the shell's and the shell may refuse it (a share
+   * that has ended takes it down), so the press says what it wants and the
+   * pushed state says what happened.
+   */
+  onAnnotate?: (annotating: boolean) => void;
+  /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
    * since it is the side holding the session; this side only names the press
@@ -707,6 +759,8 @@ export function CompanionSurface({
   sharePicking = false,
   onShare,
   onStopShare,
+  annotating = false,
+  onAnnotate,
   onAvatarClick,
   working = false,
   watching = false,
@@ -1006,11 +1060,13 @@ export function CompanionSurface({
                 sharing={sharing}
                 shareEnabled={shareEnabled}
                 sharePicking={sharePicking}
+                annotating={annotating}
                 onControl={onControl}
                 onWatch={onWatch}
                 onTeach={onTeach}
                 onShare={onShare}
                 onStopShare={onStopShare}
+                onAnnotate={onAnnotate}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -1669,11 +1725,13 @@ function CallBody({
   sharing,
   shareEnabled,
   sharePicking,
+  annotating,
   onControl,
   onWatch,
   onTeach,
   onShare,
   onStopShare,
+  onAnnotate,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -1683,11 +1741,13 @@ function CallBody({
   sharing: boolean;
   shareEnabled: boolean;
   sharePicking: boolean;
+  annotating: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
   onTeach?: () => void;
   onShare?: () => void;
   onStopShare?: () => void;
+  onAnnotate?: (annotating: boolean) => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1740,12 +1800,15 @@ function CallBody({
 
   return (
     <>
-      {/* Sized to its content, not shrunk to fit. The pill measures this row to
-          decide how wide to be, so a label that collapses under pressure would
-          measure its own collapsed self: the width and the truncation would
-          chase each other down. The cap is what keeps a pathological label from
-          growing the pill without bound. */}
-      <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+      {/* One width, whatever the session is saying. See
+          {@link CALL_LINE_WIDTH}. `shrink-0` because the pill measures this row
+          to decide how wide to be, and a box that collapsed under pressure
+          would measure its own collapsed self: the width and the truncation
+          would chase each other down. */}
+      <span
+        className="ml-1 shrink-0 truncate text-[12px] text-white/85"
+        style={{ width: CALL_LINE_WIDTH }}
+      >
         {line}
       </span>
       {/* Beside what the session is doing rather than beside the end control:
@@ -1769,6 +1832,13 @@ function CallBody({
         sharePicking={sharePicking}
         onShare={onShare}
         onStopShare={onStopShare}
+      />
+      {/* Behind Share and only while one is running, because it acts on what
+          is being shared: there is nothing to draw on until there is. */}
+      <DrawButton
+        sharing={sharing}
+        annotating={annotating}
+        onAnnotate={onAnnotate}
       />
       <PillButton
         icon={
@@ -1844,6 +1914,46 @@ function ShareButton({
       label={t("companionSurface.share")}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
+    />
+  );
+}
+
+/**
+ * Draw on what the call is being shown, on the call row behind Share.
+ *
+ * Absent unless a share is running, rather than disabled: it acts on the
+ * shared surface, and before there is one it is not a control that is
+ * unavailable, it is a control with nothing to be about. The same reason
+ * {@link ShareButton} is absent off a call.
+ *
+ * The one control on this row whose press changes what the *desktop* does
+ * rather than what the session does: while it is held down the frame around
+ * the shared surface takes the mouse, so a press out there is a mark instead
+ * of a click on the app underneath. That is a big thing to do quietly, which
+ * is why it is a mode with a control drawn held down for as long as it lasts
+ * rather than something that happens on a modifier nobody can see.
+ */
+function DrawButton({
+  sharing,
+  annotating,
+  onAnnotate,
+}: {
+  sharing: boolean;
+  annotating: boolean;
+  onAnnotate?: (annotating: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  if (!sharing) {
+    return null;
+  }
+  return (
+    <PillButton
+      icon={<Pencil className="size-4" />}
+      label={t("companionSurface.draw")}
+      pressed={annotating}
+      onClick={() => {
+        onAnnotate?.(!annotating);
+      }}
     />
   );
 }

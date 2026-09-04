@@ -21,9 +21,11 @@ import {
   answerCompanionDictationOffer,
   answerCompanionWatchRetro,
   advanceCompanionIntro,
+  captureCompanionSourceThumbnail,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
+  setCompanionAnnotating,
   setCompanionInteractive,
   setCompanionScreenShare,
   showCompanionContextMenu,
@@ -139,6 +141,10 @@ export function CompanionSurfacePage() {
   // Whether the call can be shown the screen at all, which is that window's
   // answer about its session and its assistant's version.
   const [shareEnabled, setShareEnabled] = useState(false);
+  // Whether the frame around the shared surface is taking the mouse. Main's,
+  // and the only one of these that is: the press asks main to make a window
+  // main opened interactive, and this is main's answer about whether it did.
+  const [annotating, setAnnotating] = useState(false);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
@@ -229,6 +235,11 @@ export function CompanionSurfacePage() {
       setScreenShare(state.screenShare);
       // Off unless positively on, for the reason `watchTargets` is.
       setShareEnabled(state.screenShareEnabled === true);
+      // Off unless positively on, for a sharper version of that reason: this
+      // one says a window out on the desktop is swallowing clicks, and a
+      // control drawn held down over a frame that is not doing that is a
+      // promise about where the user's next press lands.
+      setAnnotating(state.annotating === true);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -794,6 +805,14 @@ export function CompanionSurfacePage() {
         onStopShare={() => {
           setCompanionScreenShare();
         }}
+        // Drawing on what is shared. Main's both ways: the press asks, and
+        // `annotating` above is what main did with the ask. Nothing is kept
+        // here, so a press main refuses (the share ended between the two)
+        // leaves the control drawn exactly as the desktop actually is.
+        annotating={annotating}
+        onAnnotate={(next) => {
+          setCompanionAnnotating(next);
+        }}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every
         // press does; the frame that answers it is main's.
@@ -801,6 +820,11 @@ export function CompanionSurfacePage() {
           picking ? (
             <CompanionCapturePicker
               sources={captureSources}
+              // The pictures the tiles are drawn from, asked for one tile at a
+              // time. Passed rather than fetched inside the card so the card
+              // stays a thing that draws what it is handed, and a story or a
+              // test can stand a desktop up without a shell.
+              captureThumbnail={captureCompanionSourceThumbnail}
               cardGrowth={cardGrowth}
               avatarBox={avatarBox}
               optionsBox={optionsBox}

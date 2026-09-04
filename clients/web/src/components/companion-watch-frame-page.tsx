@@ -2,27 +2,50 @@
  * The frame around what is being read: a border, and nothing inside it.
  *
  * Drawn in its own click-through window, which the macOS shell opens for a
- * watch session, sizes to whatever the session reads (a display, or the one
- * window the user picked), moves with it, and closes after it
- * (`clients/macos/src/main/companion-window.ts`). The surface being read says
- * so on its own edge, the way a shared screen is framed, so a capture is never
- * something only a ring on a creature in one corner admits to.
+ * watch session or a call's screen share, sizes to whatever is being read (a
+ * display, or the one window or tab the user picked), moves with it, and
+ * closes after it (`clients/macos/src/main/companion-window.ts`). The surface
+ * being read says so on its own edge, the way a shared screen is framed, so a
+ * capture is never something only a ring on a creature in one corner admits
+ * to.
+ *
+ * Both kinds of read get the same border, because the fact the border states
+ * is the same one: this surface is leaving the machine. Which control started
+ * it is the pill's business, not the desktop's.
  *
  * A border and no glow, deliberately. A frame's job is to say exactly where
  * the read stops, and light bleeding inward from the edge says the opposite:
  * it dims the thing the user is working on and makes the boundary a
  * gradient. The edge is the whole signal.
  *
+ * Drawn in the assistant's own accent, the colour the call pill is ringed in,
+ * and resolved through the same `companionAccentHexFor` the surface uses so
+ * the two lights cannot come apart. The frame is one end of something the
+ * pill is the other end of: a screen going to *this* assistant. A colour of
+ * its own makes the border a second, unrelated light on the same desktop,
+ * leaving the user to work out that the two are about one session.
+ *
  * **It draws the session and holds none of it.** The window is pushed the
  * same state the companion surface is, and draws when that state says a
  * session is reading the screen. Where the window sits is the shell's; this
- * page only paints to its own edges. Nothing here is interactive: the page is
- * decoration on a desktop it does not own.
+ * page only paints to its own edges.
+ *
+ * The page takes the mouse in exactly one case: while a call is being shown
+ * this surface and the user has turned drawing on, when the marks they make
+ * on it go to the call with the next frame
+ * (`companion-share-annotation.tsx`). Main is what makes the window take
+ * presses at all, so the two cannot disagree about where a click on the
+ * shared surface goes. Everything else here is decoration on a desktop it
+ * does not own.
  */
 
 import { useEffect, useRef, useState } from "react";
 
-import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
+import {
+  companionAccentHexFor,
+  COMPANION_DEFAULT_ACCENT,
+} from "@/components/companion-accent";
+import { CompanionShareAnnotation } from "@/components/companion-share-annotation";
 import {
   getCompanionState,
   subscribeCompanionState,
@@ -85,8 +108,42 @@ export function CompanionWatchFramePage() {
 
   // Read as the surface reads it: only a positive answer is a session, since
   // the alternative is framing a screen nobody is reading.
-  const lit = state?.watching === true;
-  const observedCaptures = useObservedCaptures(state?.captureCount ?? 0, lit);
+  const watching = state?.watching === true;
+  // A target on the state is the share, since main sends the pick itself and
+  // absence is nothing shared. The shell sizes this window to it; the page
+  // only draws.
+  const sharing = state?.screenShare !== undefined;
+  const lit = watching || sharing;
+  // Counted against the watch session alone. `captureCount` is that session's
+  // total and a share does not advance it, so a share left holding the frame
+  // after a watch ended would sit on the last count that session reported and
+  // flash for a read nobody took.
+  const observedCaptures = useObservedCaptures(
+    state?.captureCount ?? 0,
+    watching,
+  );
+
+  // The assistant's colour, resolved exactly as the surface resolves it: the
+  // running call's first, then what the app published with the character,
+  // then the character's own palette. Left unset when none of them parse,
+  // which hands the class its own default rather than dropping the custom
+  // property and taking the border's colour with it.
+  const accentHex = companionAccentHexFor(
+    state?.call ?? null,
+    state?.accentHex,
+    state?.character,
+  );
+  const accentStyle =
+    accentHex === undefined
+      ? undefined
+      : { ["--companion-ring-accent" as string]: accentHex };
+
+  // Read the same way `watching` is, and for the sharper version of the same
+  // reason: this one decides whether the window under the pointer takes the
+  // click. Main makes the window interactive and says so here, so a shell
+  // that never mentions it is one whose frame is click-through, and a drawing
+  // layer mounted over that would swallow presses that go nowhere.
+  const annotating = state?.annotating === true;
 
   return (
     <div
@@ -97,9 +154,7 @@ export function CompanionWatchFramePage() {
       {lit && (
         <div
           className="companion-watch-frame fixed inset-0"
-          style={{
-            ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
-          }}
+          style={accentStyle}
         />
       )}
       {/* One capture, as a single brightening of the same edge. The frame
@@ -108,14 +163,19 @@ export function CompanionWatchFramePage() {
           treatments or the second is invisible inside the first. Keyed by the
           captures this window has watched arrive, so each one remounts the
           element and replays a one-shot animation. */}
-      {lit && observedCaptures > 0 && (
+      {watching && observedCaptures > 0 && (
         <div
           key={observedCaptures}
           className="companion-watch-frame-flash fixed inset-0"
-          style={{
-            ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
-          }}
+          style={accentStyle}
         />
+      )}
+      {/* Drawn in the same accent as the edge around it, since the marks and
+          the border say one thing about one session. The border may leave its
+          colour to the class when nothing resolves; ink on a canvas cannot,
+          so the default the class carries is named for it. */}
+      {annotating && (
+        <CompanionShareAnnotation ink={accentHex ?? COMPANION_DEFAULT_ACCENT} />
       )}
     </div>
   );

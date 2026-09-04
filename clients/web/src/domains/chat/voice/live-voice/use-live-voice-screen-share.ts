@@ -57,13 +57,23 @@ import {
   isLiveVoiceUserSpeaking,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { annotateSharedFrame } from "@/domains/chat/voice/live-voice/annotate-shared-frame";
 import { createSightCapture } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { captureCompanionScreen } from "@/runtime/companion-surface";
-import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
+import type {
+  CompanionAnnotationStroke,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
 
 /** Where a failure is filed, so the tag says which source it came from. */
 const ERROR_CONTEXT = "live-voice screen share: capture/upload frame";
+
+/** A mark the user finished on the shared surface, and the colour of it. */
+type SharedDrawing = {
+  strokes: readonly CompanionAnnotationStroke[];
+  ink: string;
+};
 
 /**
  * The least time between two frames. The two edges of a very short utterance
@@ -72,10 +82,18 @@ const ERROR_CONTEXT = "live-voice screen share: capture/upload frame";
  */
 export const SCREEN_SHARE_MIN_FRAME_GAP_MS = 1500;
 
-/** The helper's JPEG as the file the upload path takes, or null for no frame. */
+/**
+ * The helper's JPEG as the file the upload path takes, or null for no frame,
+ * with any marks the user drew on it.
+ *
+ * The marks are drawn here rather than being on the screen already: a capture
+ * excludes Vellum's own windows, so the overlay the user drew on is never in
+ * the pixels. See `annotate-shared-frame.ts`.
+ */
 async function produceSharedFrame(
   target: WatchCaptureTarget,
   filename: string,
+  drawing: SharedDrawing | null,
 ): Promise<File | null> {
   const frame = await captureCompanionScreen(target);
   if (frame === null) {
@@ -84,7 +102,10 @@ async function produceSharedFrame(
   const bytes = Uint8Array.from(atob(frame.jpegBase64), (char) =>
     char.charCodeAt(0),
   );
-  return new File([bytes], filename, { type: "image/jpeg" });
+  const file = new File([bytes], filename, { type: "image/jpeg" });
+  return drawing === null
+    ? file
+    : annotateSharedFrame(file, drawing.strokes, drawing.ink);
 }
 
 export function useLiveVoiceScreenShare(): void {
@@ -117,9 +138,21 @@ export function useLiveVoiceScreenShare(): void {
     let lastFrameAt = Number.NEGATIVE_INFINITY;
     sight.grantConsent();
 
-    const share = (): void => {
+    /**
+     * Take a frame and send it.
+     *
+     * `drawing` is what the user drew on the surface, and is null for every
+     * frame the cadence takes on its own. A drawing bypasses the floor below:
+     * the floor is there so a cough is not two frames of the same view, where
+     * a mark is a deliberate act and the user has just watched themselves
+     * make it.
+     */
+    const share = (drawing: SharedDrawing | null = null): void => {
       const now = performance.now();
-      if (now - lastFrameAt < SCREEN_SHARE_MIN_FRAME_GAP_MS) {
+      if (
+        drawing === null &&
+        now - lastFrameAt < SCREEN_SHARE_MIN_FRAME_GAP_MS
+      ) {
         return;
       }
       lastFrameAt = now;
@@ -128,7 +161,7 @@ export function useLiveVoiceScreenShare(): void {
         .capture({
           assistantId,
           produceFrame: async (filename) => {
-            const frame = await produceSharedFrame(target, filename);
+            const frame = await produceSharedFrame(target, filename, drawing);
             missed = frame === null;
             return frame;
           },
@@ -153,6 +186,11 @@ export function useLiveVoiceScreenShare(): void {
     share();
     let speaking = isLiveVoiceUserSpeaking(useLiveVoiceStore.getState());
     let reconnecting = useLiveVoiceStore.getState().reconnecting;
+    // The drawing this run has already sent. A run that starts with one
+    // already in the store inherits it as sent rather than as new: the marks
+    // it names are long since faded off the shared surface, and a frame taken
+    // for them now would be of a screen with nothing on it.
+    let annotation = useLiveVoiceStore.getState().shareAnnotation?.id ?? 0;
     const unsubscribe = useLiveVoiceStore.subscribe((session) => {
       // **The stop is honoured here, not in the cleanup below.** A store
       // subscriber runs inside the `set` that ends the share; the cleanup is
@@ -175,6 +213,24 @@ export function useLiveVoiceScreenShare(): void {
         if (reconnecting) {
           sight.invalidate();
         }
+        return;
+      }
+      // **A finished drawing goes at once**, ahead of every gate below it,
+      // because it is the one frame here the user asked for by hand. The
+      // cadence sends what the session might want to see; this sends what
+      // they pointed at, and it goes on the release rather than on the next
+      // thing they say.
+      const drawn = session.shareAnnotation;
+      if (drawn !== undefined && drawn !== null && drawn.id !== annotation) {
+        annotation = drawn.id;
+        share({ strokes: drawn.strokes, ink: drawn.ink });
+        return;
+      }
+      // The hand is still down. Whatever moved, it is not worth a frame: the
+      // mark is half made, and the user is usually talking while they make
+      // it, which is exactly what the cadence below would take a frame for.
+      if (session.shareDrawing) {
+        speaking = isLiveVoiceUserSpeaking(session);
         return;
       }
       const next = isLiveVoiceUserSpeaking(session);
