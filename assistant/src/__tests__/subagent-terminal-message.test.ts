@@ -233,4 +233,41 @@ describe("buildSubagentTerminalMessage", () => {
 
     expect(msg).not.toContain("[stats:");
   });
+
+  test("names an advisor consult and asks the parent to weigh its guidance", () => {
+    // A consult is the one child whose result the parent acts on rather than
+    // reports, and it arrives long after the tool call that asked for it, so
+    // the message has to say which of its children is answering.
+    const msg = buildSubagentTerminalMessage({
+      label: "review-the-plan",
+      subagentId: "sa-adv-1",
+      isFork: false,
+      outcome: "completed",
+      silent: true,
+      isAdvisor: true,
+      finalText: "Lead with the data model; wire reminders last.",
+    });
+
+    expect(msg).toContain('[Advisor "review-the-plan" completed');
+    expect(msg).toContain("Lead with the data model; wire reminders last.");
+    expect(msg).toContain("Weigh it into how you proceed");
+    expect(msg).not.toContain("Subagent");
+    expect(msg).not.toContain("subagent_read");
+  });
+
+  test("a failed advisor consult is named as one", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "review-the-plan",
+      subagentId: "sa-adv-2",
+      isFork: false,
+      outcome: "failed",
+      silent: true,
+      isAdvisor: true,
+      error: "provider timeout",
+    });
+
+    expect(msg).toContain('[Advisor "review-the-plan" failed]');
+    expect(msg).toContain("provider timeout");
+    expect(msg).toContain("Do NOT re-spawn or retry this advisor");
+  });
 });

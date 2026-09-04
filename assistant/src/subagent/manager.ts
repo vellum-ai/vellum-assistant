@@ -40,7 +40,6 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
-import { isSubagentProgressEvent } from "./progress-events.js";
 import {
   DEFAULT_SUBAGENT_ROLE,
   formatSubagentToolStats,
@@ -209,21 +208,6 @@ function snapshotToolStats(
   return { calls, succeeded, filesWritten: filesWritten.size };
 }
 
-/**
- * Pull the user-visible text out of a streaming delta event, or null for any
- * other event type. Used by the synchronous `onText` tap to forward
- * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
- */
-function extractDeltaText(msg: AssistantEvent): string | null {
-  if (msg.type === "assistant_text_delta") {
-    return msg.text;
-  }
-  if (msg.type === "assistant_thinking_delta") {
-    return msg.thinking;
-  }
-  return null;
-}
-
 // ── Default subagent system prompt ──────────────────────────────────────
 
 export function buildSubagentSystemPrompt(
@@ -280,6 +264,8 @@ export function buildSubagentTerminalMessage(opts: {
   deniedTools?: string[];
   /** What the subagent actually ran, harvested when the run ended. */
   stats?: SubagentToolStatsSummary;
+  /** An advisor consult, whose result the parent reads as guidance. */
+  isAdvisor?: boolean;
 }): string {
   const {
     label,
@@ -292,8 +278,12 @@ export function buildSubagentTerminalMessage(opts: {
     deferred,
     deniedTools,
     stats,
+    isAdvisor,
   } = opts;
-  const prefix = isFork ? "Fork" : "Subagent";
+  // The parent asked a different question of each of these, so the message
+  // names which one is answering: a consult is guidance to weigh, a fork or a
+  // plain subagent is delegated work that came back.
+  const prefix = isAdvisor ? "Advisor" : isFork ? "Fork" : "Subagent";
 
   // When the subagent reached for tools its role does not permit, tell the
   // parent so it re-spawns with a capable role instead of blindly retrying (a
@@ -322,9 +312,11 @@ export function buildSubagentTerminalMessage(opts: {
     return (
       `[${prefix} "${label}" completed — result below]\n\n` +
       `${trimmed}\n\n` +
-      (silent
-        ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
-        : `(Incorporate this into your reply to the user as appropriate.)`) +
+      (isAdvisor
+        ? `(This is the guidance you asked for. Weigh it into how you proceed; do not relay it to the user verbatim.)`
+        : silent
+          ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
+          : `(Incorporate this into your reply to the user as appropriate.)`) +
       deniedNote +
       statsNote
     );
@@ -387,21 +379,6 @@ interface ManagedSubagent {
    * "read the result" notification into the parent would be redundant noise.
    */
   synchronous?: boolean;
-  /**
-   * Optional text tap for the synchronous path. When set, `wrappedSendToClient`
-   * forwards each `assistant_text_delta` / `assistant_thinking_delta` chunk to
-   * this callback IN ADDITION to the normal `subagent_event` envelope.
-   */
-  onText?: (chunk: string) => void;
-  /**
-   * Optional liveness tap for the synchronous path. When set,
-   * `wrappedSendToClient` fires it once per event that shows the child is still
-   * moving (see {@link isSubagentProgressEvent}), which is a superset of the
-   * `onText` chunks: a subagent executing a tool streams no token but is not
-   * stalled. Callers that bound a synchronous run by an idle window re-arm it
-   * here.
-   */
-  onProgress?: () => void;
 }
 
 export interface SubagentNotificationInfo {
@@ -484,11 +461,7 @@ export class SubagentManager {
   private async setUpSubagent(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: {
-      synchronous?: boolean;
-      onText?: (chunk: string) => void;
-      onProgress?: () => void;
-    },
+    opts?: { synchronous?: boolean },
   ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
 
@@ -635,27 +608,11 @@ export class SubagentManager {
       state,
       parentSendToClient,
       ...(opts?.synchronous ? { synchronous: true } : {}),
-      ...(opts?.onText ? { onText: opts.onText } : {}),
-      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     };
 
     // Wrap sendToClient to envelope all events with the subagent ID.
     // Reads from managed.parentSendToClient so reconnects are picked up.
     const wrappedSendToClient = (msg: AssistantEvent): void => {
-      // Tap streaming text/thinking deltas for the synchronous caller (if any),
-      // in addition to the normal envelope below. Reads from managed.onText so
-      // the synchronous path can forward chunks without altering event routing.
-      if (managed.onText) {
-        const text = extractDeltaText(msg);
-        if (text) {
-          managed.onText(text);
-        }
-      }
-      // Liveness tap, separate from the text tap because tool activity is
-      // progress the caller must see and is not a chunk it can forward.
-      if (managed.onProgress && isSubagentProgressEvent(msg)) {
-        managed.onProgress();
-      }
       managed.parentSendToClient({
         type: "subagent_event",
         subagentId,
@@ -832,26 +789,23 @@ export class SubagentManager {
    * terminal parent-injection (`notifyParentTerminal`) is skipped on this path.
    *
    * `opts.signal` aborts the underlying run when triggered (e.g. an external
-   * timeout). `opts.onText` receives each streaming text/thinking chunk in
-   * addition to the normal `subagent_event` envelope.
+   * timeout).
+   *
+   * No tool spawns this way: a tool call that parks on a child cannot answer
+   * the user, and an interrupt that aborts the parent's tool batch would take
+   * the child down with it. The one caller is the live-voice background
+   * continuation, which spawns after its turn has already torn down and speaks
+   * the result on the session's own terms.
    */
   async spawnAndAwait(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: {
-      signal?: AbortSignal;
-      onText?: (chunk: string) => void;
-      onProgress?: () => void;
-    },
+    opts?: { signal?: AbortSignal },
   ): Promise<string> {
     const { subagentId, managed } = await this.setUpSubagent(
       config,
       parentSendToClient,
-      {
-        synchronous: true,
-        ...(opts?.onText ? { onText: opts.onText } : {}),
-        ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
-      },
+      { synchronous: true },
     );
 
     // Wire the external signal to abort the child conversation. If the signal
@@ -1868,6 +1822,7 @@ export class SubagentManager {
       error: managed.state.error,
       deferred,
       deniedTools,
+      ...(config.role === "advisor" ? { isAdvisor: true } : {}),
       // Same staleness applies to the counters, and worse: the queued turn has
       // not run yet at this point, so any number quoted here would under-report
       // it, permanently, in a message that is never rewritten. The deferred
