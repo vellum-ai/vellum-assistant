@@ -12,11 +12,10 @@ use zbus::blocking::{Connection, Proxy};
 
 use crate::register_module;
 use crate::rpc::error::{RpcError, RpcResult};
-use crate::rpc::router::RpcModule;
+use crate::rpc::router::{Router, RpcModule};
 
-/// D-Bus replies carry no deadline of their own and the RPC loop is single
-/// threaded, so a wedged service must not stall every later call.
-const BUS_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Leave headroom within the supervisor response deadline.
+const BUS_PROBE_TIMEOUT: Duration = Duration::from_millis(750);
 const PORTAL_DESTINATION: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const PORTAL_INTERFACES: [(&str, &str); 4] = [
@@ -57,21 +56,39 @@ impl BusState {
 #[serde(rename_all = "camelCase")]
 struct CapabilitiesState {
     session_type: String,
+    methods: Vec<&'static str>,
     desktop: Option<String>,
     #[serde(flatten)]
     bus: BusState,
-    /// Raw modifier monitoring reads the evdev nodes, which is the `input`
-    /// group on most distributions.
+    /// Any readable event node; this does not establish keyboard coverage.
     input_devices_readable: bool,
 }
 
 /// `wayland`, `x11`, or `unknown` when no display server announces itself.
 fn session_type() -> String {
-    match env::var("XDG_SESSION_TYPE") {
-        Ok(value) if !value.is_empty() => value,
-        _ if env::var_os("WAYLAND_DISPLAY").is_some() => "wayland".to_string(),
-        _ if env::var_os("DISPLAY").is_some() => "x11".to_string(),
-        _ => "unknown".to_string(),
+    classify_session(
+        env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        env::var("DISPLAY").ok().as_deref(),
+    )
+    .to_string()
+}
+
+fn classify_session(
+    declared: Option<&str>,
+    wayland: Option<&str>,
+    x11: Option<&str>,
+) -> &'static str {
+    match declared
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("wayland") => "wayland",
+        Some("x11") => "x11",
+        _ if wayland.is_some_and(|value| !value.trim().is_empty()) => "wayland",
+        _ if x11.is_some_and(|value| !value.trim().is_empty()) => "x11",
+        _ => "unknown",
     }
 }
 
@@ -155,6 +172,9 @@ impl RpcModule for CapabilitiesModule {
     fn call(&self, _method: &str, _params: Option<Value>) -> RpcResult {
         let state = CapabilitiesState {
             session_type: session_type(),
+            methods: Router::from_inventory()
+                .map_err(RpcError::internal)?
+                .methods(),
             desktop: env::var("XDG_CURRENT_DESKTOP").ok(),
             bus: probe_bus_with_timeout(),
             input_devices_readable: input_devices_readable(),
@@ -168,6 +188,20 @@ register_module!(CapabilitiesModule);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distinguishes_the_desktop_session_from_an_xwayland_display() {
+        assert_eq!(
+            classify_session(Some("tty"), Some("wayland-0"), Some(":0")),
+            "wayland"
+        );
+        assert_eq!(
+            classify_session(Some(" X11 "), Some("wayland-0"), Some(":0")),
+            "x11"
+        );
+        assert_eq!(classify_session(None, Some(""), Some(":0")), "x11");
+        assert_eq!(classify_session(Some("tty"), None, None), "unknown");
+    }
 
     #[test]
     fn reports_every_probe_even_without_a_desktop_session() {

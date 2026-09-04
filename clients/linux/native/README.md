@@ -16,7 +16,14 @@ when stdin reaches EOF.
 
 Methods today: `ping` (replies `"pong"`, matching macOS) and
 `capabilities.state` (session type, portal interface versions, accessibility
-bus reachability, notification service presence, `/dev/input` readability).
+bus reachability, notification service presence, `/dev/input` readability,
+and registered RPC methods).
+
+A running helper and an available portal interface do not establish permission
+or feature readiness. Callers must check registered methods and the operation's
+backend/session result. A saved restore token is not proof of current access.
+Raw input readability is diagnostic only and does not establish keyboard
+coverage; normal voice setup must not require input-group membership.
 
 ## Adding a module
 
@@ -50,3 +57,12 @@ Builds target musl (`x86_64-unknown-linux-musl` on an x64 runner,
 distributions older than the build host; we do not cross-compile. `scripts/pack.sh` builds the helper before electron-builder
 picks it up through `extraResources`. Development and CI artifacts are
 unsigned; release signing is owned by the release workflow.
+
+The scaffold uses musl, but future native dependencies must be checked for
+static-linking compatibility. Adding PipeWire or a speech engine does not
+inherit a portability guarantee. Validate packaged dependencies and startup on
+the oldest supported distribution for each architecture.
+
+Portal implementations must share session ownership across permission, input
+and capture modules, rotate restore tokens after successful starts, and clear
+granted state on session closure. Keep consent prompts out of status probes.
