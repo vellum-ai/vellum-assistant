@@ -16,6 +16,7 @@ import type {
   CompanionDictating,
   CompanionIntroAction,
   CompanionSurfaceState,
+  DictationOfferAnswer,
   ScreenCaptureFrame,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
@@ -161,6 +162,18 @@ export function captureCompanionScreen(
  */
 export function answerCompanionWatchRetro(open: boolean): void {
   bridge()?.answerWatchRetro?.(open);
+}
+
+/**
+ * Answer the offer of Vellum's dictation: use it in place of what another app
+ * pasted, get that app off the key, or leave it. Every answer leaves this
+ * renderer, for the reason the retro's does: the window that made the offer
+ * is the one holding it.
+ */
+export function answerCompanionDictationOffer(
+  answer: DictationOfferAnswer,
+): void {
+  bridge()?.answerDictationOffer?.(answer);
 }
 
 /**

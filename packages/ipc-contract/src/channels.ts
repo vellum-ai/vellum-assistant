@@ -15,6 +15,7 @@ export const CONFIG_GET = "vellum:config:get";
 
 // Text insertion
 export const TEXT_INSERT = "vellum:text:insertIntoFrontApp";
+export const TEXT_UNDO = "vellum:text:undoInFrontApp";
 export const TEXT_OPEN_SETTINGS = "vellum:text:openAutomationSettings";
 
 // System permissions
@@ -56,6 +57,12 @@ export const HELPER_HOTKEY_SET_MODIFIER_HOLD =
   "vellum:helper:hotkey:setModifierHold";
 export const HELPER_HOTKEY_READ_FRONT_SELECTION =
   "vellum:helper:hotkey:readFrontSelection";
+export const HELPER_APPS_RUNNING = "vellum:helper:apps:running";
+export const HELPER_APPS_QUIT = "vellum:helper:apps:quit";
+export const HELPER_APPS_FRONTMOST = "vellum:helper:apps:frontmost";
+export const HELPER_INPUT_SET_ACTIVITY_WATCH =
+  "vellum:helper:input:setActivityWatch";
+export const HELPER_INPUT_ACTIVITY_EVENT = "vellum:helper:input:activity";
 export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
 export const HELPER_HOTKEY_REGISTRATION_EVENT =
   "vellum:helper:hotkey:registration";
@@ -194,6 +201,8 @@ export const COMPANION_LIST_CAPTURE_SOURCES =
 export const COMPANION_SET_SCREEN_SHARE = "vellum:companion:setScreenShare";
 export const COMPANION_CAPTURE_SCREEN = "vellum:companion:captureScreen";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
+export const COMPANION_ANSWER_DICTATION_OFFER =
+  "vellum:companion:answerDictationOffer";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";

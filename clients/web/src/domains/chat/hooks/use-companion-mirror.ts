@@ -46,11 +46,13 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
 import { COMPANION_DICTATION_TAIL } from "@vellumai/ipc-contract";
 import type {
   CompanionContext,
   CompanionDictating,
+  CompanionDictationOffer,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -138,7 +140,19 @@ function currentContext(): CompanionContext {
     // surface is the only thing on screen to say so.
     dictating: dictatingPhase(),
     dictationText: dictationTail(),
+    // Vellum's version of a dictation another app pasted, while offered.
+    // Published from here for the reason `watchRetro` is: the words and the
+    // way into the application they would go to are both this window's.
+    dictationOffer: currentOffer(),
   };
+}
+
+function currentOffer(): CompanionDictationOffer | undefined {
+  const { offer } = useDictationOfferStore.getState();
+  if (offer === null) {
+    return undefined;
+  }
+  return { app: offer.app.name, text: offer.text };
 }
 
 /**
@@ -240,7 +254,9 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     sameTarget(a.screenShare, b.screenShare) &&
     a.screenShareEnabled === b.screenShareEnabled &&
     a.dictating === b.dictating &&
-    a.dictationText === b.dictationText
+    a.dictationText === b.dictationText &&
+    a.dictationOffer?.app === b.dictationOffer?.app &&
+    a.dictationOffer?.text === b.dictationOffer?.text
   );
 }
 
@@ -326,6 +342,7 @@ export function useCompanionMirror(): void {
       sync();
     };
     const unsubscribeShare = useLiveVoiceStore.subscribe(onShareMaybeFlipped);
+    const unsubscribeOffer = useDictationOfferStore.subscribe(sync);
     // The microphone a held key opened. Nothing above reports it: the
     // recording is this window's, it starts and stops from the keyboard rather
     // than from anything the conversation knows about, and while it runs the
@@ -373,6 +390,7 @@ export function useCompanionMirror(): void {
       unsubscribeWatch();
       unsubscribeWatchRetro();
       unsubscribeShare();
+      unsubscribeOffer();
       unsubscribeDictation();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The name is left standing: it is a record

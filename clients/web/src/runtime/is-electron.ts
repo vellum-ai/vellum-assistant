@@ -34,6 +34,7 @@ import type {
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
+  DictationOfferAnswer,
   DictationPartialsResult,
   DictationTranscribeResult,
   DownloadDoneEvent,
@@ -141,6 +142,7 @@ declare global {
       };
       text?: {
         insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+        undoInFrontApp?(): Promise<TextInsertionResult>;
         openAutomationSettings(): Promise<void>;
       };
       hotkeys?: {
@@ -163,6 +165,15 @@ declare global {
         getState?(): Promise<HelperState>;
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
+        apps?: {
+          running(bundleIds: readonly string[]): Promise<string[]>;
+          quit(bundleId: string): Promise<boolean>;
+          frontmost(): Promise<string | null>;
+        };
+        input?: {
+          setActivityWatch(enable: boolean): Promise<boolean>;
+          onActivity(callback: () => void): () => void;
+        };
         hotkey?: {
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
@@ -396,6 +407,7 @@ declare global {
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;
         answerWatchRetro?(open: boolean): void;
+        answerDictationOffer?(answer: DictationOfferAnswer): void;
         activate?(): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;

@@ -6,6 +6,12 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  FN_CLAIMANT_BUNDLE_IDS,
+  HELPER_APPS_FRONTMOST,
+  HELPER_APPS_QUIT,
+  HELPER_APPS_RUNNING,
+  HELPER_INPUT_ACTIVITY_EVENT,
+  HELPER_INPUT_SET_ACTIVITY_WATCH,
   HELPER_DICTATION_FINALIZED_EVENT,
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
@@ -33,6 +39,7 @@ import type {
   ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
 
+import { isPointerOnCompanion } from "./companion-pointer";
 import { handle } from "./ipc";
 import log from "./logger";
 import {
@@ -81,6 +88,18 @@ const FRONT_SELECTION_SCHEMA = z.object({
       editable: z.boolean().default(false),
     })
     .optional(),
+});
+
+const RUNNING_APPS_SCHEMA = z.object({
+  running: z.array(z.string()),
+});
+
+const QUIT_APP_SCHEMA = z.object({
+  asked: z.boolean(),
+});
+
+const FRONTMOST_APP_SCHEMA = z.object({
+  bundleId: z.string().nullable(),
 });
 
 const HOTKEY_RESULT_SCHEMA = z.object({
@@ -235,6 +254,95 @@ const readFrontSelection = async (): Promise<HotkeySelection | null> => {
       `[mac-helper] selection read failed: ${err instanceof Error ? err.message : String(err)}`,
     );
     return null;
+  }
+};
+
+/**
+ * Which of the named applications are running. A helper that cannot say
+ * reads as none running: the voice key arms, which is the answer with no
+ * information rather than a key that stays dead on a hunch.
+ */
+const runningApps = async (bundleIds: string[]): Promise<string[]> => {
+  // Only the apps the voice key has business with. The renderer never gets
+  // to enumerate the desktop through this.
+  const wanted = bundleIds.filter((id) => FN_CLAIMANT_BUNDLE_IDS.includes(id));
+  if (wanted.length === 0) {
+    return [];
+  }
+  try {
+    const result = await client.call("apps.running", { bundleIds: wanted });
+    const parsed = RUNNING_APPS_SCHEMA.safeParse(result);
+    return parsed.success ? parsed.data.running : [];
+  } catch (err) {
+    log.warn(
+      `[mac-helper] running apps query failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [];
+  }
+};
+
+/**
+ * Ask an application to quit. `false` when it was not running or the helper
+ * could not ask, and `false` without asking for any app outside the voice
+ * key's claimants: this is the one thing the renderer can do to another app,
+ * and the allowlist is held here rather than trusted from there.
+ */
+const quitApp = async (bundleId: string): Promise<boolean> => {
+  if (!FN_CLAIMANT_BUNDLE_IDS.includes(bundleId)) {
+    log.warn(
+      `[mac-helper] refused to quit ${bundleId}: not a voice key claimant`,
+    );
+    return false;
+  }
+  try {
+    const result = await client.call("apps.quit", { bundleId });
+    const parsed = QUIT_APP_SCHEMA.safeParse(result);
+    return parsed.success && parsed.data.asked;
+  } catch (err) {
+    log.warn(
+      `[mac-helper] quit app failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
+};
+
+/** The bundle identifier of the application in front, or `null` when the helper cannot say. */
+const frontmostApp = async (): Promise<string | null> => {
+  try {
+    const result = await client.call("apps.frontmost");
+    const parsed = FRONTMOST_APP_SCHEMA.safeParse(result);
+    return parsed.success ? parsed.data.bundleId : null;
+  } catch (err) {
+    log.warn(
+      `[mac-helper] frontmost app query failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+};
+
+/**
+ * Whether the renderer has asked for the input watch, so a helper that comes
+ * back from a crash is put back to watching. The renderer asks once and is
+ * not told about the restart, and a watch that silently stopped would let an
+ * offer outlive the edit it means to replace.
+ */
+let desiredInputActivityWatch = false;
+
+const setInputActivityWatch = async (enable: boolean): Promise<boolean> => {
+  desiredInputActivityWatch = enable;
+  return sendInputActivityWatch(enable);
+};
+
+const sendInputActivityWatch = async (enable: boolean): Promise<boolean> => {
+  try {
+    const result = await client.call("input.setActivityWatch", { enable });
+    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+    return parsed.success && parsed.data.enabled === enable;
+  } catch (err) {
+    log.warn(
+      `[mac-helper] input activity watch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
   }
 };
 
@@ -514,16 +622,30 @@ const addHotkeyOwner = (webContents: WebContents): void => {
   activeHotkeyOwnerId = id;
 };
 
-const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
-  holdIsOpen = event.state === "down";
+/** The window the key's events go to: the active owner, else the newest live one. */
+const hotkeyOwnerTarget = (): WebContents | null => {
   const ownerId = activeHotkeyOwnerId ?? newestOwnerId();
   const activeOwner = ownerId !== null ? hotkeyOwners.get(ownerId) : null;
   const owner =
     activeOwner && !activeOwner.webContents.isDestroyed()
       ? activeOwner
       : hotkeyOwners.get(newestOwnerId() ?? -1);
-  if (!owner || owner.webContents.isDestroyed()) return;
-  owner.webContents.send("vellum:helper:hotkey:event", event);
+  if (!owner || owner.webContents.isDestroyed()) return null;
+  return owner.webContents;
+};
+
+const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
+  holdIsOpen = event.state === "down";
+  hotkeyOwnerTarget()?.send("vellum:helper:hotkey:event", event);
+};
+
+const sendInputActivityToOwner = (): void => {
+  // A press on the companion is a press on Vellum's own controls: the offer
+  // those controls answer must not be taken down by the click answering it.
+  if (isPointerOnCompanion()) {
+    return;
+  }
+  hotkeyOwnerTarget()?.send(HELPER_INPUT_ACTIVITY_EVENT);
 };
 
 /**
@@ -581,6 +703,13 @@ const handleHelperState = (state: MacHelperState): void => {
   sendHelperStateToRenderers(state);
   if (state.status === "running") {
     void restoreModifierHoldIfNeeded();
+    // The watch went down with the helper the binding did, and the renderer
+    // asks for neither again. Restored beside the binding rather than behind
+    // it: they are two registrations, and an offer outliving the edit it
+    // means to replace must not wait on a hold's round trip.
+    if (desiredInputActivityWatch) {
+      void sendInputActivityWatch(true);
+    }
     return;
   }
 
@@ -609,6 +738,7 @@ const restartHelper = (): HelperRestartResult => {
 
 let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
+let unsubscribeInputActivity: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
 let unsubscribeDictationFinalized: (() => void) | null = null;
@@ -624,6 +754,13 @@ export const installHotkeyHelper = (): void => {
     HOTKEY_EVENT_SCHEMA,
     (event) => {
       sendHotkeyEventToOwner(event);
+    },
+  );
+  unsubscribeInputActivity = client.onNotification(
+    "input.activity",
+    z.unknown(),
+    () => {
+      sendInputActivityToOwner();
     },
   );
   unsubscribeDictationPartials = client.onNotification(
@@ -684,6 +821,17 @@ export const installHotkeyHelper = (): void => {
 
   handle(HELPER_HOTKEY_READ_FRONT_SELECTION, z.tuple([]), () =>
     readFrontSelection(),
+  );
+
+  handle(HELPER_APPS_RUNNING, z.tuple([z.array(z.string()).max(32)]), ([ids]) =>
+    runningApps(ids),
+  );
+  handle(HELPER_APPS_QUIT, z.tuple([z.string().max(255)]), ([bundleId]) =>
+    quitApp(bundleId),
+  );
+  handle(HELPER_APPS_FRONTMOST, z.tuple([]), () => frontmostApp());
+  handle(HELPER_INPUT_SET_ACTIVITY_WATCH, z.tuple([z.boolean()]), ([enable]) =>
+    setInputActivityWatch(enable),
   );
 
   handle(
@@ -752,9 +900,12 @@ export const __resetForTesting = (): void => {
   helperHoldsBinding = false;
   restoreHoldAfterRestart = false;
   restoreHoldInFlight = false;
+  desiredInputActivityWatch = false;
   holdIsOpen = false;
   unsubscribeHotkeyEvents?.();
   unsubscribeHotkeyEvents = null;
+  unsubscribeInputActivity?.();
+  unsubscribeInputActivity = null;
   unsubscribeHelperState?.();
   unsubscribeHelperState = null;
   unsubscribeDictationPartials?.();

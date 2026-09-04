@@ -26,6 +26,7 @@ import type {
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
+  DictationOfferAnswer,
   DictationPartialsResult,
   DictationTranscribeResult,
   HelperRestartResult,
@@ -59,9 +60,14 @@ import {
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
+  HELPER_APPS_FRONTMOST,
+  HELPER_APPS_QUIT,
+  HELPER_APPS_RUNNING,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
   HELPER_HOTKEY_READ_FRONT_SELECTION,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
+  HELPER_INPUT_ACTIVITY_EVENT,
+  HELPER_INPUT_SET_ACTIVITY_WATCH,
 } from "@vellumai/ipc-contract";
 import {
   createBundleConfirmBridge,
@@ -137,6 +143,10 @@ const bridge: VellumBridge = {
       ) as Promise<TextInsertionResult>,
     openAutomationSettings: (): Promise<void> =>
       ipcRenderer.invoke("vellum:text:openAutomationSettings") as Promise<void>,
+    undoInFrontApp: (): Promise<TextInsertionResult> =>
+      ipcRenderer.invoke(
+        "vellum:text:undoInFrontApp",
+      ) as Promise<TextInsertionResult>,
   },
   auth: {
     startOAuth: (options: {
@@ -201,6 +211,32 @@ const bridge: VellumBridge = {
         ipcRenderer.on("vellum:helper:hotkey:event", handler);
         return () => {
           ipcRenderer.off("vellum:helper:hotkey:event", handler);
+        };
+      },
+    },
+    apps: {
+      running: (bundleIds: readonly string[]): Promise<string[]> =>
+        ipcRenderer.invoke(HELPER_APPS_RUNNING, [...bundleIds]) as Promise<
+          string[]
+        >,
+      quit: (bundleId: string): Promise<boolean> =>
+        ipcRenderer.invoke(HELPER_APPS_QUIT, bundleId) as Promise<boolean>,
+      frontmost: (): Promise<string | null> =>
+        ipcRenderer.invoke(HELPER_APPS_FRONTMOST) as Promise<string | null>,
+    },
+    input: {
+      setActivityWatch: (enable: boolean): Promise<boolean> =>
+        ipcRenderer.invoke(
+          HELPER_INPUT_SET_ACTIVITY_WATCH,
+          enable,
+        ) as Promise<boolean>,
+      onActivity: (callback: () => void): (() => void) => {
+        const handler = () => {
+          callback();
+        };
+        ipcRenderer.on(HELPER_INPUT_ACTIVITY_EVENT, handler);
+        return () => {
+          ipcRenderer.off(HELPER_INPUT_ACTIVITY_EVENT, handler);
         };
       },
     },
@@ -535,6 +571,9 @@ const bridge: VellumBridge = {
       ) as Promise<ScreenCaptureFrame | null>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
+    },
+    answerDictationOffer: (answer: DictationOfferAnswer): void => {
+      ipcRenderer.send("vellum:companion:answerDictationOffer", answer);
     },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");

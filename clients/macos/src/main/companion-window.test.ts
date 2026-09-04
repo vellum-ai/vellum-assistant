@@ -2261,6 +2261,66 @@ describe("the watch summary main relays", () => {
   });
 });
 
+describe("the offer of Vellum's dictation on the surface", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context());
+    pushes.length = 0;
+  });
+
+  test("carries the offer through to the surface", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: { app: "Wispr Flow", text: "Send me the files." },
+    });
+    expect(state().dictationOffer).toEqual({
+      app: "Wispr Flow",
+      text: "Send me the files.",
+    });
+  });
+
+  /**
+   * The words and the way into the application they would go to went down
+   * with that window, so an offer left standing is one whose answers do
+   * nothing.
+   */
+  test("stops offering once the window that made the offer is gone", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: { app: "Wispr Flow", text: "Send me the files." },
+    });
+    expect(state().dictationOffer).toBeDefined();
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().dictationOffer).toBeUndefined();
+  });
+
+  test("a context with no offer reports none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().dictationOffer).toBeUndefined();
+  });
+
+  /**
+   * Every answer acts on the application in front, or on nothing, and the
+   * user is standing in that application, so none of them raises the app.
+   */
+  test("forwards every answer without raising the app", () => {
+    for (const answer of ["use", "quit", "dismiss"] as const) {
+      send("vellum:companion:answerDictationOffer", answer);
+    }
+    expect(dispatched).toEqual([
+      { kind: "answerDictationOffer", answer: "use" },
+      { kind: "answerDictationOffer", answer: "quit" },
+      { kind: "answerDictationOffer", answer: "dismiss" },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+});
+
 /**
  * The app's window is destroyed while this surface stays open.
  *

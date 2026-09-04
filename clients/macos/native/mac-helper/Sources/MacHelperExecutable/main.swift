@@ -7,33 +7,50 @@ import IOKit.hid
 import MacHelperCore
 import Speech
 
-private func hotkeyEventHandler(
-    _ nextHandler: EventHandlerCallRef?,
-    _ event: EventRef?,
-    _ userData: UnsafeMutableRawPointer?
-) -> OSStatus {
-    guard let event, let userData else {
-        return OSStatus(eventNotHandledErr)
+/// The keyboard tap's callback. Listen-only, so the event is always handed
+/// back untouched; what is read off it is the modifier flags and the fact of a
+/// key going down. A tap the system has switched off for taking too long is
+/// switched back on here, since a dead tap is a dead key with nothing to say
+/// so.
+private func keyboardTapCallback(
+    _ proxy: CGEventTapProxy,
+    _ type: CGEventType,
+    _ event: CGEvent,
+    _ userInfo: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+    guard let userInfo else {
+        return Unmanaged.passUnretained(event)
     }
-
-    let helper = Unmanaged<MacHelper>.fromOpaque(userData).takeUnretainedValue()
-    switch GetEventKind(event) {
-    case UInt32(kEventRawKeyModifiersChanged):
-        helper.handleRawKeyModifiersChanged(event)
-    case UInt32(kEventRawKeyDown):
+    let helper = Unmanaged<MacHelper>.fromOpaque(userInfo).takeUnretainedValue()
+    switch type {
+    case .flagsChanged:
+        helper.handleFlagsChanged(event.flags)
+    case .keyDown:
         helper.handleRawKeyDown()
+    case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+        helper.handleMouseDown()
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+        helper.reenableKeyboardTap()
     default:
-        return CallNextEventHandler(nextHandler, event)
+        break
     }
-
-    return noErr
+    return Unmanaged.passUnretained(event)
 }
 
 final class MacHelper: @unchecked Sendable {
     /// Whether this process re-exec'd with TCC responsibility disclaimed —
     /// the precondition for safely prompting for privacy permissions.
     let isDisclaimed: Bool
-    private var handlerRefs: [EventHandlerRef] = []
+    /// The keyboard tap the hold detector reads, and its run loop source.
+    ///
+    /// A `CGEventTap` at the HID point rather than a Carbon monitor-target
+    /// handler, and head-inserted there: other dictation apps watch the same
+    /// key with an active session-level tap that swallows it, and a monitor
+    /// downstream of that never hears the press at all. The HID point is
+    /// upstream of every session tap, so the key is seen before anyone can
+    /// take it. Listen-only, since the helper only ever reads.
+    private var keyboardTap: CFMachPort?
+    private var keyboardTapSource: CFRunLoopSource?
     private var modifierHoldDetector = ModifierHoldDetector()
     /// One mask per modifier of the configured set, each of which must be
     /// present in the flags for the set to count as held. A modifier is a pair
@@ -41,6 +58,11 @@ final class MacHelper: @unchecked Sendable {
     /// so "held" is per modifier rather than per bit.
     private var modifierHoldMasks: [UInt32] = []
     private var isModifierHoldDown = false
+    /// Whether presses are reported as activity, and when the last was, so a
+    /// burst of typing is one notification every so often rather than one per
+    /// key.
+    private var activityWatch = false
+    private var lastActivityReport = Date.distantPast
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -112,6 +134,64 @@ final class MacHelper: @unchecked Sendable {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
             }
             return self.readFrontSelection()
+        }
+        // Which of the given applications are running, by bundle identifier.
+        // The voice key asks before it arms Fn: another app watching the same
+        // key would fire beside it, and a press doing two things is worse
+        // than a key that stays out of the way.
+        router.register("apps.running") { params in
+            guard
+                let object = params as? [String: Any],
+                let bundleIds = object["bundleIds"] as? [String]
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "apps.running requires bundleIds"
+                )
+            }
+            let wanted = Set(bundleIds)
+            let running = NSWorkspace.shared.runningApplications
+                .compactMap(\.bundleIdentifier)
+                .filter { wanted.contains($0) }
+            return ["running": Array(Set(running)).sorted()]
+        }
+        // Ask an application to quit, the way a Quit menu item does. For the
+        // notice that offers to get a competing dictation app off the voice
+        // key. Whether it went is the caller's to check.
+        router.register("apps.quit") { params in
+            guard
+                let object = params as? [String: Any],
+                let bundleId = object["bundleId"] as? String
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "apps.quit requires bundleId"
+                )
+            }
+            let apps = NSRunningApplication.runningApplications(
+                withBundleIdentifier: bundleId
+            )
+            let asked = apps.map { $0.terminate() }.contains(true)
+            return ["asked": asked]
+        }
+        router.register("apps.frontmost") { _ in
+            let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            return ["bundleId": bundleId as Any? ?? NSNull()]
+        }
+        // Whether the user is typing or clicking anywhere, reported without
+        // which keys or where, for an offer that stands only while its edit
+        // is the last one.
+        router.register("input.setActivityWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setActivityWatch requires enable"
+                )
+            }
+            return try self.setActivityWatch(enable: enable)
         }
         router.register("permission.status") { [weak self] params in
             guard let self else {
@@ -238,19 +318,32 @@ final class MacHelper: @unchecked Sendable {
     /// purpose: it stays set for whole sessions and would disqualify every hold.
     private static let everyModifierMask: UInt32 =
         UInt32(cmdKey | shiftKey | optionKey | controlKey)
-        | UInt32(rightShiftKey | rightOptionKey | rightControlKey)
         | UInt32(kEventKeyModifierFnMask)
 
-    /// The masks a modifier name is held by, left and right hand alike.
+    /// The mask a modifier name is held by. The tap reports a modifier as one
+    /// bit whichever hand pressed it, so there is one mask per name.
     private static func masks(forModifier name: String) -> UInt32? {
         switch name {
         case "command": return UInt32(cmdKey)
-        case "shift": return UInt32(shiftKey | rightShiftKey)
-        case "option": return UInt32(optionKey | rightOptionKey)
-        case "control": return UInt32(controlKey | rightControlKey)
+        case "shift": return UInt32(shiftKey)
+        case "option": return UInt32(optionKey)
+        case "control": return UInt32(controlKey)
         case "function": return UInt32(kEventKeyModifierFnMask)
         default: return nil
         }
+    }
+
+    /// The tap's flags as the Carbon masks the detector's tables are written
+    /// in. Held modifiers only: latched state (Caps Lock) stays set across
+    /// whole sessions and must not read as a chord.
+    private static func carbonModifiers(_ flags: CGEventFlags) -> UInt32 {
+        var modifiers: UInt32 = 0
+        if flags.contains(.maskCommand) { modifiers |= UInt32(cmdKey) }
+        if flags.contains(.maskShift) { modifiers |= UInt32(shiftKey) }
+        if flags.contains(.maskAlternate) { modifiers |= UInt32(optionKey) }
+        if flags.contains(.maskControl) { modifiers |= UInt32(controlKey) }
+        if flags.contains(.maskSecondaryFn) { modifiers |= UInt32(kEventKeyModifierFnMask) }
+        return modifiers
     }
 
     private func feedModifierHold(modifiers: UInt32) {
@@ -268,23 +361,16 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    func handleRawKeyModifiersChanged(_ event: EventRef) {
-        var modifiers: UInt32 = 0
-        let status = GetEventParameter(
-            event,
-            EventParamName(kEventParamKeyModifiers),
-            EventParamType(typeUInt32),
-            nil,
-            MemoryLayout<UInt32>.size,
-            nil,
-            &modifiers
-        )
-        guard status == noErr else {
-            log("GetEventParameter(kEventParamKeyModifiers) failed with status \(status)")
-            return
-        }
+    func handleFlagsChanged(_ flags: CGEventFlags) {
+        feedModifierHold(modifiers: Self.carbonModifiers(flags))
+    }
 
-        feedModifierHold(modifiers: modifiers)
+    /// The system switches a tap off when its callback runs long or on the
+    /// user's say-so; a tap left off is a key that has silently died.
+    func reenableKeyboardTap() {
+        guard let keyboardTap else { return }
+        log("keyboard tap was disabled; enabling it again")
+        CGEvent.tapEnable(tap: keyboardTap, enable: true)
     }
 
     /// Whether any non-modifier key is down right now, per the session's
@@ -306,13 +392,40 @@ final class MacHelper: @unchecked Sendable {
         return false
     }
 
-    /// A key went down somewhere while the raw monitor is watching. Only its
+    /// A key went down somewhere while the tap is watching. Only its
     /// existence is consumed, never its identity: the one fact needed is
     /// that the current hold is a chord (Fn+Delete, Fn+arrow), not a hold.
     func handleRawKeyDown() {
         for edge in modifierHoldDetector.keyDown() {
             emitModifierHold(edge: edge)
         }
+        reportInputActivity()
+    }
+
+    /// A mouse button went down somewhere. Only the fact is consumed, never
+    /// the button or the point.
+    func handleMouseDown() {
+        reportInputActivity()
+    }
+
+    private func reportInputActivity() {
+        guard activityWatch,
+              Date().timeIntervalSince(lastActivityReport) > 0.25
+        else {
+            return
+        }
+        lastActivityReport = Date()
+        writeNotification(method: "input.activity")
+    }
+
+    private func setActivityWatch(enable: Bool) throws -> [String: Any] {
+        activityWatch = enable
+        if enable {
+            try ensureMonitorInstalled()
+        } else {
+            releaseMonitorIfUnused()
+        }
+        return ["enabled": enable]
     }
 
     private func readCommands() {
@@ -946,10 +1059,10 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    /// The raw keyboard monitor the hold detector reads. Installed when a
-    /// binding asks for it and removed once none is left.
+    /// The keyboard tap the hold detector reads. Installed when a binding asks
+    /// for it and removed once none is left.
     private func ensureMonitorInstalled() throws {
-        guard handlerRefs.isEmpty else {
+        guard keyboardTap == nil else {
             return
         }
         do {
@@ -961,76 +1074,54 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func releaseMonitorIfUnused() {
-        guard modifierHoldMasks.isEmpty else {
+        guard modifierHoldMasks.isEmpty, !activityWatch else {
             return
         }
         removeEventHandlers()
     }
 
     private func installEventHandlers() throws {
-        let monitorEvents = [
-            EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard),
-                eventKind: UInt32(kEventRawKeyModifiersChanged)
-            ),
-            // Key presses are observed only to disqualify a chord
-            // (`handleRawKeyDown`); the events' contents are never read.
-            EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard),
-                eventKind: UInt32(kEventRawKeyDown)
-            ),
-        ]
-        try installHandler(
-            target: GetEventMonitorTarget(),
-            eventTypes: monitorEvents,
-            operation: "InstallEventHandler(GetEventMonitorTarget)"
-        )
-
-        let applicationEvents = [
-            EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard),
-                eventKind: UInt32(kEventRawKeyModifiersChanged)
-            ),
-        ]
-        try installHandler(
-            target: GetApplicationEventTarget(),
-            eventTypes: applicationEvents,
-            operation: "InstallEventHandler(GetApplicationEventTarget)"
-        )
-    }
-
-    private func installHandler(
-        target: EventTargetRef?,
-        eventTypes: [EventTypeSpec],
-        operation: String
-    ) throws {
-        guard let target else {
-            throw HelperError.carbon(operation, OSStatus(eventNotHandledErr))
+        // Modifier changes carry the hold; key presses are observed only to
+        // disqualify a chord (`handleRawKeyDown`), and their contents are
+        // never read.
+        // Mouse presses ride along only to report activity: a click moves the
+        // cursor, and an offer to replace the last edit is void once it has
+        // moved. Where the click landed is never read.
+        let mask = (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue)
+        let userInfo = Unmanaged.passUnretained(self).toOpaque()
+        // Creation fails without Input Monitoring, which is the one way the
+        // grant shows itself here: the tap is silent rather than refused.
+        guard let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: CGEventMask(mask),
+            callback: keyboardTapCallback,
+            userInfo: userInfo
+        ) else {
+            throw HelperError.eventTap("CGEvent.tapCreate(HID, listenOnly)")
         }
-
-        var installedHandler: EventHandlerRef?
-        let userData = Unmanaged.passUnretained(self).toOpaque()
-        let status = eventTypes.withUnsafeBufferPointer { buffer in
-            InstallEventHandler(
-                target,
-                hotkeyEventHandler,
-                buffer.count,
-                buffer.baseAddress,
-                userData,
-                &installedHandler
-            )
-        }
-        guard status == noErr, let installedHandler else {
-            throw HelperError.carbon(operation, status)
-        }
-        handlerRefs.append(installedHandler)
+        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        keyboardTap = tap
+        keyboardTapSource = source
     }
 
     private func removeEventHandlers() {
-        for ref in handlerRefs {
-            RemoveEventHandler(ref)
+        if let keyboardTap {
+            CGEvent.tapEnable(tap: keyboardTap, enable: false)
+            CFMachPortInvalidate(keyboardTap)
         }
-        handlerRefs.removeAll()
+        if let keyboardTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), keyboardTapSource, .commonModes)
+        }
+        keyboardTap = nil
+        keyboardTapSource = nil
     }
 
     private func shutdown() {
@@ -1045,6 +1136,7 @@ final class MacHelper: @unchecked Sendable {
         // down with the binding.
         cancelModifierHold()
         modifierHoldMasks = []
+        activityWatch = false
         releaseMonitorIfUnused()
     }
 
@@ -1072,11 +1164,14 @@ final class MacHelper: @unchecked Sendable {
 
 private enum HelperError: LocalizedError {
     case carbon(String, OSStatus)
+    case eventTap(String)
 
     var errorDescription: String? {
         switch self {
         case let .carbon(operation, status):
             return "\(operation) failed with status \(status)"
+        case let .eventTap(operation):
+            return "\(operation) failed; Input Monitoring may not be granted"
         }
     }
 }

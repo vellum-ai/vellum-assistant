@@ -39,6 +39,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationOfferAnswer,
   DictationTranscribeResult,
   DownloadDoneEvent,
   ModifierHold,
@@ -193,6 +194,13 @@ export interface VellumBridge {
   };
   text: {
     insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+    /**
+     * Undo the last edit in the application in front, the way its Edit menu
+     * would. For putting Vellum's dictation in the place of one another app
+     * pasted a moment ago. Absent on shells without a voice key, which are
+     * the shells with nothing to put in another app's place.
+     */
+    undoInFrontApp?(): Promise<TextInsertionResult>;
     openAutomationSettings(): Promise<void>;
   };
   auth: {
@@ -248,6 +256,31 @@ export interface VellumBridge {
       readFrontSelection?(): Promise<HotkeySelection | null>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
+    };
+    /**
+     * Which of the named applications are running, by bundle identifier.
+     * Absent on shells whose helper cannot ask the workspace.
+     */
+    apps?: {
+      running(bundleIds: readonly string[]): Promise<string[]>;
+      /**
+       * Ask an application to quit. Only the apps in `FN_CLAIMANTS` can be
+       * asked; anything else resolves `false` without asking.
+       */
+      quit(bundleId: string): Promise<boolean>;
+      /** The bundle identifier of the application in front, or `null`. */
+      frontmost(): Promise<string | null>;
+    };
+    /**
+     * Whether the user is typing or clicking anywhere, without which keys or
+     * where. For a surface offering to replace an edit: any press after that
+     * edit means it is no longer the last one, and a click moves the cursor
+     * the replacement would land at. Absent on shells whose helper does not
+     * watch the input stream.
+     */
+    input?: {
+      setActivityWatch(enable: boolean): Promise<boolean>;
+      onActivity(callback: () => void): () => void;
     };
     dictation: {
       setPartials(
@@ -615,6 +648,12 @@ export interface VellumBridge {
      * comes back either way is `watchRetro` going absent on `onState`.
      */
     answerWatchRetro(open: boolean): void;
+    /**
+     * Answer the offer of Vellum's version of a dictation another app
+     * pasted. See the `answerDictationOffer` command; every answer travels,
+     * since the window that made the offer is the one holding it.
+     */
+    answerDictationOffer(answer: DictationOfferAnswer): void;
     /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.

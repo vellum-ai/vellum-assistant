@@ -21,7 +21,10 @@ import type {
   Ref,
 } from "react";
 
-import type { CompanionDictating } from "@vellumai/ipc-contract";
+import type {
+  CompanionDictating,
+  CompanionDictationOffer,
+} from "@vellumai/ipc-contract";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
@@ -150,6 +153,20 @@ export type CompanionSurfacePhase =
    * everything is: that is something they are already inside.
    */
   | "dictating"
+  /**
+   * Offer: the pill held open by Vellum's version of a dictation another app
+   * has already pasted.
+   *
+   * Nothing on macOS owns a key, so a hold of the voice key with another
+   * dictation app running dictates twice. Rather than paste beside that app's
+   * words, Vellum shows its own and asks: use them instead, get that app off
+   * the key, or leave it. Open regardless of the pointer, for the reason
+   * `summary` is: a question waiting on an answer rather than a hint.
+   *
+   * It ranks below `dictating`, since a new hold is a new question, and above
+   * `watching`, since it lasts seconds rather than minutes.
+   */
+  | "offer"
   /**
    * Call: the pill held open by a live-voice session, or by the press that
    * asked for one.
@@ -305,6 +322,12 @@ export const NAME_DWELL_MS = 500;
 const TRANSCRIPT_WIDTH = 244;
 
 /**
+ * The width of the offer's line in the pill: the other app's name and a few
+ * words, since the words themselves are on the card beside it.
+ */
+const OFFER_WIDTH = 200;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -343,6 +366,9 @@ export const FALLBACK_WIDTHS: Record<
   // has a stated width whatever is in it, so this is the state's actual width
   // rather than a guess at one.
   dictating: TRANSCRIPT_WIDTH + 32,
+  // The offer's line beside the icon and the row's own clearance, with a
+  // stated width for the reason the transcript's has one.
+  offer: OFFER_WIDTH + 32,
   // The line and the five controls of the handlebar, with Teach and Share
   // both held down and so spelling their names out, which is the widest a
   // call draws.
@@ -577,6 +603,20 @@ export interface CompanionSurfaceProps {
    * comes back is {@link CompanionSurfaceProps.watchRetro} going absent.
    */
   onWatchRetro?: (open: boolean) => void;
+  /**
+   * Vellum's version of a dictation another app pasted, while the offer to
+   * use it stands. Its own prop for the reason {@link CompanionSurfaceProps.watchRetro}
+   * is: a call outranks the phase, and an offer must not lose its answer
+   * because the user picked up the phone.
+   */
+  dictationOffer?: CompanionDictationOffer;
+  /**
+   * The card offering those words and the answers to them, drawn beside the
+   * surface while the offer stands. Composed by the caller for the reason the
+   * picker is: the card is a sibling of the pill, and the page that owns the
+   * answer owns it.
+   */
+  offer?: ReactNode;
 
   /**
    * Whether Teach is offered on the call row at all, which is the feature flag
@@ -671,6 +711,8 @@ export function CompanionSurface({
   watching = false,
   watchRetro,
   onWatchRetro,
+  dictationOffer,
+  offer,
   watchEnabled = false,
   dictating,
   dictationText = "",
@@ -691,6 +733,7 @@ export function CompanionSurface({
   const expanded =
     phase === "call" ||
     phase === "dictating" ||
+    phase === "offer" ||
     phase === "summary" ||
     phase === "watching";
   /** Whether the creature is out of its capsule, which hover alone does. */
@@ -971,6 +1014,8 @@ export function CompanionSurface({
               />
             ) : phase === "summary" && watchRetro !== undefined ? (
               <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
+            ) : phase === "offer" && dictationOffer !== undefined ? (
+              <OfferBody offer={dictationOffer} />
             ) : (
               <IdleBody watching={watching} onWatch={onWatch} />
             )}
@@ -1065,6 +1110,7 @@ export function CompanionSurface({
       />
       {intro}
       {picker}
+      {offer}
     </div>
   );
 }
@@ -1412,6 +1458,28 @@ function DictatingBody({
             : t("companionSurface.dictatingTranscribing")}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * The pill's line while Vellum's version of a dictation is on offer beside it.
+ *
+ * Only the fact and the other app's name. The words and the answers are on
+ * the card ({@link CompanionSurfaceProps.offer}), since the pill is one line
+ * tall and the words have to be read whole.
+ */
+function OfferBody({ offer }: { offer: CompanionDictationOffer }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-2 px-1">
+      <AudioLines className="size-4 shrink-0" aria-hidden />
+      <span
+        className="truncate text-[12px] text-white/85"
+        style={{ width: OFFER_WIDTH }}
+      >
+        {t("companionSurface.offerHeard", { app: offer.app })}
+      </span>
     </div>
   );
 }

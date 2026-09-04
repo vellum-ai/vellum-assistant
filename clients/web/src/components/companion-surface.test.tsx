@@ -1227,6 +1227,23 @@ describe("the companion surface's dial", () => {
  * rest across that gap reads as the recording having been thrown away, and the
  * report would land in a thread nobody was ever shown.
  */
+describe("the offer of Vellum's dictation", () => {
+  test("names the app that pasted, and leaves the words to the card", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="offer"
+        dictationOffer={{ app: "Wispr Flow", text: "Send me the files." }}
+        offer={<div data-testid="offer-card" />}
+      />,
+    );
+    expect(container.textContent).toContain("Wispr Flow pasted that");
+    expect(
+      container.querySelector('[data-testid="offer-card"]'),
+    ).not.toBeNull();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+});
+
 describe("the summary a finished watch session leaves on the surface", () => {
   test("says the summary is being written while the turn runs", () => {
     const { container } = render(

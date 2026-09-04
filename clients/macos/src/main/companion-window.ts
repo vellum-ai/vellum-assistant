@@ -74,6 +74,7 @@ import {
   resolveCapturePick,
   windowBoundsFor,
 } from "./companion-capture-sources";
+import { setPointerOnCompanion } from "./companion-pointer";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
@@ -554,6 +555,10 @@ const currentState = (): CompanionSurfaceState => {
     // has no resting value to settle to, since every value it can hold is a
     // claim that something is happening.
     watchRetro: context.watchRetro,
+    // Passed through as it arrived, for the reason `watchRetro` is: an offer
+    // is a claim that something was said, and absence is the only way to say
+    // nothing was.
+    dictationOffer: context.dictationOffer,
     // Settled the same way, and to zero rather than to anything carried over:
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
@@ -1213,6 +1218,9 @@ const syncCallSurface = (): void => {
  * many times the size of anything visible.
  */
 const setInteractive = (interactive: boolean): void => {
+  // Read by the input-activity forwarder, which must not read a press on
+  // these controls as an edit in the user's document.
+  setPointerOnCompanion(interactive);
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
@@ -1581,6 +1589,19 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * The answer to the offer of Vellum's dictation. Never raises the app: every
+   * answer acts on the application in front, or on nothing, and the user is
+   * standing in that application.
+   */
+  on(
+    "vellum:companion:answerDictationOffer",
+    z.tuple([z.enum(["use", "quit", "dismiss"])]),
+    ([answer]) => {
+      dispatchWithoutRaising({ kind: "answerDictationOffer", answer });
+    },
+  );
+
+  /**
    * The assistant's name and what the window holding it knows about the turn
    * and the sessions it is running.
    *
@@ -1793,6 +1814,7 @@ export const installCompanionWindow = (): void => {
       context.watching === true ||
       context.screenShare !== undefined ||
       context.dictating !== undefined ||
+      context.dictationOffer !== undefined ||
       dialing;
     if (!claiming) {
       return;
@@ -1808,6 +1830,10 @@ export const installCompanionWindow = (): void => {
       screenShareEnabled: false,
       dictating: undefined,
       dictationText: undefined,
+      // The offer belongs to that window too: the words and the way into the
+      // application they would go to went down with it, so an offer left
+      // standing is one whose answers do nothing.
+      dictationOffer: undefined,
     };
     syncWatchFrame();
     pushState();

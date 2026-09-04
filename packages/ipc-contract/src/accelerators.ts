@@ -49,6 +49,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommand["kind"], string> = {
   toggleWatch: "",
   setScreenShare: "",
   answerWatchRetro: "",
+  answerDictationOffer: "",
   cancelDictation: "",
   replayOnboarding: "",
   replayHatchFailure: "",

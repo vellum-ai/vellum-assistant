@@ -86,6 +86,8 @@ const captureLanded = () => {
 };
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
+const { clearDictationOffer, setDictationOffer } =
+  await import("@/domains/chat/voice/dictation-offer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
@@ -314,6 +316,31 @@ describe("the middle of a turn, where the client looks idle", () => {
  * it. Without this the surface would go quiet for the whole of a turn the user
  * is waiting on.
  */
+describe("the dictation offer the companion mirror publishes", () => {
+  const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+
+  test("says nothing while none stands", () => {
+    render(<Mirror />);
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  test("carries the words and the other app's name while it stands", async () => {
+    render(<Mirror />);
+    setDictationOffer(WISPR, "Send me the files.", null);
+    await waitFor(() => {
+      expect(latest().dictationOffer).toEqual({
+        app: "Wispr Flow",
+        text: "Send me the files.",
+      });
+    });
+
+    clearDictationOffer();
+    await waitFor(() => {
+      expect(latest().dictationOffer).toBeUndefined();
+    });
+  });
+});
+
 describe("the watch summary the companion mirror publishes", () => {
   const SESSION = {
     sessionId: "sess-1",

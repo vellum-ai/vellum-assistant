@@ -21,6 +21,7 @@ import {
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
+  COMPANION_DICTATION_OFFER_MAX,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -174,6 +175,15 @@ export const companionContextSchema = z.object({
   // the boundary as well as at the publisher, since the surface draws one line
   // and the length is the only part of this a sender controls.
   dictationText: z.string().max(COMPANION_DICTATION_TAIL).catch("").default(""),
+  // Optional rather than defaulted, for the reason `watchRetro` is: an offer
+  // is a claim that something was said, and absence is the only way to say
+  // nothing was. Bounded at the boundary as `dictationText` is.
+  dictationOffer: z
+    .object({
+      app: z.string().max(80),
+      text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+    })
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------

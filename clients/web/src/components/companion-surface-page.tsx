@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
   introPhase,
@@ -17,6 +18,7 @@ import {
 import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
+  answerCompanionDictationOffer,
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   getCompanionState,
@@ -43,6 +45,7 @@ import type {
   CompanionWatchRetro,
   CompanionDictating,
   VoiceActivityState,
+  CompanionDictationOffer as CompanionDictationOfferWords,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
@@ -116,6 +119,11 @@ export function CompanionSurfacePage() {
   const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
     undefined,
   );
+  // Vellum's version of a dictation another app pasted, while the offer to
+  // use it stands. Its own state for the reason `watchRetro` is.
+  const [dictationOffer, setDictationOffer] = useState<
+    CompanionDictationOfferWords | undefined
+  >(undefined);
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
   // Whether a session started from the app's window can be told what to
@@ -166,6 +174,8 @@ export function CompanionSurfacePage() {
   // The picker's card, hit-tested for the reason the introduction's is: every
   // row on it is a press.
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  // The offer's card, for the reason the picker's is.
+  const offerRef = useRef<HTMLDivElement | null>(null);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -206,6 +216,7 @@ export function CompanionSurfacePage() {
       setDictating(state.dictating);
       setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
+      setDictationOffer(state.dictationOffer);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -351,6 +362,16 @@ export function CompanionSurfacePage() {
     }
   }, [picking]);
 
+  // An answer or the offer's own expiry removes the card, and if the pointer
+  // is resting on it nothing moves, so no mouse-move arrives to hand the
+  // desktop back. Give it back here, the way the picker does.
+  useEffect(() => {
+    if (dictationOffer === undefined && interactiveRef.current) {
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, [dictationOffer]);
+
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
     setPicking(false);
@@ -429,11 +450,13 @@ export function CompanionSurfacePage() {
       ? "call"
       : dictating !== undefined
         ? "dictating"
-        : watching
-          ? "watching"
-          : watchRetro !== undefined
-            ? "summary"
-            : (introHeld ?? (hovered ? "hover" : "resting"));
+        : dictationOffer !== undefined
+          ? "offer"
+          : watching
+            ? "watching"
+            : watchRetro !== undefined
+              ? "summary"
+              : (introHeld ?? (hovered ? "hover" : "resting"));
 
   /**
    * Hit-test the pointer against the surface on every move.
@@ -524,6 +547,15 @@ export function CompanionSurfacePage() {
         event.clientX,
         event.clientY,
       );
+    // The offer's card, for the same reason and for as long as it is drawn.
+    const offerCard = offerRef.current;
+    const onOffer =
+      offerCard !== null &&
+      containsPoint(
+        offerCard.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // The picker's card, for the same reason and for as long as it is drawn.
     const pickerCard = pickerRef.current;
     const onPicker =
@@ -538,7 +570,7 @@ export function CompanionSurfacePage() {
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
     setHovered(onSurface);
-    setInteractive(onSurface || onIntro || onPicker);
+    setInteractive(onSurface || onIntro || onPicker || onOffer);
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
@@ -620,6 +652,23 @@ export function CompanionSurfacePage() {
         // router, and the answer has to reach the side holding the question
         // or the prompt comes back on the next push.
         onWatchRetro={answerCompanionWatchRetro}
+        // Out through main to the window that made the offer, for the reason
+        // the retro's answer goes: this page holds neither the words nor the
+        // application they went into.
+        dictationOffer={dictationOffer}
+        offer={
+          dictationOffer !== undefined ? (
+            <CompanionDictationOffer
+              offer={dictationOffer}
+              growth={growth}
+              cardGrowth={cardGrowth}
+              avatarBox={avatarBox}
+              optionsBox={optionsBox}
+              cardRef={offerRef}
+              onAnswer={answerCompanionDictationOffer}
+            />
+          ) : null
+        }
         // The reads that session has taken, which is what turns a running
         // session into something the user can see happening rather than
         // something they are told is on.

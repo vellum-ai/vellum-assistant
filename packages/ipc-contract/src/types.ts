@@ -148,6 +148,13 @@ export type VellumCommand =
    */
   | { kind: "answerWatchRetro"; open: boolean }
   /**
+   * Answer the offer the surface makes when another dictation app pasted
+   * what the voice key heard: put Vellum's version in its place, get that
+   * app off the key, or leave things as they are. See
+   * {@link CompanionDictationOffer}.
+   */
+  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer }
+  /**
    * Start a live-voice session, or end the one that is running.
    *
    * The keyboard's version of Talk. It differs from `startVoice` in the one
@@ -1182,6 +1189,30 @@ export interface CompanionCharacter {
 export type CompanionWatchRetro = "pending" | "ready";
 
 /**
+ * Vellum's version of a dictation another app has already pasted.
+ *
+ * Nothing on macOS owns a key, so a hold of the voice key with another
+ * dictation app running dictates twice. Rather than paste beside that app's
+ * words, Vellum offers its own: the surface shows them and asks whether to
+ * use them instead, to get the other app off the key, or to leave it. `app`
+ * is that app's name; `text` is bounded at
+ * {@link COMPANION_DICTATION_OFFER_MAX}.
+ */
+export interface CompanionDictationOffer {
+  app: string;
+  text: string;
+}
+
+/**
+ * The most an offered dictation can be, in characters. One bound for the
+ * store, the surface and the insert, so what the user reads on the card is
+ * what "use" puts in the document. Far above any hold's worth of speech.
+ */
+export const COMPANION_DICTATION_OFFER_MAX = 2000;
+
+export type DictationOfferAnswer = "use" | "quit" | "dismiss";
+
+/**
  * What a watch session reads, once the user has picked: one display or one
  * window.
  *
@@ -1396,6 +1427,12 @@ export interface CompanionContext {
    * is why it is shown and not what gets inserted anywhere.
    */
   dictationText?: string;
+  /**
+   * Vellum's version of a dictation another app pasted, while the offer to
+   * use it stands. Absent when there is none. See
+   * {@link CompanionDictationOffer}.
+   */
+  dictationOffer?: CompanionDictationOffer;
 }
 
 /**
@@ -1556,6 +1593,8 @@ export interface CompanionSurfaceState {
    * Optional, and absence means there is nothing to draw.
    */
   watchRetro?: CompanionWatchRetro;
+  /** Vellum's version of a dictation another app pasted, while offered. */
+  dictationOffer?: CompanionDictationOffer;
 
   /**
    * How many screen reads the running session has taken, from the window that

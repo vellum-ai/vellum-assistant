@@ -102,6 +102,7 @@ import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
+import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actions";
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -395,6 +396,12 @@ export function RootLayout() {
       // thread's subagent and workflow state still standing is what
       // `navigateToConversation` exists to prevent.
       navigateToConversation(navigate, retro.conversationId);
+    },
+    answerDictationOffer: (command) => {
+      if (command.kind !== "answerDictationOffer") {
+        return;
+      }
+      void answerDictationOffer(command.answer);
     },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so

@@ -16,6 +16,8 @@ import log from "./logger";
 const CLIPBOARD_RESTORE_DELAY_MS = 500;
 const PASTE_SHORTCUT_SCRIPT =
   'tell application "System Events" to keystroke "v" using command down';
+const UNDO_SHORTCUT_SCRIPT =
+  'tell application "System Events" to keystroke "z" using command down';
 
 const AUTOMATION_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation";
@@ -207,6 +209,35 @@ export const typeIntoFrontAppWithDeps = async (
 export const typeIntoFrontApp = (text: string): Promise<TextInsertionResult> =>
   typeIntoFrontAppWithDeps(text, defaultDeps);
 
+/**
+ * Undo the last edit in the application in front, the way its Edit menu
+ * would. The same keystroke path a paste takes, and the same guard: a Vellum
+ * window in front means there is no other application to undo in.
+ *
+ * A paste is one undo step in every editor worth the name, which is what
+ * makes this the way to put one dictation in the place of another. What the
+ * application actually undoes is its own affair; nothing here can check.
+ */
+export const undoInFrontAppWithDeps = async (
+  deps: Pick<TextInsertionDeps, "getFocusedWindow" | "runAppleScript" | "warn">,
+): Promise<TextInsertionResult> => {
+  if (deps.getFocusedWindow() !== null) {
+    return { status: "vellum-focused" };
+  }
+  try {
+    await deps.runAppleScript(UNDO_SHORTCUT_SCRIPT);
+    return { status: "inserted" };
+  } catch (err) {
+    deps.warn("[text-insertion] undo shortcut failed:", err);
+    return isAutomationDeniedError(err)
+      ? { status: "automation-denied" }
+      : { status: "blocked" };
+  }
+};
+
+export const undoInFrontApp = (): Promise<TextInsertionResult> =>
+  undoInFrontAppWithDeps(defaultDeps);
+
 export const openAutomationSettings = (): Promise<void> =>
   shell.openExternal(AUTOMATION_SETTINGS_URL);
 
@@ -217,4 +248,5 @@ export const installTextInsertionIpc = (): void => {
   handle("vellum:text:openAutomationSettings", z.tuple([]), () =>
     openAutomationSettings(),
   );
+  handle("vellum:text:undoInFrontApp", z.tuple([]), () => undoInFrontApp());
 };
