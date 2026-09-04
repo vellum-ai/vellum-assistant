@@ -21,9 +21,10 @@ import { hostTransferExecutor } from "@vellumai/electron-desktop/host-proxy/exec
 import { createHostUiSnapshotExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-ui-snapshot-executor";
 
 import { getDevRendererBase, RENDERER_BASE_PROD } from "./app-config";
+import { showCompanionCoachmarks } from "./companion-window";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
 import { hostBashExecutor } from "./executors/host-bash-adapter";
-import { hostCuExecutor } from "./executors/host-cu-executor";
+import { createHostCuExecutor } from "./executors/host-cu-executor";
 import {
   getWatchedLockfile,
   onLockfileChange,
@@ -85,7 +86,12 @@ export const installHostProxyBridge = (
       host_file: hostFileExecutor,
       host_transfer: hostTransferExecutor,
       host_browser: browserExecutor,
-      host_cu: hostCuExecutor,
+      // Built here rather than imported ready-made: pointing at the shared
+      // surface is answered in this process, and what it draws on belongs to
+      // the window layer. The wiring is the app's to do.
+      host_cu: createHostCuExecutor({
+        showCoachmarks: showCompanionCoachmarks,
+      }),
       host_app_control: hostAppControlExecutor,
       host_ui_snapshot: uiSnapshotExecutor,
     },
