@@ -289,6 +289,32 @@ describe("CameraStatusPill", () => {
     // Glass, so the frame reads through a mark that is only sampling it.
     expect(pill().className).toContain("bg-[rgba(0,0,0,0.34)]");
     expect(pill().className).toContain("backdrop-blur-[8px]");
+    // The scrim has contrast to spend, so the session's word sits back from
+    // the mode word in front of it.
+    expect(screen.getByTestId("camera-status-word").className).toContain(
+      "opacity-80",
+    );
+  });
+
+  test("the live fill takes its status word at full strength", () => {
+    render(
+      <CameraStatusPill
+        mode="live"
+        voiceState="idle"
+        statusLabel="Listening…"
+        assistantName="Luna"
+      />,
+    );
+
+    // The fill is the accent adjusted to land on the text floor exactly, so
+    // there is no headroom to spend on de-emphasis: an alpha here would put
+    // the session's word under the floor the fill was chosen to meet.
+    expect(screen.getByTestId("camera-status-word").className).not.toContain(
+      "opacity-",
+    );
+    expect(screen.getByTestId("camera-status-word").className).toContain(
+      "truncate",
+    );
   });
 
   test("live fills with the capture accent and says so", () => {

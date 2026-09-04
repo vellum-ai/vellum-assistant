@@ -152,6 +152,13 @@ scrim.
       shutter ring over the feed are whatever colour the assistant is; if one of
       those fails it fails on the waves and the shimmer too, and the fix belongs
       in the avatar accent system rather than in the camera.
+- [ ] The Live pill's second word is not dimmed. On the filled pill the
+      session's word, or the assistant's name in its place, is the same
+      strength as "Live" in front of it; on the glass Photo pill it sits back a
+      step. The filled pill has no strength to give away: it wears the accent
+      adjusted to land on the text floor exactly, so a word drawn at 80% there
+      composites back under it. The faint separator between the two stays faint
+      in both, since it is a mark rather than a word.
 - [ ] The Live pill is opaque and the same colour on every frame. Point the
       camera at something black and then at something white with Live running.
       The pill does not change shade with the frame behind it, which is what

@@ -245,7 +245,15 @@ export function CameraStatusPill({
                 name to an ellipsis, and the mode word beside it stays whole. */}
             <span
               data-testid="camera-status-word"
-              className="truncate opacity-80"
+              className={cn(
+                "truncate",
+                // The de-emphasis is the glass pill's alone. Its scrim leaves
+                // contrast to spend; the Live fill is the accent adjusted to
+                // land exactly on the text floor, so an alpha under 1 there
+                // spends what the fill does not have. See `.camera-live-fill`
+                // and `legibleAccentFill`.
+                mode === "photo" && "opacity-80",
+              )}
             >
               {voiceWord}
             </span>
