@@ -425,13 +425,19 @@ export function AutoTopUpCard() {
 
   /**
    * The backend requires a daily credit limit while auto-reload is on, so a
-   * save goes through the gate unless a limit is known to be on file. Save
-   * stays disabled until the daily-limit lookup settles (`saveDisabled` on
-   * the form below); a lookup that failed without ever producing data also
-   * gates, since setting a limit is the one move that is safe either way.
+   * save goes through the gate unless a limit is known to be on file. While
+   * the limit is unknown (lookup still loading, or failed without ever
+   * producing data) Save stays disabled and nothing is gated: the gate's
+   * default would replace a limit the org may already have.
    */
+  const dailyLimitUnknown = dailyLimitQuery.data == null;
+  const dailyLimitLookupFailed = dailyLimitQuery.isError && dailyLimitUnknown;
   const handleSave = (values: AutoTopUpFormValues) => {
-    if (dailyLimitQuery.data?.daily_credit_limit_usd == null) {
+    const dailyLimit = dailyLimitQuery.data;
+    if (dailyLimit == null) {
+      return;
+    }
+    if (dailyLimit.daily_credit_limit_usd == null) {
       setGatedValues(values);
       return;
     }
@@ -717,6 +723,27 @@ export function AutoTopUpCard() {
         </Notice>
       )}
 
+      {isFormMode && dailyLimitLookupFailed && (
+        <Notice
+          tone="error"
+          className="mt-4"
+          data-testid="auto-top-up-daily-limit-lookup-error"
+          actions={
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={() => void dailyLimitQuery.refetch()}
+              disabled={dailyLimitQuery.isFetching}
+              data-testid="auto-top-up-daily-limit-retry-button"
+            >
+              {t("autoTopUpCard.retry")}
+            </Button>
+          }
+        >
+          {t("autoTopUpCard.dailyLimitLookupError")}
+        </Notice>
+      )}
+
       {isFormMode && (
         <AutoTopUpForm
           initialValues={
@@ -729,7 +756,7 @@ export function AutoTopUpCard() {
               : undefined
           }
           submitting={updateMutation.isPending}
-          saveDisabled={dailyLimitQuery.isPending}
+          saveDisabled={dailyLimitUnknown}
           serverErrors={fieldErrors}
           onCancel={exitFormMode}
           onSave={handleSave}

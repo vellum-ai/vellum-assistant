@@ -13,7 +13,7 @@ export interface AutoTopUpFormValues {
 export interface AutoTopUpFormProps {
   initialValues?: AutoTopUpFormValues;
   submitting: boolean;
-  /** Keeps Save inert while a prerequisite of the save is still loading. */
+  /** Keeps Save inert while a prerequisite of the save is still unknown. */
   saveDisabled?: boolean;
   serverErrors: Record<string, string>;
   onSave: (values: AutoTopUpFormValues) => void;

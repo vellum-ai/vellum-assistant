@@ -22,8 +22,8 @@
  *    instead of persisting; saving a limit there persists it and then the
  *    auto-reload config, while declining leaves auto-reload off (dropping a
  *    pending enable, or disabling a config that was already on). Save stays
- *    disabled until the daily-limit lookup settles, and a failed lookup
- *    gates too.
+ *    disabled while the limit is unknown: until the lookup settles, and
+ *    after a failed lookup, which shows a retry that unblocks it.
  *  - Save and Disable both seed the config cache from a response that carries
  *    no payment-method fields, so both carry the cached ones forward: the card
  *    expiry and the saved billing address survive until the next GET.
@@ -954,7 +954,11 @@ describe("AutoTopUpCard daily credit limit gate", () => {
     expect(updateCalls).toEqual([]);
   });
 
-  test("a failed daily-limit lookup opens the gate rather than persisting", async () => {
+  test("a failed daily-limit lookup keeps Save disabled until a retry settles it", async () => {
+    // With no cached limit and a failed GET, the org may still have a limit
+    // on file, so neither the gate (whose default would replace it) nor the
+    // PUT may run. The retry refetches; once the lookup reports no limit,
+    // Save unlocks and goes through the gate.
     retrieveResponse = { ...DISABLED_WITH_CARD };
     dailyLimitRetrieve = () => Promise.reject(new Error("lookup failed"));
     const client = makeClient(DISABLED_WITH_CARD);
@@ -974,9 +978,26 @@ describe("AutoTopUpCard daily credit limit gate", () => {
     });
 
     fireEvent.click(getByLabelText("Enable auto-reload"));
-    const save = getByTestId("auto-top-up-save-button") as HTMLButtonElement;
-    expect(save.disabled).toBe(false);
-    fireEvent.click(save);
+    const save = () =>
+      getByTestId("auto-top-up-save-button") as HTMLButtonElement;
+    expect(save().disabled).toBe(true);
+    expect(
+      queryByTestId("auto-top-up-daily-limit-lookup-error"),
+    ).not.toBeNull();
+    fireEvent.click(save());
+    expect(queryByTestId("auto-top-up-daily-limit-modal")).toBeNull();
+
+    dailyLimitRetrieve = null;
+    dailyLimitResponse = { ...NO_DAILY_LIMIT };
+    fireEvent.click(getByTestId("auto-top-up-daily-limit-retry-button"));
+
+    await waitFor(() => {
+      if (save().disabled) {
+        throw new Error("Save still disabled after the retry");
+      }
+    });
+    expect(queryByTestId("auto-top-up-daily-limit-lookup-error")).toBeNull();
+    fireEvent.click(save());
 
     expect(queryByTestId("auto-top-up-daily-limit-modal")).not.toBeNull();
     expect(updateCalls).toEqual([]);
