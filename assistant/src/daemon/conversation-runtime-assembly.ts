@@ -15,7 +15,11 @@ import {
   resolveAppDir,
   resolveAppSource,
 } from "../apps/app-store.js";
-import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import {
+  type ChannelId,
+  parseInterfaceId,
+  supportsDesktopUiSurface,
+} from "../channels/types.js";
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
@@ -301,7 +305,7 @@ export function resolveChannelCapabilities(
 
   switch (channel) {
     case "vellum": {
-      const supportsDesktopUi = iface === "macos";
+      const supportsDesktopUi = supportsDesktopUiSurface(iface);
       return {
         channel,
         dashboardCapable: supportsDesktopUi,

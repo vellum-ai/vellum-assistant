@@ -37,7 +37,7 @@ import {
   jpegFilenameFor,
   normalizeImageBytes,
 } from "../../util/image-conversion.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getUserAppDataDir, getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -87,8 +87,9 @@ function resolveAllowedAttachmentDirectories(): string[] {
     "attachments",
   );
   const recordingsDir = join(
-    process.env.HOME ?? "",
-    "Library/Application Support/vellum-assistant/recordings",
+    getUserAppDataDir(),
+    "vellum-assistant",
+    "recordings",
   );
   return [workspaceAttachmentsDir, recordingsDir].map((dir) => {
     try {

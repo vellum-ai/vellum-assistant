@@ -293,6 +293,14 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
+  test("vellum channel with linux interface has full desktop capabilities", () => {
+    const caps = resolveChannelCapabilities(undefined, "linux");
+    expect(caps.channel).toBe("vellum");
+    expect(caps.dashboardCapable).toBe(true);
+    expect(caps.supportsDynamicUi).toBe(true);
+    expect(caps.supportsVoiceInput).toBe(true);
+  });
+
   test("vellum channel with vellum interface supports dynamic UI", () => {
     const caps = resolveChannelCapabilities("vellum", "vellum");
     expect(caps.channel).toBe("vellum");

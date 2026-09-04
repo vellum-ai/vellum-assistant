@@ -97,6 +97,12 @@ describe("classifyDiskPressureTurnPolicy", () => {
       expected: { action: "allow-cleanup-mode", reason: "local-owner" },
     },
     {
+      name: "locked Linux local owner without trust enters cleanup mode",
+      status: status({ acknowledged: true }),
+      metadata: { ...localOwnerTurn, sourceInterface: "linux" },
+      expected: { action: "allow-cleanup-mode", reason: "local-owner" },
+    },
+    {
       name: "locked guardian enters cleanup mode",
       status: status(),
       metadata: guardianTurn,

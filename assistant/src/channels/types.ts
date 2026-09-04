@@ -299,6 +299,20 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 }
 
 /**
+ * Whether a desktop surface exposes the full desktop UI: dashboards, dynamic
+ * UI and voice input. The macOS and Linux clients do; the Windows client does
+ * not carry them yet and is answered separately.
+ *
+ * Accepts a plain string because callers hold either an `InterfaceId` or the
+ * loosely typed `clientOS` capability field.
+ */
+export function supportsDesktopUiSurface(
+  surface: string | null | undefined,
+): boolean {
+  return surface === "macos" || surface === "linux";
+}
+
+/**
  * Host proxy capabilities that an interface can support. macOS supports all
  * of them, Windows and Linux withhold app control, and chrome-extension
  * supports only host_browser through the Chrome DevTools Protocol proxy.
