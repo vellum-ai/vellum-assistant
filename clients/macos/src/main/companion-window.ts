@@ -33,6 +33,7 @@ import {
   companionPadFor,
   companionScaleFor,
   WATCH_FLAG,
+  companionLowerReachFor,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
@@ -263,8 +264,30 @@ export const geometryFor = (
   };
 };
 
-/** Gap from the work area's bottom edge on the first ever launch. */
-const DEFAULT_MARGIN = 24;
+/**
+ * Gap between the creature's visible bottom and the work area's bottom edge on
+ * the first ever launch.
+ *
+ * From the *visible* bottom, not the avatar's box. The box runs a good way
+ * past the artwork on every side to hold the glow and the bob's slack (see
+ * `companionBaselineFor`), so a margin measured against it would be this gap
+ * plus however much slack the current size carries, growing with every step of
+ * the scale.
+ *
+ * Small, because the surface floats over whatever the user is working in and
+ * the bottom of a window is where that application keeps its own controls. A
+ * companion resting a finger's width above the work area is a companion in
+ * front of the thing it was put there to help with. Resting on that edge
+ * leaves it a strip of its own under everything else, which is the shape of
+ * the bargain: seen when looked for, out of the way when not.
+ *
+ * Two points rather than none. The clamp takes the creature all the way down
+ * to the edge and a drag can put it there, but opening flush against it leaves
+ * the lit rim's own bloom with nowhere to fall, and a glow cut off by the
+ * bottom of the display reads as the surface being clipped rather than as it
+ * resting on something.
+ */
+const DEFAULT_MARGIN = 2;
 
 let growth: CompanionGrowth = "right";
 
@@ -712,10 +735,20 @@ export const placeCanvas = (
   // the minimum, which `Math.min` then resolves toward the top-left corner
   // rather than producing a position outside the display.
   const half = geometry.avatarBox / 2;
+  // Downward the clamp is the lowest thing the surface can draw, not its box.
+  // The box holds the glow and the bob's slack, and slack is not something the
+  // user can see: clamping to it stops the surface short of the edge by
+  // however much of it is empty. Reading the creature's artwork alone is the
+  // other mistake, since a pointer grows a pill around it and a call stands a
+  // bar on the same point, both of which reach lower. See
+  // `companionLowerReachFor`. Upward and sideways the box still decides: the
+  // canvas above has its own bound below, and the sides are where a half box
+  // is deliberately allowed to hang past the edge.
+  const reach = companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
   const minCentreX = workArea.x + half;
   const maxCentreX = workArea.x + workArea.width - half;
   const minCentreY = workArea.y + half;
-  const maxCentreY = workArea.y + workArea.height - half;
+  const maxCentreY = workArea.y + workArea.height - reach;
   const centreX = Math.min(Math.max(avatarCentre.x, minCentreX), maxCentreX);
   const wantedY = Math.min(Math.max(avatarCentre.y, minCentreY), maxCentreY);
 
@@ -740,6 +773,11 @@ export const placeCanvas = (
  * room to grow either way, and low so it sits under the window the user is
  * working in rather than over it.
  *
+ * The margin is measured to the lowest thing the surface can draw from this
+ * point, so the same gap is left under it at every size and in every state it
+ * can enter without the window moving. See {@link DEFAULT_MARGIN} and
+ * `companionLowerReachFor`.
+ *
  * Exported for its tests and pure for the same reason as {@link placeCanvas}.
  */
 export const defaultAvatarCentre = (
@@ -747,7 +785,11 @@ export const defaultAvatarCentre = (
   geometry: CompanionGeometry,
 ): { x: number; y: number } => ({
   x: workArea.x + workArea.width / 2,
-  y: workArea.y + workArea.height - DEFAULT_MARGIN - geometry.avatarBox / 2,
+  y:
+    workArea.y +
+    workArea.height -
+    DEFAULT_MARGIN -
+    companionLowerReachFor(geometry.avatarBox, geometry.optionsBox),
 });
 
 /**
@@ -2075,6 +2117,20 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
+      // **The canvas is allowed off the bottom of the screen.** Without this
+      // macOS quietly slides a window back until its whole frame is inside the
+      // work area, and this canvas carries `dropBelow` points of empty space
+      // under the creature to hold a pill that is usually not drawn. A surface
+      // asked to sit on the bottom edge is then handed back a position a whole
+      // `dropBelow` higher, and the creature rests that far up whatever margin
+      // it was given: 40pt at the authored size. The clamp in `placeCanvas`
+      // keeps the *creature* on screen, which is the thing worth keeping
+      // there; the empty canvas around it is free to hang off.
+      //
+      // The same refusal at the top is worked around instead of lifted (see
+      // `placeCanvas`), because a canvas over the menu bar would put the
+      // introduction's card behind it.
+      enableLargerThanScreen: true,
       // **Unfocusable, like the dictation overlay.** `type: "panel"` already
       // makes the window non-activating, so clicking it never brings Vellum
       // forward; this goes further and stops it taking key status, because a

@@ -169,6 +169,7 @@ export function CompanionSurfacePage() {
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
+  const restingPillRef = useRef<HTMLDivElement | null>(null);
   // The creature's own box, hit-tested beside the pill rather than inside it:
   // the two are siblings with a gap between them, and at rest the avatar is the
   // only part of the surface drawn at all.
@@ -539,11 +540,24 @@ export function CompanionSurfacePage() {
     // Reading a box forces layout, and this runs on every pixel of every
     // mouse-move the host forwards, so each is read exactly once.
     const pillRect = pillRef.current?.getBoundingClientRect() ?? null;
+    // Whichever pill is drawn is the one the pointer can be on, and exactly
+    // one of them ever is: the pill that carries content has no width until
+    // there is content, and the resting pill fades out the moment there is.
+    // The resting one is centred on the creature rather than beside it, so the
+    // creature's rect falls inside it and the bridge between them comes out
+    // degenerate, which is the right answer for two shapes with no gap.
+    const restingRect = restingPillRef.current?.getBoundingClientRect() ?? null;
+    const drawnPill =
+      pillRect !== null && pillRect.width > 0
+        ? pillRect
+        : restingRect !== null && restingRect.width > 0
+          ? restingRect
+          : null;
     const onSurface = onCompanionSurface(
       { x: event.clientX, y: event.clientY },
       {
         avatar: avatar.getBoundingClientRect(),
-        pill: pillRect !== null && pillRect.width > 0 ? pillRect : null,
+        pill: drawnPill,
       },
     );
     // The introduction's card is part of the surface for as long as it is
@@ -725,6 +739,7 @@ export function CompanionSurfacePage() {
           )
         }
         rootRef={pillRef}
+        restingPillRef={restingPillRef}
         avatarRef={avatarRef}
         onSurfacePointerDown={(event) => {
           // A right-click is a menu, not a grab. Left alone it would arm the
