@@ -232,55 +232,64 @@ const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
 const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 
 /**
- * The capsule the creature collapses into at rest.
+ * The pill the surface rests in, in its two sizes.
  *
- * At rest this surface is a marker rather than a mascot. It sits on the desktop
- * all day over whatever the user is actually working in, and a character
- * standing there is a character in the way; a thin capsule says the assistant
- * is here and reachable and asks for nothing. The creature comes back the
- * moment the pointer arrives, which is the only time anyone is looking at it.
+ * At rest this used to be a 10pt capsule painted whole in the assistant's
+ * colour. It is a pill now, and the difference is the edge: the shape is a lit
+ * line in that same colour with nothing inside it, which is findable on a busy
+ * desktop where a small block of colour is not, and which takes almost none of
+ * the screen away from whatever the user is actually working in.
  *
- * As wide as the artwork it stands in for ({@link AVATAR_IMAGE}), so the
- * collapse reads as the creature tucking into its own width rather than as a
- * differently sized object taking its place. The height is the one authored
- * number here: thin enough to read as a marker, tall enough to see against a
- * busy desktop.
+ * **Two sizes, because the shape answers the pointer.** `idle` is the marker,
+ * and it is a marker: the creature is tucked behind it and peeks out of it
+ * every few seconds, the way it always has. `active` is what a hand arriving
+ * grows it into, big enough for the creature to stand up in. That growth is
+ * the whole of what hover does here, and it is why the creature coming out and
+ * the pill opening read as one gesture rather than two.
  *
- * **The box it is drawn in does not shrink with it.** That box is the drag
- * handle, the point the host positions the window around, and the rect the
- * pointer is hit-tested against, so shrinking it would move the anchor the host
- * measures every drag and clamp against, and would make the surface hardest to
- * hit exactly when it is smallest. What changes is the shape drawn inside it.
- *
- * **Nor does the capsule grow with the sizes.** It is drawn at these numbers on
- * every setting, countering the scale the avatar's node carries (see
- * `restingScale` in {@link Avatar}). Sizing the creature is a statement about
- * the creature: someone who wants a big mascot when they look at it has not
- * asked for a big lozenge sitting over their work all day, and the marker is
- * the one part of this surface nobody chose to be looking at. Countering the
- * transform rather than the lengths is what keeps the border, the radius and
- * the ring identical at every setting instead of thickening with the scale.
+ * **Only `active` scales with the creature.** It has to contain it, so at
+ * `ridiculous` it is five times the pill it is at `small`. `idle` is drawn at
+ * one size on every setting for the reason the capsule was: sizing the
+ * creature is a statement about the creature, and someone who wanted a big
+ * mascot when they look at it has not asked for a big lozenge sitting over
+ * their work all day. The rim holds at one thickness for the same reason, so
+ * the line stays a line instead of thickening into a frame.
  */
-const RESTING_HEIGHT = 10;
+const RESTING_PILL = {
+  /** The marker. Wider than the artwork it stands in for, and hollow. */
+  idle: { width: 48, height: 14 },
+  /** What a pointer grows it into: the frame the whole creature stands in. */
+  active: { width: 150, height: 35 },
+  /** The lit line's thickness, at every size and every setting. */
+  rim: 2.5,
+  /** How far that line throws light, as the nearer of its two blooms. */
+  bloom: 4,
+};
 
 /**
- * The capsule's box, which is exactly the accent the user sees: no rim.
+ * The box the creature peeks over at rest, which is the idle pill's own.
  *
- * It wore a dark hairline for a while, to put an edge between the working ring
- * and a capsule painted the ring's own colour. It went because a creature
- * peeking out from behind a bordered pill reads as peeking out of a slot in a
- * device, and the pill is meant to be the creature's own colour and nothing
- * else. The ring still carries a turn at rest: its bright arc orbits and its
- * light falls on the desktop, and neither needs a dark line to be seen.
- *
- * One statement of it, because two things are sized from it and they must not
- * drift. The capsule is drawn at it, and the box the working ring rides matches
- * it at rest so the ring hugs the shape rather than the air around it.
+ * One statement of it, because the pill is drawn at it and `CompanionPeek`
+ * measures the creature's rise against it, and two readings of where the rim
+ * is would put the eyes somewhere other than on it.
  */
-const RESTING_BOX = {
-  width: AVATAR_IMAGE,
-  height: RESTING_HEIGHT,
-};
+const PEEK_CAPSULE = RESTING_PILL.idle;
+
+/**
+ * The resting pill's edge: one lit line in the assistant's colour, the light it
+ * throws, and the shadow that holds it off a desktop this surface does not own.
+ *
+ * Two blooms rather than one. The tight one keeps the line reading as a line
+ * at a glance, and the wide one is what separates the shape from a busy
+ * wallpaper behind it; either alone reads as a smudge or as a sticker.
+ */
+const restingRim = (accentHex: string, rim: number, bloom: number): string =>
+  [
+    `inset 0 0 0 ${rim}px color-mix(in srgb, ${accentHex} 78%, transparent)`,
+    `0 0 ${bloom}px color-mix(in srgb, ${accentHex} 85%, transparent)`,
+    `0 0 ${bloom * 4}px color-mix(in srgb, ${accentHex} 42%, transparent)`,
+    "0 8px 24px rgba(0, 0, 0, 0.45)",
+  ].join(", ");
 
 /**
  * The clearance every round thing inside the pill keeps from its edge.
@@ -487,6 +496,17 @@ export interface CompanionSurfaceProps {
    * restating the geometry at the call site.
    */
   rootRef?: Ref<HTMLDivElement>;
+  /**
+   * The pill the surface rests in, for the host to hit-test the same way it
+   * hit-tests the pill that carries content.
+   *
+   * Its own ref because exactly one of the two is ever drawn, and the window
+   * has to be armed over whichever it is. Without this the resting pill is a
+   * 150pt shape the pointer falls straight through into whatever application
+   * is behind it, which is the surface being visible and unreachable at the
+   * one time it is on screen all day.
+   */
+  restingPillRef?: Ref<HTMLDivElement>;
   /**
    * The avatar's own element.
    *
@@ -747,6 +767,7 @@ export function CompanionSurface({
   optionsBox = COMPANION_BASE_AVATAR_BOX,
   cardGrowth = "up",
   rootRef,
+  restingPillRef,
   avatarRef,
   onSurfacePointerDown,
   onSurfaceContextMenu,
@@ -785,14 +806,18 @@ export function CompanionSurface({
    * reading the screen. Hover opens nothing, because the creature is the call
    * button and there is nothing else on an idle surface to offer.
    */
+  /**
+   * Whether the creature is out of the pill's idle size and standing in it,
+   * which the pointer alone does: every phase past hover draws a pill with
+   * something in it, and the creature stands beside that one.
+   */
+  const creatureOut = phase !== "resting";
   const expanded =
     phase === "call" ||
     phase === "dictating" ||
     phase === "offer" ||
     phase === "summary" ||
     phase === "watching";
-  /** Whether the creature is out of its capsule, which hover alone does. */
-  const creatureOut = phase !== "resting";
   /**
    * Whether the hand has dwelt on the creature long enough to be told its
    * name for a press.
@@ -908,6 +933,28 @@ export function CompanionSurface({
   // when `growth` flips, and the creature the host measures every drag, clamp
   // and direction check against is not.
   const placement = edgeAt(growth, avatarHalf + gap);
+
+  /**
+   * The creature's box over the one this file's lengths are authored for.
+   *
+   * The activated pill takes it, because it has to contain the creature; the
+   * idle marker and the rim do not. See {@link RESTING_PILL}.
+   */
+  const restingScale = avatarBox / COMPANION_BASE_AVATAR_BOX;
+
+  /**
+   * The resting pill's box: the marker, or what a pointer has grown it into.
+   *
+   * Read off `creatureOut` rather than off `hovered`, so the one thing that
+   * decides whether the creature is standing decides whether there is
+   * anywhere for it to stand. The two are the same gesture.
+   */
+  const restingBox = creatureOut
+    ? {
+        width: RESTING_PILL.active.width * restingScale,
+        height: RESTING_PILL.active.height * restingScale,
+      }
+    : RESTING_PILL.idle;
 
   /**
    * Whether the introduction's card is drawn beside the surface.
@@ -1083,6 +1130,52 @@ export function CompanionSurface({
           </div>
         </div>
       </div>
+      {/* The pill the surface rests in: the assistant's own colour as a lit
+        edge and nothing inside it. A marker with the creature tucked behind
+        it until a pointer arrives, then grown to the size the creature stands
+        up in. See {@link RESTING_PILL}.
+
+        A sibling of the pill that carries content rather than the same
+        element, and the two cross-fade. They are different shapes in different
+        places: this one is centred on the creature the way the call's bar is,
+        and every pill with something in it hangs off the creature's side. One
+        element animating between the two would have to jump its anchor from
+        the centre to an edge mid-transition, which reads as the surface
+        flinching.
+
+        A drag handle, as the creature and the pill both are. It is the largest
+        thing on screen at rest, so it is what a hand reaches for to move the
+        surface, and a 150pt shape that ignored the press would read as broken.
+        `aria-hidden` because it says nothing the creature beside it does not
+        already say: the creature carries the accessible name and the press. */}
+      <div
+        className="absolute cursor-grab rounded-full transition-[width,height,opacity] duration-300 active:cursor-grabbing"
+        style={{
+          width: inUnits(restingBox.width),
+          height: inUnits(restingBox.height),
+          // Centred on the point the host put the window around, which is the
+          // point the creature holds. The creature is a sibling drawn on that
+          // same point, so centring the pill on it is what puts the creature
+          // in the middle of the pill without either one being laid out in
+          // terms of the other.
+          left: "50%",
+          top: lineAt(cardGrowth, 0),
+          transform: "translate(-50%, -50%)",
+          boxShadow: restingRim(
+            accentHex,
+            inUnits(RESTING_PILL.rim),
+            inUnits(RESTING_PILL.bloom),
+          ),
+          // Gone the moment there is a pill with something in it. Not
+          // unmounted: the fade is what makes the two read as one surface
+          // changing shape rather than one object replacing another.
+          opacity: expanded ? 0 : 1,
+        }}
+        onPointerDown={onSurfacePointerDown}
+        onContextMenu={onSurfaceContextMenu}
+        ref={restingPillRef}
+        aria-hidden
+      />
       {/* The creature's name for a press, the way the Dock names an icon: a
           small label centred above it rather than a control standing beside
           it.
@@ -1130,19 +1223,20 @@ export function CompanionSurface({
         // uses while a reply is streaming: one vocabulary for "it is working"
         // wherever the user meets it.
         busy={assistantWorking || watching || summarizing}
-        // At rest the creature tucks into a capsule. The same answer the pill's
-        // own width reads, so the two collapse together and the surface goes to
-        // its resting shape as one thing.
+        // At rest the creature is tucked behind the marker and peeks out of
+        // it. The same answer the resting pill's own box reads, so the pill
+        // grows as the creature stands up and the two are one gesture.
         //
         // Except while the introduction is on screen. Its first beat presents
         // the creature by name and deliberately does not open the pill
         // (`introPhase` answers null for `meet`), so the phase is `resting`
         // with a card pointing at a creature that is not drawn. A card
-        // introducing the capsule is the one thing this collapse must not do.
+        // introducing an empty marker is the one thing this must not do.
         collapsed={!creatureOut && !introDrawn}
-        // The capsule is drawn at one size on every setting, so it counters
-        // what this node carries. That is the avatar's box over the authored
-        // one: the options scale on the box above cancels against `avatarRel`.
+        // The peek rides the marker, which is drawn at one size on every
+        // setting, so it counters what this node carries. That is the avatar's
+        // box over the authored one: the options scale on the box above
+        // cancels against `avatarRel`.
         restingScale={COMPANION_BASE_AVATAR_BOX / avatarBox}
         style={{
           left: creatureLeft,
@@ -1310,15 +1404,15 @@ function Avatar({
   busy?: boolean;
   attentive?: boolean;
   /**
-   * Whether the surface is at rest, where the creature gives way to the
-   * capsule. See {@link RESTING_HEIGHT}.
+   * Whether the surface is at rest, where the creature is tucked behind the
+   * marker and peeks out of it. See {@link RESTING_PILL}.
    */
   collapsed?: boolean;
   /**
-   * What the capsule scales by to undo the scale this node already carries, so
-   * it is drawn at one size whatever the creature is sized to. Applies to the
-   * capsule alone: the expanded shape is the creature's own box and grows with
-   * it, which is the whole point of the setting.
+   * What the peek scales by to undo the scale this node already carries, so it
+   * rides a marker drawn at one size whatever the creature is sized to.
+   * Applies to the peek alone: the standing creature is its own box and grows
+   * with it, which is the whole point of the setting.
    */
   restingScale?: number;
   style?: CSSProperties;
@@ -1347,47 +1441,22 @@ function Avatar({
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
-      {/* The capsule itself, drawn whole in the assistant's own colour.
-
-        The colour is all that is left of the creature at this size, so it is
-        the shape rather than a mark on it: a dark lozenge carrying a dot is
-        chrome with a light in it, and what this wants to be is the assistant,
-        small. It is also what keeps the marker findable on a busy desktop,
-        which matters more here than anywhere else on the surface: at rest this
-        is the only thing saying the assistant is there at all.
-
-        **It holds its size and fades where it stands.** Sized on itself rather
-        than filling the box above, which grows to the creature's. Nothing about
-        the resting shape moves: the creature is what grows out of the pill and
-        shrinks back into it, and one thing moving is what makes that legible.
-
-        The pill's own material is deliberately not borrowed: a white rim over a
-        saturated colour reads as a highlight on it and muddies the one thing
-        the shape is for, and it wears no dark rim either; see
-        {@link RESTING_BOX}. The shadow stays, since it is what holds any of
-        this against a desktop the surface does not own. */}
-      <div
-        className="companion-capsule absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
-        style={{
-          width: RESTING_BOX.width,
-          height: RESTING_BOX.height,
-          transform: `translate(-50%, -50%) scale(${restingScale})`,
-          background: accentHex,
-          opacity: collapsed ? 1 : 0,
-        }}
-        aria-hidden
-      />
-      {/* Once in a while the creature looks out of the capsule: it rises from
+      {/* Once in a while the creature looks out of the marker: it rises from
         behind the top or bottom edge far enough to show its eyes, holds a
-        moment, and ducks back; see `CompanionPeek`, which is the chat page's
-        composer peek over a smaller rim. Only for a composed creature: a
-        custom image has nobody to peek. Rides the capsule's transform and
-        fade, so it is drawn at the capsule's one size on every setting and
-        goes with it when the creature comes out for real. */}
+        moment, and ducks back; see `CompanionPeek`. Only for a composed
+        creature: a custom image has nobody to peek.
+
+        The pill it rises over is hollow, which costs the peek nothing: the
+        rise is drawn through a clip that shows only the slice above the rim,
+        so what hides the rest of the creature is the clip and never the fill.
+
+        Rides the marker's own scale and fade, so it is drawn at the marker's
+        one size on every setting and goes with it when the creature comes out
+        for real. */}
       {character !== undefined ? (
         <CompanionPeek
           character={character}
-          capsule={RESTING_BOX}
+          capsule={PEEK_CAPSULE}
           // A working creature holds a focused pose, and stops blinking for the
           // same reason. The creature is carrying the state; nothing else
           // should.
@@ -1399,7 +1468,7 @@ function Avatar({
           }}
         />
       ) : null}
-      {/* The creature, tucking into the capsule rather than blinking out of
+      {/* The creature standing up out of the marker, rather than blinking into
         it. A wrapper of its own because the scale is a `transform` and the bob
         below already owns one. */}
       <div

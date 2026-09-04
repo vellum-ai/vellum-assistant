@@ -218,19 +218,21 @@ const avatarOf = (container: HTMLElement): HTMLElement => {
 };
 
 /**
- * The capsule drawn inside that box, which is the shape at rest: the box's
- * first child, sized on itself and faded once the surface is expanded.
+ * The pill the surface rests in: the lit outline the creature stands in, drawn
+ * beside the avatar's box rather than inside it.
+ *
+ * Found by the shadow it is the only thing on the surface to carry, since it
+ * has no fill and no class of its own to name it by.
  */
-const capsuleOf = (container: HTMLElement): HTMLElement => {
-  const found = avatarOf(container).firstElementChild as HTMLElement | null;
-  if (found === null) {
-    throw new Error("Expected the resting capsule to render");
+const restingPillOf = (container: HTMLElement): HTMLElement => {
+  const found = [...container.querySelectorAll<HTMLElement>("div")].find(
+    (element) => element.style.boxShadow.includes("inset 0 0 0"),
+  );
+  if (found === undefined) {
+    throw new Error("Expected the resting pill to render");
   }
   return found;
 };
-
-/** The same node under the name the collapse's cases read it by. */
-const shapeOf = capsuleOf;
 
 describe("the companion surface's anchor in the canvas", () => {
   test("grows up by default, which is where the surface normally lives", () => {
@@ -1752,10 +1754,9 @@ describe("the resting avatar's idle motion", () => {
   /**
    * The wrapper sits inside the avatar's box, which nothing else may move.
    *
-   * The collapse that tucks the creature into the capsule is a `transform` of
-   * its own, so it takes a wrapper of its own rather than riding the bob and
-   * silently replacing it. Both links are asserted, since what has to hold is
-   * the whole chain from the box the host measures down to the artwork.
+   * That box is the drag handle, the point the host positions the window
+   * around, and the rect the pointer is hit-tested against, so the whole chain
+   * from it down to the artwork is what has to hold.
    */
   test("keeps the avatar box above the wrapper, one node up", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
@@ -1766,7 +1767,11 @@ describe("the resting avatar's idle motion", () => {
     expect(collapse?.parentElement?.className).toContain("size-11");
   });
 
-  /** Each transform on a node of its own, which is the whole point of them. */
+  /**
+   * Each transform on a node of its own, which is the whole point of them: the
+   * creature tucking behind the marker is a `transform`, and riding the bob
+   * would silently replace it.
+   */
   test("gives the collapse and the bob separate nodes", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
@@ -1798,292 +1803,160 @@ describe("the resting avatar's idle motion", () => {
 
     expect(bobOf(container)?.style.animation).toBe("");
   });
-
-  /**
-   * The collapse is motion too, and the newest of it. Hovering the capsule
-   * grows a shape and scales a creature, which is exactly the travel across
-   * the screen a reader asking for stillness is asking not to have.
-   *
-   * The shape arrives changed; the creature keeps its fade, since a cross-fade
-   * is not motion across the screen and is gentler than snapping in and out.
-   */
-  test("holds the collapse still under reduced motion", () => {
-    reducedMotion = true;
-
-    const { container } = render(<CompanionSurface phase="resting" />);
-
-    expect(bobOf(container)?.parentElement?.style.transitionProperty).toBe(
-      "opacity",
-    );
-  });
-
-  test("lets the collapse travel for a reader who asked for nothing", () => {
-    const { container } = render(<CompanionSurface phase="resting" />);
-
-    expect(bobOf(container)?.parentElement?.style.transitionProperty).toBe("");
-  });
 });
 
 /**
- * The resting collapse.
+ * The pill the surface rests in.
  *
- * At rest this surface is a marker rather than a mascot: it sits over whatever
- * the user is working in all day, so the creature gives way to a thin capsule
- * and comes back the moment anything opens the pill.
- *
- * What must not move with it is the box the shape is drawn in. That box is the
- * drag handle, the point the host positions the window around, and the rect the
- * pointer is hit-tested against, so a collapse that shrank it would move the
- * anchor every drag and clamp is measured from.
+ * At rest this was a 10pt capsule in the assistant's colour with the creature
+ * tucked away behind it. It is a pill now: the creature stands in a lit
+ * outline wider than it is tall, which is findable on a busy desktop where a
+ * marker was not, and hollow, so it takes almost none of the screen away from
+ * whatever the user is actually working in.
  */
-describe("the avatar's resting collapse", () => {
-  test("draws a capsule at rest", () => {
+describe("the pill the surface rests in", () => {
+  test("draws a hollow marker at rest, with no fill behind it", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    const shape = shapeOf(container);
-    expect(shape.style.width).toBe("28px");
-    expect(shape.style.height).toBe("10px");
+    const pill = restingPillOf(container);
+    expect(pill.style.width).toBe("48px");
+    expect(pill.style.height).toBe("14px");
+    expect(pill.style.background).toBe("");
+    expect(pill.style.opacity).toBe("1");
   });
 
   /**
-   * Sizing the creature is a statement about the creature. Someone who wants a
-   * big mascot when they look at it has not asked for a big lozenge sitting
-   * over their work all day, so the marker is the one part of this surface the
-   * setting does not reach.
+   * Hover is the shape answering the pointer: the marker grows into the frame
+   * the creature stands up in, and the growth and the standing are one
+   * gesture.
    */
-  test("draws the capsule at one size whatever the creature is sized to", () => {
-    for (const avatarBox of [44, 66, 110, 220]) {
-      const { container } = render(
-        <CompanionSurface phase="resting" avatarBox={avatarBox} />,
-      );
+  test("grows to hold the whole creature under the pointer", () => {
+    const { container } = render(<CompanionSurface phase="hover" hovered />);
 
-      const shape = shapeOf(container);
-      // The lengths are the same on every setting, and the transform undoes
-      // the scale this node carries, which is the avatar's box over 44. The
-      // box is the accent itself, 28 by 10.
-      expect(shape.style.width).toBe("28px");
-      expect(shape.style.height).toBe("10px");
-      expect(shape.style.transform).toBe(
-        `translate(-50%, -50%) scale(${44 / avatarBox})`,
-      );
-    }
-  });
-
-  /** Expanded it is the creature's own box, which the setting does reach. */
-  /**
-   * The box the host measures is the same box in every phase. This is the one
-   * assertion here that is about the window rather than the drawing: shrink it
-   * and every drag, clamp and growth flip is measured from a different point.
-   */
-  test("never resizes the box the shape is drawn in", () => {
-    for (const phase of PHASES) {
-      const { container } = render(<CompanionSurface phase={phase} />);
-
-      expect(avatarOf(container).className).toContain("size-11");
-    }
+    const pill = restingPillOf(container);
+    expect(pill.style.width).toBe("150px");
+    expect(pill.style.height).toBe("35px");
   });
 
   /**
-   * A ring is a statement about the shape it is drawn around, so a turn
-   * running while the surface is at rest lights the capsule rather than
-   * circling the empty box the capsule sits in.
+   * The edge is the assistant's own colour, which is the whole of what makes
+   * the shape findable. A rim in anything else would be chrome around the
+   * assistant rather than the assistant.
    */
+  test("lights the edge in the assistant's colour", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" accentHex="#ff8800" />,
+    );
+
+    const shadow = restingPillOf(container).style.boxShadow;
+    expect(shadow).toContain("#ff8800");
+    expect(shadow).toContain("inset 0 0 0 2.5px");
+  });
+
   /**
-   * The capsule is the assistant's colour and nothing else. A dark rim made a
-   * creature peeking out from behind it read as coming out of a slot in a
-   * device rather than out of its own shape.
+   * Centred on the point the host puts the window around, which is the point
+   * the creature holds, so the creature stands in the middle of the pill
+   * without either being laid out in terms of the other.
    */
-  test("wears no rim", () => {
+  test("centres itself on the creature", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    const capsule = capsuleOf(container);
-    expect(capsule.style.borderWidth).toBe("");
-    expect(capsule.style.borderStyle).toBe("");
+    const pill = restingPillOf(container);
+    expect(pill.style.left).toBe("50%");
+    expect(pill.style.transform).toBe("translate(-50%, -50%)");
+    expect(pill.style.top).toBe(avatarOf(container).style.top);
   });
 
   /**
-   * The capsule holds its size and fades where it stands. An accent inflating
-   * to the creature's box and dissolving would read as a bubble popping rather
-   * than as the creature coming out of the pill.
+   * The grown pill has to contain the creature, so it takes the avatar's box
+   * the way the creature does: one drawn at `ridiculous` standing in a 35pt
+   * frame would wear it as a belt.
    */
-  test("never grows the capsule with the creature", () => {
-    for (const phase of PHASES) {
-      const { container } = render(<CompanionSurface phase={phase} />);
-
-      const capsule = capsuleOf(container);
-      expect(capsule.style.width).toBe("28px");
-      expect(capsule.style.height).toBe("10px");
-    }
-  });
-
-  /**
-   * The introduction's first beat presents the creature by name and does not
-   * open the pill, so the phase is `resting` while a card points at it. A card
-   * introducing the capsule is the one thing this collapse must not do.
-   */
-  test("keeps the creature drawn while the introduction is on screen", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" intro={<div>meet</div>} />,
-    );
-
-    expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
-  });
-
-  /** The box the words are drawn in, the one that takes its direction from them. */
-  const transcriptBox = (container: HTMLElement) =>
-    container.querySelector<HTMLElement>("[dir=auto]");
-
-  /**
-   * The words are the point of the state. A speaker dictating into another
-   * application cannot see what landed there yet, and this is the only surface
-   * telling them anything.
-   */
-  test("draws the words once there are any", () => {
+  test("scales the grown pill with the creature", () => {
     const { container } = render(
       <CompanionSurface
-        phase="dictating"
-        dictating="listening"
-        dictationText="the quick brown fox"
-      />,
-    );
-
-    expect(container.textContent).toContain("the quick brown fox");
-  });
-
-  /** Until then the status word stands in, rather than an empty line. */
-  test("falls back to the status word with nothing recognised yet", () => {
-    const { container } = render(
-      <CompanionSurface phase="dictating" dictating="listening" />,
-    );
-
-    expect(container.textContent).toContain("Listening");
-  });
-
-  test("says it is thinking once the keys are up", () => {
-    const { container } = render(
-      <CompanionSurface phase="dictating" dictating="transcribing" />,
-    );
-
-    expect(container.textContent).toContain("Thinking");
-  });
-
-  /**
-   * A line that filled from the start would freeze on the opening words and
-   * leave the speaker watching the part they are least unsure of. The words
-   * sit at the end of their box, so a run longer than the box overflows at
-   * the start, where the clipping is. The end is the words' own: the box
-   * takes its direction from them rather than forcing one, so a right-to-left
-   * transcript keeps its last words in view the same way.
-   */
-  test("clips the words from the front, not the end", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="dictating"
-        dictating="listening"
-        dictationText="a sentence long enough to run past the end of the pill"
-      />,
-    );
-
-    const box = transcriptBox(container);
-    expect(box).not.toBeNull();
-    expect(box?.className).toContain("justify-end");
-    expect(box?.className).toContain("overflow-hidden");
-    expect(box?.getAttribute("dir")).toBe("auto");
-    expect(box?.style.direction).toBe("");
-    // Revised several times a second; a live region would read every guess.
-    expect(box?.getAttribute("aria-live")).toBeNull();
-  });
-
-  /**
-   * Every other body here is as wide as its content, and a sentence has no
-   * width to be as wide as. A stated width is what keeps the pill inside the
-   * canvas main sized for it, and what keeps it still: the box is the same
-   * size with three words as with three hundred, and the same size as the
-   * status word's box before there were any, so the pill grows to its
-   * dictating width once rather than on every partial.
-   */
-  test("gives the words a fixed box rather than measuring them", () => {
-    const widthOf = (text?: string) => {
-      const { container } = render(
-        <CompanionSurface
-          phase="dictating"
-          dictating="listening"
-          dictationText={text}
-        />,
-      );
-      const box =
-        transcriptBox(container) ??
-        container.querySelector<HTMLElement>(".truncate");
-      return box?.style.width;
-    };
-
-    expect(widthOf("x".repeat(400))).toBe("244px");
-    expect(widthOf("three words here")).toBe("244px");
-    expect(widthOf(undefined)).toBe("244px");
-  });
-
-  /** The creature fades with it rather than being cut, and comes back whole. */
-  test("fades the creature out at rest and back in expanded", () => {
-    const { container: resting } = render(<CompanionSurface phase="resting" />);
-    expect(bobOf(resting)?.parentElement?.style.opacity).toBe("0");
-
-    const { container: hovered } = render(<CompanionSurface phase="hover" />);
-    expect(bobOf(hovered)?.parentElement?.style.opacity).toBe("1");
-  });
-});
-
-/** The capsule's peek, which is drawn only for a composed creature. */
-const peekOf = (container: HTMLElement): HTMLElement | null =>
-  container.querySelector<HTMLElement>(".companion-peek");
-
-describe("the resting capsule's peek", () => {
-  const CHARACTER = { bodyShape: "urchin", eyeStyle: "curious", color: "teal" };
-
-  test("is there at rest for a composed creature", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" character={CHARACTER} />,
-    );
-    expect(peekOf(container)).not.toBeNull();
-    expect(peekOf(container)?.style.opacity).toBe("1");
-  });
-
-  /** A custom image has no creature in it, so there is nobody to peek. */
-  test("is absent for a custom image", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" avatarSrc="data:image/png;base64," />,
-    );
-    expect(peekOf(container)).toBeNull();
-  });
-
-  /**
-   * The creature is out of the capsule, and the capsule has faded where it
-   * stands; the peek goes with it rather than rising beside the creature.
-   */
-  test("fades with the capsule once the creature is out", () => {
-    const { container } = render(
-      <CompanionSurface phase="hover" character={CHARACTER} />,
-    );
-    expect(peekOf(container)?.style.opacity).toBe("0");
-  });
-
-  /** Rides the capsule's transform, so it is drawn at the capsule's one size. */
-  test("counters the creature's scale the way the capsule does", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="resting"
-        character={CHARACTER}
+        phase="hover"
+        hovered
         avatarBox={COMPANION_BASE_AVATAR_BOX * 2}
       />,
     );
-    expect(peekOf(container)?.style.transform).toContain("scale(0.5)");
+
+    const pill = restingPillOf(container);
+    expect(pill.style.width).toBe("300px");
+    expect(pill.style.height).toBe("70px");
   });
 
-  test("is not drawn for a reader who asked for stillness", () => {
-    reducedMotion = true;
+  /**
+   * The marker does not. Sizing the creature is a statement about the
+   * creature, and someone who wanted a big mascot has not asked for a big
+   * lozenge sitting over their work all day. The rim holds at one thickness
+   * for the same reason.
+   */
+  test("draws the marker and the rim at one size on every setting", () => {
     const { container } = render(
-      <CompanionSurface phase="resting" character={CHARACTER} />,
+      <CompanionSurface
+        phase="resting"
+        avatarBox={COMPANION_BASE_AVATAR_BOX * 2}
+      />,
     );
-    expect(peekOf(container)).toBeNull();
+
+    const pill = restingPillOf(container);
+    expect(pill.style.width).toBe("48px");
+    expect(pill.style.height).toBe("14px");
+    expect(pill.style.boxShadow).toContain("inset 0 0 0 2.5px");
+  });
+
+  /**
+   * Gone the moment there is a pill with something in it, and faded rather
+   * than unmounted, so the two read as one surface changing shape.
+   */
+  test("gives way to the pill that carries content", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching watchEnabled />,
+    );
+
+    expect(restingPillOf(container).style.opacity).toBe("0");
+  });
+
+  /** Hover opens no pill, so the resting one is still the shape on screen. */
+  test("stays drawn under the pointer", () => {
+    const { container } = render(<CompanionSurface phase="hover" hovered />);
+
+    expect(restingPillOf(container).style.opacity).toBe("1");
+  });
+
+  /**
+   * The largest thing on screen at rest is what a hand reaches for to move the
+   * surface, and a 150pt shape that ignored the press would read as broken.
+   */
+  test("is a drag handle, as the creature and the pill both are", () => {
+    const onSurfacePointerDown = mock(() => {});
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        onSurfacePointerDown={onSurfacePointerDown}
+      />,
+    );
+
+    fireEvent.pointerDown(restingPillOf(container));
+    expect(onSurfacePointerDown).toHaveBeenCalled();
+  });
+
+  /**
+   * The creature is tucked behind the marker at rest and peeks out of it. The
+   * hollow pill costs the peek nothing: what hides the rest of the creature is
+   * the peek's own clip, never a fill.
+   */
+  test("keeps the creature tucked behind the marker, and lets it peek", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        character={{ bodyShape: "blob", eyeStyle: "curious", color: "teal" }}
+      />,
+    );
+
+    expect(bobOf(container)?.parentElement?.style.opacity).toBe("0");
+    expect(container.querySelector(".overflow-hidden")).not.toBeNull();
   });
 });
 
@@ -2233,7 +2106,12 @@ describe("the companion surface's Draw action", () => {
 
   test("is held down for as long as the frame is taking the mouse", () => {
     const { container } = render(
-      <CompanionSurface phase="call" sharing annotating call={LISTENING_CALL} />,
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        call={LISTENING_CALL}
+      />,
     );
     expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
   });

@@ -1627,7 +1627,7 @@ describe("the companion's accent colour", () => {
   });
 
   /**
-   * The resting capsule is painted whole in the accent and is always mounted,
+   * The resting pill wears the accent as its lit edge and is always mounted,
    * so it is where the resolved colour is read back from.
    *
    * Awaited, because the state the colour comes from arrives after mount, so
@@ -1638,12 +1638,13 @@ describe("the companion's accent colour", () => {
     hex: string,
   ): Promise<void> => {
     await waitFor(() => {
-      const capsule =
-        container.querySelector<HTMLElement>(".companion-capsule");
-      if (!capsule) {
-        throw new Error("Expected the capsule to render");
+      const pill = [...container.querySelectorAll<HTMLElement>("div")].find(
+        (element) => element.style.boxShadow.includes("inset 0 0 0"),
+      );
+      if (!pill) {
+        throw new Error("Expected the resting pill to render");
       }
-      expect(capsule.style.background.trim().toLowerCase()).toContain(hex);
+      expect(pill.style.boxShadow.trim().toLowerCase()).toContain(hex);
     });
   };
 
@@ -1892,7 +1893,9 @@ describe("the picker behind Share", () => {
       expect(container.querySelector('button[aria-label="Draw"]')).toBeNull();
 
       pushState({ ...STATE, screenShare: { kind: "window", windowId: 9 } });
-      expect(container.querySelector('button[aria-label="Draw"]')).not.toBeNull();
+      expect(
+        container.querySelector('button[aria-label="Draw"]'),
+      ).not.toBeNull();
     });
 
     test("the press asks main for the mode", async () => {
