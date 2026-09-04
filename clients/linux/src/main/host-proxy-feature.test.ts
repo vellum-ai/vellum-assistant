@@ -56,8 +56,7 @@ test("installs the bridge with the portable executors and tears down on quit", a
   expect(__testing.executors.size).toBe(0);
   await Bun.sleep(0);
 
-  // No native helper on Linux yet, so `host_cu` is absent unless the
-  // computer-use capability contributes it.
+  // An empty registry contributes no computer-use executor.
   expect([...__testing.executors.keys()].sort()).toEqual([
     "host_bash",
     "host_browser",

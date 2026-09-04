@@ -76,6 +76,7 @@
     "./session-token-store": "./src/session-token-store.ts",
     "./status": "./src/status.ts",
     "./status-icon": "./src/status-icon.ts",
+    "./testing/bundle-feature-suite": "./src/testing/bundle-feature-suite.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./tray-model": "./src/tray-model.ts",
     "./vellumapp-protocol": "./src/vellumapp-protocol.ts",
