@@ -396,6 +396,34 @@ describe("finalizeMessageComplete", () => {
     expect(text(result[1]!)).toBe("hello world");
   });
 
+  it("keeps a tool-gated reply, whose only text came from send_user_message", () => {
+    // The daemon streams the tool's `message` as an ordinary text delta just
+    // before `message_complete`, so the row reaching here looks like any other
+    // reply. It must not be read as deliberate silence.
+    const msg = makeAssistantMsg({
+      id: "tool-gated",
+      ...seg("Here you go."),
+      toolCalls: [
+        {
+          id: "tc-send",
+          name: "send_user_message",
+          input: { message: "Here you go." },
+          completedAt: 1,
+        },
+      ],
+    });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(text(result[1]!)).toBe("Here you go.");
+    expect(result[1]!.isNoResponse).toBeUndefined();
+  });
+
   it("finalizes running tool calls when finalizing", () => {
     const toolCall: ChatMessageToolCall = {
       id: "t-1",
