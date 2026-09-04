@@ -29,6 +29,10 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import {
+  resolveOnboardingFirstName,
+  takeSignupOnboardingFirstName,
+} from "@/lib/auth/signup-onboarding-handoff";
 import { isLocalClient } from "@/lib/local-mode";
 import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
 import {
@@ -887,6 +891,7 @@ export function ResearchOnboardingRoute() {
         return;
       }
     }
+    takeSignupOnboardingFirstName();
     setFormValues(values);
     fireResearch(values);
     goForwardTo("face");
@@ -1371,7 +1376,7 @@ export function ResearchOnboardingRoute() {
 
   return withHatchError(
     <ResearchOnboardingScreen
-      initialFirstName={user?.firstName ?? ""}
+      initialFirstName={resolveOnboardingFirstName(user?.firstName)}
       initialLastName={user?.lastName ?? ""}
       onSubmit={handleFormSubmit}
     />,
