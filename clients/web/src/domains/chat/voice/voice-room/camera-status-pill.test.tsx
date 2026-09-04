@@ -4,7 +4,7 @@
  * speaks in its place.
  *
  * Load-bearing contracts: the dot's three voice states (which one blinks, and
- * that the assistant's takes the rose accent rather than white); that the word
+ * that the assistant's takes the softened accent rather than white); that the word
  * is the session's own surface label for every phase, with the assistant's name
  * the only substitution; that the pill announces nothing itself, since a live
  * region arriving with its words already in it is announced by nothing
@@ -91,7 +91,7 @@ describe("CameraStatusPill", () => {
     expect(dot().className).toContain("camera-status-blink");
   });
 
-  test("the assistant takes the rose accent and its own name", () => {
+  test("the assistant takes the softened accent and its own name", () => {
     render(
       <CameraStatusPill
         voiceState="assistant"
@@ -100,7 +100,7 @@ describe("CameraStatusPill", () => {
       />,
     );
 
-    expect(dot().className).toContain("bg-[var(--camera-accent-soft)]");
+    expect(dot().className).toContain("camera-accent-soft-dot");
     expect(dot().className).toContain("camera-status-blink");
     expect(pill().textContent).toContain("Luna");
     // The name is the whole substitution: it says what "Speaking…" would, plus
@@ -289,6 +289,32 @@ describe("CameraStatusPill", () => {
     // Glass, so the frame reads through a mark that is only sampling it.
     expect(pill().className).toContain("bg-[rgba(0,0,0,0.34)]");
     expect(pill().className).toContain("backdrop-blur-[8px]");
+    // The scrim has contrast to spend, so the session's word sits back from
+    // the mode word in front of it.
+    expect(screen.getByTestId("camera-status-word").className).toContain(
+      "opacity-80",
+    );
+  });
+
+  test("the live fill takes its status word at full strength", () => {
+    render(
+      <CameraStatusPill
+        mode="live"
+        voiceState="idle"
+        statusLabel="Listening…"
+        assistantName="Luna"
+      />,
+    );
+
+    // The fill is the accent adjusted to land on the text floor exactly, so
+    // there is no headroom to spend on de-emphasis: an alpha here would put
+    // the session's word under the floor the fill was chosen to meet.
+    expect(screen.getByTestId("camera-status-word").className).not.toContain(
+      "opacity-",
+    );
+    expect(screen.getByTestId("camera-status-word").className).toContain(
+      "truncate",
+    );
   });
 
   test("live fills with the capture accent and says so", () => {
@@ -306,12 +332,24 @@ describe("CameraStatusPill", () => {
     expect(pill().textContent).not.toContain("Photo");
     // Filled rather than glass: "this is going out continuously" has to be
     // legible without reading.
-    expect(pill().className).toContain("bg-[var(--camera-accent-fill)]");
+    expect(pill().className).toContain("camera-live-fill");
     expect(pill().className).toContain("border-[rgba(255,255,255,0.25)]");
-    expect(pill().className).toContain("text-white");
-    // The accent the fill names is published by the pill itself, so a renamed
-    // constant surfaces here rather than as a transparent chip.
-    expect(pill().getAttribute("style")).toContain("--camera-accent-fill");
+    // No blur, unlike the glass: the fill is opaque on every engine, so there
+    // is no frame coming through it to soften.
+    expect(pill().className).not.toContain("backdrop-blur");
+    // The ink belongs to the fill, which knows what reads on it: a `text-white`
+    // utility beside the class would race it, and lose the pale accents where
+    // the ink is the near-black.
+    expect(pill().className).not.toContain("text-white");
+    // The accent that fill mixes is published by the pill itself, and prefers
+    // the assistant's avatar colour over the crimson it falls back to, so a
+    // renamed var surfaces here rather than as a transparent chip.
+    const style = pill().getAttribute("style") ?? "";
+    expect(style).toContain("--camera-accent: var(--avatar-accent, #cf4370)");
+    // The weights are mixed in CSS against that one var. Publishing a second,
+    // pre-mixed var is what would pin the pill to the crimson.
+    expect(style).not.toContain("--camera-accent-fill");
+    expect(style).not.toContain("--camera-accent-soft");
   });
 });
 

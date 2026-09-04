@@ -155,7 +155,7 @@ import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
-import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { scopedAvatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
@@ -819,10 +819,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const sampledAccentHex = useSampledAvatarAccentHex(
     avatarAccentHex === null ? customImageUrl : null,
   );
-  // The accent var, published for the void state's bands and mirrored by the
-  // iOS Live Activity so island and room agree. Null for still-loading
-  // avatars and images with no colour to read, where those bands keep their
-  // own fallback.
+  // The accent var, scoped to the room for the void state's bands and mirrored
+  // by the iOS Live Activity so island and room agree. Null for still-loading
+  // avatars and images with no colour to read, where the room shadows the
+  // document's accent so every band keeps its own fallback rather than
+  // inheriting the colour of whichever assistant the app has selected.
   const accentHex = avatarAccentHex ?? sampledAccentHex;
   const look =
     resolveVoiceRoomLook(components, traits, customImageUrl) ??
@@ -966,7 +967,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           : null),
         ...topBandVars,
         ...toneVars,
-        ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
+        ...scopedAvatarAccentVars(accentHex),
       }}
       // On close the chrome and rectangular backgrounds fade, while the avatar
       // shape itself shrinks back toward the entry origin (the character

@@ -472,6 +472,82 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* The camera surfaces toned by the capture accent: the status pill while Live
+ * is streaming, its label, and the status dot beside it while the assistant is
+ * talking.
+ *
+ * `--camera-accent` carries the assistant's own avatar accent (see
+ * `camera-mode-paint.ts`), so none of the three can be a literal: a pink fill
+ * under a green assistant says the wrong thing. What each of them is depends
+ * on the other two, which is why they move as a set.
+ *
+ * The Live fill is opaque on both paths. A translucent fill is a colour nobody
+ * can name, since the backdrop is arbitrary video, and the ink has to be chosen
+ * against SOMETHING: at 90% the same crimson runs from 4.48 over itself to 3.87
+ * over a white frame, and a mid-luminance accent drops to about 3.2 over a dark
+ * one. Opaque is what makes the label's contrast a property of the fill rather
+ * than of whatever the lens is pointed at. Nothing shows through either fill,
+ * so the pill carries no backdrop blur.
+ *
+ * It fills with `--avatar-accent-fill` rather than the accent itself. Between
+ * the two inks' passing regions is a band of mid-tones that carry no readable
+ * text at all, and that var is the accent moved to the near edge of it (see
+ * `legibleAccentFill`). The ring, the hint and the thumb ring keep the accent
+ * itself, since a mark over video has no foreground to fail.
+ *
+ * The dot softens toward the ink rather than toward white, so it moves opposite
+ * the fill by construction: near-black on a light accent, near-white on a dark
+ * one, and at least 3:1 against the fill for every accent the palette ships.
+ * The 77% share is what leaves the crimson case the same rose the glass pill
+ * wears, since the ink falls back to white when there is no accent.
+ *
+ * The Live set sits behind one feature query. Of its three declarations only
+ * the dot's mix needs color-mix(), but an engine without it (Safari/iOS <
+ * 16.2, which the iOS shell still targets) cannot draw a dot that reads on a
+ * dynamic fill, so it takes the whole crimson trio instead: the same clamped
+ * crimson the modern path falls back to, white, and the rose below that pairs
+ * with them. Splitting the set is what puts ink on a fill it was not chosen
+ * for, and one clamped crimson across both paths is one colour to reason about
+ * rather than two.
+ *
+ * The dot on the glass pill is outside all of that. It hangs on a dark scrim
+ * rather than on the accent, so it is one property with nothing to keep in
+ * step, and it dual-declares in place the way the wave accents below do. */
+.camera-live-fill {
+  /* The crimson through `legibleAccentFill`, matching the fallback the query
+   * below uses. `CAMERA_FILL_FALLBACK` in `camera-mode-paint.ts` derives it and
+   * a test holds both copies equal. */
+  background-color: #cd426f;
+  color: #fff;
+}
+
+.camera-accent-soft-dot {
+  background-color: #ffd9e4;
+  background-color: color-mix(in srgb, var(--camera-accent) 23%, white);
+}
+
+@supports (background-color: color-mix(in srgb, red 50%, blue)) {
+  .camera-live-fill {
+    /* The accent as a surface text can sit on, which for most accents is the
+     * accent itself. The literal is the crimson through the same clamp, for an
+     * assistant with no accent at all: the raw crimson leaves a 13px label at
+     * 4.48 where the floor is 4.5, and every accented pill is held to that
+     * floor. `CAMERA_FILL_FALLBACK` in `camera-mode-paint.ts` derives it, and a
+     * test holds the two equal. */
+    --camera-live-fill: var(--avatar-accent-fill, #cd426f);
+    background-color: var(--camera-live-fill);
+    color: var(--avatar-accent-ink, #fff);
+  }
+
+  .camera-live-fill .camera-accent-soft-dot {
+    background-color: color-mix(
+      in srgb,
+      var(--avatar-accent-ink, #fff) 77%,
+      var(--camera-live-fill)
+    );
+  }
+}
+
 /* Camera shutter: the ring and core the voice room's viewfinder and the
  * deep-link capture overlay share.
  *
