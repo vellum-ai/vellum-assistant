@@ -92,6 +92,23 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     );
   });
 
+  test("Link carries the Stripe publishable key on its authorize request", () => {
+    // Link rejects an authorize request without `key`. Nothing else in the
+    // seed data is load-bearing in the same way, so it is asserted here.
+    const link = PROVIDER_SEED_DATA.stripe_link;
+    expect(link).toBeDefined();
+    expect(link.managedServiceConfigKey).toBe("stripe-link-oauth");
+    expect(link.authorizeParams?.key).toMatch(/^pk_live_/);
+  });
+
+  test("Link identity falls back to phone when a wallet has no email", () => {
+    // /userinfo returns no id field, so email is the account handle and phone
+    // is the only backstop. Losing these paths breaks connection keying.
+    const link = PROVIDER_SEED_DATA.stripe_link;
+    expect(link.identityUrl).toBe("https://api.link.com/userinfo");
+    expect(link.identityResponsePaths).toEqual(["email", "phone"]);
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in

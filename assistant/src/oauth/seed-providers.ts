@@ -1267,6 +1267,63 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
   },
+  stripe_link: {
+    provider: "stripe_link",
+    authorizeUrl: "https://login.link.com/auth",
+    tokenExchangeUrl: "https://login.link.com/auth/token",
+    refreshUrl: "https://login.link.com/auth/token",
+    revokeUrl: "https://login.link.com/auth/revoke",
+    revokeBodyTemplate: {
+      token: "{access_token}",
+      token_type_hint: "access_token",
+    },
+    pingUrl: "https://api.link.com/userinfo",
+    baseUrl: "https://api.link.com",
+    displayLabel: "Link by Stripe",
+    description: "Wallet payment methods for agent purchases",
+    dashboardUrl: "https://dashboard.stripe.com",
+    // Link issues OAuth clients by request rather than through a self-serve
+    // dashboard, so there is no placeholder shape to suggest.
+    clientIdPlaceholder: null,
+    // Simple Icons has no Link mark (`link` 404s on the CDN), so the parent
+    // Stripe mark stands in.
+    logoUrl: "https://cdn.simpleicons.org/stripe",
+    defaultScopes: ["payment_methods.agentic", "userinfo:read"],
+    availableScopes: [
+      {
+        scope: "payment_methods.agentic",
+        description:
+          "Create single-use cards and payment tokens against the wallet",
+      },
+      {
+        scope: "userinfo:read",
+        description: "Read the wallet owner's profile (email, name, phone)",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_post",
+    // Link requires the Stripe publishable key alongside the standard OAuth
+    // params. It is public by design (it ships in client-side JS), so a BYO
+    // connection carries the same value the managed flow sends.
+    authorizeParams: {
+      key: "pk_live_51TBfWJImRAtRKxBpkyavNkLrRvrpGXn4LnbQ08kqxumfYC7ntVRU7G3Pydi7vht7kJoawHACQLxP0bXO3vEeOmKX000dcHHFRt",
+    },
+    loopbackPort: 17340,
+    managedServiceConfigKey: "stripe-link-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.link.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    // /userinfo returns no id, so email is the only stable-ish handle; phone
+    // backstops a wallet that has one but no email on file.
+    identityUrl: "https://api.link.com/userinfo",
+    identityResponsePaths: ["email", "phone"],
+    featureFlag: "stripe-link-oauth",
+  },
 };
 
 export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));

@@ -140,6 +140,10 @@ const MondayOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+const StripeLinkOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 export const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -206,6 +210,9 @@ export const ServicesSchema = z.object({
   ),
   "monday-oauth": MondayOAuthServiceSchema.default(
     MondayOAuthServiceSchema.parse({}),
+  ),
+  "stripe-link-oauth": StripeLinkOAuthServiceSchema.default(
+    StripeLinkOAuthServiceSchema.parse({}),
   ),
   "figma-oauth": FigmaOAuthServiceSchema.default(
     FigmaOAuthServiceSchema.parse({}),
