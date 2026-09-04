@@ -148,9 +148,16 @@ scrim.
       a 6px state mark rather than text, and inking it would leave the user's
       dot and the assistant's the same colour, so this is a design call rather
       than a contrast bug.
-- [ ] iOS 15 keeps the pink. On a device or simulator older than 16.2, where
-      `color-mix()` does not exist, the Live pill and the speaking dot draw the
-      crimson and rose literals rather than going transparent or black.
+- [ ] iOS 15 keeps the whole pink pill. On a device or simulator older than
+      16.2, where `color-mix()` does not exist, the Live pill draws the crimson
+      fill AND white text whatever accent the assistant has, and the speaking
+      dot draws the rose. The failure to look for is a split pair: near-black
+      text on the crimson fill is 3.3:1, and it means the ink escaped the
+      feature query the fill sits behind. The shutter ring, the Live hint and
+      the thumb ring do follow the accent on those engines, since each is one
+      property with nothing to keep in step; the capture pulse and the
+      kept-frame ring stay crimson there, which is a hue that does not match
+      the ring it leaves and is expected.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection

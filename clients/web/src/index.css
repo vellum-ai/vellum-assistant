@@ -449,22 +449,32 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * `camera-mode-paint.ts`) and a pink fill under a green assistant says the
  * wrong thing. The mix cannot live inside a custom property: an unsupported
  * color-mix() in a var poisons whatever property reads it, so it belongs at the
- * consuming property, literal first and mix second. Same idiom as the wave
- * accents below, for the same engines (Safari/iOS < 16.2, which the iOS shell
- * still targets), which drop the second declaration and keep the shipped
- * pink.
+ * consuming property.
  *
- * The fill owns its ink for the same reason it owns its colour: filled with a
- * palette yellow, white 13px text on it is about 1.6:1. `--avatar-accent-ink`
- * is the black-or-white `contrastForeground()` picks for that accent, published
- * beside the accent itself. Its literal is symmetry with the pair above rather
- * than an engine fallback: `var()` carries its own, and every engine takes the
- * second declaration. */
+ * The pill is a fill and the ink that reads on it, which is ONE decision in two
+ * properties. Only the fill needs color-mix(); `--avatar-accent-ink` is a plain
+ * var() every engine takes. Declaring each with its own fallback would
+ * therefore split the pair on engines without color-mix() (Safari/iOS < 16.2,
+ * which the iOS shell still targets): the crimson fill under ink chosen for a
+ * colour the pill is not wearing, which for a light accent is near-black on
+ * crimson, 3.3:1 for a 13px label where the white it ships with is 5.4:1. So
+ * the base rule is the whole crimson pair and the feature query swaps both
+ * halves together.
+ *
+ * The dot has one property and no foreground to keep in step, so its literal
+ * and its mix dual-declare in place, the same idiom as the wave accents below:
+ * an engine without color-mix() drops the second declaration and keeps the rose
+ * that pairs with the crimson. */
 .camera-live-fill {
   background-color: rgba(207, 67, 112, 0.9);
-  background-color: color-mix(in srgb, var(--camera-accent) 90%, transparent);
   color: #fff;
-  color: var(--avatar-accent-ink, #fff);
+}
+
+@supports (background-color: color-mix(in srgb, red 50%, blue)) {
+  .camera-live-fill {
+    background-color: color-mix(in srgb, var(--camera-accent) 90%, transparent);
+    color: var(--avatar-accent-ink, #fff);
+  }
 }
 
 .camera-accent-soft-dot {
