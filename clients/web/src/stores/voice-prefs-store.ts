@@ -12,7 +12,10 @@
  *   a single localStorage key, `vellum:voice-prefs`.
  * - Cross-tab updates: the persist middleware doesn't sync across tabs
  *   on its own. We listen for `storage` events on `vellum:voice-prefs`
- *   and call `persist.rehydrate()` to pull in the other tab's write.
+ *   and call `persist.rehydrate()` to pull in the other tab's write,
+ *   except for a payload stamped past this build's version, which it
+ *   leaves for the build that wrote it. See
+ *   {@link isFutureVoicePrefsPayload}.
  *
  * Reference:
  * - {@link https://zustand.docs.pmnd.rs/}
@@ -179,22 +182,35 @@ const INITIAL_STATE: VoicePrefsState = {
 const VOICE_PREFS_STORE_KEY = "vellum:voice-prefs";
 
 /**
- * The persisted shape's version. Anything on disk below this goes through
- * {@link migrateVoicePrefs} before it reaches the store.
+ * The persisted shape's version. Anything on disk stamped with a different one,
+ * older or newer, goes through {@link migrateVoicePrefs} before it reaches the
+ * store.
  */
 const VOICE_PREFS_STORE_VERSION = 1;
 
 /**
- * Normalizes a payload stored below {@link VOICE_PREFS_STORE_VERSION}:
- * `showKeptFrame` reads false whether the payload carries it or omits it, and
- * every other field passes through as written. A payload stored AT the current
- * version does not reach here, so a value set from the camera panel survives.
+ * Normalizes a payload written below {@link VOICE_PREFS_STORE_VERSION}, and
+ * hands any other one back untouched.
+ *
+ * Below 1: `showKeptFrame` reads false whether the payload carries it or omits
+ * it, and every other field passes through as written. At or above 1: nothing
+ * is rewritten, including fields this build has no name for, which ride through
+ * in the object it returns. Zustand runs this for every version that is not its
+ * own rather than only for older ones, so a payload from a later release
+ * arrives here too, and the build that does not know that schema is not the
+ * one to edit it.
  *
  * The false is a literal rather than {@link INITIAL_STATE}'s value, because
  * this function is one version's contract and a later default carries its own.
  */
-function migrateVoicePrefs(persisted: unknown): Partial<VoicePrefsState> {
+function migrateVoicePrefs(
+  persisted: unknown,
+  version: number,
+): Partial<VoicePrefsState> {
   const saved = persisted as Partial<VoicePrefsState> | undefined;
+  if (version >= VOICE_PREFS_STORE_VERSION) {
+    return { ...saved };
+  }
   return { ...saved, showKeptFrame: false };
 }
 
@@ -246,10 +262,41 @@ export const useVoicePrefsStore = createSelectors(useVoicePrefsStoreBase);
 // Cross-tab sync
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the payload now on the key was written by a build with a newer
+ * schema than this one.
+ *
+ * Reading one costs more than it gains. Zustand re-persists after every
+ * migration it runs, at THIS build's version and through THIS build's
+ * `partialize`, so a tab that adopts a newer payload immediately writes back a
+ * downgraded one; the newer tab hears that, upgrades it, writes again, and the
+ * two trade writes for as long as both are open. Declining to read it ends the
+ * trade, and the newer tab keeps the newer payload.
+ *
+ * Anything unparseable is not a future payload: zustand already handles a
+ * broken value, and refusing to read it would strand the tab on stale state.
+ */
+function isFutureVoicePrefsPayload(raw: string | null): boolean {
+  if (raw === null) {
+    return false;
+  }
+  try {
+    const version: unknown = (JSON.parse(raw) as { version?: unknown } | null)
+      ?.version;
+    return typeof version === "number" && version > VOICE_PREFS_STORE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key === VOICE_PREFS_STORE_KEY) {
-      void useVoicePrefsStoreBase.persist.rehydrate();
+    if (event.key !== VOICE_PREFS_STORE_KEY) {
+      return;
     }
+    if (isFutureVoicePrefsPayload(event.newValue)) {
+      return;
+    }
+    void useVoicePrefsStoreBase.persist.rehydrate();
   });
 }

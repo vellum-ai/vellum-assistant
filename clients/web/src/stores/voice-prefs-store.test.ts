@@ -167,6 +167,94 @@ describe("useVoicePrefsStore: a stored kept-frame value", () => {
   });
 });
 
+/**
+ * A payload a later release wrote, read by this one. Zustand runs the migration
+ * for every version that is not its own, so these arrive at the same door the
+ * old ones do, and this build is not the one that gets to edit them.
+ */
+describe("useVoicePrefsStore: a payload from a newer build", () => {
+  const FUTURE = {
+    state: {
+      flashMode: "auto",
+      showKeptFrame: true,
+      futureOnlyField: "set by a later release",
+    },
+    version: 2,
+  };
+
+  const stored = () =>
+    JSON.parse(localStorage.getItem(VOICE_PREFS_STORE_KEY) as string);
+
+  test("keeps the choice it holds, and the fields this build cannot name", async () => {
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, JSON.stringify(FUTURE));
+
+    await useVoicePrefsStore.persist.rehydrate();
+
+    // The kept-frame normalization is v0's business. Running it here would
+    // throw away a choice made in a release that knows more than this one.
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
+    expect(useVoicePrefsStore.getState().flashMode).toBe("auto");
+    expect(
+      (useVoicePrefsStore.getState() as unknown as Record<string, unknown>)
+        .futureOnlyField,
+    ).toBe("set by a later release");
+  });
+
+  test("writing it back is what this build cannot avoid, and how far it goes", async () => {
+    // Zustand re-persists after ANY migration it runs, at its own version and
+    // through its own partialize, and a migration cannot opt out of that. So
+    // the values survive the round trip but the stamp regresses and the fields
+    // this build has no name for leave the payload. Pinned rather than wished
+    // away: the newer tab's next write restores both.
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, JSON.stringify(FUTURE));
+
+    await useVoicePrefsStore.persist.rehydrate();
+
+    expect(stored().state.showKeptFrame).toBe(true);
+    expect(stored().state.flashMode).toBe("auto");
+    expect(stored().version).toBe(1);
+    expect(stored().state.futureOnlyField).toBeUndefined();
+  });
+
+  test("a storage event carrying one is not read at all", async () => {
+    // What ends the trade. Reading it would write the downgrade above, the
+    // newer tab would hear that and upgrade it again, and the two would swap
+    // writes for as long as both are open.
+    useVoicePrefsStore.setState({ showKeptFrame: false, flashMode: "off" });
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, JSON.stringify(FUTURE));
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: VOICE_PREFS_STORE_KEY,
+        newValue: JSON.stringify(FUTURE),
+      }),
+    );
+    await Promise.resolve();
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+    expect(useVoicePrefsStore.getState().flashMode).toBe("off");
+    // Untouched on disk, so the newer tab still owns it.
+    expect(stored().version).toBe(2);
+    expect(stored().state.futureOnlyField).toBe("set by a later release");
+  });
+
+  test("a storage event at this build's own version is read normally", async () => {
+    useVoicePrefsStore.setState({ flashMode: "off" });
+    const current = { state: { flashMode: "auto" }, version: 1 };
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, JSON.stringify(current));
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: VOICE_PREFS_STORE_KEY,
+        newValue: JSON.stringify(current),
+      }),
+    );
+    await Promise.resolve();
+
+    expect(useVoicePrefsStore.getState().flashMode).toBe("auto");
+  });
+});
+
 describe("useVoicePrefsStore: camera flash", () => {
   test("rests at off, so a call never opens with a flash the user did not ask for", () => {
     expect(useVoicePrefsStore.getState().flashMode).toBe("off");
