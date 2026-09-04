@@ -1371,6 +1371,51 @@ export const COMPANION_ANNOTATION_MAX_POINTS = 512;
 export const COMPANION_ANNOTATION_STROKE = 0.006;
 
 /**
+ * One thing the assistant is pointing at on the surface a call is being
+ * shown: the bounds of the thing, and a line about what to do with it.
+ *
+ * **In fractions of the shared surface, from `0` to `1`**, for the reason
+ * {@link CompanionAnnotationStroke} carries fractions. The overlay is a
+ * window sized in points, and what the mark was resolved from is measured in
+ * the target's own units; a fraction of the surface is the one description
+ * both ends agree on, and it survives the scaling between them.
+ *
+ * The bounds are the thing itself rather than the ring drawn for it. The ring
+ * goes outside them, so the control a user is being pointed at stays as
+ * visible as it was before anything was drawn on it.
+ *
+ * A rectangle, not a stroke, because this end knows what it is pointing at:
+ * the user draws freehand at something they can already see, and the
+ * assistant resolves an element that has bounds.
+ */
+export interface CompanionCoachmark {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * What to do with the thing, in the user's language, or nothing when the
+   * ring is the whole message.
+   *
+   * Short by contract ({@link COMPANION_COACHMARK_CAPTION_MAX}): it is drawn
+   * over the user's own work, in a window they cannot scroll or dismiss, and
+   * anything longer than a caption belongs in what the assistant is saying.
+   */
+  caption?: string;
+}
+
+/**
+ * How many marks stand at once, and how long a caption may be.
+ *
+ * A mark is where to look next, so a surface covered in them is nowhere to
+ * look. The bound is low because it is the shape of the feature rather than a
+ * safeguard: past a few marks at once, what is being drawn is not a place to
+ * go but a diagram, and the call is where a diagram gets explained.
+ */
+export const COMPANION_COACHMARK_MAX = 4;
+export const COMPANION_COACHMARK_CAPTION_MAX = 80;
+
+/**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
  * with the size it was encoded at. Base64 rather than bytes because it
  * crosses the bridge as JSON.
@@ -1791,6 +1836,21 @@ export interface CompanionSurfaceState {
    * about where the next click goes.
    */
   annotating?: boolean;
+
+  /**
+   * What the assistant is pointing at on the shared surface, drawn on the
+   * frame around it. See {@link CompanionCoachmark}.
+   *
+   * Main's rather than the app window's, in the sense that main decides
+   * whether any of them stand: the coordinates are fractions of the surface
+   * the frame is drawn around, so a mark only means anything while the frame
+   * is around the surface the marks were resolved against. Main takes them
+   * down when it is not.
+   *
+   * Optional, and absence means nothing is being pointed at. An empty array
+   * never travels: a shell with nothing to draw says nothing.
+   */
+  coachmarks?: readonly CompanionCoachmark[];
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the
