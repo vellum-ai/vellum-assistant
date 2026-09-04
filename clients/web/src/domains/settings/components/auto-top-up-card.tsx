@@ -425,14 +425,13 @@ export function AutoTopUpCard() {
 
   /**
    * The backend requires a daily credit limit while auto-reload is on, so a
-   * save with none on file goes through the gate first. Only a settled
-   * daily-limit query that reports no limit gates; while it is still loading
-   * or has never resolved, the save proceeds and the backend applies its own
-   * default limit.
+   * save goes through the gate unless a limit is known to be on file. Save
+   * stays disabled until the daily-limit lookup settles (`saveDisabled` on
+   * the form below); a lookup that failed without ever producing data also
+   * gates, since setting a limit is the one move that is safe either way.
    */
   const handleSave = (values: AutoTopUpFormValues) => {
-    const dailyLimit = dailyLimitQuery.data;
-    if (dailyLimit != null && dailyLimit.daily_credit_limit_usd == null) {
+    if (dailyLimitQuery.data?.daily_credit_limit_usd == null) {
       setGatedValues(values);
       return;
     }
@@ -730,6 +729,7 @@ export function AutoTopUpCard() {
               : undefined
           }
           submitting={updateMutation.isPending}
+          saveDisabled={dailyLimitQuery.isPending}
           serverErrors={fieldErrors}
           onCancel={exitFormMode}
           onSave={handleSave}

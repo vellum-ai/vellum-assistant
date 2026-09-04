@@ -13,6 +13,8 @@ export interface AutoTopUpFormValues {
 export interface AutoTopUpFormProps {
   initialValues?: AutoTopUpFormValues;
   submitting: boolean;
+  /** Keeps Save inert while a prerequisite of the save is still loading. */
+  saveDisabled?: boolean;
   serverErrors: Record<string, string>;
   onSave: (values: AutoTopUpFormValues) => void;
   onCancel: () => void;
@@ -114,6 +116,7 @@ export function visibleAutoTopUpError(
 export function AutoTopUpForm({
   initialValues = DEFAULTS,
   submitting,
+  saveDisabled = false,
   serverErrors,
   onSave,
   onCancel,
@@ -237,7 +240,7 @@ export function AutoTopUpForm({
           <Button
             variant="primary"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || saveDisabled}
             data-testid="auto-top-up-save-button"
           >
             {t("autoTopUpForm.save")}

@@ -21,7 +21,9 @@
  *  - Save while the org has no daily credit limit opens the daily-limit gate
  *    instead of persisting; saving a limit there persists it and then the
  *    auto-reload config, while declining leaves auto-reload off (dropping a
- *    pending enable, or disabling a config that was already on).
+ *    pending enable, or disabling a config that was already on). Save stays
+ *    disabled until the daily-limit lookup settles, and a failed lookup
+ *    gates too.
  *  - Save and Disable both seed the config cache from a response that carries
  *    no payment-method fields, so both carry the cached ones forward: the card
  *    expiry and the saved billing address survive until the next GET.
@@ -87,6 +89,10 @@ let retrieveResponse: AutoTopUpConfigResponse;
 // back null.
 let updateResponse: AutoTopUpConfigResponse | null = null;
 let dailyLimitResponse: DailyCreditLimitResponse;
+// Stands in for the daily-limit GET when a test needs it to hang or fail.
+let dailyLimitRetrieve:
+  | (() => Promise<{ data: DailyCreditLimitResponse; response: unknown }>)
+  | null = null;
 let dailyLimitUpdateCalls: Array<Record<string, unknown>> = [];
 let disableCalls = 0;
 
@@ -113,6 +119,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
     });
   },
   organizationsBillingDailyCreditLimitRetrieve: () =>
+    dailyLimitRetrieve?.() ??
     Promise.resolve({ data: dailyLimitResponse, response: { ok: true } }),
   // The daily-limit gate's PUT. Mirrors the saved limit into the GET so the
   // refetch the save triggers agrees with the seeded cache.
@@ -329,6 +336,7 @@ async function settleConfigQuery(client: QueryClient) {
 
 beforeEach(() => {
   updateCalls = [];
+  dailyLimitRetrieve = null;
   dailyLimitUpdateCalls = [];
   disableCalls = 0;
   syncCalls = [];
@@ -924,6 +932,54 @@ describe("AutoTopUpCard daily credit limit gate", () => {
     ).toBe("40.00");
     expect((updateCalls[0]!.body as { enabled: boolean }).enabled).toBe(true);
     expect(queryByTestId("auto-top-up-daily-limit-modal")).toBeNull();
+  });
+
+  test("Save stays disabled until the daily-limit lookup settles", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    dailyLimitRetrieve = () => new Promise(() => {});
+    const client = makeClient(DISABLED_WITH_CARD);
+    client.removeQueries({
+      queryKey: organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+    });
+    const { getByLabelText, getByTestId, queryByTestId } = render(
+      wrap(DISABLED_WITH_CARD, "/", client),
+    );
+
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+    const save = getByTestId("auto-top-up-save-button") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+
+    expect(queryByTestId("auto-top-up-daily-limit-modal")).toBeNull();
+    expect(updateCalls).toEqual([]);
+  });
+
+  test("a failed daily-limit lookup opens the gate rather than persisting", async () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    dailyLimitRetrieve = () => Promise.reject(new Error("lookup failed"));
+    const client = makeClient(DISABLED_WITH_CARD);
+    client.removeQueries({
+      queryKey: organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+    });
+    const { getByLabelText, getByTestId, queryByTestId } = render(
+      wrap(DISABLED_WITH_CARD, "/", client),
+    );
+    await waitFor(() => {
+      const state = client.getQueryState(
+        organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+      );
+      if (state?.status !== "error") {
+        throw new Error("daily-limit lookup not settled");
+      }
+    });
+
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+    const save = getByTestId("auto-top-up-save-button") as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+
+    expect(queryByTestId("auto-top-up-daily-limit-modal")).not.toBeNull();
+    expect(updateCalls).toEqual([]);
   });
 
   test("declining the gate drops a pending enable", () => {

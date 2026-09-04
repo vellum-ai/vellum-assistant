@@ -4,7 +4,7 @@
  *  - opens with the $25 default filled in
  *  - saving PUTs the two-decimal limit, seeds the daily-limit cache, and then
  *    reports back through `onSaved`
- *  - Enter in the input saves too
+ *  - Enter in the input saves too, but not again while a save is in flight
  *  - a below-minimum value shows the inline error and never calls the API
  *  - declining reports back through `onCancel` without a PUT
  *  - a rejected save keeps the dialog open with the failure shown
@@ -23,6 +23,8 @@ import type { DailyCreditLimitResponse } from "@/generated/api/types.gen";
 
 let updateCalls: Array<Record<string, unknown>> = [];
 let updateError: unknown = null;
+// When set, the PUT stays pending until the test resolves it.
+let releaseUpdate: (() => void) | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -34,7 +36,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
       return Promise.reject(updateError);
     }
     const body = (opts.body ?? {}) as { daily_credit_limit_usd: string | null };
-    return Promise.resolve({
+    const result = {
       data: {
         daily_credit_limit_usd: body.daily_credit_limit_usd,
         current_day_spent_usd: "0.00",
@@ -43,6 +45,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
         daily_limit_snoozed_day_bucket: null,
       },
       response: { ok: true },
+    };
+    if (releaseUpdate === null) {
+      return Promise.resolve(result);
+    }
+    return new Promise((resolve) => {
+      releaseUpdate = () => resolve(result);
     });
   },
 }));
@@ -72,6 +80,7 @@ function renderModal() {
 beforeEach(() => {
   updateCalls = [];
   updateError = null;
+  releaseUpdate = null;
   onSaved = mock(() => {});
   onCancel = mock(() => {});
 });
@@ -118,6 +127,26 @@ describe("AutoTopUpDailyLimitModal", () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(updateCalls[0]!.body).toEqual({ daily_credit_limit_usd: "25.00" });
+  });
+
+  test("Enter while a save is in flight does not issue a second PUT", async () => {
+    releaseUpdate = () => {};
+    const { getByTestId } = renderModal();
+    const input = getByTestId("auto-top-up-daily-limit-input");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      if (!(input as HTMLInputElement).disabled) {
+        throw new Error("input still enabled during the save");
+      }
+    });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(getByTestId("auto-top-up-daily-limit-save-button"));
+
+    expect(updateCalls.length).toBe(1);
+    releaseUpdate();
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(updateCalls.length).toBe(1);
   });
 
   test("a below-minimum value shows the error and does not call the API", () => {

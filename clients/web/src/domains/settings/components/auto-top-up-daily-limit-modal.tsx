@@ -57,7 +57,13 @@ export function AutoTopUpDailyLimitModal({
     serverLimitError ??
     (updateMutation.isError ? t("dailyCreditLimitCard.saveError") : undefined);
 
+  // Enter reaches here past the disabled Save button, so the in-flight guard
+  // lives on the handler: overlapping PUTs could otherwise settle out of order
+  // and leave an earlier limit on file when auto-reload turns on.
   const handleSave = () => {
+    if (saving) {
+      return;
+    }
     setTouched(true);
     if (clientError) {
       return;
@@ -117,6 +123,7 @@ export function AutoTopUpDailyLimitModal({
             onBlur={() => setTouched(true)}
             onKeyDown={onKeyDown}
             errorText={visibleError}
+            disabled={saving}
             data-testid="auto-top-up-daily-limit-input"
           />
           {saveError != null && (
