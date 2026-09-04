@@ -33,6 +33,7 @@ import {
   companionPadFor,
   companionScaleFor,
   WATCH_FLAG,
+  companionBaselineFor,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
@@ -263,8 +264,24 @@ export const geometryFor = (
   };
 };
 
-/** Gap from the work area's bottom edge on the first ever launch. */
-const DEFAULT_MARGIN = 24;
+/**
+ * Gap between the creature's visible bottom and the work area's bottom edge on
+ * the first ever launch.
+ *
+ * From the *visible* bottom, not the avatar's box. The box runs a good way
+ * past the artwork on every side to hold the glow and the bob's slack (see
+ * `companionBaselineFor`), so a margin measured against it is the stated gap
+ * plus however much slack the current size carries: 36pt at the default size
+ * where 24 was written, and more at every size above it.
+ *
+ * Small, because the surface floats over whatever the user is working in and
+ * the bottom of a window is where that application keeps its own controls. A
+ * companion resting a finger's width above the work area is a companion in
+ * front of the thing it was put there to help with. Resting on that edge
+ * leaves it a strip of its own under everything else, which is the shape of
+ * the bargain: seen when looked for, out of the way when not.
+ */
+const DEFAULT_MARGIN = 8;
 
 let growth: CompanionGrowth = "right";
 
@@ -712,10 +729,18 @@ export const placeCanvas = (
   // the minimum, which `Math.min` then resolves toward the top-left corner
   // rather than producing a position outside the display.
   const half = geometry.avatarBox / 2;
+  // Downward the clamp is the creature's visible bottom rather than its box's.
+  // The box holds the glow and the bob's slack, and slack is not something the
+  // user can see: clamping to it stops the creature short of the edge by
+  // however much of it is empty, which reads as the surface refusing to go
+  // where it was dragged. Upward and sideways the box still decides, since the
+  // canvas above has its own bound below and the sides are where a half box is
+  // deliberately allowed to hang past the edge.
+  const baseline = companionBaselineFor(geometry.avatarBox);
   const minCentreX = workArea.x + half;
   const maxCentreX = workArea.x + workArea.width - half;
   const minCentreY = workArea.y + half;
-  const maxCentreY = workArea.y + workArea.height - half;
+  const maxCentreY = workArea.y + workArea.height - baseline;
   const centreX = Math.min(Math.max(avatarCentre.x, minCentreX), maxCentreX);
   const wantedY = Math.min(Math.max(avatarCentre.y, minCentreY), maxCentreY);
 
@@ -740,6 +765,10 @@ export const placeCanvas = (
  * room to grow either way, and low so it sits under the window the user is
  * working in rather than over it.
  *
+ * The margin is measured to the creature's visible bottom, so the answer is
+ * the same distance off the edge at every size rather than that distance plus
+ * whatever slack the box carries. See {@link DEFAULT_MARGIN}.
+ *
  * Exported for its tests and pure for the same reason as {@link placeCanvas}.
  */
 export const defaultAvatarCentre = (
@@ -747,7 +776,11 @@ export const defaultAvatarCentre = (
   geometry: CompanionGeometry,
 ): { x: number; y: number } => ({
   x: workArea.x + workArea.width / 2,
-  y: workArea.y + workArea.height - DEFAULT_MARGIN - geometry.avatarBox / 2,
+  y:
+    workArea.y +
+    workArea.height -
+    DEFAULT_MARGIN -
+    companionBaselineFor(geometry.avatarBox),
 });
 
 /**

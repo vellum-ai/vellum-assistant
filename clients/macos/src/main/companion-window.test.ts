@@ -7,6 +7,7 @@ import {
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_SIZES,
+  companionBaselineFor,
   companionBoxFor,
   companionCardSideFor,
   companionNearEdgeFor,
@@ -734,10 +735,26 @@ describe("placeCanvas", () => {
     ).toBe(22);
   });
 
-  test("holds the avatar at the bottom edge rather than past it", () => {
+  /**
+   * The creature's visible bottom lands on the edge, not its box's. The box
+   * carries the glow and the bob's slack, and stopping the creature a slack's
+   * worth short of the edge reads as the surface refusing to go where it was
+   * dragged. At the authored size that slack is 8pt of the 22pt half box.
+   */
+  test("holds the creature's visible bottom on the bottom edge", () => {
     expect(
       centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y,
-    ).toBe(900 - 22);
+    ).toBe(900 - 14);
+  });
+
+  /** And the slack grows with the creature, so the rule has to be read per size. */
+  test("reads that bottom off the size the creature is drawn at", () => {
+    expect(
+      centreOf(
+        placeCanvas({ x: 700, y: 9000 }, WORK_AREA, BIG_CREATURE),
+        BIG_CREATURE,
+      ).y,
+    ).toBe(900 - companionBaselineFor(BIG_CREATURE.avatarBox));
   });
 
   /**
@@ -747,8 +764,8 @@ describe("placeCanvas", () => {
    */
   test("lets the avatar reach the corner the surface opens in", () => {
     expect(
-      centreOf(placeCanvas({ x: 1440 - 22, y: 900 - 22 }, WORK_AREA, GEOMETRY)),
-    ).toEqual({ x: 1440 - 22, y: 900 - 22 });
+      centreOf(placeCanvas({ x: 1440 - 22, y: 900 - 14 }, WORK_AREA, GEOMETRY)),
+    ).toEqual({ x: 1440 - 22, y: 900 - 14 });
   });
 
   test("clamps against the display it is given, not the primary one", () => {
@@ -804,10 +821,29 @@ describe("placeCanvas", () => {
 });
 
 describe("defaultAvatarCentre", () => {
-  test("opens at the bottom centre of the work area", () => {
+  /**
+   * The margin is to the creature's visible bottom, so it is the same gap off
+   * the edge at every size rather than that gap plus the box's own slack.
+   */
+  test("opens a margin above the work area's bottom edge", () => {
     const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
     expect(centre.x).toBe(720);
-    expect(centre.y).toBe(25 + 875 - 24 - GEOMETRY.avatarBox / 2);
+    expect(centre.y).toBe(
+      25 + 875 - 8 - companionBaselineFor(GEOMETRY.avatarBox),
+    );
+  });
+
+  /**
+   * The gap a user actually sees, which is the whole point of measuring it
+   * this way: the same 8pt under a creature at any size.
+   */
+  test("leaves the same visible gap at every size", () => {
+    for (const geometry of [GEOMETRY, BIG_CREATURE, BIG_OPTIONS]) {
+      const centre = defaultAvatarCentre(WORK_AREA, geometry);
+      const visibleBottom =
+        centre.y + companionBaselineFor(geometry.avatarBox);
+      expect(25 + 875 - visibleBottom).toBe(8);
+    }
   });
 
   test("centres on the display it is given, not the primary one", () => {
@@ -1214,8 +1250,10 @@ describe("the glide between the pill's home and the call's place", () => {
       x: placed.origin.x + GEOMETRY.canvasWidth / 2,
       y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, GEOMETRY),
     });
+    // Inside by the rule the clamp actually applies: the creature's visible
+    // bottom on the edge, not its box's.
     expect(centre().y).toBeLessThanOrEqual(
-      shrunk.height - GEOMETRY.avatarBox / 2,
+      shrunk.height - companionBaselineFor(GEOMETRY.avatarBox),
     );
   });
 
