@@ -1,6 +1,3 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
-
 import { app } from "electron";
 import { z } from "zod";
 
@@ -17,6 +14,7 @@ import {
 import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import { handle } from "../ipc.client";
+import { resolveLinuxHelperPath } from "../linux-helper";
 import log from "../logger";
 import { ensureVisible } from "../main-window";
 
@@ -25,8 +23,6 @@ import { ensureVisible } from "../main-window";
  * when one exists. Until a Linux sidecar ships, the shared module's default
  * `electron.Notification` path delivers click-only toasts.
  */
-
-const HELPER_EXECUTABLE = "vellum-linux-helper";
 
 // Bound on toasts a user could still interact with.
 const MAX_TRACKED_TOASTS = 200;
@@ -41,20 +37,6 @@ const SHOW_RESULT_SCHEMA = z.object({
   success: z.boolean(),
   errorMessage: z.string().optional(),
 });
-
-export const resolveHelperPath = (): string | null => {
-  const override = process.env["VELLUM_LINUX_HELPER_PATH"];
-  // `resourcesPath` (the packaged install's resources dir) is only set under
-  // an Electron runtime; the app-path candidate is the dev publish dir.
-  const resourcesPath: string | undefined = process.resourcesPath;
-  const tail = ["native-helper", process.arch, HELPER_EXECUTABLE];
-  const candidates = [
-    ...(override ? [override] : []),
-    ...(resourcesPath ? [path.join(resourcesPath, ...tail)] : []),
-    path.join(app.getAppPath(), "resources", ...tail),
-  ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? null;
-};
 
 type ToastListener = (...args: unknown[]) => void;
 
@@ -150,7 +132,7 @@ export const createHelperToastFactory = (
 const notifications: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "notifications",
   install: () => {
-    const helperPath = resolveHelperPath();
+    const helperPath = resolveLinuxHelperPath();
     configureNotifications({
       ipc: { handle },
       ensureVisible,
