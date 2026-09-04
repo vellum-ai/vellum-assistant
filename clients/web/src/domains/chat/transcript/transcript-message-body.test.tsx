@@ -1026,6 +1026,161 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
+  test("keeps surface lead-in text visible across the ui_show call that opened it", () => {
+    // The onboarding greeting's shape: prose, the `ui_show` call that opens the
+    // choice surface, the surface, then a scrap of trailing text. The call
+    // draws no row of its own, so the prose still introduces the surface and
+    // stays part of the response.
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-ui-show-lead-in",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Hey there, shall we start with your work?"),
+            toolUseBlock({
+              id: "tc-ui-show",
+              name: "ui_show",
+              input: {},
+              completedAt: 1,
+            }),
+            surfaceBlock("choice-surface"),
+            textBlock("Sparkle"),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      queryByText("Hey there, shall we start with your work?"),
+    ).not.toBeNull();
+    expect(queryByText("Sparkle")).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='choice-surface']"),
+    ).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("keeps surface lead-in text visible when the surface ends the response", () => {
+    // Same turn without the trailing scrap: the prose is already the final
+    // text, so nothing collapses either way. Guards the shape the greeting is
+    // meant to produce.
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-ending-on-surface",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Hey there, shall we start with your work?"),
+            toolUseBlock({
+              id: "tc-ui-show-end",
+              name: "ui_show",
+              input: {},
+              completedAt: 1,
+            }),
+            surfaceBlock("choice-surface-end"),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      queryByText("Hey there, shall we start with your work?"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='choice-surface-end']"),
+    ).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("keeps every text block before a surface out of earlier activity", () => {
+    // The greeting arriving as two text blocks: both introduce the surface, so
+    // both stay in the response rather than only the one nearest to it.
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-split-lead-in",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Hey there."),
+            textBlock("Shall we start with your work?"),
+            toolUseBlock({
+              id: "tc-ui-show-split",
+              name: "ui_show",
+              input: {},
+              completedAt: 1,
+            }),
+            surfaceBlock("choice-surface-split"),
+            textBlock("Sparkle"),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Hey there.")).not.toBeNull();
+    expect(queryByText("Shall we start with your work?")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("collapses prose before a card-backed activity when a later surface has trailing text", () => {
+    // A process card is visible output even though it is not a timeline row.
+    // Prose before that card is earlier activity. The surface and trailing
+    // scrap stay in the reply.
+    const { container, getByRole, queryByRole, queryByTestId, queryByText } =
+      render(
+        <TranscriptMessageBody
+          message={{
+            id: "completed-with-card-then-surface",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("Let me ask first."),
+              toolUseBlock({
+                id: "tc-ask-then-surface",
+                name: "ask_question",
+                input: {},
+                completedAt: 1,
+                answeredQuestion: {
+                  requestId: "req-card-bound",
+                  questions: [
+                    {
+                      id: "q1",
+                      question: "Which Alice?",
+                      options: [{ id: "alice_work", label: "Alice (work)" }],
+                    },
+                  ],
+                  responses: [
+                    {
+                      questionId: "q1",
+                      decision: "option",
+                      optionId: "alice_work",
+                    },
+                  ],
+                  overall: "completed",
+                },
+              }),
+              surfaceBlock("choice-after-card"),
+              textBlock("Sparkle"),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+    expect(queryByText("Let me ask first.")).toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).not.toBeNull();
+    expect(queryByTestId("answered-question-card")).not.toBeNull();
+    expect(queryByText("Sparkle")).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='choice-after-card']"),
+    ).not.toBeNull();
+
+    fireEvent.click(getByRole("button", { name: "Earlier activity" }));
+    expect(queryByText("Let me ask first.")).not.toBeNull();
+  });
+
   test("keeps inline surfaces visible outside collapsed earlier text", () => {
     const { container, queryByText } = render(
       <TranscriptMessageBody
@@ -1755,7 +1910,9 @@ describe("TranscriptMessageBody", () => {
     );
 
     expect(
-      container.querySelector("[data-testid='surface'][data-surface-id='s-keep']"),
+      container.querySelector(
+        "[data-testid='surface'][data-surface-id='s-keep']",
+      ),
     ).not.toBeNull();
   });
 
