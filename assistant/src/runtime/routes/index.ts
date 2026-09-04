@@ -75,6 +75,7 @@ import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
 import { GUARDIAN_FORM_ROUTES } from "./guardian-form-routes.js";
+import { ROUTES as GUARDIAN_HISTORY_ROUTES } from "./guardian-history-routes.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
@@ -229,6 +230,7 @@ export const ROUTES: RouteDefinition[] = [
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
   ...GUARDIAN_ACTION_ROUTES,
+  ...GUARDIAN_HISTORY_ROUTES,
   ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,

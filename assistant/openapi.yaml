@@ -13241,6 +13241,227 @@ paths:
                   - conversationId
                   - prompts
                 additionalProperties: false
+  /v1/guardian-requests:
+    get:
+      operationId: guardianrequests_get
+      summary: List guardian request history
+      description:
+        Returns guardian requests ordered newest-first (createdAt DESC, id ASC). Supports filtering by status and
+        kind, and keyset pagination via limit + before + beforeId.
+      tags:
+        - guardian
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - approved
+              - denied
+              - expired
+              - cancelled
+          description: Filter by request status
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - access_request
+              - tool_approval
+              - tool_grant_request
+              - pending_question
+          description: Filter by request kind
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+          description: Maximum rows to return (default 50, max 200)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: number
+          description: "Keyset cursor: epoch-ms createdAt of the last item from the previous page"
+        - name: beforeId
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "Keyset cursor: id of the last item from the previous page (required when before is set, for correct
+            pagination when multiple items share the same createdAt)"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        kind:
+                          type: string
+                        sourceType:
+                          type: string
+                          enum:
+                            - voice
+                            - desktop
+                            - channel
+                        sourceChannel:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        sourceConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requesterExternalUserId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requesterChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        guardianExternalUserId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        guardianPrincipalId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        callSessionId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        pendingQuestionId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        questionText:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requestCode:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        toolName:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        inputDigest:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        commandPreview:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        riskLevel:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        activityText:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        executionTarget:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requesterSignals:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requestTrigger:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - pending
+                            - approved
+                            - denied
+                            - expired
+                            - cancelled
+                        answerText:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        decidedByExternalUserId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        decidedByPrincipalId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        followupState:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        expiresAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - kind
+                        - sourceType
+                        - sourceChannel
+                        - sourceConversationId
+                        - requesterExternalUserId
+                        - requesterChatId
+                        - guardianExternalUserId
+                        - guardianPrincipalId
+                        - callSessionId
+                        - pendingQuestionId
+                        - questionText
+                        - requestCode
+                        - toolName
+                        - inputDigest
+                        - commandPreview
+                        - riskLevel
+                        - activityText
+                        - executionTarget
+                        - requesterSignals
+                        - requestTrigger
+                        - status
+                        - answerText
+                        - decidedByExternalUserId
+                        - decidedByPrincipalId
+                        - followupState
+                        - expiresAt
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                    description: Guardian request objects
+                  hasMore:
+                    type: boolean
+                    description: True when more pages exist beyond this result set
+                required:
+                  - requests
+                  - hasMore
+                additionalProperties: false
   /v1/health:
     get:
       operationId: health_get
