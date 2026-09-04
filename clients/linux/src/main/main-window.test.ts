@@ -36,11 +36,15 @@ const makeWindow = (options: {
     },
     emit(event: string, payload?: { preventDefault: () => void }) {
       state.destroyed ||= event === "closed";
-      for (const handler of listeners.get(event) ?? []) handler(payload);
+      for (const handler of listeners.get(event) ?? []) {
+        handler(payload);
+      }
     },
     webContents: {
       emit: (event: string) => {
-        for (const handler of webListeners.get(event) ?? []) handler();
+        for (const handler of webListeners.get(event) ?? []) {
+          handler();
+        }
       },
       isDestroyed: () => state.destroyed,
       on: mock(() => undefined),
@@ -137,7 +141,9 @@ const {
 
 const destroyWindows = (): void => {
   for (const win of constructed) {
-    if (!win.state.destroyed) win.emit("closed");
+    if (!win.state.destroyed) {
+      win.emit("closed");
+    }
   }
   constructed.length = 0;
 };

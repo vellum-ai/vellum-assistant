@@ -25,7 +25,9 @@ const makeWindow = () => {
   let destroyed = false;
   const emit = (event: string, ...args: unknown[]): void => {
     destroyed ||= event === "closed";
-    for (const listener of listeners.get(event) ?? []) listener(...args);
+    for (const listener of listeners.get(event) ?? []) {
+      listener(...args);
+    }
   };
   const addListener = (event: string, listener: Listener): void => {
     listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -143,7 +145,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const { window } of created) {
-    if (!window.isDestroyed()) window.close();
+    if (!window.isDestroyed()) {
+      window.close();
+    }
   }
 });
 

@@ -175,7 +175,9 @@ describe("share feature", () => {
   const installShare = (): ShareHandler => {
     shareFeature.install(new DesktopCapabilityRegistry());
     const handler = handlers.get("vellum:share:file");
-    if (!handler) throw new Error("share handler was not registered");
+    if (!handler) {
+      throw new Error("share handler was not registered");
+    }
     return handler;
   };
 
