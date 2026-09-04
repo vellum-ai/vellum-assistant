@@ -11,10 +11,8 @@ const productName =
     ? "Vellum"
     : `Vellum ${env.charAt(0).toUpperCase() + env.slice(1)}`;
 
-const appId =
-  env === "production"
-    ? "com.vellum.vellum-assistant-electron"
-    : `com.vellum.vellum-assistant-electron-${env}`;
+const { resolveLinuxAppId } = require("./build-resources/app-identity.cjs");
+const appId = resolveLinuxAppId(env);
 
 const schemes =
   env === "production"

@@ -17,7 +17,7 @@ export interface LaunchAtLoginStore {
  */
 export interface LoginItemBackend {
   read: () => boolean;
-  write: (enabled: boolean) => void;
+  write: (enabled: boolean) => boolean;
 }
 
 export interface LoginItemRuntime {
@@ -57,13 +57,13 @@ const readOpenAtLogin = (): boolean => {
     : app.getLoginItemSettings(runtime?.identity).openAtLogin;
 };
 
-const applyOpenAtLogin = (enabled: boolean): void => {
+const applyOpenAtLogin = (enabled: boolean): boolean => {
   const backend = runtime?.backend;
   if (backend) {
-    backend.write(enabled);
-    return;
+    return backend.write(enabled);
   }
   app.setLoginItemSettings({ openAtLogin: enabled, ...runtime?.identity });
+  return true;
 };
 
 const readLaunchAtLogin = (): boolean =>
@@ -71,15 +71,35 @@ const readLaunchAtLogin = (): boolean =>
 
 const writeLaunchAtLogin = (enabled: boolean): void => {
   const store = runtime?.store;
+  if (runtime?.backend && !applyOpenAtLogin(enabled)) {
+    throw new Error("Could not update launch at login");
+  }
   if (store) {
     store.write(enabled);
     return;
   }
-  applyOpenAtLogin(enabled);
+  if (!runtime?.backend) {
+    applyOpenAtLogin(enabled);
+  }
 };
 
+let syncing = false;
 const syncLoginItem = (): void => {
-  applyOpenAtLogin(readLaunchAtLogin());
+  if (syncing) {
+    return;
+  }
+  syncing = true;
+  try {
+    const enabled = readLaunchAtLogin();
+    if (runtime?.backend && readOpenAtLogin() === enabled) {
+      return;
+    }
+    if (!applyOpenAtLogin(enabled)) {
+      runtime?.store?.write(readOpenAtLogin());
+    }
+  } finally {
+    syncing = false;
+  }
 };
 
 export const installLoginItemIpc = (): void => {

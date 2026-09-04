@@ -1,13 +1,4 @@
-/**
- * Launch at login on Linux, via an XDG autostart desktop entry.
- *
- * Electron's `app.setLoginItemSettings` is a no-op on Linux, so the
- * `@vellumai/electron-desktop` login-item backend seam points here instead.
- * The entry lives at `$XDG_CONFIG_HOME/autostart/<appId>.desktop`, where
- * `appId` mirrors `electron-builder.config.cjs` per environment.
- *
- * Spec: https://specifications.freedesktop.org/autostart-spec/latest/
- */
+/** XDG autostart entries owned by this app. */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -18,16 +9,12 @@ import { app } from "electron";
 import type { LoginItemBackend } from "@vellumai/electron-desktop/login-item";
 import { resolveEnvironmentName } from "@vellumai/local-mode";
 
+import { resolveLinuxAppId } from "../../build-resources/app-identity.cjs";
+import { LINUX_RELEASE_INFO } from "./app-config";
 import log from "./logger";
 
 /** Key stamped on entries we own, so foreign files are never clobbered. */
 const OWNER_KEY = "X-Vellum-Autostart";
-
-/** Mirrors the `appId` computed in `electron-builder.config.cjs`. */
-export const resolveAutostartAppId = (env: string): string =>
-  env === "production"
-    ? "com.vellum.vellum-assistant-electron"
-    : `com.vellum.vellum-assistant-electron-${env}`;
 
 const autostartDir = (): string =>
   join(
@@ -38,23 +25,42 @@ const autostartDir = (): string =>
 export const autostartEntryPath = (): string =>
   join(
     autostartDir(),
-    `${resolveAutostartAppId(resolveEnvironmentName(process.env))}.desktop`,
+    `${resolveLinuxAppId(app.isPackaged ? LINUX_RELEASE_INFO.releaseChannel : resolveEnvironmentName(process.env))}.desktop`,
   );
 
-/**
- * The AppImage runtime exposes the outer image path in `APPIMAGE`;
- * `process.execPath` points at the extracted binary, which does not survive
- * a reboot.
- */
-const execCommand = (): string =>
-  `"${process.env.APPIMAGE || process.execPath}" --hidden`;
+const escapeValue = (value: string): string =>
+  value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+
+const execCommand = (): string => {
+  const executable = process.env.APPIMAGE || process.execPath;
+  if (!executable.startsWith("/") || /[\x00-\x1f=]/.test(executable)) {
+    throw new Error(
+      "The application path cannot be used in an autostart entry",
+    );
+  }
+  const args = [executable];
+  if (!app.isPackaged && !process.env.APPIMAGE && process.argv[1]) {
+    args.push(process.argv[1]);
+  }
+  return [
+    ...args.map(
+      (arg) =>
+        `"${escapeValue(arg.replace(/["`$\\]/g, "\\$&").replace(/%/g, "%%"))}"`,
+    ),
+    "--hidden",
+  ].join(" ");
+};
 
 const desktopEntry = (): string =>
   [
     "[Desktop Entry]",
     "Type=Application",
     "Version=1.0",
-    `Name=${app.getName()}`,
+    `Name=${escapeValue(app.getName())}`,
     `Exec=${execCommand()}`,
     "Terminal=false",
     "Hidden=false",
@@ -82,25 +88,32 @@ const isTrue = (contents: string, key: string): boolean =>
  */
 const readAutostart = (): boolean => {
   const contents = readEntry(autostartEntryPath());
-  return contents !== null && !isTrue(contents, "Hidden");
+  return (
+    contents !== null &&
+    !isTrue(contents, "Hidden") &&
+    !/^X-GNOME-Autostart-enabled=false\s*$/m.test(contents)
+  );
 };
 
-const writeAutostart = (enabled: boolean): void => {
+const writeAutostart = (enabled: boolean): boolean => {
   const path = autostartEntryPath();
   const existing = readEntry(path);
   if (existing !== null && !isTrue(existing, OWNER_KEY)) {
     log.warn(`Leaving an autostart entry we do not own untouched: ${path}`);
-    return;
+    return false;
   }
   try {
     if (!enabled) {
       rmSync(path, { force: true });
-      return;
+      return true;
     }
+    const contents = desktopEntry();
     mkdirSync(autostartDir(), { recursive: true });
-    writeFileSync(path, desktopEntry(), { mode: 0o644 });
+    writeFileSync(path, contents, { mode: 0o644 });
+    return true;
   } catch (error) {
     log.error(`Failed to update the autostart entry at ${path}`, error);
+    return false;
   }
 };
 

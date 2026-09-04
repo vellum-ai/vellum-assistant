@@ -45,7 +45,6 @@ const deepLinksFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     installDeepLinks();
 
     configureLoginItem({
-      // Electron's login-item API is a no-op on Linux; XDG autostart is not.
       backend: autostartLoginItemBackend,
       handle,
       store: {

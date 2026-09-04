@@ -25,7 +25,7 @@ mock.module("./logger", () => ({
   getLogFilePaths: () => [],
 }));
 
-const { autostartEntryPath, autostartLoginItemBackend, resolveAutostartAppId } =
+const { autostartEntryPath, autostartLoginItemBackend } =
   await import("./autostart");
 
 let configHome = "";
@@ -59,17 +59,6 @@ afterEach(() => {
   restore("XDG_CONFIG_HOME", originalXdg);
   restore("VELLUM_ENVIRONMENT", originalEnvironment);
   restore("APPIMAGE", originalAppImage);
-});
-
-describe("resolveAutostartAppId", () => {
-  test("mirrors the per-environment electron-builder app id", () => {
-    expect(resolveAutostartAppId("production")).toBe(
-      "com.vellum.vellum-assistant-electron",
-    );
-    expect(resolveAutostartAppId("staging")).toBe(
-      "com.vellum.vellum-assistant-electron-staging",
-    );
-  });
 });
 
 describe("autostartLoginItemBackend", () => {
@@ -117,10 +106,10 @@ describe("autostartLoginItemBackend", () => {
     const foreign = "[Desktop Entry]\nType=Application\nExec=/usr/bin/vellum\n";
     writeFileSync(path, foreign);
 
-    autostartLoginItemBackend.write(false);
+    expect(autostartLoginItemBackend.write(false)).toBe(false);
     expect(readFileSync(path, "utf8")).toBe(foreign);
 
-    autostartLoginItemBackend.write(true);
+    expect(autostartLoginItemBackend.write(true)).toBe(false);
     expect(readFileSync(path, "utf8")).toBe(foreign);
     expect(warnings).toHaveLength(2);
   });
@@ -130,8 +119,38 @@ describe("autostartLoginItemBackend", () => {
     // regardless of the running user.
     writeFileSync(join(configHome, "autostart"), "not a directory");
 
-    expect(() => autostartLoginItemBackend.write(true)).not.toThrow();
+    expect(autostartLoginItemBackend.write(true)).toBe(false);
     expect(errors).toHaveLength(1);
     expect(autostartLoginItemBackend.read()).toBe(false);
   });
+});
+
+test("respects a GNOME-disabled entry", () => {
+  autostartLoginItemBackend.write(true);
+  const path = autostartEntryPath();
+  writeFileSync(
+    path,
+    readFileSync(path, "utf8").replace(
+      "X-GNOME-Autostart-enabled=true",
+      "X-GNOME-Autostart-enabled=false",
+    ),
+  );
+  expect(autostartLoginItemBackend.read()).toBe(false);
+});
+
+test("rejects paths that could introduce another desktop-entry field", () => {
+  process.env.APPIMAGE = "/opt/Vellum\nExec=other.AppImage";
+  expect(autostartLoginItemBackend.write(true)).toBe(false);
+  expect(existsSync(autostartEntryPath())).toBe(false);
+});
+
+test("escapes Exec metacharacters without introducing arguments or field codes", () => {
+  process.env.APPIMAGE = '/opt/Apps/Vellum "test" $value %U.AppImage';
+  expect(autostartLoginItemBackend.write(true)).toBe(true);
+  const entry = readFileSync(autostartEntryPath(), "utf8");
+  expect(entry).toContain('%%U.AppImage" --hidden');
+  expect(entry).toContain(String.raw`\\"test\\" \\$value`);
+  expect(
+    entry.split("\n").filter((line) => line.startsWith("Exec=")),
+  ).toHaveLength(1);
 });
