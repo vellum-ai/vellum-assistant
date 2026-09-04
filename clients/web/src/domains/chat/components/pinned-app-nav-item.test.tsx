@@ -223,13 +223,12 @@ describe("PinnedAppNavItem", () => {
     expect(row).not.toBeNull();
     expect(row!.className).toContain("w-fit");
     expect(row!.className).toContain("rounded-full");
-    // Behind the pill until a swipe uncovers it: painted, covered, and out of
-    // the accessibility tree.
+    // Behind the pill until a swipe uncovers it: hidden, so nothing of it
+    // shows at the pill's rounded edge.
     const layer = container.querySelector(
       'button[aria-label="Unpin"]',
     )!.parentElement!;
-    expect(layer.getAttribute("aria-hidden")).toBe("true");
-    expect(layer.hasAttribute("inert")).toBe(true);
+    expect(layer.style.visibility).toBe("hidden");
   });
 
   /* The tile is the shape with the most riding on the menu: no hover button,

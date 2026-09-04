@@ -233,6 +233,10 @@ export function ConversationRow({
 
   const panelItem = (
     <SwipeActionReveal
+      // The row's shape, which is `PanelItem`'s radius: the layer a swipe
+      // reveals behind the row inherits it, so no corner of the layer shows
+      // past the row's own.
+      className="rounded-[6px]"
       leadingActions={leadingActions}
       trailingActions={trailingActions}
     >

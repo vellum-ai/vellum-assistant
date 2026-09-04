@@ -48,11 +48,10 @@ export interface PinnedAppNavItemProps {
  * control nothing to announce, and a long press is not a control anything can
  * name.
  *
- * No swipe. Swipe-to-reveal is a list-row gesture: the row slides toward the
- * list's edge and the action fills the strip it vacated. A pill is a chip, and
- * a chip carries its one action as a trailing control, which is the button
- * above. On the rail a pill has a few pixels to its left and open space to its
- * right, so a swipe would move it away from the only room it has.
+ * On touch the expanded pill also swipes: a swipe left slides it aside and
+ * reveals the unpin behind it, in the pill's own size and shape, the way a
+ * list cell reveals its actions. The wrapper takes the pill's `w-fit
+ * rounded-full`, so nothing wider than the pill is ever painted.
  */
 export function PinnedAppNavItem({
   app,

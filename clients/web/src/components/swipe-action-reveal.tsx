@@ -1,4 +1,4 @@
-import { type ComponentPropsWithoutRef, forwardRef } from "react";
+import { type ComponentPropsWithoutRef, forwardRef, useState } from "react";
 
 import { cn } from "@vellumai/design-library/utils/cn";
 
@@ -71,40 +71,44 @@ function SwipeActionButton({
  * Painted in the outermost action's colour, so an overdrag past the buttons
  * shows the layer's surface rather than the box behind it.
  *
- * Both layers fill the box, so the one on the side not being swiped is hidden
- * or it would paint over the other. The layer on the swiped side stays
- * painted whenever the item is off centre, including while it slides back to
- * rest: hiding it the moment the offset reads zero would blink the box behind
- * it for the length of that transition. At rest the item covers it, and
- * `inert` and `aria-hidden` keep its buttons out of the tab path and the
- * accessibility tree while covered.
+ * Hidden whenever the item is not uncovering it: at rest, and on the side the
+ * item is sliding away from. A layer painted under a resting item shows at
+ * the item's edge, as a hairline around a rounded pill and as corners past a
+ * rounded row; and both layers fill the box, so the one on the other side
+ * would paint over the one being revealed. `visibility` rather than
+ * unmounting, so the buttons keep their layout, and a hidden layer is out of
+ * the tab path and the accessibility tree on its own.
+ *
+ * The layer stays until the item has slid back over it (`settling`): hiding
+ * it the moment the offset reads zero would blink the box behind it for the
+ * length of that transition.
  */
 function ActionLayer({
   side,
   actions,
   offset,
+  settling,
   onAfterSelect,
 }: {
   side: "leading" | "trailing";
   actions: SwipeAction[];
   offset: number;
+  settling: boolean;
   onAfterSelect: () => void;
 }) {
   const outermost =
     side === "trailing" ? actions[actions.length - 1]! : actions[0]!;
   const wrongSide = side === "trailing" ? offset > 0 : offset < 0;
-  const covered = offset === 0;
+  const covered = offset === 0 && !settling;
   return (
     <div
       className={cn(
         "absolute inset-0 flex overflow-hidden rounded-[inherit]",
         side === "trailing" ? "justify-end" : "justify-start",
       )}
-      inert={covered}
-      aria-hidden={covered}
       style={{
         background: surfaceFor(outermost).bg,
-        visibility: wrongSide ? "hidden" : "visible",
+        visibility: wrongSide || covered ? "hidden" : "visible",
       }}
     >
       {actions.map((action) => (
@@ -141,11 +145,13 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
  * Two layers in the item's box and shape, the way a list cell is built. Each
  * side's actions are a layer the whole size of the box, behind; the item is
  * the layer on top and slides toward the swiped edge in a `translateX()`. The
- * item has to paint its own surface, since that is what covers the action
- * layer at rest: a pill does already, and a row on a card paints the card's
- * colour so it reads as transparent until it moves. The root takes the
- * caller's shape (`w-fit rounded-full` for a pill; the row's width and radius
- * by default), and the layers inherit its radius.
+ * layers show for the gesture and the slide back and are hidden at rest, the
+ * way a list cell adds its action view for a swipe and removes it once the
+ * cell has settled. The item has to paint its own surface, since that is what
+ * covers the action layer as it slides: a pill does already, and a row on a
+ * card paints the card's colour so it reads as transparent until it moves.
+ * The root takes the caller's shape (`w-fit rounded-full` for a pill,
+ * `rounded-[6px]` for a row), and the layers inherit its radius.
  *
  * Nothing here clips the item. The surface that has an edge clips at that
  * edge, the way a list clips the cell sliding inside it: a section card sets
@@ -193,6 +199,25 @@ export const SwipeActionReveal = forwardRef<
     trailingActions,
   });
 
+  // True from the moment the offset returns to zero until the item's slide
+  // back has ended, so the layer it is sliding over stays painted for the
+  // length of the transition. Set during render rather than in an effect: an
+  // effect runs after the paint that already hid the layer. A drag has no
+  // transition, so an offset that reaches zero under the finger hides at once.
+  const [settling, setSettling] = useState(false);
+  const [lastOffset, setLastOffset] = useState(offset);
+  if (offset !== lastOffset) {
+    setLastOffset(offset);
+    setSettling(offset === 0 && !isDragging);
+  }
+  // The item's only transition is its transform; one ending on a descendant
+  // is not its slide.
+  const onSlideSettled = (event: React.TransitionEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      setSettling(false);
+    }
+  };
+
   if (!hasActions) {
     // Return a real DOM element — not a Fragment — so parents using
     // `asChild` (e.g. Radix ContextMenu.Trigger) can clone and attach
@@ -237,6 +262,7 @@ export const SwipeActionReveal = forwardRef<
           side="trailing"
           actions={trailingActions}
           offset={offset}
+          settling={settling}
           onAfterSelect={close}
         />
       ) : null}
@@ -245,6 +271,7 @@ export const SwipeActionReveal = forwardRef<
           side="leading"
           actions={leadingActions}
           offset={offset}
+          settling={settling}
           onAfterSelect={close}
         />
       ) : null}
@@ -254,6 +281,8 @@ export const SwipeActionReveal = forwardRef<
           isDragging && "transition-none",
         )}
         style={{ transform: `translateX(${offset}px)` }}
+        onTransitionEnd={onSlideSettled}
+        onTransitionCancel={onSlideSettled}
       >
         {children}
       </div>

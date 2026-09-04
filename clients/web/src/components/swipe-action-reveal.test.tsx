@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fireEvent, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ACTION_WIDTH_PX } from "@/hooks/use-swipe-to-reveal";
@@ -71,13 +72,48 @@ describe("SwipeActionReveal", () => {
       )!.parentElement!;
       expect(layer.className).toContain("inset-0");
       expect(layer.className).toContain("rounded-[inherit]");
-      // At rest the item covers it, so it stays painted (hiding it would
-      // blink during the slide back) and is instead taken out of the tab path
-      // and the accessibility tree.
-      expect(layer.style.visibility).toBe("visible");
-      expect(layer.getAttribute("aria-hidden")).toBe("true");
-      expect(layer.hasAttribute("inert")).toBe(true);
+      // Hidden at rest: painted under the item it would show at the item's
+      // edge, as a hairline around a pill and as corners past a rounded row.
+      expect(layer.style.visibility).toBe("hidden");
     }
+  });
+
+  test("the revealed layer stays painted until the item has slid back", () => {
+    const { container, unmount } = render(
+      <SwipeActionReveal
+        enabled={true}
+        trailingActions={[{ ...noopAction, label: "Archive" }]}
+      >
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+    const row = container.querySelector<HTMLElement>(
+      "[data-swipe-action-row]",
+    )!;
+    const layer = container.querySelector(
+      'button[aria-label="Archive"]',
+    )!.parentElement!;
+    const item = row.lastElementChild as HTMLElement;
+    const touch = (clientX: number) => [
+      { identifier: 1, clientX, clientY: 10 },
+    ];
+
+    expect(layer.style.visibility).toBe("hidden");
+
+    fireEvent.touchStart(row, { touches: touch(100) });
+    fireEvent.touchMove(row, { touches: touch(80) });
+    expect(layer.style.visibility).toBe("visible");
+
+    // Released short of the commit threshold, so the item slides back. The
+    // offset is zero at once; the layer holds until the slide has ended, or
+    // the box behind it would show for the length of the transition.
+    fireEvent.touchEnd(row, { touches: [], changedTouches: touch(80) });
+    expect(item.style.transform).toBe("translateX(0px)");
+    expect(layer.style.visibility).toBe("visible");
+
+    fireEvent.transitionEnd(item);
+    expect(layer.style.visibility).toBe("hidden");
+    unmount();
   });
 
   test("the content layer paints no fill of its own", () => {
