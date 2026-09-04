@@ -895,7 +895,11 @@ export function CompanionSurface({
           style={{ paddingInline: INNER_GAP }}
         >
           <div
-            className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+            // Not positioned, on purpose: the controls' captions stand above
+            // this row and would be clipped by it, and an absolute box escapes
+            // its ancestors' clipping only while its containing block is
+            // outside them. See `PillButton`.
+            className="flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
             ref={contentRef}
             // Faded out is not gone: the body stays mounted while collapsed
             // so it can be measured, which would otherwise leave its
@@ -948,8 +952,9 @@ export function CompanionSurface({
           the same word as its accessible name, and a reader told it twice is
           told about two things. Mounted throughout and faded, so its arrival
           after the dwell is a fade rather than a pop. */}
-      <CompanionNameCaption
-        named={named}
+      <Caption
+        className={named ? "opacity-100" : "opacity-0"}
+        data-companion-name={named ? "shown" : "hidden"}
         style={{
           left: "50%",
           top: lineAt(cardGrowth, 0),
@@ -1054,30 +1059,38 @@ const NAME_CAPTION_FILL = "rgba(28, 28, 30, 0.55)";
 const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
 
 /**
- * The creature's name for a press, the way the Dock names an icon: a small
- * rectangle above it with a beak pointing down at it.
+ * A name for a thing under the pointer, the way the Dock names an icon: a
+ * small rectangle above it with a beak pointing down at it. The creature's
+ * name for a press, and each pill control's name for the pointer on it.
  *
- * Text only, no icon: the avatar beneath it is the icon already, and the
+ * Text only, no icon: what sits beneath it is the icon already, and the
  * Dock's own tooltip carries nothing but the name. A small rectangle rather
  * than the pill's stadium shape, so the two never share a silhouette.
+ *
+ * Placed by the caller: `className` carries whether it is shown and any lift
+ * off the thing it names, `style` any offsets the layout works out. Absolute
+ * with no offsets of its own, so a caller that sets none gets the static
+ * position, which is what the pill's controls rely on.
+ *
+ * `aria-hidden` throughout: whatever it names carries the same word as its
+ * accessible name, and a reader told it twice is told about two things.
  */
-function CompanionNameCaption({
-  named,
+function Caption({
+  className,
   style,
   label,
+  ...data
 }: {
-  named: boolean;
-  style: CSSProperties;
+  className: string;
+  style?: CSSProperties;
   label: string;
-}) {
+} & Partial<Record<`data-${string}`, string>>) {
   return (
     <span
-      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${
-        named ? "opacity-100" : "opacity-0"
-      }`}
+      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${className}`}
       style={{ ...style, backgroundColor: NAME_CAPTION_FILL }}
-      data-companion-name={named ? "shown" : "hidden"}
       aria-hidden
+      {...data}
     >
       {label}
       {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
@@ -1399,11 +1412,9 @@ function IdleBody({
  * The way into a watch session and the way out of it, on the call row.
  *
  * One control for both edges, held down for as long as the session runs, so
- * the row says which press ends it. `pressed` rather than `active`, because
- * this one is a state and not a look: a reader is told a session is running,
- * where everything else this surface does about it is a colour they never
- * receive. Its pinned word is what lets a looking user find the press without
- * hunting under icons.
+ * the row says which press ends it. `pressed` because this one is a state and
+ * not a look: a reader is told a session is running, where everything else
+ * this surface does about it is a colour they never receive.
  *
  * Absent entirely when Watch is not offered, rather than disabled: a user who
  * cannot have the feature is not owed a control that explains itself by
@@ -1442,7 +1453,6 @@ function TeachButton({
     <PillButton
       icon={<Eye className="size-4" />}
       label={t("companionSurface.teach")}
-      revealLabel
       // Held down for the session and for the choice before it alike: both
       // are states this press is in the middle of, and the second press ends
       // either one.
@@ -1761,29 +1771,64 @@ function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
 }
 
 /**
+ * Where a control's caption sits: standing on the pill's top edge, with only
+ * its beak crossing into the pill to point at the control below.
+ *
+ * The caption starts out centred on the control (see {@link PillButton}), so
+ * the lift is its own half height, which puts its bottom edge on the control's
+ * centre, plus half the pill's `h-11` row to carry that edge up to the row's
+ * top. 22px is the one number the caption and the row share, and it holds at
+ * every avatar size: the whole surface is drawn scaled, so both are in the
+ * same units.
+ *
+ * Not further up. Growing downward the canvas keeps only its own pad above the
+ * pill, which a caption standing here clears by around 7px, and one lifted
+ * clear of the pill's edge would be cut off by the top of the window.
+ */
+const CONTROL_CAPTION_LIFT = "-translate-y-[calc(50%+22px)]";
+
+/**
  * A control in the pill.
  *
- * `label` is always the accessible name; it is only drawn when the pill has
- * room for words, which is why the call's controls are icon-only without being
- * unlabelled.
+ * `label` is always the accessible name. It is drawn in the row only when the
+ * pill has room for words (`showLabel`); everywhere else the control is an
+ * icon with its name in a {@link Caption} above it, the way the Dock names an
+ * icon under the pointer, so the call's controls are icon-only without being
+ * unlabelled and the pill is one width whatever the pointer is doing.
  *
- * **`active` and `pressed` are two props because they are two different
- * claims.** `active` is a look: the demo reel draws a control as though a
- * pointer were on it, and a highlight staged for a recording is not a state the
- * control is in. `pressed` is the control's own on or off, which is a state,
- * and reporting a highlight as one would tell a reader that Talk is switched on
- * because a clip wanted it lit.
+ * **The caption is `:hover`, deliberately, and this is the one place on the
+ * surface where that is not a matter of taste.** The host's window is
+ * click-through, so the page derives its own hover by hit-testing coordinates
+ * against the pill on every forwarded mouse-move rather than trusting
+ * `mouseenter` (`companion-surface-page.tsx`). A per-control reveal driven off
+ * React's mouse events would be betting on the events that page does not
+ * receive. The held-down background on this very button runs on `:hover`, so
+ * a caption on the same mechanism works exactly where the rest of the control
+ * does.
  *
- * `pressed` draws the same held-down look, so the state a looking user reads
- * off the background and the state a reader is told cannot come apart.
+ * **The caption escapes the row's clipping by having a different containing
+ * block.** The row hides its overflow so nothing is drawn past the pill while
+ * the width catches up with the content, and a caption standing above the row
+ * is exactly that overflow. Overflow clips only what the clipping box
+ * contains, so the caption is positioned against the row's parent instead:
+ * this button is not positioned and neither is the row, and with no offsets
+ * of its own the caption takes its static position, which for the child of a
+ * flex container is where it would sit as the sole item. `justify-center` and
+ * `items-center` put that on the control's centre, and from there the caption
+ * lifts by {@link CONTROL_CAPTION_LIFT}. Nothing measures anything.
+ *
+ * `pressed` is the control's own on or off, which is a state: a button
+ * reporting a state it does not have is one assistive technology describes
+ * wrongly, so it is undefined for everything that does not toggle, which is
+ * most of this surface. Where it is set it draws the held-down look as well,
+ * so the state a looking user reads off the background and the state a reader
+ * is told cannot come apart.
  */
 function PillButton({
   icon,
   label,
   tone,
   showLabel = false,
-  revealLabel = false,
-  active = false,
   pressed,
   onClick,
 }: {
@@ -1791,66 +1836,22 @@ function PillButton({
   label: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
-  /**
-   * Draw the label while the pointer is on this control, and not otherwise.
-   *
-   * **CSS, deliberately, and this is the one place on the surface where that is
-   * not a matter of taste.** The host's window is click-through, so the page
-   * derives its own hover by hit-testing coordinates against the pill on every
-   * forwarded mouse-move rather than trusting `mouseenter`
-   * (`companion-surface-page.tsx`). A per-control reveal driven off React's
-   * mouse events would be betting on the events that page does not receive.
-   * The held-down background on this very button runs on
-   * `:hover`, so a reveal on the same mechanism works exactly where the rest of
-   * the control does.
-   *
-   * The pill measures its own contents, so a label appearing resizes this row
-   * and the surface grows to fit it on its own. Nothing here has to say how
-   * wide the word is.
-   */
-  revealLabel?: boolean;
-  /** Drawn as though the pointer were on it. A look, not a state. */
-  active?: boolean;
-  /**
-   * On or off, for a control that genuinely toggles.
-   *
-   * Undefined for everything that does not, which is most of this surface: a
-   * button reporting a state it does not have is one assistive technology
-   * describes wrongly. Where it is set it carries the whole of that state to a
-   * reader, since the ring and the held-down background are both things only a
-   * looking user gets.
-   */
   pressed?: boolean;
   onClick?: () => void;
 }) {
-  /**
-   * A revealed label held open with no pointer in the room.
-   *
-   * Both cases are ones where the word has to be readable without a hand on the
-   * control. `active` is the demo reel pointing at a control, and a control
-   * pointed at in a recording nobody can hover is one whose name has to be
-   * drawn. `pressed` is a control holding a session open, and the row's job
-   * then is to say which press ends it, which it cannot do as an icon the user
-   * would have to go looking under.
-   */
-  const pinned = active || pressed === true;
   return (
     <button
       type="button"
       aria-label={label}
       aria-pressed={pressed}
-      // Only where the word is nowhere else. A tooltip over a control that
-      // reveals its own label on the same hover is the same word twice, a
-      // second later and a few pixels away.
-      title={showLabel || revealLabel ? undefined : label}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        pinned ? "bg-white/15" : ""
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
+        pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"
@@ -1860,18 +1861,18 @@ function PillButton({
       }`}
     >
       {icon}
-      {showLabel && <span>{label}</span>}
-      {revealLabel && (
-        // `data-label` is the reveal's contract, and it is here because the
+      {showLabel ? (
+        <span>{label}</span>
+      ) : (
+        // `data-label` is the caption's contract, and it is here because the
         // behaviour itself is a stylesheet: a test running without Tailwind
         // sees a span either way, so the attribute is the only honest way to
         // hold that this word is hidden until the pointer arrives.
-        <span
-          data-label={pinned ? "pinned" : "hover"}
-          className={pinned ? "" : "hidden group-hover:inline"}
-        >
-          {label}
-        </span>
+        <Caption
+          label={label}
+          className={`opacity-0 group-hover:opacity-100 ${CONTROL_CAPTION_LIFT}`}
+          data-label="hover"
+        />
       )}
     </button>
   );
