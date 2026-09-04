@@ -64,9 +64,10 @@ function SwipeActionButton({
 // ---------------------------------------------------------------------------
 
 /**
- * One side's actions, as a layer the whole size and shape of the item, behind
- * it. The buttons sit at the edge the layer belongs to, so what the item
- * uncovers as it slides is the layer's own end, rounded like the item.
+ * One side's actions, as a layer the whole size of the item's box, behind it.
+ * The buttons sit at the edge the layer belongs to, so what the item uncovers
+ * as it slides is the layer's own end, cut to the item's shape by the clip
+ * box both sit in.
  *
  * Painted in the outermost action's colour, so an overdrag past the buttons
  * shows the layer's surface rather than the box behind it.
@@ -103,7 +104,7 @@ function ActionLayer({
   return (
     <div
       className={cn(
-        "absolute inset-0 flex overflow-hidden rounded-[inherit]",
+        "absolute inset-0 flex",
         side === "trailing" ? "justify-end" : "justify-start",
       )}
       style={{
@@ -151,11 +152,14 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
  * covers the action layer as it slides: a pill does already, and a row on a
  * card paints the card's colour so it reads as transparent until it moves.
  * The root takes the caller's shape (`w-fit rounded-full` for a pill,
- * `rounded-[6px]` for a row), and the layers inherit its radius.
+ * `rounded-[6px]` for a row).
  *
- * Nothing here clips the item. The surface that has an edge clips at that
- * edge, the way a list clips the cell sliding inside it: a section card sets
- * `clipContents`, and the drawer's own edge does the rest.
+ * Both sit in a clip box the root's shape, so what slides past the item's
+ * edge is cut there, rounded as the item is, the way a cell clips the content
+ * sliding inside it. The clip is one box inside the root rather than on it:
+ * the root is what a list lays out, and a flex or grid item that clips its
+ * overflow gives up its content-sized minimum and can be squashed to nothing
+ * by a container out of room.
  *
  * Modeled on the swipe patterns in {@link use-gallery-swipe} and
  * {@link use-edge-swipe}. Action colours follow the iOS Mail convention:
@@ -235,7 +239,7 @@ export const SwipeActionReveal = forwardRef<
     <div
       ref={ref}
       // `relative` so the action layers position against the row; the
-      // caller's classes give it its shape, which the layers inherit.
+      // caller's classes give it its shape, which the clip box inherits.
       className={cn("relative", className)}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
@@ -257,34 +261,36 @@ export const SwipeActionReveal = forwardRef<
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
-      {trailingActions && trailingActions.length > 0 ? (
-        <ActionLayer
-          side="trailing"
-          actions={trailingActions}
-          offset={offset}
-          settling={settling}
-          onAfterSelect={close}
-        />
-      ) : null}
-      {leadingActions && leadingActions.length > 0 ? (
-        <ActionLayer
-          side="leading"
-          actions={leadingActions}
-          offset={offset}
-          settling={settling}
-          onAfterSelect={close}
-        />
-      ) : null}
-      <div
-        className={cn(
-          "relative rounded-[inherit] transition-transform",
-          isDragging && "transition-none",
-        )}
-        style={{ transform: `translateX(${offset}px)` }}
-        onTransitionEnd={onSlideSettled}
-        onTransitionCancel={onSlideSettled}
-      >
-        {children}
+      <div className="relative overflow-hidden rounded-[inherit]">
+        {trailingActions && trailingActions.length > 0 ? (
+          <ActionLayer
+            side="trailing"
+            actions={trailingActions}
+            offset={offset}
+            settling={settling}
+            onAfterSelect={close}
+          />
+        ) : null}
+        {leadingActions && leadingActions.length > 0 ? (
+          <ActionLayer
+            side="leading"
+            actions={leadingActions}
+            offset={offset}
+            settling={settling}
+            onAfterSelect={close}
+          />
+        ) : null}
+        <div
+          className={cn(
+            "relative transition-transform",
+            isDragging && "transition-none",
+          )}
+          style={{ transform: `translateX(${offset}px)` }}
+          onTransitionEnd={onSlideSettled}
+          onTransitionCancel={onSlideSettled}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

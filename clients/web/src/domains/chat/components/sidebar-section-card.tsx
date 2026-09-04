@@ -156,11 +156,6 @@ export function SidebarSectionCard({
       ref={cardRef}
       bordered={false}
       noPadding
-      /* A row swiped aside slides past the card's edge, and the edge is the
-         card's, so the card is what clips there. The swipe wrapper leaves its
-         content free to travel so a row with open space beside it can move
-         into that space instead of under its own edge. */
-      clipContents
       className={cn(
         /* The rows inside paint the card's colour, so a row swiped aside is
            an opaque cell sliding off the action behind it, and at rest reads

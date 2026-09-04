@@ -61,9 +61,9 @@ describe("SwipeActionReveal", () => {
       </SwipeActionReveal>,
     );
 
-    // A layer is the same size and shape as the item it sits behind, so what
-    // the item uncovers as it slides is the layer's own rounded end. Found by
-    // the action each one holds.
+    // A layer is the same size as the item it sits behind, so what the item
+    // uncovers as it slides is the layer's own end. Found by the action each
+    // one holds.
     const host = document.createElement("div");
     host.innerHTML = html;
     for (const label of ["Pin", "Archive"]) {
@@ -71,7 +71,6 @@ describe("SwipeActionReveal", () => {
         `button[aria-label="${label}"]`,
       )!.parentElement!;
       expect(layer.className).toContain("inset-0");
-      expect(layer.className).toContain("rounded-[inherit]");
       // Hidden at rest: painted under the item it would show at the item's
       // edge, as a hairline around a pill and as corners past a rounded row.
       expect(layer.style.visibility).toBe("hidden");
@@ -93,7 +92,8 @@ describe("SwipeActionReveal", () => {
     const layer = container.querySelector(
       'button[aria-label="Archive"]',
     )!.parentElement!;
-    const item = row.lastElementChild as HTMLElement;
+    // The item is the last box in the clip box the layer sits in.
+    const item = layer.parentElement!.lastElementChild as HTMLElement;
     const touch = (clientX: number) => [
       { identifier: 1, clientX, clientY: 10 },
     ];
@@ -131,26 +131,33 @@ describe("SwipeActionReveal", () => {
     expect(html).not.toContain("--surface-overlay");
   });
 
-  test("the item is not clipped and the wrapper paints nothing", () => {
+  test("clips in its own shape, one box inside the root, and paints nothing", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
         <div data-testid="content">Row content</div>
       </SwipeActionReveal>,
     );
 
-    // The item paints its own surface and slides freely; whatever has an edge
-    // (a card, the drawer) clips at that edge. A clip or a fill between the
-    // root and the item would cut it at its own edge or band it.
+    // What slides past the item's edge is cut there, in the root's shape. The
+    // clip is not on the root itself: the root is the box a list lays out, and
+    // one that clips gives up its content-sized minimum. Nothing between the
+    // root and the item paints a fill, which would band a `w-fit` item.
     const host = document.createElement("div");
     host.innerHTML = html;
     const root = host.firstElementChild!;
+    const clips: Element[] = [];
     let node = host.querySelector('[data-testid="content"]')!.parentElement;
     while (node && node !== root.parentElement) {
-      expect(node.className).not.toContain("overflow-hidden");
+      if (node.className.includes("overflow-hidden")) {
+        clips.push(node);
+      }
       expect(node.className).not.toMatch(/(^|\s)bg-/);
       expect(node.style.background).toBe("");
       node = node.parentElement;
     }
+    expect(clips).toHaveLength(1);
+    expect(clips[0]).not.toBe(root);
+    expect(clips[0]!.className).toContain("rounded-[inherit]");
   });
 
   test("keeps its mark when a parent hands the row a slot name", () => {
