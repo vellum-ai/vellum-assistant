@@ -134,8 +134,7 @@ export interface VoicePrefsState {
    * transcript record of every kept frame are the same either way. Off by
    * default, so the viewfinder is only the scene the user is aiming at; the
    * camera panel is where a call turns the one visible keep signal on. A
-   * stored value is a choice made in that panel, which is what
-   * {@link migrateVoicePrefs} exists to make true.
+   * stored value is one set from that panel; see {@link migrateVoicePrefs}.
    */
   showKeptFrame: boolean;
 }
@@ -186,21 +185,13 @@ const VOICE_PREFS_STORE_KEY = "vellum:voice-prefs";
 const VOICE_PREFS_STORE_VERSION = 1;
 
 /**
- * Brings a pre-v1 payload to the shipped kept-frame default, whether it holds
- * the older default or no value for the field at all.
+ * Normalizes a payload stored below {@link VOICE_PREFS_STORE_VERSION}:
+ * `showKeptFrame` reads false whether the payload carries it or omits it, and
+ * every other field passes through as written. A payload stored AT the current
+ * version does not reach here, so a value set from the camera panel survives.
  *
- * Both say the same thing: nobody chose it. `showKeptFrame` arrived after this
- * key did, so a payload written before it carries nothing; and a payload
- * written after it carries whatever the default was at the time, because every
- * setter persists the whole partialized slice rather than the one field it
- * touched. Vision mode is behind a flag that is off everywhere those payloads
- * were written, so no device has drawn the thumbnail to be deprived of either.
- * Converging both on the default is what makes a stored value mean a choice,
- * and the camera panel is what writes one from here, at this version.
- *
- * The value is frozen here rather than read from {@link INITIAL_STATE}: a
- * migration records what one version did, and a later change to the default
- * brings its own.
+ * The false is a literal rather than {@link INITIAL_STATE}'s value, because
+ * this function is one version's contract and a later default carries its own.
  */
 function migrateVoicePrefs(persisted: unknown): Partial<VoicePrefsState> {
   const saved = persisted as Partial<VoicePrefsState> | undefined;

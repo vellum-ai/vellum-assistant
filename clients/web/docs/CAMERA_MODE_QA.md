@@ -140,26 +140,35 @@ scrim.
       lightest accent the palette offers (yellow) and a dark one. The Live
       pill's label flips with the fill: near-black on the yellow, white on the
       dark accent, and the whole pill including the separator and the assistant
-      name follows it. The accent itself is not clamped, so the hint and the
+      name follows it. The dot while the assistant talks flips with it, dark on
+      the yellow and pale on the dark accent, so it always reads against the
+      fill it sits on. The accent itself is not clamped, so the hint and the
       shutter ring over the feed are whatever colour the assistant is; if one of
       those fails it fails on the waves and the shimmer too, and the fix belongs
       in the avatar accent system rather than in the camera.
-- [ ] The pill's dot on a pale fill. The dot stays white (or the accent
-      softened toward white while the assistant talks) in every mode, so on the
-      yellow fill it is a pale mark on a pale fill. Note whether it reads. It is
-      a 6px state mark rather than text, and inking it would leave the user's
-      dot and the assistant's the same colour, so this is a design call rather
-      than a contrast bug.
+- [ ] The Live pill is opaque and the same colour on every frame. Point the
+      camera at something black and then at something white with Live running.
+      The pill does not change shade with the frame behind it, which is what
+      makes its label's contrast a property of the accent. The glass Photo pill
+      beside it still lets the frame through, and so does the Live pill on the
+      engines in the iOS 15 row below.
+- [ ] The idle and user dots on a pale fill. Those two stay white in every
+      mode, so on the yellow fill they are pale marks on a pale fill (about
+      1.6:1 for the user's, lower for the half-lit idle one). Note whether they
+      read. They are 6px state marks rather than text, and inking them would
+      cost the colour jump that tells the user's dot from the assistant's, so
+      this is a design call rather than a contrast bug.
 - [ ] iOS 15 keeps the whole pink pill. On a device or simulator older than
-      16.2, where `color-mix()` does not exist, the Live pill draws the crimson
-      fill AND white text whatever accent the assistant has, and the speaking
-      dot draws the rose. The failure to look for is a split pair: near-black
-      text on the crimson fill is 3.3:1, and it means the ink escaped the
-      feature query the fill sits behind. The shutter ring, the Live hint and
-      the thumb ring do follow the accent on those engines, since each is one
-      property with nothing to keep in step; the capture pulse and the
-      kept-frame ring stay crimson there, which is a hue that does not match
-      the ring it leaves and is expected.
+      16.2, where `color-mix()` does not exist, the Live pill draws all three
+      of the crimson fill at 90%, white text, and the rose dot, whatever accent
+      the assistant has. The failure to look for is a split set: near-black
+      text on the crimson fill (3.3:1), or a dot mixed for an accent the pill
+      is not wearing. Either means something escaped the feature query the
+      three share. The shutter ring, the Live hint and the thumb ring do follow
+      the accent on those engines, since each is one property with nothing to
+      keep in step; the capture pulse and the kept-frame ring stay crimson
+      there, which is a hue that does not match the ring it leaves and is
+      expected.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection

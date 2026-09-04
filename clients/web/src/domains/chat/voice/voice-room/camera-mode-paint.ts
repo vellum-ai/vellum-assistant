@@ -14,10 +14,10 @@
  * The capture accent is the one value that varies, and not by theme: it reads
  * `--avatar-accent`, so the chrome that says the camera is working is the
  * colour of the assistant it is working for. The crimson below is what an
- * assistant with no accent of its own falls back to. Weights of it (the pill's
- * fill, the speaking dot) are mixed in `index.css` at the property that paints
- * them, since a custom property cannot carry a fallback for engines without
- * color-mix().
+ * assistant with no accent of its own falls back to. The marks that take a
+ * WEIGHT of it rather than the colour itself (the speaking dot) are mixed in
+ * `index.css` at the property that paints them, since a custom property cannot
+ * carry a fallback for engines without color-mix().
  *
  * The accents ship as scoped `--camera-*` custom properties (see
  * {@link cameraModeStyle}) so every piece of camera chrome reads one contract
@@ -103,11 +103,13 @@ export const CAMERA_PILL_GLASS_CLASS =
  * color from across the screen. The border firms up, since a filled pill holds
  * less of an edge than the glass does.
  *
- * The fill and its ink are both `.camera-live-fill` in `index.css` rather than
- * values here: the fill is the accent at 90%, and a weight of a color that
- * varies has to be mixed at the property that paints it. The ink is whichever
- * of black and white reads on that accent, so it cannot be a `text-*` utility
- * beside the class either. See that rule for both.
+ * The fill, its ink and its dot are all `.camera-live-fill` in `index.css`
+ * rather than values here: the ink is whichever of black and white reads on
+ * the accent and the dot is mixed against both, so none of the three can be a
+ * utility written beside the class. See that rule for how they move together.
+ *
+ * The blur is for the engines that draw the fill translucent, which is the
+ * pre-color-mix path in that same rule.
  */
 export const CAMERA_PILL_LIVE_CLASS =
   "border-[0.5px] border-[rgba(255,255,255,0.25)] camera-live-fill backdrop-blur-[8px]";

@@ -114,13 +114,12 @@ describe("useVoicePrefsStore: the kept-frame thumbnail", () => {
 });
 
 /**
- * What a stored kept-frame value means. The field arrived after the key did,
- * and every setter persists the whole slice, so a payload from an older build
- * carries either nothing for it or the default of the day. Neither is a choice,
- * and the store converges both before they reach it.
+ * What a stored kept-frame value means. Only a payload at the current version
+ * holds a choice; below it, the field reads false whether the payload carries
+ * it or not.
  */
 describe("useVoicePrefsStore: a stored kept-frame value", () => {
-  /** Put a payload on the key the way an older build left one, and read it. */
+  /** Put a payload on the key at a given version, and read it back in. */
   async function rehydrateFrom(
     state: Record<string, unknown>,
     version?: number,
@@ -132,7 +131,7 @@ describe("useVoicePrefsStore: a stored kept-frame value", () => {
     await useVoicePrefsStore.persist.rehydrate();
   }
 
-  test("a payload written before the field existed opens the thumbnail off", async () => {
+  test("an unversioned payload with no value for the field opens it off", async () => {
     await rehydrateFrom({ flashMode: "auto", firstRunSeen: true });
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
@@ -141,11 +140,11 @@ describe("useVoicePrefsStore: a stored kept-frame value", () => {
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
   });
 
-  test("a true captured from the older default opens the thumbnail off", async () => {
+  test("a pre-v1 payload storing true opens it off, and is re-stamped", async () => {
     await rehydrateFrom({ flashMode: "auto", showKeptFrame: true }, 0);
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
-    // Re-stamped on the way in, so the convergence happens once rather than on
+    // Re-stamped on the way in, so the normalization runs once rather than on
     // every reload.
     const stored = JSON.parse(
       localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
@@ -154,7 +153,7 @@ describe("useVoicePrefsStore: a stored kept-frame value", () => {
     expect(stored.state.showKeptFrame).toBe(false);
   });
 
-  test("a choice stored at the current version survives a reload", async () => {
+  test("a value stored at the current version survives a reload", async () => {
     await rehydrateFrom({ showKeptFrame: true }, 1);
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
