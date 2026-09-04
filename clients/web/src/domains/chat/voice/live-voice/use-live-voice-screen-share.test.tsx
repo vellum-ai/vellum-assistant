@@ -439,6 +439,42 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * The marks are counted rather than compared, and the count starts again
+   * from one whenever the store clears it, so the first mark after a
+   * reconnect wears the same id as the last one before it. What keeps that
+   * from reading as a mark already sent is that a reconnect takes the session
+   * to `idle` and this run down with it, so the run that meets the new mark
+   * has never seen the old id. That is behaviour of `reset`, a floor above
+   * this file, which is what makes it worth pinning here.
+   */
+  test("still sends the first mark drawn after a reconnect", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    });
+    seedLiveVoiceSession("listening", {
+      assistantId: ASSISTANT_ID,
+      conversationId: "conv_share",
+      controls,
+    });
+    share(WINDOW);
+    await flush();
+    captureCompanionScreen.mockClear();
+
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+  });
+
   /** A share that ends takes the drawing on it with it. */
   test("a stop clears the hand as well as the target", async () => {
     renderShare();

@@ -1639,9 +1639,19 @@ export const installCompanionWindow = (): void => {
    * mid-stroke, and it is worth as much as the `released` that carries the
    * strokes: a circle sent half drawn is a circle around nothing.
    *
-   * Refused unless the mode is on, because the mode is what makes the
-   * coordinates mean anything: they are fractions of the frame, and the frame
-   * is only around the shared surface while {@link canAnnotate} holds.
+   * A *mark* is refused unless the mode is on, because the mode is what makes
+   * its coordinates mean anything: they are fractions of the frame, and the
+   * frame is only around the shared surface while {@link canAnnotate} holds.
+   *
+   * **A release carrying nothing is let through either way**, and the order
+   * of events is the whole reason. Lowering the mode is what unmounts the
+   * layer, and the layer lets go of the hand on its way out, so that release
+   * necessarily arrives *after* `annotating` is already false. Refused here,
+   * it would be refused exactly on the path it exists for: the `drawing` that
+   * stopped the session's frames would stand with nothing left to lift it,
+   * and the share would go on suppressing every frame until it was restarted.
+   * It carries no coordinates, so there is nothing in it for the mode to make
+   * sense of.
    */
   on(
     "vellum:companion:annotateShare",
@@ -1653,7 +1663,8 @@ export const installCompanionWindow = (): void => {
       companionAnnotationInkSchema,
     ]),
     ([phase, strokes, ink]) => {
-      if (!annotating) {
+      const lettingGo = phase === "released" && strokes.length === 0;
+      if (!annotating && !lettingGo) {
         return;
       }
       dispatchWithoutRaising({ kind: "annotateShare", phase, strokes, ink });
