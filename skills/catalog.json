@@ -502,6 +502,32 @@
       "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
+      "id": "linux-automation",
+      "name": "linux-automation",
+      "description": "Automate native Linux desktop apps and system interactions with xdg-open, desktop entries, D-Bus and xdg-desktop-portal calls, and X11 window tools through the Linux host executor. Use for launching or inspecting desktop apps, opening desktop settings pages, sending desktop notifications, reading and writing the clipboard, and controlling windows when no direct CLI or API is available.",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "🐧",
+        "vellum": {
+          "category": "system",
+          "display-name": "Linux Automation",
+          "platforms": [
+            "linux"
+          ],
+          "activation-hints": [
+            "Interacting with native Linux desktop apps or desktop settings",
+            "Sending a desktop notification or using the clipboard on the host",
+            "Finding, focusing, or inspecting a window on an X11 session"
+          ],
+          "avoid-when": [
+            "The task can be completed in the sandbox or through a direct CLI or API"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants on Linux",
+      "updatedAt": "2026-09-04T21:39:57.000Z"
+    },
+    {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
       "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Budget / Fast) only where they should deviate from shipped defaults.",
@@ -1179,7 +1205,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-04T16:14:06.000Z"
+      "updatedAt": "2026-09-04T16:57:56.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1241,14 +1267,15 @@
         "vellum": {
           "platforms": [
             "macos",
-            "windows"
+            "windows",
+            "linux"
           ],
           "category": "content",
           "display-name": "Sounds"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-26T00:15:53.000Z"
+      "updatedAt": "2026-09-04T21:39:57.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -1338,7 +1365,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-26T00:50:29.000Z"
+      "updatedAt": "2026-09-04T21:39:57.000Z"
     },
     {
       "id": "watch-together",
