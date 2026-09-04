@@ -224,7 +224,7 @@ export const computerUseDragTool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
-  supportedClientOs: ["macos", "windows"],
+  supportedClientOs: ["macos", "windows", "linux"],
 
   input_schema: {
     type: "object",
@@ -317,7 +317,7 @@ export const computerUseOpenAppTool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
-  supportedClientOs: ["macos", "windows"],
+  supportedClientOs: ["macos", "windows", "linux"],
 
   input_schema: {
     type: "object",

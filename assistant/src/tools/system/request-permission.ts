@@ -53,13 +53,41 @@ const WINDOWS_SETTINGS_URLS: Partial<Record<PermissionType, string>> = {
   microphone: "ms-settings:privacy-microphone",
 };
 
+// Linux desktops expose no URL scheme the client can open, so every kind
+// resolves to a spoken remediation instead of a settings link.
+const LINUX_REMEDIATION: Record<PermissionType, string> = {
+  full_disk_access:
+    "check the file ownership and permissions on the path, since Linux has no Full Disk Access gate",
+  accessibility:
+    "add your user to the input group and sign in again, then enable accessibility (AT-SPI) for the desktop session",
+  screen_recording: "grant screen sharing in the desktop portal prompt",
+  calendar:
+    "grant calendar access in the account settings for your calendar app",
+  contacts:
+    "grant contacts access in the account settings for your address book",
+  photos: "check the file permissions on the pictures directory",
+  location: "enable location services in your desktop privacy settings",
+  microphone: "allow microphone access in the desktop portal prompt",
+  camera: "allow camera access in the desktop portal prompt",
+};
+
+const CLIENT_OS_LABELS: Record<string, string> = {
+  linux: "Linux",
+  macos: "macOS",
+  windows: "Windows",
+};
+
 export const resolveSystemPermissionSettingsUrl = (
   permType: PermissionType,
   clientOs: string | undefined,
-): string | undefined =>
-  clientOs === "windows"
+): string | undefined => {
+  if (clientOs === "linux") {
+    return undefined;
+  }
+  return clientOs === "windows"
     ? WINDOWS_SETTINGS_URLS[permType]
     : MACOS_SETTINGS_URLS[permType];
+};
 
 const FRIENDLY_NAMES: Record<PermissionType, string> = {
   full_disk_access: "Full Disk Access",
@@ -123,8 +151,16 @@ export const requestSystemPermissionTool = {
       context.clientOs,
     );
     if (!settingsUrl) {
+      const osLabel =
+        CLIENT_OS_LABELS[context.clientOs ?? ""] ??
+        context.clientOs ??
+        "this platform";
+      const remediation =
+        context.clientOs === "linux"
+          ? LINUX_REMEDIATION[permType]
+          : `check the matching Privacy page in ${osLabel} settings`;
       return {
-        content: `${friendly} cannot be requested in-app on ${context.clientOs}. Ask the user to check the matching Privacy page in Windows Settings.`,
+        content: `${friendly} cannot be requested in-app on ${osLabel}. Ask the user to ${remediation}.`,
         isError: true,
       };
     }

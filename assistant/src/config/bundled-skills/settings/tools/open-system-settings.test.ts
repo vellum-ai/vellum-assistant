@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ToolContext } from "../../../../tools/types.js";
 
 let windowsHost = true;
+let linuxHost = false;
 
 mock.module("../../../../util/platform.js", () => ({
   isWindows: () => windowsHost,
+  isLinux: () => linuxHost,
 }));
 
 const { run } = await import("./open-system-settings.js");
@@ -27,6 +29,7 @@ describe("open_system_settings tool", () => {
   beforeEach(() => {
     sentMessages = [];
     windowsHost = true;
+    linuxHost = false;
   });
 
   test("opens Windows microphone privacy settings", async () => {
@@ -74,12 +77,37 @@ describe("open_system_settings tool", () => {
 
   test("rejects an unsupported platform", async () => {
     const result = await run(
-      { pane: "microphone", platform: "linux" },
+      { pane: "microphone", platform: "haiku-os" },
       makeContext(),
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('unknown platform "linux"');
+    expect(result.content).toContain('unknown platform "haiku-os"');
+    expect(sentMessages).toEqual([]);
+  });
+
+  test("offers a desktop command on Linux without pushing open_url", async () => {
+    const result = await run(
+      { pane: "microphone", platform: "linux" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("gnome-control-center privacy");
+    expect(result.content).toContain("systemsettings kcm_kscreen");
+    expect(result.content).not.toContain("x-apple.systempreferences");
+    expect(result.content).not.toContain("ms-settings:");
+    expect(sentMessages).toEqual([]);
+  });
+
+  test("defaults to Linux when the host is Linux", async () => {
+    windowsHost = false;
+    linuxHost = true;
+
+    const result = await run({ pane: "speech_recognition" }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("gnome-control-center privacy");
     expect(sentMessages).toEqual([]);
   });
 });

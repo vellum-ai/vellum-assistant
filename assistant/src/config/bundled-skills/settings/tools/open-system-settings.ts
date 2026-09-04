@@ -2,7 +2,12 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { isWindows } from "../../../../util/platform.js";
+import { isLinux, isWindows } from "../../../../util/platform.js";
+
+// Linux desktops expose no URL scheme for these panes, so the assistant offers
+// the desktop-specific command instead of an open_url push.
+const LINUX_SETTINGS_COMMANDS =
+  "gnome-control-center privacy (GNOME) or systemsettings kcm_kscreen (KDE)";
 
 const PANES = {
   microphone: {
@@ -24,10 +29,17 @@ const PANES = {
 } as const;
 
 type PaneName = keyof typeof PANES;
-type SettingsPlatform = keyof (typeof PANES)[PaneName]["urls"];
+type SettingsPlatform = keyof (typeof PANES)[PaneName]["urls"] | "linux";
 
-const VALID_PLATFORMS: SettingsPlatform[] = ["macos", "windows"];
+const VALID_PLATFORMS: SettingsPlatform[] = ["macos", "windows", "linux"];
 const VALID_PANES = Object.keys(PANES) as PaneName[];
+
+function hostPlatform(): SettingsPlatform {
+  if (isLinux()) {
+    return "linux";
+  }
+  return isWindows() ? "windows" : "macos";
+}
 
 export async function run(
   input: Record<string, unknown>,
@@ -57,9 +69,15 @@ export async function run(
   }
 
   const platform =
-    (requestedPlatform as SettingsPlatform | undefined) ??
-    (isWindows() ? "windows" : "macos");
+    (requestedPlatform as SettingsPlatform | undefined) ?? hostPlatform();
   const meta = PANES[pane as PaneName];
+
+  if (platform === "linux") {
+    return {
+      content: `Linux has no settings URL for ${meta.label}. Offer to run the settings command for the user's desktop: ${LINUX_SETTINGS_COMMANDS}.`,
+      isError: false,
+    };
+  }
 
   if (context.sendToClient) {
     context.sendToClient({

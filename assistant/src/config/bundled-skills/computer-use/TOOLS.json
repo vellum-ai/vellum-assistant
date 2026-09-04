@@ -198,7 +198,7 @@
       },
       "executor": "tools/computer-use-drag.ts",
       "execution_target": "host",
-      "supported_client_os": ["macos", "windows"]
+      "supported_client_os": ["macos", "windows", "linux"]
     },
     {
       "name": "computer_use_wait",
@@ -251,7 +251,7 @@
       },
       "executor": "tools/computer-use-open-app.ts",
       "execution_target": "host",
-      "supported_client_os": ["macos", "windows"]
+      "supported_client_os": ["macos", "windows", "linux"]
     },
     {
       "name": "computer_use_run_applescript",

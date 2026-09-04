@@ -98,6 +98,30 @@ describe("computer-use skill manifest regression", () => {
     }
   });
 
+  test("manifest supported_client_os matches core definitions", async () => {
+    await initializeTools();
+
+    for (const cuTool of allComputerUseTools) {
+      const manifestTool = manifest.tools.find(
+        (t: { name: string }) => t.name === cuTool.name,
+      );
+      expect(manifestTool).toBeDefined();
+      expect(manifestTool.supported_client_os).toEqual(
+        "supportedClientOs" in cuTool ? cuTool.supportedClientOs : undefined,
+      );
+    }
+  });
+
+  test("Linux clients get drag and open_app but not run_applescript", () => {
+    const supportedFor = (name: string) =>
+      manifest.tools.find((t: { name: string }) => t.name === name)
+        ?.supported_client_os;
+
+    expect(supportedFor("computer_use_drag")).toContain("linux");
+    expect(supportedFor("computer_use_open_app")).toContain("linux");
+    expect(supportedFor("computer_use_run_applescript")).not.toContain("linux");
+  });
+
   test("CU action tools are not registered as core tools after initializeTools()", async () => {
     await initializeTools();
 
