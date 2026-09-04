@@ -2,9 +2,9 @@
  * Tests for `SubagentManager.spawnAndAwait` — the synchronous run primitive.
  *
  * Unlike fire-and-forget `spawn` (covered elsewhere), `spawnAndAwait` awaits
- * the child's run, resolves to its final assistant text, forwards streaming
- * deltas via `onText`, supports external abort via `signal`, and MUST NOT
- * trigger the terminal parent-injection that the fire-and-forget path uses.
+ * the child's run, resolves to its final assistant text, supports external
+ * abort via `signal`, and MUST NOT trigger the terminal parent-injection that
+ * the fire-and-forget path uses.
  *
  * The harness mocks `Conversation` + bootstrap + provider registry + config
  * (same pattern as subagent-call-site-routing.test.ts) so the manager runs
@@ -377,75 +377,6 @@ describe("SubagentManager.spawnAndAwait", () => {
     clearConversations();
   });
 
-  test("forwards streaming text/thinking deltas via onText", async () => {
-    nextConversationConfig = {
-      messages: [
-        { role: "assistant", content: [{ type: "text", text: "done" }] },
-      ],
-      emitDeltas: [
-        { type: "assistant_text_delta", text: "Hello " } as AssistantEvent,
-        {
-          type: "assistant_thinking_delta",
-          thinking: "(pondering) ",
-        } as AssistantEvent,
-        { type: "assistant_text_delta", text: "world" } as AssistantEvent,
-        // Non-delta events must not be forwarded to onText.
-        { type: "subagent_status_changed" } as AssistantEvent,
-      ],
-    };
-
-    const chunks: string[] = [];
-    const manager = new SubagentManager();
-    await manager.spawnAndAwait(makeConfig(), () => {}, {
-      onText: (chunk) => chunks.push(chunk),
-    });
-
-    expect(chunks).toEqual(["Hello ", "(pondering) ", "world"]);
-  });
-
-  test("reports tool activity via onProgress, which onText never sees", async () => {
-    // A subagent executing a tool streams no delta, so a caller bounding the
-    // run by an idle window has no signal from onText alone. onProgress is that
-    // signal, and it is a strict superset: text deltas count as progress too.
-    nextConversationConfig = {
-      messages: [
-        { role: "assistant", content: [{ type: "text", text: "done" }] },
-      ],
-      emitDeltas: [
-        { type: "assistant_text_delta", text: "Reading " } as AssistantEvent,
-        {
-          type: "tool_use_start",
-          toolName: "file_read",
-          input: { path: "a.ts" },
-        } as unknown as AssistantEvent,
-        {
-          type: "tool_output_chunk",
-          chunk: "export const a = 1;",
-        } as unknown as AssistantEvent,
-        {
-          type: "tool_result",
-          result: "export const a = 1;",
-        } as unknown as AssistantEvent,
-        // Lifecycle chatter is not progress.
-        { type: "subagent_status_changed" } as AssistantEvent,
-      ],
-    };
-
-    const chunks: string[] = [];
-    let progressCount = 0;
-    const manager = new SubagentManager();
-    await manager.spawnAndAwait(makeConfig(), () => {}, {
-      onText: (chunk) => chunks.push(chunk),
-      onProgress: () => {
-        progressCount++;
-      },
-    });
-
-    // One text delta plus three tool events; the status event is excluded.
-    expect(progressCount).toBe(4);
-    expect(chunks).toEqual(["Reading "]);
-  });
-
   test("aborting the provided signal rejects the run", async () => {
     nextConversationConfig = { waitForAbort: true };
 
@@ -598,8 +529,9 @@ describe("SubagentManager — first user message framing", () => {
       () => {},
     );
 
-    // The consult is a regular blocking spawn, so its user turn is the brief
-    // itself: the fork directive would fight the advisor system prompt.
+    // The consult's user turn is the brief itself: the fork directive would
+    // fight the advisor system prompt. Framing is shared by both entry points,
+    // so awaiting here exercises the same path the advisor's own spawn takes.
     expect(lastPersistedUserMessage).toBe("Please advise.");
     expect(lastPersistedUserMessage).not.toContain("FORK TASK");
   });

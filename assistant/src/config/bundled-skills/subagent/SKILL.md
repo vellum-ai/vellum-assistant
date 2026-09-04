@@ -29,17 +29,17 @@ Subagents follow this status flow: `pending` -> `running` -> `completed` / `fail
 
 ## Types
 
-There are three subagent types. Pick one with two questions: **does it need to change anything**, and **do you need its answer before you can continue?**
+There are three subagent types. Every one of them runs in the background: the spawn call returns straight away with an id, and the result reaches you as a notification. Pick one with two questions: **does it need to change anything**, and **what do you want back**?
 
 `recall` is local information search across memory, the personal knowledge base, past conversations, and workspace files. Use it when a subagent needs prior context that is not already in the prompt.
 
-| Type | Changes things? | You wait? | Tools | When to use |
+| Type | Changes things? | Gives you back | Tools | When to use |
 |---|---|---|---|---|
-| `researcher` | No | No | `web_search`, `web_fetch`, `file_read`, `file_list`, `code_search`, `recall`, `skill_execute`, `notify_parent` | Web research, codebase exploration, reading documentation, root-cause investigation, reviewing an approach against the code |
-| `builder` | Yes | No | Your whole tool surface, unrestricted: shell, file writes and edits, and every connector, MCP, and browser tool you can reach | Code changes, file output, build/test runs, anything that must run a command or act on an outside system |
-| `advisor` | No | Yes | Read-only fact checking in the workspace: `file_read`, `file_list`, `code_search` | Read-only senior-advisor consult. Reads the brief you write in `objective`, runs on a stronger model, and BLOCKS until it returns guidance |
+| `researcher` | No | Findings | `web_search`, `web_fetch`, `file_read`, `file_list`, `code_search`, `recall`, `skill_execute`, `notify_parent` | Web research, codebase exploration, reading documentation, root-cause investigation, reviewing an approach against the code |
+| `builder` | Yes | Work done | Your whole tool surface, unrestricted: shell, file writes and edits, and every connector, MCP, and browser tool you can reach | Code changes, file output, build/test runs, anything that must run a command or act on an outside system |
+| `advisor` | No | Guidance | Read-only fact checking in the workspace: `file_read`, `file_list`, `code_search` | Read-only senior-advisor consult. Reads the brief you write in `objective` and answers on a stronger model |
 
-Both background types can call `notify_parent` for mid-run communication with the parent.
+`researcher` and `builder` can call `notify_parent` for mid-run communication with the parent.
 
 A `researcher` is scoped to the fixed read-only list above: it cannot write or edit files, run commands, reach a connector, or otherwise persist output. If the task must **produce a file, save results, run a command, or act on an outside system**, spawn a `builder`: a researcher finishes without producing anything, and the delegated write silently no-ops.
 
@@ -72,7 +72,7 @@ A consult is expensive (a stronger model reviews your brief and answers), so res
 - **Before you commit to an approach on a consequential or ambiguous task**: the design space is wide, a wrong approach would be costly to unwind, or requirements pull against each other.
 - **When you get stuck or are weighing a change in direction.**
 
-The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model, and it sees ONLY the brief you write in `objective` plus a snapshot of your environment (the tools available to you this turn, the full skill catalog, and your workspace). It cannot read this conversation, so the quality of its guidance tracks the quality of your brief. Write a substantive one:
+The consult runs in the background like every other spawn: `subagent_spawn` returns immediately, and the guidance arrives as a notification when the advisor finishes. Keep working while it thinks. It is read-only, runs on a stronger model, and sees ONLY the brief you write in `objective` plus a snapshot of your environment (the tools available to you this turn, the full skill catalog, and your workspace). It cannot read this conversation, so the quality of its guidance tracks the quality of your brief. Write a substantive one:
 
 - The task or goal, stated in full.
 - Your plan, or the options you are weighing against each other.
@@ -81,9 +81,9 @@ The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS 
 
 The environment snapshot is what lets its guidance point you at existing platform capabilities by name. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim, and say so when you do.
 
-The advisor has read-only workspace tools (`file_read`, `file_list`, `code_search`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It has no memory search and cannot see other conversations or external systems, and every lookup it has to make delays your answer, so put the evidence you already have (a file's contents, a command's output, results gathered elsewhere) into the objective rather than making it go find them.
+The advisor has read-only workspace tools (`file_read`, `file_list`, `code_search`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It has no memory search and cannot see other conversations or external systems, and every lookup it has to make delays its answer, so put the evidence you already have (a file's contents, a command's output, results gathered elsewhere) into the objective rather than making it go find them.
 
-Spawn the advisor **alone** — do NOT batch the consult in the same turn as other tool calls (especially file edits, shell commands, or anything destructive or expensive). Tool calls you issue in the same turn run concurrently with the consult, so they would execute before you see its guidance. Consult the advisor by itself, read its guidance, then act.
+Because the guidance lands after you have moved on, consult **early**: spawn the advisor before you commit to an approach, not after you have built on one. When its guidance arrives, weigh it against what you have done since. Adopt what still applies, and say so plainly if it means undoing a step you already took.
 
 ## Parent Communication
 
@@ -119,7 +119,7 @@ Spawning an objective that several near-identical subagents have already complet
 
 A second message covers the other shape: near-identical copies that are still running and have returned nothing yet. There is nothing to read in that case, so wait for the running ones to report back, or narrow the objective to the part they are not covering.
 
-Either way it is advisory, not a block: pass `confirm_repeat: true` to spawn anyway. An `advisor` consult is never held this way.
+Either way it is advisory, not a block: pass `confirm_repeat: true` to spawn anyway.
 
 ## Inference Profile
 
@@ -127,7 +127,9 @@ Set `inference_profile` to an `llm.profiles` key when a subagent should run unde
 
 When it is omitted, the subagent takes the `subagentSpawn` call site's default model selection. It does not pick up the profile the spawning turn is running on: a profile pinned on a conversation is a choice about that conversation, and it does not follow the work that conversation delegates.
 
-An `inference_profile` you name explicitly wins, unless the model catalog does not report it as tool-capable, in which case it is replaced by the `subagentSpawn` default with a note on the spawn result. An `advisor` consult applies that same fallback, with the note alongside its guidance.
+An `advisor` is the one exception: it takes the stronger `llm.advisorProfile` by default, since a consult is only worth having when it brings a stronger read than your own.
+
+An `inference_profile` you name explicitly wins, unless the model catalog does not report it as tool-capable, in which case it is replaced by the `subagentSpawn` default with a note on the spawn result. An `advisor` applies that same fallback.
 
 `output_contract: "verdict"` takes a cheaper profile, so a verdict runs cheap unless you name an `inference_profile` yourself. A profile pinned on the `subagentSpawn` call site in config also beats the cheap preset, so an operator can decide what checks run on.
 
