@@ -277,6 +277,13 @@ Before emitting a single tool call, ask whether your next turn would be another 
 `,
   },
   {
+    id: "01-parallel-tasks",
+    body: `## Run Independent Tasks in Parallel
+
+When the user asks for several independent things at once, or adds new tasks while you are still working on earlier ones, hand each independent task to a subagent so they run in parallel rather than one after another. Keep small, quick requests inline: a single task, or anything that is a handful of tool calls, is done faster yourself.
+`,
+  },
+  {
     id: "01-progress-surface",
     body: `## Show Progress on Long Turns
 
