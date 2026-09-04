@@ -440,6 +440,29 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* The two camera surfaces that wear the capture accent at a weight rather than
+ * at full strength: the status pill while Live is streaming, and the status dot
+ * beside it while the assistant is talking.
+ *
+ * Mixes rather than the fixed crimson and rose they land on, because
+ * `--camera-accent` carries the assistant's own avatar accent (see
+ * `camera-mode-paint.ts`) and a pink fill under a green assistant says the
+ * wrong thing. The mix cannot live inside a custom property: an unsupported
+ * color-mix() in a var poisons whatever property reads it, so it belongs at the
+ * consuming property, literal first and mix second. Same idiom as the wave
+ * accents below, for the same engines (Safari/iOS < 16.2, which the iOS shell
+ * still targets), which drop the second declaration and keep the shipped
+ * pink. */
+.camera-live-fill {
+  background-color: rgba(207, 67, 112, 0.9);
+  background-color: color-mix(in srgb, var(--camera-accent) 90%, transparent);
+}
+
+.camera-accent-soft-dot {
+  background-color: #ffd9e4;
+  background-color: color-mix(in srgb, var(--camera-accent) 23%, white);
+}
+
 /* Camera shutter: the ring and core the voice room's viewfinder and the
  * deep-link capture overlay share.
  *

@@ -126,8 +126,23 @@ scrim.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
-      one. The crimson ring leaves the shutter and is visible on both, and
+      one. The accent ring leaves the shutter and is visible on both, and
       nothing flashes the whole screen.
+- [ ] The camera wears the assistant's colour. Call an assistant that has an
+      avatar accent and open the camera: the Live pill's fill, the shutter ring
+      while Live runs, the "Live · Tap to stop" hint, the pill's dot while the
+      assistant talks, and the kept-frame ring are all that accent. Call an
+      assistant with no accent (an uploaded image the daemon read no colour
+      from) and the same chrome is the camera's crimson.
+- [ ] A pale accent and a dark one both read. Repeat the row above with the
+      lightest and the darkest accent the palette offers. The pill's white text
+      on its own fill, and the hint over the feed, stay legible. Nothing clamps
+      the accent for contrast, deliberately: if a colour fails here it fails on
+      the waves and the shimmer too, and the fix belongs in the avatar accent
+      system rather than in the camera.
+- [ ] iOS 15 keeps the pink. On a device or simulator older than 16.2, where
+      `color-mix()` does not exist, the Live pill and the speaking dot draw the
+      crimson and rose literals rather than going transparent or black.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection
@@ -138,10 +153,10 @@ scrim.
       as in the browser, and letting go takes no photo. Tap to stop and the
       shutter takes ordinary photos again.
 - [ ] Keeps pulse behind the native preview. With Live running, hold the phone
-      steady on a subject. Within a few seconds the crimson held-frame thumbnail
-      appears beside the photo strip and a frame lands in the transcript; move
-      to a new subject and another follows. Nothing ever pulsing is the
-      slow-bridge case in the section below, not a hang.
+      steady on a subject. Within a few seconds the accented held-frame
+      thumbnail appears beside the photo strip and a frame lands in the
+      transcript; move to a new subject and another follows. Nothing ever
+      pulsing is the slow-bridge case in the section below, not a hang.
 
 ### Live on iPhone
 
@@ -205,16 +220,16 @@ hands-free and push-to-talk, on iOS, Android and desktop web.
       and speak: no keep follows the speech.
 
 - [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
-      second the haptic fires, the ring goes crimson, the pill says Live and the
-      hint changes to "Live · Tap to stop". Letting go takes no photo, so
-      nothing joins the strip and nothing new lands in the transcript.
+      second the haptic fires, the ring takes the accent, the pill says Live
+      and the hint changes to "Live · Tap to stop". Letting go takes no photo,
+      so nothing joins the strip and nothing new lands in the transcript.
 - [ ] Every keep is felt. With Live running on a subject the gate keeps from,
-      one light tap lands with each crimson thumbnail and no others: a scene the
-      gate skips is silent, and so is a keep that never reaches the call. Turn
-      the phone to airplane mode mid-Live and hold it on a new subject: through
-      the reconnect gap nothing taps, because nothing was shared. The tap is
-      what the feature has instead of a screen the user is looking at, since
-      Live is aimed at the thing being talked about.
+      one light tap lands with each accented thumbnail and no others: a scene
+      the gate skips is silent, and so is a keep that never reaches the call.
+      Turn the phone to airplane mode mid-Live and hold it on a new subject:
+      through the reconnect gap nothing taps, because nothing was shared. The
+      tap is what the feature has instead of a screen the user is looking at,
+      since Live is aimed at the thing being talked about.
 - [ ] The tap is not the shutter's. Take ordinary photos: no haptic fires on a
       tap, only on the hold that enters Live and on the keeps that follow.
 - [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
@@ -244,7 +259,7 @@ Handsets, not simulators: the iOS Simulator provides no camera feed, so it
 answers nothing here.
 
 - [ ] The capture row fits the narrowest phone. On a 320pt-wide device, take
-      three photos and then hold for Live: the three receipts and the crimson
+      three photos and then hold for Live: the three receipts and the accented
       kept frame sit in one row above the shutter. Nothing is clipped at the
       right edge, nothing scrolls or wraps, and the row is on its own line
       rather than reaching the shutter or the flip control. Storybook's
@@ -353,7 +368,7 @@ the redesign is called shipped.
       themselves. Watch it both ways in Storybook (Chat/Voice/CameraShutter,
       flip the `mode` control) and confirm the overshoot reads as a record
       button starting rather than a circle being resized.
-- [ ] Desktop fidelity. The chrome is shared, so the crimson accent and the pill
+- [ ] Desktop fidelity. The chrome is shared, so the capture accent and the pill
       apply to the desktop camera view too, minus the OS chrome and the sheet
       grabber. Confirm that is wanted on desktop.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber

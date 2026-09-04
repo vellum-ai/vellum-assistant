@@ -11,6 +11,14 @@
  * contract in `voice-surface-paint.ts` next door, and the STYLE_GUIDE's
  * carve-out for values that must not vary by theme.
  *
+ * The capture accent is the one value that varies, and not by theme: it reads
+ * `--avatar-accent`, so the chrome that says the camera is working is the
+ * colour of the assistant it is working for. The crimson below is what an
+ * assistant with no accent of its own falls back to. Weights of it (the pill's
+ * fill, the speaking dot) are mixed in `index.css` at the property that paints
+ * them, since a custom property cannot carry a fallback for engines without
+ * color-mix().
+ *
  * The accents ship as scoped `--camera-*` custom properties (see
  * {@link cameraModeStyle}) so every piece of camera chrome reads one contract
  * instead of importing the hex itself. They are NOT new global token ramps: the
@@ -27,26 +35,14 @@
 
 import type { CSSProperties } from "react";
 
+import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+
 /**
- * Crimson: the capture accent, worn by the chrome that is actively sampling.
- * Published as `--camera-accent`; its softened half is what reads on the small
- * marks, which is why the two ship as a pair.
+ * Crimson: the capture accent an assistant with no colour of its own falls back
+ * to. `--camera-accent` prefers `--avatar-accent`, so the chrome that is
+ * actively sampling is the assistant's own colour wherever there is one.
  */
 export const CAMERA_ACCENT = "#cf4370";
-
-/**
- * Rose: the accent at the size of a 5px dot. The crimson goes muddy that small
- * over video, so the status dot takes this instead while the assistant speaks.
- */
-export const CAMERA_ACCENT_SOFT = "#ffd9e4";
-
-/**
- * The crimson at the weight a whole surface can be filled with: the capture
- * accent at 90%, so a status mark painted in it still lets a little of the
- * frame through and reads as chrome over video rather than a sticker on it.
- * Published as `--camera-accent-fill`.
- */
-export const CAMERA_ACCENT_FILL = "rgba(207,67,112,.9)";
 
 /**
  * The ink a glyph takes on a fill bright enough to lose a white one: the mic
@@ -105,10 +101,14 @@ export const CAMERA_PILL_GLASS_CLASS =
  * The same pill while the camera is streaming rather than sampling: filled with
  * the capture accent, so "this is going out live" is legible as a change in
  * color from across the screen. The border firms up and the text goes to pure
- * white, since a crimson fill takes more contrast than the glass does.
+ * white, since a filled pill takes more contrast than the glass does.
+ *
+ * The fill itself is `.camera-live-fill` in `index.css` rather than a value
+ * here: it is the accent at 90%, and a weight of a color that varies has to be
+ * mixed at the property that paints it. See that rule for why.
  */
 export const CAMERA_PILL_LIVE_CLASS =
-  "border-[0.5px] border-[rgba(255,255,255,0.25)] bg-[var(--camera-accent-fill)] text-white backdrop-blur-[8px]";
+  "border-[0.5px] border-[rgba(255,255,255,0.25)] camera-live-fill text-white backdrop-blur-[8px]";
 
 /**
  * The flash control at rest, which the design draws heavier than the pill and
@@ -133,9 +133,7 @@ export const CAMERA_MEDIA_GLASS_CLASS =
  */
 export function cameraModeStyle(): CSSProperties {
   return {
-    "--camera-accent": CAMERA_ACCENT,
-    "--camera-accent-soft": CAMERA_ACCENT_SOFT,
-    "--camera-accent-fill": CAMERA_ACCENT_FILL,
+    "--camera-accent": `var(${AVATAR_ACCENT_CSS_VAR}, ${CAMERA_ACCENT})`,
     "--camera-ink": CAMERA_INK,
     "--camera-warm": CAMERA_WARM,
     "--camera-warm-strong": CAMERA_WARM_STRONG,

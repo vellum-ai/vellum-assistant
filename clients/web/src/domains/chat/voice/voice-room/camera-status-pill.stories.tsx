@@ -19,6 +19,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { CSSProperties } from "react";
 
 // The dot's blink is a hand-written keyframe in the app stylesheet, which
 // Storybook's preview.css does not pull in.
@@ -28,8 +29,13 @@ import {
   CAMERA_STORY_FEED_DIM,
   overFakeFeed,
 } from "@/domains/chat/voice/camera-story-feed";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 import { CameraStatusPill } from "./camera-status-pill";
+
+/** A palette accent as far from the camera's own crimson as the palette goes. */
+const AVATAR_ACCENT_TEAL =
+  BUNDLED_COMPONENTS.colors.find((c) => c.id === "teal")?.hex ?? "#0e9b8b";
 
 const meta: Meta<typeof CameraStatusPill> = {
   title: "Chat/Voice/CameraStatusPill",
@@ -146,6 +152,48 @@ export const LongAssistantName: Story = {
  * legible without reading. What the room raises once the shutter has been held.
  */
 export const Live: Story = { args: { mode: "live" } };
+
+/**
+ * Both treatments under an assistant that has a colour of its own: the Live
+ * fill, and the speaking dot in each mode.
+ *
+ * Every other story sets no `--avatar-accent`, so they draw the crimson the
+ * camera falls back to. The room publishes the call assistant's accent on its
+ * own box, and the fill and the speaking dot are mixed from it, which is what
+ * this sets by hand: the pills below are the teal from the avatar palette.
+ */
+export const AvatarAccent: Story = {
+  argTypes: {
+    mode: { table: { disable: true } },
+    voiceState: { table: { disable: true } },
+    statusLabel: { table: { disable: true } },
+  },
+  render: (args) => (
+    <div
+      className="flex flex-col items-center gap-4"
+      style={{ "--avatar-accent": AVATAR_ACCENT_TEAL } as CSSProperties}
+    >
+      <CameraStatusPill
+        {...args}
+        mode="live"
+        voiceState="idle"
+        statusLabel="Listening…"
+      />
+      <CameraStatusPill
+        {...args}
+        mode="live"
+        voiceState="assistant"
+        statusLabel="Speaking…"
+      />
+      <CameraStatusPill
+        {...args}
+        mode="photo"
+        voiceState="assistant"
+        statusLabel="Speaking…"
+      />
+    </div>
+  ),
+};
 
 /** Every combination the pill can be in, stacked, in both modes. */
 export const StateMatrix: Story = {

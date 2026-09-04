@@ -227,7 +227,9 @@ export function CameraStatusPill({
             "size-[6px] flex-none rounded-full",
             voiceState === "idle" && "bg-white/50",
             voiceState === "user" && "bg-white",
-            voiceState === "assistant" && "bg-[var(--camera-accent-soft)]",
+            // The accent softened toward white: the capture colour goes muddy
+            // at 6px over video. See `.camera-accent-soft-dot` in `index.css`.
+            voiceState === "assistant" && "camera-accent-soft-dot",
             // The blink is the "a voice is live right now" signal. Held static
             // under reduced motion here as well as in the keyframe's own media
             // block, matching the `voice-caret-blink` convention.
