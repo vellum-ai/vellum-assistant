@@ -525,7 +525,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants on Linux",
-      "updatedAt": "2026-09-04T21:39:57.000Z"
+      "updatedAt": "2026-09-04T21:45:42.000Z"
     },
     {
       "id": "llm-cost-optimizer",
@@ -1275,7 +1275,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-04T21:39:57.000Z"
+      "updatedAt": "2026-09-04T21:45:42.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -1365,7 +1365,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-04T21:39:57.000Z"
+      "updatedAt": "2026-09-04T21:55:34.000Z"
     },
     {
       "id": "watch-together",
