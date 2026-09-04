@@ -18,7 +18,7 @@ let state: SystemPermissionsState | null;
 let supported = true;
 let unreadBadgeSurface = "Dock icon";
 let unreadBadgesSupported = true;
-let hostOS: "macos" | "windows" = "macos";
+let hostOS: "macos" | "windows" | "linux" = "macos";
 
 const openSystemPermissionSettings = mock(async () => null);
 const requestSystemPermission = mock(async () => null);
@@ -78,6 +78,7 @@ mock.module("@/runtime/dock", () => ({
 
 mock.module("@/runtime/platform-detection", () => ({
   detectElectronHostOS: () => hostOS,
+  resolveDesktopHostOS: () => hostOS,
 }));
 
 const { SystemPermissionsCard } = await import("./system-permissions-card");
@@ -137,6 +138,8 @@ describe("SystemPermissionsCard", () => {
 
   test("shows only Windows-meaningful rows with Windows copy on a Windows host", () => {
     hostOS = "windows";
+    // The Windows shell reports the kinds it has no concept of.
+    state = makeState({ accessibility: "not-applicable" });
 
     render(<SystemPermissionsCard />);
 
@@ -149,6 +152,26 @@ describe("SystemPermissionsCard", () => {
       screen.getByText(/show Windows notifications for approvals/),
     ).toBeTruthy();
     expect(screen.queryByText(/macOS alerts/)).toBeNull();
+  });
+
+  test("shows the applicable rows with Linux copy on a Linux host", () => {
+    hostOS = "linux";
+    state = makeState({ accessibility: "not-applicable" });
+
+    render(<SystemPermissionsCard />);
+
+    expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
+    expect(
+      screen.getByRole("switch", { name: "Screen Recording" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/approve screen sharing in the desktop portal/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/send desktop notifications for approvals/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/macOS alerts/)).toBeNull();
+    expect(screen.queryByText(/Windows notifications/)).toBeNull();
   });
 
   test("hides permissions reported as not applicable", () => {

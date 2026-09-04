@@ -13,16 +13,27 @@ import { cn } from "../utils/cn";
  * renders nothing, which callers use to show a "disabled" binding.
  */
 
-/** Which key-cap vocabulary to render: macOS glyphs or Windows text labels. */
-export type ShortcutPlatform = "mac" | "windows";
+/**
+ * Which key-cap vocabulary to render: macOS glyphs, Windows text labels, or
+ * the Linux labels, which are the Windows ones with Super in place of Win.
+ */
+export type ShortcutPlatform = "mac" | "windows" | "linux";
 
 /**
- * Detect the shortcut vocabulary for the current host from `navigator`. Apple
- * hosts (and unknown hosts, e.g. SSR or test DOMs) get glyphs; Windows and
- * Linux get text labels. Electron renderers report the host OS here too, so
- * this is correct inside the desktop apps.
+ * Detect the shortcut vocabulary for the current host. The Electron preload
+ * states its host OS, which is the only signal that tells a Linux desktop
+ * apart from a Linux browser reliably; otherwise fall back to `navigator`.
+ * Apple hosts (and unknown hosts, e.g. SSR or test DOMs) get glyphs.
  */
 export const detectShortcutPlatform = (): ShortcutPlatform => {
+  const hostOS = (globalThis as { vellum?: { hostOS?: string } }).vellum
+    ?.hostOS;
+  if (hostOS === "macos") {
+    return "mac";
+  }
+  if (hostOS === "windows" || hostOS === "linux") {
+    return hostOS;
+  }
   if (typeof navigator === "undefined") {
     return "mac";
   }
@@ -34,7 +45,10 @@ export const detectShortcutPlatform = (): ShortcutPlatform => {
   if (/mac|darwin|iphone|ipad|ipod/.test(platform)) {
     return "mac";
   }
-  return /win|linux/.test(platform) ? "windows" : "mac";
+  if (/linux/.test(platform)) {
+    return "linux";
+  }
+  return /win/.test(platform) ? "windows" : "mac";
 };
 
 const MAC_MODIFIER_SYMBOLS: Record<string, string> = {
@@ -65,6 +79,16 @@ const WINDOWS_MODIFIER_LABELS: Record<string, string> = {
   option: "Alt",
   altgr: "AltGr",
   shift: "Shift",
+};
+
+// Linux desktops call the Windows key Super, and otherwise write modifiers
+// the same way Windows does.
+const LINUX_MODIFIER_LABELS: Record<string, string> = {
+  ...WINDOWS_MODIFIER_LABELS,
+  command: "Super",
+  cmd: "Super",
+  super: "Super",
+  meta: "Super",
 };
 
 const MAC_KEY_SYMBOLS: Record<string, string> = {
@@ -113,6 +137,7 @@ const TOKEN_MAPS: Record<
 > = {
   mac: { modifiers: MAC_MODIFIER_SYMBOLS, keys: MAC_KEY_SYMBOLS },
   windows: { modifiers: WINDOWS_MODIFIER_LABELS, keys: WINDOWS_KEY_LABELS },
+  linux: { modifiers: LINUX_MODIFIER_LABELS, keys: WINDOWS_KEY_LABELS },
 };
 
 /**
@@ -172,10 +197,12 @@ const MODIFIER_IDS: Record<string, ModifierId | "platform"> = {
  * so `⇧⌘N` is correct and `⌘⇧N` is not, and Windows leads with the Windows
  * key then Ctrl, Alt, Shift per
  * [Microsoft's keyboard UX guidance](https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard).
+ * Linux desktops follow the same order with Super in the Windows key's place.
  */
 const MODIFIER_ORDER: Record<ShortcutPlatform, readonly ModifierId[]> = {
   mac: ["control", "alt", "shift", "command"],
   windows: ["command", "control", "alt", "shift"],
+  linux: ["command", "control", "alt", "shift"],
 };
 
 const modifierId = (
@@ -244,6 +271,21 @@ export const formatAcceleratorHint = (
 ): string =>
   parseAccelerator(accelerator, platform).join(platform === "mac" ? "" : "+");
 
+const NON_MAC_ARIA_MODIFIERS: Record<string, string> = {
+  command: "Meta",
+  cmd: "Meta",
+  commandorcontrol: "Control",
+  cmdorctrl: "Control",
+  super: "Meta",
+  meta: "Meta",
+  control: "Control",
+  ctrl: "Control",
+  alt: "Alt",
+  option: "Alt",
+  altgr: "AltGraph",
+  shift: "Shift",
+};
+
 /**
  * Modifier names [`aria-keyshortcuts`](https://www.w3.org/TR/wai-aria-1.2/#aria-keyshortcuts)
  * takes, which are the UI Events modifier key values rather than the glyphs a
@@ -265,20 +307,10 @@ const ARIA_MODIFIERS: Record<ShortcutPlatform, Record<string, string>> = {
     altgr: "AltGraph",
     shift: "Shift",
   },
-  windows: {
-    command: "Meta",
-    cmd: "Meta",
-    commandorcontrol: "Control",
-    cmdorctrl: "Control",
-    super: "Meta",
-    meta: "Meta",
-    control: "Control",
-    ctrl: "Control",
-    alt: "Alt",
-    option: "Alt",
-    altgr: "AltGraph",
-    shift: "Shift",
-  },
+  windows: NON_MAC_ARIA_MODIFIERS,
+  // Super is the Meta key, so assistive technology hears the same value it
+  // does on Windows even though the drawn cap says Super.
+  linux: NON_MAC_ARIA_MODIFIERS,
 };
 
 /**

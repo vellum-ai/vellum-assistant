@@ -611,6 +611,7 @@
   "systemPermissionsCard": {
     "accessibilityDescription": "允许您的助手代表您点击、输入和控制应用程序。",
     "accessibilityLabel": "辅助功能",
+    "accessibilityLinuxDescription": "允许您的助手通过 AT-SPI 辅助技术点击、输入和控制应用程序。",
     "checking": "正在检查权限...",
     "dockIcon": "程序坞图标",
     "microphoneDescription": "允许您的助手捕获音频用于语音输入和录音。",
@@ -619,11 +620,14 @@
     "notificationBadgesLabel": "通知标记",
     "notificationsDescription": "允许您的助手发送 macOS 提醒，用于审批、消息和任务更新。",
     "notificationsLabel": "通知",
+    "notificationsLinuxDescription": "允许您的助手发送桌面通知，用于审批、消息和任务更新。",
     "notificationsWindowsDescription": "允许您的助手显示 Windows 通知，用于审批、消息和任务更新。",
     "screenDescription": "允许您的助手在计算机使用任务期间捕获屏幕上下文。",
     "screenLabel": "屏幕录制",
+    "screenLinuxDescription": "在您于桌面门户批准屏幕共享后，允许您的助手捕获屏幕上下文。",
     "speechRecognitionDescription": "允许您的助手在设备上将您的语音转录为文本。",
     "speechRecognitionLabel": "语音识别",
+    "speechRecognitionLinuxDescription": "允许您的助手使用设备上的模型将您的语音转录为文本。",
     "speechRecognitionWindowsDescription": "允许您的助手使用 Windows 语音识别将您的语音转录为文本。",
     "taskbarIcon": "任务栏图标",
     "title": "系统权限"
