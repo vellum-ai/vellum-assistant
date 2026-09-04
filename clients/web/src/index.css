@@ -428,6 +428,62 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* What the assistant is pointing at on that same surface. The ring sits
+ * outside the bounds it is given, so the control the user is being sent to is
+ * exactly as visible as it was before anything was drawn on it, and the dark
+ * halo outside the accent is what keeps the ring found over a white document
+ * and a dark editor alike. One entrance and then still: a ring that went on
+ * pulsing over someone's work would be the loudest thing on their screen for
+ * as long as they took to follow it. */
+@keyframes companion-coachmark-in {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+.companion-coachmark {
+  position: absolute;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 90%, transparent),
+    0 0 0 5px color-mix(in srgb, black 30%, transparent);
+  animation: companion-coachmark-in 260ms ease-out 1;
+}
+
+/* The line about what to do with it, hung off whichever corner of the mark
+ * keeps it on the surface. Dark with an accent rim rather than filled with the
+ * accent: the colour has to tie the caption to its ring across every palette
+ * an assistant can have, and only the rim can do that at a contrast that
+ * holds. */
+.companion-coachmark-caption {
+  position: absolute;
+  width: max-content;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #fff;
+  background: color-mix(in srgb, black 78%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent);
+  animation: companion-coachmark-in 260ms ease-out 1;
+}
+
+.companion-coachmark-caption[data-above] {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+/* Held drawn rather than dropped, the way the frame is: the mark is where the
+ * user is being sent, and its entrance is decoration on top of that. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-coachmark,
+  .companion-coachmark-caption {
+    animation: none;
+  }
+}
+
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is

@@ -18,6 +18,7 @@ import { z } from "zod";
 import {
   ASSISTANT_STATUSES,
   COMPANION_ANNOTATION_MAX_POINTS,
+  COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
@@ -168,6 +169,23 @@ export const companionAnnotationPhaseSchema = z.enum(["drawing", "released"]);
 export const companionAnnotationInkSchema = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/);
+
+/**
+ * One thing the assistant is pointing at on the shared surface.
+ *
+ * Bounded per axis rather than as a rectangle inside the surface: a mark that
+ * runs past an edge is a real answer (a control against the side of a
+ * window), and the frame's window draws whatever part of it is on screen. A
+ * corner outside `0`..`1` is a mark measured against some other surface, and
+ * that is what the bounds refuse.
+ */
+export const companionCoachmarkSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1),
+  height: z.number().min(0).max(1),
+  caption: z.string().max(COMPANION_COACHMARK_CAPTION_MAX).optional(),
+});
 
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({

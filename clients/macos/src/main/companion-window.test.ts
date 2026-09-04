@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   companionAnnotationInkSchema,
   companionAnnotationStrokeSchema,
+  companionCoachmarkSchema,
+  COMPANION_COACHMARK_MAX,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_BASE_RESTING_PILL_HEIGHT,
@@ -3090,5 +3092,138 @@ describe("companion window: drawing on what is shared", () => {
         points: [{ x: 0.25, y: 0.5 }],
       }).success,
     ).toBe(true);
+  });
+});
+
+/**
+ * What the assistant points at on the shared surface.
+ *
+ * Main's half is the same half it holds for the drawing: whether the marks
+ * describe anything at all. They are fractions of the surface its frame is
+ * around, so a mark that outlives the share is a ring around whatever has
+ * since moved under it.
+ */
+describe("companion window: pointing at what is shared", () => {
+  const MARK = { x: 0.1, y: 0.2, width: 0.3, height: 0.1, caption: "Press" };
+
+  beforeEach(() => {
+    send("vellum:companion:setContext", context());
+  });
+
+  const shareDisplay = (): void => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+  };
+
+  test("puts the marks on the state the frame reads", () => {
+    shareDisplay();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(state().coachmarks).toEqual([MARK]);
+  });
+
+  /** Nothing pointed at is absence, so a frame reads one shape for it. */
+  test("says nothing rather than nothing-in-a-list", () => {
+    shareDisplay();
+    expect(state().coachmarks).toBeUndefined();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    send("vellum:companion:setCoachmarks", []);
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * Marks can never be armed ahead of a share, or the first share to start
+   * would open with a ring around whatever happened to be at those
+   * coordinates.
+   */
+  test("refuses marks with nothing shared", () => {
+    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * The frame prefers a watch session's target when both run, so the marks
+   * would be drawn around the surface being read while they describe the one
+   * being shared.
+   */
+  test("refuses marks while a watch session owns the frame", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  test("a share that ends takes the marks with it", () => {
+    shareDisplay();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    send("vellum:companion:setContext", context());
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  test("a watch session starting takes the marks with it", () => {
+    shareDisplay();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /** A share moving to another surface keeps the marks it was given. */
+  test("holds the marks while the share moves target", () => {
+    shareDisplay();
+    send("vellum:companion:setCoachmarks", [MARK]);
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "window", windowId: 9 },
+      }),
+    );
+    expect(state().coachmarks).toEqual([MARK]);
+  });
+
+  /**
+   * Checked against the schema rather than through a send, for the reason the
+   * drawing's bounds are: what the registrar refuses never reaches the
+   * handler, and the two are indistinguishable from here.
+   */
+  test("the wire refuses a mark measured against another surface", () => {
+    expect(
+      companionCoachmarkSchema.safeParse({ ...MARK, x: 1.5 }).success,
+    ).toBe(false);
+    expect(companionCoachmarkSchema.safeParse(MARK).success).toBe(true);
+  });
+
+  test("the wire refuses a caption longer than a caption", () => {
+    expect(
+      companionCoachmarkSchema.safeParse({
+        ...MARK,
+        caption: "a".repeat(400),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("the wire refuses more marks than there are places to look", () => {
+    const many = Array.from(
+      { length: COMPANION_COACHMARK_MAX + 1 },
+      () => MARK,
+    );
+    expect(() => send("vellum:companion:setCoachmarks", many)).toThrow();
   });
 });

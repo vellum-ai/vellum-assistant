@@ -15,6 +15,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionCoachmark,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
@@ -573,6 +574,9 @@ const bridge: VellumBridge = {
       ink: string,
     ): void => {
       ipcRenderer.send("vellum:companion:annotateShare", phase, strokes, ink);
+    },
+    setCoachmarks: (marks: readonly CompanionCoachmark[]): void => {
+      ipcRenderer.send("vellum:companion:setCoachmarks", marks);
     },
     captureScreen: (
       target: WatchCaptureTarget,
