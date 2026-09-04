@@ -53,13 +53,43 @@ const WINDOWS_SETTINGS_URLS: Partial<Record<PermissionType, string>> = {
   microphone: "ms-settings:privacy-microphone",
 };
 
+// Linux desktops expose no URL scheme the client can open, so every kind
+// resolves to a spoken remediation instead of a settings link.
+const LINUX_REMEDIATION: Record<PermissionType, string> = {
+  full_disk_access:
+    "check the file ownership and permissions on the path, since Linux has no Full Disk Access gate",
+  accessibility:
+    "check whether this build supports accessibility for the current desktop; use a custom Talk shortcut where available, without changing input-device permissions",
+  screen_recording:
+    "start screen sharing from Vellum and approve the desktop portal prompt if offered; a saved sharing choice does not prove current access",
+  calendar:
+    "grant calendar access in the account settings for your calendar app",
+  contacts:
+    "grant contacts access in the account settings for your address book",
+  photos: "check the file permissions on the pictures directory",
+  location: "enable location services in your desktop privacy settings",
+  microphone:
+    "check the selected input device and mute state in the desktop sound settings, and approve a recording prompt if one is shown",
+  camera: "allow camera access in the desktop portal prompt",
+};
+
+const CLIENT_OS_LABELS: Record<string, string> = {
+  linux: "Linux",
+  macos: "macOS",
+  windows: "Windows",
+};
+
 export const resolveSystemPermissionSettingsUrl = (
   permType: PermissionType,
   clientOs: string | undefined,
-): string | undefined =>
-  clientOs === "windows"
+): string | undefined => {
+  if (clientOs === "linux") {
+    return undefined;
+  }
+  return clientOs === "windows"
     ? WINDOWS_SETTINGS_URLS[permType]
     : MACOS_SETTINGS_URLS[permType];
+};
 
 const FRIENDLY_NAMES: Record<PermissionType, string> = {
   full_disk_access: "Full Disk Access",
@@ -83,7 +113,7 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
 export const requestSystemPermissionInputSchema = z.looseObject({
   permission_type: z
     .enum(PERMISSION_TYPES)
-    .describe("The system permission (macOS or Windows) to request"),
+    .describe("The system permission (macOS, Windows or Linux) to request"),
   activity: z
     .string()
     .describe(
@@ -96,9 +126,10 @@ export const requestSystemPermissionInputSchema = z.looseObject({
 export const requestSystemPermissionTool = {
   name: "request_system_permission",
   description:
-    "Request a system permission via macOS System Settings or Windows Settings. " +
+    "Request a system permission via macOS System Settings or Windows Settings, " +
+    "or get the Linux remediation steps when the client is Linux. " +
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
-    "Do not explain how to open System Settings manually - this tool handles it with a clickable button.",
+    "On macOS and Windows, use the returned settings link. On Linux, relay the guidance without claiming a permission was granted.",
   category: "system",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.High,
@@ -123,8 +154,16 @@ export const requestSystemPermissionTool = {
       context.clientOs,
     );
     if (!settingsUrl) {
+      const osLabel =
+        CLIENT_OS_LABELS[context.clientOs ?? ""] ??
+        context.clientOs ??
+        "this platform";
+      const remediation =
+        context.clientOs === "linux"
+          ? LINUX_REMEDIATION[permType]
+          : `check the matching Privacy page in ${osLabel} settings`;
       return {
-        content: `${friendly} cannot be requested in-app on ${context.clientOs}. Ask the user to check the matching Privacy page in Windows Settings.`,
+        content: `${friendly} cannot be requested in-app on ${osLabel}. Ask the user to ${remediation}.`,
         isError: true,
       };
     }

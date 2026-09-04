@@ -98,6 +98,20 @@ describe("computer-use skill manifest regression", () => {
     }
   });
 
+  test("manifest supported_client_os matches core definitions", async () => {
+    await initializeTools();
+
+    for (const cuTool of allComputerUseTools) {
+      const manifestTool = manifest.tools.find(
+        (t: { name: string }) => t.name === cuTool.name,
+      );
+      expect(manifestTool).toBeDefined();
+      expect(manifestTool.supported_client_os).toEqual(
+        "supportedClientOs" in cuTool ? cuTool.supportedClientOs : undefined,
+      );
+    }
+  });
+
   test("CU action tools are not registered as core tools after initializeTools()", async () => {
     await initializeTools();
 
