@@ -45,22 +45,18 @@ export function botProviderForChannel(channel: string): string | undefined {
 }
 
 export function registerChannelsRequestCommand(channels: Command): void {
-  attachRequestOptions(
-    subcommand(channels, "request").requiredOption(
-      "--channel <id>",
-      `Channel whose bot makes the request: ${REQUESTABLE_CHANNELS.join(", ")}`,
-    ),
-  ).action(
+  attachRequestOptions(subcommand(channels, "request")).action(
     async (
+      channel: string,
       url: string,
-      opts: AuthenticatedRequestOptions & { channel: string },
+      opts: AuthenticatedRequestOptions,
       cmd: Command,
     ) => {
-      const providerKey = botProviderForChannel(opts.channel);
+      const providerKey = botProviderForChannel(channel);
       if (!providerKey) {
         writeError(
           cmd,
-          `Channel "${opts.channel}" has no bot credential to request with. Channels with one: ${REQUESTABLE_CHANNELS.join(", ")}. ${CHANNELS_PLUGIN_SEARCH_HINT}`,
+          `Channel "${channel}" has no bot credential to request with. Channels with one: ${REQUESTABLE_CHANNELS.join(", ")}. ${CHANNELS_PLUGIN_SEARCH_HINT}`,
         );
         process.exitCode = 1;
         return;
@@ -69,7 +65,7 @@ export function registerChannelsRequestCommand(channels: Command): void {
         providerKey,
         url,
         opts,
-        diagnosticsHint: `For channel diagnostics, run 'assistant channels get ${opts.channel}'.`,
+        diagnosticsHint: `For channel diagnostics, run 'assistant channels get ${channel}'.`,
         cmd,
       });
     },

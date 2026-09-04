@@ -918,8 +918,7 @@ describe("assistant subcommand classification", () => {
   // carries the same rating; a channel-keyed call must not read as unknown.
   test("assistant channels request → medium", async () => {
     const result = await classifier.classify({
-      command:
-        "assistant channels request --channel slack /conversations.history",
+      command: "assistant channels request slack /conversations.history",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("medium");

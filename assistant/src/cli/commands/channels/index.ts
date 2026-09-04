@@ -3,7 +3,7 @@
  *
  *   list                     : overview of every channel + ready state
  *   get <channel>            : detailed live snapshot of a single channel
- *   request --channel <id>   : call the channel's platform API as its bot
+ *   request <channel> <url>  : call the channel's platform API as its bot
  *
  * `get` always re-runs remote probes (it invalidates the readiness cache
  * before reading), so the CLI answer matches the live source-of-truth.

@@ -119,7 +119,6 @@ describe("channel to bot provider", () => {
 describe("assistant channels request", () => {
   test("requests as the channel's bot, in-process, never over IPC", async () => {
     const { stdout, exitCode } = await runChannelsRequest([
-      "--channel",
       "slack",
       "-s",
       "/auth.test",
@@ -135,7 +134,6 @@ describe("assistant channels request", () => {
 
   test("forwards method and JSON body the way oauth request does", async () => {
     await runChannelsRequest([
-      "--channel",
       "slack",
       "-s",
       "-X",
@@ -158,7 +156,7 @@ describe("assistant channels request", () => {
   });
 
   test("never offers the person's OAuth integration for a bot channel", async () => {
-    await runChannelsRequest(["--channel", "discord", "-s", "/users/@me"]);
+    await runChannelsRequest(["discord", "-s", "/users/@me"]);
 
     expect(handleRequestCalls[0]?.body.provider).toBe("discord_channel");
     expect(handleRequestCalls[0]?.body).not.toHaveProperty("account");
@@ -167,7 +165,6 @@ describe("assistant channels request", () => {
 
   test("a channel with no bot credential is refused before any request", async () => {
     const { stderr, exitCode } = await runChannelsRequest([
-      "--channel",
       "phone",
       "/anything",
     ]);
@@ -186,7 +183,6 @@ describe("assistant channels request", () => {
     }));
 
     const { stderr, exitCode } = await runChannelsRequest([
-      "--channel",
       "slack",
       "/auth.test",
     ]);
@@ -209,7 +205,6 @@ describe("assistant channels request", () => {
     }));
 
     const { stdout, exitCode } = await runChannelsRequest([
-      "--channel",
       "slack",
       "--json",
       "/auth.test",
