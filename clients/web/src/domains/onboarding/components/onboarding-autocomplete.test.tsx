@@ -162,13 +162,7 @@ describe("TagAutocompleteInput", () => {
     const input = screen.getByRole<HTMLInputElement>("combobox");
 
     fireEvent.compositionStart(input);
-    const composingChange = createEvent.change(input, {
-      target: { value: "Reading," },
-    });
-    Object.defineProperty(composingChange.nativeEvent, "isComposing", {
-      value: true,
-    });
-    fireEvent(input, composingChange);
+    fireEvent.change(input, { target: { value: "Reading," } });
 
     expect(chips()).toBe("");
     expect(input.value).toBe("Reading,");
@@ -176,6 +170,11 @@ describe("TagAutocompleteInput", () => {
     fireEvent.compositionEnd(input);
 
     expect(chips()).toBe("Reading");
+    expect(input.value).toBe("");
+
+    type(input, "Painting,");
+
+    expect(chips()).toBe("Reading|Painting");
     expect(input.value).toBe("");
   });
 });
