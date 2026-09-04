@@ -1340,12 +1340,15 @@ export class AgentLoop {
                 preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
               const estimated = this.estimateTokens(history);
               const overflowDriven = overflowSignal !== null;
-              // Proactive compaction fires when the primary run's turn-start
-              // signal (`compactInPlace`) crosses the estimate threshold;
-              // overflow recovery always compacts.
+              // Proactive compaction fires when the estimate crosses the
+              // threshold: on the first call gate only when `compactInPlace` is
+              // set (turn-start compaction), and on every subsequent gate
+              // (post-tool-use iteration) unconditionally. Overflow recovery
+              // always compacts.
               const shouldCompact =
                 overflowDriven ||
-                (compactInPlace && estimated > midLoopThreshold);
+                ((compactInPlace || !isFirstCallGate) &&
+                  estimated > midLoopThreshold);
               const compactionAllowed =
                 overflowDriven ||
                 !isFirstCallGate ||

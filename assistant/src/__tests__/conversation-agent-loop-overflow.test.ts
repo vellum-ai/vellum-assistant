@@ -1196,223 +1196,217 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // When estimate exceeds the mid-loop threshold (85% of budget),
   // it returns "yield" to break the agent loop.
   // The session-agent-loop then runs compaction and re-enters the agent loop.
-  test.todo(
-    "onCheckpoint yields when token estimate exceeds mid-loop budget threshold",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let compactionCalled = false;
+  test("onCheckpoint yields when token estimate exceeds mid-loop budget threshold", async () => {
+    const events: AssistantEvent[] = [];
+    let compactionCalled = false;
 
-      // estimatePromptTokens is called:
-      // 1. During preflight budget check (low value, below budget)
-      // 2. During onCheckpoint mid-loop check (high value, above 85% threshold)
-      // Budget = 200_000 * 0.95 = 190_000
-      // Mid-loop threshold = 190_000 * 0.85 = 161_500
-      let estimateCallCount = 0;
-      mockEstimateTokens = () => {
-        estimateCallCount++;
-        // First call: preflight check — below budget
-        if (estimateCallCount === 1) {
-          return 100_000;
-        }
-        // Subsequent calls: mid-loop check — above 85% threshold
-        return 170_000;
-      };
+    // estimatePromptTokens is called:
+    // 1. During preflight budget check (low value, below budget)
+    // 2. During onCheckpoint mid-loop check (high value, above 85% threshold)
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // First call: preflight check — below budget
+      if (estimateCallCount === 1) {
+        return 100_000;
+      }
+      // Subsequent calls: mid-loop check — above 85% threshold
+      return 170_000;
+    };
 
-      // A tool round trips the mid-loop budget gate (170k > 161_500); the
-      // gate compacts in place (productive) and the loop continues, so the
-      // post-compaction provider call completes the turn with plain text.
-      const { provider, calls } = createMockProvider([
-        toolUseResponse("tu-1", "bash", { command: "ls" }),
-        textResponse("done after compaction"),
-      ]);
+    // A tool round trips the mid-loop budget gate (170k > 161_500); the
+    // gate compacts in place (productive) and the loop continues, so the
+    // post-compaction provider call completes the turn with plain text.
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("tu-1", "bash", { command: "ls" }),
+      textResponse("done after compaction"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => {
-            compactionCalled = true;
-            return {
-              compacted: true,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text", text: "Hello" }],
-                },
-              ] as Message[],
-              compactedPersistedMessages: 5,
-              summaryText: "Mid-loop compaction summary",
-              previousEstimatedInputTokens: 170_000,
-              estimatedInputTokens: 80_000,
-              maxInputTokens: 200_000,
-              thresholdTokens: 160_000,
-              compactedMessages: 10,
-              summaryCalls: 1,
-              summaryInputTokens: 500,
-              summaryOutputTokens: 200,
-              summaryModel: "mock-model",
-            };
-          },
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => {
+          compactionCalled = true;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Mid-loop compaction summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 80_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // The mid-loop budget check should have triggered compaction
-      expect(compactionCalled).toBe(true);
+    // The mid-loop budget check should have triggered compaction
+    expect(compactionCalled).toBe(true);
 
-      // Provider called twice: the tool turn that tripped the gate, then the
-      // post-compaction turn that completed the run.
-      expect(calls.length).toBe(2);
+    // Provider called twice: the tool turn that tripped the gate, then the
+    // post-compaction turn that completed the run.
+    expect(calls.length).toBe(2);
 
-      // No conversation_error should be emitted
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
+    // No conversation_error should be emitted
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
 
-      // A context_compacted event should have been emitted
-      const compacted = events.find((e) => e.type === "context_compacted");
-      expect(compacted).toBeDefined();
-    },
-  );
+    // A context_compacted event should have been emitted
+    const compacted = events.find((e) => e.type === "context_compacted");
+    expect(compacted).toBeDefined();
+  });
 
   // ── Test 7 ────────────────────────────────────────────────────────
   // Tests that mid-loop budget check prevents context_too_large entirely.
   // Agent loop runs tool calls with growing history. After the estimate
   // exceeds the mid-loop threshold, the loop yields, compaction runs,
   // and the loop resumes. The provider NEVER rejects with context_too_large.
-  test.todo(
-    "mid-loop budget check prevents context_too_large when tools produce large results",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let compactionCalled = false;
+  test("mid-loop budget check prevents context_too_large when tools produce large results", async () => {
+    const events: AssistantEvent[] = [];
+    let compactionCalled = false;
 
-      // Budget = 200_000 * 0.95 = 190_000
-      // Mid-loop threshold = 190_000 * 0.85 = 161_500
-      // Simulate token growth: preflight = 50k, then each checkpoint call
-      // returns a growing estimate. By tool call 3, we exceed the threshold.
-      let estimateCallCount = 0;
-      mockEstimateTokens = () => {
-        estimateCallCount++;
-        // First call: preflight — well below budget
-        if (estimateCallCount === 1) {
-          return 50_000;
-        }
-        // Checkpoint calls grow with each tool round
-        if (estimateCallCount === 2) {
-          return 100_000;
-        } // tool 1
-        if (estimateCallCount === 3) {
-          return 140_000;
-        } // tool 2
-        // Tool 3: exceeds 161_500 threshold
-        return 175_000;
-      };
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    // Simulate token growth: preflight = 50k, then each checkpoint call
+    // returns a growing estimate. By tool call 3, we exceed the threshold.
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // First call: preflight — well below budget
+      if (estimateCallCount === 1) {
+        return 50_000;
+      }
+      // Checkpoint calls grow with each tool round
+      if (estimateCallCount === 2) {
+        return 100_000;
+      } // tool 1
+      if (estimateCallCount === 3) {
+        return 140_000;
+      } // tool 2
+      // Tool 3: exceeds 161_500 threshold
+      return 175_000;
+    };
 
-      let contextTooLargeEmitted = false;
+    let contextTooLargeEmitted = false;
 
-      // Each tool round produces a large result; the estimate grows with each
-      // checkpoint until tool round 3 trips the mid-loop gate (175k > 161_500).
-      // Compaction runs in place (productive) and the loop continues, so the
-      // following plain-text provider call completes the turn. The provider
-      // never rejects with context_too_large.
-      const { provider, calls } = createMockProvider([
-        toolUseResponse("tu-0", "bash", { command: "cmd-0" }),
-        toolUseResponse("tu-1", "bash", { command: "cmd-1" }),
-        toolUseResponse("tu-2", "bash", { command: "cmd-2" }),
-        textResponse("completed after mid-loop compaction"),
-      ]);
+    // Each tool round produces a large result; the estimate grows with each
+    // checkpoint until tool round 3 trips the mid-loop gate (175k > 161_500).
+    // Compaction runs in place (productive) and the loop continues, so the
+    // following plain-text provider call completes the turn. The provider
+    // never rejects with context_too_large.
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("tu-0", "bash", { command: "cmd-0" }),
+      toolUseResponse("tu-1", "bash", { command: "cmd-1" }),
+      toolUseResponse("tu-2", "bash", { command: "cmd-2" }),
+      textResponse("completed after mid-loop compaction"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "x".repeat(10_000),
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => {
-            compactionCalled = true;
-            return {
-              compacted: true,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text", text: "Hello" }],
-                },
-              ] as Message[],
-              compactedPersistedMessages: 8,
-              summaryText: "Compacted large tool results",
-              previousEstimatedInputTokens: 175_000,
-              estimatedInputTokens: 60_000,
-              maxInputTokens: 200_000,
-              thresholdTokens: 160_000,
-              compactedMessages: 15,
-              summaryCalls: 1,
-              summaryInputTokens: 800,
-              summaryOutputTokens: 300,
-              summaryModel: "mock-model",
-            };
-          },
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "x".repeat(10_000),
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => {
+          compactionCalled = true;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 8,
+            summaryText: "Compacted large tool results",
+            previousEstimatedInputTokens: 175_000,
+            estimatedInputTokens: 60_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 15,
+            summaryCalls: 1,
+            summaryInputTokens: 800,
+            summaryOutputTokens: 300,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => {
-        events.push(msg);
-        // Track if context_too_large was ever emitted
-        if (
-          msg.type === "conversation_error" &&
-          "code" in msg &&
-          msg.code === "CONVERSATION_PROCESSING_FAILED"
-        ) {
-          contextTooLargeEmitted = true;
-        }
-      });
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => {
+      events.push(msg);
+      // Track if context_too_large was ever emitted
+      if (
+        msg.type === "conversation_error" &&
+        "code" in msg &&
+        msg.code === "CONVERSATION_PROCESSING_FAILED"
+      ) {
+        contextTooLargeEmitted = true;
+      }
+    });
 
-      // Compaction should have been triggered by mid-loop budget check
-      expect(compactionCalled).toBe(true);
+    // Compaction should have been triggered by mid-loop budget check
+    expect(compactionCalled).toBe(true);
 
-      // The provider should NEVER have rejected with context_too_large
-      expect(contextTooLargeEmitted).toBe(false);
+    // The provider should NEVER have rejected with context_too_large
+    expect(contextTooLargeEmitted).toBe(false);
 
-      // Provider called four times: three tool rounds (the third trips the
-      // mid-loop gate) plus the post-compaction text turn that completes.
-      expect(calls.length).toBe(4);
+    // Provider called four times: three tool rounds (the third trips the
+    // mid-loop gate) plus the post-compaction text turn that completes.
+    expect(calls.length).toBe(4);
 
-      // No conversation_error
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    // No conversation_error
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+  });
 
   // ── Test 8 ────────────────────────────────────────────────────────
   /**
