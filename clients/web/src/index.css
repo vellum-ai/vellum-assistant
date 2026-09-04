@@ -461,6 +461,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   width: max-content;
   margin-top: 10px;
   padding: 4px 10px;
+  /* A caption is the assistant's own words about a control, and a control can
+     be named by something long and unbroken (a path, an identifier). Held
+     inside the width it is allowed rather than running off the surface. */
+  overflow-wrap: anywhere;
   border-radius: 999px;
   font-size: 12px;
   line-height: 1.35;
