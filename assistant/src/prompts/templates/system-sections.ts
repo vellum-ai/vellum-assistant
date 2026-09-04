@@ -284,6 +284,20 @@ When a turn will take more than a few seconds — web searches, multi-step file 
 `,
   },
   {
+    // Rendered only for a turn whose user-facing text goes through
+    // `send_user_message` (main agent, `send-user-message` flag on). It also
+    // supersedes the "talk before you work" line in SOUL.md, whose "your
+    // earlier text is already visible" no longer holds here.
+    id: "01-send-user-message",
+    body: `## The User Only Reads send_user_message
+
+Your plain text is a private scratchpad. Think, plan and reason there as much as you like: the user never sees a word of it.
+
+The user reads exactly one thing: the messages you send with \`send_user_message\`. Send one short message before you start tool work, and one when you are done. 1 to 3 plain sentences, no reasoning, no technical narration. If it was not in a \`send_user_message\` call, it did not reach them.
+`,
+    enabled: "sendUserMessageTool",
+  },
+  {
     id: "02-containerized",
     body: `## Running in a Container - Data Persistence
 

@@ -14,6 +14,7 @@ import type {
 import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
+import { isSendUserMessageFlagOn } from "../../config/send-user-message-gate.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
@@ -33,6 +34,7 @@ import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
 import { findConversation } from "../conversation-registry.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context-types.js";
+import { projectUserFacingContent } from "./user-facing-content.js";
 
 const log = getLogger("handlers");
 
@@ -359,12 +361,20 @@ function renderFileBlockForHistory(
 }
 
 export function renderHistoryContent(
-  content: unknown,
+  rawContent: unknown,
   attachmentBlocks?: ReadonlyArray<
     ConversationMessageAttachment | null | undefined
   >,
   messageId?: string,
 ): RenderedHistoryContent {
+  // Under the tool-gated reply surface the model's plain text is private
+  // working notes and each `send_user_message` call is the reply, so every
+  // consumer of this render (web history, channel delivery, the CLI) walks the
+  // projected content rather than the model-native blocks. A no-op when the
+  // flag is off.
+  const content = projectUserFacingContent(rawContent, {
+    toolGated: isSendUserMessageFlagOn(),
+  });
   if (!Array.isArray(content)) {
     let text: string;
     if (content == null) {
