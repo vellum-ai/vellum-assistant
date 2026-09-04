@@ -849,6 +849,7 @@
   "liveVoiceBusy": {
     "android": "La voz ya está activa en la aplicación de Android.",
     "ios": "La voz ya está activa en la aplicación de iOS.",
+    "linux": "La voz ya está activa en la aplicación de Linux.",
     "macos": "La voz ya está activa en la aplicación de Mac.",
     "unknown": "La voz ya está activa en otro lugar.",
     "web": "La voz ya está activa en otra pestaña del navegador.",

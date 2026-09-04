@@ -304,6 +304,7 @@
   },
   "downloadFeedback": {
     "failed": "下載失敗",
+    "revealLinux": "在檔案管理員中顯示",
     "revealMac": "在 Finder 中顯示",
     "revealWindows": "在檔案總管中顯示",
     "saved": "已儲存至「下載」",
@@ -612,6 +613,7 @@
     "accessibilityLabel": "輔助使用",
     "checking": "正在檢查權限...",
     "dockIcon": "Dock 圖示",
+    "launcherIcon": "應用程式啟動器圖示",
     "microphoneDescription": "允許您的助理擷取音訊以進行語音輸入和錄音。",
     "microphoneLabel": "麥克風",
     "notificationBadgesDescription": "允許您的助理在 {surface} 上顯示未讀對話計數。",

@@ -831,6 +831,7 @@
   "liveVoiceBusy": {
     "android": "語音已在 Android 應用程式中啟用。",
     "ios": "語音已在 iOS 應用程式中啟用。",
+    "linux": "語音已在 Linux 應用程式中啟用。",
     "macos": "語音已在 Mac 應用程式中啟用。",
     "unknown": "語音已在其他地方啟用。",
     "web": "語音已在其他瀏覽器分頁中啟用。",

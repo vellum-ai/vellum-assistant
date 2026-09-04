@@ -97,6 +97,7 @@
   },
   "downloadFeedback": {
     "failed": "Не удалось скачать файл",
+    "revealLinux": "Показать в файловом менеджере",
     "revealMac": "Показать в Finder",
     "revealWindows": "Показать в проводнике",
     "saved": "Сохранено в папку «Загрузки»",

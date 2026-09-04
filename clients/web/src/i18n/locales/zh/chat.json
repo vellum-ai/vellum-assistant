@@ -831,6 +831,7 @@
   "liveVoiceBusy": {
     "android": "语音已在 Android 应用中激活。",
     "ios": "语音已在 iOS 应用中激活。",
+    "linux": "语音已在 Linux 应用中激活。",
     "macos": "语音已在 Mac 应用中激活。",
     "unknown": "语音已在其他地方激活。",
     "web": "语音已在其他浏览器标签页中激活。",
