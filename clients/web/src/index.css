@@ -452,10 +452,19 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * consuming property, literal first and mix second. Same idiom as the wave
  * accents below, for the same engines (Safari/iOS < 16.2, which the iOS shell
  * still targets), which drop the second declaration and keep the shipped
- * pink. */
+ * pink.
+ *
+ * The fill owns its ink for the same reason it owns its colour: filled with a
+ * palette yellow, white 13px text on it is about 1.6:1. `--avatar-accent-ink`
+ * is the black-or-white `contrastForeground()` picks for that accent, published
+ * beside the accent itself. Its literal is symmetry with the pair above rather
+ * than an engine fallback: `var()` carries its own, and every engine takes the
+ * second declaration. */
 .camera-live-fill {
   background-color: rgba(207, 67, 112, 0.9);
   background-color: color-mix(in srgb, var(--camera-accent) 90%, transparent);
+  color: #fff;
+  color: var(--avatar-accent-ink, #fff);
 }
 
 .camera-accent-soft-dot {

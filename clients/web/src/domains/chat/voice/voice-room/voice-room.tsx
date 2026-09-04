@@ -155,7 +155,7 @@ import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
-import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
@@ -966,7 +966,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           : null),
         ...topBandVars,
         ...toneVars,
-        ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
+        ...avatarAccentVars(accentHex),
       }}
       // On close the chrome and rectangular backgrounds fade, while the avatar
       // shape itself shrinks back toward the entry origin (the character

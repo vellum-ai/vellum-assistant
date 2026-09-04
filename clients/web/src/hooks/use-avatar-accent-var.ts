@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 
+import { contrastForeground } from "@/utils/avatar-tone";
+
 /**
  * The CSS custom property carrying the active assistant's avatar accent hex
  * (e.g. `#E9642F` for the orange character). Set on `<html>` by
@@ -8,6 +10,45 @@ import { useEffect } from "react";
  * read it with a `var(--avatar-accent, <fallback>)` fallback.
  */
 export const AVATAR_ACCENT_CSS_VAR = "--avatar-accent";
+
+/**
+ * The ink that reads on a surface filled with that accent: black or white,
+ * whichever wins on WCAG contrast (`contrastForeground`). The accent carries no
+ * luminance guarantee, and the palette's yellow is light enough that white text
+ * on it is about 1.6:1, so any surface that fills itself with the accent takes
+ * its foreground from here rather than assuming white.
+ *
+ * Published and cleared alongside {@link AVATAR_ACCENT_CSS_VAR}, so the same
+ * `var(--avatar-accent, <fallback>)` reasoning applies: absent means there is
+ * no accent, and the consumer's own fallback ink stands.
+ */
+export const AVATAR_ACCENT_INK_CSS_VAR = "--avatar-accent-ink";
+
+/**
+ * The accent pair as an inline style, for an element that scopes the accent to
+ * itself rather than reading the document's. Empty for an assistant with no
+ * accent, which leaves every consumer on its own fallback.
+ *
+ * One function so the two vars cannot be published apart: an element carrying
+ * an accent with no ink is a filled surface guessing at its own foreground.
+ */
+export function avatarAccentVars(
+  accentHex: string | null | undefined,
+): Record<string, string> {
+  if (!accentHex) {
+    return {};
+  }
+  return {
+    [AVATAR_ACCENT_CSS_VAR]: accentHex,
+    [AVATAR_ACCENT_INK_CSS_VAR]: contrastForeground(accentHex),
+  };
+}
+
+/** Every property {@link useAvatarAccentVar} owns on the document root. */
+const ACCENT_VAR_NAMES = [
+  AVATAR_ACCENT_CSS_VAR,
+  AVATAR_ACCENT_INK_CSS_VAR,
+] as const;
 
 /**
  * Latest value published by {@link useAvatarAccentVar}, for readers that
@@ -36,9 +77,10 @@ export function getPublishedAvatarAccentHex(): string | null {
 }
 
 /**
- * Publishes the avatar accent as `--avatar-accent` on the document root so
- * any component can tint itself to the assistant's colour from plain CSS,
- * with no query subscription at the consumption site, and as the value
+ * Publishes the avatar accent as `--avatar-accent`, and the ink that reads on
+ * it as `--avatar-accent-ink`, on the document root so any component can tint
+ * itself to the assistant's colour from plain CSS, with no query subscription
+ * at the consumption site, and as the value
  * {@link getPublishedAvatarAccentHex} hands to non-React readers. Mounted
  * once in `RootLayout` next to the favicon / Electron icon syncs, fed the
  * `accentHex` the avatar query resolves (see `utils/avatar-accent.ts`).
@@ -46,13 +88,19 @@ export function getPublishedAvatarAccentHex(): string | null {
 export function useAvatarAccentVar(accentHex: string | null): void {
   useEffect(() => {
     const root = document.documentElement;
-    if (accentHex) {
-      root.style.setProperty(AVATAR_ACCENT_CSS_VAR, accentHex);
-    } else {
-      root.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+    const vars = avatarAccentVars(accentHex);
+    for (const name of ACCENT_VAR_NAMES) {
+      const value = vars[name];
+      if (value) {
+        root.style.setProperty(name, value);
+      } else {
+        root.style.removeProperty(name);
+      }
     }
     return () => {
-      root.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+      for (const name of ACCENT_VAR_NAMES) {
+        root.style.removeProperty(name);
+      }
     };
   }, [accentHex]);
 

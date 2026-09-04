@@ -150,6 +150,8 @@ let mockAvatarData: {
   components: unknown;
   traits: unknown;
   customImageUrl: string | null;
+  /** The daemon-derived accent, absent for the avatars that carry none. */
+  accentHex?: string | null;
 } = { components: null, traits: null, customImageUrl: null };
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({ ...mockAvatarData }),
@@ -1743,6 +1745,38 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     render(<VoiceRoom />);
     expect(eyes()).toBeNull();
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+  });
+});
+
+/**
+ * The room scopes the CALL assistant's accent to its own box, so the chrome
+ * inside it (the camera pill and shutter, the waves) tints from the assistant
+ * on the line rather than whichever one the document root is carrying.
+ */
+describe("VoiceRoom: the accent the room scopes to itself", () => {
+  const roomStyle = () =>
+    document.querySelector("[data-voice-room]")?.getAttribute("style") ?? "";
+
+  test("declares the accent and the ink that reads on it together", () => {
+    seedAvatar("character");
+    // The palette's light one: white on it is about 1.6:1, so a surface that
+    // fills itself with the accent has to be told to ink in the near-black.
+    mockAvatarData = { ...mockAvatarData, accentHex: "#E9C91A" };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(roomStyle()).toContain("--avatar-accent: #E9C91A");
+    expect(roomStyle()).toContain("--avatar-accent-ink: #1A1A1A");
+  });
+
+  test("declares neither for an assistant with no colour to read", () => {
+    // Absent rather than a neutral pair: every consumer's own fallback colour
+    // ships with the ink it was drawn for.
+    seedAvatar("character");
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(roomStyle()).not.toContain("--avatar-accent");
   });
 });
 

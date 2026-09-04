@@ -308,7 +308,10 @@ describe("CameraStatusPill", () => {
     // legible without reading.
     expect(pill().className).toContain("camera-live-fill");
     expect(pill().className).toContain("border-[rgba(255,255,255,0.25)]");
-    expect(pill().className).toContain("text-white");
+    // The ink belongs to the fill, which knows what reads on it: a `text-white`
+    // utility beside the class would race it, and lose the pale accents where
+    // the ink is the near-black.
+    expect(pill().className).not.toContain("text-white");
     // The accent that fill mixes is published by the pill itself, and prefers
     // the assistant's avatar colour over the crimson it falls back to, so a
     // renamed var surfaces here rather than as a transparent chip.

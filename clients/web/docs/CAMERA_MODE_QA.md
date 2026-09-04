@@ -135,11 +135,19 @@ scrim.
       assistant with no accent (an uploaded image the daemon read no colour
       from) and the same chrome is the camera's crimson.
 - [ ] A pale accent and a dark one both read. Repeat the row above with the
-      lightest and the darkest accent the palette offers. The pill's white text
-      on its own fill, and the hint over the feed, stay legible. Nothing clamps
-      the accent for contrast, deliberately: if a colour fails here it fails on
-      the waves and the shimmer too, and the fix belongs in the avatar accent
-      system rather than in the camera.
+      lightest accent the palette offers (yellow) and a dark one. The Live
+      pill's label flips with the fill: near-black on the yellow, white on the
+      dark accent, and the whole pill including the separator and the assistant
+      name follows it. The accent itself is not clamped, so the hint and the
+      shutter ring over the feed are whatever colour the assistant is; if one of
+      those fails it fails on the waves and the shimmer too, and the fix belongs
+      in the avatar accent system rather than in the camera.
+- [ ] The pill's dot on a pale fill. The dot stays white (or the accent
+      softened toward white while the assistant talks) in every mode, so on the
+      yellow fill it is a pale mark on a pale fill. Note whether it reads. It is
+      a 6px state mark rather than text, and inking it would leave the user's
+      dot and the assistant's the same colour, so this is a design call rather
+      than a contrast bug.
 - [ ] iOS 15 keeps the pink. On a device or simulator older than 16.2, where
       `color-mix()` does not exist, the Live pill and the speaking dot draw the
       crimson and rose literals rather than going transparent or black.

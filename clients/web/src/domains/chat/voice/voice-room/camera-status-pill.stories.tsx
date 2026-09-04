@@ -29,13 +29,20 @@ import {
   CAMERA_STORY_FEED_DIM,
   overFakeFeed,
 } from "@/domains/chat/voice/camera-story-feed";
+import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 import { CameraStatusPill } from "./camera-status-pill";
 
-/** A palette accent as far from the camera's own crimson as the palette goes. */
-const AVATAR_ACCENT_TEAL =
-  BUNDLED_COMPONENTS.colors.find((c) => c.id === "teal")?.hex ?? "#0e9b8b";
+/** Palette accents to draw the camera chrome under. */
+const paletteHex = (id: string, fallback: string) =>
+  BUNDLED_COMPONENTS.colors.find((c) => c.id === id)?.hex ?? fallback;
+
+/** As far from the camera's own crimson as the palette goes. */
+const AVATAR_ACCENT_TEAL = paletteHex("teal", "#0E9B8B");
+
+/** The light one: white on it is about 1.6:1, so its ink is the near-black. */
+const AVATAR_ACCENT_YELLOW = paletteHex("yellow", "#E9C91A");
 
 const meta: Meta<typeof CameraStatusPill> = {
   title: "Chat/Voice/CameraStatusPill",
@@ -154,13 +161,15 @@ export const LongAssistantName: Story = {
 export const Live: Story = { args: { mode: "live" } };
 
 /**
- * Both treatments under an assistant that has a colour of its own: the Live
- * fill, and the speaking dot in each mode.
+ * The chrome under an assistant that has a colour of its own: the Live fill,
+ * the speaking dot, and the ink the fill takes.
  *
  * Every other story sets no `--avatar-accent`, so they draw the crimson the
- * camera falls back to. The room publishes the call assistant's accent on its
- * own box, and the fill and the speaking dot are mixed from it, which is what
- * this sets by hand: the pills below are the teal from the avatar palette.
+ * camera falls back to, in white. The room publishes the call assistant's
+ * accent on its own box together with the ink that reads on it, which is what
+ * `avatarAccentVars` sets here. Two accents, because the ink is the part worth
+ * seeing switch: teal and the palette's yellow both take the near-black, where
+ * the crimson fallback above keeps white.
  */
 export const AvatarAccent: Story = {
   argTypes: {
@@ -169,29 +178,34 @@ export const AvatarAccent: Story = {
     statusLabel: { table: { disable: true } },
   },
   render: (args) => (
-    <div
-      className="flex flex-col items-center gap-4"
-      style={{ "--avatar-accent": AVATAR_ACCENT_TEAL } as CSSProperties}
-    >
-      <CameraStatusPill
-        {...args}
-        mode="live"
-        voiceState="idle"
-        statusLabel="Listening…"
-      />
-      <CameraStatusPill
-        {...args}
-        mode="live"
-        voiceState="assistant"
-        statusLabel="Speaking…"
-      />
-      <CameraStatusPill
-        {...args}
-        mode="photo"
-        voiceState="assistant"
-        statusLabel="Speaking…"
-      />
-    </div>
+    <>
+      {[AVATAR_ACCENT_TEAL, AVATAR_ACCENT_YELLOW].map((hex) => (
+        <div
+          key={hex}
+          className="flex flex-col items-center gap-4"
+          style={avatarAccentVars(hex) as CSSProperties}
+        >
+          <CameraStatusPill
+            {...args}
+            mode="live"
+            voiceState="idle"
+            statusLabel="Listening…"
+          />
+          <CameraStatusPill
+            {...args}
+            mode="live"
+            voiceState="assistant"
+            statusLabel="Speaking…"
+          />
+          <CameraStatusPill
+            {...args}
+            mode="photo"
+            voiceState="assistant"
+            statusLabel="Speaking…"
+          />
+        </div>
+      ))}
+    </>
   ),
 };
 

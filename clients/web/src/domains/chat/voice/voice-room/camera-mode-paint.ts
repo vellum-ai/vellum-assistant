@@ -100,15 +100,17 @@ export const CAMERA_PILL_GLASS_CLASS =
 /**
  * The same pill while the camera is streaming rather than sampling: filled with
  * the capture accent, so "this is going out live" is legible as a change in
- * color from across the screen. The border firms up and the text goes to pure
- * white, since a filled pill takes more contrast than the glass does.
+ * color from across the screen. The border firms up, since a filled pill holds
+ * less of an edge than the glass does.
  *
- * The fill itself is `.camera-live-fill` in `index.css` rather than a value
- * here: it is the accent at 90%, and a weight of a color that varies has to be
- * mixed at the property that paints it. See that rule for why.
+ * The fill and its ink are both `.camera-live-fill` in `index.css` rather than
+ * values here: the fill is the accent at 90%, and a weight of a color that
+ * varies has to be mixed at the property that paints it. The ink is whichever
+ * of black and white reads on that accent, so it cannot be a `text-*` utility
+ * beside the class either. See that rule for both.
  */
 export const CAMERA_PILL_LIVE_CLASS =
-  "border-[0.5px] border-[rgba(255,255,255,0.25)] camera-live-fill text-white backdrop-blur-[8px]";
+  "border-[0.5px] border-[rgba(255,255,255,0.25)] camera-live-fill backdrop-blur-[8px]";
 
 /**
  * The flash control at rest, which the design draws heavier than the pill and
