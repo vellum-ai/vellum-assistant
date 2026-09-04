@@ -12,6 +12,7 @@
 import { isNoResponseOnlyText } from "@vellumai/service-contracts/no-response";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { readAssistantTextVisibility } from "@/domains/chat/utils/assistant-text-visibility";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type {
@@ -375,6 +376,11 @@ export function finalizeMessageComplete(
 ): DisplayMessage[] {
   const last = prev[prev.length - 1];
   const attachments = toDisplayAttachments(event.attachments);
+  // What the turn did with its plain text, stamped on the live row from the
+  // same event so it renders the way its persisted twin will, with no refetch
+  // in between.
+  const assistantTextVisibility = readAssistantTextVisibility(event);
+  const visibility = assistantTextVisibility ? { assistantTextVisibility } : {};
 
   if (last?.role !== "assistant") {
     if (!attachments) {
@@ -388,6 +394,7 @@ export function finalizeMessageComplete(
         role: "assistant" as const,
         timestamp: at,
         attachments,
+        ...visibility,
       },
     ];
   }
@@ -401,6 +408,7 @@ export function finalizeMessageComplete(
       ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
       ...(attachments ? { attachments } : {}),
       ...(finalized ?? {}),
+      ...visibility,
       // Deliberate silence, derived at fold time from the shared sentinel
       // contract: the daemon stamps the durable row after the turn, but the
       // live bubble would otherwise render the raw sentinel until a refetch.

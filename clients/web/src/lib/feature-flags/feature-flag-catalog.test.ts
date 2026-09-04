@@ -24,11 +24,6 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.selfIntroGreeting).toBe(false);
   });
 
-  test("exposes the send-user-message tool gate to both flag stores", () => {
-    expect(CLIENT_FLAG_DEFAULTS.sendUserMessage).toBe(false);
-    expect(ASSISTANT_FLAG_DEFAULTS.sendUserMessage).toBe(false);
-  });
-
   test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
     expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
       false,

@@ -2,6 +2,7 @@ import type {
   ConversationMessage,
   ConversationMessageSurface,
 } from "@vellumai/assistant-api";
+import { readAssistantTextVisibility } from "@/domains/chat/utils/assistant-text-visibility";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type {
@@ -188,6 +189,10 @@ export function mapRuntimeToDisplayMessage(
   }
   if (m.noResponse) {
     msg.isNoResponse = true;
+  }
+  const assistantTextVisibility = readAssistantTextVisibility(m);
+  if (assistantTextVisibility) {
+    msg.assistantTextVisibility = assistantTextVisibility;
   }
   if (m.reaction) {
     msg.reaction = m.reaction;
