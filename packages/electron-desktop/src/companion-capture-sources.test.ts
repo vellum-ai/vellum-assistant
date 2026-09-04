@@ -13,28 +13,21 @@ mock.module("electron", () => ({
   app: { getFileIcon: async () => ({ isEmpty: () => true }) },
   screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ id: 0 }) },
 }));
-mock.module("./logger", () => ({
+mock.module("./app-logger", () => ({
   default: { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} },
 }));
-mock.module("./appleScriptExecutor", () => ({
-  runAppleScript: async () => "",
-}));
 /**
- * What the helper answers when the module reaches it directly, which the
- * preview path does: it takes no deps, since a picture of a window is the one
- * thing on this side with nothing to decide.
+ * What the capture backend answers when the module reaches it directly, which
+ * the preview path does: it takes no deps, since a picture of a window is the
+ * one thing on this side with nothing to decide.
  */
 let helperCall: (
   method: string,
   params?: unknown,
 ) => Promise<unknown> = async () => ({ windows: [] });
-mock.module("./sidecar/shared-cu-helper", () => ({
-  getSharedCuHelper: () => ({
-    call: (method: string, params?: unknown) => helperCall(method, params),
-  }),
-}));
 
 const {
+  configureCompanionCaptureSources,
   CHROME_BUNDLE_ID,
   THUMBNAIL_CONCURRENCY,
   THUMBNAIL_MAX_HEIGHT,
@@ -49,6 +42,11 @@ const {
   resolveCapturePick,
   windowBoundsFor,
 } = await import("./companion-capture-sources");
+
+configureCompanionCaptureSources({
+  call: (method, params) => helperCall(method, params),
+  runChromeAppleScript: async () => "",
+});
 
 const SEP = String.fromCharCode(31);
 
