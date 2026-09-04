@@ -227,10 +227,13 @@ export async function emitAssistantReplyNotification(params: {
     // reduce to empty for the fallback to be reachable. A reply with neither
     // text nor media stays silent.
     // The push preview quotes what the user reads, so it walks the same
-    // user-facing projection the transcript does: under the tool-gated reply
-    // surface the model's plain text is private working notes.
+    // user-facing projection the transcript does, keyed on the row's own
+    // marker: a `send_user_message` turn's plain text is private working notes.
     const text = stringifyMessageContent(
-      projectPersistedAssistantContent(assistantRow.content),
+      projectPersistedAssistantContent(
+        assistantRow.content,
+        assistantRow.metadata,
+      ),
     );
     const preview =
       sanitizeMultilineMessagePreview(stripMarkdownForPreview(text)) ||

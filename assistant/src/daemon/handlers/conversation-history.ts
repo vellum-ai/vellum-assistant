@@ -67,7 +67,12 @@ export function getMessageContent(
 
   try {
     const content = dbMessage.content;
-    const rendered = renderHistoryContent(content);
+    const rendered = renderHistoryContent(
+      content,
+      undefined,
+      undefined,
+      dbMessage.metadata,
+    );
     text = rendered.text || undefined;
     const parsedToolCalls = rendered.toolCalls;
 

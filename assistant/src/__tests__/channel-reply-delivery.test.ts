@@ -217,8 +217,22 @@ mock.module("../persistence/attachments-store.js", () => ({
  */
 const renderedHistoryContentByContent = new Map<string, RenderedHistoryStub>();
 
+/**
+ * Metadata each render was handed, in call order. The projection that decides
+ * whether a row's plain text is working notes keys on the row's own
+ * `assistantTextVisibility` marker, so delivery has to forward the row's
+ * metadata rather than rendering it blind.
+ */
+const renderMetadataCalls: unknown[] = [];
+
 mock.module("../daemon/handlers/shared.js", () => ({
-  renderHistoryContent: (content: unknown) => {
+  renderHistoryContent: (
+    content: unknown,
+    _attachmentBlocks?: unknown,
+    _messageId?: string,
+    metadata?: unknown,
+  ) => {
+    renderMetadataCalls.push(metadata);
     if (typeof content === "string") {
       const keyed = renderedHistoryContentByContent.get(content);
       if (keyed) {
@@ -249,6 +263,7 @@ describe("channel-reply-delivery", () => {
     onRecordOutboundPost = null;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContentByContent.clear();
+    renderMetadataCalls.length = 0;
     renderedHistoryContent = {
       text: "",
       textSegments: [],
@@ -300,6 +315,37 @@ describe("channel-reply-delivery", () => {
 
     expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
       "assistant-target",
+    );
+  });
+
+  it("renders a candidate reply with the row's own visibility metadata", () => {
+    // A fallback turn marks its row `visible`, so its raw text has to render
+    // and deliver like any reply. Delivery cannot know that without handing
+    // the row's metadata to the renderer.
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "target" },
+      {
+        id: "assistant-fallback",
+        role: "assistant",
+        content: "raw reply",
+        metadata: JSON.stringify({ assistantTextVisibility: "visible" }),
+      },
+    );
+    renderedHistoryContentQueue.push({
+      text: "Two meetings today.",
+      textSegments: ["Two meetings today."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
+      "assistant-fallback",
+    );
+    expect(renderMetadataCalls).toContain(
+      JSON.stringify({ assistantTextVisibility: "visible" }),
     );
   });
 

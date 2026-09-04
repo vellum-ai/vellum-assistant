@@ -1107,6 +1107,10 @@ export async function handleListMessages({
       slackMessage,
       deletedAt,
       clientMessageId: msg.clientMessageId ?? undefined,
+      // The row's raw stored envelope, carried to the render pass below so it
+      // can read the row's own `assistantTextVisibility` marker. Never part of
+      // the wire payload, which the serializer builds field by field.
+      rowMetadata: msg.metadata,
     };
   });
 
@@ -1196,6 +1200,7 @@ export async function handleListMessages({
         m.content,
         attachmentBlocks,
         m.id ?? undefined,
+        m.rowMetadata,
       );
 
       const toolCalls = enrichToolCallsWithQuestion(
@@ -3005,7 +3010,12 @@ export async function handleGetSuggestion(
     }
 
     const content: unknown = msg.content;
-    const rendered = renderHistoryContent(content);
+    const rendered = renderHistoryContent(
+      content,
+      undefined,
+      undefined,
+      msg.metadata,
+    );
     const text = rendered.text.trim();
     if (!text) {
       continue;

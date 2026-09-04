@@ -10,6 +10,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
+import type { AssistantTextVisibility } from "../daemon/handlers/user-facing-content.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -258,7 +259,20 @@ export type AgentEvent =
    * including per-call reroutes by a `pre-model-call` hook. Absent on
    * synthesized emissions that have no provider response.
    */
-  | { type: "message_complete"; message: Message; model?: string }
+  /**
+   * `assistantTextVisibility` is set only on a run with
+   * {@link AgentLoopRunOptionsBase.suppressAssistantText}: `"private"` when
+   * this message's plain text stayed unsent (working notes), `"visible"` when
+   * the fallback surfaced it because no `send_user_message` call reached the
+   * user. The daemon stamps it on the persisted row, and the read-side
+   * projection keys on that marker rather than on the live flag.
+   */
+  | {
+      type: "message_complete";
+      message: Message;
+      model?: string;
+      assistantTextVisibility?: AssistantTextVisibility;
+    }
   | { type: "max_tokens_reached"; stopReason: string }
   | {
       type: "tool_use";
@@ -1977,12 +1991,14 @@ export class AgentLoop {
         // Sensitive-output substitution is applied to match what the live stream
         // would have shown. A no-op when text already streamed live — that
         // stream stands. Call only for a turn being kept.
+        // Returns whether it surfaced the raw text, which is what tells the
+        // daemon a suppressed run's fallback fired for this message.
         const emitFinalAssistantText = (
           content: ContentBlock[],
           opts: { turnEnding: boolean },
-        ): void => {
+        ): boolean => {
           if (streamedVisibleText) {
-            return;
+            return false;
           }
           // Under the tool-gated reply surface the raw text is private working
           // notes, so it is surfaced only as the fallback: the turn is ending
@@ -1992,7 +2008,7 @@ export class AgentLoop {
             suppressAssistantText &&
             (sentUserMessageThisRun || !opts.turnEnding)
           ) {
-            return;
+            return false;
           }
           const finalText = applySubstitutions(
             assistantTextOf(content),
@@ -2000,7 +2016,25 @@ export class AgentLoop {
           );
           if (finalText.length > 0) {
             onEvent({ type: "text_delta", text: finalText });
+            return true;
           }
+          return false;
+        };
+
+        /**
+         * How this message's plain text reached the user, for the marker the
+         * daemon stamps on the persisted row. Only a suppressed run answers:
+         * `"visible"` when the fallback just surfaced the raw text, `"private"`
+         * otherwise. Undefined on an ordinary run, whose rows carry no marker
+         * and render exactly as they do today.
+         */
+        const textVisibilityOf = (
+          fallbackSurfaced: boolean,
+        ): AssistantTextVisibility | undefined => {
+          if (!suppressAssistantText) {
+            return undefined;
+          }
+          return fallbackSurfaced ? "visible" : "private";
         };
 
         /**
@@ -2122,9 +2156,11 @@ export class AgentLoop {
           // A truncated turn keeps no tool calls (they were stripped above), so
           // it is the turn's end and its text is the tool-gated fallback when
           // nothing reached the user.
-          emitFinalAssistantText(safeAssistantMessage.content, {
-            turnEnding: true,
-          });
+          const truncatedVisibility = textVisibilityOf(
+            emitFinalAssistantText(safeAssistantMessage.content, {
+              turnEnding: true,
+            }),
+          );
           if (
             maxTokensDecision === "continue" &&
             postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
@@ -2138,6 +2174,9 @@ export class AgentLoop {
               type: "message_complete",
               message: safeAssistantMessage,
               model: response.model,
+              ...(truncatedVisibility
+                ? { assistantTextVisibility: truncatedVisibility }
+                : {}),
             });
             history = maxTokensMessages;
             continue;
@@ -2151,6 +2190,9 @@ export class AgentLoop {
             type: "message_complete",
             message: safeAssistantMessage,
             model: response.model,
+            ...(truncatedVisibility
+              ? { assistantTextVisibility: truncatedVisibility }
+              : {}),
           });
           await stopTurn("max_tokens_reached");
           break;
@@ -2247,9 +2289,11 @@ export class AgentLoop {
         // Surface the finalized text if the client saw nothing live (a
         // deferred stream, a hook-rewritten empty turn, or the tool-gated
         // fallback where no `send_user_message` call ever reached the user).
-        emitFinalAssistantText(assistantMessage.content, {
-          turnEnding: toolUseBlocks.length === 0,
-        });
+        const textVisibility = textVisibilityOf(
+          emitFinalAssistantText(assistantMessage.content, {
+            turnEnding: toolUseBlocks.length === 0,
+          }),
+        );
 
         history.push(assistantMessage);
 
@@ -2257,6 +2301,9 @@ export class AgentLoop {
           type: "message_complete",
           message: assistantMessage,
           model: response.model,
+          ...(textVisibility
+            ? { assistantTextVisibility: textVisibility }
+            : {}),
         });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {

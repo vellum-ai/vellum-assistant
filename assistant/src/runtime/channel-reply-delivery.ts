@@ -334,7 +334,15 @@ function readPersistedAssistantReply(msg: PersistedMessage): {
   }
 
   const parsed: unknown = msg.content;
-  const rendered = renderHistoryContent(parsed);
+  // The row's own metadata decides whether its plain text is working notes:
+  // a `send_user_message` turn delivers what the tool carried, and a fallback
+  // turn (marked visible) delivers the raw text the user already saw.
+  const rendered = renderHistoryContent(
+    parsed,
+    undefined,
+    undefined,
+    msg.metadata,
+  );
 
   const linked = getAttachmentMetadataForMessage(msg.id);
   const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({

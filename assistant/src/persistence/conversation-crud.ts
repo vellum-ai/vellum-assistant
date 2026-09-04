@@ -388,6 +388,17 @@ export const messageMetadataSchema = z
      */
     messageKind: z.string().optional(),
     /**
+     * How a role-`"assistant"` row's plain text reached the user, stamped only
+     * by a turn that routed its reply through the `send_user_message` tool.
+     * `"private"` marks working notes the user never saw, which every
+     * user-facing read projects out (see `daemon/handlers/user-facing-content`);
+     * `"visible"` marks a fallback turn whose raw text was surfaced and so must
+     * render and deliver like any reply. Absent on every other row. Kept as a
+     * plain string, like {@link messageKind}, so an unknown future value never
+     * fails metadata validation.
+     */
+    assistantTextVisibility: z.string().optional(),
+    /**
      * Stable classified error code (`ClassifiedConversationError.code`, e.g.
      * `"PROVIDER_BILLING"`) stamped alongside
      * `messageKind: "provider_error"` on persisted provider-failure rows.

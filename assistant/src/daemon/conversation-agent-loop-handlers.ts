@@ -19,6 +19,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { isSendUserMessageActiveForTurn } from "../config/send-user-message-gate.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
@@ -126,6 +127,7 @@ import {
 } from "./conversation-error.js";
 import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
+import { ASSISTANT_TEXT_VISIBILITY_KEY } from "./handlers/user-facing-content.js";
 import {
   appendInflightSnapshot,
   createInflightContentWriter,
@@ -1353,6 +1355,15 @@ function buildAssistantChannelMetadata(
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
     ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
+    // A turn routing its reply through `send_user_message` writes working
+    // notes, so the row is marked private from the moment it is reserved: a
+    // turn that dies before `message_complete` still has its scratchpad
+    // projected out of every user-facing read. The finalize below re-stamps
+    // it, promoting the row to `"visible"` when the fallback surfaced the raw
+    // text after all.
+    ...(isSendUserMessageActiveForTurn(deps.ctx)
+      ? { [ASSISTANT_TEXT_VISIBILITY_KEY]: "private" }
+      : {}),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -2989,12 +3000,23 @@ export async function handleMessageComplete(
   // assembly can attribute each assistant message to the model that actually
   // ran it — including per-call reroutes by a `pre-model-call` hook. Absent on
   // synthesized completions with no provider response; the key is omitted then.
+  // How this row's plain text reached the user, reported by the loop and
+  // stamped in the same transaction as the final content. Only a run under the
+  // tool-gated reply surface carries it: `"private"` for working notes the
+  // projection hides, `"visible"` for a fallback turn whose raw text the user
+  // actually saw and which therefore has to render and deliver like any reply.
+  const finalizeMetadata: Record<string, unknown> = {
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.assistantTextVisibility
+      ? { [ASSISTANT_TEXT_VISIBILITY_KEY]: event.assistantTextVisibility }
+      : {}),
+  };
   const persisted = await finalizeInflightContent(
     state.inflightWriters.get(assistantMessageId),
     assistantMessageId,
     contentJson,
     deps.rlog,
-    event.model ? { model: event.model } : undefined,
+    Object.keys(finalizeMetadata).length > 0 ? finalizeMetadata : undefined,
   );
   // Keep the writer on a failed finalize (e.g. persistent SQLITE_BUSY) so
   // the turn tail's stranded fold can retry — deleting it would leave the
