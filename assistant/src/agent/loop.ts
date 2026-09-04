@@ -46,6 +46,11 @@ import {
   isContextOverflowError,
   NATIVE_WEB_SEARCH_TOOL_NAME,
 } from "../providers/types.js";
+import {
+  ABORT_SETTLE_GRACE_MS,
+  CANCELLED_TOOL_RESULT,
+  CANCELLED_UNSETTLED_TOOL_RESULT,
+} from "../tools/execution-timeout.js";
 import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
@@ -713,6 +718,72 @@ export type LoopToolExecutor = (
 
 type ToolUseBlock = Extract<ContentBlock, { type: "tool_use" }>;
 
+type LoopToolResult = Awaited<ReturnType<LoopToolExecutor>>;
+
+/**
+ * One dispatched tool call of the current turn's batch, carrying whether it has
+ * reported back. The abort path reads this to tell a call whose tool finished
+ * from one abandoned while it was still running: only the latter can still be
+ * doing work after the model has been told the batch was cancelled.
+ */
+interface InFlightToolCall {
+  readonly toolUse: ToolUseBlock;
+  /** True once the executor promise fulfilled or rejected. */
+  settled: boolean;
+  /** The executor's result once the call fulfilled. */
+  result?: LoopToolResult;
+  /** The executor promise, awaited by the post-abort settlement grace. */
+  promise?: Promise<{ toolUse: ToolUseBlock; result: LoopToolResult }>;
+}
+
+/**
+ * Give tools that honour the abort signal a bounded moment to settle so their
+ * real outcome, not the "may still be running" hedge, reaches the model.
+ * Returns as soon as every call has settled.
+ */
+async function awaitAbortSettlementGrace(
+  calls: readonly InFlightToolCall[],
+): Promise<void> {
+  const pending = calls
+    .filter((call) => !call.settled && call.promise !== undefined)
+    .map((call) => call.promise!);
+  if (pending.length === 0) {
+    return;
+  }
+  let graceHandle: ReturnType<typeof setTimeout>;
+  const grace = new Promise<void>((resolve) => {
+    graceHandle = setTimeout(resolve, ABORT_SETTLE_GRACE_MS);
+  });
+  try {
+    await Promise.race([Promise.allSettled(pending), grace]);
+  } finally {
+    clearTimeout(graceHandle!);
+  }
+}
+
+/**
+ * Content and error flag for the synthetic `tool_result` an aborted batch
+ * writes for one call. A call whose tool reported back keeps its real result;
+ * one still in flight is reported as possibly still running.
+ */
+function cancelledToolResultFor(
+  toolUse: ToolUseBlock,
+  calls: readonly InFlightToolCall[],
+): { content: string; isError: boolean } {
+  const call = calls.find((candidate) => candidate.toolUse === toolUse);
+  if (call === undefined) {
+    return { content: CANCELLED_TOOL_RESULT, isError: true };
+  }
+  if (call.settled) {
+    if (call.result !== undefined) {
+      return { content: call.result.content, isError: call.result.isError };
+    }
+    // The executor rejected, so the tool stopped rather than ran on.
+    return { content: CANCELLED_TOOL_RESULT, isError: true };
+  }
+  return { content: CANCELLED_UNSETTLED_TOOL_RESULT, isError: true };
+}
+
 interface NormalizedToolUse {
   /** Assistant content with at most one `tool_use` block per call id. */
   content: ContentBlock[];
@@ -1281,6 +1352,10 @@ export class AgentLoop {
       );
 
       let toolUseBlocks: ToolUseBlock[] = [];
+      // This iteration's dispatched tool calls, in `tool_use` order. Declared
+      // here so the outer catch, where an abort lands, can read each call's
+      // settlement state while synthesizing cancellation results.
+      let inFlightToolCalls: InFlightToolCall[] = [];
       // The provider rejection thrown by this iteration's call, if any. Set in
       // the inner provider catch and read by the outer catch to confine
       // error-stop recovery to genuine provider rejections — a throw from
@@ -2180,13 +2255,14 @@ export class AgentLoop {
           });
         }
 
-        // If already cancelled, synthesize cancelled results and stop
+        // If already cancelled, synthesize cancelled results and stop. No call
+        // was dispatched, so nothing can still be running.
         if (signal?.aborted) {
           const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
             (toolUse) => ({
               type: "tool_result" as const,
               tool_use_id: toolUse.id,
-              content: "Cancelled by user",
+              content: CANCELLED_TOOL_RESULT,
               is_error: true,
             }),
           );
@@ -2195,7 +2271,7 @@ export class AgentLoop {
             await onEvent({
               type: "tool_result",
               toolUseId: toolUse.id,
-              content: "Cancelled by user",
+              content: CANCELLED_TOOL_RESULT,
               isError: true,
               cancelled: true,
             });
@@ -2240,29 +2316,49 @@ export class AgentLoop {
           );
         }
 
-        const toolExecutionPromise = Promise.all(
-          toolUseBlocks.map(async (toolUse) => {
-            if (deferSiblings && toolUse !== exclusiveBlock) {
-              const result: Awaited<ReturnType<LoopToolExecutor>> = {
-                content: deferredForExclusiveMessage(exclusiveBlock!.name),
-                isError: false,
-              };
-              return { toolUse, result };
-            }
-            const result = await this.toolExecutor!(
-              toolUse.name,
-              toolUse.input,
-              (chunk) => {
-                onEvent({
-                  type: "tool_output_chunk",
-                  toolUseId: toolUse.id,
-                  chunk,
-                });
-              },
-              toolUse.id,
-            );
+        inFlightToolCalls = toolUseBlocks.map((toolUse) => ({
+          toolUse,
+          settled: false,
+        }));
 
-            return { toolUse, result };
+        const toolExecutionPromise = Promise.all(
+          inFlightToolCalls.map((call) => {
+            const { toolUse } = call;
+            const promise = (async () => {
+              if (deferSiblings && toolUse !== exclusiveBlock) {
+                const result: LoopToolResult = {
+                  content: deferredForExclusiveMessage(exclusiveBlock!.name),
+                  isError: false,
+                };
+                return { toolUse, result };
+              }
+              const result = await this.toolExecutor!(
+                toolUse.name,
+                toolUse.input,
+                (chunk) => {
+                  onEvent({
+                    type: "tool_output_chunk",
+                    toolUseId: toolUse.id,
+                    chunk,
+                  });
+                },
+                toolUse.id,
+              );
+
+              return { toolUse, result };
+            })().then(
+              (settled) => {
+                call.settled = true;
+                call.result = settled.result;
+                return settled;
+              },
+              (err) => {
+                call.settled = true;
+                throw err;
+              },
+            );
+            call.promise = promise;
+            return promise;
           }),
         );
 
@@ -2489,21 +2585,28 @@ export class AgentLoop {
         // Anthropic API (every tool_use must have a matching tool_result).
         if (signal?.aborted) {
           if (toolUseBlocks.length > 0) {
-            const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
-              (toolUse) => ({
+            // Tools that honour the signal settle on the abort; wait briefly so
+            // they report their real outcome instead of the hedge below.
+            await awaitAbortSettlementGrace(inFlightToolCalls);
+            const cancelled = toolUseBlocks.map((toolUse) => ({
+              toolUse,
+              ...cancelledToolResultFor(toolUse, inFlightToolCalls),
+            }));
+            const cancelledBlocks: ContentBlock[] = cancelled.map(
+              ({ toolUse, content, isError }) => ({
                 type: "tool_result" as const,
                 tool_use_id: toolUse.id,
-                content: "Cancelled by user",
-                is_error: true,
+                content,
+                is_error: isError,
               }),
             );
             history.push({ role: "user", content: cancelledBlocks });
-            for (const toolUse of toolUseBlocks) {
+            for (const { toolUse, content, isError } of cancelled) {
               await onEvent({
                 type: "tool_result",
                 toolUseId: toolUse.id,
-                content: "Cancelled by user",
-                isError: true,
+                content,
+                isError,
                 cancelled: true,
               });
             }

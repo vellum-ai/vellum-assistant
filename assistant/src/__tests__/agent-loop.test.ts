@@ -19,6 +19,10 @@ import type {
 } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 import {
+  CANCELLED_TOOL_RESULT,
+  CANCELLED_UNSETTLED_TOOL_RESULT,
+} from "../tools/execution-timeout.js";
+import {
   createMockProvider,
   textResponse,
   toolUseResponse,
@@ -769,6 +773,8 @@ describe("AgentLoop", () => {
     expect(lastMsg.role).toBe("user");
     expect(lastMsg.content).toHaveLength(1);
     expect(lastMsg.content[0].type).toBe("tool_result");
+    // The tool ignores the signal, so it is abandoned mid-flight and the
+    // synthesized result says the work may still land.
     expect(
       (
         lastMsg.content[0] as {
@@ -778,7 +784,7 @@ describe("AgentLoop", () => {
           is_error: boolean;
         }
       ).content,
-    ).toBe("Cancelled by user");
+    ).toBe(CANCELLED_UNSETTLED_TOOL_RESULT);
     expect(
       (
         lastMsg.content[0] as {
@@ -1216,10 +1222,10 @@ describe("AgentLoop", () => {
     );
     expect(toolResultBlocks).toHaveLength(2);
     expect(toolResultBlocks[0].tool_use_id).toBe("t1");
-    expect(toolResultBlocks[0].content).toBe("Cancelled by user");
+    expect(toolResultBlocks[0].content).toBe(CANCELLED_TOOL_RESULT);
     expect(toolResultBlocks[0].is_error).toBe(true);
     expect(toolResultBlocks[1].tool_use_id).toBe("t2");
-    expect(toolResultBlocks[1].content).toBe("Cancelled by user");
+    expect(toolResultBlocks[1].content).toBe(CANCELLED_TOOL_RESULT);
     expect(toolResultBlocks[1].is_error).toBe(true);
   });
 
