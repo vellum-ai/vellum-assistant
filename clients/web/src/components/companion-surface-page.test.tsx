@@ -23,6 +23,7 @@ const activateMock = mock(() => undefined);
 const startVoiceMock = mock(() => undefined);
 const toggleWatchMock = mock((_pick?: unknown) => undefined);
 const setScreenShareMock = mock((_pick?: unknown) => undefined);
+const setAnnotatingMock = mock((_annotating: boolean) => undefined);
 /**
  * What the shell lists for the picker. Null is a shell with no picker to
  * offer, which is what a bridge that predates it answers.
@@ -135,7 +136,11 @@ mock.module("@/runtime/companion-surface", () => ({
   startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
   setCompanionScreenShare: setScreenShareMock,
+  setCompanionAnnotating: setAnnotatingMock,
   listCompanionCaptureSources: listSourcesMock,
+  // The picker's tiles ask for these; a desktop with nothing to picture is
+  // the shape the page is exercised in.
+  captureCompanionSourceThumbnail: () => Promise.resolve(null),
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
@@ -160,6 +165,7 @@ afterEach(() => {
   startVoiceMock.mockClear();
   toggleWatchMock.mockClear();
   setScreenShareMock.mockClear();
+  setAnnotatingMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
   answerOfferMock.mockClear();
@@ -928,6 +934,33 @@ describe("the picker behind Teach", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
+  /**
+   * The window's tile. The card opens on the screens, so the windows are a
+   * segment away: pressing it is what a user does before picking one.
+   */
+  const rowOf = async (container: HTMLElement) => {
+    const kind = await waitFor(() => {
+      const found = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[data-slot="segment-control"] [role="radio"]',
+        ),
+      ].find((each) => each.textContent === "Windows");
+      if (!found) {
+        throw new Error("Expected the Windows segment");
+      }
+      return found;
+    });
+    fireEvent.click(kind);
+    return waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Groceries (Notes)"]',
+      );
+      if (!found) {
+        throw new Error("Expected the window tile");
+      }
+      return found;
+    });
+  };
 
   const SOURCES = {
     displays: [
@@ -972,15 +1005,7 @@ describe("the picker behind Teach", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(teachOf(container));
-    const row = await waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Groceries (Notes)"]',
-      );
-      if (!found) {
-        throw new Error("Expected the window row");
-      }
-      return found;
-    });
+    const row = await rowOf(container);
 
     fireEvent.click(row);
 
@@ -1708,16 +1733,33 @@ describe("the picker behind Share", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
-  const rowOf = (container: HTMLElement) =>
-    waitFor(() => {
+  /**
+   * The window's tile. The card opens on the screens, so the windows are a
+   * segment away: pressing it is what a user does before picking one.
+   */
+  const rowOf = async (container: HTMLElement) => {
+    const kind = await waitFor(() => {
+      const found = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[data-slot="segment-control"] [role="radio"]',
+        ),
+      ].find((each) => each.textContent === "Windows");
+      if (!found) {
+        throw new Error("Expected the Windows segment");
+      }
+      return found;
+    });
+    fireEvent.click(kind);
+    return waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Groceries (Notes)"]',
       );
       if (!found) {
-        throw new Error("Expected the window row");
+        throw new Error("Expected the window tile");
       }
       return found;
     });
+  };
 
   const SOURCES = {
     displays: [
@@ -1825,5 +1867,61 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     expect(container.querySelector('button[aria-label="Share"]')).toBeNull();
+  });
+
+  /**
+   * Draw, which asks main rather than the window holding the session: the
+   * mode is whether a window main opened takes the mouse. Nothing about it is
+   * kept here, so a press main refuses leaves the control drawn as the
+   * desktop actually is.
+   */
+  describe("drawing on what is shared", () => {
+    const drawOf = (container: HTMLElement): HTMLButtonElement => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Draw"]',
+      );
+      if (!found) {
+        throw new Error("Expected Draw to render");
+      }
+      return found;
+    };
+
+    test("is offered only once something is being shared", async () => {
+      const { container } = render(<CompanionSurfacePage />);
+      await pinSurface(container);
+      expect(container.querySelector('button[aria-label="Draw"]')).toBeNull();
+
+      pushState({ ...STATE, screenShare: { kind: "window", windowId: 9 } });
+      expect(container.querySelector('button[aria-label="Draw"]')).not.toBeNull();
+    });
+
+    test("the press asks main for the mode", async () => {
+      STATE.screenShare = { kind: "window", windowId: 9 };
+      const { container } = render(<CompanionSurfacePage />);
+      await pinSurface(container);
+
+      fireEvent.click(drawOf(container));
+
+      expect(setAnnotatingMock.mock.calls).toEqual([[true]]);
+      // Nothing is drawn off the press: what draws the control held down is
+      // main saying the frame is taking the mouse.
+      expect(drawOf(container).getAttribute("aria-pressed")).toBe("false");
+    });
+
+    test("draws held down once main says the frame took the mouse", async () => {
+      STATE.screenShare = { kind: "window", windowId: 9 };
+      const { container } = render(<CompanionSurfacePage />);
+      await pinSurface(container);
+
+      pushState({
+        ...STATE,
+        screenShare: { kind: "window", windowId: 9 },
+        annotating: true,
+      });
+
+      expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(drawOf(container));
+      expect(setAnnotatingMock.mock.calls).toEqual([[false]]);
+    });
   });
 });

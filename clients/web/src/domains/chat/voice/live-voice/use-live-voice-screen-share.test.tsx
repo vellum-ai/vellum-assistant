@@ -42,6 +42,20 @@ mock.module("@/runtime/companion-surface", () => ({
   captureCompanionScreen,
 }));
 
+/**
+ * The drawing, recorded rather than done: happy-dom decodes no JPEG and paints
+ * no canvas, and what the marks look like on a frame is
+ * `annotate-shared-frame.test.ts`'s subject. What matters here is which frames
+ * carry marks at all.
+ */
+const annotated: number[] = [];
+mock.module("@/domains/chat/voice/live-voice/annotate-shared-frame", () => ({
+  annotateSharedFrame: async (file: File, strokes: readonly unknown[]) => {
+    annotated.push(strokes.length);
+    return file;
+  },
+}));
+
 mock.module(
   "@/domains/chat/components/chat-attachments/attachment-image-resize",
   () => ({
@@ -67,18 +81,32 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare, SCREEN_SHARE_MIN_FRAME_GAP_MS } =
-  await import("./use-live-voice-screen-share");
+const { useLiveVoiceScreenShare, SCREEN_SHARE_MIN_FRAME_GAP_MS } = await import(
+  "./use-live-voice-screen-share"
+);
 const { useLiveVoiceStore } = await import("./live-voice-store");
-const { makeControlsSpies, seedLiveVoiceSession } =
-  await import("./live-voice-fakes.test-helper");
-const { useAssistantIdentityStore } =
-  await import("@/stores/assistant-identity-store");
+const { makeControlsSpies, seedLiveVoiceSession } = await import(
+  "./live-voice-fakes.test-helper"
+);
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
 
 const ASSISTANT_ID = "asst_share";
 /** A dev build off `main` published after the `sight_frame` handler merged. */
 const SUPPORTING_VERSION = "0.11.7-dev.202609010300.b432fb7";
 const WINDOW: WatchCaptureTarget = { kind: "window", windowId: 7 };
+/** The colour the frame's window drew the marks in. */
+const INK = "#a78bfa";
+/** A mark around the middle of whatever is shared. */
+const CIRCLE = {
+  points: [
+    { x: 0.4, y: 0.4 },
+    { x: 0.6, y: 0.4 },
+    { x: 0.6, y: 0.6 },
+    { x: 0.4, y: 0.6 },
+  ],
+};
 
 let controls = makeControlsSpies();
 let warn: ReturnType<typeof spyOn> | null = null;
@@ -112,6 +140,7 @@ function renderShare() {
 }
 
 beforeEach(() => {
+  annotated.length = 0;
   captureCompanionScreen.mockClear();
   uploadChatAttachment.mockClear();
   deleteChatAttachment.mockClear();
@@ -268,6 +297,193 @@ describe("useLiveVoiceScreenShare: cadence", () => {
     });
     await flush();
     expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * A drawing is the one frame here the user asks for by hand, and the cadence
+ * has to get out of its way in both directions: nothing while the mark is
+ * being made, and one the instant it is finished.
+ */
+describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
+  const draw = (): void => {
+    act(() => {
+      useLiveVoiceStore.getState().setShareAnnotation("drawing", [], INK);
+    });
+  };
+  const release = (): void => {
+    act(() => {
+      useLiveVoiceStore
+        .getState()
+        .setShareAnnotation("released", [CIRCLE], INK);
+    });
+  };
+  /** The layer letting go on the user's behalf: the mode went off mid-stroke. */
+  const abandon = (): void => {
+    act(() => {
+      useLiveVoiceStore.getState().setShareAnnotation("released", [], INK);
+    });
+  };
+
+  test("holds every frame for as long as the hand is down", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    speak(true);
+    speak(false);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+  });
+
+  test("takes one the moment the hand comes off", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith("att-2");
+  });
+
+  /**
+   * The overlay the user drew on is never in the pixels, so the frame that
+   * carries the mark is the one the marks were drawn onto here. A frame the
+   * cadence took carries none, which is what makes this worth pinning: the
+   * two paths share a capture and differ only in this.
+   */
+  test("draws the marks onto the frame that carries them, and only that one", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    // A frame the cadence took is never handed to the drawing at all: there
+    // is nothing to draw, and decoding and re-encoding it to draw nothing
+    // would cost a picture's worth of work per frame.
+    expect(annotated).toEqual([]);
+    draw();
+    release();
+    await flush();
+    expect(annotated).toEqual([1]);
+  });
+
+  /**
+   * The floor exists so a cough is not two frames of the same view. A mark is
+   * a deliberate act the user has just watched themselves make, and refusing
+   * it because they drew twice quickly would drop the second thing they
+   * pointed at.
+   */
+  test("does not wait out the floor the cadence obeys", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    release();
+    await flush();
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+  });
+
+  test("goes back to the ordinary cadence once the hand is off", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    release();
+    await flush();
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * The marks are long since faded off the user's screen by the time a new
+   * run mounts, so a frame taken for them would be of a surface with nothing
+   * on it, arriving in the transcript as a second copy of a view already sent.
+   */
+  test("does not redraw a mark left in the store by an earlier run", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    release();
+    await flush();
+    captureCompanionScreen.mockClear();
+    // The share moving to another target is what tears the run down and
+    // starts a new one over the same store.
+    share({ kind: "display", displayId: 2 });
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The layer sends a release carrying nothing when it goes away mid-stroke,
+   * so the hold is lifted for a hand that is no longer down. It is not a
+   * drawing: a frame taken for it would be of a surface with nothing on it,
+   * for a mark the user never finished.
+   */
+  test("an abandoned stroke lifts the hold without costing a frame", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    abandon();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().shareDrawing).toBe(false);
+
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The marks are counted rather than compared, and the count starts again
+   * from one whenever the store clears it, so the first mark after a
+   * reconnect wears the same id as the last one before it. What keeps that
+   * from reading as a mark already sent is that a reconnect takes the session
+   * to `idle` and this run down with it, so the run that meets the new mark
+   * has never seen the old id. That is behaviour of `reset`, a floor above
+   * this file, which is what makes it worth pinning here.
+   */
+  test("still sends the first mark drawn after a reconnect", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    });
+    seedLiveVoiceSession("listening", {
+      assistantId: ASSISTANT_ID,
+      conversationId: "conv_share",
+      controls,
+    });
+    share(WINDOW);
+    await flush();
+    captureCompanionScreen.mockClear();
+
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+  });
+
+  /** A share that ends takes the drawing on it with it. */
+  test("a stop clears the hand as well as the target", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    draw();
+    share(null);
+    expect(useLiveVoiceStore.getState().shareDrawing).toBe(false);
+    expect(useLiveVoiceStore.getState().shareAnnotation).toBeNull();
   });
 });
 

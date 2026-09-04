@@ -24,6 +24,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
@@ -631,6 +633,34 @@ export interface VellumBridge {
      */
     setScreenShare?(pick?: CompanionCapturePick): void;
     /**
+     * Turn the frame around the shared surface into something the user can
+     * draw on, or give the mouse back to the desktop.
+     *
+     * Main's own state rather than a command passed on, unlike everything
+     * either side of it here: it decides whether a window main opened takes
+     * mouse events, which is not a fact any renderer can hold. What comes
+     * back is `annotating` on `onState`, which is what draws the control
+     * held down and what tells the frame it is the one taking presses.
+     *
+     * Absent on a shell that predates the drawing, which the surface reads
+     * as having nothing to offer, the bargain `setScreenShare` makes.
+     */
+    setAnnotating?(annotating: boolean): void;
+    /**
+     * A mark the user is drawing over the shared surface, from the frame's
+     * own window: `drawing` while the hand is still on it, `released` when it
+     * comes off, carrying every stroke still on the overlay.
+     *
+     * Delivered to the window holding the session as the `annotateShare`
+     * command, since that is the window that takes the frames and the only
+     * one that can draw the strokes onto them.
+     */
+    annotateShare?(
+      phase: CompanionAnnotationPhase,
+      strokes: readonly CompanionAnnotationStroke[],
+      ink: string,
+    ): void;
+    /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame
      * could be taken: the window has gone, the display was unplugged, or
@@ -639,6 +669,23 @@ export interface VellumBridge {
     captureScreen?(
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * A preview of one row of the picker, as a JPEG data URL, for the tile
+     * that row is drawn as.
+     *
+     * The same capture {@link captureScreen} takes, asked for small and
+     * asked for many at once: the picker draws a grid of what the desktop is
+     * showing rather than a list of titles, and a title is a poor way to
+     * find the window you mean. Resolves to null on every refusal the frame
+     * path has, plus the one this call adds: a window that closed between
+     * being listed and being drawn. The tile falls back to the owning app's
+     * icon, so a preview nobody could take costs a picture rather than a row.
+     *
+     * A Chrome tab is never asked for. It has no window of its own until it
+     * has been shown, and showing it to draw a picker would move the user's
+     * browser under them.
+     */
+    captureSourceThumbnail?(target: WatchCaptureTarget): Promise<string | null>;
     /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.

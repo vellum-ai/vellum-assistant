@@ -48,6 +48,18 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     );
     expect(gated).toEqual([]);
 
+    // `selections:read` is documented by Figma but not offered in the app's
+    // OAuth scope list, so requesting it fails the whole authorization. It
+    // stays in availableScopes for BYO apps that do have it.
+    expect(figma.defaultScopes).not.toContain("selections:read");
+    const availableScopes = figma.availableScopes;
+    expect(Array.isArray(availableScopes)).toBe(true);
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).toContain(
+        "selections:read",
+      );
+    }
+
     // GET /v1/me backs both the ping and the identity label.
     expect(figma.defaultScopes).toContain("current_user:read");
   });

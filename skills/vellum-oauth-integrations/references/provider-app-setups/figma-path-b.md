@@ -73,14 +73,13 @@ Tell the user:
 >    - `library_content:read`
 >    - `library_assets:read`
 >    - `team_library_content:read`
->    - `selections:read`
 > 2. Find the **Callback URL** field and paste this exact URL:
 >    `OAUTH_CALLBACK_URL`
 > 3. Click **Save**
 >
 > Let me know when it's saved.
 
-If the user does not want to enable all fourteen, have them enable only the
+If the user does not want to enable all thirteen, have them enable only the
 scopes they are comfortable with and pass that exact set on connect, which
 replaces the defaults entirely (keep `current_user:read`, since the ping and
 identity checks both call `GET /v1/me`):

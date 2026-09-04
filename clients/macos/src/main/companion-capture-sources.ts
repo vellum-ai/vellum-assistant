@@ -614,14 +614,16 @@ const SHARED_FRAME_MAX_WIDTH = 1600;
 const SHARED_FRAME_MAX_HEIGHT = 1000;
 
 /**
- * One frame of a display or a window, as the helper takes it, or nothing
- * when it could not: the window has gone, the display was unplugged, or
- * Screen Recording is not granted. The refusal is logged rather than thrown,
- * since the caller shares frames on a cadence and one missed frame is not an
- * error the user needs to hear about.
+ * One frame of a display or a window at a given size, or nothing when the
+ * helper would not take it. The refusal is logged rather than thrown: both
+ * callers ask for frames they can do without, and `what` is how the line says
+ * which of them was asking.
  */
-export async function captureTargetFrame(
+async function frameOf(
   target: WatchCaptureTarget,
+  maxWidth: number,
+  maxHeight: number,
+  what: string,
 ): Promise<ScreenCaptureFrame | null> {
   const params =
     target.kind === "display"
@@ -631,12 +633,111 @@ export async function captureTargetFrame(
     return capturedFrameSchema.parse(
       await getSharedCuHelper().call("capture.frame", {
         ...params,
-        maxWidth: SHARED_FRAME_MAX_WIDTH,
-        maxHeight: SHARED_FRAME_MAX_HEIGHT,
+        maxWidth,
+        maxHeight,
       }),
     );
   } catch (err) {
-    log.warn("[companion] could not take a frame of the shared target:", err);
+    log.warn(`[companion] could not take a frame of ${what}:`, err);
     return null;
+  }
+}
+
+/**
+ * One frame of a display or a window, as the helper takes it, or nothing
+ * when it could not: the window has gone, the display was unplugged, or
+ * Screen Recording is not granted. The refusal is logged rather than thrown,
+ * since the caller shares frames on a cadence and one missed frame is not an
+ * error the user needs to hear about.
+ */
+export async function captureTargetFrame(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  return frameOf(
+    target,
+    SHARED_FRAME_MAX_WIDTH,
+    SHARED_FRAME_MAX_HEIGHT,
+    "the shared target",
+  );
+}
+
+/**
+ * The longest side a picker preview is encoded at.
+ *
+ * Sized for the tile it is drawn in rather than for reading: the picker asks
+ * for one of these per display and per window on the desktop, all at once,
+ * and each crosses the bridge as base64 in a JSON message. Twice the widest
+ * tile, so the preview still looks like the window on a Retina display, and
+ * no more.
+ */
+export const THUMBNAIL_MAX_WIDTH = 320;
+export const THUMBNAIL_MAX_HEIGHT = 200;
+
+/**
+ * How many previews the helper is asked for at once.
+ *
+ * Each capture is a round trip that sets up a ScreenCaptureKit filter over the
+ * window server's current content, so a desktop with twenty windows on it
+ * asked all at once is twenty of those in flight through the one helper the
+ * hotkeys, dictation and any computer-use action in progress also share. A
+ * handful at a time fills the grid in about the same wall clock and leaves the
+ * helper answering everything else.
+ */
+export const THUMBNAIL_CONCURRENCY = 4;
+
+let thumbnailsInFlight = 0;
+/** Previews asked for while the helper was already busy with its share. */
+const thumbnailQueue: (() => void)[] = [];
+
+const takeThumbnailSlot = (): Promise<void> => {
+  if (thumbnailsInFlight < THUMBNAIL_CONCURRENCY) {
+    thumbnailsInFlight += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    thumbnailQueue.push(() => {
+      thumbnailsInFlight += 1;
+      resolve();
+    });
+  });
+};
+
+const releaseThumbnailSlot = (): void => {
+  thumbnailsInFlight -= 1;
+  thumbnailQueue.shift()?.();
+};
+
+/**
+ * A preview of one thing the picker offers, as a JPEG data URL, or nothing
+ * when the helper would not take one.
+ *
+ * A data URL rather than the frame the share path returns, because the only
+ * thing waiting for it is an `img` in the picker: the shape it wants is the
+ * shape the app icons beside it already travel in.
+ *
+ * Nothing is cached. A preview is only true for the moment the picker is
+ * open, and the picker is opened by a press: a picture of a window as it
+ * looked the last time the user went looking would be a worse answer than a
+ * blank tile, since it is the one the user would pick by.
+ *
+ * A preview still queued when the card closes is taken anyway and answers
+ * nobody. Nothing holds it and the next press asks afresh, so the cost is one
+ * capture rather than a leak, and it is cheaper than a cancellation the
+ * renderer would have to reach back across the bridge to ask for.
+ */
+export async function captureSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  await takeThumbnailSlot();
+  try {
+    const frame = await frameOf(
+      target,
+      THUMBNAIL_MAX_WIDTH,
+      THUMBNAIL_MAX_HEIGHT,
+      "a picker row",
+    );
+    return frame === null ? null : `data:image/jpeg;base64,${frame.jpegBase64}`;
+  } finally {
+    releaseThumbnailSlot();
   }
 }

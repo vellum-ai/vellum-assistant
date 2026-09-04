@@ -362,17 +362,18 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 .companion-watch-frame-flash {
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, white 70%, var(--companion-ring-accent, #ff9f45));
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, white 70%, var(--companion-ring-accent, #5eead4));
   opacity: 0;
   animation: companion-watch-frame-flash 700ms ease-out 1;
 }
 
-/* The edge of what a watch session reads, drawn in the capture colour the way
- * a shared screen is framed. A border and only a border: nothing bleeds
- * inward, so the boundary of the read is a line and the work inside it is
- * left exactly as bright as it was. `--companion-ring-accent` is set per
- * instance by the companion's windows. The call bar's own light is the
- * working ring above, travelling the bar's edge. */
+/* The edge of what a watch session reads or a call is shown, drawn the way a
+ * shared screen is framed. A border and only a border: nothing bleeds inward,
+ * so the boundary of the read is a line and the work inside it is left
+ * exactly as bright as it was. `--companion-ring-accent` is set per instance
+ * by the companion's windows, and the frame is handed the assistant's own
+ * accent so the edge and the call pill are one light. The call bar's own
+ * light is the working ring above, travelling the bar's edge. */
 @keyframes companion-watch-frame-in {
   from { opacity: 0; }
 }
@@ -393,6 +394,37 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 @media (prefers-reduced-motion: reduce) {
   .companion-watch-frame {
     animation: none;
+  }
+}
+
+/* The layer the user draws on inside that frame, while a call is being shown
+ * the surface and drawing is on. The only thing on either of the companion's
+ * click-through windows that deliberately takes the mouse, so the cursor says
+ * so: for as long as this is up, a press on the shared surface is a mark
+ * rather than a click on the app underneath. */
+.companion-share-annotation {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* A mark on its way out, once it has been sent. The delay is the hold that
+ * lets the user see it land, and `forwards` is what keeps it gone for the
+ * moment between the fade ending and the element being dropped. */
+@keyframes companion-share-ink-out {
+  to { opacity: 0; }
+}
+
+.companion-share-ink-spent {
+  animation: companion-share-ink-out 900ms ease-out 500ms forwards;
+}
+
+/* Taken away rather than left standing: the mark is spent, and the reason it
+ * fades is that it has already been sent. Holding it would leave the surface
+ * drawn on with no way to clear it. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-share-ink-spent {
+    animation: companion-share-ink-out 1ms linear 1400ms forwards;
   }
 }
 

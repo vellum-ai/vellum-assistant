@@ -33,16 +33,6 @@ COPY --parents packages/*/package.json ./
 RUN bun install --frozen-lockfile --ignore-scripts \
     --filter='./assistant' --filter='./assistant/src/api'
 
-# The repo-root .dockerignore decides which skills (and files) ship.
-COPY skills ./skills
-RUN set -eu; for pkg in /app/skills/*/package.json; do \
-      [ -e "$pkg" ] || continue; \
-      dir="$(dirname "$pkg")"; \
-      echo "Installing dependencies for $dir"; \
-      (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
-    done
-
-
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
 
@@ -114,7 +104,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-COPY --from=builder /app /app
+COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog
@@ -130,6 +120,9 @@ COPY packages/slack-text /app/packages/slack-text
 COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
+
+# The repo-root .dockerignore decides which skills (and files) ship.
+COPY skills /app/skills
 
 # Materialize the git-ignored offline plugin manifest from its canonical source.
 # `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON

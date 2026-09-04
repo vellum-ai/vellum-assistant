@@ -528,7 +528,6 @@
     "addingToContact": "正在为 {name} 添加渠道",
     "cancel": "取消",
     "contactSaved": "联系人已保存",
-    "dismiss": "忽略",
     "enterAddress": "输入 {channel} 地址",
     "namePlaceholder": "名称",
     "notesLabel": "备注",

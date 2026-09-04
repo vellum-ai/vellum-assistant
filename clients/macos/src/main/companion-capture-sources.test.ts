@@ -19,13 +19,28 @@ mock.module("./logger", () => ({
 mock.module("./appleScriptExecutor", () => ({
   runAppleScript: async () => "",
 }));
+/**
+ * What the helper answers when the module reaches it directly, which the
+ * preview path does: it takes no deps, since a picture of a window is the one
+ * thing on this side with nothing to decide.
+ */
+let helperCall: (
+  method: string,
+  params?: unknown,
+) => Promise<unknown> = async () => ({ windows: [] });
 mock.module("./sidecar/shared-cu-helper", () => ({
-  getSharedCuHelper: () => ({ call: async () => ({ windows: [] }) }),
+  getSharedCuHelper: () => ({
+    call: (method: string, params?: unknown) => helperCall(method, params),
+  }),
 }));
 
 const {
   CHROME_BUNDLE_ID,
+  THUMBNAIL_CONCURRENCY,
+  THUMBNAIL_MAX_HEIGHT,
+  THUMBNAIL_MAX_WIDTH,
   bringForward,
+  captureSourceThumbnail,
   chromeWindowFor,
   listCaptureSources,
   parseChromeTabs,
@@ -639,5 +654,81 @@ describe("where a window is", () => {
       height: 4,
     });
     expect(await windowBoundsFor(8, d)).toBeNull();
+  });
+});
+
+/**
+ * The picture a picker tile is drawn from: the same capture the share takes,
+ * asked for small and asked for many at once.
+ */
+describe("a picker preview", () => {
+  test("is the helper's frame, as the data URL an img takes", async () => {
+    const asked: unknown[] = [];
+    helperCall = async (method, params) => {
+      asked.push([method, params]);
+      return { jpegBase64: "/9j/4AA", width: 320, height: 200 };
+    };
+    expect(await captureSourceThumbnail({ kind: "window", windowId: 7 })).toBe(
+      "data:image/jpeg;base64,/9j/4AA",
+    );
+    expect(asked).toEqual([
+      [
+        "capture.frame",
+        {
+          windowId: 7,
+          maxWidth: THUMBNAIL_MAX_WIDTH,
+          maxHeight: THUMBNAIL_MAX_HEIGHT,
+        },
+      ],
+    ]);
+  });
+
+  test("is nothing when the helper would not take one", async () => {
+    helperCall = async () => {
+      throw new Error("window not found");
+    };
+    expect(
+      await captureSourceThumbnail({ kind: "display", displayId: 2 }),
+    ).toBeNull();
+  });
+
+  test("is nothing when the helper answers with something else", async () => {
+    helperCall = async () => ({ jpegBase64: "" });
+    expect(
+      await captureSourceThumbnail({ kind: "window", windowId: 7 }),
+    ).toBeNull();
+  });
+
+  /**
+   * The picker asks for one of these per window on the desktop, all at once,
+   * through the one helper the hotkeys and any computer-use action in
+   * progress also share.
+   */
+  test("reaches the helper a handful at a time, however many are asked for", async () => {
+    let live = 0;
+    let peak = 0;
+    const waiting: (() => void)[] = [];
+    helperCall = async () => {
+      live += 1;
+      peak = Math.max(peak, live);
+      await new Promise<void>((resolve) => waiting.push(resolve));
+      live -= 1;
+      return { jpegBase64: "/9j/", width: 2, height: 1 };
+    };
+    const asked = THUMBNAIL_CONCURRENCY * 3;
+    const all = Promise.all(
+      Array.from({ length: asked }, (_, index) =>
+        captureSourceThumbnail({ kind: "window", windowId: index }),
+      ),
+    );
+    await Bun.sleep(0);
+    expect(live).toBe(THUMBNAIL_CONCURRENCY);
+    for (let i = 0; i < asked; i += 1) {
+      waiting.shift()?.();
+      await Bun.sleep(0);
+      await Bun.sleep(0);
+    }
+    expect(await all).toHaveLength(asked);
+    expect(peak).toBe(THUMBNAIL_CONCURRENCY);
   });
 });
