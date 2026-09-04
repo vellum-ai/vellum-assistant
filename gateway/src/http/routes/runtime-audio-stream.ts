@@ -42,6 +42,11 @@ import type { GatewayConfig } from "../../config.js";
  */
 const MAX_PENDING_MESSAGES = 100;
 
+/** Payload size of a frame, so an empty one is not mistaken for a dropped one. */
+function byteLength(frame: string | Uint8Array): number {
+  return typeof frame === "string" ? frame.length : frame.byteLength;
+}
+
 /** The state every audio-stream proxy socket carries, whatever it streams. */
 export interface RuntimeAudioStreamState {
   config: GatewayConfig;
@@ -161,6 +166,16 @@ export interface RuntimeAudioStreamHandlerOptions<
   upstreamParams?: (data: T) => Record<string, string>;
   /** Extra fields worth logging alongside every message about this socket. */
   logContext?: (data: T) => Record<string, unknown>;
+  /**
+   * Whether a dropped downstream frame is fatal to the session.
+   *
+   * Only `/v1/desktop/stream` opts in. RFB is an ordered byte stream with no
+   * resync, so a missing frame corrupts the viewer's framebuffer for good and
+   * closing is the only honest outcome. The JSON routes carry self-contained
+   * lifecycle and transcript frames, where losing one costs a transcript
+   * fragment and nothing more, so they log and carry on.
+   */
+  closeOnDroppedFrame?: boolean;
 }
 
 /**
@@ -180,6 +195,7 @@ export function createRuntimeAudioStreamHandlers<
   label,
   upstreamParams = () => ({}),
   logContext = () => ({}),
+  closeOnDroppedFrame = false,
 }: RuntimeAudioStreamHandlerOptions<T>) {
   return {
     open(ws: import("bun").ServerWebSocket<T>) {
@@ -219,14 +235,23 @@ export function createRuntimeAudioStreamHandlers<
           typeof event.data === "string"
             ? event.data
             : new Uint8Array(event.data as ArrayBuffer);
-        // Bun returns 0 when the frame was dropped past its backpressure
-        // limit. A missing frame corrupts an ordered stream (RFB cannot
-        // resync), so both sides close rather than carry on silently.
-        if (ws.send(data) === 0) {
-          log.warn(context, `${label} dropped a downstream frame, closing`);
-          ws.close(1011, "Viewer too slow");
-          upstream.close(1011, "Viewer too slow");
+        // Bun's send returns the byte count it wrote, and 0 for a frame
+        // dropped past its backpressure limit. An empty payload also writes
+        // zero bytes, so the drop only counts when there was something to
+        // send.
+        const dropped = ws.send(data) === 0 && byteLength(data) > 0;
+        if (!dropped) {
+          return;
         }
+        if (!closeOnDroppedFrame) {
+          // Debug, not warn: the usual cause is a runtime frame landing just
+          // after the browser socket closed, once per session and harmless.
+          log.debug(context, `${label} dropped a downstream frame`);
+          return;
+        }
+        log.warn(context, `${label} dropped a downstream frame, closing`);
+        ws.close(1011, "Viewer too slow");
+        upstream.close(1011, "Viewer too slow");
       });
 
       upstream.addEventListener("close", (event) => {

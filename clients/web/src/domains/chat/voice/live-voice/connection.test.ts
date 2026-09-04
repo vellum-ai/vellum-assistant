@@ -306,6 +306,16 @@ describe("resolveLiveVoiceWsUrl", () => {
     expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
   });
 
+  /**
+   * A session with no conversation named starts one rather than joining a
+   * thread, so the parameter has to be absent, not present and empty.
+   */
+  test("cloud path: omits conversationId when none is given", async () => {
+    const raw = await resolveLiveVoiceWsUrl({ assistantId: "assistant-1" });
+
+    expect(new URL(raw).searchParams.has("conversationId")).toBe(false);
+  });
+
   test("self-hosted path: dials the gateway with the actor token, no mint", async () => {
     // GIVEN a primed self-hosted connection
     setSelfHostedConnection({
