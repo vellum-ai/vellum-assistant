@@ -138,6 +138,12 @@ describe("formatCreditsLines", () => {
     );
   });
 
+  test("does not claim an empty 30-day window when that figure was not reported", () => {
+    const lines = formatCreditsLines({ ...BASE, credits_expiring_soon: null });
+
+    expect(lines[4]).toBe("Expiry:    next credit expiry 2026-10-01T00:00:00Z");
+  });
+
   test("formats a negative remaining balance with the sign first", () => {
     expect(formatCreditsLines({ ...BASE, remaining: -2.5 })[0]).toStartWith(
       "Remaining: -$2.50 USD",

@@ -69,8 +69,14 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
       `Expiring:  ${formatCostUsd(result.credits_expiring_soon)} within 30 days${when}`,
     );
   } else if (result.next_credit_expiry_at) {
+    // A null 30-day figure means the platform did not report it, so only an
+    // actual zero earns the "nothing expires within 30 days" claim.
+    const window =
+      result.credits_expiring_soon === null
+        ? ""
+        : " (nothing expires within 30 days)";
     lines.push(
-      `Expiry:    next credit expiry ${result.next_credit_expiry_at} (nothing expires within 30 days)`,
+      `Expiry:    next credit expiry ${result.next_credit_expiry_at}${window}`,
     );
   }
   if (result.daily_spend !== null) {
