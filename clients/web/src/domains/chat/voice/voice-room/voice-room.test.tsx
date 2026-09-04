@@ -516,16 +516,15 @@ describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
 const roomDialog = () =>
   screen.queryByRole("dialog", { name: "Voice session" });
 /**
- * What the room reserves at each edge of the camera pill's band, read off the
- * vars it publishes. Equal reserves are what put the pill on the room's centre
- * line rather than on the centre of whatever the corners leave over.
+ * What the room reserves at the camera pill's band, read off the one var it
+ * publishes for it. One value taken off both edges is what puts the pill on
+ * the room's centre line rather than on the centre of whatever the corners
+ * leave over.
  */
-const bandInsets = () => {
-  const style = roomDialog()?.getAttribute("style") ?? "";
-  const read = (name: string) =>
-    style.match(new RegExp(`--camera-pill-${name}: ([^;]+)`))?.[1] ?? "";
-  return { left: read("left"), right: read("right") };
-};
+const bandInset = () =>
+  roomDialog()
+    ?.getAttribute("style")
+    ?.match(/--camera-pill-inset: ([^;]+)/)?.[1] ?? "";
 /** The control row's ✕: the room's only way to end a session. */
 const endButton = () =>
   screen.queryByRole("button", { name: "End voice session" });
@@ -1389,9 +1388,13 @@ describe("VoiceRoom: the chrome band's corners", () => {
   });
 
   test("centres the pill on the room whether or not the options are offered", async () => {
-    // Equal reserves on both edges of the band, so the slot's midpoint is the
-    // room's midpoint. Reserving only for the corner that happens to be
-    // occupied would slide the pill sideways as Live comes and goes.
+    // One reserve off both edges, so the slot's midpoint is the room's
+    // midpoint. Reserving only for the corner that happens to be occupied
+    // would slide the pill sideways as Live comes and goes, and a reserve
+    // computed per side would slide it by half the difference between two
+    // uneven safe-area insets.
+    const inset =
+      "calc(max(1.25rem, var(--safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) + 3.75rem)";
     stubMediaDevices(async () => fakeStream());
     seedLiveCapableAssistant();
     startOwnedSession("listening");
@@ -1402,11 +1405,13 @@ describe("VoiceRoom: the chrome band's corners", () => {
     });
 
     expect(screen.getByTestId("camera-view-settings")).not.toBeNull();
-    expect(bandInsets()).toEqual({
-      left: "calc(max(1.25rem, var(--safe-area-inset-left, env(safe-area-inset-left, 0px))) + 3.75rem)",
-      right:
-        "calc(max(1.25rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) + 3.75rem)",
-    });
+    expect(bandInset()).toBe(inset);
+    // Both edges off the one var, in one declaration: splitting them back into
+    // a `left-[…] right-[…]` pair is what would let the two drift apart.
+    const slot = () => screen.getByTestId("camera-status-pill-slot").className;
+    expect(slot()).toContain("inset-x-[var(--camera-pill-inset)]");
+    expect(slot()).not.toContain("left-[");
+    expect(slot()).not.toContain("right-[");
 
     withOptions.unmount();
     seedCameraCapableAssistant();
@@ -1420,11 +1425,8 @@ describe("VoiceRoom: the chrome band's corners", () => {
     // The left corner is empty here, and the band does not claim the room it
     // gave up: an empty corner and an occupied one reserve the same.
     expect(screen.queryByTestId("camera-view-settings")).toBeNull();
-    expect(bandInsets()).toEqual({
-      left: "calc(max(1.25rem, var(--safe-area-inset-left, env(safe-area-inset-left, 0px))) + 3.75rem)",
-      right:
-        "calc(max(1.25rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) + 3.75rem)",
-    });
+    expect(bandInset()).toBe(inset);
+    expect(slot()).toContain("inset-x-[var(--camera-pill-inset)]");
   });
 
   /**
@@ -2161,16 +2163,14 @@ describe("VoiceRoom: camera", () => {
     expect(screen.getByTestId("camera-status-pill").textContent).toContain(
       "Photo",
     );
-    // On the corner chrome's own line, and centred between the reserve each
-    // corner takes, so a long assistant name truncates inside a ceiling
-    // instead of running under a control.
+    // On the corner chrome's own line, and centred by one reserve taken off
+    // both edges, so a long assistant name truncates inside a ceiling instead
+    // of running under a control.
     expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
-      "left-[var(--camera-pill-left)] right-[var(--camera-pill-right)]",
+      "inset-x-[var(--camera-pill-inset)]",
     );
-    expect(bandInsets().left).toContain(
-      "calc(max(1.25rem, var(--safe-area-inset-left",
-    );
-    expect(bandInsets().right).toContain(")) + 3.75rem)");
+    expect(bandInset()).toContain("calc(max(1.25rem, var(--safe-area-inset");
+    expect(bandInset()).toContain(")) + 3.75rem)");
     // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
     // bottom scrim lies over the shutter and the whole control row.
     const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");

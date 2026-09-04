@@ -230,18 +230,23 @@ const CORNER_GAP = "1.25rem";
  * room's corner chrome. A configured assistant name is arbitrarily long, so
  * without a bound the pill runs under that chrome and off a phone-width room.
  *
- * The same reserve on both edges: the room's corner offset, plus one 3.25rem
- * control, plus the 0.5rem gap the pill and that control never close. Each
- * corner holds a single control, so one reserve describes both, and equal
- * reserves put the middle of this band on the middle of the room whether or
- * not the left corner is holding the view-options button.
+ * ONE reserve, taken off both edges: the deepest of the room's corner offset
+ * and the two safe-area insets, plus the 3.25rem control a corner holds, plus
+ * the 0.5rem gap the pill and that control never close. Each corner holds a
+ * single control, so one control's width covers both, and one value covers
+ * both sides because a display cutout is not symmetric: a reserve computed per
+ * side would differ by the difference between the insets and carry the pill
+ * half that far off the room's centre line, which is the line the eye reads it
+ * against. The corner controls still hug their own side's inset, so the
+ * shallow side gets more clearance than it strictly needs.
  *
- * A 320pt room still leaves the band wider than the pill's own floor, so a
- * long name truncates inside the ceiling the band gives it rather than
- * overhanging either corner.
+ * The pill's floor survives both ends of that. A 320pt portrait room has no
+ * side insets to deepen the reserve, and the landscape rooms where the insets
+ * do get deep are hundreds of points wider than they are tall. Either way the
+ * band stays wider than the pill's own floor, so a long name truncates inside
+ * the ceiling the band gives it rather than overhanging a corner.
  */
-const CAMERA_PILL_INSET_LEFT = `calc(max(${CORNER_GAP}, ${SAFE_AREA_LEFT}) + 3.75rem)`;
-const CAMERA_PILL_INSET_RIGHT = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
+const CAMERA_PILL_INSET = `calc(max(${CORNER_GAP}, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
 
 /**
  * The tier the camera's view-options panel renders on, above every layer the
@@ -917,10 +922,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // flush camera sheet reach the notch: the former clamps its gap up to the
   // inset, the latter adds the gap to it so the grabber fits between. The panel
   // and the header-resting sheet start below the app's own chrome, where the
-  // inset is not their edge to clear. The band's two edges ride along, since
-  // the pill's slot is told where they are the same way, and both take the
-  // same reserve so the pill lands on the room's centre line: see
-  // {@link CAMERA_PILL_INSET_LEFT}.
+  // inset is not their edge to clear. The band rides along, since the pill's
+  // slot is told what it reserves the same way, and it is one value taken off
+  // both edges so the pill lands on the room's centre line: see
+  // {@link CAMERA_PILL_INSET}.
   const topBandVars = {
     "--room-chrome-top": fullscreen
       ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
@@ -930,8 +935,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     "--room-grabber-top": cameraSheet
       ? `calc(0.5rem + ${SAFE_AREA_TOP})`
       : "0.5rem",
-    "--camera-pill-left": CAMERA_PILL_INSET_LEFT,
-    "--camera-pill-right": CAMERA_PILL_INSET_RIGHT,
+    "--camera-pill-inset": CAMERA_PILL_INSET,
   } as CSSProperties;
 
   const body = (
@@ -1218,10 +1222,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {/* Camera mode's status readout: what the camera is doing, and what the
           session is doing. On the same offset the corner chrome uses, so it
           shares a line with that chrome instead of floating on a rhythm of its
-          own; that offset already clears the sheet's grabber. Centred between
-          two equal reserves, one per corner, which puts it on the room's centre
-          line and still gives a long name a ceiling to truncate inside at phone
-          width: see {@link CAMERA_PILL_INSET_LEFT}.
+          own; that offset already clears the sheet's grabber. One reserve off
+          both edges, so the slot's middle is the room's middle and a long name
+          still has a ceiling to truncate inside at phone width: see
+          {@link CAMERA_PILL_INSET}.
 
           Camera-only. With the viewfinder closed the room says all of this
           through the look itself (the avatar's visual, the state caption, the
@@ -1230,7 +1234,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {cameraOpen ? (
         <div
           data-testid="camera-status-pill-slot"
-          className="pointer-events-none absolute left-[var(--camera-pill-left)] right-[var(--camera-pill-right)] top-[var(--room-chrome-top)] z-10 flex justify-center"
+          className="pointer-events-none absolute inset-x-[var(--camera-pill-inset)] top-[var(--room-chrome-top)] z-10 flex justify-center"
         >
           <CameraStatusPill
             mode={cameraMode}

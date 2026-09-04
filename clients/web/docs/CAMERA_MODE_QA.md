@@ -19,12 +19,14 @@ scrim.
       the mobile sheet, on a notched device and on a Dynamic Island device. The
       pill sits below the island, on the minimize control's line, and never
       behind it.
-- [ ] The pill sits dead centre between the corners. Open the camera at
-      portrait phone width and again in landscape, in Photo and in Live, on a
-      device with side insets (a notched phone held sideways). The pill's centre
-      is the screen's centre in all four, whether or not the view-options button
-      is drawn in the left corner, and it does not shift sideways as Live starts
-      or stops.
+- [ ] The pill sits dead centre on the screen. Open the camera at portrait
+      phone width and again in landscape, in Photo and in Live, on a device
+      whose side insets are uneven (a notched phone held sideways, where the
+      cutout is on one side only). The pill's centre is the SCREEN's centre in
+      all four, whether or not the view-options button is drawn in the left
+      corner, and it does not shift sideways as Live starts or stops. The gap
+      from the pill to each corner control is allowed to differ on that device:
+      the controls hug their own side's inset, the pill answers to the screen.
 - [ ] The pill clears both corner controls. Give the assistant a name of 40
       characters or more and open the camera at 320pt width with the longest
       state string the locale has. The name truncates to an ellipsis, the dot
@@ -350,11 +352,13 @@ the redesign is called shipped.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber
       and end session as exits. The build keeps the top-right minimize control,
       which is the only discoverable exit on desktop. Confirm.
-- [ ] Pill centring against one control per corner. The build reserves the same
-      width at both edges of the band, one 52px control plus its gap, so the
-      pill's centre is the screen's centre and a long name still has a ceiling
-      to truncate inside at 320pt. Confirm the symmetric reserve, or ask for a
-      pill that may narrow past its floor instead.
+- [ ] Pill centring against one control per corner. The build takes one
+      reserve off both edges of the band, the deepest of the corner offset and
+      the two safe-area insets plus a 52px control and its gap, so the pill's
+      centre is the screen's centre and a long name still has a ceiling to
+      truncate inside at 320pt. On a device with uneven side insets that leaves
+      the shallow side more clearance than it needs. Confirm the screen-centred
+      pill, or ask for one centred between the controls instead.
 - [ ] View options as a panel on touch. The chat column's other panels open as a
       bottom sheet on a phone. This one stays anchored on every form factor: the
       room is itself a sheet whose flush camera state inerts the overlay host it
