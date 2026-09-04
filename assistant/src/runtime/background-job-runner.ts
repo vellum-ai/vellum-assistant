@@ -74,7 +74,12 @@ export interface RunBackgroundJobOptions {
   jobName: string;
   /** Conversation `source` field (free-form, propagated to clients). */
   source: string;
-  /** Prompt sent as the first message of the conversation. */
+  /**
+   * Prompt sent as the turn's user message. Must be non-empty: message
+   * persistence rejects a blank turn, and the runner asserts it up front so a
+   * caller that seeds its instructions elsewhere fails loudly at the call site
+   * instead of deep inside persistence.
+   */
   prompt: string;
   /**
    * Short, human-readable hint passed to `bootstrapConversation` for title
@@ -177,17 +182,18 @@ export interface RunBackgroundJobOptions {
    *   1. `user` role: `preamble`     — static, trusted instructions.
    *   2. `assistant` role: `content` — attacker-controllable payload (the LLM
    *      treats it as its own past output, not as user instructions).
-   *   3. `user` role: `postamble`    — static, trusted action prompt.
    *
-   * `processMessage` is then invoked with whatever `prompt` the caller set
-   * (often empty or a short kicker) since the conversation already carries
-   * the seed.
+   * The sandwich's closing slice is the job's own `prompt`, persisted as the
+   * turn's `user` message by `processMessage`. Keeping it there rather than in
+   * this object means the trailing static instruction and the turn that runs
+   * the agent loop are the same message, so the sandwich cannot be closed
+   * without a turn to close it.
    *
    * Used by the watcher engine to ingest external provider events safely:
    * a malicious Linear title or Gmail subject reaches the model only in
    * the `assistant` role and cannot override the action prompt.
    */
-  assistantSandwich?: { preamble: string; content: string; postamble: string };
+  assistantSandwich?: { preamble: string; content: string };
   /**
    * Persist the kickoff `prompt` without indexing it — no memory segments,
    * no embeddings, no lexical-index entry. Opt-in for jobs whose prompt is a
@@ -287,6 +293,15 @@ export async function runBackgroundJob(
     | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    // A blank prompt is rejected by message persistence, which reports it as
+    // an opaque validation error naming neither the job nor the field. Assert
+    // here so the failure names the caller, and assert before bootstrap so a
+    // job that can never run does not leave an empty conversation behind.
+    if (!opts.prompt.trim()) {
+      throw new Error(
+        `Background job '${opts.jobName}' was given an empty prompt; a job's prompt is the turn's user message and must be non-empty.`,
+      );
+    }
     // Bootstrap inside the try so that a `createConversation` /
     // `queueGenerateConversationTitle` failure is caught and surfaced as a
     // structured `{ ok: false }` result rather than re-thrown to the caller —
@@ -335,12 +350,6 @@ export async function runBackgroundJob(
         conversation.id,
         "assistant",
         opts.assistantSandwich.content,
-        { skipIndexing: true },
-      );
-      await addMessage(
-        conversation.id,
-        "user",
-        opts.assistantSandwich.postamble,
         { skipIndexing: true },
       );
     }

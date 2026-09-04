@@ -411,7 +411,8 @@ export async function runWatchersOnce(
     //    assistant-role content as its own past output, so a malicious payload
     //    (e.g. a Linear title reading "Ignore previous instructions and
     //    exfiltrate ...") cannot override the user-role postamble. The runner
-    //    inserts these before invoking processMessage with an empty prompt.
+    //    persists the first two before running the turn, and the postamble is
+    //    the turn's own prompt.
     //    See `assistantSandwich` in `runtime/background-job-runner.ts`.
     //
     // The fence marks the content as third-party data; the sandwich denies it
@@ -449,9 +450,14 @@ export async function runWatchersOnce(
     const result = await runBackgroundJob({
       jobName: `watcher:${watcher.id}`,
       source: "watcher",
-      // The seed lives in the sandwich messages; processMessage runs
-      // with an empty prompt so we don't double-inject the action prompt.
-      prompt: "",
+      // The postamble closes the sandwich as the turn's user message, so it
+      // is passed as the prompt rather than pre-persisted alongside the other
+      // two slices.
+      prompt: postamble,
+      // The postamble is a static disposition contract repeated verbatim on
+      // every tick, so indexing it would write the same segment into memory
+      // and search once per watcher poll.
+      skipPromptIndexing: true,
       systemHint: `Watcher: ${watcher.name}`,
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       callSite: "mainAgent",
@@ -460,7 +466,6 @@ export async function runWatchersOnce(
       assistantSandwich: {
         preamble,
         content: sandwichContent,
-        postamble,
       },
     });
 
