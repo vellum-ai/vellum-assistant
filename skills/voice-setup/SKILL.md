@@ -174,7 +174,7 @@ Get-Content $log.FullName -Wait
 tail -f ~/.config/Vellum*/logs/vellum.log
 ```
 
-For Desktop Talk, look for live voice, WebSocket, and speech-to-text provider errors. For one-shot dictation, look for `[win-helper]` on Windows and `linux helper` on Linux, plus `dictation`, permission, and recognizer messages. Do not ask the user to share transcript contents from logs.
+For Desktop Talk, look for live voice, WebSocket, and speech-to-text provider errors. For one-shot dictation, look for `[win-helper]`, which the Linux client currently reuses as well, plus `linux helper` from the sidecar supervisor and any `dictation`, permission, or recognizer messages. Do not ask the user to share transcript contents from logs.
 
 ## Rules
 
