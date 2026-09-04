@@ -397,6 +397,37 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* The layer the user draws on inside that frame, while a call is being shown
+ * the surface and drawing is on. The only thing on either of the companion's
+ * click-through windows that deliberately takes the mouse, so the cursor says
+ * so: for as long as this is up, a press on the shared surface is a mark
+ * rather than a click on the app underneath. */
+.companion-share-annotation {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* A mark on its way out, once it has been sent. The delay is the hold that
+ * lets the user see it land, and `forwards` is what keeps it gone for the
+ * moment between the fade ending and the element being dropped. */
+@keyframes companion-share-ink-out {
+  to { opacity: 0; }
+}
+
+.companion-share-ink-spent {
+  animation: companion-share-ink-out 900ms ease-out 500ms forwards;
+}
+
+/* Taken away rather than left standing: the mark is spent, and the reason it
+ * fades is that it has already been sent. Holding it would leave the surface
+ * drawn on with no way to clear it. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-share-ink-spent {
+    animation: companion-share-ink-out 1ms linear 1400ms forwards;
+  }
+}
+
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is

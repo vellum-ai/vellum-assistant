@@ -422,6 +422,18 @@ export function RootLayout() {
         command.kind === "setScreenShare" ? (command.target ?? null) : null,
       );
     },
+    // A mark the user is drawing on what the call is being shown. Straight to
+    // the session's store, the way the share itself is: the frame that
+    // carries the mark is taken by the hook mounted beside the session, and a
+    // drawing with no session to send it to is dropped there.
+    annotateShare: (command) => {
+      if (command.kind !== "annotateShare") {
+        return;
+      }
+      useLiveVoiceStore
+        .getState()
+        .setShareAnnotation(command.phase, command.strokes, command.ink);
+    },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);
     },

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  companionAnnotationInkSchema,
+  companionAnnotationStrokeSchema,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
@@ -332,6 +334,9 @@ type GlowWindow = {
   hide: () => void;
   showInactive: () => void;
   isVisible: () => boolean;
+  /** Whether presses go through it, which is the whole of drawing mode. */
+  clickThrough: boolean;
+  setIgnoreMouseEvents: (ignore: boolean) => void;
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
@@ -375,6 +380,11 @@ const openGlow = (options: {
       window.visible = true;
     },
     isVisible: () => window.visible,
+    // How main opens it, and where it goes back to whenever drawing is off.
+    clickThrough: true,
+    setIgnoreMouseEvents: (ignore) => {
+      window.clickThrough = ignore;
+    },
   };
   glow = window;
   return window;
@@ -2794,5 +2804,182 @@ describe("Share on the companion surface", () => {
     expect(state().screenShare).toBeUndefined();
     expect(state().screenShareEnabled).toBe(false);
     expect(glow).toBeNull();
+  });
+});
+
+/**
+ * Drawing on the shared surface.
+ *
+ * Main's half of it is the mode: whether the frame it opened takes the mouse.
+ * That is the part no renderer can hold and the part that, left on by
+ * mistake, is a transparent window eating every click on a display.
+ */
+describe("companion window: drawing on what is shared", () => {
+  /** The accent the frame's window drew the marks in, sent with them. */
+  const INK = "#a78bfa";
+
+  // The context and the mode are main's own, and outlive a case. Cleared
+  // rather than assumed, so each of these starts on a desktop with nothing
+  // shared and a frame that is click-through.
+  beforeEach(() => {
+    send("vellum:companion:setContext", context());
+  });
+
+  const shareDisplay = (): void => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+  };
+
+  test("the frame is click-through until drawing is turned on", () => {
+    shareDisplay();
+    expect(glow?.clickThrough).toBe(true);
+    expect(state().annotating).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+    expect(state().annotating).toBe(true);
+  });
+
+  test("a second press gives the mouse back to the desktop", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.clickThrough).toBe(true);
+    expect(state().annotating).toBe(false);
+  });
+
+  /**
+   * The mode can never be armed ahead of a share, or it would take a
+   * display's clicks the moment one started.
+   */
+  test("refuses the mode with nothing shared", () => {
+    send("vellum:companion:setAnnotating", true);
+    expect(state().annotating).toBe(false);
+  });
+
+  /**
+   * The frame prefers a watch session's target when both are running, so the
+   * frame would be around the surface being read while the frames sent are of
+   * the surface being shared. A mark on one would arrive on the other.
+   */
+  test("refuses the mode while a watch session owns the frame", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    send("vellum:companion:setAnnotating", true);
+    expect(state().annotating).toBe(false);
+  });
+
+  test("a share that ends takes the mode with it", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setContext", context());
+    expect(state().annotating).toBe(false);
+  });
+
+  test("a watch session starting mid-drawing takes the mode with it", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(state().annotating).toBe(false);
+  });
+
+  test("hands a finished mark to the window holding the session", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    dispatched.length = 0;
+    const strokes = [{ points: [{ x: 0.25, y: 0.5 }] }];
+    send("vellum:companion:annotateShare", "released", strokes, INK);
+    expect(dispatched).toEqual([
+      { kind: "annotateShare", phase: "released", strokes, ink: INK },
+    ]);
+  });
+
+  /** The hand going down is what stops the frames, so it travels too. */
+  test("hands on the hand going down as well as coming off", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    dispatched.length = 0;
+    send("vellum:companion:annotateShare", "drawing", [], INK);
+    expect(dispatched).toEqual([
+      { kind: "annotateShare", phase: "drawing", strokes: [], ink: INK },
+    ]);
+  });
+
+  /**
+   * Lowering the mode is what unmounts the layer, and the layer lets go of
+   * the hand on its way out, so that release always arrives after the mode is
+   * already off. Refusing it would refuse it exactly on the path it exists
+   * for, leaving the session suppressing every frame for a hand that came off
+   * with the mode.
+   */
+  test("lets a bare release through after the mode has gone", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    dispatched.length = 0;
+    send("vellum:companion:annotateShare", "released", [], INK);
+    expect(dispatched).toEqual([
+      { kind: "annotateShare", phase: "released", strokes: [], ink: INK },
+    ]);
+  });
+
+  /**
+   * The coordinates are fractions of the frame, and the frame is only around
+   * the shared surface while the mode holds. A mark arriving outside it
+   * describes nothing.
+   */
+  test("drops a mark sent while the mode is off", () => {
+    shareDisplay();
+    dispatched.length = 0;
+    send(
+      "vellum:companion:annotateShare",
+      "released",
+      [{ points: [{ x: 0.5, y: 0.5 }] }],
+      INK,
+    );
+    expect(dispatched).toHaveLength(0);
+  });
+
+  /**
+   * The coordinates are fractions of the shared surface, so a point outside
+   * `0`..`1` describes somewhere that surface does not reach. Checked against
+   * the schema rather than through a send, because the registrar drops what
+   * fails to parse and a dropped command is indistinguishable here from one
+   * this handler refused for its own reasons.
+   */
+  /** The colour is a canvas fill on the other side, so it is checked here. */
+  test("the wire refuses a colour that is not one", () => {
+    expect(companionAnnotationInkSchema.safeParse("red").success).toBe(false);
+    expect(companionAnnotationInkSchema.safeParse(INK).success).toBe(true);
+  });
+
+  test("the wire refuses a mark that falls outside the surface", () => {
+    expect(
+      companionAnnotationStrokeSchema.safeParse({
+        points: [{ x: 4, y: 0.5 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      companionAnnotationStrokeSchema.safeParse({
+        points: [{ x: 0.25, y: 0.5 }],
+      }).success,
+    ).toBe(true);
   });
 });

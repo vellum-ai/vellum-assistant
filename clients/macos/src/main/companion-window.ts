@@ -18,6 +18,10 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  companionAnnotationInkSchema,
+  companionAnnotationPhaseSchema,
+  companionAnnotationStrokeSchema,
+  COMPANION_ANNOTATION_MAX_STROKES,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
@@ -577,6 +581,9 @@ const currentState = (): CompanionSurfaceState => {
     // Settled to a boolean the way `watchTargets` is: the control this decides
     // starts capturing the user's screen, so not knowing reads as not offering.
     screenShareEnabled: context.screenShareEnabled === true,
+    // Main's own, and the only field here that is. Every line above passes on
+    // what the app's window said; this is what main did with its frame.
+    annotating,
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -987,6 +994,54 @@ const glideAvatarTo = (
 };
 
 /**
+ * Whether the frame is taking the mouse, so the user can draw on the surface
+ * they are showing.
+ *
+ * Main's rather than either renderer's, because it decides whether a window
+ * main opened is click-through, which is not a fact a renderer can hold. The
+ * pill presses it and the frame acts on it, and both read it back off the
+ * pushed state, so the control drawn held down and the window taking presses
+ * are one thing.
+ */
+let annotating = false;
+
+/**
+ * Whether the mode may be on at all: something is shared, and the frame is
+ * drawn around *that*.
+ *
+ * The second half matters because {@link framedTarget} prefers a watch
+ * session's target when both are running. The frame would then be around the
+ * surface being read while the frames sent are of the surface being shared,
+ * and a circle drawn on one would arrive on the other, around whatever
+ * happened to lie at those coordinates.
+ */
+const canAnnotate = (): boolean =>
+  context.watching !== true && context.screenShare !== undefined;
+
+/** Give the frame the mouse, or give it back to the desktop. */
+const applyFrameMouse = (): void => {
+  getFloatingWindow(WATCH_FRAME_KIND)?.setIgnoreMouseEvents(!annotating);
+};
+
+/**
+ * Turn drawing on or off, and take it down when the share it belonged to is
+ * gone.
+ *
+ * Idempotent, and run after every change to the context as well as on the
+ * press: a mode left on over a share that ended is a transparent window
+ * eating every click on that display.
+ */
+const setAnnotating = (next: boolean): void => {
+  const resolved = next && canAnnotate();
+  if (resolved === annotating) {
+    return;
+  }
+  annotating = resolved;
+  applyFrameMouse();
+  pushState();
+};
+
+/**
  * Frame a rectangle of the desktop, or move the frame to it.
  *
  * For a display, its whole bounds rather than its work area, the way a shared
@@ -1032,6 +1087,10 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
+  // A frame opened while the mode is already on is one the user is expecting
+  // to draw on: the mode outlives the window, which is replaced whenever the
+  // share moves to another target.
+  applyFrameMouse();
 };
 
 /**
@@ -1140,6 +1199,10 @@ const framedTarget = (): WatchCaptureTarget | "screen" | null => {
 };
 
 const syncWatchFrame = (): void => {
+  // Before the frame is placed or taken down, so a mode that has lost its
+  // share is off by the time a window could be left holding the mouse for it.
+  // The pushed state that follows carries both facts at once.
+  setAnnotating(annotating);
   const framed = framedTarget();
   if (framed === null) {
     stopFollowingWindow();
@@ -1549,6 +1612,62 @@ export const installCompanionWindow = (): void => {
         }
         dispatchWithoutRaising({ kind: "setScreenShare", target });
       });
+    },
+  );
+
+  /**
+   * Draw, from the pill: hand the frame the mouse, or give it back.
+   *
+   * Handled here rather than forwarded, unlike Share's press beside it. What
+   * it changes is whether a window main opened is click-through, and no
+   * renderer can change that; what the pressing window gets back is
+   * `annotating` on the next push, the same way it learns a share started.
+   *
+   * A press asking for the mode with nothing shared is refused rather than
+   * remembered ({@link canAnnotate}), so the mode can never be armed ahead of
+   * a share and take a display's clicks the moment one starts.
+   */
+  on("vellum:companion:setAnnotating", z.tuple([z.boolean()]), ([next]) => {
+    setAnnotating(next);
+  });
+
+  /**
+   * A mark drawn on the frame, delivered to the renderer holding the session
+   * the way Share's press is.
+   *
+   * Both edges travel. `drawing` is what stops that renderer sending frames
+   * mid-stroke, and it is worth as much as the `released` that carries the
+   * strokes: a circle sent half drawn is a circle around nothing.
+   *
+   * A *mark* is refused unless the mode is on, because the mode is what makes
+   * its coordinates mean anything: they are fractions of the frame, and the
+   * frame is only around the shared surface while {@link canAnnotate} holds.
+   *
+   * **A release carrying nothing is let through either way**, and the order
+   * of events is the whole reason. Lowering the mode is what unmounts the
+   * layer, and the layer lets go of the hand on its way out, so that release
+   * necessarily arrives *after* `annotating` is already false. Refused here,
+   * it would be refused exactly on the path it exists for: the `drawing` that
+   * stopped the session's frames would stand with nothing left to lift it,
+   * and the share would go on suppressing every frame until it was restarted.
+   * It carries no coordinates, so there is nothing in it for the mode to make
+   * sense of.
+   */
+  on(
+    "vellum:companion:annotateShare",
+    z.tuple([
+      companionAnnotationPhaseSchema,
+      z
+        .array(companionAnnotationStrokeSchema)
+        .max(COMPANION_ANNOTATION_MAX_STROKES),
+      companionAnnotationInkSchema,
+    ]),
+    ([phase, strokes, ink]) => {
+      const lettingGo = phase === "released" && strokes.length === 0;
+      if (!annotating && !lettingGo) {
+        return;
+      }
+      dispatchWithoutRaising({ kind: "annotateShare", phase, strokes, ink });
     },
   );
 

@@ -25,6 +25,17 @@ import type {
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
+/**
+ * The accent to draw in when none of the three sources resolves one.
+ *
+ * The same value `--companion-ring-accent` falls back to in `index.css`,
+ * named here for the one caller that cannot leave the colour to CSS: ink on a
+ * canvas has to be a colour, and a drawing the user makes before an avatar
+ * has one still has to be visible and still has to match its own copy on the
+ * frame that goes to the call.
+ */
+export const COMPANION_DEFAULT_ACCENT = "#5eead4";
+
 const HEX_PATTERN = /^#[0-9a-f]{6}$/i;
 
 function usableHex(value: string | undefined): string | undefined {

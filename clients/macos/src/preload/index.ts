@@ -13,6 +13,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
@@ -561,6 +563,16 @@ const bridge: VellumBridge = {
         return;
       }
       ipcRenderer.send("vellum:companion:setScreenShare", pick);
+    },
+    setAnnotating: (annotating: boolean): void => {
+      ipcRenderer.send("vellum:companion:setAnnotating", annotating);
+    },
+    annotateShare: (
+      phase: CompanionAnnotationPhase,
+      strokes: readonly CompanionAnnotationStroke[],
+      ink: string,
+    ): void => {
+      ipcRenderer.send("vellum:companion:annotateShare", phase, strokes, ink);
     },
     captureScreen: (
       target: WatchCaptureTarget,
