@@ -473,6 +473,11 @@ describe("useIsMobileWeb", () => {
 });
 
 describe("isLinuxBrowser", () => {
+  test("is false on an unidentified X11 host", () => {
+    setUserAgent("Mozilla/5.0 (X11; Unix x86_64) Gecko/20100101 Firefox/128.0");
+    expect(isLinuxBrowser()).toBe(false);
+  });
+
   test("is true on a Linux desktop browser", () => {
     setUserAgent(LINUX_TOUCH_UA);
     expect(isLinuxBrowser()).toBe(true);
