@@ -133,7 +133,9 @@ export interface VoicePrefsState {
    * A view preference, not a capture one: sampling, sending and the
    * transcript record of every kept frame are the same either way. Off by
    * default, so the viewfinder is only the scene the user is aiming at; the
-   * camera panel is where a call turns the one visible keep signal on.
+   * camera panel is where a call turns the one visible keep signal on. A
+   * stored value is a choice made in that panel, which is what
+   * {@link migrateVoicePrefs} exists to make true.
    */
   showKeptFrame: boolean;
 }
@@ -177,6 +179,34 @@ const INITIAL_STATE: VoicePrefsState = {
 
 const VOICE_PREFS_STORE_KEY = "vellum:voice-prefs";
 
+/**
+ * The persisted shape's version. Anything on disk below this goes through
+ * {@link migrateVoicePrefs} before it reaches the store.
+ */
+const VOICE_PREFS_STORE_VERSION = 1;
+
+/**
+ * Brings a pre-v1 payload to the shipped kept-frame default, whether it holds
+ * the older default or no value for the field at all.
+ *
+ * Both say the same thing: nobody chose it. `showKeptFrame` arrived after this
+ * key did, so a payload written before it carries nothing; and a payload
+ * written after it carries whatever the default was at the time, because every
+ * setter persists the whole partialized slice rather than the one field it
+ * touched. Vision mode is behind a flag that is off everywhere those payloads
+ * were written, so no device has drawn the thumbnail to be deprived of either.
+ * Converging both on the default is what makes a stored value mean a choice,
+ * and the camera panel is what writes one from here, at this version.
+ *
+ * The value is frozen here rather than read from {@link INITIAL_STATE}: a
+ * migration records what one version did, and a later change to the default
+ * brings its own.
+ */
+function migrateVoicePrefs(persisted: unknown): Partial<VoicePrefsState> {
+  const saved = persisted as Partial<VoicePrefsState> | undefined;
+  return { ...saved, showKeptFrame: false };
+}
+
 const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
   persist(
     (set, get) => ({
@@ -204,6 +234,8 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
     {
       name: VOICE_PREFS_STORE_KEY,
       storage: createJSONStorage(() => localStorage),
+      version: VOICE_PREFS_STORE_VERSION,
+      migrate: migrateVoicePrefs,
       partialize: (state) => ({
         showUserTranscript: state.showUserTranscript,
         showAssistantTranscript: state.showAssistantTranscript,

@@ -76,11 +76,13 @@ scrim.
       thumbnail goes, the row it sat in goes with it when no photos are in the
       strip, and the assistant keeps answering questions about what the camera
       is pointed at.
-- [ ] A device that had the thumbnail keeps it. On a profile that used voice
-      before, the switch is still on and the thumbnail still draws. The shipped
-      default reaches only profiles that never persisted a voice preference,
-      which is deliberate: a stored `on` is a choice, and nothing here can tell
-      it apart from one an older default wrote.
+- [ ] A device that used voice before converges too. On a profile that already
+      has a `vellum:voice-prefs` payload, the switch is off on the first launch
+      after this change whatever that payload said, and the thumbnail does not
+      draw until the panel turns it on. Turn it on and relaunch: it stays on.
+      A value written from here is the first one that is a choice, since every
+      earlier payload carries either nothing for the field or the default of
+      the day that a setter captured wholesale.
 - [ ] Both switches survive a reload and a second tab. Set them, background and
       relaunch the app: they come back as set. With two web tabs open, a change
       in one is reflected in the other's panel.

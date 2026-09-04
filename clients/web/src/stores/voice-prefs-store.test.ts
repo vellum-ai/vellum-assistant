@@ -113,6 +113,61 @@ describe("useVoicePrefsStore: the kept-frame thumbnail", () => {
   });
 });
 
+/**
+ * What a stored kept-frame value means. The field arrived after the key did,
+ * and every setter persists the whole slice, so a payload from an older build
+ * carries either nothing for it or the default of the day. Neither is a choice,
+ * and the store converges both before they reach it.
+ */
+describe("useVoicePrefsStore: a stored kept-frame value", () => {
+  /** Put a payload on the key the way an older build left one, and read it. */
+  async function rehydrateFrom(
+    state: Record<string, unknown>,
+    version?: number,
+  ): Promise<void> {
+    localStorage.setItem(
+      VOICE_PREFS_STORE_KEY,
+      JSON.stringify(version === undefined ? { state } : { state, version }),
+    );
+    await useVoicePrefsStore.persist.rehydrate();
+  }
+
+  test("a payload written before the field existed opens the thumbnail off", async () => {
+    await rehydrateFrom({ flashMode: "auto", firstRunSeen: true });
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+    // One field, and only that one: the rest of the payload is carried over.
+    expect(useVoicePrefsStore.getState().flashMode).toBe("auto");
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+  });
+
+  test("a true captured from the older default opens the thumbnail off", async () => {
+    await rehydrateFrom({ flashMode: "auto", showKeptFrame: true }, 0);
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+    // Re-stamped on the way in, so the convergence happens once rather than on
+    // every reload.
+    const stored = JSON.parse(
+      localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
+    );
+    expect(stored.version).toBe(1);
+    expect(stored.state.showKeptFrame).toBe(false);
+  });
+
+  test("a choice stored at the current version survives a reload", async () => {
+    await rehydrateFrom({ showKeptFrame: true }, 1);
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
+  });
+
+  test("no stored payload at all opens the thumbnail off", async () => {
+    localStorage.removeItem(VOICE_PREFS_STORE_KEY);
+    await useVoicePrefsStore.persist.rehydrate();
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+  });
+});
+
 describe("useVoicePrefsStore: camera flash", () => {
   test("rests at off, so a call never opens with a flash the user did not ask for", () => {
     expect(useVoicePrefsStore.getState().flashMode).toBe("off");
