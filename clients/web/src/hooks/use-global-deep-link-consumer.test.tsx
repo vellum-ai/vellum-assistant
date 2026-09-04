@@ -535,7 +535,11 @@ describe("deeplink.startVoice", () => {
     const conversationId = useConversationStore.getState().activeConversationId;
     expect(conversationId).not.toBeNull();
     expect(conversationId).not.toBe(PRIOR_CONVERSATION_ID);
-    expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId);
+    // A link is one of several ways in, and the daemon's telemetry is told
+    // which.
+    expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId, {
+      entry: "deep_link",
+    });
     expect(mockPathname).toBe(routes.conversation(conversationId ?? ""));
   };
 
@@ -1125,9 +1129,7 @@ describe("deeplink.share", () => {
       await Promise.resolve();
     });
 
-    expect(navigateMock).toHaveBeenCalledWith(
-      routes.conversation("conv-xyz"),
-    );
+    expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-xyz"));
     const parked = usePendingDeepLinkStore.getState().pendingShareSend;
     expect(parked?.isNewDraft).toBe(false);
     expect(parked?.threadId).toBe("conv-xyz");

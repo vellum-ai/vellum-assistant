@@ -43,6 +43,11 @@ export interface LiveVoiceStartFrame {
    * loses nothing: it was never going to listen.
    */
   readonly textInput: true;
+  /**
+   * Where the session was started from, for the daemon's telemetry. There is
+   * one way in from a terminal, so the value is a constant.
+   */
+  readonly entry: "cli";
 }
 
 export interface LiveVoiceTextFrame {

@@ -19,11 +19,19 @@ scrim.
       the mobile sheet, on a notched device and on a Dynamic Island device. The
       pill sits below the island, on the minimize control's line, and never
       behind it.
+- [ ] The pill sits dead centre on the screen. Open the camera at portrait
+      phone width and again in landscape, in Photo and in Live, on a device
+      whose side insets are uneven (a notched phone held sideways, where the
+      cutout is on one side only). The pill's centre is the SCREEN's centre in
+      all four, whether or not the view-options button is drawn in the left
+      corner, and it does not shift sideways as Live starts or stops. The gap
+      from the pill to each corner control is allowed to differ on that device:
+      the controls hug their own side's inset, the pill answers to the screen.
 - [ ] The pill clears both corner controls. Give the assistant a name of 40
-      characters or more and open the camera at portrait phone width. The name
-      truncates to an ellipsis, the dot and "Photo" stay whole, and the pill's
-      edge never reaches the view-options button or the minimize control behind
-      it.
+      characters or more and open the camera at 320pt width with the longest
+      state string the locale has. The name truncates to an ellipsis, the dot
+      and "Photo" stay whole, the pill holds one line, and its edge never
+      reaches the view-options button or the minimize control behind it.
 - [ ] The pill clears the grabber. In the mobile sheet, the pill sits below the
       grabber and the grabber still takes the pull-down.
 - [ ] The sheet goes full-bleed for the camera. Open the camera in the mobile
@@ -56,10 +64,11 @@ scrim.
       matches what a press does, and the flash names the state it is in rather
       than the act.
 - [ ] View options opens as a panel, not a sheet. Tap the sliders button in the
-      corner with the camera up. The panel opens anchored under the button, its
-      switches take a tap, and tapping the feed outside it dismisses it. It is
-      never announced as a modal dialog that traps VoiceOver, and it never
-      arrives dead to touch.
+      TOP-LEFT corner with the camera up. The panel opens under the button and
+      aligned to its left edge, entirely on screen in portrait and in landscape
+      with a side inset, its switches take a tap, and tapping the feed outside
+      it dismisses it without taking a photo. It is never announced as a modal
+      dialog that traps VoiceOver, and it never arrives dead to touch.
 - [ ] The kept-frame switch reaches the thumbnail. Enter Live, wait for the
       crimson thumbnail beside the photo strip, then turn "Kept frame" off. The
       thumbnail goes, the row it sat in goes with it when no photos are in the
@@ -75,8 +84,9 @@ scrim.
 - [ ] The readout is a strip on a phone. On a staff or flagged session, switch
       the frame gate readout on with the camera up. What appears under the
       chrome band is one slim glass row: the verdict and three small meters,
-      never the full card. It clears both the status pill above it and the two
-      corner controls beside them, with a long assistant name in the pill.
+      never the full card. It clears the whole band above it: the view-options
+      button it sits directly under, the status pill, and the minimize, with a
+      long assistant name in the pill.
 - [ ] The strip opens the readout, and gives the frame back. Tap the strip: a
       sheet rises from the bottom with the decision order, the recent frames,
       the keeps and the threshold sliders. Tap the frame anywhere outside it,
@@ -342,12 +352,13 @@ the redesign is called shipped.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber
       and end session as exits. The build keeps the top-right minimize control,
       which is the only discoverable exit on desktop. Confirm.
-- [ ] Pill centring with two corner controls. The design centres the pill on the
-      screen against a single corner control. The build centres it in the band
-      the corner cluster leaves, so it sits a little left of screen centre: with
-      two 52px controls there, a screen-centred pill reaches under them at phone
-      width before its own floor width is spent. Confirm the band centring, or
-      ask for a pill that may narrow past its floor instead.
+- [ ] Pill centring against one control per corner. The build takes one
+      reserve off both edges of the band, the deepest of the corner offset and
+      the two safe-area insets plus a 52px control and its gap, so the pill's
+      centre is the screen's centre and a long name still has a ceiling to
+      truncate inside at 320pt. On a device with uneven side insets that leaves
+      the shallow side more clearance than it needs. Confirm the screen-centred
+      pill, or ask for one centred between the controls instead.
 - [ ] View options as a panel on touch. The chat column's other panels open as a
       bottom sheet on a phone. This one stays anchored on every form factor: the
       room is itself a sheet whose flush camera state inerts the overlay host it

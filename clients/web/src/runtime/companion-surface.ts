@@ -16,6 +16,9 @@ import type {
   CompanionDictating,
   CompanionIntroAction,
   CompanionSurfaceState,
+  DictationOfferAnswer,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 type CompanionBridge = NonNullable<NonNullable<Window["vellum"]>["companion"]>;
@@ -116,6 +119,39 @@ export function listCompanionCaptureSources(): Promise<CompanionCaptureSources |
 }
 
 /**
+ * Show the running call what the user is looking at, or stop, which is what
+ * the share control does.
+ *
+ * `pick` is the row of the picker the press came from; a press with none is
+ * the stop. Like {@link toggleCompanionWatch} the press leaves this renderer
+ * at once: main resolves a tab to the window showing it and hands the target
+ * to the window holding the session, and what comes back is `screenShare` on
+ * the pushed state once that window has frames flowing.
+ */
+export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
+  bridge()?.setScreenShare?.(pick);
+}
+
+/**
+ * One frame of what the user is sharing, as the helper takes it.
+ *
+ * The one call in this module made from the app's own window on a cadence
+ * rather than on a press: the session lives there, and each frame becomes a
+ * `sight_frame` on it. Resolves to nothing off Electron, on a shell that
+ * predates the share, and whenever the helper could not take one, and the
+ * caller reads every one of those as a frame to skip.
+ */
+export function captureCompanionScreen(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  const companion = bridge();
+  if (!companion?.captureScreen) {
+    return Promise.resolve(null);
+  }
+  return companion.captureScreen(target).catch(() => null);
+}
+
+/**
  * Answer the question a finished watch session leaves on the surface: open its
  * summary now, or not.
  *
@@ -126,6 +162,22 @@ export function listCompanionCaptureSources(): Promise<CompanionCaptureSources |
  */
 export function answerCompanionWatchRetro(open: boolean): void {
   bridge()?.answerWatchRetro?.(open);
+}
+
+/**
+ * Answer the offer a dictation's words are standing on: use them in place of
+ * what another app pasted, get that app off the key, take them to the
+ * clipboard, or leave them. Every answer leaves this renderer, for the reason
+ * the retro's does: the window that made the offer is the one holding it.
+ *
+ * The offer is named rather than assumed, since this window can be a frame
+ * behind the one holding it. See {@link CompanionDictationOffer.id}.
+ */
+export function answerCompanionDictationOffer(
+  answer: DictationOfferAnswer,
+  offerId: string,
+): void {
+  bridge()?.answerDictationOffer?.(answer, offerId);
 }
 
 /**

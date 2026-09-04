@@ -30,7 +30,9 @@
  * The native path keeps the very JPEG the gate judged rather than capturing a
  * second one, so what the transcript holds is the frame the decision was about.
  * The browser path cannot: its decision is made on a canvas readback, and the
- * frame is encoded afterwards.
+ * frame is encoded afterwards. Everything past the JPEG (the order, the
+ * consent, the upload, the send) is `live-voice/sight-capture.ts`, which the
+ * session's own camera shares.
  *
  * ## What a shell with no sample call does
  *
@@ -79,14 +81,10 @@ import {
 } from "react";
 
 import {
-  deleteChatAttachment,
-  uploadChatAttachment,
-} from "@/domains/chat/api/messages";
-import { prepareImageAttachmentForUpload } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
-import {
-  sendLiveVoiceSightFrame,
+  isLiveVoiceUserSpeaking,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { createSightCapture } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   isVisionModeOn,
@@ -97,14 +95,12 @@ import { type FrameGate, createFrameGate } from "@/lib/camera/frame-gate";
 import {
   FRAME_GATE_LIVE_OPTIONS,
   recordFrameGateDecision,
-  recordFrameGateKeep,
 } from "@/lib/camera/frame-gate-debug";
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
 import {
   createNativeFrameSource,
   type NativeFrameSource,
 } from "@/lib/camera/native-frame-source";
-import { captureError } from "@/lib/sentry/capture-error";
 import { captureNativeVoiceCameraSample } from "@/runtime/native-voice-camera";
 import { haptic } from "@/utils/haptics";
 
@@ -116,25 +112,6 @@ import {
 
 /** Where a failure is filed, so the tag reads the same from every path. */
 const ERROR_CONTEXT = "voice-room sight: sample/upload frame";
-
-/**
- * How many finished captures may wait on an unfinished older one.
- *
- * Overlap is naturally shallow: the gate's rate floor is seconds and an upload
- * is not, so at most one or two captures are usually in flight. The cap is for
- * the pathological case, an upload that hangs rather than fails, which would
- * otherwise hold every later keep behind it for the rest of the call. Past the
- * cap the gate gives up on the missing capture and lets the backlog through.
- */
-const MAX_PARKED_SIGHT_SENDS = 4;
-
-/** A finished capture waiting for its turn in capture order. */
-interface PendingSightSend {
-  /** Send it, if the session and the camera it came from are still current. */
-  readonly send: () => void;
-  /** Give the upload back: this frame will never be sent. */
-  readonly discard: () => void;
-}
 
 /** The most recent frame the call was given. */
 export interface VoiceRoomSightFrame {
@@ -230,48 +207,28 @@ export function useVoiceRoomSight(
    * and the decision are of the same moment and a flip is already in both.
    */
   const nativeSourceRef = useRef<NativeFrameSource | null>(null);
-  const frameCountRef = useRef(0);
+
   /**
-   * The ordering gate: sends leave in the order the gate KEPT the frames, not
-   * the order their uploads happened to finish.
-   *
-   * Uploads of overlapping keeps can finish in either order, and the transcript
-   * is the record of what the call saw. The model correlates a frame with
-   * speech by adjacency, so a scene persisted after a newer one is read as the
-   * view the words that follow were about, and there may be no later keep to
-   * correct it before the camera closes.
-   *
-   * `captureSeqRef` hands each capture its number when the gate fires,
-   * `nextSendSeqRef` is whose turn it is, and finished captures wait in
-   * `parkedSendsRef` until the run of numbers before them is complete. Every
-   * exit path settles its number, so a capture that fails, is refused, or is
-   * abandoned releases the ones behind it instead of stranding them.
+   * Replace the frame on screen, giving back whatever preview it displaced.
+   * Revoking is not bookkeeping: each preview holds a decoded full-resolution
+   * frame alive, and a long call keeps a frame every few seconds.
    */
-  const captureSeqRef = useRef(0);
-  const nextSendSeqRef = useRef(0);
-  const parkedSendsRef = useRef(new Map<number, PendingSightSend | null>());
+  const hold = useCallback((next: VoiceRoomSightFrame | null) => {
+    const previous = heldRef.current;
+    heldRef.current = next;
+    setHeldFrame(next);
+    if (previous && previous.previewUrl !== next?.previewUrl) {
+      URL.revokeObjectURL(previous.previewUrl);
+    }
+  }, []);
+
   /**
-   * Which camera and transport this capture chain feeds. Bumped when consent
-   * is withdrawn, when sampling stops, when the camera flips, and when the
-   * transport drops into a reconnect, so a capture that was already encoding
-   * can tell that the world it was headed for is gone.
-   *
-   * The session generation covers none of them: each leaves the logical call
-   * running, a flip deliberately keeps the sampler on the same element,
-   * and a reconnect deliberately keeps the generation, so a stalled upload
-   * from before any of them could otherwise be persisted as a view of what the
-   * call is looking at.
+   * The order, the consent and the upload of every keep, shared with the
+   * session's own camera. One for the room's whole life: the assistant is
+   * handed to each capture by the run that kept the frame, and each session
+   * re-bases the order below, so nothing about it is per render.
    */
-  const captureEpochRef = useRef(0);
-  /**
-   * Whether what the loop is producing right now is still consented to.
-   *
-   * `active` says the same thing a render later, which is a render too late
-   * for a boundary: the sampler's own callbacks and the uploads it has started
-   * both run inside the gap between the tap and the effect that stops it.
-   * Raised where a sampling run starts, lowered the moment consent goes.
-   */
-  const captureConsentedRef = useRef(false);
+  const [sight] = useState(() => createSightCapture(ERROR_CONTEXT));
 
   /**
    * Take consent back from every frame the camera has produced but not yet
@@ -296,19 +253,11 @@ export function useVoiceRoomSight(
    * that narrower window is a stale view rather than a broken promise.
    *
    * Parked sends are left to refuse themselves at that same guard, and the
-   * sampler cleanup behind this hands their uploads back. Nothing but a real
-   * sampling run to revoke gets past the first line, so a refused raise, a
-   * stop of something already stopped, and an ordinary re-render all cost
-   * nothing: an epoch churned for one of those would void a capture nobody
-   * withdrew.
+   * sampler cleanup behind this hands their uploads back.
    */
   const revokeCaptureConsent = useCallback(() => {
-    if (!captureConsentedRef.current) {
-      return;
-    }
-    captureConsentedRef.current = false;
-    captureEpochRef.current += 1;
-  }, []);
+    sight.revokeConsent();
+  }, [sight]);
 
   // All four, so the feature is absent rather than half-present: a flag off is
   // not shipped, an assistant that predates `sight_frame` answers every keep
@@ -451,227 +400,6 @@ export function useVoiceRoomSight(
   }, [revokeCaptureConsent]);
 
   /**
-   * Replace the frame on screen, giving back whatever preview it displaced.
-   * Revoking is not bookkeeping: each preview holds a decoded full-resolution
-   * frame alive, and a long call keeps a frame every few seconds.
-   */
-  const hold = useCallback((next: VoiceRoomSightFrame | null) => {
-    const previous = heldRef.current;
-    heldRef.current = next;
-    setHeldFrame(next);
-    if (previous && previous.previewUrl !== next?.previewUrl) {
-      URL.revokeObjectURL(previous.previewUrl);
-    }
-  }, []);
-
-  /**
-   * Give an uploaded row back.
-   *
-   * Nothing else can: an attachment is collected when the message linking it
-   * is deleted, or by the daemon reclaiming a frame it could not persist, and
-   * an id that reaches neither is a row and its bytes kept for good.
-   *
-   * Called for the ids this hook refuses itself, before the frame is sent, and
-   * for the ids stranded by an assistant with no handler for the frame, which
-   * stores nothing and reclaims nothing. NOT called for a frame an assistant
-   * that understands it could not persist: that path reclaims on its own, so
-   * deleting would race it over a row this hook no longer owns.
-   */
-  const reclaimUpload = useCallback(
-    (attachmentId: string) => {
-      if (!assistantId) {
-        return;
-      }
-      void deleteChatAttachment(assistantId, attachmentId).then((ok) => {
-        if (!ok) {
-          captureError(new Error("sight frame delete refused"), {
-            context: ERROR_CONTEXT,
-            bestEffort: true,
-          });
-        }
-      });
-    },
-    [assistantId],
-  );
-
-  /**
-   * Send everything whose turn has come, oldest first.
-   *
-   * Stops at the first number nobody has settled yet, because that capture is
-   * still encoding or uploading and its frame belongs ahead of these. Once the
-   * backlog exceeds the cap the missing capture is written off and the oldest
-   * parked number becomes the new turn, so a hung upload costs the frames it
-   * overlapped rather than the rest of the call.
-   */
-  const drainSends = useCallback(() => {
-    const parked = parkedSendsRef.current;
-    for (;;) {
-      while (parked.has(nextSendSeqRef.current)) {
-        const pending = parked.get(nextSendSeqRef.current) ?? null;
-        parked.delete(nextSendSeqRef.current);
-        nextSendSeqRef.current += 1;
-        pending?.send();
-      }
-      if (parked.size <= MAX_PARKED_SIGHT_SENDS) {
-        return;
-      }
-      nextSendSeqRef.current = Math.min(...parked.keys());
-    }
-  }, []);
-
-  /**
-   * Report what became of one capture, whether or not it produced a frame.
-   *
-   * Called on every exit path, which is what keeps the gate live: a capture
-   * that threw, uploaded nothing, or was refused still releases the captures
-   * waiting behind it.
-   */
-  const settleCapture = useCallback(
-    (captureSeq: number, pending: PendingSightSend | null) => {
-      if (captureSeq < nextSendSeqRef.current) {
-        // The gate has moved past this number: the cap wrote it off, or a new
-        // session re-based the order. Sending now would put an older view
-        // after a newer one, which is the whole thing being prevented.
-        pending?.discard();
-        return;
-      }
-      parkedSendsRef.current.set(captureSeq, pending);
-      drainSends();
-    },
-    [drainSends],
-  );
-
-  /**
-   * Start the order again from whatever has not been captured yet.
-   *
-   * For the boundaries where waiting on an older capture stops making sense:
-   * a new session, a flipped camera, a closed viewfinder. Anything parked is
-   * given back rather than sent, since it would fail the guards at send time
-   * anyway, and anything still in flight settles below the new turn and is
-   * discarded when it lands.
-   */
-  const rebaseSendOrder = useCallback(() => {
-    const parked = parkedSendsRef.current;
-    for (const pending of parked.values()) {
-      pending?.discard();
-    }
-    parked.clear();
-    nextSendSeqRef.current = captureSeqRef.current;
-  }, []);
-
-  /**
-   * Take one kept frame all the way to the transcript and the pulse.
-   *
-   * Everything past the frame itself is the same on both paths: the same
-   * guards, the same order, the same upload, the same send, the same preview
-   * lifecycle. Only where the JPEG comes from differs, so that is what the
-   * caller supplies: the browser path encodes the `<video>` it is watching, the
-   * native path wraps the sample the gate has already judged.
-   */
-  const captureAndHold = useCallback(
-    async (produceFrame: (filename: string) => Promise<File | null>) => {
-      if (!assistantId) {
-        return;
-      }
-      // Consent is already gone, and the loop has not been torn down yet. The
-      // epoch cannot speak for this one: a capture beginning after the bump
-      // reads the new number and would pass the guard on the way out, so a
-      // frame taken after the user said stop is refused before it is taken.
-      if (!captureConsentedRef.current) {
-        return;
-      }
-      // Nothing this assistant is told about lands, and each attempt would
-      // strand another upload, so the sampler runs on and every keep is
-      // dropped here. See `sightFramesUnsupported` on the live-voice store.
-      if (useLiveVoiceStore.getState().sightFramesUnsupported) {
-        return;
-      }
-      // Read before the encode, not after the upload. Everything below can
-      // outlive the session and the camera the frame was taken from, and
-      // neither can be re-read afterwards without describing the wrong one.
-      const sessionGeneration = useLiveVoiceStore.getState().sessionGeneration;
-      const captureEpoch = captureEpochRef.current;
-      // Taken here, at the moment the gate kept the frame, because that is the
-      // order the scenes happened in and the order the transcript has to carry
-      // them in. See the ordering-gate refs above.
-      const captureSeq = captureSeqRef.current;
-      captureSeqRef.current += 1;
-      let pending: PendingSightSend | null = null;
-      try {
-        frameCountRef.current += 1;
-        const frame = await produceFrame(`sight-${frameCountRef.current}.jpg`);
-        if (!frame) {
-          return;
-        }
-        recordFrameGateKeep("voice", frame);
-
-        // The same preparation a pasted image gets, for the same reason the
-        // shutter does it: a high-resolution track behaves like every other
-        // attachment rather than like a special case.
-        const prepared = await prepareImageAttachmentForUpload(frame);
-        const file = prepared.status === "failed" ? frame : prepared.file;
-
-        const uploaded = await uploadChatAttachment(assistantId, file);
-        if (!uploaded.ok) {
-          return;
-        }
-        const abandonUpload = (): void => reclaimUpload(uploaded.id);
-        // The guards run when the turn comes, not now, so a frame that waited
-        // is still checked against the session and camera of the moment it
-        // would land in.
-        pending = {
-          discard: abandonUpload,
-          send: () => {
-            if (
-              useLiveVoiceStore.getState().sessionGeneration !==
-              sessionGeneration
-            ) {
-              abandonUpload();
-              return;
-            }
-            // The camera this came from is closed or pointing elsewhere, so
-            // this is a view of nothing the user is looking at now, and
-            // persisting it would put that view in the transcript as the
-            // current one.
-            if (captureEpoch !== captureEpochRef.current) {
-              abandonUpload();
-              return;
-            }
-            // Sent before it is shown, and shown only if it was sent. The
-            // thumbnail says the call has been given this frame, and during a
-            // reconnect gap it has not. A frame that never left is this hook's
-            // to give back, since the daemon never saw it.
-            if (!sendLiveVoiceSightFrame(uploaded.id, sessionGeneration)) {
-              abandonUpload();
-              return;
-            }
-            // The one beat on this path the user cannot watch for: Live is
-            // held at arm's length, aimed at the scene rather than at the
-            // thumbnail. It fires here, after the send is accepted, because
-            // this is where a frame becomes one the call was given; every
-            // frame a guard refuses reaches `abandonUpload` above and stays
-            // silent.
-            void haptic.light();
-            hold({
-              attachmentId: uploaded.id,
-              previewUrl: URL.createObjectURL(frame),
-            });
-          },
-        };
-      } catch (cause) {
-        // Best effort by design: nobody asked for this frame, so a failure
-        // costs one frame and says nothing to the user.
-        captureError(cause, { context: ERROR_CONTEXT, bestEffort: true });
-      } finally {
-        // Every path, including the ones that produced nothing: a capture that
-        // never sends must still release the captures behind it.
-        settleCapture(captureSeq, pending);
-      }
-    },
-    [assistantId, hold, reclaimUpload, settleCapture],
-  );
-
-  /**
    * Void every capture aimed at the world that just changed: the frames still
    * encoding, the sample still crossing the bridge, the view on screen, and the
    * gate's baseline.
@@ -689,15 +417,16 @@ export function useVoiceRoomSight(
    * pulse and for what is still in flight.
    */
   const invalidateCaptures = useCallback(() => {
-    captureEpochRef.current += 1;
-    rebaseSendOrder();
+    sight.invalidate();
     hold(null);
     gateRef.current?.reset(performance.now());
     nativeSourceRef.current?.invalidate();
-  }, [hold, rebaseSendOrder]);
+  }, [hold, sight]);
 
   useEffect(() => {
-    if (!active) {
+    // `liveAvailable`, and so `active`, already has an assistant in it; the
+    // second test is for the narrowing.
+    if (!active || assistantId === null) {
       return;
     }
     // The native preview mounts no element, so the element is the browser
@@ -710,7 +439,26 @@ export function useVoiceRoomSight(
     // The run this consent was given for. Raised here rather than derived from
     // `active`, which a capture in a torn-down loop still reads as the value of
     // the render it started in.
-    captureConsentedRef.current = true;
+    sight.grantConsent();
+    /**
+     * Put a frame the call was given on screen.
+     *
+     * The haptic is the one beat on this path the user cannot watch for: Live
+     * is held at arm's length, aimed at the scene rather than at the
+     * thumbnail. It fires here, after the send is accepted, because this is
+     * where a frame becomes one the call was given; every frame a guard
+     * refuses stays silent.
+     */
+    const onShared = ({
+      attachmentId,
+      frame,
+    }: {
+      attachmentId: string;
+      frame: File;
+    }): void => {
+      void haptic.light();
+      hold({ attachmentId, previewUrl: URL.createObjectURL(frame) });
+    };
     // The live options record rather than the defaults, so the tuning readout
     // can move a threshold without this effect rebuilding the gate. A rebuild
     // would clear the last-keep clock and fire an immediate keep, which on
@@ -728,7 +476,11 @@ export function useVoiceRoomSight(
           if (!decision.keep) {
             return;
           }
-          void captureAndHold((filename) => captureVideoFrame(video, filename));
+          void sight.capture({
+            assistantId,
+            produceFrame: (filename) => captureVideoFrame(video, filename),
+            onShared,
+          });
         },
       });
       sampler.start(video);
@@ -745,10 +497,12 @@ export function useVoiceRoomSight(
           }
           // The judged bytes, not a second capture: one round trip, and the
           // frame the transcript ends up with is the one the gate said yes to.
-          void captureAndHold(
-            async (filename) =>
+          void sight.capture({
+            assistantId,
+            produceFrame: async (filename) =>
               new File([sample], filename, { type: "image/jpeg" }),
-          );
+            onShared,
+          });
         },
       });
       source.start();
@@ -761,22 +515,14 @@ export function useVoiceRoomSight(
       // put away. The revocation is the bump, so a run the user ended finds it
       // already spent and this is a no-op against captures that have failed
       // their guard once already.
-      revokeCaptureConsent();
-      rebaseSendOrder();
+      sight.revokeConsent();
+      sight.rebaseSendOrder();
       stopSampling();
       gateRef.current = null;
       nativeSourceRef.current = null;
       hold(null);
     };
-  }, [
-    active,
-    captureAndHold,
-    hold,
-    nativePreview,
-    rebaseSendOrder,
-    revokeCaptureConsent,
-    videoRef,
-  ]);
+  }, [active, assistantId, hold, nativePreview, sight, videoRef]);
 
   /**
    * Whether the user is part-way through saying something, as the session
@@ -794,9 +540,11 @@ export function useVoiceRoomSight(
   const handsFree = useLiveVoiceStore.use.handsFree();
   const utteranceOpen = useLiveVoiceStore.use.utteranceOpen();
   const muted = useLiveVoiceStore.use.muted();
-  // Named for the user rather than the session, whose own `speaking` phase is
-  // the assistant's voice and the opposite of this.
-  const userSpeaking = handsFree ? utteranceOpen : sessionState === "listening";
+  const userSpeaking = isLiveVoiceUserSpeaking({
+    state: sessionState,
+    handsFree,
+    utteranceOpen,
+  });
 
   /**
    * Ask the gate for a frame of the scene the user is starting to talk about.
@@ -912,8 +660,8 @@ export function useVoiceRoomSight(
   // On mount there is nothing captured and nothing parked, so this is a no-op.
   const sessionGeneration = useLiveVoiceStore.use.sessionGeneration();
   useEffect(() => {
-    rebaseSendOrder();
-  }, [rebaseSendOrder, sessionGeneration]);
+    sight.rebaseSendOrder();
+  }, [sight, sessionGeneration]);
 
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   useEffect(() => {

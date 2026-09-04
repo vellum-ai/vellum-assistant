@@ -21,6 +21,7 @@ import {
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
+  COMPANION_DICTATION_OFFER_MAX,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +159,13 @@ export const companionContextSchema = z.object({
   // Defaulted for the reason `watching` is: a publisher that does not say
   // whether its sessions can be aimed is one whose sessions cannot.
   watchTargets: z.boolean().default(false),
+  // Optional rather than defaulted, for the reason `captureTarget` is: every
+  // shape it can hold names something being shared, and absence is the only
+  // way to say nothing is.
+  screenShare: watchCaptureTargetSchema.optional(),
+  // Defaulted for the reason `watchTargets` is: a publisher that does not say
+  // whether its call can be shown the screen is one whose call cannot.
+  screenShareEnabled: z.boolean().default(false),
   // Optional rather than defaulted, for the reason `watchRetro` is: both values
   // claim a microphone is doing something, and absence is the only way to say
   // none is.
@@ -167,6 +175,26 @@ export const companionContextSchema = z.object({
   // the boundary as well as at the publisher, since the surface draws one line
   // and the length is the only part of this a sender controls.
   dictationText: z.string().max(COMPANION_DICTATION_TAIL).catch("").default(""),
+  // Optional rather than defaulted, for the reason `watchRetro` is: an offer
+  // is a claim that something was said, and absence is the only way to say
+  // nothing was. Bounded at the boundary as `dictationText` is, and narrowed
+  // on the reason so a card cannot be handed an app name for a case that has
+  // no app, or left without one for the case that needs it.
+  dictationOffer: z
+    .discriminatedUnion("reason", [
+      z.object({
+        reason: z.literal("claimed"),
+        id: z.string().max(64),
+        app: z.string().max(80),
+        text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+      }),
+      z.object({
+        reason: z.literal("no-text-field"),
+        id: z.string().max(64),
+        text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+      }),
+    ])
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------

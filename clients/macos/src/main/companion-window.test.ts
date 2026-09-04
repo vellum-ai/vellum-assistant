@@ -174,6 +174,13 @@ mock.module("electron", () => ({
   // test imports it, and an export missing from a whole-module mock fails the
   // file at load rather than in the case that uses it.
   Menu: { buildFromTemplate: () => ({ popup: () => undefined }) },
+  // The pasteboard the offer's Copy writes to. Recorded rather than counted,
+  // since what a case has to be able to say is which words were taken.
+  clipboard: {
+    writeText: (text: string) => {
+      copied.push(text);
+    },
+  },
   shell: { openExternal: () => Promise.resolve() },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
@@ -185,6 +192,9 @@ mock.module("electron", () => ({
     },
   },
 }));
+
+/** Every text main has put on the pasteboard, most recent last. */
+const copied: string[] = [];
 
 /** Main's display listeners, so a case can rearrange the displays. */
 const screenListeners: { event: string; listener: () => void }[] = [];
@@ -247,9 +257,21 @@ let resolvedPickAsync: (pick: unknown) => Promise<typeof resolvedPick> = async (
   return resolvedPick;
 };
 
+/** What the helper answers for a frame of a shared target, by the target. */
+const framesAsked: unknown[] = [];
+let capturedFrame: {
+  jpegBase64: string;
+  width: number;
+  height: number;
+} | null = { jpegBase64: "/9j/", width: 16, height: 9 };
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
+  captureTargetFrame: async (target: unknown) => {
+    framesAsked.push(target);
+    return capturedFrame;
+  },
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
     return windowBounds;
@@ -480,6 +502,7 @@ beforeEach(() => {
   ];
   windowBounds = null;
   boundsAsked.length = 0;
+  copied.length = 0;
   resolvedPick = null;
   picksResolved.length = 0;
   // The user is working somewhere else, with the app's window open behind
@@ -2249,6 +2272,155 @@ describe("the watch summary main relays", () => {
   });
 });
 
+describe("the offer of Vellum's dictation on the surface", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context());
+    pushes.length = 0;
+  });
+
+  test("carries the offer through to the surface", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: {
+        reason: "claimed",
+        id: "offer-1",
+        app: "Wispr Flow",
+        text: "Send me the files.",
+      },
+    });
+    expect(state().dictationOffer).toEqual({
+      reason: "claimed",
+      id: "offer-1",
+      app: "Wispr Flow",
+      text: "Send me the files.",
+    });
+  });
+
+  /**
+   * The words and the way into the application they would go to went down
+   * with that window, so an offer left standing is one whose answers do
+   * nothing.
+   */
+  test("stops offering once the window that made the offer is gone", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: {
+        reason: "claimed",
+        id: "offer-1",
+        app: "Wispr Flow",
+        text: "Send me the files.",
+      },
+    });
+    expect(state().dictationOffer).toBeDefined();
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().dictationOffer).toBeUndefined();
+  });
+
+  test("a context with no offer reports none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().dictationOffer).toBeUndefined();
+  });
+
+  /**
+   * Every answer acts on the application in front, or on nothing, and the
+   * user is standing in that application, so none of them raises the app.
+   */
+  test("forwards every answer without raising the app", () => {
+    for (const answer of ["use", "quit", "copy", "dismiss"] as const) {
+      send("vellum:companion:answerDictationOffer", answer, "offer-2");
+    }
+    expect(dispatched).toEqual([
+      { kind: "answerDictationOffer", answer: "use", offerId: "offer-2" },
+      { kind: "answerDictationOffer", answer: "quit", offerId: "offer-2" },
+      { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
+      { kind: "answerDictationOffer", answer: "dismiss", offerId: "offer-2" },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+
+  /**
+   * The one answer main acts on itself. It owns the pasteboard, and neither
+   * window either side of it can write one: the surface's never takes focus,
+   * which is what a renderer's clipboard write needs.
+   */
+  test("a copy takes the offered words to the pasteboard", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: {
+        reason: "no-text-field",
+        id: "offer-2",
+        text: "onions, tomatoes, and a bag of rice",
+      },
+    });
+
+    send("vellum:companion:answerDictationOffer", "copy", "offer-2");
+
+    expect(copied).toEqual(["onions, tomatoes, and a bag of rice"]);
+  });
+
+  /** Every other answer leaves the user's pasteboard as they left it. */
+  test("no other answer touches the pasteboard", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: {
+        reason: "no-text-field",
+        id: "offer-2",
+        text: "onions, tomatoes, and a bag of rice",
+      },
+    });
+
+    for (const answer of ["use", "quit", "dismiss"] as const) {
+      send("vellum:companion:answerDictationOffer", answer, "offer-2");
+    }
+
+    expect(copied).toEqual([]);
+  });
+
+  /**
+   * A press racing the offer's own expiry. The answer still travels, since
+   * the window that published it is the one that has to stop.
+   */
+  test("a copy with nothing waiting takes nothing and still answers", () => {
+    send("vellum:companion:answerDictationOffer", "copy", "offer-2");
+
+    expect(copied).toEqual([]);
+    expect(dispatched).toEqual([
+      { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
+    ]);
+  });
+
+  /**
+   * A press on a card the surface has not repainted yet, after a new hold
+   * has already replaced the offer here. The pasteboard is not given words
+   * the user never read, and the answer still travels named so the window
+   * publishing the new offer can drop it too.
+   */
+  test("a copy naming an offer that has been replaced takes nothing", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: {
+        reason: "no-text-field",
+        id: "offer-3",
+        text: "the words that took its place",
+      },
+    });
+    dispatched.length = 0;
+
+    send("vellum:companion:answerDictationOffer", "copy", "offer-2");
+
+    expect(copied).toEqual([]);
+    expect(dispatched).toEqual([
+      { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
+    ]);
+  });
+});
+
 /**
  * The app's window is destroyed while this surface stays open.
  *
@@ -2498,5 +2670,129 @@ describe("the surface while the app is in front", () => {
     fireAppEvent("did-resign-active");
 
     expect(companionOpen).toBe(false);
+  });
+});
+
+/**
+ * Share, which takes the picker's pick the way Teach does and means the
+ * opposite thing by a press with none: the stop, since the surface can see
+ * a share is on. The frames themselves are the helper's; what this file
+ * holds is that main reaches it with the target it was given.
+ */
+describe("Share on the companion surface", () => {
+  beforeEach(() => {
+    mainWindowOpen = true;
+    dispatched.length = 0;
+    framesAsked.length = 0;
+    capturedFrame = { jpegBase64: "/9j/", width: 16, height: 9 };
+  });
+
+  test("a press with no pick is the stop", () => {
+    send("vellum:companion:setScreenShare");
+    expect(dispatched.at(-1)).toEqual({ kind: "setScreenShare" });
+    expect(picksResolved).toHaveLength(0);
+  });
+
+  test("a pick is resolved and rides the command as the share's target", async () => {
+    resolvedPick = { kind: "window", windowId: 4242 };
+    send("vellum:companion:setScreenShare", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 2,
+    });
+    await Bun.sleep(0);
+    expect(picksResolved.at(-1)).toEqual({
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 2,
+    });
+    expect(dispatched.at(-1)).toEqual({
+      kind: "setScreenShare",
+      target: { kind: "window", windowId: 4242 },
+    });
+  });
+
+  /**
+   * The two controls share one picker and one generation: a pick still
+   * resolving for Share when Teach is pressed belonged to a choice the user
+   * has left, and must not start a share beside the session.
+   */
+  test("a share pick superseded by a Teach press dispatches nothing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = resolvedPickAsync;
+    resolvedPickAsync = async () => {
+      await gate;
+      return { kind: "window", windowId: 1 };
+    };
+    send("vellum:companion:setScreenShare", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 1,
+    });
+    resolvedPickAsync = slow;
+    send("vellum:companion:toggleWatch");
+    release();
+    await Bun.sleep(0);
+    expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+  });
+
+  test("takes a frame of the shared target from the helper", async () => {
+    const capture = invocable.get("vellum:companion:captureScreen");
+    expect(capture).toBeDefined();
+    expect(await capture?.([{ kind: "display", displayId: 2 }])).toEqual({
+      jpegBase64: "/9j/",
+      width: 16,
+      height: 9,
+    });
+    expect(framesAsked).toEqual([{ kind: "display", displayId: 2 }]);
+    capturedFrame = null;
+    expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
+  });
+
+  test("carries the share and whether one may start to the surface", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "window", windowId: 7 },
+      }),
+    );
+    expect(state().screenShare).toEqual({ kind: "window", windowId: 7 });
+    expect(state().screenShareEnabled).toBe(true);
+    send("vellum:companion:setContext", context());
+    expect(state().screenShare).toBeUndefined();
+    expect(state().screenShareEnabled).toBe(false);
+  });
+
+  /**
+   * The frame says what is being shown, the way it says what is being read:
+   * a share with no session reading the screen frames the shared display.
+   */
+  test("frames what is shared when nothing is reading the screen", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+  });
+
+  test("the share ends with the window holding it", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    mainWindowOpen = false;
+    fireVisibilityChange();
+    expect(state().screenShare).toBeUndefined();
+    expect(state().screenShareEnabled).toBe(false);
+    expect(glow).toBeNull();
   });
 });

@@ -29,3 +29,4 @@ export {
   VELLUM_BRIDGE_KEYS,
 } from "./bridge";
 export * from "./channels";
+export * from "./fn-claimants";

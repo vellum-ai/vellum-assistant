@@ -325,6 +325,8 @@ export interface VoiceTurnOptions {
   voiceTelemetry?: {
     sessionId: string;
     client?: ClientOs;
+    /** The control the session was started from (the start frame's `entry`). */
+    entry?: string;
   };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
@@ -1116,11 +1118,19 @@ export async function startVoiceTurn(
               // path already fills from the same `detectClientOs()` value, so
               // a voice turn reports its platform in the column existing turn
               // analytics read rather than one only voice knows about.
+              //
+              // `voice_entry` is voice's own: which control started the
+              // session the turn belongs to, so per-turn analytics can split
+              // the companion from the app without a join back to the
+              // session row.
               client: {
                 voice: true,
                 voice_session_id: opts.voiceTelemetry.sessionId,
                 ...(opts.voiceTelemetry.client
                   ? { os: opts.voiceTelemetry.client }
+                  : {}),
+                ...(opts.voiceTelemetry.entry
+                  ? { voice_entry: opts.voiceTelemetry.entry }
                   : {}),
               },
             }

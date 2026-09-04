@@ -97,6 +97,7 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
+import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
 import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
@@ -205,6 +206,12 @@ export interface LiveVoiceStartOptions {
    */
   handsFree?: boolean;
   /**
+   * Which control asked for the session, for the daemon's telemetry. Sent on
+   * every connect the session makes, reconnects included: a socket blip does
+   * not change where the user started from.
+   */
+  entry?: LiveVoiceEntry;
+  /**
    * A first turn to take on the session's behalf, sent once the microphone is
    * live, so the assistant speaks without waiting for the user.
    *
@@ -305,6 +312,8 @@ interface SessionContext {
    * to `listening` instead of tearing down.
    */
   handsFree: boolean;
+  /** Where the session was started from; reused verbatim on reconnect. */
+  entry: LiveVoiceEntry | undefined;
   /**
    * In-flight (or settled) mic acquisition — `capture.start()` kicked off at
    * connect time by {@link beginCaptureStartup} so getUserMedia + the worklet
@@ -855,6 +864,7 @@ export function useLiveVoice(
         unsubscribes: [],
         generation: 0,
         handsFree: startOptions.handsFree === true,
+        entry: startOptions.entry,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
@@ -1428,6 +1438,7 @@ export function useLiveVoice(
                 reconnectTimerRef.current = null;
                 void connectSessionRef.current?.(assistantId, conversationId, {
                   handsFree: true,
+                  ...(session.entry ? { entry: session.entry } : {}),
                 });
               }, delayMs);
               return;
@@ -1497,6 +1508,7 @@ export function useLiveVoice(
               reconnectTimerRef.current = null;
               void connectSessionRef.current?.(assistantId, conversationId, {
                 handsFree: true,
+                ...(session.entry ? { entry: session.entry } : {}),
               });
             }, delayMs);
             return;
@@ -1520,6 +1532,7 @@ export function useLiveVoice(
       await client.connect({
         assistantId,
         conversationId,
+        ...(session.entry ? { entry: session.entry } : {}),
         ...(session.handsFree
           ? {
               turnDetection: "server_vad" as const,

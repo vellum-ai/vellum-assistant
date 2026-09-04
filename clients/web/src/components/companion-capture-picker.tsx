@@ -12,7 +12,8 @@ import type {
 } from "@vellumai/ipc-contract";
 
 /**
- * The picker Teach opens: what a session could read, as a list to press.
+ * The picker Teach and Share open: what a session could read, or be shown, as
+ * a list to press.
  *
  * A card beside the call bar rather than a row on it. The bar is one thin row
  * by design and a desktop has a dozen windows on it, so the choice is drawn
@@ -58,6 +59,12 @@ export interface CompanionCapturePickerProps {
    * every row here is a press.
    */
   cardRef?: Ref<HTMLDivElement>;
+  /**
+   * What the card is choosing for, as a reader hears it: what to teach from,
+   * or what to share. The rows are the same either way; only the question
+   * differs.
+   */
+  label?: string;
   onPick?: (pick: CompanionCapturePick) => void;
 }
 
@@ -67,6 +74,7 @@ export function CompanionCapturePicker({
   avatarBox = COMPANION_BASE_AVATAR_BOX,
   optionsBox = COMPANION_BASE_AVATAR_BOX,
   cardRef,
+  label,
   onPick,
 }: CompanionCapturePickerProps) {
   const { t } = useTranslation();
@@ -106,7 +114,7 @@ export function CompanionCapturePicker({
       // none, since the window it is in is unfocusable and every press here is
       // the pointer's.
       role="group"
-      aria-label={t("companionSurface.capturePicker")}
+      aria-label={label ?? t("companionSurface.capturePicker")}
       data-companion-capture-picker
       className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 py-1.5 shadow-lg shadow-black/40"
       style={{ width: CARD_WIDTH, ...anchor }}

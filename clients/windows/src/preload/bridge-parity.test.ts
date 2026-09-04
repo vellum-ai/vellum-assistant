@@ -90,8 +90,14 @@ const WINDOWS_ONLY_SURFACE = [
 // key, and a hold of a configured modifier set. Windows answers the first with
 // a configurable global chord, and has no hold of its own to register.
 const MACOS_ONLY_SURFACE = [
+  "helper.apps.frontmost",
+  "helper.apps.quit",
+  "helper.apps.running",
   "helper.hotkey.readFrontSelection",
   "helper.hotkey.setModifierHold",
+  "helper.input.onActivity",
+  "helper.input.setActivityWatch",
+  "text.undoInFrontApp",
 ];
 
 test("the composed Windows bridge satisfies every applicable VellumBridge key", () => {
