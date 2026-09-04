@@ -479,10 +479,11 @@ describe("the companion surface at two sizes", () => {
 });
 
 /**
- * The idle row's verbs, which are drawn one at a time under the pointer.
+ * The call row's controls, named one at a time under the pointer by a caption
+ * standing above the pill, the way the Dock names an icon.
  *
  * **The behaviour is a stylesheet, so these hold its contract rather than its
- * effect.** The reveal is `:hover` and not React state, because the host's
+ * effect.** The caption is `:hover` and not React state, because the host's
  * window is click-through and the page derives its own hover from forwarded
  * mouse-move rather than from `mouseenter`; CSS is the one hover mechanism
  * known to work there, since the held-down background on these same buttons
@@ -490,21 +491,52 @@ describe("the companion surface at two sizes", () => {
  * synthetic hover and read the text back passes with the stylesheet missing
  * entirely. What is worth holding instead is the coupling: the word is
  * marked hidden-until-hovered, the button is the `group` that variant resolves
- * against, and the two cases that pin it open still pin it open.
+ * against, and nothing between the caption and the row's clipping is
+ * positioned, since that is what lets the caption stand outside the clip.
  */
-describe("the companion surface's revealed labels", () => {
-  const labelOf = (container: HTMLElement, name: string): HTMLElement | null =>
-    container.querySelector<HTMLElement>(
-      `button[aria-label="${name}"] span[data-label]`,
-    );
+describe("the companion surface's control captions", () => {
+  const CALL_ROW_CONTROLS = [
+    "Teach",
+    "Mute microphone",
+    "Mute assistant",
+    "End session",
+  ] as const;
 
-  test("rests as icons, with no verb spelled out", () => {
+  const buttonOf = (
+    container: HTMLElement,
+    name: string,
+  ): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${name}"]`,
+    );
+    if (!found) {
+      throw new Error(`Expected ${name} to render`);
+    }
+    return found;
+  };
+
+  const captionOf = (
+    container: HTMLElement,
+    name: string,
+  ): HTMLElement | null =>
+    buttonOf(container, name).querySelector<HTMLElement>("span[data-label]");
+
+  /** The class tokens that make an element a containing block for an absolute descendant. */
+  const POSITIONED = ["relative", "absolute", "fixed", "sticky"];
+
+  test("rests as icons, with every name held for the pointer", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
-    const label = labelOf(container, "Teach");
-    expect(label?.getAttribute("data-label")).toBe("hover");
-    expect(label?.className).toContain("hidden");
+    for (const name of CALL_ROW_CONTROLS) {
+      const caption = captionOf(container, name);
+      expect(caption?.getAttribute("data-label")).toBe("hover");
+      expect(caption?.className).toContain("opacity-0");
+      expect(caption?.textContent).toBe(name);
+      // One name, in one place: the caption is the word, so the control's own
+      // tooltip would be the same word twice, a second later.
+      expect(buttonOf(container, name).getAttribute("title")).toBeNull();
+    }
   });
 
   /**
@@ -512,17 +544,49 @@ describe("the companion surface's revealed labels", () => {
    * a button that is not a `group` is a word that never appears, and that is
    * exactly the failure no rendered assertion in this file would catch.
    */
-  test("reveals the verb under the pointer, from the button's own group", () => {
+  test("names the control under the pointer, from the button's own group", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
-    const teach = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Teach"]',
+    expect(buttonOf(container, "Teach").className).toContain("group");
+    expect(captionOf(container, "Teach")?.className).toContain(
+      "group-hover:opacity-100",
     );
-    expect(teach?.className).toContain("group");
-    expect(labelOf(container, "Teach")?.className).toContain(
-      "group-hover:inline",
+  });
+
+  /**
+   * The caption stands above the row, and the row clips its overflow so the
+   * pill never draws past its own edge while the width catches up. What lets
+   * the caption out is its containing block being outside the clip: it is
+   * absolute, and nothing from the button up to the clipping row is positioned.
+   * The static position it takes is then the control's centre, which is only
+   * true while the button centres its content on both axes.
+   */
+  test("stands outside the row's clipping, from the control's centre", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
+    const button = buttonOf(container, "Teach");
+    expect(button.className).toContain("justify-center");
+    expect(button.className).toContain("items-center");
+    const caption = captionOf(container, "Teach");
+    expect(caption?.className).toContain("absolute");
+    // Walk from the caption to the clipping row, holding that nothing on
+    // the way (the row included) makes itself the caption's containing block.
+    let clipped = false;
+    for (
+      let element = caption?.parentElement ?? null;
+      element !== null;
+      element = element.parentElement
+    ) {
+      const classes = element.className.split(/\s+/);
+      expect(classes.some((token) => POSITIONED.includes(token))).toBe(false);
+      if (classes.includes("overflow-hidden")) {
+        clipped = true;
+        break;
+      }
+    }
+    expect(clipped).toBe(true);
   });
 
   /**
@@ -541,11 +605,11 @@ describe("the companion surface's revealed labels", () => {
   });
 
   /**
-   * A running session is the one thing on this row the user has to be able to
-   * find without hunting, so its name stays on the surface rather than under
-   * the pointer.
+   * A running session is drawn held down, and that is all: its name stays
+   * under the pointer like every other control's, so the pill is the same
+   * width with a session running as without one.
    */
-  test("keeps the running session's name drawn", () => {
+  test("keeps the running session's name for the pointer", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -554,26 +618,35 @@ describe("the companion surface's revealed labels", () => {
         watchEnabled
       />,
     );
-    expect(labelOf(container, "Teach")?.getAttribute("data-label")).toBe(
-      "pinned",
+    expect(buttonOf(container, "Teach").getAttribute("aria-pressed")).toBe(
+      "true",
     );
-    expect(labelOf(container, "Teach")?.className).not.toContain("hidden");
+    expect(captionOf(container, "Teach")?.getAttribute("data-label")).toBe(
+      "hover",
+    );
+    // No word in the row itself: the caption is the only span the button
+    // holds directly (the beak inside it is the caption's own).
+    expect(
+      [...buttonOf(container, "Teach").children].filter(
+        (child) =>
+          child.tagName === "SPAN" && !child.hasAttribute("data-label"),
+      ),
+    ).toHaveLength(0);
   });
 
   /**
    * The summary is a question waiting on an answer rather than a set of ways
-   * in, so its two answers are not the pointer's to reveal.
+   * in, so its two answers are spelled out in the row and not held for the
+   * pointer.
    */
   test("leaves the summary's answers spelled out", () => {
     const { container } = render(
       <CompanionSurface phase="summary" watchRetro="ready" />,
     );
-    expect(labelOf(container, "Show summary")).toBeNull();
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Show summary"]',
-      )?.textContent,
-    ).toBe("Show summary");
+    expect(captionOf(container, "Show summary")).toBeNull();
+    expect(buttonOf(container, "Show summary").textContent).toBe(
+      "Show summary",
+    );
   });
 });
 
@@ -2014,7 +2087,7 @@ describe("the companion surface's Share action", () => {
     expect(presses).toEqual(["share", "stop"]);
   });
 
-  test("is held down for the choice before the share, and spells its name", () => {
+  test("is held down for the choice before the share, and keeps its name for the pointer", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -2024,10 +2097,13 @@ describe("the companion surface's Share action", () => {
       />,
     );
     expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+    // Held down is the whole of what the row draws for it. The name stays
+    // under the pointer like every other control's, so the pill is the same
+    // width mid-share as it is before one.
     expect(
       shareOf(container)
         .querySelector("[data-label]")
         ?.getAttribute("data-label"),
-    ).toBe("pinned");
+    ).toBe("hover");
   });
 });
