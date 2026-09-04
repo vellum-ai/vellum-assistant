@@ -33,6 +33,7 @@ mock.module("@capacitor/core", () => ({
 
 const {
   detectClientOs,
+  isLinuxBrowser,
   isMobileBrowser,
   isNativeAndroid,
   isNativeIOS,
@@ -40,6 +41,7 @@ const {
   useIsAndroidWeb,
   useIsIOSSafariWeb,
   useIsIOSWeb,
+  useIsLinuxWeb,
   useIsMobileWeb,
   useIsNativeIOS,
   useIsNativeMobile,
@@ -79,6 +81,8 @@ const CHROMEOS_TOUCH_UA =
 const LINUX_TOUCH_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const LINUX_FIREFOX_UA =
+  "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 const ORIGINAL_MATCH_MEDIA = window.matchMedia;
 
 function setUserAgent(ua: string): void {
@@ -463,5 +467,53 @@ describe("useIsMobileWeb", () => {
     setUserAgent(DESKTOP_CHROME_UA);
     setUserAgentData({ mobile: false });
     expect(renderHook(() => useIsMobileWeb()).result.current).toBe(false);
+  });
+});
+
+describe("isLinuxBrowser", () => {
+  test("is true on a Linux desktop browser", () => {
+    setUserAgent(LINUX_TOUCH_UA);
+    expect(isLinuxBrowser()).toBe(true);
+
+    setUserAgent(LINUX_FIREFOX_UA);
+    expect(isLinuxBrowser()).toBe(true);
+  });
+
+  test("is false on Android, whose user agent also carries Linux", () => {
+    setUserAgent(ANDROID_UA);
+    expect(isLinuxBrowser()).toBe(false);
+  });
+
+  test("is false on ChromeOS, which carries the X11 token", () => {
+    setUserAgent(CHROMEOS_TOUCH_UA);
+    expect(isLinuxBrowser()).toBe(false);
+  });
+
+  test("is false on macOS and Windows", () => {
+    setUserAgent(DESKTOP_SAFARI_UA);
+    expect(isLinuxBrowser()).toBe(false);
+
+    setUserAgent(WINDOWS_TOUCH_UA);
+    expect(isLinuxBrowser()).toBe(false);
+  });
+});
+
+describe("useIsLinuxWeb", () => {
+  test("is true in a Linux browser", () => {
+    setUserAgent(LINUX_FIREFOX_UA);
+    expect(renderHook(() => useIsLinuxWeb()).result.current).toBe(true);
+  });
+
+  test("is false inside the Linux Electron shell", () => {
+    setUserAgent(LINUX_FIREFOX_UA);
+    setElectronHost("linux");
+    expect(renderHook(() => useIsLinuxWeb()).result.current).toBe(false);
+  });
+
+  test("is false inside the Capacitor Android shell", () => {
+    setUserAgent(ANDROID_UA);
+    nativePlatform = true;
+    nativeOsPlatform = "android";
+    expect(renderHook(() => useIsLinuxWeb()).result.current).toBe(false);
   });
 });

@@ -18,6 +18,12 @@ import {
   MAC_APP_BANNER_MIN_TURNS,
 } from "@/hooks/use-macos-app-nudge";
 import {
+  readLinuxAssistantTurnsSeen,
+  incrementLinuxAssistantTurnsSeen,
+  useLinuxNudgeState,
+  LINUX_APP_BANNER_MIN_TURNS,
+} from "@/hooks/use-linux-app-nudge";
+import {
   useGitHubNudgeState,
   ensureGitHubFirstSeenAt,
   readGitHubUserMessagesSeen,
@@ -34,9 +40,11 @@ import {
   useIsAndroidWeb,
   useIsIOSSafariWeb,
   useIsIOSWeb,
+  useIsLinuxWeb,
   useIsMacOSWeb,
   useIsMobileWeb,
 } from "@/runtime/platform-detection";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,7 +58,7 @@ interface PlatformNudgeState {
 
 /**
  * Aggregated nudge visibility and handlers for every nudge surface
- * (native mobile/macOS app download, GitHub star, Discord community).
+ * (native mobile/macOS/Linux app download, GitHub star, Discord community).
  *
  * Mutual-exclusivity rules:
  * 1. Only one platform nudge shows at a time.
@@ -68,6 +76,12 @@ export interface AppNudgesState {
   isOnAndroid: boolean;
   /** True when the current browser is macOS Safari or Chrome (non-native). */
   isOnMacOS: boolean;
+  /**
+   * True when the current browser is a Linux desktop browser (non-native) AND
+   * the `linux-desktop-app` flag is on. The flag keeps the nudge dark until
+   * the download page carries a Linux build.
+   */
+  isOnLinux: boolean;
   /** True when any platform app-download nudge could apply. */
   isOnNudgePlatform: boolean;
 
@@ -122,6 +136,10 @@ export function useAppNudges(
   const isOnIOSSafari = useIsIOSSafariWeb();
   const isOnMobileWeb = useIsMobileWeb();
   const isOnMacOS = useIsMacOSWeb();
+  const isOnLinuxWeb = useIsLinuxWeb();
+  const linuxDesktopAppEnabled =
+    useClientFeatureFlagStore.use.linuxDesktopApp();
+  const isOnLinux = isOnLinuxWeb && linuxDesktopAppEnabled;
 
   // iOS Safari is left to Apple's Smart App Banner. `useIsIOSWeb` already
   // excludes it, but `useIsMobileWeb` does not, so without this guard the
@@ -143,10 +161,13 @@ export function useAppNudges(
   }, [isOnIOSSafari, isOnIOS, isOnAndroid, isOnMobileWeb]);
 
   const nudgeTarget = mobilePromotion?.target ?? null;
-  const isOnNudgePlatform = mobilePromotion !== null || isOnMacOS;
+  const isOnNudgePlatform = mobilePromotion !== null || isOnMacOS || isOnLinux;
+  const desktopMinTurns = isOnLinux
+    ? LINUX_APP_BANNER_MIN_TURNS
+    : MAC_APP_BANNER_MIN_TURNS;
   const nudgeMinTurns = mobilePromotion
     ? NATIVE_APP_BANNER_MIN_TURNS
-    : MAC_APP_BANNER_MIN_TURNS;
+    : desktopMinTurns;
 
   // -------------------------------------------------------------------------
   // Turn counting — gate the platform nudge behind a minimum-turn threshold
@@ -154,12 +175,14 @@ export function useAppNudges(
   const [assistantTurnsSeen, setAssistantTurnsSeen] = useState(0);
 
   useEffect(() => {
+    if (nudgeTarget) {
+      setAssistantTurnsSeen(readNativeAppAssistantTurnsSeen(nudgeTarget));
+      return;
+    }
     setAssistantTurnsSeen(
-      nudgeTarget
-        ? readNativeAppAssistantTurnsSeen(nudgeTarget)
-        : readMacOsAssistantTurnsSeen(),
+      isOnLinux ? readLinuxAssistantTurnsSeen() : readMacOsAssistantTurnsSeen(),
     );
-  }, [nudgeTarget]);
+  }, [nudgeTarget, isOnLinux]);
 
   useEffect(() => {
     if (!isOnNudgePlatform) {
@@ -196,6 +219,8 @@ export function useAppNudges(
     if (newlyCompleted > 0) {
       if (nudgeTarget) {
         incrementNativeAppAssistantTurnsSeen(nudgeTarget, newlyCompleted);
+      } else if (isOnLinux) {
+        incrementLinuxAssistantTurnsSeen(newlyCompleted);
       } else {
         incrementMacOsAssistantTurnsSeen(newlyCompleted);
       }
@@ -206,6 +231,7 @@ export function useAppNudges(
     liveAssistantMessageId,
     isOnNudgePlatform,
     nudgeTarget,
+    isOnLinux,
     assistantTurnsSeen,
     nudgeMinTurns,
   ]);
@@ -223,12 +249,14 @@ export function useAppNudges(
   // -------------------------------------------------------------------------
   const mobileNudge = useNativeAppNudgeState(nudgeTarget ?? "generic");
   const macNudge = useMacOsNudgeState();
-  const nudge = mobilePromotion ? mobileNudge : macNudge;
+  const linuxNudge = useLinuxNudgeState();
+  const desktopNudge = isOnLinux ? linuxNudge : macNudge;
+  const nudge = mobilePromotion ? mobileNudge : desktopNudge;
 
-  // macOS is time-based; native mobile promotion is turn-based.
+  // Desktop is time-based; native mobile promotion is turn-based.
   const bannerEligible = mobilePromotion
     ? assistantTurnsSeen >= NATIVE_APP_BANNER_MIN_TURNS
-    : macNudge.ageEligible;
+    : desktopNudge.ageEligible;
 
   const showBanner =
     isOnNudgePlatform &&
@@ -313,6 +341,7 @@ export function useAppNudges(
     isOnIOS,
     isOnAndroid,
     isOnMacOS,
+    isOnLinux,
     isOnNudgePlatform,
     mobilePromotion,
     nudge,

@@ -111,6 +111,27 @@ export function isAndroidBrowser(): boolean {
 }
 
 /**
+ * Returns true when the current browser is running on a Linux desktop.
+ *
+ * Linux browsers carry either the `X11` platform token or the literal `Linux`
+ * token. Android carries `Linux` too (it is a Linux kernel) and ChromeOS
+ * carries `X11; CrOS`, and neither can run the Linux desktop app, so both are
+ * excluded.
+ *
+ * Always returns `false` during SSR (no `navigator`).
+ */
+export function isLinuxBrowser(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent;
+  if (/Android|CrOS/i.test(ua)) {
+    return false;
+  }
+  return /Linux|X11/i.test(ua);
+}
+
+/**
  * Returns true when the current browser is running on a phone or tablet,
  * whatever the OS.
  *
@@ -442,6 +463,20 @@ export function useIsMacOSWeb(): boolean {
   return useSyncExternalStore(
     noop,
     () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
+    () => false,
+  );
+}
+
+/**
+ * Linux web user who should see custom nudge surfaces.
+ *
+ * Excludes Electron because the reader is already inside the Linux desktop
+ * app, and Capacitor for symmetry with `useIsMacOSWeb`.
+ */
+export function useIsLinuxWeb(): boolean {
+  return useSyncExternalStore(
+    noop,
+    () => isLinuxBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
 }
