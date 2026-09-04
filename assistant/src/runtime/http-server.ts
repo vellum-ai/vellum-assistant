@@ -62,6 +62,7 @@ import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import { verifyToken } from "./auth/token-service.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import type { HostCaptureTarget } from "./host-observe.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
 import {
@@ -108,6 +109,7 @@ import {
   activeWatchStreamSessions,
   closeWatchIngress,
   drainWatchRetros,
+  parseWatchCaptureTarget,
   WatchStreamSession,
 } from "./routes/watch-routes.js";
 
@@ -196,6 +198,8 @@ interface WatchStreamWebSocketData {
   conversationId?: string;
   /** Desktop client to observe, when the actor has more than one connected. */
   clientId?: string;
+  /** What the session reads, when the client picked one display or window. */
+  captureTarget?: HostCaptureTarget;
   /** The session ID for tracking in the active sessions registry. */
   sessionId: string;
   /** Bound at open time so the close handler tears down the exact session. */
@@ -404,6 +408,9 @@ export class RuntimeHttpServer {
                 ? { conversationId: watchData.conversationId }
                 : {}),
               ...(watchData.clientId ? { clientId: watchData.clientId } : {}),
+              ...(watchData.captureTarget
+                ? { captureTarget: watchData.captureTarget }
+                : {}),
             });
             watchData.session = session;
             activeWatchStreamSessions.set(watchData.sessionId, session);
@@ -1095,12 +1102,17 @@ export class RuntimeHttpServer {
         });
       }
       const sampleRateRaw = query.get("sampleRate");
+      const parsedTarget = parseWatchCaptureTarget(query);
+      if ("error" in parsedTarget) {
+        return new Response(parsedTarget.error, { status: 400 });
+      }
       return {
         wsType: "watch-stream",
         mimeType,
         sampleRate: sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined,
         conversationId: query.get("conversationId")?.trim() || undefined,
         clientId: query.get("clientId")?.trim() || undefined,
+        captureTarget: parsedTarget.captureTarget,
         sessionId: crypto.randomUUID(),
       } satisfies WatchStreamWebSocketData;
     });

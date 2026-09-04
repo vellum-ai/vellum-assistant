@@ -23,6 +23,10 @@ import {
   CameraFlashControl,
   type CameraFlashControlProps,
 } from "./voice-room/camera-flash-control";
+import {
+  CameraShutterHint,
+  type CameraShutterHintProps,
+} from "./voice-room/camera-shutter-hint";
 import { CAMERA_WARM } from "./voice-room/camera-mode-paint";
 
 /**
@@ -126,6 +130,11 @@ export interface CameraRowSceneProps {
   /** The flash control to its left. Defaults to auto, the state with the badge. */
   flash?: Pick<CameraFlashControlProps, "mode" | "ariaLabel">;
   /**
+   * The caption above the row, where the app offers Live. Absent by default,
+   * matching the room: the hint is shown only where the hold does something.
+   */
+  hint?: CameraShutterHintProps;
+  /**
    * The width the row is read at. On its own it takes a phone's, which is what
    * the flanking offsets were drawn against; a composed screen passes `w-full`
    * instead, since in the app the row is as wide as the room it sits in and
@@ -147,23 +156,27 @@ export interface CameraRowSceneProps {
 export function CameraRowScene({
   shutter = ROW_SHUTTER,
   flash,
+  hint,
   className,
 }: CameraRowSceneProps) {
   return (
+    // A column at the row's own width, so the hint sits over the shutter at
+    // the gap the room gives the pair and the flanks still ride the outer
+    // edge. Without a hint it is the row it always was.
     <div
-      className={cn(
-        "relative flex w-[390px] items-center justify-center",
-        className,
-      )}
+      className={cn("flex w-[390px] flex-col items-center gap-3", className)}
     >
-      <CameraFlashControl
-        {...ROW_FLASH}
-        {...flash}
-        onClick={() => {}}
-        className="absolute left-11"
-      />
-      <CameraShutter {...shutter} />
-      <CameraRowFlipStandIn />
+      {hint ? <CameraShutterHint {...hint} /> : null}
+      <div className="relative flex w-full items-center justify-center">
+        <CameraFlashControl
+          {...ROW_FLASH}
+          {...flash}
+          onClick={() => {}}
+          className="absolute left-11"
+        />
+        <CameraShutter {...shutter} />
+        <CameraRowFlipStandIn />
+      </div>
     </div>
   );
 }

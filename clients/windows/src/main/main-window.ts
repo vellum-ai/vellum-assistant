@@ -149,10 +149,15 @@ export const dispatchToMain = (command: VellumCommand): void => {
   }
 };
 
-export const toggleVisibility = (): void => {
+/** Module-private: {@link toggleVisibility} is the only caller. */
+const isVisibleAndFocused = (): boolean => {
   const win = current();
-  if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
-    win.hide();
+  return !!win && !win.isDestroyed() && win.isVisible() && win.isFocused();
+};
+
+export const toggleVisibility = (): void => {
+  if (isVisibleAndFocused()) {
+    current()?.hide();
     return;
   }
   ensureVisible();

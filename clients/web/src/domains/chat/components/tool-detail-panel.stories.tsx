@@ -28,7 +28,9 @@ import {
   subagentSpawnDetail,
   thinkingDetail,
   unknownToolDetail,
+  webFetchDetail,
   webSearchDetail,
+  webSearchErrorDetail,
 } from "@/domains/chat/components/tool-detail-story-fixtures";
 
 import { ToolDetailPanel } from "./tool-detail-panel";
@@ -49,15 +51,13 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * people hit most. The families that dominate day to day, files and shell, are
  * on the generic path, which is what makes the gaps below worth designing away.
  *
- * ## The one gap that is not per-tool
+ * ## Where the activity sentence shows
  *
- * The activity sentence is printed three times on a typical call: once as the
- * panel header (`detail.activity || detail.title`), once as the subtitle under
- * the title-cased tool name, and once more inside the JSON input block, since
- * `activity` is a real input key the tools send alongside `command` / `path`.
- * Nearly every native tool sends one, `subagent_spawn` being the exception.
- * Visible in almost every story below; Bash and FileReadEmptyOutput are the
- * clearest. This is one fix in shared code, not nine tool designs.
+ * Every host of `ToolDetailBody` titles its header with
+ * `toolDetailHeaderTitle`, so the body does not repeat the activity under the
+ * tool name. It still appears inside the JSON input block, because `activity`
+ * is a real input key the tools send alongside `command` / `path` and that
+ * block is the raw input.
  *
  * ## Coverage matrix
  *
@@ -70,7 +70,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_write` shows the written body as a JSON string literal with escaped newlines; `file_edit` shows a diff as two such literals side by side, with no diff rendering at all. |
  * | Shell (`bash`, `host_bash`) | generic | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | A command and its stdout are shown as a JSON object and a `<pre>`, so the thing the user reads is quoted and escaped rather than rendered as a terminal. |
  * | Memory (`remember`, `recall`) | generic | 3 | Remember, Recall | `recall` returns a ranked list and renders as flat preformatted text; `remember` spends the full section chrome on a one-line acknowledgement. |
- * | Web (`web_search`, `web_fetch`) | dedicated views, reachable only from `SubagentDetailPanel` | 4 | WebSearchKind | `ToolDetailPanel` has no `kind === "web_search"` branch, so the same payload renders as a search view under a subagent and as generic JSON here. |
+ * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
  * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | Nested-object inputs are the worst case for the raw JSON block. |
@@ -85,9 +85,9 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Running, streaming stdout | BashStreaming | Live `tool_output_chunk` tail. |
  * | Completed | most stories | |
  * | Error | BashError, FileReadError, SkillLoadError | The panel styles an error result identically to a successful one; only the text says it failed. |
- * | Denied or timed out | BashDenied | `status: "denied"` has no branch in `ToolDetailBody`. With no result, Output is suppressed entirely and the panel never says the call was denied. |
- * | Empty output | FileReadEmptyOutput | `hasResult` is false for `""`, so Output disappears rather than reporting an empty file. |
- * | Very large output | LargeOutput | The generic `CodeBlock` does not clamp, and the daemon's cap is 400,000 characters. |
+ * | Denied or timed out | BashDenied | Output says the call was not approved and did not run. Both a declined confirmation and one that timed out land here. |
+ * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
+ * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | |
  * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | Every level the risk helpers recognise, plus absent and unrecognised. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
@@ -100,19 +100,14 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * 1. Files. `file_edit` as a rendered diff and `file_write` as an editor view
  *    are the largest single readability win available.
  * 2. Shell. A terminal treatment for the command and its output.
- * 3. Panel-wide states, all families at once. The triple activity sentence,
- *    denied, empty, and very large output are four defects in shared code,
- *    not per-tool design work, and fixing them improves every tool including
- *    the ones we never style. Cheapest slice on the list by some margin.
- * 4. Memory. `recall` as a result list.
- * 5. MCP naming. Low volume, but the title is wrong on every call rather than
+ * 3. Memory. `recall` as a result list.
+ * 4. MCP naming. Low volume, but the title is wrong on every call rather than
  *    merely plain.
  *
- * ## Filed, not fixed here
+ * ## Still open
  *
- * The findings above are tracked so they do not live only in this docstring:
- * LUM-3510 for the four shared-panel defects, LUM-3511 for the MCP naming, and
- * LUM-3512 for the `web_search` kind that two panels disagree about.
+ * LUM-3511 for the MCP naming. Every other treatment below documents behaviour
+ * the panel has, not a gap it is waiting on.
  */
 const meta: Meta<typeof ToolDetailPanel> = {
   title: "Chat/ToolDetailPanel",
@@ -171,9 +166,9 @@ export const BashStreaming: Story = { args: { detail: bashStreamingDetail } };
 export const BashError: Story = { args: { detail: bashErrorDetail } };
 
 /**
- * A denied call. `ToolDetailBody` has no `denied` branch, so with no result
- * the Output section is suppressed and nothing on the panel says the user
- * declined it. The risk notice and the input are all that remain.
+ * A denied call. Output says the call was not approved and did not run, which
+ * is also what a confirmation that timed out shows: `deriveToolStepStatus`
+ * folds both into this status.
  */
 export const BashDenied: Story = { args: { detail: bashDeniedDetail } };
 
@@ -185,8 +180,8 @@ export const BashDenied: Story = { args: { detail: bashDeniedDetail } };
 export const FileRead: Story = { args: { detail: fileReadDetail } };
 
 /**
- * `file_read` on an empty file. `hasResult` treats `""` as absent, so the
- * Output section vanishes rather than saying the file was empty.
+ * `file_read` on an empty file. An empty string is a result, so Output reports
+ * that the tool returned nothing instead of vanishing.
  */
 export const FileReadEmptyOutput: Story = {
   args: { detail: fileReadEmptyDetail },
@@ -262,8 +257,8 @@ export const UnknownThirdPartyTool: Story = {
 // ---------------------------------------------------------------------------
 
 /**
- * A long result. The generic Output block is one unclamped `<pre>`, so the
- * panel scrolls for as long as the daemon's 400,000 character cap allows.
+ * A long result, clamped behind Show more. Tool results reach the panel at up
+ * to the daemon's 400,000 character cap, which is not a height a panel absorbs.
  */
 export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
 
@@ -349,12 +344,20 @@ export const SkillExecute: Story = { args: { detail: skillExecuteDetail } };
 export const Thinking: Story = { args: { detail: thinkingDetail } };
 
 /**
- * A `kind: "web_search"` payload opened through `ToolDetailPanel`. Only
- * `SubagentDetailPanel` branches on this kind, so here the search query and
- * the parsed sources are ignored and the call falls through to the generic
- * tool treatment.
+ * A `kind: "web_search"` payload. The query and its sources render as a search
+ * view in every panel that hosts a tool detail, because the renderer is looked
+ * up in one registry rather than branched on per panel.
  */
 export const WebSearchKind: Story = { args: { detail: webSearchDetail } };
+
+/**
+ * A failed search. With no sources to lay out it falls through to the generic
+ * body on purpose, so the error reads the way any other failed tool's does.
+ */
+export const WebSearchError: Story = { args: { detail: webSearchErrorDetail } };
+
+/** `web_fetch`. The fetched page, not the header-and-marker envelope. */
+export const WebFetch: Story = { args: { detail: webFetchDetail } };
 
 // ---------------------------------------------------------------------------
 // Presentation

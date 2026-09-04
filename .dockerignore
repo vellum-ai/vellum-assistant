@@ -13,7 +13,14 @@
 # Every clients/* workspace member manifest must reach the context: bun's
 # frozen-lockfile install validates the full workspace set, so a member whose
 # package.json is missing fails every image build.
-!clients/*/package.json
+# Listed explicitly: a `!` pattern with a wildcard before its final path
+# segment disables directory pruning for the entire context walk.
+!clients/chrome-extension/package.json
+!clients/docs/package.json
+!clients/linux/package.json
+!clients/macos/package.json
+!clients/web/package.json
+!clients/windows/package.json
 !cli/package.json
 # Although we have a `**` ignore that correctly excludes large build artifacts from the build context,
 # it seems the walker doesn't prune a directory when there are `!` exceptions that can include files

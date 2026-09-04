@@ -4,8 +4,18 @@ import { haptic } from "@/utils/haptics";
 import { isInteractiveTarget } from "@/utils/interactive-target";
 import { isPointerCoarse } from "@/utils/pointer";
 
-const DEFAULT_THRESHOLD_MS = 500;
-const MOVE_TOLERANCE_PX = 10;
+/**
+ * The app's long-press tuning: how long a press is held before it counts as a
+ * hold, and how far the pointer may wander first.
+ *
+ * Exported because more than one gesture answers to them. The voice room's
+ * shutter runs a press model of its own (it arms on pointers, so a mouse can
+ * hold too, and it has a tap of its own to suppress) and cannot reuse this
+ * hook, but two different answers to "how long is held" in one app is a hold
+ * that feels wrong on whichever surface lost the coin toss.
+ */
+export const LONG_PRESS_THRESHOLD_MS = 500;
+export const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
 export interface UseLongPressHandlers {
   onTouchStart: (e: ReactTouchEvent) => void;
@@ -40,9 +50,9 @@ export interface UseLongPressOptions {
 /**
  * Long-press gesture hook for touch devices. Returns touch event handlers
  * that fire `callback` after the user holds for `threshold` ms without
- * moving more than `MOVE_TOLERANCE_PX` pixels. Cancels on touch end, touch
- * cancel, or excessive movement (scrolling). Fires `haptic.light()` on
- * activation so the user feels the long-press register.
+ * moving more than `LONG_PRESS_MOVE_TOLERANCE_PX` pixels. Cancels on touch
+ * end, touch cancel, or excessive movement (scrolling). Fires `haptic.light()`
+ * on activation so the user feels the long-press register.
  *
  * Only activates on coarse-pointer (touch) devices — on desktop the
  * handlers are inert stubs so callers can spread them unconditionally
@@ -50,7 +60,7 @@ export interface UseLongPressOptions {
  */
 export function useLongPress(
   callback: () => void,
-  threshold: number = DEFAULT_THRESHOLD_MS,
+  threshold: number = LONG_PRESS_THRESHOLD_MS,
   options: UseLongPressOptions = {},
 ): UseLongPressHandlers {
   const { shouldSkip, ignoreInteractiveTarget = false } = options;
@@ -122,7 +132,7 @@ export function useLongPress(
       }
       const dx = touch.clientX - startPosRef.current.x;
       const dy = touch.clientY - startPosRef.current.y;
-      if (Math.hypot(dx, dy) > MOVE_TOLERANCE_PX) {
+      if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX) {
         clearTimer();
       }
     },

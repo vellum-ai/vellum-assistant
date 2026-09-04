@@ -79,6 +79,7 @@
     "./text-context-menu": "./src/text-context-menu.ts",
     "./tray-model": "./src/tray-model.ts",
     "./vellumapp-protocol": "./src/vellumapp-protocol.ts",
+    "./window-attention": "./src/window-attention.ts",
     "./window-readiness": "./src/window-readiness.ts",
     "./window-state": "./src/window-state.ts",
     "./workos-pkce": "./src/workos-pkce.ts",
@@ -92,6 +93,7 @@
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
+    "@vellumai/service-contracts": "workspace:*",
     "electron-store": "11.0.2",
     "jszip": "3.10.1"
   },

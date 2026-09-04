@@ -263,31 +263,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   50% { transform: translateY(-3px); }
 }
 
-/* The glow's breath, with both ends written out. Tailwind's `animate-pulse`
-   synthesises its 0%/100% from whatever opacity the element already carries,
-   which on a glow this faint is a swing nobody can see. */
-@keyframes companion-glow-breathe {
-  0%, 100% { opacity: 0.32; }
-  50% { opacity: 0.5; }
-}
-
 .companion-avatar-bob {
   animation: companion-avatar-bob 5s ease-in-out infinite;
   will-change: transform;
 }
 
-.companion-glow {
-  /* Where the breath starts and where it is held when it cannot run. */
-  opacity: 0.32;
-  animation: companion-glow-breathe 4s ease-in-out infinite;
-}
-
-/* Held still rather than dropped: the glow is the avatar's own colour thrown
-   onto the desktop, so it stays lit at rest, and the creature keeps its
-   baseline rather than disappearing from it. */
+/* Held still rather than dropped: the creature keeps its baseline rather than
+   disappearing from it. */
 @media (prefers-reduced-motion: reduce) {
-  .companion-avatar-bob,
-  .companion-glow {
+  .companion-avatar-bob {
     animation: none;
   }
 }
@@ -307,10 +291,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 /* Companion surface working ring: a band of the assistant's accent travelling
  * around the edge of the macOS floating companion while a turn is in flight.
  *
- * The surface's resting state already carries a pulsing accent glow behind the
- * avatar, so a second pulse would not read as a second thing. Travel is the
- * property nothing else on the surface uses, which is what lets "it is working"
- * be legible out of the corner of an eye without reading a word.
+ * The creature already breathes and bobs at rest, so a pulse would not read as
+ * a second thing. Travel is the property nothing else on the surface uses,
+ * which is what lets "it is working" be legible out of the corner of an eye
+ * without reading a word.
  *
  * The band is the border and not the fill: the conic gradient is masked down to
  * the padding band so the light rides the edge instead of washing across the
@@ -367,52 +351,81 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
-/* Companion surface capture pulse: one breath of light around the same edge,
- * each time a watch session has read the screen.
- *
- * The working ring above is a state, held for as long as the session is. This
- * is an event, and it fires only when a read actually landed, so it has to
- * arrive and leave rather than settle: one that lingered would be
- * indistinguishable from the session simply being on, and the next read would
- * have nothing left to announce itself against.
- *
- * The same band geometry as the ring, uniform rather than travelling. Both are
- * drawn at once during a session, so a second shape would read as a second
- * thing happening; brightening the edge that is already lit reads as the ring
- * doing something, which is exactly what a capture is.
- *
- * Fast in and slow out, because that is the shape of a shutter rather than a
- * blink, and it peaks well under full opacity: this fires three or four times
- * a minute for as long as the user works, and it sits over whatever they are
- * working in.
- *
- * No reduced-motion fallback, unlike the ring's travel, and the distinction is
- * the point: this animates opacity and nothing else, with no travel, no scale,
- * and nothing on screen displaced. Holding it still would not calm it down, it
- * would delete it, and with it the only signal the user gets that their screen
- * was read. */
-@keyframes companion-capture-pulse {
+/* One capture on the frame: a single brightening of the edge that is already
+ * drawn. Opacity and nothing else, with no travel, no scale, and nothing on
+ * screen displaced, so there is no reduced-motion fallback: holding it still
+ * would delete the only signal that the surface was read at that moment. */
+@keyframes companion-watch-frame-flash {
   0% { opacity: 0; }
-  15% { opacity: 0.7; }
+  15% { opacity: 1; }
   100% { opacity: 0; }
 }
 
-.companion-capture-pulse {
-  padding: 2px;
-  background: var(--companion-ring-accent, #ff9f45);
-  filter: drop-shadow(
-    0 0 4px color-mix(in srgb, var(--companion-ring-accent, #ff9f45) 60%, transparent)
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
+.companion-watch-frame-flash {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, white 70%, var(--companion-ring-accent, #5eead4));
   opacity: 0;
-  animation: companion-capture-pulse 700ms ease-out 1;
+  animation: companion-watch-frame-flash 700ms ease-out 1;
+}
+
+/* The edge of what a watch session reads or a call is shown, drawn the way a
+ * shared screen is framed. A border and only a border: nothing bleeds inward,
+ * so the boundary of the read is a line and the work inside it is left
+ * exactly as bright as it was. `--companion-ring-accent` is set per instance
+ * by the companion's windows, and the frame is handed the assistant's own
+ * accent so the edge and the call pill are one light. The call bar's own
+ * light is the working ring above, travelling the bar's edge. */
+@keyframes companion-watch-frame-in {
+  from { opacity: 0; }
+}
+
+@keyframes companion-call-breathe {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
+}
+
+.companion-watch-frame {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 85%, transparent);
+  animation:
+    companion-watch-frame-in 300ms ease-out 1,
+    companion-call-breathe 3s ease-in-out infinite;
+}
+
+/* Held drawn rather than dropped: the frame is what says the surface is read. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-watch-frame {
+    animation: none;
+  }
+}
+
+/* The layer the user draws on inside that frame, while a call is being shown
+ * the surface and drawing is on. The only thing on either of the companion's
+ * click-through windows that deliberately takes the mouse, so the cursor says
+ * so: for as long as this is up, a press on the shared surface is a mark
+ * rather than a click on the app underneath. */
+.companion-share-annotation {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* A mark on its way out, once it has been sent. The delay is the hold that
+ * lets the user see it land, and `forwards` is what keeps it gone for the
+ * moment between the fade ending and the element being dropped. */
+@keyframes companion-share-ink-out {
+  to { opacity: 0; }
+}
+
+.companion-share-ink-spent {
+  animation: companion-share-ink-out 900ms ease-out 500ms forwards;
+}
+
+/* Taken away rather than left standing: the mark is spent, and the reason it
+ * fades is that it has already been sent. Holding it would leave the surface
+ * drawn on with no way to clear it. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-share-ink-spent {
+    animation: companion-share-ink-out 1ms linear 1400ms forwards;
+  }
 }
 
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
@@ -456,6 +469,82 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   .camera-status-blink {
     animation: none;
     opacity: 1;
+  }
+}
+
+/* The camera surfaces toned by the capture accent: the status pill while Live
+ * is streaming, its label, and the status dot beside it while the assistant is
+ * talking.
+ *
+ * `--camera-accent` carries the assistant's own avatar accent (see
+ * `camera-mode-paint.ts`), so none of the three can be a literal: a pink fill
+ * under a green assistant says the wrong thing. What each of them is depends
+ * on the other two, which is why they move as a set.
+ *
+ * The Live fill is opaque on both paths. A translucent fill is a colour nobody
+ * can name, since the backdrop is arbitrary video, and the ink has to be chosen
+ * against SOMETHING: at 90% the same crimson runs from 4.48 over itself to 3.87
+ * over a white frame, and a mid-luminance accent drops to about 3.2 over a dark
+ * one. Opaque is what makes the label's contrast a property of the fill rather
+ * than of whatever the lens is pointed at. Nothing shows through either fill,
+ * so the pill carries no backdrop blur.
+ *
+ * It fills with `--avatar-accent-fill` rather than the accent itself. Between
+ * the two inks' passing regions is a band of mid-tones that carry no readable
+ * text at all, and that var is the accent moved to the near edge of it (see
+ * `legibleAccentFill`). The ring, the hint and the thumb ring keep the accent
+ * itself, since a mark over video has no foreground to fail.
+ *
+ * The dot softens toward the ink rather than toward white, so it moves opposite
+ * the fill by construction: near-black on a light accent, near-white on a dark
+ * one, and at least 3:1 against the fill for every accent the palette ships.
+ * The 77% share is what leaves the crimson case the same rose the glass pill
+ * wears, since the ink falls back to white when there is no accent.
+ *
+ * The Live set sits behind one feature query. Of its three declarations only
+ * the dot's mix needs color-mix(), but an engine without it (Safari/iOS <
+ * 16.2, which the iOS shell still targets) cannot draw a dot that reads on a
+ * dynamic fill, so it takes the whole crimson trio instead: the same clamped
+ * crimson the modern path falls back to, white, and the rose below that pairs
+ * with them. Splitting the set is what puts ink on a fill it was not chosen
+ * for, and one clamped crimson across both paths is one colour to reason about
+ * rather than two.
+ *
+ * The dot on the glass pill is outside all of that. It hangs on a dark scrim
+ * rather than on the accent, so it is one property with nothing to keep in
+ * step, and it dual-declares in place the way the wave accents below do. */
+.camera-live-fill {
+  /* The crimson through `legibleAccentFill`, matching the fallback the query
+   * below uses. `CAMERA_FILL_FALLBACK` in `camera-mode-paint.ts` derives it and
+   * a test holds both copies equal. */
+  background-color: #cd426f;
+  color: #fff;
+}
+
+.camera-accent-soft-dot {
+  background-color: #ffd9e4;
+  background-color: color-mix(in srgb, var(--camera-accent) 23%, white);
+}
+
+@supports (background-color: color-mix(in srgb, red 50%, blue)) {
+  .camera-live-fill {
+    /* The accent as a surface text can sit on, which for most accents is the
+     * accent itself. The literal is the crimson through the same clamp, for an
+     * assistant with no accent at all: the raw crimson leaves a 13px label at
+     * 4.48 where the floor is 4.5, and every accented pill is held to that
+     * floor. `CAMERA_FILL_FALLBACK` in `camera-mode-paint.ts` derives it, and a
+     * test holds the two equal. */
+    --camera-live-fill: var(--avatar-accent-fill, #cd426f);
+    background-color: var(--camera-live-fill);
+    color: var(--avatar-accent-ink, #fff);
+  }
+
+  .camera-live-fill .camera-accent-soft-dot {
+    background-color: color-mix(
+      in srgb,
+      var(--avatar-accent-ink, #fff) 77%,
+      var(--camera-live-fill)
+    );
   }
 }
 

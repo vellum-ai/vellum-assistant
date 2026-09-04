@@ -24,7 +24,7 @@ import {
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
-import { useTranslation } from "@/i18n";
+import { useTranslation, type TFunction } from "@/i18n";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import {
   hasThreadStatus,
@@ -142,6 +142,7 @@ const skipNestedControls = (target: Element | null) =>
 function buildSwipeActions(
   ctx: ConversationListContextValue,
   conversation: Conversation,
+  t: TFunction<"chat">,
 ): { leadingActions: SwipeAction[]; trailingActions: SwipeAction[] } {
   const isChannel = isChannelConversation(conversation);
 
@@ -153,7 +154,9 @@ function buildSwipeActions(
     const isPinned = isConversationPinned(conversation);
     leadingActions.push({
       id: "pin",
-      label: isPinned ? "Unpin" : "Pin",
+      label: isPinned
+        ? t("conversationActions.unpin")
+        : t("conversationActions.pin"),
       icon: isPinned ? PinOff : Pin,
       onSelect: () => ctx.onPin?.(conversation),
     });
@@ -167,14 +170,14 @@ function buildSwipeActions(
   if (isArchived && ctx.onUnarchive) {
     trailingActions.push({
       id: "unarchive",
-      label: "Unarchive",
+      label: t("conversationActions.unarchive"),
       icon: ArchiveRestore,
       onSelect: () => ctx.onUnarchive?.(conversation),
     });
   } else if (!isArchived && ctx.onArchive) {
     trailingActions.push({
       id: "archive",
-      label: "Archive",
+      label: t("conversationActions.archive"),
       icon: Archive,
       variant: "destructive",
       onSelect: () => ctx.onArchive?.(conversation),
@@ -218,6 +221,7 @@ export function ConversationRow({
   const { leadingActions, trailingActions } = buildSwipeActions(
     ctx,
     conversation,
+    t,
   );
 
   const isTouch = isPointerCoarse();

@@ -885,6 +885,28 @@ describe("trust-gating via channel capabilities", () => {
     expect(injected).not.toContain("CHANNEL CONSTRAINTS");
   });
 
+  test("vellum channel with Linux client OS injects host_bash guidance", () => {
+    const caps: ChannelCapabilities = {
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+      clientOS: "web",
+    };
+    const message: Message = {
+      role: "user",
+      content: [{ type: "text", text: "List my downloads" }],
+    };
+
+    const result = injectChannelCapabilityContext(message, caps, "linux");
+
+    expect(result).not.toBe(message);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("client_os: linux");
+    expect(injected).toContain("On Linux, prefer CLI via `host_bash`");
+    expect(injected).not.toContain("CHANNEL CONSTRAINTS");
+  });
+
   test("non-dashboard channel adds constraint rules preventing UI references", () => {
     const caps = resolveChannelCapabilities("telegram");
     const message: Message = {
@@ -6007,6 +6029,63 @@ describe("assembleSlackChronologicalMessages", () => {
       `[11/14/23 22:30 @alice]: ${slackExternal("Following up", "@alice")}`,
     );
     expect(replyText).not.toContain("→ M");
+  });
+
+  test("post-reconciliation: an assistant row on the neutral envelope renders chronologically too", () => {
+    // A Slack reply row is written with the neutral envelope every channel
+    // writes; the chronological assembler reads it through the envelope's
+    // Slack view, so it takes the same path as a legacy `slackMeta` row.
+    const SLACK_CHANNEL_ID_2 = "C0THREAD";
+    const ASSISTANT_TS = "1700001000.000111";
+    const REPLY_TS = "1700001020.000222";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const userReplyMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_2,
+      channelTs: REPLY_TS,
+      threadTs: ASSISTANT_TS,
+      displayName: "@alice",
+      eventKind: "message",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "assistant",
+        "Earlier reply",
+        1700001000_000,
+        JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: SLACK_CHANNEL_ID_2,
+            messageId: ASSISTANT_TS,
+            eventKind: "message",
+          }),
+        }),
+      ),
+      row(
+        "user",
+        "Following up",
+        1700001020_000,
+        metadataEnvelope(userReplyMeta),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(2);
+    const assistantText = (result![0].content[0] as { text: string }).text;
+    expect(assistantText).toContain("Earlier reply");
+    const replyText = (result![1].content[0] as { text: string }).text;
+    expect(replyText).toBe(
+      `[11/14/23 22:30 @alice]: ${slackExternal("Following up", "@alice")}`,
+    );
   });
 
   test("post-reconciliation: assistant row appears in active-thread focus block", () => {

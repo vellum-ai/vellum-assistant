@@ -21,7 +21,7 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
   notification pipeline                          (notifications/emit-signal.ts →
   decision engine → destination resolver →        decision-engine.ts → destination-resolver.ts →
   broadcaster builds the card context ONCE        broadcaster.ts: resolveApprovalContext /
-  (generic actions[] + plainTextFallback)         resolveQuestionOptionsContext)
+  (generic actions[] + plainTextFallback)         resolveQuestionContext)
         │
         ▼ per-channel rendering ONLY
   channel adapters                               (notifications/adapters/{telegram,slack,macos,platform},
@@ -131,6 +131,13 @@ routing after a restart even though the card is absent from the model's history.
 Two instruction modes exist per request kind (`notifications/guardian-question-mode.ts`):
 **approval** ("CODE approve" / approve–reject buttons) and **answer**
 ("CODE <your answer>" / option buttons). `pending_question` is answer-mode.
+The "CODE <reply>" instruction lives in exactly one place: the
+`plainTextFallback` the broadcaster builds beside the card's actions. Composed
+copy never carries it (the decision engine strips a model's echo of it on
+every channel), and a transport appends it only when it sends text without
+buttons: a rich delivery that failed, or a request with no actions to draw,
+which is how an option-less voice question stays answerable. Every surface
+with buttons, and the bell, banner, and push, show the ask alone.
 
 ## Worked example: `ask_question` on a channel
 

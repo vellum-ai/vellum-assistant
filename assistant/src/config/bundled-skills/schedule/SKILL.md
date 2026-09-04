@@ -130,6 +130,8 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 **Secrets.** For an OAuth-connected provider (google, slack, notion, …), call its API with `assistant oauth request --provider <p> <url>` — the assistant injects the token, and the script never sees it. For raw secrets with no OAuth provider (PATs, API keys), collect at install time with `assistant credentials prompt --service <s> --field <f> --label "<label>"` (secure input, never printed to chat) and read at runtime with `assistant credentials reveal --service <s> --field <f>`.
 
+When a scheduled or background run is blocked on a missing or stale credential, tell the user in the notification that the credential needs refreshing and ask them to reply in the thread so you can open the secure prompt. Never put a CLI command in the notification or the tick summary. The user cannot run those from their terminal.
+
 ## Inference Profile
 
 Every schedule carries a pinned `inference_profile` (a key from `llm.profiles`), so a recurring task keeps running on the model (and the price) it was created under even when the user later changes their default profile. Creating a schedule without `inference_profile` pins it to the user's current default; pass one explicitly when a task should run on a specific model, e.g. a cost-optimized profile for a high-frequency digest. Passing `inference_profile: null` on update re-pins the schedule to the user's current default rather than unpinning it. The pinned profile is shown on the schedule's details page in settings.
@@ -144,7 +146,7 @@ Conversations created by a schedule's runs land in the sidebar's Scheduled secti
 
 ## Conversation Reuse
 
-Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.
+Each run of a recurring schedule starts a fresh conversation unless `reuse_conversation: true` is set, in which case subsequent runs continue the conversation from the last successful run and keep its context (for example a `thread_ts` the run posted to earlier, so it can post into the same Slack thread again). Reuse is a property of the run's own conversation: a run never posts to a channel on its own, so what reaches Slack, Telegram, or Discord is only what the run sends explicitly (see Delivering Results). One-shot schedules always create a fresh conversation.
 
 - Only applies to **recurring** schedules; ignored for one-shot schedules.
 - If the prior conversation has been deleted, a new one is created automatically.
@@ -245,4 +247,4 @@ Choose the right delivery tool based on the content:
 
 Example schedule message for a Slack digest:
 
-> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to #alex-agent-messages (C0A7STRJ4G5)."
+> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to the channel the user named."

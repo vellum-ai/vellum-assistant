@@ -32,7 +32,7 @@ const VISA_ON_FILE = {
 
 describe("PaymentMethodModalShell", () => {
   test("add mode titles the modal and the primary action", () => {
-    const { getByText, getByTestId, queryByTestId } = renderShell();
+    const { getByText, getByTestId } = renderShell();
     expect(getByText("Add a card")).not.toBeNull();
     expect(
       getByText("Kept on file for auto-reload and your Pro plan."),
@@ -40,10 +40,9 @@ describe("PaymentMethodModalShell", () => {
     expect(getByTestId("auto-top-up-pm-save-button").textContent).toBe(
       "Save card",
     );
-    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
-  test("replace mode titles the modal and shows the card on file", () => {
+  test("replace mode folds the card being replaced into the subtitle", () => {
     const { getByText, getByTestId } = renderShell({
       mode: "replace",
       cardOnFile: VISA_ON_FILE,
@@ -52,55 +51,81 @@ describe("PaymentMethodModalShell", () => {
     expect(getByTestId("auto-top-up-pm-save-button").textContent).toBe(
       "Replace card",
     );
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Visa •••• 4242");
-    expect(row.textContent).toContain("· 04 / 42");
-    expect(row.textContent).toContain("Replaced on save");
+    expect(
+      getByText(
+        "Replacing Visa •••• 4242 · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
   });
 
-  test("the card on file scrolls with the fields inside the modal body", () => {
-    const { getByTestId } = renderShell({
-      mode: "replace",
-      cardOnFile: VISA_ON_FILE,
-    });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.closest('[data-slot="modal-body"]')).not.toBeNull();
-  });
-
-  test("a card on file with no last4 drops the empty dots", () => {
-    const { getByTestId } = renderShell({
+  test("a card on file with no last4 reads its own sentence", () => {
+    const { getByText } = renderShell({
       mode: "replace",
       cardOnFile: { ...VISA_ON_FILE, last4: null },
     });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Visa");
-    expect(row.textContent).not.toContain("••••");
+    expect(
+      getByText(
+        "Replacing your Visa card · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
   });
 
-  test("a card on file with no brand or last4 falls back to the generic label", () => {
-    const { getByTestId } = renderShell({
+  test("a card on file with no brand reads its own sentence", () => {
+    const { getByText } = renderShell({
       mode: "replace",
-      cardOnFile: { ...VISA_ON_FILE, brand: null, last4: null },
+      cardOnFile: { ...VISA_ON_FILE, brand: null },
     });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Saved card");
-    expect(row.textContent).not.toContain("••••");
+    expect(
+      getByText(
+        "Replacing the card ending in 4242 · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
   });
 
   test("omits the expiry when either half is missing", () => {
-    const { getByTestId } = renderShell({
+    const { getByText } = renderShell({
       mode: "replace",
       cardOnFile: { ...VISA_ON_FILE, expMonth: null, expYear: null },
     });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Visa •••• 4242");
-    expect(row.textContent).not.toContain("·");
-    expect(row.textContent).not.toContain("null");
+    expect(
+      getByText(
+        "Replacing Visa •••• 4242. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
   });
 
-  test("renders the card on file only in replace mode", () => {
-    const { queryByTestId } = renderShell({ cardOnFile: VISA_ON_FILE });
-    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
+  test("a card with no last4 and no expiry reads its own sentence", () => {
+    const { getByText } = renderShell({
+      mode: "replace",
+      cardOnFile: { brand: "visa", last4: null, expMonth: null, expYear: null },
+    });
+    expect(
+      getByText(
+        "Replacing your Visa card. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("a card with no brand and no expiry reads its own sentence", () => {
+    const { getByText } = renderShell({
+      mode: "replace",
+      cardOnFile: { brand: null, last4: "4242", expMonth: null, expYear: null },
+    });
+    expect(
+      getByText(
+        "Replacing the card ending in 4242. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("a null card on file falls back to the plain subtitle", () => {
+    const { getByText } = renderShell({ mode: "replace", cardOnFile: null });
+    expect(getByText("The new card takes over immediately.")).not.toBeNull();
+  });
+
+  test("add mode ignores a card on file in the subtitle", () => {
+    const { queryByText } = renderShell({ cardOnFile: VISA_ON_FILE });
+    expect(queryByText(/Replacing/)).toBeNull();
   });
 
   test("showTerms toggles the terms line", () => {
@@ -184,13 +209,13 @@ describe("PaymentMethodModalShell", () => {
   });
 
   test("saved after a replace drops the card it just replaced", () => {
-    const { getByTestId, queryByTestId } = renderShell({
+    const { getByText, getByTestId } = renderShell({
       mode: "replace",
       cardOnFile: VISA_ON_FILE,
       state: "saved",
       savedCard: { brand: "visa", last4: "1881" },
     });
-    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
+    expect(getByText("The new card takes over immediately.")).not.toBeNull();
     expect(getByTestId("payment-method-modal-saved").textContent).toContain(
       "Visa •••• 1881 saved",
     );
@@ -215,6 +240,16 @@ describe("PaymentMethodModalShell", () => {
     const panel = getByTestId("payment-method-modal-saved");
     expect(panel.textContent).toContain("Card saved");
     expect(panel.textContent).not.toContain("Auto-reload is active again");
+  });
+
+  test("saved keeps the digits for a brand Stripe could not name", () => {
+    const { getByTestId } = renderShell({
+      state: "saved",
+      savedCard: { brand: "unknown", last4: "1881" },
+    });
+    const panel = getByTestId("payment-method-modal-saved");
+    expect(panel.textContent).toContain("Card ending in 1881 saved");
+    expect(panel.textContent).not.toContain("unknown");
   });
 
   test("error renders the message beside a dot", () => {

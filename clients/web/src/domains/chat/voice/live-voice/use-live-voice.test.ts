@@ -72,6 +72,7 @@ function renderController(
     observeAudioState?: boolean;
     reconnectBackoffMs?: number[];
     heldPlaybackTimeoutMs?: number;
+    endAfterSeedReplyQuietMs?: number;
     /**
      * Configure each FakeCapture at creation — before the controller calls
      * `capture.start()`, which happens synchronously at connect time (so
@@ -118,7 +119,7 @@ function renderController(
 /** Start a session and drive it to the listening state (ready + capture). */
 async function startListening(
   h: ReturnType<typeof renderController>,
-  options?: { handsFree?: boolean },
+  options?: { handsFree?: boolean; entry?: "companion" },
 ) {
   await act(async () => {
     await h.view.result.current.start("assistant-1", "conv-1", options);
@@ -1203,6 +1204,25 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     });
     expect(new Int16Array(h.client.sentAudio[1]!)[0]).toBe(1234);
     expect(useLiveVoiceStore.getState().inputAmplitude).toBeCloseTo(0.4);
+  });
+
+  test("the entry point rides every connect the session makes, reconnects included", async () => {
+    // A socket blip does not change where the user started from, and the
+    // fresh daemon session behind the reconnect writes its own started row.
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true, entry: "companion" });
+    expect(h.client.connectArgs).toMatchObject({ entry: "companion" });
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(h.client.connectArgs).toMatchObject({ entry: "companion" });
   });
 
   test("muted survives a retryable reconnect — no hot mic after a blip", async () => {
@@ -3533,6 +3553,218 @@ describe("speak first (seed turn)", () => {
 
     expect(h.view.result.current.state).toBe("listening");
     expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("a seed that is the user's own words renders as theirs", async () => {
+    const h = renderController();
+    h.client.textInputSupported = true;
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+        seedText: "what is this",
+        seedVisible: true,
+      });
+    });
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual(["what is this"]);
+    expect(h.client.sentTextOptions).toEqual([{ hidden: false }]);
+  });
+
+  /**
+   * A question asked from another application is answered and done: the
+   * session ends once the reply has been heard and nothing else has started.
+   */
+  describe("ending after the seed's reply", () => {
+    const QUIET_MS = 30;
+
+    async function startAsk(h: ReturnType<typeof renderController>) {
+      h.client.textInputSupported = true;
+      await act(async () => {
+        await h.view.result.current.start("assistant-1", "conv-1", {
+          handsFree: true,
+          seedText: "what is this",
+          seedVisible: true,
+          endAfterSeedReply: true,
+        });
+      });
+      await emitReady(h);
+      expect(h.client.sentText).toEqual(["what is this"]);
+    }
+
+    function speak(h: ReturnType<typeof renderController>, seq: number) {
+      act(() => {
+        h.client.emit("thinking", { type: "thinking", seq, turnId: "t1" });
+        h.client.emit("ttsAudio", {
+          type: "tts_audio",
+          seq: seq + 1,
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          dataBase64: "AAAA",
+        });
+      });
+    }
+
+    async function finishSpeaking(
+      h: ReturnType<typeof renderController>,
+      seq: number,
+    ) {
+      await act(async () => {
+        h.client.emit("ttsDone", { type: "tts_done", seq, turnId: "t1" });
+        h.player.finishPlayback();
+        await flushMicrotasks();
+      });
+    }
+
+    test("ends once the reply has been heard and the turn stays quiet", async () => {
+      const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
+      await startAsk(h);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      expect(h.view.result.current.state).toBe("listening");
+
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+
+      expect(h.view.result.current.state).toBe("idle");
+      expect(h.client.ended).toBe(true);
+    });
+
+    test("stays up when the reply goes on after a pause, as a tool run does", async () => {
+      const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
+      await startAsk(h);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      // The daemon's next `thinking` lands inside the quiet.
+      speak(h, 5);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("speaking");
+      expect(h.client.ended).toBe(false);
+
+      // The second piece is the last one.
+      await finishSpeaking(h, 7);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("idle");
+    });
+
+    test("stays up for good once the user says something", async () => {
+      const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
+      await startAsk(h);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      act(() => {
+        h.client.emit("speechStarted", { type: "speech_started", seq: 5 });
+      });
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("listening");
+      expect(h.client.ended).toBe(false);
+
+      // The follow-up is answered, and the conversation is theirs now: the
+      // reply to it does not end the session either.
+      act(() => {
+        h.client.emit("utteranceEnd", {
+          type: "utterance_end",
+          seq: 6,
+          reason: "silence",
+        });
+        h.client.emit("sttFinal", { type: "stt_final", seq: 7, text: "and" });
+      });
+      speak(h, 8);
+      await finishSpeaking(h, 10);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("listening");
+      expect(h.client.ended).toBe(false);
+    });
+
+    test("still ends when the onset was room noise the server took back", async () => {
+      const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
+      await startAsk(h);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      act(() => {
+        h.client.emit("speechStarted", { type: "speech_started", seq: 5 });
+      });
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.client.ended).toBe(false);
+
+      await act(async () => {
+        h.client.emit("utteranceDiscarded", {
+          type: "utterance_discarded",
+          seq: 6,
+        });
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+
+      expect(h.view.result.current.state).toBe("idle");
+      expect(h.client.ended).toBe(true);
+    });
+
+    test("keeps the ask's shape across a pre-ready connect retry", async () => {
+      const h = renderController({
+        endAfterSeedReplyQuietMs: QUIET_MS,
+        reconnectBackoffMs: FAST_BACKOFF,
+      });
+      h.client.textInputSupported = true;
+      await act(async () => {
+        await h.view.result.current.start("assistant-1", "conv-1", {
+          handsFree: true,
+          seedText: "what is this",
+          seedVisible: true,
+          endAfterSeedReply: true,
+        });
+      });
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        const err: LiveVoiceClientError = {
+          reason: "connection-failed",
+          message: "Live-voice WebSocket error",
+        };
+        h.client.emit("error", err);
+      });
+      await act(async () => {
+        await sleep(30);
+      });
+      await emitReady(h, "s2");
+
+      expect(h.client.sentText).toEqual(["what is this"]);
+      expect(h.client.sentTextOptions).toEqual([{ hidden: false }]);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("idle");
+    });
+
+    test("a plain seed leaves the session up", async () => {
+      const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
+      await startWithSeed(h);
+      await emitReady(h);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+
+      expect(h.view.result.current.state).toBe("listening");
+      expect(h.client.ended).toBe(false);
+    });
   });
 
   test("a fresh session after one that greeted greets again", async () => {

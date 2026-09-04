@@ -28,6 +28,10 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  pendingStandaloneImagePersist,
+  SIGHT_FRAME_TURN_HOLD_MS,
+} from "../live-voice/live-voice-photo.js";
 import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   deleteMessageById,
@@ -321,6 +325,8 @@ export interface VoiceTurnOptions {
   voiceTelemetry?: {
     sessionId: string;
     client?: ClientOs;
+    /** The control the session was started from (the start frame's `entry`). */
+    entry?: string;
   };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
@@ -765,6 +771,7 @@ export async function startVoiceTurn(
     enteredAt: Date.now(),
     conversationReadyAt: 0,
     admissionClearAt: 0,
+    sightHoldMs: 0,
     persistDoneAt: 0,
   };
   const eventSink: VoiceRunEventSink = {
@@ -981,6 +988,31 @@ export async function startVoiceTurn(
   }
   dispatch.admissionClearAt = Date.now();
 
+  // A camera frame the client sent moments before the user stopped speaking is
+  // counted the tick its socket message arrives and written a few awaits later,
+  // so the history this turn is about to snapshot can be missing the picture
+  // the question is about. Wait it out, bounded, and proceed regardless: the
+  // worst outcome is the answer this turn would have given anyway.
+  //
+  // The wait sits before the turn claims the processing flag. That flag is
+  // exclusive and the image's own acquire polls for it, so an image waited for
+  // after the claim cannot land until this turn has finished and released.
+  const pendingImagePersist = pendingStandaloneImagePersist(
+    opts.conversationId,
+  );
+  if (pendingImagePersist) {
+    const holdStartedAt = Date.now();
+    let holdTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      pendingImagePersist,
+      new Promise<void>((resolve) => {
+        holdTimer = setTimeout(resolve, SIGHT_FRAME_TURN_HOLD_MS);
+      }),
+    ]);
+    clearTimeout(holdTimer);
+    dispatch.sightHoldMs = Date.now() - holdStartedAt;
+  }
+
   // Releases the per-turn state of a voice turn that OWNED the conversation,
   // so `trustContext`, `callSessionId`, etc. don't leak into subsequent
   // non-voice turns. Runs on exactly two paths: the agent-loop `finally`
@@ -1086,11 +1118,19 @@ export async function startVoiceTurn(
               // path already fills from the same `detectClientOs()` value, so
               // a voice turn reports its platform in the column existing turn
               // analytics read rather than one only voice knows about.
+              //
+              // `voice_entry` is voice's own: which control started the
+              // session the turn belongs to, so per-turn analytics can split
+              // the companion from the app without a join back to the
+              // session row.
               client: {
                 voice: true,
                 voice_session_id: opts.voiceTelemetry.sessionId,
                 ...(opts.voiceTelemetry.client
                   ? { os: opts.voiceTelemetry.client }
+                  : {}),
+                ...(opts.voiceTelemetry.entry
+                  ? { voice_entry: opts.voiceTelemetry.entry }
                   : {}),
               },
             }
@@ -1719,7 +1759,11 @@ export async function startVoiceTurn(
         conversationMs: dispatch.conversationReadyAt - dispatch.enteredAt,
         admissionWaitMs:
           dispatch.admissionClearAt - dispatch.conversationReadyAt,
-        persistMs: dispatch.persistDoneAt - dispatch.admissionClearAt,
+        sightHoldMs: dispatch.sightHoldMs,
+        persistMs:
+          dispatch.persistDoneAt -
+          dispatch.admissionClearAt -
+          dispatch.sightHoldMs,
         preLoopMs: loopEnterAt - dispatch.persistDoneAt,
       },
       "Voice turn dispatch timing",

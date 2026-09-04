@@ -115,16 +115,92 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0);
 }
 
+/** WCAG contrast ratio between two #rrggbb hexes, 1 to 21. */
+function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort(
+    (x, y) => y - x,
+  );
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
 /**
- * Black or white, whichever has the higher WCAG contrast ratio against
- * `bg`. Stricter than {@link toneForBg}'s YIQ heuristic — mid-tone
- * saturated colors (teal, orange) correctly get dark text here, where the
- * YIQ rule would pick white. Use for text that must stay readable on a
- * solid fill of the avatar color.
+ * {@link FG_DARK} or {@link FG_LIGHT}, whichever has the higher WCAG contrast
+ * ratio against `bg`. An exact tie takes the light one.
+ *
+ * Both ratios are measured against the two values this returns, not against
+ * pure black and white. A near-black loses to white at a lower background
+ * luminance than #000000 does, so a luminance cutoff read off the pure pair
+ * hands dark ink to a band of mid-tone backgrounds that white reads better on.
+ *
+ * Stricter than {@link toneForBg}'s YIQ heuristic, which gives white to the
+ * mid-tone saturated colors (teal, orange) that want dark text. Use for text
+ * that must stay readable on a solid fill of the avatar color.
  */
 export function contrastForeground(bg: string): string {
-  // White wins only below L ≈ 0.179 — the point where (L + 0.05)² = 0.0525.
-  return relativeLuminance(bg) > 0.179 ? FG_DARK : FG_LIGHT;
+  return contrastRatio(FG_DARK, bg) > contrastRatio(FG_LIGHT, bg)
+    ? FG_DARK
+    : FG_LIGHT;
+}
+
+/** WCAG AA for text below the large-text sizes, which is all of this ink. */
+const TEXT_CONTRAST_FLOOR = 4.5;
+
+/**
+ * The luminance window in which NEITHER ink clears the floor.
+ *
+ * Two inks give two passing regions and a gap between them: white carries a
+ * background up to the luminance where 1.05 over it falls to the floor, and the
+ * near-black carries one down to where the floor times its own luminance is
+ * reached. Mid-tones sit in the gap, and no choice between two values gets
+ * them out of it.
+ */
+const WHITE_INK_MAX_LUMINANCE = 1.05 / TEXT_CONTRAST_FLOOR - 0.05;
+const DARK_INK_MIN_LUMINANCE =
+  TEXT_CONTRAST_FLOOR * (relativeLuminance(FG_DARK) + 0.05) - 0.05;
+const FLOOR_GAP_MIDPOINT =
+  (WHITE_INK_MAX_LUMINANCE + DARK_INK_MIN_LUMINANCE) / 2;
+
+/** Whether {@link contrastForeground}'s answer clears the floor on `bg`. */
+function meetsTextFloor(bg: string): boolean {
+  return contrastRatio(contrastForeground(bg), bg) >= TEXT_CONTRAST_FLOOR;
+}
+
+/** How finely {@link legibleAccentFill} steps toward the nearer edge. */
+const FILL_ADJUST_STEPS = 100;
+
+/**
+ * `accentHex` if text can sit on it, otherwise the nearest colour that text
+ * can sit on: the accent walked toward black or toward white until
+ * {@link contrastForeground}'s answer clears {@link TEXT_CONTRAST_FLOOR}.
+ *
+ * For a surface FILLED with an avatar accent, since an accent is any colour a
+ * palette, an image or a user hands over, and the mid-tones between the two
+ * inks' passing regions carry no readable text at all. Chrome that sits OVER
+ * video rather than under text takes the raw accent instead: a ring or a line
+ * has no foreground to fail.
+ *
+ * The direction is whichever edge of the gap is nearer in luminance, so the
+ * fill moves as little as it can and keeps its hue; darkening scales the
+ * channels and lightening washes toward white, which are the same two moves
+ * the room's other accent surfaces make. Both edges are reachable (black and
+ * white each clear the floor against one ink), so the walk always lands.
+ */
+export function legibleAccentFill(accentHex: string): string {
+  if (meetsTextFloor(accentHex)) {
+    return accentHex;
+  }
+  const darker = relativeLuminance(accentHex) < FLOOR_GAP_MIDPOINT;
+  let fill = accentHex;
+  for (let step = 1; step <= FILL_ADJUST_STEPS; step++) {
+    const amount = step / FILL_ADJUST_STEPS;
+    fill = darker
+      ? darkenHex(accentHex, 1 - amount)
+      : blendHex(accentHex, FG_LIGHT, amount);
+    if (meetsTextFloor(fill)) {
+      break;
+    }
+  }
+  return fill;
 }
 
 /** Build a tone object from a background hex. */

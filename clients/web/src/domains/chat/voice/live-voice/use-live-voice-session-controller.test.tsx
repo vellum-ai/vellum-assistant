@@ -287,7 +287,9 @@ describe("starter registration", () => {
     });
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
     useConversationStore.getState().setActiveConversationId("conv-1");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
 
     const h = renderPersistentController();
     await act(async () => {
@@ -307,6 +309,7 @@ describe("starter registration", () => {
       assistantId: "assistant-1",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
@@ -357,7 +360,9 @@ describe("re-draining on an assistant switch", () => {
 
   test("a request reparked mid-preflight starts on the assistant switched to", async () => {
     activeAssistant("assistant-1");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     let releasePreflight: () => void = () => {};
     preflightLiveVoice.mockImplementationOnce(
       () =>
@@ -389,6 +394,7 @@ describe("re-draining on an assistant switch", () => {
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     // Spent, rather than left parked for the TTL to throw away.
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
@@ -405,7 +411,9 @@ describe("re-draining on an assistant switch", () => {
     await flushDrains();
 
     // Parked directly, so nothing drains it until the switch does.
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     act(() => {
       useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
     });
@@ -435,6 +443,7 @@ describe("re-draining on an assistant switch", () => {
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
@@ -457,7 +466,9 @@ describe("re-draining on an assistant switch", () => {
     // The park is one-shot, so the trigger cannot turn every later switch into
     // a session the user never asked for.
     activeAssistant("assistant-1");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     const h = renderPersistentController();
     await flushDrains();
     expect(h.clients).toHaveLength(1);

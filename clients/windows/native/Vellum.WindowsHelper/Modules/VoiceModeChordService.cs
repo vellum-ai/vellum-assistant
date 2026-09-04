@@ -121,9 +121,8 @@ public sealed class VoiceModeChordService : IRpcModule, IDisposable
         {
             return;
         }
-        // A completed tap is reported as a down/up pair, the shape the macOS
-        // helper uses for a completed bare-Fn tap; the renderer toggles on
-        // the down edge.
+        // A completed tap is reported as a down/up pair once the keys are
+        // back up; the renderer toggles on the down edge.
         _events.Writer.TryWrite("down");
         _events.Writer.TryWrite("up");
     }

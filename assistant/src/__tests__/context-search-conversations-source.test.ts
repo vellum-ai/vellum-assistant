@@ -232,10 +232,26 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       source: "auto-analysis",
       content: "derivedtoken should not include auto-analysis output.",
     });
-    const notification = await seedConversation({
-      title: "Notification conversation",
+    // A notification conversation is evidence only through rows that record
+    // a delivered post (the providerMeta envelope); a row the pre-send
+    // pairing path wrote there may describe a post the channel never took.
+    const notificationSeed = await seedConversation({
+      title: "Notification conversation (seed row)",
       source: "notification",
-      content: "derivedtoken should not include notification output.",
+      content: "derivedtoken should not include an unacknowledged seed row.",
+    });
+    const notification = await seedConversation({
+      title: "Notification conversation (delivered)",
+      source: "notification",
+      content: "derivedtoken appears in a delivered notification.",
+      metadata: JSON.stringify({
+        automated: true,
+        providerMeta: JSON.stringify({
+          source: "slack",
+          conversationExternalId: "D0123456789",
+          eventKind: "message",
+        }),
+      }),
     });
     const current = await seedConversation({
       title: "Current conversation",
@@ -257,6 +273,7 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       { messageId: visible.message.id, score: 0.9 },
       { messageId: subagent.message.id, score: 0.85 },
       { messageId: autoAnalysis.message.id, score: 0.8 },
+      { messageId: notificationSeed.message.id, score: 0.78 },
       { messageId: notification.message.id, score: 0.75 },
       { messageId: current.message.id, score: 0.7 },
       { messageId: legacyPrivate.message.id, score: 0.65 },
@@ -268,9 +285,14 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       10,
     );
 
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
+    const locators = result.evidence.map((item) => item.locator);
+    expect(locators).toHaveLength(2);
+    expect(locators).toEqual(
+      expect.arrayContaining([
+        `${visible.conversation.id}#${visible.message.id}`,
+        `${notification.conversation.id}#${notification.message.id}`,
+      ]),
+    );
   });
 
   test("includes archived, scheduled, and background conversations", async () => {

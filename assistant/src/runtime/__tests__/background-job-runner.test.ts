@@ -13,18 +13,23 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
 let bootstrapCalls = 0;
 let bootstrapLastArgs: Record<string, unknown> | null = null;
+let bootstrapError: Error | null = null;
 const STUB_CONVERSATION_ID = "conv-test-1";
 
 mock.module("../../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: (opts: Record<string, unknown>) => {
     bootstrapCalls += 1;
     bootstrapLastArgs = opts;
+    if (bootstrapError) {
+      throw bootstrapError;
+    }
     return { id: STUB_CONVERSATION_ID };
   },
 }));
@@ -34,10 +39,14 @@ const addMessageCalls: Array<{
   role: string;
   content: string;
 }> = [];
+let addMessageError: Error | null = null;
 
 mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: async (conversationId: string, role: string, content: string) => {
     addMessageCalls.push({ conversationId, role, content });
+    if (addMessageError) {
+      throw addMessageError;
+    }
     return { id: `msg-${addMessageCalls.length}` };
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -94,6 +103,20 @@ mock.module("../pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => preFirstMessageGateOpen,
 }));
 
+// Web presence backs the `visibleInSourceNow` attention hint. Recording the
+// arguments lets the suppression tests assert not just the resolved hint but
+// whether presence was consulted at all.
+let webConversationFocused = false;
+const webPresenceArgs: unknown[][] = [];
+const realWebPresence = await import("../web-presence.js");
+mock.module("../web-presence.js", () => ({
+  ...realWebPresence,
+  isWebConversationFocused: (...args: unknown[]) => {
+    webPresenceArgs.push(args);
+    return webConversationFocused;
+  },
+}));
+
 // Import after mocks are in place.
 const { runBackgroundJob } = await import("../background-job-runner.js");
 
@@ -120,10 +143,14 @@ function baseOpts(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   bootstrapCalls = 0;
   bootstrapLastArgs = null;
+  bootstrapError = null;
   processMessageCalls.length = 0;
   emitCalls.length = 0;
   addMessageCalls.length = 0;
+  addMessageError = null;
   preFirstMessageGateOpen = true;
+  webConversationFocused = false;
+  webPresenceArgs.length = 0;
   processMessageImpl = async () => ({ messageId: "msg-1" });
   emitImpl = async () => ({
     signalId: "sig-1",
@@ -530,5 +557,93 @@ describe("runBackgroundJob", () => {
       expect(bootstrapCalls).toBe(1);
       expect(processMessageCalls).toHaveLength(1);
     });
+  });
+});
+
+// Runs last on purpose: it is the only block that turns the presence flag on,
+// so every test above reads the flag in its default off state.
+describe("runBackgroundJob presence suppression opt-in", () => {
+  beforeEach(() => {
+    setOverridesForTesting({ "activity-presence-suppression": true });
+    webConversationFocused = true;
+  });
+
+  function emittedHint(): Record<string, unknown> {
+    expect(emitCalls).toHaveLength(1);
+    return emitCalls[0].attentionHints as Record<string, unknown>;
+  }
+
+  test("a carried turn failure lets a focused conversation suppress the alert", async () => {
+    // Every path that stamps a failed turn outcome emits `conversation_error`
+    // first, so the focused conversation is already showing this failure.
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "PROVIDER_BILLING" },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(emittedHint()).toMatchObject({ visibleInSourceNow: true });
+    expect(webPresenceArgs).toEqual([[STUB_CONVERSATION_ID]]);
+  });
+
+  test("a timeout alerts even when the conversation is focused", async () => {
+    // The timeout does not abort `processMessage`, so the transcript still
+    // reads as an in-progress turn and there is no rendered error to duplicate.
+    processMessageImpl = () => new Promise(() => {});
+
+    const result = await runBackgroundJob(baseOpts({ timeoutMs: 20 }));
+
+    expect(result.errorKind).toBe("timeout");
+    expect(emittedHint()).toMatchObject({ visibleInSourceNow: false });
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("a throw out of processMessage alerts even when the conversation is focused", async () => {
+    // Message preparation and persistence run before the agent loop, so a
+    // throw from there never reaches the code that renders a failure.
+    processMessageImpl = async () => {
+      throw new Error("failed to persist the user message");
+    };
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.errorKind).toBe("exception");
+    expect(result.turnFailure).toBeUndefined();
+    expect(emittedHint()).toMatchObject({ visibleInSourceNow: false });
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("a sandwich persistence failure alerts even when the conversation is focused", async () => {
+    // The conversation exists and is focused, but nothing has run in it yet.
+    addMessageError = new Error("sandwich write failed");
+
+    const result = await runBackgroundJob(
+      baseOpts({
+        assistantSandwich: {
+          preamble: "TRUSTED_PRE",
+          content: "UNTRUSTED_PAYLOAD",
+          postamble: "TRUSTED_POST",
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
+    expect(processMessageCalls).toHaveLength(0);
+    expect(emittedHint()).toMatchObject({ visibleInSourceNow: false });
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("a bootstrap failure alerts even when a conversation is focused", async () => {
+    bootstrapError = new Error("bootstrap boom");
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.conversationId).toBe("");
+    expect(emittedHint()).toMatchObject({ visibleInSourceNow: false });
+    expect(webPresenceArgs).toEqual([]);
   });
 });

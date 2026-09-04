@@ -591,6 +591,7 @@ export function ChatComposer({
     // start, only a reason to open silent, so it is decided here rather than
     // in the staleness guard.
     starter?.start(assistantId, conversationId ?? null, {
+      entry: "composer",
       seedText: voiceEntryGreetingSeed(latest.conversationIsEmpty),
     });
   }, [assistantId, conversationId]);
@@ -672,8 +673,9 @@ export function ChatComposer({
       // welcome card), and dismissible on all of them. The card precedes the
       // live-voice `getUserMedia` alert, so `docs/CAPACITOR.md` § OS permission
       // requests governs it: dismissing cancels outright and never reaches
-      // `getUserMedia`, so the only path that *does* reach the alert is still
-      // the direct one ("Start talking").
+      // `getUserMedia`, so the only path that does reach the alert is still
+      // the direct one ("Start talking"). A widget or Siri launch can open
+      // the card by accident; dismiss is how that user gets out.
       if (firstRunCardIntercepts()) {
         return;
       }
@@ -1047,10 +1049,10 @@ export function ChatComposer({
           ? ""
           : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
       }`
-    // Undefined rather than the layout classes while hidden: `hidden` already
-    // takes the group out of layout, and a class arriving with the reveal is
-    // what makes the entrance animation run on each one.
-    : undefined;
+    : // Undefined rather than the layout classes while hidden: `hidden` already
+      // takes the group out of layout, and a class arriving with the reveal is
+      // what makes the entrance animation run on each one.
+      undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both shared with the live-voice bar: it stacks on this

@@ -27,15 +27,13 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
+  MEMORY_SPOTLIGHT_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
-  stripSpotlightInjections,
+  stripTailUserTextBlocksByPrefix,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
-import {
-  readSlackMetadata,
-  readSlackMetadataFromMessageMetadata,
-} from "../messaging/providers/slack/message-metadata.js";
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
   compareSlackTs,
   extractTagLineTexts,
@@ -64,6 +62,7 @@ import {
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_SPOTLIGHT_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -74,9 +73,11 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { trustClassSchema } from "../runtime/trust-class.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
@@ -821,7 +822,8 @@ export function buildChannelCapabilityBlock(
     caps.supportsVoiceInput &&
     !isGroupChatType(caps.chatType) &&
     clientOs !== "macos" &&
-    clientOs !== "windows"
+    clientOs !== "windows" &&
+    clientOs !== "linux"
   ) {
     return null;
   }
@@ -846,6 +848,13 @@ export function buildChannelCapabilityBlock(
     lines.push("");
     lines.push(
       "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths. Prefer PowerShell or CLI automation over foreground computer use when either can complete the task reliably.",
+    );
+  }
+
+  if (clientOs === "linux") {
+    lines.push("");
+    lines.push(
+      "On Linux, prefer CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
     );
   }
 
@@ -992,12 +1001,12 @@ function injectTransportHints(message: Message, hints: string[]): Message {
  * `<active_thread>` focus block. DMs are excluded because they have no
  * threads.
  *
- * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
- * conversation (public, private, and mpim alike — see
- * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
- * We therefore accept only `chatType === "channel"` — when the gateway
- * omits `chatType` (as it does for DMs), the check correctly returns
- * `false`.
+ * The gateway normalizer (`gateway/src/slack/message-normalizer.ts`)
+ * forwards `chatType: "channel"` for channel messages, `"im"` for a 1:1
+ * DM, and `"mpim"` for a group DM, and omits it for an app mention, which
+ * Slack sends without naming the room kind. Accepting only
+ * `chatType === "channel"` therefore returns `false` for both DM shapes
+ * and for an app mention.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on
@@ -1152,29 +1161,12 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
  *   renderer drops the redundant `@user` placeholder.
  */
 function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
-  let slackMeta: ReturnType<typeof readSlackMetadata> = null;
-  let provenanceTrustClass: TrustClass | undefined;
-  if (row.metadata) {
-    try {
-      const outer = JSON.parse(row.metadata) as {
-        slackMeta?: unknown;
-        provenanceTrustClass?: unknown;
-      };
-      if (typeof outer.slackMeta === "string") {
-        slackMeta = readSlackMetadata(outer.slackMeta);
-      }
-      if (
-        outer.provenanceTrustClass === "guardian" ||
-        outer.provenanceTrustClass === "trusted_contact" ||
-        outer.provenanceTrustClass === "unverified_contact" ||
-        outer.provenanceTrustClass === "unknown"
-      ) {
-        provenanceTrustClass = outer.provenanceTrustClass;
-      }
-    } catch {
-      // Malformed metadata — fall through to legacy/null treatment.
-    }
-  }
+  const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata);
+  const provenanceTrustClass = row.metadata
+    ? trustClassSchema.safeParse(
+        safeParseRecord(row.metadata).provenanceTrustClass,
+      ).data
+    : undefined;
 
   const isReaction = slackMeta?.eventKind === "reaction";
   let senderLabel: string | null;
@@ -1877,6 +1869,13 @@ export interface RuntimeInjectionBlocks {
    */
   memoryV3InjectedBlock?: string;
   /**
+   * Rendered `<memory_spotlight>` body spliced onto this turn's user
+   * message. Persisted by the user-prompt-submit hook under
+   * `metadata.memoryV3SpotlightBlock`. Historical turns keep the block they
+   * were sent with; a new spotlight is added only on the new tail.
+   */
+  memoryV3SpotlightBlock?: string;
+  /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
    * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
@@ -2065,6 +2064,7 @@ function applyInjectionBlock(
       ];
     }
   }
+  return runMessages;
 }
 
 /**
@@ -2297,7 +2297,7 @@ function fallbackTurnTrust(
  *     the user tail content.
  *
  * Returns the final message array plus a `blocks` object holding the exact
- * injected text for each captured block — callers persist those bytes to
+ * injected text for each captured block. Callers persist those bytes to
  * message metadata for later byte-exact rehydration.
  */
 export async function applyRuntimeInjections(
@@ -2511,6 +2511,7 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let memoryV3SpotlightCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2560,6 +2561,11 @@ export async function applyRuntimeInjections(
           }
           break;
         }
+        case MEMORY_V3_SPOTLIGHT_BLOCK_ID:
+          if (block.text.length > 0) {
+            memoryV3SpotlightCaptured = block.text;
+          }
+          break;
       }
     }
   }
@@ -2578,16 +2584,18 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: memory-v3 ephemeral-spotlight strip + v2 tail suppression ──
+  // ── Step 0: tail spotlight strip + v2 tail suppression ──
   //
-  // Spotlight strip (unconditional): the `<memory_spotlight>` block is
-  // ephemeral by contract — re-rendered at the current tail each turn — so any
-  // spotlight riding history from a previous turn is stale and is removed
-  // here. This is a SCOPED strip of only that block id: the frozen `<memory>`
-  // card blocks on historical messages are untouched (the cache contract).
-  // With the v3 flag off no spotlight blocks exist and this is a content
-  // no-op, keeping the v2 path bit-for-bit identical.
-  let runMessagesForAssembly = stripSpotlightInjections(runMessages);
+  // Spotlight strip (tail only): mid-turn re-entry and post-compact can
+  // hand back a tail that already carries this turn's `<memory_spotlight>`.
+  // Strip that leftover from the tail so Step 2 splices a single fresh
+  // copy. Historical user messages keep the spotlight they were sent with,
+  // so the provider prefix through those messages stays byte-identical.
+  // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
+  // spotlight blocks exist and this is a content no-op.
+  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(runMessages, [
+    MEMORY_SPOTLIGHT_MATCHER,
+  ]);
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2794,6 +2802,7 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3SpotlightBlock: memoryV3SpotlightCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

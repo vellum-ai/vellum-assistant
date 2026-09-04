@@ -10,9 +10,18 @@
  *
  * - The persist middleware serialises the whole voice-prefs slice into
  *   a single localStorage key, `vellum:voice-prefs`.
+ * - A payload stamped past this build's version is read but never
+ *   written over, so an older bundle running after a newer one cannot
+ *   take fields it has no name for with it. Three layers hold that:
+ *   {@link migrateVoicePrefs} leaves such a payload untouched in
+ *   memory, {@link versionGuardedLocalStorage} refuses the write that
+ *   follows, and the listener below declines the read that starts it.
  * - Cross-tab updates: the persist middleware doesn't sync across tabs
  *   on its own. We listen for `storage` events on `vellum:voice-prefs`
- *   and call `persist.rehydrate()` to pull in the other tab's write.
+ *   and call `persist.rehydrate()` to pull in the other tab's write,
+ *   except for a payload stamped past this build's version, which it
+ *   leaves for the build that wrote it. See
+ *   {@link isFutureVoicePrefsPayload}.
  *
  * Reference:
  * - {@link https://zustand.docs.pmnd.rs/}
@@ -21,6 +30,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import type { StateStorage } from "zustand/middleware";
 
 import { createSelectors } from "@/utils/create-selectors";
 
@@ -126,6 +136,17 @@ export interface VoicePrefsState {
    * silently picked for them.
    */
   flashMode: FlashMode;
+  /**
+   * Whether the viewfinder draws the accented thumbnail of the newest frame
+   * Live gave the call.
+   *
+   * A view preference, not a capture one: sampling, sending and the
+   * transcript record of every kept frame are the same either way. Off by
+   * default, so the viewfinder is only the scene the user is aiming at; the
+   * camera panel is where a call turns the one visible keep signal on. A
+   * stored value is one set from that panel; see {@link migrateVoicePrefs}.
+   */
+  showKeptFrame: boolean;
 }
 
 export interface VoicePrefsActions {
@@ -139,6 +160,8 @@ export interface VoicePrefsActions {
   setInterruptSensitivity: (next: InterruptSensitivity | null) => void;
   /** Record the flash mode the user picked. See {@link VoicePrefsState.flashMode}. */
   setFlashMode: (next: FlashMode) => void;
+  /** Show or hide the kept-frame thumbnail. See {@link VoicePrefsState.showKeptFrame}. */
+  setShowKeptFrame: (next: boolean) => void;
 }
 
 export type VoicePrefsStore = VoicePrefsState & VoicePrefsActions;
@@ -156,6 +179,7 @@ const INITIAL_STATE: VoicePrefsState = {
   pauseBeforeReplyMs: null,
   interruptSensitivity: null,
   flashMode: "off",
+  showKeptFrame: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -163,6 +187,93 @@ const INITIAL_STATE: VoicePrefsState = {
 // ---------------------------------------------------------------------------
 
 const VOICE_PREFS_STORE_KEY = "vellum:voice-prefs";
+
+/**
+ * The persisted shape's version. Anything on disk stamped with a different one,
+ * older or newer, goes through {@link migrateVoicePrefs} before it reaches the
+ * store.
+ */
+const VOICE_PREFS_STORE_VERSION = 1;
+
+/**
+ * Normalizes a payload written below {@link VOICE_PREFS_STORE_VERSION}, and
+ * hands any other one back untouched.
+ *
+ * Below 1: `showKeptFrame` reads false whether the payload carries it or omits
+ * it, and every other field passes through as written. At or above 1: nothing
+ * is rewritten, including fields this build has no name for, which ride through
+ * in the object it returns. Zustand runs this for every version that is not its
+ * own rather than only for older ones, so a payload from a later release
+ * arrives here too, and the build that does not know that schema is not the
+ * one to edit it.
+ *
+ * The false is a literal rather than {@link INITIAL_STATE}'s value, because
+ * this function is one version's contract and a later default carries its own.
+ */
+function migrateVoicePrefs(
+  persisted: unknown,
+  version: number,
+): Partial<VoicePrefsState> {
+  const saved = persisted as Partial<VoicePrefsState> | undefined;
+  if (version >= VOICE_PREFS_STORE_VERSION) {
+    return { ...saved };
+  }
+  return { ...saved, showKeptFrame: false };
+}
+
+/**
+ * Whether the payload on the key was written by a build with a newer schema
+ * than this one.
+ *
+ * Fails open. An absent payload is not a future one, and neither is an
+ * unparseable one: refusing to act on a value nothing can read would leave the
+ * key unwritable for good.
+ */
+function isFutureVoicePrefsPayload(raw: string | null): boolean {
+  if (raw === null) {
+    return false;
+  }
+  try {
+    const version: unknown = (JSON.parse(raw) as { version?: unknown } | null)
+      ?.version;
+    return typeof version === "number" && version > VOICE_PREFS_STORE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `localStorage`, minus the ability to overwrite a payload from a later
+ * release.
+ *
+ * Zustand re-persists after every migration it runs, at THIS build's version
+ * and through THIS build's `partialize`, and a migration cannot opt out. So a
+ * build that starts up after a newer one has written the key, which is what a
+ * rollback or a stale lazily-loaded tab looks like, would otherwise stamp the
+ * payload back down to its own version and drop the fields it has no name for.
+ * Those fields are gone for good at that point, since nothing else holds them.
+ *
+ * Refusing the write costs this build's own edits for the session, which is
+ * the trade: a preference the user can set again against data no one can
+ * recover. Reads are untouched, so the values it does understand still reach
+ * the store and the user still sees their preferences.
+ *
+ * The read and the write are one synchronous task per tab, so nothing local
+ * interleaves between them. Another tab writing a newer payload in that window
+ * is possible in principle and would land the same downgrade this prevents;
+ * the storage-event guard below is what keeps two live tabs from reaching that
+ * state in the first place.
+ */
+const versionGuardedLocalStorage: StateStorage = {
+  getItem: (name) => localStorage.getItem(name),
+  setItem: (name, value) => {
+    if (isFutureVoicePrefsPayload(localStorage.getItem(name))) {
+      return;
+    }
+    localStorage.setItem(name, value);
+  },
+  removeItem: (name) => localStorage.removeItem(name),
+};
 
 const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
   persist(
@@ -186,10 +297,13 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
       setInterruptSensitivity: (next: InterruptSensitivity | null) =>
         set({ interruptSensitivity: next }),
       setFlashMode: (next: FlashMode) => set({ flashMode: next }),
+      setShowKeptFrame: (next: boolean) => set({ showKeptFrame: next }),
     }),
     {
       name: VOICE_PREFS_STORE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => versionGuardedLocalStorage),
+      version: VOICE_PREFS_STORE_VERSION,
+      migrate: migrateVoicePrefs,
       partialize: (state) => ({
         showUserTranscript: state.showUserTranscript,
         showAssistantTranscript: state.showAssistantTranscript,
@@ -197,6 +311,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         pauseBeforeReplyMs: state.pauseBeforeReplyMs,
         interruptSensitivity: state.interruptSensitivity,
         flashMode: state.flashMode,
+        showKeptFrame: state.showKeptFrame,
       }),
     },
   ),
@@ -210,8 +325,16 @@ export const useVoicePrefsStore = createSelectors(useVoicePrefsStoreBase);
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key === VOICE_PREFS_STORE_KEY) {
-      void useVoicePrefsStoreBase.persist.rehydrate();
+    if (event.key !== VOICE_PREFS_STORE_KEY) {
+      return;
     }
+    // Reading a newer payload would have this build adopt it and, through the
+    // write that follows a migration, hand back a downgrade the newer tab
+    // would upgrade again. The wrapper above refuses that write; declining the
+    // read as well keeps two live tabs from trading them at all.
+    if (isFutureVoicePrefsPayload(event.newValue)) {
+      return;
+    }
+    void useVoicePrefsStoreBase.persist.rehydrate();
   });
 }

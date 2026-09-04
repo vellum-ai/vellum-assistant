@@ -70,6 +70,10 @@
     "updateFailed": "無法更新「{label}」。您的變更已還原。"
   },
   "avatarManagementModal": {
+    "accent": "強調色",
+    "accentAutomatic": "自動",
+    "accentPickerLabel": "強調色",
+    "accentReset": "重設",
     "body": "身體",
     "color": "顏色",
     "eyes": "眼睛",
@@ -148,28 +152,39 @@
     "talk": {
       "body": "開始語音對話。",
       "title": "交談"
-    },
-    "type": {
-      "body": "從這裡傳送訊息，並在這裡閱讀回覆。",
-      "title": "輸入"
     }
   },
   "companionSurface": {
     "allow": "允許",
+    "calling": "正在呼叫…",
+    "callingNamed": "正在呼叫 {name}…",
+    "captureKind": "來源類型",
+    "captureNothing": "沒有可顯示的內容",
+    "capturePicker": "教學來源",
+    "captureScreen": "螢幕 {n}",
+    "captureScreens": "螢幕",
+    "captureTabs": "Chrome 分頁",
+    "captureWindows": "視窗",
     "deny": "拒絕",
     "endSession": "結束會話",
-    "goBack": "返回",
-    "messagePlaceholder": "傳送訊息給 {name}",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
-    "send": "傳送",
+    "offerCopy": "複製",
+    "offerDiscard": "捨棄",
+    "offerHeard": "{app} 已貼上那段",
+    "offerNowhere": "沒有地方可以放",
+    "offerQuit": "結束 {app}",
+    "offerUse": "使用 Vellum 的版本",
+    "offerVersion": "Vellum 聽到的是",
+    "openVellum": "開啟 Vellum",
+    "share": "共享",
+    "sharePicker": "共享來源",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
-    "type": "輸入",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"
   },
@@ -217,7 +232,9 @@
   },
   "detailPrimitives": {
     "copied": "已複製",
-    "copy": "複製"
+    "copy": "複製",
+    "showLess": "顯示較少",
+    "showMore": "顯示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止錄音"
@@ -316,6 +333,9 @@
   },
   "lazyBoundary": {
     "loadError": "此區段無法載入。請重新載入頁面再試一次。"
+  },
+  "localNotification": {
+    "goToConversation": "前往對話"
   },
   "macosAppBanner": {
     "ariaLabel": "下載 macOS 應用程式",
@@ -680,12 +700,15 @@
     "velvet": "絲絨"
   },
   "tipCard": {
+    "computerUseBodyLinux": "在這台電腦上，我可以處理檔案、終端機和瀏覽器。",
     "computerUseBodyMacos": "在此 Mac 上，我可以為您控制應用程式和桌面。",
     "computerUseBodyWindows": "在此電腦上，我可以為您控制應用程式和桌面。",
+    "computerUseTitleLinux": "讓我使用這台電腦",
     "computerUseTitleMacos": "讓我使用您的 Mac",
     "computerUseTitleWindows": "讓我使用您的電腦",
     "dismiss": "關閉",
     "nextTip": "下一個提示",
+    "pluginsBodyLinux": "從個人理財副駕駛到每日家庭簡報。",
     "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
     "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
     "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",
@@ -802,7 +825,11 @@
     "body": "語音提供者、轉錄和 API 金鑰位於<modelsLink>模型與服務</modelsLink>中。"
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "建議關閉"
+    "recommendedOff": "建議關閉",
+    "userTranscriptLabel": "顯示你說的話",
+    "userTranscriptDescription": "在你說話時即時轉錄文字。",
+    "assistantTranscriptLabel": "顯示助手說的話",
+    "assistantTranscriptDescription": "在語音回覆旁同步顯示文字。"
   },
   "windowsMenuBar": {
     "developer": "開發人員",
@@ -836,6 +863,24 @@
       "slack": "下載您的助理頭像，以上傳為應用程式圖示。",
       "discord": "下載您的助理頭像，以上傳為機器人圖示。",
       "telegram": "下載您的助理頭像，然後透過 /setuserpic 傳送給 BotFather。"
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "嚴格",
+      "description": "執行任何操作前均需確認。不自動批准任何操作。"
+    },
+    "conservative": {
+      "label": "保守",
+      "description": "自動批准低風險操作，例如網路搜尋以及在其自身工作區中讀寫檔案。"
+    },
+    "relaxed": {
+      "label": "寬鬆",
+      "description": "自動批准低風險與中等風險操作，例如修改其工作區之外的檔案。"
+    },
+    "fullAccess": {
+      "label": "完全存取",
+      "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
   }
 }

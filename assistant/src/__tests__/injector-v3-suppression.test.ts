@@ -10,10 +10,11 @@
  * pre-cutover v2 blocks both ride the cached prefix); the old whole-layer
  * strip is gone.
  *
- * The ephemeral `<memory_spotlight>` block is strip-and-replaced every turn:
- * stale spotlights are removed from every user message unconditionally (a
- * scoped, single-id strip), and the spotlight injector's `append-user-tail`
- * block lands at the tail.
+ * Leftover `<memory_spotlight>` blocks are stripped from the TAIL user
+ * message only (mid-turn re-entry / post-compact must not double-stack).
+ * Historical user messages keep the spotlight they were sent with. The
+ * spotlight injector's `after-memory-prefix` block is spliced onto the
+ * current tail and captured on `blocks`.
  *
  * v2 suppression stays keyed off whether v3 produced a block, NOT off the
  * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
@@ -128,7 +129,7 @@ function v3Injector(inner: string | null, commit?: () => void): Injector {
   };
 }
 
-/** A fake v3 spotlight injector mirroring the real id + tail placement. */
+/** A fake v3 spotlight injector mirroring the real id + placement. */
 function spotlightInjector(inner: string): Injector {
   return {
     name: "memory-v3-spotlight",
@@ -137,7 +138,7 @@ function spotlightInjector(inner: string): Injector {
       return {
         id: "memory-v3-spotlight",
         text: wrapMemorySpotlightBlock(inner),
-        placement: "append-user-tail",
+        placement: "after-memory-prefix",
       };
     },
   };
@@ -242,7 +243,7 @@ describe("memory-v3-live v2 suppression", () => {
     expect(result.blocks.memoryV3Active).toBe(true);
   });
 
-  test("stale spotlight blocks are stripped from EVERY user message; the new spotlight lands at the tail", async () => {
+  test("historical leftover spotlight stays; the fresh spotlight splices onto the tail", async () => {
     memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
 
@@ -266,16 +267,49 @@ describe("memory-v3-live v2 suppression", () => {
       ...makeTurnContext(),
     });
 
-    // The stale spotlight is gone from the historical turn…
+    // Historical turn keeps the spotlight it was sent with.
     expect(result.messages[0].content).toEqual([
       { type: "text", text: "earlier question" },
+      staleSpotlight,
     ]);
-    // …and exactly one fresh spotlight sits at the tail.
+    // Fresh spotlight splices onto the tail (no memory prefix, so index 0)
+    // and is captured for metadata persist.
     const texts = tailTexts(result.messages);
     expect(texts).toEqual([
-      "current question",
       wrapMemorySpotlightBlock("fresh sections"),
+      "current question",
     ]);
+    expect(result.blocks.memoryV3SpotlightBlock).toBe(
+      wrapMemorySpotlightBlock("fresh sections"),
+    );
+  });
+
+  test("tail leftover spotlight is stripped before the fresh spotlight splices", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
+
+    const staleOnTail = wrapMemorySpotlightBlock("stale sections");
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: staleOnTail },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      wrapMemorySpotlightBlock("fresh sections"),
+      "current question",
+    ]);
+    expect(result.blocks.memoryV3SpotlightBlock).toBe(
+      wrapMemorySpotlightBlock("fresh sections"),
+    );
   });
 
   test("convergence re-entry: a tail leading with this turn's frozen v3 cards (and <info>) is NOT stripped", async () => {

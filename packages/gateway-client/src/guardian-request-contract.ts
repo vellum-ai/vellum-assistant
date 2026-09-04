@@ -17,6 +17,7 @@
  * which do not change.
  */
 
+import { GuardianRequestStatusSchema } from "@vellumai/service-contracts/guardian-requests";
 import { z } from "zod";
 
 import {
@@ -28,19 +29,11 @@ import {
 // Enums
 // ---------------------------------------------------------------------------
 
-const GUARDIAN_REQUEST_STATUS_VALUES = [
-  "pending",
-  "approved",
-  "denied",
-  "expired",
-  "cancelled",
-] as const;
-
-export const GuardianRequestStatusSchema = z.enum(
+export {
   GUARDIAN_REQUEST_STATUS_VALUES,
-);
-
-export type GuardianRequestStatus = z.infer<typeof GuardianRequestStatusSchema>;
+  type GuardianRequestStatus,
+  GuardianRequestStatusSchema,
+} from "@vellumai/service-contracts/guardian-requests";
 
 const GUARDIAN_REQUEST_KIND_VALUES = [
   "access_request",

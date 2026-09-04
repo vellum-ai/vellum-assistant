@@ -1,9 +1,8 @@
 /**
  * `useCompanionMirror()` mirrors what the macOS companion surface cannot know
- * onto it: the assistant's name, the tail of the open conversation, and whether
- * a watch session is running. Together they are what let an exchange started
- * from the surface's Type option be read on the surface, instead of by going
- * back to an app the user deliberately did not go back to.
+ * onto it: the assistant's name, whether a turn is in flight, and the state of
+ * the sessions this window runs (a watch session, its summary, a keyboard
+ * dictation).
  *
  * The same shape as {@link useLiveActivityMirror}, and for the same reason: the
  * surface is its own renderer with no assistant and no conversation in it, so
@@ -16,23 +15,25 @@
  * chat-session store on every delta, and a selector here would re-render the
  * layout this is mounted in on each one.
  *
- * **Pushed only when the drawn card would change.** The store mints a new
- * snapshot object per stream event, most of which move no text the card shows,
- * and each push is an IPC message and a repaint of a window floating over
- * another app's work.
+ * **Pushed only when what the surface draws would change.** The store mints a
+ * new snapshot object per stream event, most of which move nothing the surface
+ * shows, and each push is an IPC message and a repaint of a window floating
+ * over another app's work.
  */
 
 import { useEffect } from "react";
 
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
-import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
-import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import {
   clearCompanionWorking,
   setCompanionContext,
+  setCompanionDictation,
 } from "@/runtime/companion-surface";
+import { supportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
+import { supportsWatchCaptureTarget } from "@/lib/backwards-compat/watch-capture-target";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -40,43 +41,19 @@ import {
   stopWatch,
   useWatchStore,
 } from "@/domains/chat/watch/watch-controller";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
-import { readHoldToDictateEnabled } from "@/utils/hold-to-dictate";
+import { COMPANION_DICTATION_TAIL } from "@vellumai/ipc-contract";
 import type {
   CompanionContext,
   CompanionDictating,
-  CompanionTurn,
+  CompanionDictationOffer,
 } from "@vellumai/ipc-contract";
-import type { DisplayMessage } from "@/domains/chat/types/types";
-
-/**
- * How many turns cross the bridge.
- *
- * The card scrolls, so this is how far back the user can read on the surface
- * before they have to go to the app for the rest. Bounded rather than whole,
- * because a floating panel is not where anyone reads a long conversation and
- * the whole transcript would cross this bridge on every streamed delta.
- */
-const TAIL = 20;
-
-/**
- * Rows the card has no way to render, and would be wrong to.
- *
- * Daemon-injected lifecycle notifications and status cards are not speech: the
- * transcript suppresses them or draws them as system notices, and the card has
- * only two idioms, a user bubble and assistant text. A row with no text at all
- * is a tool call or a surface, which is activity rather than something said.
- */
-function isSpeech(message: DisplayMessage): boolean {
-  return (
-    message.isSubagentNotification !== true &&
-    message.isAcpNotification !== true &&
-    message.isBackgroundEventNotification !== true &&
-    message.isSystemCard !== true &&
-    messagePlainText(message) !== ""
-  );
-}
 
 /**
  * Whether a turn is in flight, from the press until the response is done.
@@ -94,13 +71,13 @@ function isSpeech(message: DisplayMessage): boolean {
  * - `isSending(phase)` is the local state machine, which moves first of all.
  *
  * Deliberately a union rather than a choice. Each of these has a hole
- * somewhere: the phase is reset outright by a conversation switch, and the
- * surface's own composer causes one by sending into a draft conversation the
- * server renames on `ready`, which also drops the draft's id from the
- * optimistic mirror before the real id joins it. Reading any one of them alone
- * put the ring out in the middle of a turn. Reading all three cannot, because
- * a hole in one is covered by the others, and nothing here can hold the ring on
- * past the end: they all fall to false on the same terminal event.
+ * somewhere: the phase is reset outright by a conversation switch, and a send
+ * into a draft conversation causes one when the server renames it on `ready`,
+ * which also drops the draft's id from the optimistic mirror before the real id
+ * joins it. Reading any one of them alone put the ring out in the middle of a
+ * turn. Reading all three cannot, because a hole in one is covered by the
+ * others, and nothing here can hold the ring on past the end: they all fall to
+ * false on the same terminal event.
  *
  * No phase is excluded. Thinking, a tool running, and waiting on an answer are
  * one turn as far as the surface is concerned, and a ring that dropped out
@@ -116,21 +93,11 @@ const isWorking = (): boolean =>
   useConversationStore.getState().processingConversationIds.size > 0 ||
   isSending(useTurnStore.getState().phase);
 
-/** The assistant and the conversation's tail, as the card wants them. */
+/** The assistant and this window's sessions, as the surface wants them. */
 function currentContext(): CompanionContext {
-  const { snapshot, optimisticSends } = useChatSessionStore.getState();
-  // The same union the transcript renders, through the read seam
-  // `selectTranscriptMessages` exists to be: a message sent from the surface
-  // shows up as an optimistic row long before the server echoes it, and a card
-  // that waited for the echo would sit blank through the part of the exchange
-  // the user is actually watching.
-  const messages = selectTranscriptMessages(
-    snapshot?.messages ?? [],
-    optimisticSends,
-  );
   return {
-    // Resolved here rather than on the surface, so the placeholder cannot come
-    // out as one wording in the app and another on the pill.
+    // Resolved here rather than on the surface, so the name cannot come out as
+    // one wording in the app and another on the pill.
     assistantName: assistantDisplayName(
       useAssistantIdentityStore.getState().name,
     ),
@@ -150,19 +117,75 @@ function currentContext(): CompanionContext {
     // count that arrived a push apart from the flag it belongs to would mark a
     // capture against a session the surface has already stopped drawing.
     captureCount: useWatchStore.getState().captureCount,
+    // What that session reads, when it was aimed. Published with the flag for
+    // the reason the count is: the frame main draws from it is a claim about
+    // this session and no other.
+    captureTarget: useWatchStore.getState().target,
+    // Whether a session started here can be aimed at all, which is the
+    // assistant's version and so this window's to know. The surface offers
+    // its picker on a yes and starts the whole-screen session on anything
+    // else. Re-read on every identity write, so it flips once the version
+    // resolves and again on an assistant switch.
+    watchTargets: supportsWatchCaptureTarget(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ),
+    // What the call is being shown, and whether it can be shown anything.
+    // Published from here for the reason `captureTarget` is: the session the
+    // frames land in lives in this window, and the surface draws the share as
+    // on only once that session is one that takes them.
+    screenShare: screenShareTarget(),
+    screenShareEnabled: screenShareEnabled(),
     // What a keyboard dictation has got to. Published from here for the reason
     // `watching` is: the recording runs in this window, and while it runs the
     // surface is the only thing on screen to say so.
     dictating: dictatingPhase(),
-    turns: messages
-      .filter(isSpeech)
-      .slice(-TAIL)
-      .map((message): CompanionTurn => ({
-        role:
-          message.role === "user" ? ("user" as const) : ("assistant" as const),
-        text: messagePlainText(message),
-      })),
+    dictationText: dictationTail(),
+    // Vellum's version of a dictation another app pasted, while offered.
+    // Published from here for the reason `watchRetro` is: the words and the
+    // way into the application they would go to are both this window's.
+    dictationOffer: currentOffer(),
   };
+}
+
+function currentOffer(): CompanionDictationOffer | undefined {
+  const { offer } = useDictationOfferStore.getState();
+  if (offer === null) {
+    return undefined;
+  }
+  if (offer.reason === "no-text-field") {
+    return { reason: "no-text-field", id: offer.id, text: offer.text };
+  }
+  return {
+    reason: "claimed",
+    id: offer.id,
+    app: offer.app.name,
+    text: offer.text,
+  };
+}
+
+/**
+ * Whether the running call can be shown the screen: a session is up, on an
+ * assistant that understands `sight_frame`, and has not latched the frame as
+ * unsupported. The same conjunction the share hook runs, read as a snapshot.
+ */
+function screenShareEnabled(): boolean {
+  const session = useLiveVoiceStore.getState();
+  return (
+    isLiveVoiceSessionActive(session.state) &&
+    !session.sightFramesUnsupported &&
+    supportsSightStream(session.assistantId)
+  );
+}
+
+/**
+ * What the call is being shown, or nothing. Withheld unless the share can
+ * flow, so the surface never draws a share of a session that takes no frames.
+ */
+function screenShareTarget(): CompanionContext["screenShare"] {
+  if (!screenShareEnabled()) {
+    return undefined;
+  }
+  return useLiveVoiceStore.getState().screenShareTarget ?? undefined;
 }
 
 /**
@@ -170,14 +193,18 @@ function currentContext(): CompanionContext {
  *
  * Only a dictation the keyboard started: one begun from a control in the app is
  * already visible where it was begun, and the surface saying so as well would
- * be the same fact drawn twice. `processing` is the wait after the keys come
- * up, which is the stretch with nothing else on screen to explain it.
+ * be the same fact drawn twice. The store says which it was for as long as the
+ * recording runs, which matters because the key itself is up again before a
+ * short recording has finished starting. `processing` is the wait after the
+ * keys come up, which is the stretch with nothing else on screen to explain
+ * it.
  */
 function dictatingPhase(): CompanionDictating | undefined {
-  if (!readHoldToDictateEnabled()) {
+  const { phase, hold } = useVoiceRecordingStore.getState();
+  if (!hold) {
     return undefined;
   }
-  switch (useVoiceRecordingStore.getState().phase) {
+  switch (phase) {
     case "recording":
       return "listening";
     case "processing":
@@ -187,7 +214,53 @@ function dictatingPhase(): CompanionDictating | undefined {
   }
 }
 
-/** Whether two payloads would draw the same card. */
+/**
+ * The end of what the running dictation has recognised, bounded.
+ *
+ * The end rather than the start: the surface draws one line, and the words a
+ * speaker wants to check are the ones they just said. Empty when nothing is
+ * being dictated, so the field says nothing rather than something stale.
+ */
+function dictationTail(): string {
+  if (dictatingPhase() === undefined) {
+    return "";
+  }
+  const interim = useVoiceRecordingStore.getState().interimTranscript;
+  return interim.slice(-COMPANION_DICTATION_TAIL);
+}
+
+/** The share as the surface would draw it, as one comparable value. */
+function screenShareKey(): string {
+  const target = screenShareTarget();
+  const enabled = screenShareEnabled();
+  return `${enabled ? "on" : "off"}:${target === undefined ? "" : `${target.kind}:${target.kind === "display" ? target.displayId : target.windowId}`}`;
+}
+
+/** Whether two targets name the same display or window, absence included. */
+function sameTarget(
+  a: CompanionContext["captureTarget"],
+  b: CompanionContext["captureTarget"],
+): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return a.kind === "display"
+    ? b.kind === "display" && a.displayId === b.displayId
+    : b.kind === "window" && a.windowId === b.windowId;
+}
+
+/**
+ * The app name an offer carries, or undefined where its reason has none.
+ * Named so the comparison below can read one field off both shapes without
+ * narrowing each side first.
+ */
+function offerApp(
+  offer: CompanionDictationOffer | undefined,
+): string | undefined {
+  return offer?.reason === "claimed" ? offer.app : undefined;
+}
+
+/** Whether two payloads would draw the same surface. */
 function sameContext(a: CompanionContext, b: CompanionContext): boolean {
   return (
     a.assistantName === b.assistantName &&
@@ -195,24 +268,26 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.watching === b.watching &&
     a.watchRetro === b.watchRetro &&
     a.captureCount === b.captureCount &&
+    sameTarget(a.captureTarget, b.captureTarget) &&
+    a.watchTargets === b.watchTargets &&
+    sameTarget(a.screenShare, b.screenShare) &&
+    a.screenShareEnabled === b.screenShareEnabled &&
     a.dictating === b.dictating &&
-    a.turns.length === b.turns.length &&
-    a.turns.every(
-      (turn, index) =>
-        turn.role === b.turns[index]?.role &&
-        turn.text === b.turns[index]?.text,
-    )
+    a.dictationText === b.dictationText &&
+    a.dictationOffer?.id === b.dictationOffer?.id &&
+    a.dictationOffer?.reason === b.dictationOffer?.reason &&
+    offerApp(a.dictationOffer) === offerApp(b.dictationOffer) &&
+    a.dictationOffer?.text === b.dictationOffer?.text
   );
 }
 
 export function useCompanionMirror(): void {
   useEffect(() => {
     // **The main window and no other.** `RootLayout` mounts in pop-out thread
-    // windows too, and each one has a different conversation open, so every
-    // pop-out would publish its own tail over the last one's and the card would
-    // show whichever window wrote most recently. The surface's Type sends
-    // through `dispatchToMain`, so the conversation it draws has to be the one
-    // that window holds.
+    // windows too, and every pop-out would publish its own reading over the
+    // last one's, so the surface would show whichever window wrote most
+    // recently. The sessions it draws live in the main window, so that is the
+    // one that publishes.
     if (isPopoutWindowLifetime()) {
       return;
     }
@@ -225,11 +300,15 @@ export function useCompanionMirror(): void {
     // while a microphone is open, and only two of those writes change what the
     // surface draws.
     let dictating = dictatingPhase();
+    // The words that came with it. Declared beside the phase because `sync`
+    // writes both, and `sync` runs before the subscriptions are set up.
+    let dictationText = dictationTail();
 
     const sync = (): void => {
       const context = currentContext();
       working = context.working;
       dictating = context.dictating;
+      dictationText = context.dictationText ?? "";
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -237,27 +316,21 @@ export function useCompanionMirror(): void {
       setCompanionContext(context);
     };
 
-    // A conversation can already be loaded when this mounts, and the surface
-    // outlives every route in the app, so the card is caught up here rather
-    // than waiting for the next store write.
+    // A turn can already be running when this mounts, and the surface outlives
+    // every route in the app, so it is caught up here rather than waiting for
+    // the next store write.
     sync();
-    // `sync` recomputes the flag along with the tail, so the session store's
-    // own writes carry `snapshot.processing` changes without further wiring.
-    const unsubscribeSession = useChatSessionStore.subscribe(sync);
-    // A turn can begin and end without moving a single row the card draws: a
-    // reply still being thought about has no text yet, and one that finishes
-    // leaves its last text exactly where it already was. So the flag needs a
-    // subscription of its own rather than riding the transcript's.
-    //
-    // Gated on the flag flipping rather than on the store being written, since
-    // the conversation store moves for plenty the card does not draw and `sync`
-    // reselects and remaps the whole tail on every call.
+    // The session store carries `snapshot.processing`, which is one leg of the
+    // working flag, and it is written on every streamed delta. Gated on the
+    // flag flipping rather than on the store being written, since almost none
+    // of those writes move anything the surface draws.
     const onMaybeFlipped = (): void => {
       if (isWorking() === working) {
         return;
       }
       sync();
     };
+    const unsubscribeSession = useChatSessionStore.subscribe(onMaybeFlipped);
     const unsubscribeProcessing =
       useConversationStore.subscribe(onMaybeFlipped);
     const unsubscribeTurn = useTurnStore.subscribe(onMaybeFlipped);
@@ -271,12 +344,26 @@ export function useCompanionMirror(): void {
     // Straight to `sync` rather than through a flip gate like the one above,
     // because this store is written on the session's two edges and once per
     // screen read, all three of which the surface draws, where the
-    // conversation store moves for plenty the card never draws.
+    // conversation store moves for plenty the surface never draws.
     const unsubscribeWatch = useWatchStore.subscribe(sync);
     // The summary's own store, for the same reason and on the same terms: it
     // moves on the stop edge, on the runtime's announcement, and on the user
     // answering, and nothing else here reports any of those.
     const unsubscribeWatchRetro = useWatchRetroStore.subscribe(sync);
+    // The call the share belongs to. Gated on what the surface draws of it
+    // rather than on the store being written, since the store moves on every
+    // amplitude sample while a call runs.
+    let shareKey = screenShareKey();
+    const onShareMaybeFlipped = (): void => {
+      const next = screenShareKey();
+      if (next === shareKey) {
+        return;
+      }
+      shareKey = next;
+      sync();
+    };
+    const unsubscribeShare = useLiveVoiceStore.subscribe(onShareMaybeFlipped);
+    const unsubscribeOffer = useDictationOfferStore.subscribe(sync);
     // The microphone a held key opened. Nothing above reports it: the
     // recording is this window's, it starts and stops from the keyboard rather
     // than from anything the conversation knows about, and while it runs the
@@ -284,13 +371,25 @@ export function useCompanionMirror(): void {
     //
     // Gated on the phase changing rather than on the store being written. It
     // carries the live audio level and the interim transcript, so it moves
-    // continuously through a recording, and `sync` reselects and remaps the
-    // whole tail on every call.
+    // continuously through a recording, and only two of those writes change
+    // what the surface draws.
     const onDictationMaybeFlipped = (): void => {
-      if (dictatingPhase() === dictating) {
+      if (dictatingPhase() !== dictating) {
+        sync();
         return;
       }
-      sync();
+      // The words moved but nothing else did. Corrected in place rather than
+      // rebuilt: `sync` reselects and remaps the whole tail, and a recogniser
+      // revises its guess several times a second.
+      const nextText = dictationTail();
+      if (nextText === dictationText) {
+        return;
+      }
+      dictationText = nextText;
+      if (pushed !== null) {
+        pushed = { ...pushed, dictationText: nextText };
+      }
+      setCompanionDictation(dictating, nextText);
     };
     const unsubscribeDictation = useVoiceRecordingStore.subscribe(
       onDictationMaybeFlipped,
@@ -311,11 +410,12 @@ export function useCompanionMirror(): void {
       unsubscribeIdentity();
       unsubscribeWatch();
       unsubscribeWatchRetro();
+      unsubscribeShare();
+      unsubscribeOffer();
       unsubscribeDictation();
       // Nothing is left to report a turn ending, so the last thing this does is
-      // stop claiming one is running. The tail and the name are left standing:
-      // they are a record of what was said, and the surface is still the place
-      // to read it.
+      // stop claiming one is running. The name is left standing: it is a record
+      // of whose surface this is, and the surface is still on screen.
       clearCompanionWorking();
     };
   }, []);

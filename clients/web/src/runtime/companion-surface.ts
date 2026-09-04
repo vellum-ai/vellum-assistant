@@ -10,9 +10,17 @@
 
 import { isElectron } from "@/runtime/is-electron";
 import type {
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionContext,
+  CompanionDictating,
   CompanionIntroAction,
   CompanionSurfaceState,
+  DictationOfferAnswer,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 type CompanionBridge = NonNullable<NonNullable<Window["vellum"]>["companion"]>;
@@ -87,9 +95,111 @@ export function startCompanionVoice(): void {
  * press leaves this renderer immediately and nothing is awaited: what comes
  * back is `watching` on the pushed state, once the window that owns the session
  * has one to report.
+ *
+ * `pick` is the row of the picker a start came from, when it came from one.
+ * Main turns it into the session's target, so what comes back beside
+ * `watching` is `captureTarget`, and the frame main draws around it.
  */
-export function toggleCompanionWatch(): void {
-  bridge()?.toggleWatch?.();
+export function toggleCompanionWatch(pick?: CompanionCapturePick): void {
+  bridge()?.toggleWatch?.(pick);
+}
+
+/**
+ * What a session could read right now, for the picker Teach opens.
+ *
+ * Resolves to nothing at all off Electron and on a shell that predates the
+ * picker, rather than to an empty list: an empty list is a desktop with no
+ * windows on it, which is a different fact, and the surface reads nothing as
+ * having no picker to draw.
+ */
+export function listCompanionCaptureSources(): Promise<CompanionCaptureSources | null> {
+  const companion = bridge();
+  if (!companion?.listCaptureSources) {
+    return Promise.resolve(null);
+  }
+  return companion.listCaptureSources().catch(() => null);
+}
+
+/**
+ * Show the running call what the user is looking at, or stop, which is what
+ * the share control does.
+ *
+ * `pick` is the row of the picker the press came from; a press with none is
+ * the stop. Like {@link toggleCompanionWatch} the press leaves this renderer
+ * at once: main resolves a tab to the window showing it and hands the target
+ * to the window holding the session, and what comes back is `screenShare` on
+ * the pushed state once that window has frames flowing.
+ */
+export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
+  bridge()?.setScreenShare?.(pick);
+}
+
+/**
+ * Let the user draw on the surface they are sharing, or give the mouse back
+ * to the desktop.
+ *
+ * Unlike every other press here the answer does not come from the window
+ * holding the session: the mode is main's, since it is main that decides
+ * whether the frame around the shared surface is click-through. What comes
+ * back is `annotating` on the pushed state.
+ */
+export function setCompanionAnnotating(annotating: boolean): void {
+  bridge()?.setAnnotating?.(annotating);
+}
+
+/**
+ * A mark the user is drawing on the shared surface, from the frame's own
+ * window: the hand still on it, or off it with the strokes it left.
+ *
+ * The only call in this module made from the frame's window. Strokes are
+ * fractions of that window, which is the shared surface exactly, so the side
+ * that draws them onto a captured frame needs nothing else to place them
+ * beyond `ink`, the colour they were drawn in.
+ */
+export function annotateCompanionShare(
+  phase: CompanionAnnotationPhase,
+  strokes: readonly CompanionAnnotationStroke[],
+  ink: string,
+): void {
+  bridge()?.annotateShare?.(phase, strokes, ink);
+}
+
+/**
+ * One frame of what the user is sharing, as the helper takes it.
+ *
+ * The one call in this module made from the app's own window on a cadence
+ * rather than on a press: the session lives there, and each frame becomes a
+ * `sight_frame` on it. Resolves to nothing off Electron, on a shell that
+ * predates the share, and whenever the helper could not take one, and the
+ * caller reads every one of those as a frame to skip.
+ */
+export function captureCompanionScreen(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  const companion = bridge();
+  if (!companion?.captureScreen) {
+    return Promise.resolve(null);
+  }
+  return companion.captureScreen(target).catch(() => null);
+}
+
+/**
+ * A preview of one row of the picker, as a JPEG data URL.
+ *
+ * Resolves to nothing off Electron, on a shell that has no previews to give,
+ * and whenever the helper would not take one, which the picker reads the same
+ * way every time: the tile falls back to the owning app's icon. Nothing here
+ * is awaited before the tiles are drawn, so the grid is pressable while the
+ * pictures are still landing.
+ */
+export function captureCompanionSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  const companion = bridge();
+  if (!companion?.captureSourceThumbnail) {
+    return Promise.resolve(null);
+  }
+  return companion.captureSourceThumbnail(target).catch(() => null);
 }
 
 /**
@@ -106,6 +216,22 @@ export function answerCompanionWatchRetro(open: boolean): void {
 }
 
 /**
+ * Answer the offer a dictation's words are standing on: use them in place of
+ * what another app pasted, get that app off the key, take them to the
+ * clipboard, or leave them. Every answer leaves this renderer, for the reason
+ * the retro's does: the window that made the offer is the one holding it.
+ *
+ * The offer is named rather than assumed, since this window can be a frame
+ * behind the one holding it. See {@link CompanionDictationOffer.id}.
+ */
+export function answerCompanionDictationOffer(
+  answer: DictationOfferAnswer,
+  offerId: string,
+): void {
+  bridge()?.answerDictationOffer?.(answer, offerId);
+}
+
+/**
  * Bring Vellum forward on the conversation the user was last in, which is what
  * pressing the avatar asks for.
  *
@@ -117,40 +243,12 @@ export function activateCompanionApp(): void {
 }
 
 /**
- * Tell main whether the composer is open, which is how long the window may
- * hold the keyboard.
- *
- * The keyboard twin of {@link setCompanionInteractive}, and reported from here
- * for the same reason: main owns the window but only the page knows whether
- * there is a field on screen to type into. A surface that kept key status after
- * its field closed would eat the next thing the user typed into the app they
- * are working in.
- */
-export function setCompanionComposing(composing: boolean): void {
-  bridge()?.setComposing?.(composing);
-}
-
-/**
- * Send what the user typed on the surface.
- *
- * Like {@link startCompanionVoice}, the message is handed to main and
- * dispatched to the window that owns a conversation to put it in. Nothing is
- * awaited: this page has no transport, and the reply arrives where replies
- * always arrive.
- */
-export function submitCompanionMessage(
-  message: string,
-  startsConversation: boolean,
-): void {
-  bridge()?.submit?.(message, startsConversation);
-}
-
-/**
- * Publish the assistant's name and the tail of the open conversation.
+ * Publish the assistant's name and what the app's window knows about the turn
+ * and the sessions it is running.
  *
  * The one call in this module made from the app's own window rather than from
- * the surface's route: the surface holds neither, so the window that does has
- * to hand them over. Main holds them and pushes them back down with the rest of
+ * the surface's route: the surface holds none of it, so the window that does
+ * has to hand it over. Main holds it and pushes it back down with the rest of
  * the surface's state.
  */
 export function setCompanionContext(context: CompanionContext): void {
@@ -160,8 +258,7 @@ export function setCompanionContext(context: CompanionContext): void {
 
 /**
  * The last context published, so {@link clearCompanionWorking} can correct one
- * field of it without its caller having to hold the conversation it was
- * published beside.
+ * field of it without its caller having to hold the rest.
  */
 let lastContext: CompanionContext | null = null;
 
@@ -169,11 +266,10 @@ let lastContext: CompanionContext | null = null;
  * Stop claiming a turn is in flight.
  *
  * `working` is the one part of the context that is a claim about right now.
- * Main deliberately holds the last context it was given so the card survives
- * the surface's renderer reloading, and the tail and the name are worth holding
- * that way because they describe something that happened. A retained
- * `working: true` describes something that is happening, and a publisher going
- * away does not make it so.
+ * Main deliberately holds the last context it was given so the surface survives
+ * its own renderer reloading, and the name is worth holding that way because
+ * it describes something settled. A retained `working: true` describes
+ * something that is happening, and a publisher going away does not make it so.
  *
  * It has to be said rather than inferred. The surface is opened by main, from
  * the assistant it has and the user's tray preference, not by the window
@@ -186,6 +282,34 @@ let lastContext: CompanionContext | null = null;
  * path, so no React cleanup runs. Same reason `setAssistantName("")` is called
  * there.
  */
+/**
+ * Correct what the running dictation is doing and saying, and nothing else.
+ *
+ * A recogniser revises its guess several times a second, and each revision is
+ * a fact about the microphone rather than about the conversation. Rebuilding
+ * the whole context for one would reselect and remap the conversation's tail
+ * on every word, so this reuses the last one and replaces the two fields that
+ * moved, the way {@link clearCompanionWorking} does for the turn.
+ *
+ * Silent until a context has been published, since there is nothing to correct
+ * and a dictation with no assistant beside it is not a card the surface draws.
+ */
+export function setCompanionDictation(
+  dictating: CompanionDictating | undefined,
+  dictationText: string,
+): void {
+  if (lastContext === null) {
+    return;
+  }
+  if (
+    lastContext.dictating === dictating &&
+    (lastContext.dictationText ?? "") === dictationText
+  ) {
+    return;
+  }
+  setCompanionContext({ ...lastContext, dictating, dictationText });
+}
+
 export function clearCompanionWorking(): void {
   if (lastContext === null || !lastContext.working) {
     return;
@@ -212,15 +336,4 @@ export function advanceCompanionIntro(action: CompanionIntroAction): void {
  */
 export function showCompanionContextMenu(): void {
   bridge()?.showContextMenu?.();
-}
-
-/**
- * Hand a link from the card to the host, which opens it in the browser.
- *
- * The surface's window denies every navigation and every `window.open`, so an
- * anchor cannot follow itself and the shared `openExternalUrl` helper has
- * nothing to work with here. Main validates the scheme on the far side.
- */
-export function openCompanionLink(url: string): void {
-  bridge()?.openLink?.(url);
 }

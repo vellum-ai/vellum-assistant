@@ -70,6 +70,10 @@
     "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
   },
   "avatarManagementModal": {
+    "accent": "Accent",
+    "accentAutomatic": "Automatic",
+    "accentPickerLabel": "Accent color",
+    "accentReset": "Reset",
     "body": "Body",
     "color": "Color",
     "eyes": "Eyes",
@@ -148,30 +152,42 @@
     "talk": {
       "body": "Start a voice conversation.",
       "title": "Talk"
-    },
-    "type": {
-      "body": "Send a message from here and read the reply here too.",
-      "title": "Type"
     }
   },
   "companionSurface": {
     "allow": "Allow",
+    "calling": "Calling…",
+    "callingNamed": "Calling {name}…",
+    "captureKind": "Source kind",
+    "captureNothing": "Nothing to show",
+    "capturePicker": "What to teach from",
+    "captureScreen": "Screen {n}",
+    "captureScreens": "Screens",
+    "captureTabs": "Chrome tabs",
+    "captureWindows": "Windows",
     "deny": "Deny",
     "dictating": "Listening",
+    "draw": "Draw",
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
-    "goBack": "Go back",
-    "messagePlaceholder": "Message {name}",
     "muteAssistant": "Mute assistant",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
-    "send": "Send",
+    "offerCopy": "Copy",
+    "offerDiscard": "Discard",
+    "offerHeard": "{app} pasted that",
+    "offerNowhere": "Nowhere to put these",
+    "offerQuit": "Quit {app}",
+    "offerUse": "Use Vellum's",
+    "offerVersion": "Vellum heard",
+    "openVellum": "Open Vellum",
+    "share": "Share",
+    "sharePicker": "What to share",
     "showSummary": "Show summary",
     "stopTeaching": "Stop teaching",
     "summarizing": "Summarizing",
     "talk": "Talk",
     "teach": "Teach",
-    "type": "Type",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
@@ -219,7 +235,9 @@
   },
   "detailPrimitives": {
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "showLess": "Show less",
+    "showMore": "Show more"
   },
   "dictationOverlayPage": {
     "stopRecording": "Stop recording"
@@ -318,6 +336,9 @@
   },
   "lazyBoundary": {
     "loadError": "This section couldn't load. Reload the page to try again."
+  },
+  "localNotification": {
+    "goToConversation": "Go to Conversation"
   },
   "macosAppBanner": {
     "ariaLabel": "Download the macOS app",
@@ -682,12 +703,15 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyLinux": "On this computer I can work with files, the terminal, and the browser.",
     "computerUseBodyMacos": "On this Mac I can control apps and the desktop for you.",
     "computerUseBodyWindows": "On this PC I can control apps and the desktop for you.",
+    "computerUseTitleLinux": "Let me use this computer",
     "computerUseTitleMacos": "Let me use your Mac",
     "computerUseTitleWindows": "Let me use your PC",
     "dismiss": "Dismiss",
     "nextTip": "Next tip",
+    "pluginsBodyLinux": "From a personal-finance copilot to a daily family briefing.",
     "pluginsBodyMacos": "From a personal-finance copilot to a mode that lives in your MacBook notch.",
     "pluginsBodyWindows": "From a personal-finance copilot to a daily family briefing.",
     "quickInputBody": "Press {shortcut} to send me a quick message from any app.",
@@ -804,7 +828,11 @@
     "body": "Speech providers, transcription, and API keys live in <modelsLink>Models & Services</modelsLink>."
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "Recommended off"
+    "recommendedOff": "Recommended off",
+    "userTranscriptLabel": "Show the words you say",
+    "userTranscriptDescription": "Live transcription while you speak.",
+    "assistantTranscriptLabel": "Show the words the assistant says",
+    "assistantTranscriptDescription": "Text alongside the spoken response."
   },
   "windowsMenuBar": {
     "developer": "Developer",
@@ -838,6 +866,24 @@
       "slack": "Download your assistant's avatar to upload as the app icon.",
       "discord": "Download your assistant's avatar to upload as the bot icon.",
       "telegram": "Download your assistant's avatar, then send it to BotFather with /setuserpic."
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "Strict",
+      "description": "Always ask before acting. No actions are auto-approved."
+    },
+    "conservative": {
+      "label": "Conservative",
+      "description": "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace."
+    },
+    "relaxed": {
+      "label": "Relaxed",
+      "description": "Auto-approve low and medium-risk actions, like changing files outside its own workspace."
+    },
+    "fullAccess": {
+      "label": "Full access",
+      "description": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
     }
   }
 }

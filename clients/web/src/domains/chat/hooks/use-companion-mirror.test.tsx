@@ -1,7 +1,10 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CompanionContext } from "@vellumai/ipc-contract";
+import type {
+  CompanionContext,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
 import type * as WatchController from "@/domains/chat/watch/watch-controller";
 
 const published: CompanionContext[] = [];
@@ -15,6 +18,19 @@ mock.module("@/runtime/companion-surface", () => ({
     published.push(context);
   },
   clearCompanionWorking: clearWorkingMock,
+  // The targeted path the running dictation's words take, which reuses the
+  // last context rather than rebuilding one. Recorded the same way, since what
+  // matters to these cases is what reached the surface.
+  setCompanionDictation: (
+    dictating: CompanionContext["dictating"],
+    dictationText: string,
+  ) => {
+    const last = published[published.length - 1];
+    if (last === undefined) {
+      return;
+    }
+    published.push({ ...last, dictating, dictationText });
+  },
 }));
 
 let isPopout = false;
@@ -28,6 +44,7 @@ mock.module("@/runtime/popout-window", () => ({
 // flag and a counted stop.
 let watching = false;
 let captureCount = 0;
+let target: WatchCaptureTarget | undefined;
 const watchListeners = new Set<() => void>();
 const stopWatchMock = mock(() => {
   setWatching(false);
@@ -37,7 +54,7 @@ mock.module(
   (): Partial<typeof WatchController> => ({
     stopWatch: stopWatchMock,
     useWatchStore: {
-      getState: () => ({ watching, captureCount }),
+      getState: () => ({ watching, captureCount, target }),
       subscribe: (listener: () => void) => {
         watchListeners.add(listener);
         return () => {
@@ -69,15 +86,23 @@ const captureLanded = () => {
 };
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
+const { clearDictationOffer, setDictationOffer } =
+  await import("@/domains/chat/voice/dictation-offer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 // The summary store is the real one: it holds nothing but a value and a timer,
 // and what this hook owns is publishing the phase it reports.
-const { beginWatchRetro, clearWatchRetro, settleWatchRetro } = await import(
-  "@/domains/chat/watch/watch-retro"
-);
+const { beginWatchRetro, clearWatchRetro, settleWatchRetro } =
+  await import("@/domains/chat/watch/watch-retro");
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { MIN_VERSION: TARGET_MIN_VERSION } =
+  await import("@/lib/backwards-compat/watch-capture-target");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -92,12 +117,16 @@ afterEach(() => {
   stopWatchMock.mockClear();
   watching = false;
   captureCount = 0;
+  target = undefined;
   watchListeners.clear();
   clearWatchRetro();
   isPopout = false;
+  useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
   useChatSessionStore.setState({ snapshot: null } as never);
+  useVoiceRecordingStore.getState().reset();
 });
 
 /** The most recent push, which is what the surface would be drawing. */
@@ -204,7 +233,6 @@ describe("the working flag the companion mirror publishes", () => {
     await waitFor(() => {
       expect(published.length).toBeGreaterThan(before);
     });
-    expect(latest().turns).toEqual([]);
   });
 });
 
@@ -288,6 +316,32 @@ describe("the middle of a turn, where the client looks idle", () => {
  * it. Without this the surface would go quiet for the whole of a turn the user
  * is waiting on.
  */
+describe("the dictation offer the companion mirror publishes", () => {
+  const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+
+  test("says nothing while none stands", () => {
+    render(<Mirror />);
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  test("carries the words and the other app's name while it stands", async () => {
+    render(<Mirror />);
+    setDictationOffer(WISPR, "Send me the files.", null);
+    await waitFor(() => {
+      expect(latest().dictationOffer).toMatchObject({
+        reason: "claimed",
+        app: "Wispr Flow",
+        text: "Send me the files.",
+      });
+    });
+
+    clearDictationOffer();
+    await waitFor(() => {
+      expect(latest().dictationOffer).toBeUndefined();
+    });
+  });
+});
+
 describe("the watch summary the companion mirror publishes", () => {
   const SESSION = {
     sessionId: "sess-1",
@@ -348,6 +402,57 @@ describe("the watch summary the companion mirror publishes", () => {
  * the session is started by a command from the surface and can end on its own
  * when the socket drops, neither of which writes any store the tail reads.
  */
+/**
+ * What the session reads, and whether one started here could be aimed at
+ * all. The first rides the flag's store; the second is the assistant's
+ * version, which only this window knows.
+ */
+describe("the capture target the companion mirror publishes", () => {
+  test("is absent with no session, and the session's while one runs", async () => {
+    render(<Mirror />);
+    expect(latest().captureTarget).toBeUndefined();
+    target = { kind: "window", windowId: 4242 };
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().captureTarget).toEqual({
+        kind: "window",
+        windowId: 4242,
+      });
+    });
+    target = undefined;
+    setWatching(false);
+    await waitFor(() => {
+      expect(latest().captureTarget).toBeUndefined();
+    });
+  });
+
+  test("says a session cannot be aimed until the assistant's version says so", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    render(<Mirror />);
+    expect(latest().watchTargets).toBe(false);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", TARGET_MIN_VERSION, "asst-1");
+    });
+    await waitFor(() => {
+      expect(latest().watchTargets).toBe(true);
+    });
+  });
+
+  test("does not let one assistant's version aim another's sessions", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    render(<Mirror />);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", TARGET_MIN_VERSION, "asst-1");
+    });
+    await Promise.resolve();
+    expect(latest().watchTargets).toBe(false);
+  });
+});
+
 describe("the watch flag the companion mirror publishes", () => {
   test("is false with no session running", () => {
     render(<Mirror />);
@@ -487,5 +592,151 @@ describe("the watch session at teardown", () => {
     view.unmount();
 
     expect(published.length).toBe(count);
+  });
+});
+
+/**
+ * The dictation, which is the surface's business only when a held key started
+ * it. The recording store is the real one and is shared with the composer's
+ * microphone; it carries which of the two opened it.
+ */
+describe("dictating", () => {
+  const recording = useVoiceRecordingStore.getState;
+
+  /**
+   * A recording begun from the composer is already visible where it was
+   * begun; the surface saying so too would be the same fact drawn twice.
+   */
+  test("says nothing for a recording the composer started", () => {
+    render(<Mirror />);
+    recording().startRecording();
+    recording().setInterimTranscript("typed into the composer");
+
+    expect(latest().dictating).toBeUndefined();
+    expect(latest().dictationText ?? "").toBe("");
+  });
+
+  test("draws a hold's words as they arrive", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().setInterimTranscript("the quick brown");
+
+    expect(latest().dictating).toBe("listening");
+    expect(latest().dictationText).toBe("the quick brown");
+  });
+
+  /**
+   * The keys come up before the recording is over, and the wait after them is
+   * the stretch with nothing else on screen to explain it.
+   */
+  test("stays with the hold through the wait after the keys come up", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().stopRecording();
+
+    expect(latest().dictating).toBe("transcribing");
+
+    recording().reset();
+
+    expect(latest().dictating).toBeUndefined();
+  });
+});
+
+/**
+ * The mount itself, with nothing arranged around it.
+ *
+ * The effect publishes once before wiring any subscription, so anything the
+ * first publish reads has to exist by then. A binding declared later in the
+ * effect body is in its dead zone at that point and throws, which takes the
+ * mirror down and the layout with it, and no case about what gets published
+ * would notice because nothing gets published at all.
+ */
+test("mounts and publishes without throwing", () => {
+  expect(() => {
+    render(<Mirror />);
+  }).not.toThrow();
+
+  expect(published.length).toBeGreaterThan(0);
+});
+
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { seedLiveVoiceSession } =
+  await import("@/domains/chat/voice/live-voice/live-voice-fakes.test-helper");
+const { MIN_VERSION: SIGHT_MIN_VERSION } =
+  await import("@/lib/backwards-compat/use-supports-sight-stream");
+
+/**
+ * What the call is being shown, and whether it can be shown anything. Both
+ * ride the live-voice store, which moves on every amplitude sample, so the
+ * cases here are also about the mirror publishing only when one of the two
+ * actually changed.
+ */
+describe("the screen share the companion mirror publishes", () => {
+  afterEach(() => {
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+  });
+
+  test("offers nothing with no call, and a share once a session runs on an assistant that takes the frame", async () => {
+    render(<Mirror />);
+    expect(latest().screenShareEnabled).toBe(false);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(false);
+    });
+  });
+
+  test("carries the target only while frames can flow", async () => {
+    render(<Mirror />);
+    act(() => {
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+      useLiveVoiceStore
+        .getState()
+        .setScreenShareTarget({ kind: "window", windowId: 7 });
+    });
+    // An assistant that predates the frame: the share is held in the store
+    // and never reaches the surface.
+    await Promise.resolve();
+    expect(latest().screenShare).toBeUndefined();
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toEqual({ kind: "window", windowId: 7 });
+    });
+    const pushes = published.length;
+    // An amplitude sample moves the store and nothing the surface draws.
+    act(() => {
+      useLiveVoiceStore.getState().setInputAmplitude(0.4);
+    });
+    await Promise.resolve();
+    expect(published.length).toBe(pushes);
+    act(() => {
+      useLiveVoiceStore.getState().setScreenShareTarget(null);
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toBeUndefined();
+    });
   });
 });

@@ -20,7 +20,7 @@ import { applyCommandHelp, subcommand } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { channelsHelp } from "./index.help.js";
+import { CHANNELS_PLUGIN_SEARCH_HINT, channelsHelp } from "./index.help.js";
 
 // ---------------------------------------------------------------------------
 // Snapshot shape
@@ -95,6 +95,8 @@ function renderList(snapshots: ChannelSnapshot[]): void {
   for (const s of sorted) {
     log.info(`${statusGlyph(s)} ${s.channel.padEnd(12)}  ${statusState(s)}`);
   }
+  log.info("");
+  log.info(CHANNELS_PLUGIN_SEARCH_HINT);
 }
 
 function renderSnapshot(s: ChannelSnapshot): void {
@@ -185,7 +187,9 @@ export function registerChannelsCommand(program: Command): void {
             (s) => s.channel === channel,
           );
           if (!snapshot) {
-            log.error(`No readiness probe registered for channel: ${channel}`);
+            log.error(
+              `No readiness probe registered for channel: ${channel}. If you are looking for a community channel, run 'assistant plugins search ${channel}'.`,
+            );
             process.exitCode = 1;
             return;
           }

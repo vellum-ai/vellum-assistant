@@ -41,7 +41,7 @@ export interface CreateFloatingWindowOptions {
 
 export interface FloatingWindowDependencies {
   createWindow: (options: CreateWindowOptions) => BrowserWindow;
-  platform: "darwin" | "win32";
+  platform: "darwin" | "win32" | "linux";
   resolveRoute: (route: string) => string;
 }
 

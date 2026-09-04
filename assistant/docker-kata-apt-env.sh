@@ -36,6 +36,9 @@ _vellum_kata_prepend_library_path() {
   esac
 }
 
+# Shims for chroot wrapper scripts with hardcoded absolute paths must shadow
+# the broken originals in the chroot bin dirs below (docker-kata-apt-shims.sh).
+_vellum_kata_append_path "${VELLUM_APT_DATA_ROOT}/.host-shims"
 _vellum_kata_append_path "${VELLUM_APT_DATA_ROOT}/bin"
 _vellum_kata_append_path "${VELLUM_APT_DATA_ROOT}/usr/local/sbin"
 _vellum_kata_append_path "${VELLUM_APT_DATA_ROOT}/usr/local/bin"

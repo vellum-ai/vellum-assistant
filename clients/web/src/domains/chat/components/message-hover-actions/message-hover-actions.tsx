@@ -11,7 +11,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import { messageCopyText } from "@/domains/chat/utils/message-plain-text";
 import {
   useBookmarkToggle,
   useCanBookmark,
@@ -119,9 +119,10 @@ export function MessageHoverActions({
   // unsupported-assistant and no-conversation paths free of any query client.
   const canBookmark = useCanBookmark(message, conversationId);
 
-  // Flat plain-text body derived from the message's text blocks; this is the
-  // copy payload and mirrors the daemon's `joinWithSpacing`.
-  const content = useMemo(() => messagePlainText(message), [message]);
+  // Flat plain-text body derived from the message's text blocks (empty for a
+  // row deleted on its channel); this is the copy payload and mirrors the
+  // daemon's `joinWithSpacing`.
+  const content = useMemo(() => messageCopyText(message), [message]);
   const timestamp = useMemo(
     () => latestMessageActivityTimestamp(message),
     [message],
@@ -180,7 +181,11 @@ export function MessageHoverActions({
         <button
           type="button"
           onClick={handleCopy}
-          title={showCopied ? t("messageHoverActions.copied") : t("messageHoverActions.copy")}
+          title={
+            showCopied
+              ? t("messageHoverActions.copied")
+              : t("messageHoverActions.copy")
+          }
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           {showCopied ? (
@@ -282,7 +287,11 @@ function MessageBookmarkButton({
     <button
       type="button"
       onClick={handleToggle}
-      title={isBookmarked ? t("messageHoverActions.removeBookmark") : t("messageHoverActions.bookmark")}
+      title={
+        isBookmarked
+          ? t("messageHoverActions.removeBookmark")
+          : t("messageHoverActions.bookmark")
+      }
       aria-pressed={isBookmarked}
       className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
     >

@@ -30,17 +30,27 @@ export function unwrapMemoryBlock(block: string): string {
 }
 
 /**
- * The memory-v3 ephemeral spotlight wrapper. Unlike `<memory>` card blocks
- * (frozen into history), the spotlight block is re-rendered onto the current
- * user tail every turn: the per-turn scoped strip in
- * `context/strip-injections.ts` (`stripSpotlightInjections`) and the
- * compaction matcher in `RUNTIME_INJECTION_PREFIXES` both key off this exact
- * prefix/suffix pair, so the producer wrapper lives here beside the `<memory>`
- * marker it parallels.
+ * The memory-v3 per-turn spotlight wrapper. Each turn's `<memory_spotlight>`
+ * stays on the user message that was sent, matching frozen `<memory>` cards.
+ * Compaction still strips these blocks via `RUNTIME_INJECTION_PREFIXES`, and
+ * `stripSpotlightInjections` is the full-history leftover cleanup used there.
+ * The producer wrapper lives here beside the `<memory>` marker it parallels.
  */
 export const MEMORY_SPOTLIGHT_PREFIX = "<memory_spotlight>\n";
 export const MEMORY_SPOTLIGHT_SUFFIX = "\n</memory_spotlight>";
 
 export function wrapMemorySpotlightBlock(text: string): string {
   return `${MEMORY_SPOTLIGHT_PREFIX}${text}${MEMORY_SPOTLIGHT_SUFFIX}`;
+}
+
+/**
+ * Whether `text` is a complete `<memory_spotlight>…</memory_spotlight>`
+ * wrapper. Requires both ends so user-authored text that merely opens with
+ * the tag is not treated as an injected spotlight.
+ */
+export function isMemorySpotlightText(text: string): boolean {
+  return (
+    text.startsWith(MEMORY_SPOTLIGHT_PREFIX) &&
+    text.endsWith(MEMORY_SPOTLIGHT_SUFFIX)
+  );
 }

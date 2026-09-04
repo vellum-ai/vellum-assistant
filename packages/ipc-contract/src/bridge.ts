@@ -24,25 +24,32 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionSurfaceState,
   ConnectivityState,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationOfferAnswer,
   DictationTranscribeResult,
   DownloadDoneEvent,
-  FnPushToTalkResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
   Lockfile,
   LockfileWriteResult,
   LocalAssistantStatusResult,
@@ -62,6 +69,7 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
+  WindowAttentionPayload,
 } from "./types";
 
 /**
@@ -80,7 +88,7 @@ export interface LocalUpgradeOptions {
   force?: boolean;
 }
 
-export type ElectronHostOS = "macos" | "windows";
+export type ElectronHostOS = "macos" | "windows" | "linux";
 
 /**
  * What a pairing step failed on, for callers picking recovery copy. The
@@ -188,6 +196,13 @@ export interface VellumBridge {
   };
   text: {
     insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+    /**
+     * Undo the last edit in the application in front, the way its Edit menu
+     * would. For putting Vellum's dictation in the place of one another app
+     * pasted a moment ago. Absent on shells without a voice key, which are
+     * the shells with nothing to put in another app's place.
+     */
+    undoInFrontApp?(): Promise<TextInsertionResult>;
     openAutomationSettings(): Promise<void>;
   };
   auth: {
@@ -220,12 +235,12 @@ export interface VellumBridge {
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
     /**
-     * The global voice mode tap. macOS exposes the Fn hold; Windows exposes
-     * the shortcut's bare-modifier chord (`setVoiceModeChord`) plus
+     * The global voice bindings. macOS exposes the held modifier set the
+     * voice key rides on (`setModifierHold`); Windows exposes the voice mode
+     * shortcut's bare-modifier chord (`setVoiceModeChord`) plus
      * registration-state events. Absent on shells with no global trigger.
      */
     hotkey?: {
-      fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
       setVoiceModeChord?(
         activator: VoiceModeChord | null,
       ): Promise<VoiceModeChordRegistrationResult>;
@@ -236,8 +251,38 @@ export interface VellumBridge {
       setModifierHold?(
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult>;
+      /**
+       * What is highlighted in the application in front, or `null` when
+       * nothing is. Absent on shells whose helper cannot read it.
+       */
+      readFrontSelection?(): Promise<HotkeySelection | null>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
+    };
+    /**
+     * Which of the named applications are running, by bundle identifier.
+     * Absent on shells whose helper cannot ask the workspace.
+     */
+    apps?: {
+      running(bundleIds: readonly string[]): Promise<string[]>;
+      /**
+       * Ask an application to quit. Only the apps in `FN_CLAIMANTS` can be
+       * asked; anything else resolves `false` without asking.
+       */
+      quit(bundleId: string): Promise<boolean>;
+      /** The bundle identifier of the application in front, or `null`. */
+      frontmost(): Promise<string | null>;
+    };
+    /**
+     * Whether the user is typing or clicking anywhere, without which keys or
+     * where. For a surface offering to replace an edit: any press after that
+     * edit means it is no longer the last one, and a click moves the cursor
+     * the replacement would land at. Absent on shells whose helper does not
+     * watch the input stream.
+     */
+    input?: {
+      setActivityWatch(enable: boolean): Promise<boolean>;
+      onActivity(callback: () => void): () => void;
     };
     dictation: {
       setPartials(
@@ -292,8 +337,14 @@ export interface VellumBridge {
      * Publish the traits the assistant's character is composed from, so
      * surfaces that can render it live do, rather than showing the still that
      * `setAvatar` ships. `null` when the avatar is a custom image or absent.
+     * `accentHex` is the avatar's accent as `#rrggbb`, carried separately
+     * because an uploaded image has one and no traits; `null` when the
+     * avatar has no colour yet. Omitted by a web bundle that predates it.
      */
-    setCharacter(character: CompanionCharacter | null): void;
+    setCharacter(
+      character: CompanionCharacter | null,
+      accentHex?: string | null,
+    ): void;
   };
   dock: {
     setBadge(count: number): void;
@@ -469,6 +520,14 @@ export interface VellumBridge {
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }>;
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
+    /**
+     * Authoritative state of the window this renderer belongs to, pushed from
+     * main. Vellum windows disable background throttling, which also disables
+     * the Page Visibility API, so the renderer cannot read this for itself.
+     */
+    onWindowAttention(
+      callback: (payload: WindowAttentionPayload) => void,
+    ): () => void;
   };
   bundleConfirm: {
     getData(): Promise<BundleScanData | null>;
@@ -545,8 +604,88 @@ export interface VellumBridge {
      * surface draws a single control and the window holding the session is the
      * only side that knows which edge a press is. What comes back is `watching`
      * on `onState`.
+     *
+     * `pick` is the row of the picker the start edge came from, when it came
+     * from one. Main resolves a tab to the window showing it and hands the
+     * result to the session as its target; what comes back is `captureTarget`
+     * on `onState`, and the frame main draws around it.
      */
-    toggleWatch(): void;
+    toggleWatch(pick?: CompanionCapturePick): void;
+    /**
+     * What a session could read right now: the displays, the Chrome tabs, and
+     * the windows on screen, for the picker Teach opens.
+     *
+     * Listed on demand rather than pushed, because the desktop changes under
+     * every push and the list is only worth anything at the moment it is drawn.
+     * Absent on a shell that predates the picker, which the surface reads as
+     * having nothing to offer and starts the whole-screen session instead.
+     */
+    listCaptureSources?(): Promise<CompanionCaptureSources>;
+    /**
+     * Show the running call a display, a window or a Chrome tab, or stop.
+     *
+     * `pick` is the row of the picker the press came from; a press with none
+     * is the stop. Main resolves a tab the way `toggleWatch` does and hands
+     * the target to the window holding the session as the `setScreenShare`
+     * command; what comes back is `screenShare` on `onState`. Absent on a
+     * shell that predates the share, which the surface reads as having
+     * nothing to offer.
+     */
+    setScreenShare?(pick?: CompanionCapturePick): void;
+    /**
+     * Turn the frame around the shared surface into something the user can
+     * draw on, or give the mouse back to the desktop.
+     *
+     * Main's own state rather than a command passed on, unlike everything
+     * either side of it here: it decides whether a window main opened takes
+     * mouse events, which is not a fact any renderer can hold. What comes
+     * back is `annotating` on `onState`, which is what draws the control
+     * held down and what tells the frame it is the one taking presses.
+     *
+     * Absent on a shell that predates the drawing, which the surface reads
+     * as having nothing to offer, the bargain `setScreenShare` makes.
+     */
+    setAnnotating?(annotating: boolean): void;
+    /**
+     * A mark the user is drawing over the shared surface, from the frame's
+     * own window: `drawing` while the hand is still on it, `released` when it
+     * comes off, carrying every stroke still on the overlay.
+     *
+     * Delivered to the window holding the session as the `annotateShare`
+     * command, since that is the window that takes the frames and the only
+     * one that can draw the strokes onto them.
+     */
+    annotateShare?(
+      phase: CompanionAnnotationPhase,
+      strokes: readonly CompanionAnnotationStroke[],
+      ink: string,
+    ): void;
+    /**
+     * One frame of `target`, as the helper takes it, for the window holding a
+     * shared call to hand to the session. Resolves to null when no frame
+     * could be taken: the window has gone, the display was unplugged, or
+     * Screen Recording is not granted.
+     */
+    captureScreen?(
+      target: WatchCaptureTarget,
+    ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * A preview of one row of the picker, as a JPEG data URL, for the tile
+     * that row is drawn as.
+     *
+     * The same capture {@link captureScreen} takes, asked for small and
+     * asked for many at once: the picker draws a grid of what the desktop is
+     * showing rather than a list of titles, and a title is a poor way to
+     * find the window you mean. Resolves to null on every refusal the frame
+     * path has, plus the one this call adds: a window that closed between
+     * being listed and being drawn. The tile falls back to the owning app's
+     * icon, so a preview nobody could take costs a picture rather than a row.
+     *
+     * A Chrome tab is never asked for. It has no window of its own until it
+     * has been shown, and showing it to draw a picker would move the user's
+     * browser under them.
+     */
+    captureSourceThumbnail?(target: WatchCaptureTarget): Promise<string | null>;
     /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.
@@ -557,29 +696,20 @@ export interface VellumBridge {
      */
     answerWatchRetro(open: boolean): void;
     /**
+     * Answer the offer a dictation's words are standing on, naming the offer
+     * the card was drawn against. See the `answerDictationOffer` command;
+     * every answer travels, since the window that made the offer is the one
+     * holding it.
+     */
+    answerDictationOffer(answer: DictationOfferAnswer, offerId: string): void;
+    /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.
      */
     activate(): void;
     /**
-     * Whether the surface's composer is open, and with it whether the window
-     * may take key status.
-     *
-     * The counterpart to `setInteractive`: mouse events are granted only while
-     * the pointer is on the pill, and keystrokes only while there is a field to
-     * put them in. A floating panel that held the keyboard after its field
-     * closed would swallow what the user typed next into the app they are
-     * actually working in.
-     */
-    setComposing(composing: boolean): void;
-    /**
-     * Send what the user typed. See the `companionSubmit` command: the first
-     * message of a composer's life starts a conversation, the rest continue it,
-     * and none of them raise the app.
-     */
-    submit(message: string, startsConversation: boolean): void;
-    /**
-     * Publish the assistant's name and the tail of the open conversation.
+     * Publish the assistant's name and what the app's window knows about the
+     * turn and the sessions it is running.
      *
      * The one call here the surface's own route does *not* make: it comes from
      * the window holding the conversation, the way `voiceActivity.update` comes
@@ -604,15 +734,6 @@ export interface VellumBridge {
      * describe the surface differently.
      */
     showContextMenu(): void;
-    /**
-     * Open a link from the card in the user's browser.
-     *
-     * The surface's window denies every navigation and every `window.open`, so
-     * an anchor cannot follow itself: the URL is handed to main, which is the
-     * side allowed to open anything. Main validates the scheme, since a URL
-     * arriving over IPC is untrusted whatever drew the anchor.
-     */
-    openLink(url: string): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

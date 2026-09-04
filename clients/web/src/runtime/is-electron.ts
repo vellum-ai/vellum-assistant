@@ -20,22 +20,27 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
+  ScreenCaptureFrame,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
+  DictationOfferAnswer,
   DictationPartialsResult,
   DictationTranscribeResult,
   DownloadDoneEvent,
   ElectronHostOS,
-  FnPushToTalkResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
@@ -43,6 +48,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  HotkeySelection,
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairingPollResult,
@@ -74,6 +80,8 @@ import type {
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  WatchCaptureTarget,
+  WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -92,12 +100,12 @@ export type {
   DictationPartialEvent,
   DictationPartialsResult,
   DownloadDoneEvent,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  HotkeySelection,
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
@@ -136,6 +144,7 @@ declare global {
       };
       text?: {
         insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+        undoInFrontApp?(): Promise<TextInsertionResult>;
         openAutomationSettings(): Promise<void>;
       };
       hotkeys?: {
@@ -158,14 +167,23 @@ declare global {
         getState?(): Promise<HelperState>;
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
+        apps?: {
+          running(bundleIds: readonly string[]): Promise<string[]>;
+          quit(bundleId: string): Promise<boolean>;
+          frontmost(): Promise<string | null>;
+        };
+        input?: {
+          setActivityWatch(enable: boolean): Promise<boolean>;
+          onActivity(callback: () => void): () => void;
+        };
         hotkey?: {
-          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
           ): Promise<VoiceModeChordRegistrationResult>;
           setModifierHold?(
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
+          readFrontSelection?(): Promise<HotkeySelection | null>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;
@@ -210,7 +228,10 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
-        setCharacter?(character: CompanionCharacter | null): void;
+        setCharacter?(
+          character: CompanionCharacter | null,
+          accentHex?: string | null,
+        ): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -349,6 +370,9 @@ declare global {
         onAction(
           callback: (event: NotificationActionEvent) => void,
         ): () => void;
+        onWindowAttention?(
+          callback: (payload: WindowAttentionPayload) => void,
+        ): () => void;
       };
       popout?: {
         open(conversationId: string): Promise<void>;
@@ -378,15 +402,30 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
-        toggleWatch?(): void;
+        toggleWatch?(pick?: CompanionCapturePick): void;
+        listCaptureSources?(): Promise<CompanionCaptureSources>;
+        setScreenShare?(pick?: CompanionCapturePick): void;
+        setAnnotating?(annotating: boolean): void;
+        annotateShare?(
+          phase: CompanionAnnotationPhase,
+          strokes: readonly CompanionAnnotationStroke[],
+          ink: string,
+        ): void;
+        captureScreen?(
+          target: WatchCaptureTarget,
+        ): Promise<ScreenCaptureFrame | null>;
+        captureSourceThumbnail?(
+          target: WatchCaptureTarget,
+        ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
+        answerDictationOffer?(
+          answer: DictationOfferAnswer,
+          offerId: string,
+        ): void;
         activate?(): void;
-        setComposing?(composing: boolean): void;
-        submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
         showContextMenu?(): void;
-        openLink?(url: string): void;
       };
     };
   }

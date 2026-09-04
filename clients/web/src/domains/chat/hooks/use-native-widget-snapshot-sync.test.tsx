@@ -260,13 +260,19 @@ function subscribeAvatar(onChange: () => void): () => void {
 }
 
 const realAssistantAvatar = await import("@/hooks/use-assistant-avatar");
+const { resolveAvatarAccentHex } = await import("@/utils/avatar-accent");
 mock.module("@/hooks/use-assistant-avatar", () => ({
   ...realAssistantAvatar,
   // The assistant id is ignored: one avatar is served at a time, which is what
   // the real query does too once the active assistant's entry settles.
   useAssistantAvatar: () => {
     const state = useSyncExternalStore(subscribeAvatar, () => avatarState);
-    return { ...state.data, isLoading: state.isLoading, invalidate: () => {} };
+    return {
+      ...state.data,
+      accentHex: resolveAvatarAccentHex(state.data),
+      isLoading: state.isLoading,
+      invalidate: () => {},
+    };
   },
 }));
 

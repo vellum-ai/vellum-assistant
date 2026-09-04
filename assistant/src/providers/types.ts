@@ -429,10 +429,7 @@ export interface SendMessageConfig {
   /**
    * When true, the TURN-STARTING user message carries content that will not
    * recur byte-identically on the next turn, so a long-TTL breakpoint placed
-   * on it could never be read back across turns. The agent loop is the only
-   * producer: it sets the flag from the history it is about to send, when the
-   * turn-starting message carries a memory-v3 `<memory_spotlight>` block (the
-   * one injected block strip-and-replaced from every user message each turn).
+   * on it could never be read back across turns.
    *
    * The flag describes the turn, not the request, so it holds for every
    * request the turn makes, including tool-loop iterations, whose trailing

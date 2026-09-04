@@ -35,6 +35,7 @@ const {
   sendTelegramReaction,
   sendTelegramReply,
   sendTelegramRichReply,
+  TELEGRAM_DRAFT_TEXT_LIMIT,
 } = await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
@@ -442,5 +443,163 @@ describe("editTelegramMessage", () => {
     // failure has to reach the caller.
     await expect(editTelegramMessage("123", "456", "gone")).rejects.toThrow();
     expect(sendMessageCalls()).toHaveLength(0);
+  });
+});
+
+describe("telegramTransport.streamReply", () => {
+  const ctx: CallbackContext = {
+    callbackUrl: "https://example.test/deliver/telegram?chatId=123",
+    params: {},
+  };
+
+  test("opens a draft carrying the whole partial reply", async () => {
+    const result = await telegramTransport.streamReply?.(ctx, "123", {
+      action: "start",
+      text: "Looking that up",
+      appended: "Looking that up",
+    });
+
+    const calls = callsTo("sendMessageDraft");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![1]).toMatchObject({
+      chat_id: 123,
+      text: "Looking that up",
+    });
+    // The id is minted here, not handed back by Telegram, and must be usable
+    // as the stream id the later append addresses.
+    expect(Number(result?.ts)).toBeGreaterThan(0);
+    expect(result?.ok).toBe(true);
+  });
+
+  test("advances one draft by resending the whole text under the same id", async () => {
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: "Looking that up. Found it.",
+      appended: ". Found it.",
+    });
+
+    const calls = callsTo("sendMessageDraft");
+    expect(calls).toHaveLength(1);
+    // Telegram animates between drafts sharing an id, so the call carries the
+    // whole reply so far rather than the delta.
+    expect(calls[0]![1]).toMatchObject({
+      chat_id: 123,
+      draft_id: 4242,
+      text: "Looking that up. Found it.",
+    });
+  });
+
+  test("draws a plan into the draft, since Telegram has no task primitive", async () => {
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: "Working.",
+      plan: {
+        title: "Answering",
+        steps: [
+          { label: "Search docs", status: "completed" },
+          { label: "Summarize", status: "in_progress" },
+          { label: "Reply", status: "pending" },
+        ],
+      },
+    });
+
+    const body = callsTo("sendMessageDraft")[0]![1] as { text: string };
+    expect(body.text).toBe(
+      "Working.\n\nAnswering\n✓ Search docs\n▸ Summarize\n· Reply",
+    );
+  });
+
+  test("stopping does nothing, because sending the reply clears the draft", async () => {
+    const result = await telegramTransport.streamReply?.(ctx, "123", {
+      action: "stop",
+      streamId: "4242",
+      text: "All done.",
+    });
+
+    expect(callsTo("sendMessageDraft")).toHaveLength(0);
+    expect(result).toEqual({ ok: true, ts: "4242" });
+  });
+
+  test("sends the chat id as the integer the draft method requires", async () => {
+    // `sendMessageDraft` takes an Integer chat_id, not the "Integer or String"
+    // most methods accept, so the string the transport carries has to become a
+    // number on the wire.
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "start",
+      text: "Hi",
+      appended: "Hi",
+    });
+
+    const body = callsTo("sendMessageDraft")[0]![1] as { chat_id: unknown };
+    expect(body.chat_id).toBe(123);
+  });
+
+  test("refuses a chat id that cannot be an integer, without calling out", async () => {
+    const result = await telegramTransport.streamReply?.(ctx, "@somechannel", {
+      action: "start",
+      text: "Hi",
+      appended: "Hi",
+    });
+
+    expect(callsTo("sendMessageDraft")).toHaveLength(0);
+    expect(result).toEqual({ ok: false });
+  });
+
+  test("a draft past the cap keeps its live tail, not a frozen prefix", async () => {
+    // Telegram caps a draft at 4096. Keeping the head would freeze the preview
+    // the moment the reply passed the cap, and would cut off anything drawn
+    // beneath it; the tail is the part still moving.
+    const body = "HEADMARK" + "a".repeat(5_000);
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: body + "TAILMARK",
+      appended: "TAILMARK",
+      plan: { steps: [{ label: "Summarize", status: "in_progress" }] },
+    });
+
+    const sent = (callsTo("sendMessageDraft")[0]![1] as { text: string }).text;
+    expect(sent.length).toBe(TELEGRAM_DRAFT_TEXT_LIMIT);
+    // The newest text and the plan beneath it survive; the stale head is what
+    // gets dropped, which is the opposite of a frozen prefix.
+    expect(sent).toContain("TAILMARK");
+    expect(sent).toContain("Summarize");
+    expect(sent).not.toContain("HEADMARK");
+  });
+
+  test("a trimmed draft never begins with half of a character", async () => {
+    // The cap counts UTF-16 code units, so a tail cut can land between the
+    // halves of an emoji and send a lone surrogate.
+    const emoji = "\u{1F600}";
+    const body = emoji.repeat(3_000);
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: body,
+      appended: emoji,
+    });
+
+    const sent = (callsTo("sendMessageDraft")[0]![1] as { text: string }).text;
+    const first = sent.charCodeAt(0);
+    expect(first >= 0xdc00 && first <= 0xdfff).toBe(false);
+    expect(sent.length).toBeLessThanOrEqual(TELEGRAM_DRAFT_TEXT_LIMIT);
+  });
+
+  test("a refused draft reports not-ok so the caller falls back", async () => {
+    // Telegram offers drafts in private chats only; anywhere else the call is
+    // rejected, and that rejection is the whole of the per-conversation rule.
+    callTelegramBotApiMock.mockImplementation(async () => {
+      throw new Error("Bad Request: chat type is not supported");
+    });
+
+    const result = await telegramTransport.streamReply?.(ctx, "123", {
+      action: "start",
+      text: "Looking that up",
+      appended: "Looking that up",
+    });
+
+    expect(result).toEqual({ ok: false });
   });
 });

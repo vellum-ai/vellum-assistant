@@ -6,6 +6,7 @@ import {
   parseNewChatDeepLink,
   parseOpenCameraDeepLink,
   parseOpenThreadDeepLink,
+  parseShareDeepLink,
   parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
 
@@ -515,5 +516,44 @@ describe("parseOpenCameraDeepLink / parseNewChatDeepLink", () => {
         provenance: "intent",
       });
     }
+  });
+});
+
+describe("parseShareDeepLink", () => {
+  const INBOX_ID = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890";
+
+  test("accepts every registered build-target scheme", () => {
+    for (const scheme of [
+      "vellum-assistant",
+      "vellum-assistant-staging",
+      "vellum-assistant-dev",
+    ]) {
+      expect(parseShareDeepLink(`${scheme}://share/${INBOX_ID}`)).toEqual({
+        inboxId: INBOX_ID,
+      });
+    }
+  });
+
+  test("rejects look-alike schemes", () => {
+    expect(
+      parseShareDeepLink(`vellum-assistant-evil://share/${INBOX_ID}`),
+    ).toBeNull();
+    expect(parseShareDeepLink(`vellum://share/${INBOX_ID}`)).toBeNull();
+  });
+
+  test("rejects other hosts, missing ids, and unsafe path segments", () => {
+    expect(parseShareDeepLink("vellum-assistant://share")).toBeNull();
+    expect(parseShareDeepLink("vellum-assistant://share/")).toBeNull();
+    expect(
+      parseShareDeepLink(`vellum-assistant://share/${INBOX_ID}/extra`),
+    ).toBeNull();
+    expect(parseShareDeepLink("vellum-assistant://share/../x")).toBeNull();
+    expect(parseShareDeepLink("vellum-assistant://share/foo/../x")).toBeNull();
+    expect(parseShareDeepLink("vellum-assistant://thread/abc")).toBeNull();
+    expect(
+      parseShareDeepLink(
+        `vellum-assistant://share/${INBOX_ID}?unused=1#frag`,
+      ),
+    ).toEqual({ inboxId: INBOX_ID });
   });
 });

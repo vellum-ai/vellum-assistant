@@ -15,7 +15,9 @@ import {
 } from "react-router";
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
+import { assistantStateCanServeChat } from "@/assistant/lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   selectChatFocusActive,
   selectHeaderCenterHidden,
@@ -89,6 +91,8 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
+import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
 import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
 import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -102,6 +106,7 @@ import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pi
 import { AssistantDesktopAffordance } from "@/domains/chat/desktop/assistant-desktop-affordance";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
 import { SightTile } from "@/domains/chat/sight/sight-tile";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
@@ -201,7 +206,15 @@ export function ChatLayout({
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
-  const isAssistantActive = assistantStateKind === "active";
+  const selfHostedChatEnabled =
+    useClientFeatureFlagStore.use.selfHostedAssistant();
+  // `active` and flagged `self_hosted` both serve the conversation list.
+  // Gating on `active` alone leaves self-hosted queries pending forever,
+  // so the Home Screen widgets never receive a snapshot.
+  const isAssistantActive = assistantStateCanServeChat(
+    assistantStateKind,
+    selfHostedChatEnabled,
+  );
 
   // Live-voice session controller. Owned at layout scope — not by the
   // composer — so a session survives every chat-side navigation (thread
@@ -222,8 +235,9 @@ export function ChatLayout({
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
   //
-  // `isAssistantActive` is the assistant record: does this assistant exist and
-  // is it provisioned. Whether its pod is reachable is a separate question,
+  // `isAssistantActive` is whether this assistant can serve chat: a
+  // provisioned `active` record, or a `self_hosted` one with the chat
+  // flag on. Whether its pod is reachable is a separate question,
   // answered inside the query hook itself, since these keys are shared with
   // call sites that pass no gate of their own.
   const {
@@ -567,6 +581,9 @@ export function ChatLayout({
   // sidebar until the session ends or the room is minimized (the session
   // then continues behind the composer voice bar / title-bar pill).
   const voiceRoomVisible = useIsVoiceRoomVisible();
+  // The sleep stage covers this same box; while it is up the thread under it
+  // leaves the tab order and the accessibility tree, as it does for the room.
+  const sleepStageVisible = useAssistantSleepStageStore.use.visible();
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -1100,7 +1117,7 @@ export function ChatLayout({
   const chatContent = (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col"
-      inert={voiceRoomVisible}
+      inert={voiceRoomVisible || sleepStageVisible}
     >
       <Outlet />
     </div>
@@ -1170,6 +1187,9 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             {chatContent}
+            {/* Self-gates on the conversation route and the assistant's
+                sleeping/waking status. */}
+            <AssistantSleepStage />
             {/* A popout narrowed below the mobile breakpoint lands in this
                 branch, still headerless, so it still needs the floating
                 session surface (see the desktop popout branch below). */}
@@ -1263,6 +1283,9 @@ export function ChatLayout({
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
         >
           {chatContent}
+          {/* A pop-out is a conversation like any other: without this the stage
+              would come and go as the window crosses the mobile breakpoint. */}
+          <AssistantSleepStage />
           {/* Pop-outs render no header, but they DO support in-window
               conversation switching (Cmd+Up/Down) — so a live session started
               here can lose its owning composer exactly like in the main
@@ -1295,6 +1318,10 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             {chatContent}
+            {/* Self-gates on the conversation route and the assistant's
+                sleeping/waking status. Mounted ahead of the voice room so the
+                room paints over it when both are up. */}
+            <AssistantSleepStage />
             {/* Live-voice room, desktop: an inset panel scoped to the content
                 area, so the title bar above and the sidenav beside it stay
                 visible and interactive. Self-gates on
@@ -1308,6 +1335,16 @@ export function ChatLayout({
               `position: fixed` and park it against `<main>`'s rectangle
               instead of the viewport. Self-gates on the camera's status. */}
           <SightTile />
+          {/* The frame gate's tuning readout for the tile above, parked beside
+              it. A sibling of `<main>` for the same reason the tile is: it is
+              also `position: fixed`, and a filtered ancestor would make that
+              ancestor its containing block. Self-gates on the readout being
+              enabled and on the composer's camera being the one feeding the
+              gate, so it is absent for everyone else. */}
+          <FrameGateHud
+            surface="composer"
+            className="fixed bottom-28 right-[17.5rem] z-30 max-h-[70vh]"
+          />
         </div>
       )}
 

@@ -24,6 +24,7 @@
  * unmatched `started` rows instead of treating them as open-ended sessions.
  */
 
+import type { ClientOs } from "../channels/types.js";
 import type { LiveVoiceSessionCloseReason } from "../live-voice/live-voice-session-manager.js";
 import type { LiveVoiceProtocolErrorCode } from "../live-voice/protocol.js";
 
@@ -114,6 +115,38 @@ export function liveVoiceSilenceReason(signals: {
     return "no_speech";
   }
   return "no_turn";
+}
+
+/**
+ * The half of a start stamp that stands in for a dimension the client did not
+ * send: an older client, or one that sends no identity at all.
+ */
+const LIVE_VOICE_UNATTRIBUTED = "unknown";
+
+/**
+ * The `screen` dimension for a started session: the client it started on and
+ * the control it started from, as `started_<client>:<entry>`.
+ *
+ * Both halves come off the start frame verbatim (`client` is a `ClientOs`;
+ * `entry` is the client's own token, see `protocol.ts`). Both are always
+ * present, with {@link LIVE_VOICE_UNATTRIBUTED} standing in for a missing one,
+ * so a query can split the stamp on its colon without a null branch per half.
+ *
+ * The client rides the started row and not only the turn rows because a
+ * quarter of sessions never produce a turn, and those are the ones the client
+ * dimension is most needed on: "voice did nothing for me" is a per-client
+ * question. Until now those sessions had no client at all (the admin
+ * dashboard's `(no turns)` bucket); this stamp gives every session one.
+ *
+ * The entry is what separates the macOS app's three ways in from each other:
+ * the same `client` covers the chat's voice button, the companion's Talk and
+ * the voice key, and only the entry says which one the user reached for.
+ */
+export function liveVoiceStartScreen(
+  client?: ClientOs | null,
+  entry?: string | null,
+): string {
+  return `started_${client ?? LIVE_VOICE_UNATTRIBUTED}:${entry ?? LIVE_VOICE_UNATTRIBUTED}`;
 }
 
 /**

@@ -86,10 +86,6 @@ export interface ModelFirstOption {
   readonly family: string | null;
   /** Every route that can serve it, connected ones first. */
   readonly candidates: readonly ProviderCandidate[];
-  /** Distinct provider kinds among the candidates. */
-  readonly providerCount: number;
-  /** The one route's label, when a single provider kind serves the model. */
-  readonly soleProviderLabel: string | null;
 }
 
 export interface ModelFirstInput {
@@ -315,16 +311,7 @@ export function resolveModelFirstOptions(
 
   return order.map((displayName) => {
     const candidates = byDisplayName.get(displayName) ?? [];
-    const providerKinds = new Set(
-      candidates.map((candidate) => candidate.provider),
-    );
     const first = candidates[0];
-    const soleProviderLabel =
-      providerKinds.size === 1 && first !== undefined
-        ? candidates.length === 1
-          ? first.label
-          : input.labelFor(first.provider)
-        : null;
     // A model the static catalog does not know (a custom endpoint's own list)
     // is filed under the route that serves it, which is the only answer
     // available and the one the user picked it from.
@@ -335,8 +322,6 @@ export function resolveModelFirstOptions(
       vendor: entry?.vendor ?? null,
       family: entry?.family ?? null,
       candidates,
-      providerCount: providerKinds.size,
-      soleProviderLabel,
     };
   });
 }

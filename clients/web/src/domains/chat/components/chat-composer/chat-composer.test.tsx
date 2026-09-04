@@ -115,14 +115,17 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
   useLiveVoiceStore,
+  type LiveVoiceSeedOptions,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 const liveStarterSpy = mock(
+  // The starter's own options type, not a restated copy, so a field added to
+  // what a caller hands the starter reaches this spy on its own.
   (
     _assistantId: string,
     _conversationId: string | null,
-    _options?: { seedText?: string },
+    _options?: LiveVoiceSeedOptions,
   ) => {},
 );
 const livePrewarmSpy = mock(() => {});
@@ -346,6 +349,7 @@ function resetLiveVoiceMocks() {
     prewarm: livePrewarmSpy,
     cancelPrewarm: liveCancelPrewarmSpy,
     start: liveStarterSpy,
+    sendText: () => false,
   });
   // Default to the returning-user path so the entry-point mic starts a session
   // directly. First-run interception (the prefs card) is covered by
@@ -2418,6 +2422,7 @@ describe("ChatComposer — live-voice integration", () => {
     // ready verdict (the composer holds no controller of its own).
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,
@@ -2593,6 +2598,7 @@ describe("ChatComposer — live-voice integration", () => {
     // the WS-level handshake surfaces any real credential problem
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,
@@ -2660,6 +2666,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,
@@ -2685,9 +2692,10 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("Capacitor iOS: first-ever entry shows the prefs card too (web↔iOS parity)", () => {
-    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
-    // entry. The card is shown on every platform (see the composer's
-    // handleLiveVoiceStart note), so the iOS shell must get it too.
+    // GIVEN the native iOS shell, no session, and a first-ever entry. The
+    // card is shown on every platform (see the composer's handleLiveVoiceStart
+    // note), so the iOS shell must get it too. Dismiss cancels without
+    // requesting the mic, which is what the following test pins.
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockIsNativeIOS = true;
     useVoicePrefsStore.setState({ firstRunSeen: false });
@@ -2736,6 +2744,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,

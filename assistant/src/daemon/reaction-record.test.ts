@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 
 let persisted: Array<{
@@ -75,24 +76,35 @@ describe("persistReactionRecords", () => {
     expect(row.metadata?.slackMeta).toBeUndefined();
   });
 
-  test("a Slack record writes the slackMeta envelope the Slack context reads", async () => {
+  test("a Slack record writes the neutral envelope, which the Slack context reads through its Slack view", async () => {
     await persistReactionRecords("conv-1", [
       record({ channel: "slack", chatId: "C1", messageId: "1700.1" }),
     ]);
     const row = persisted[0]!;
-    expect(row.metadata?.providerMeta).toBeUndefined();
-    const slackMeta = JSON.parse(String(row.metadata?.slackMeta)) as {
+    expect(row.metadata?.slackMeta).toBeUndefined();
+    const envelope = JSON.parse(String(row.metadata?.providerMeta)) as {
       source: string;
-      channelId: string;
-      channelTs: string;
+      conversationExternalId: string;
       eventKind: string;
-      reaction: { emoji: string; targetChannelTs: string; op: string };
+      reaction: { targetMessageId: string; emoji: string; op: string };
     };
-    expect(slackMeta.source).toBe("slack");
-    expect(slackMeta.channelId).toBe("C1");
-    expect(slackMeta.channelTs).toBe("1700.1");
-    expect(slackMeta.eventKind).toBe("reaction");
-    expect(slackMeta.reaction).toEqual({
+    expect(envelope.source).toBe("slack");
+    expect(envelope.conversationExternalId).toBe("C1");
+    expect(envelope.eventKind).toBe("reaction");
+    expect(envelope.reaction).toEqual({
+      targetMessageId: "1700.1",
+      emoji: "🎉",
+      op: "added",
+    });
+    // The Slack transcript's view of the same row: the reacted message's ts
+    // stands in as `channelTs`, as the Slack envelope stores it.
+    const view = readSlackMetadataFromMessageMetadata(
+      JSON.stringify(row.metadata),
+    );
+    expect(view?.channelId).toBe("C1");
+    expect(view?.channelTs).toBe("1700.1");
+    expect(view?.eventKind).toBe("reaction");
+    expect(view?.reaction).toEqual({
       emoji: "🎉",
       targetChannelTs: "1700.1",
       op: "added",

@@ -2,10 +2,11 @@
  * The payment-method modal chrome in each of its states.
  *
  * The real modal mounts Stripe Elements as `children`, and those iframes
- * cannot load in Storybook, so the stories pass grey blocks the same height as
- * the Stripe inputs. That keeps the header, card-on-file row, state slot, and
- * footer laid out at the real proportions while the shell stays reviewable
- * without a publishable key. The two loading stories are the exception: the
+ * cannot load in Storybook, so the stories pass grey blocks at the height of
+ * the manual-entry fields. That keeps the header, state slot, and footer laid
+ * out at the manual-entry proportions while the shell stays reviewable without
+ * a publishable key; the live form runs taller whenever Link renders its banner
+ * or its signed-in panel. The two loading stories are the exception: the
  * skeleton that covers that boot is our own component, so they render the real
  * one.
  *
@@ -52,11 +53,21 @@ type Story = StoryObj<typeof meta>;
 /** First card: no card on file, so the header reads "Add a card". */
 export const AddIdle: Story = {};
 
-/** A card already on file, shown above the fields with its expiry. */
+/**
+ * A card already on file: brand, last4, and expiry all fold into the subtitle.
+ */
 export const ReplaceIdle: Story = {
   args: {
     mode: "replace",
     cardOnFile: { brand: "visa", last4: "4242", expMonth: 4, expYear: 2042 },
+  },
+};
+
+/** Replacing a card we hold no details for: the subtitle names none of it. */
+export const ReplaceNoCardDetails: Story = {
+  args: {
+    mode: "replace",
+    cardOnFile: null,
   },
 };
 
@@ -130,9 +141,9 @@ export const LoadingFields: Story = {
 };
 
 /**
- * The same wait when a card is already on file: the card row resolves straight
- * away from config the modal already has, so it sits above fields that are
- * still booting.
+ * The same wait when a card is already on file: the subtitle resolves straight
+ * away from config the modal already has, so it names the old card while the
+ * fields are still booting.
  */
 export const LoadingFieldsReplace: Story = {
   args: {

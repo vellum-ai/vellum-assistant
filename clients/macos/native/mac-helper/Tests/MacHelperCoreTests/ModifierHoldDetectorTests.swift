@@ -19,7 +19,7 @@ private typealias Edge = ModifierHoldDetector.Edge
         detector.flagsChanged(
         targetHeld: false,
         anyTargetHeld: false, extraModifiersHeld: false)
-            == [Edge.up]
+            == [Edge.up(.released)]
     )
 }
 
@@ -61,7 +61,7 @@ private typealias Edge = ModifierHoldDetector.Edge
         detector.flagsChanged(
         targetHeld: true,
         anyTargetHeld: true, extraModifiersHeld: true)
-            == [Edge.up]
+            == [Edge.up(.chord)]
     )
 }
 
@@ -116,7 +116,7 @@ private typealias Edge = ModifierHoldDetector.Edge
         anyTargetHeld: true, extraModifiersHeld: false)
             == [Edge.down]
     )
-    #expect(detector.keyDown() == [Edge.up])
+    #expect(detector.keyDown() == [Edge.up(.chord)])
     // The release that follows is owed nothing: the hold is already closed.
     #expect(
         detector.flagsChanged(
@@ -180,7 +180,7 @@ private typealias Edge = ModifierHoldDetector.Edge
     _ = detector.flagsChanged(
         targetHeld: true,
         anyTargetHeld: true, extraModifiersHeld: false)
-    #expect(detector.cancel() == [Edge.up])
+    #expect(detector.cancel() == [Edge.up(.cancelled)])
     #expect(detector.cancel() == [])
 }
 
@@ -234,7 +234,7 @@ private typealias Edge = ModifierHoldDetector.Edge
             targetHeld: true, anyTargetHeld: true, extraModifiersHeld: false)
             == [Edge.down]
     )
-    #expect(detector.keyDown() == [Edge.up])
+    #expect(detector.keyDown() == [Edge.up(.chord)])
 
     // Option lifts, Ctrl stays down. The set is no longer held, but it is not
     // released either, and the user is still mid-shortcut on the one that is.
@@ -272,7 +272,7 @@ private typealias Edge = ModifierHoldDetector.Edge
     #expect(
         detector.flagsChanged(
             targetHeld: true, anyTargetHeld: true, extraModifiersHeld: true)
-            == [Edge.up]
+            == [Edge.up(.chord)]
     )
     // Shift lifts and Option lifts; Ctrl is still down.
     #expect(
