@@ -31,7 +31,7 @@ COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
 RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile --ignore-scripts \
+    bun install --frozen-lockfile --ignore-scripts --production \
     --filter='./assistant' --filter='./assistant/src/api'
 
 # Final stage
