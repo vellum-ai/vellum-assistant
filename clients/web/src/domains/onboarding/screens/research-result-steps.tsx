@@ -431,8 +431,6 @@ export function ResearchResultsStep({
   );
   const hasClaims = visible.length > 0;
   const canContinue = !loading;
-  const onContinueRef = useRef(onContinue);
-  onContinueRef.current = onContinue;
   const advancedRef = useRef(false);
 
   // Settled with nothing visible: leave this card. The route skips the same
@@ -448,8 +446,8 @@ export function ResearchResultsStep({
       return;
     }
     advancedRef.current = true;
-    onContinueRef.current([...removed]);
-  }, [loading, hasClaims, removed]);
+    onContinue([...removed]);
+  }, [loading, hasClaims, removed, onContinue]);
 
   // Do not paint the settled empty card. The looking-you-up carousel and the
   // route skip cover "research found nothing"; this return covers the frame

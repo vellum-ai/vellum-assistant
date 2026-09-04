@@ -106,7 +106,7 @@ describe("ResearchResultsStep copy / list agreement", () => {
     expect(claims).toEqual([]);
     expect(droppedClaims).toEqual(["Lives in Dallas", "Works at Acme"]);
 
-    const onContinue = mock(() => {});
+    const onContinue = mock((_removed: string[]) => {});
     renderStep({ claims, loading: false, onContinue });
 
     expect(screen.queryByText(COPY.title)).toBeNull();
@@ -141,7 +141,7 @@ describe("ResearchResultsStep copy / list agreement", () => {
   });
 
   test("pruning the last visible claim advances instead of showing an empty card", () => {
-    const onContinue = mock(() => {});
+    const onContinue = mock((_removed: string[]) => {});
     renderStep({ claims: [KEPT_CLAIM], loading: false, onContinue });
 
     expect(screen.getByText(COPY.bodyReadyWithClaims)).toBeTruthy();
