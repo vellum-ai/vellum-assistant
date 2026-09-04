@@ -719,6 +719,11 @@ const releaseThumbnailSlot = (): void => {
  * open, and the picker is opened by a press: a picture of a window as it
  * looked the last time the user went looking would be a worse answer than a
  * blank tile, since it is the one the user would pick by.
+ *
+ * A preview still queued when the card closes is taken anyway and answers
+ * nobody. Nothing holds it and the next press asks afresh, so the cost is one
+ * capture rather than a leak, and it is cheaper than a cancellation the
+ * renderer would have to reach back across the bridge to ask for.
  */
 export async function captureSourceThumbnail(
   target: WatchCaptureTarget,

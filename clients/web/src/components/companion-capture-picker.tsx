@@ -38,7 +38,7 @@ import type {
  * "which screen" and "which window" are different questions and a person has
  * only one of them at a time.
  *
- * A Chrome tab keeps the list it always had. A tab has no window of its own
+ * A Chrome tab is a row rather than a tile. A tab has no window of its own
  * until Chrome has been told to show it, so the only way to draw a picture of
  * one is to switch the user's browser to it while they are still deciding.
  * The host resolves a picked tab to the window showing it, so the surface
@@ -233,6 +233,14 @@ export function CompanionCapturePicker({
   >(new Map());
   /** Keys already asked for, so switching kinds and back does not ask twice. */
   const asked = useRef(new Set<string>());
+  /**
+   * Which list the asking belongs to. A capture is a round trip through the
+   * window server, and a list that arrived while one was in flight describes a
+   * desktop the picture is no longer of: window ids are the window server's to
+   * hand out again, so a late picture written under a key the new list also
+   * holds would be a tile showing something the user never had open.
+   */
+  const listing = useRef(0);
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -246,6 +254,7 @@ export function CompanionCapturePicker({
   // first when both fire on the same list.
   useEffect(() => {
     asked.current = new Set();
+    listing.current += 1;
     setThumbnails(new Map());
   }, [sources]);
 
@@ -258,15 +267,21 @@ export function CompanionCapturePicker({
         continue;
       }
       asked.current.add(key);
-      void captureThumbnail(target).then((thumbnail) => {
-        if (!mounted.current) {
+      const of = listing.current;
+      // A null is recorded rather than dropped, and nothing is said about it:
+      // a window that closed while the card was opening is the desktop's
+      // answer, not a fault. The tile keeps its icon and stays pressable,
+      // since the pick may still resolve to something. A host that refuses
+      // outright is read the same way, which is what keeps a rejection from
+      // reaching the renderer as an unhandled one.
+      const land = (thumbnail: string | null): void => {
+        if (!mounted.current || of !== listing.current) {
           return;
         }
-        // A null is recorded rather than dropped, and nothing is said about
-        // it: a window that closed while the card was opening is the
-        // desktop's answer, not a fault. The tile keeps its icon and stays
-        // pressable, since the pick may still resolve to something.
         setThumbnails((prev) => new Map(prev).set(key, thumbnail));
+      };
+      void captureThumbnail(target).then(land, () => {
+        land(null);
       });
     }
   }, [captureThumbnail, targets]);
@@ -561,9 +576,8 @@ function Tile({
 }
 
 /**
- * One Chrome tab, as a row. Tabs keep the list the whole picker used to be:
- * there is no picture of a tab that is not the one in front, and the title is
- * how a person knows a page anyway.
+ * One Chrome tab, as a row: there is no picture of a tab that is not the one
+ * in front, and the title is how a person knows a page anyway.
  */
 function Row({
   icon,

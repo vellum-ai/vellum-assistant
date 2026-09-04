@@ -154,11 +154,11 @@ export function captureCompanionScreen(
 /**
  * A preview of one row of the picker, as a JPEG data URL.
  *
- * Resolves to nothing off Electron, on a shell that predates the grid, and
- * whenever the helper would not take one, which the picker reads the same way
- * every time: the tile falls back to the owning app's icon. A picker that drew
- * nothing until every preview had landed would be slower than the list it
- * replaced, so nothing here is awaited before the rows are shown.
+ * Resolves to nothing off Electron, on a shell that has no previews to give,
+ * and whenever the helper would not take one, which the picker reads the same
+ * way every time: the tile falls back to the owning app's icon. Nothing here
+ * is awaited before the tiles are drawn, so the grid is pressable while the
+ * pictures are still landing.
  */
 export function captureCompanionSourceThumbnail(
   target: WatchCaptureTarget,

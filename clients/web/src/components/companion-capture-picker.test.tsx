@@ -177,6 +177,52 @@ describe("the capture picker", () => {
     ]);
   });
 
+  test("keeps a picture the host refused outright from reaching the tile", async () => {
+    const { container } = render(
+      <CompanionCapturePicker
+        sources={{ ...SOURCES, displays: [], tabs: [] }}
+        captureThumbnail={() => Promise.reject(new Error("helper is down"))}
+      />,
+    );
+    await settle();
+    // Settled on the icon, and the rejection was taken rather than left to
+    // surface as an unhandled one.
+    expect(pictures(container)).toEqual(["data:image/png;base64,notes"]);
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(0);
+  });
+
+  test("drops a picture that lands after the list it was asked for", async () => {
+    let answer: ((thumbnail: string | null) => void) | undefined;
+    const { container, rerender } = render(
+      <CompanionCapturePicker
+        sources={{ ...SOURCES, displays: [], tabs: [] }}
+        captureThumbnail={() =>
+          new Promise<string | null>((resolve) => {
+            answer = resolve;
+          })
+        }
+      />,
+    );
+    // A fresh list, holding the same window id the window server has since
+    // handed to something else.
+    rerender(
+      <CompanionCapturePicker
+        sources={{
+          displays: [],
+          tabs: [],
+          windows: [
+            { kind: "window", windowId: 7, title: "Inbox", app: "Mail" },
+          ],
+        }}
+        captureThumbnail={() => new Promise<string | null>(() => undefined)}
+      />,
+    );
+    answer?.("data:image/jpeg;base64,stale");
+    await settle();
+    expect(tiles(container)).toEqual(["Inbox (Mail)"]);
+    expect(pictures(container)).toEqual([]);
+  });
+
   test("never asks for a picture of a tab", async () => {
     const asked: WatchCaptureTarget[] = [];
     const { container } = render(
