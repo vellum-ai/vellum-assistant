@@ -162,6 +162,48 @@ describe("agent loop under the tool-gated reply surface", () => {
     expect(visibilityMarks(events)).toEqual(["visible"]);
   });
 
+  test("surfaces the result when a progress update was followed by work", async () => {
+    // The model sends "Checking your calendar." alongside the tool call it
+    // announces, then ends with the answer in plain text. The progress update
+    // is not the outcome, so the final text is surfaced rather than swallowed.
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: "text", text: "Looking this up." },
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "send_user_message",
+            input: { message: "Checking your calendar." },
+          },
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "bash",
+            input: { command: "true" },
+          },
+        ] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "tool_use",
+      },
+      textResponse("You have two meetings today."),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      callSite: "mainAgent",
+      suppressAssistantText: true,
+    });
+    expect(streamedText(events)).toBe(
+      "Checking your calendar.You have two meetings today.",
+    );
+    expect(visibilityMarks(events)).toEqual(["private", "visible"]);
+  });
+
   test("keeps working notes unsent on an intermediate tool-bearing turn", async () => {
     const { provider } = createMockProvider([
       {

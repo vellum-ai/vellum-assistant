@@ -11,7 +11,6 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { projectPersistedAssistantContent } from "../daemon/handlers/user-facing-content.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
@@ -29,6 +28,7 @@ import {
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import { projectPersistedAssistantContent } from "../persistence/user-facing-content.js";
 import { isDesktopAttended } from "../runtime/desktop-presence.js";
 import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { safeParseRecord } from "../util/json.js";

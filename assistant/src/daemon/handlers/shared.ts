@@ -18,6 +18,10 @@ import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
 import type { ConversationCreateType } from "../../persistence/conversation-types.js";
+import {
+  isPrivateAssistantText,
+  projectUserFacingContent,
+} from "../../persistence/user-facing-content.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -33,10 +37,6 @@ import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
 import { findConversation } from "../conversation-registry.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context-types.js";
-import {
-  isPrivateAssistantText,
-  projectUserFacingContent,
-} from "./user-facing-content.js";
 
 const log = getLogger("handlers");
 
