@@ -610,6 +610,7 @@
   "systemPermissionsCard": {
     "accessibilityDescription": "允許您的助理代表您點擊、輸入和控制應用程式。",
     "accessibilityLabel": "輔助使用",
+    "accessibilityLinuxDescription": "允許您的助理透過 AT-SPI 輔助技術點擊、輸入和控制應用程式。",
     "checking": "正在檢查權限...",
     "dockIcon": "Dock 圖示",
     "microphoneDescription": "允許您的助理擷取音訊以進行語音輸入和錄音。",
@@ -618,11 +619,14 @@
     "notificationBadgesLabel": "通知標記",
     "notificationsDescription": "允許您的助理傳送 macOS 警示以進行核准、訊息和任務更新。",
     "notificationsLabel": "通知",
+    "notificationsLinuxDescription": "允許您的助理傳送桌面通知以進行核准、訊息和任務更新。",
     "notificationsWindowsDescription": "允許您的助理顯示 Windows 通知以進行核准、訊息和任務更新。",
     "screenDescription": "允許您的助理在電腦使用任務期間擷取螢幕內容。",
     "screenLabel": "螢幕錄影",
+    "screenLinuxDescription": "在您於桌面入口網站核准螢幕分享後，允許您的助理擷取螢幕內容。",
     "speechRecognitionDescription": "允許您的助理在裝置上將您的語音轉錄為文字。",
     "speechRecognitionLabel": "語音辨識",
+    "speechRecognitionLinuxDescription": "允許您的助理使用裝置上的模型將您的語音轉錄為文字。",
     "speechRecognitionWindowsDescription": "允許您的助理使用 Windows 語音辨識將您的語音轉錄為文字。",
     "taskbarIcon": "工作列圖示",
     "title": "系統權限"

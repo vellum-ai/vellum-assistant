@@ -611,6 +611,7 @@
   "systemPermissionsCard": {
     "accessibilityDescription": "Permite que tu asistente haga clic, escriba y controle apps en tu nombre.",
     "accessibilityLabel": "Accesibilidad",
+    "accessibilityLinuxDescription": "Permite que tu asistente haga clic, escriba y controle apps mediante la tecnología de asistencia AT-SPI.",
     "checking": "Comprobando permisos...",
     "dockIcon": "icono del Dock",
     "microphoneDescription": "Permite que tu asistente capture audio para entrada de voz y grabaciones.",
@@ -619,11 +620,14 @@
     "notificationBadgesLabel": "Insignias de notificación",
     "notificationsDescription": "Permite que tu asistente envíe alertas de macOS para aprobaciones, mensajes y actualizaciones de tareas.",
     "notificationsLabel": "Notificaciones",
+    "notificationsLinuxDescription": "Permite que tu asistente envíe notificaciones de escritorio para aprobaciones, mensajes y actualizaciones de tareas.",
     "notificationsWindowsDescription": "Permite que tu asistente muestre notificaciones de Windows para aprobaciones, mensajes y actualizaciones de tareas.",
     "screenDescription": "Permite que tu asistente capture el contexto de la pantalla durante tareas de uso del ordenador.",
     "screenLabel": "Grabación de pantalla",
+    "screenLinuxDescription": "Permite que tu asistente capture el contexto de la pantalla cuando apruebas compartir pantalla en el portal de escritorio.",
     "speechRecognitionDescription": "Permite que tu asistente transcriba tu voz a texto en el dispositivo.",
     "speechRecognitionLabel": "Reconocimiento de voz",
+    "speechRecognitionLinuxDescription": "Permite que tu asistente transcriba tu voz a texto con un modelo en el dispositivo.",
     "speechRecognitionWindowsDescription": "Permite que tu asistente transcriba tu voz a texto con el reconocimiento de voz de Windows.",
     "taskbarIcon": "icono de la barra de tareas",
     "title": "Permisos del sistema"

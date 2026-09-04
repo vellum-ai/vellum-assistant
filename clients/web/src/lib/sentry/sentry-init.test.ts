@@ -48,13 +48,14 @@ env.VITE_SENTRY_DSN_IOS = "https://ios@example.com/ios";
 env.VITE_SENTRY_DSN_ANDROID = "https://android@example.com/android";
 env.VITE_SENTRY_DSN_MACOS = "https://macos@example.com/macos";
 env.VITE_SENTRY_DSN_WINDOWS = "https://windows@example.com/windows";
+env.VITE_SENTRY_DSN_LINUX = "https://linux@example.com/linux";
 
 const { initSentry } = await import("@/lib/sentry/sentry-init");
 
 // The Electron host is read off `window.vellum.hostOS`; without it the
 // resolver falls back to `navigator.platform`, which happy-dom reports
 // differently per machine.
-const setElectronHost = (hostOS: "macos" | "windows"): void => {
+const setElectronHost = (hostOS: "macos" | "windows" | "linux"): void => {
   electron = true;
   window.vellum = { hostOS } as never;
 };
@@ -98,6 +99,12 @@ describe("initSentry DSN selection", () => {
     setElectronHost("windows");
     initSentry();
     expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_WINDOWS);
+  });
+
+  test("uses the Linux DSN in the Linux Electron renderer", () => {
+    setElectronHost("linux");
+    initSentry();
+    expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_LINUX);
   });
 });
 

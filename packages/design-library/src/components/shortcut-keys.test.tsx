@@ -123,7 +123,7 @@ describe("detectShortcutPlatform", () => {
     ["X11; Darwin arm64", "mac"],
     ["iPhone", "mac"],
     ["Win32", "windows"],
-    ["Linux x86_64", "windows"],
+    ["Linux x86_64", "linux"],
     ["", "mac"],
   ];
   for (const [platform, expected] of platforms) {
@@ -143,6 +143,55 @@ describe("detectShortcutPlatform", () => {
       }
     });
   }
+
+  test("prefers the Electron preload's host OS over navigator", () => {
+    const original = navigator.platform;
+    Object.defineProperty(navigator, "platform", {
+      value: "MacIntel",
+      configurable: true,
+    });
+    (globalThis as { vellum?: unknown }).vellum = { hostOS: "linux" };
+    try {
+      expect(detectShortcutPlatform()).toBe("linux");
+    } finally {
+      delete (globalThis as { vellum?: unknown }).vellum;
+      Object.defineProperty(navigator, "platform", {
+        value: original,
+        configurable: true,
+      });
+    }
+  });
+});
+
+describe("Linux key caps", () => {
+  test("labels the Super key rather than the Windows key", () => {
+    expect(parseAccelerator("Super+Shift+N", "linux")).toEqual([
+      "Super",
+      "Shift",
+      "N",
+    ]);
+    expect(parseAccelerator("CmdOrCtrl+Shift+N", "linux")).toEqual([
+      "Ctrl",
+      "Shift",
+      "N",
+    ]);
+  });
+
+  test("otherwise reuses the Windows vocabulary", () => {
+    expect(parseAccelerator("Alt+Escape", "linux")).toEqual(
+      parseAccelerator("Alt+Escape", "windows"),
+    );
+    expect(formatAcceleratorHint("CmdOrCtrl+Shift+O", "linux")).toBe(
+      "Ctrl+Shift+O",
+    );
+  });
+
+  test("announces Super as Meta to assistive technology", () => {
+    expect(acceleratorToAriaKeyShortcuts("Super+N", "linux")).toBe("Meta+N");
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Shift+P", "linux")).toBe(
+      "Control+Shift+P",
+    );
+  });
 });
 
 describe("formatAcceleratorHint", () => {

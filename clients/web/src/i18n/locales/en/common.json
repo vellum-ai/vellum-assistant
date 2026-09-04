@@ -613,6 +613,7 @@
   "systemPermissionsCard": {
     "accessibilityDescription": "Allows your assistant to click, type, and control apps on your behalf.",
     "accessibilityLabel": "Accessibility",
+    "accessibilityLinuxDescription": "Allows your assistant to click, type, and control apps through AT-SPI assistive technology.",
     "checking": "Checking permissions...",
     "dockIcon": "Dock icon",
     "microphoneDescription": "Allows your assistant to capture audio for voice input and recordings.",
@@ -621,11 +622,14 @@
     "notificationBadgesLabel": "Notification Badges",
     "notificationsDescription": "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
     "notificationsLabel": "Notifications",
+    "notificationsLinuxDescription": "Allows your assistant to send desktop notifications for approvals, messages, and task updates.",
     "notificationsWindowsDescription": "Allows your assistant to show Windows notifications for approvals, messages, and task updates.",
     "screenDescription": "Allows your assistant to capture screen context during computer-use tasks.",
     "screenLabel": "Screen Recording",
+    "screenLinuxDescription": "Allows your assistant to capture screen context once you approve screen sharing in the desktop portal.",
     "speechRecognitionDescription": "Allows your assistant to transcribe your speech into text on-device.",
     "speechRecognitionLabel": "Speech Recognition",
+    "speechRecognitionLinuxDescription": "Allows your assistant to transcribe your speech into text with an on-device model.",
     "speechRecognitionWindowsDescription": "Allows your assistant to transcribe your speech into text with Windows speech recognition.",
     "taskbarIcon": "taskbar icon",
     "title": "System Permissions"

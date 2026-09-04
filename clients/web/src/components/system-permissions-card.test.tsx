@@ -18,7 +18,7 @@ let state: SystemPermissionsState | null;
 let supported = true;
 let unreadBadgeSurface = "Dock icon";
 let unreadBadgesSupported = true;
-let hostOS: "macos" | "windows" = "macos";
+let hostOS: "macos" | "windows" | "linux" = "macos";
 
 const openSystemPermissionSettings = mock(async () => null);
 const requestSystemPermission = mock(async () => null);
@@ -28,12 +28,15 @@ const setDockBadge = mock(() => undefined);
 function item(
   kind: SystemPermissionKind,
   status: SystemPermissionStatus,
+  remediation: { canRequest?: boolean; canOpenSettings?: boolean } = {},
 ): SystemPermissionStateItem {
   return {
     kind,
     status,
-    canRequest: status !== "granted" && status !== "restricted",
-    canOpenSettings: status !== "granted",
+    canRequest:
+      remediation.canRequest ??
+      (status !== "granted" && status !== "restricted"),
+    canOpenSettings: remediation.canOpenSettings ?? status !== "granted",
     requiresRestart: false,
   };
 }
@@ -78,6 +81,7 @@ mock.module("@/runtime/dock", () => ({
 
 mock.module("@/runtime/platform-detection", () => ({
   detectElectronHostOS: () => hostOS,
+  resolveDesktopHostOS: () => hostOS ?? "macos",
 }));
 
 const { SystemPermissionsCard } = await import("./system-permissions-card");
@@ -137,6 +141,8 @@ describe("SystemPermissionsCard", () => {
 
   test("shows only Windows-meaningful rows with Windows copy on a Windows host", () => {
     hostOS = "windows";
+    // The Windows shell reports the kinds it has no concept of.
+    state = makeState({ accessibility: "not-applicable" });
 
     render(<SystemPermissionsCard />);
 
@@ -151,6 +157,26 @@ describe("SystemPermissionsCard", () => {
     expect(screen.queryByText(/macOS alerts/)).toBeNull();
   });
 
+  test("shows the applicable rows with Linux copy on a Linux host", () => {
+    hostOS = "linux";
+    state = makeState({ accessibility: "not-applicable" });
+
+    render(<SystemPermissionsCard />);
+
+    expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
+    expect(
+      screen.getByRole("switch", { name: "Screen Recording" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/approve screen sharing in the desktop portal/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/send desktop notifications for approvals/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/macOS alerts/)).toBeNull();
+    expect(screen.queryByText(/Windows notifications/)).toBeNull();
+  });
+
   test("hides permissions reported as not applicable", () => {
     state = makeState({ screen: "not-applicable" });
 
@@ -159,6 +185,43 @@ describe("SystemPermissionsCard", () => {
     expect(
       screen.queryByRole("switch", { name: "Screen Recording" }),
     ).toBeNull();
+  });
+
+  test("disables a row the host can neither prompt for nor open settings for", () => {
+    hostOS = "linux";
+    // The Linux shell has no settings URI scheme and no prompt outside
+    // notifications, so the microphone toggle would do nothing.
+    state = makeState();
+    state.microphone = item("microphone", "denied", {
+      canRequest: false,
+      canOpenSettings: false,
+    });
+
+    render(<SystemPermissionsCard />);
+
+    expect(
+      screen
+        .getByRole("switch", { name: "Microphone" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("switch", { name: "Notifications" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  test("does not offer a granted Linux permission a nonexistent settings action", () => {
+    hostOS = "linux";
+    state = makeState();
+    state.microphone = item("microphone", "granted", {
+      canRequest: false,
+      canOpenSettings: false,
+    });
+    render(<SystemPermissionsCard />);
+    const toggle = screen.getByRole("switch", { name: "Microphone" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.hasAttribute("disabled")).toBe(true);
   });
 
   test("updates the Dock badge setting without requesting a macOS permission", async () => {
