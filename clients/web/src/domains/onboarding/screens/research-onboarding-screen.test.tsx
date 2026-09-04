@@ -35,7 +35,7 @@ describe("ResearchOnboardingScreen", () => {
     expect(continueButton().disabled).toBe(true);
 
     fireEvent.change(screen.getByPlaceholderText("Your name"), {
-      target: { value: "Ada" },
+      target: { value: "Alice" },
     });
     expect(continueButton().disabled).toBe(false);
   });
@@ -45,17 +45,27 @@ describe("ResearchOnboardingScreen", () => {
     render(<ResearchOnboardingScreen onSubmit={onSubmit} />);
 
     fireEvent.change(screen.getByPlaceholderText("Your name"), {
-      target: { value: "Ada" },
+      target: { value: "Alice" },
     });
     fireEvent.click(continueButton());
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({
-      firstName: "Ada",
+      firstName: "Alice",
       lastName: "",
       role: "",
       hobbies: [],
     });
+  });
+
+  test("Continue is enabled when a first name is already supplied", () => {
+    render(
+      <ResearchOnboardingScreen
+        initialFirstName="Alice"
+        onSubmit={() => {}}
+      />,
+    );
+    expect(continueButton().disabled).toBe(false);
   });
 
   test("the role field is not marked required", () => {
