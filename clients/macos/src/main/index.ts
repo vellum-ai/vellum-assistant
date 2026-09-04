@@ -19,7 +19,10 @@ import {
   planPlatformForward,
 } from "@vellumai/electron-desktop/platform-forward";
 import { installPopoutWindows } from "@vellumai/electron-desktop/popout-window";
-import { installQuickInput } from "@vellumai/electron-desktop/quick-input-window";
+import {
+  installQuickInput,
+  toggleQuickInput,
+} from "@vellumai/electron-desktop/quick-input-window";
 import { planAppProtocolAssetRequest } from "@vellumai/electron-utils/app-protocol";
 import {
   pairedGatewayTargetsFromLockfile,
@@ -482,6 +485,7 @@ app
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
+      toggleQuickInput,
     });
     installNativeAuth();
     installMainWindow();

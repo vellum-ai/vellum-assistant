@@ -19,6 +19,7 @@ import {
 } from "@vellumai/ipc-contract";
 
 import { onAvatarChange } from "./avatar";
+import { resolveGlobalAcceleratorOption } from "./commands";
 import { getName, onNameChange } from "./identity";
 import {
   getStatus,
@@ -136,6 +137,11 @@ export interface TrayHandlers {
    * Open (or focus the existing) About window.
    */
   openAbout(): void;
+  /**
+   * Toggle the Quick Input popover panel. Optional — only wired on Electron
+   * desktop builds that configure the quick-input window.
+   */
+  toggleQuickInput?(): void;
 }
 
 /**
@@ -306,6 +312,17 @@ const buildTrayMenu = (
         trayRuntime.dispatch({ kind: "newConversation" });
       },
     },
+    // Quick Input: floating panel to send a message without switching windows.
+    // Present whenever the handler is wired (Electron desktop builds).
+    ...(handlers.toggleQuickInput
+      ? [
+          {
+            label: "Quick Input",
+            ...resolveGlobalAcceleratorOption("quickInput"),
+            click: handlers.toggleQuickInput,
+          },
+        ]
+      : []),
     {
       label: "Current Conversation",
       icon: trayRuntime.icon("conversation"),
