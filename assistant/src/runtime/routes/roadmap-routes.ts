@@ -115,8 +115,12 @@ interface RoadmapEndpoints {
  * issued to a production host. Every other deployment, including a self-hosted
  * platform the seed table does not know, has to name both.
  *
- * Resolved before the request rather than while rendering the reply: a
- * half-configured assistant must fail before it publishes, not after.
+ * Each handler resolves this once and carries the result through both the
+ * request and the response mapping. Resolving again while rendering the reply
+ * would reintroduce the failure this ordering exists to prevent: a
+ * `platform_base_url` write landing mid-flight could make a create throw after
+ * the item was already published, or stamp a link from a deployment other than
+ * the one that answered.
  */
 function resolveEndpoints(): RoadmapEndpoints {
   const deployment = resolveDeployment();
@@ -142,8 +146,8 @@ function resolveEndpoints(): RoadmapEndpoints {
   };
 }
 
-function itemUrl(slug: string): string {
-  return `${resolveEndpoints().web}/roadmap/${slug}`;
+function itemUrl(web: string, slug: string): string {
+  return `${web}/roadmap/${slug}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +189,7 @@ async function requireAssistantApiKey(): Promise<string> {
  * anonymous.
  */
 async function roadmapFetch(
+  endpoints: RoadmapEndpoints,
   path: string,
   opts: {
     method?: string;
@@ -199,7 +204,7 @@ async function roadmapFetch(
       (entry): entry is [string, string] => entry[1] !== undefined,
     ),
   ).toString();
-  const url = `${resolveEndpoints().api}/v1/roadmap${path}${query ? `?${query}` : ""}`;
+  const url = `${endpoints.api}/v1/roadmap${path}${query ? `?${query}` : ""}`;
 
   const headers: Record<string, string> = {};
   if (opts.key) {
@@ -390,12 +395,12 @@ type RoadmapItem = z.infer<typeof itemSchema>;
 type RoadmapItemDetail = z.infer<typeof itemDetailSchema>;
 type MutatedRoadmapItem = z.infer<typeof mutatedItemSchema>;
 
-function toItem(raw: UpstreamItem): RoadmapItem {
+function toItem(web: string, raw: UpstreamItem): RoadmapItem {
   return {
     slug: raw.slug,
     title: raw.title,
     status: raw.status,
-    url: itemUrl(raw.slug),
+    url: itemUrl(web, raw.slug),
     upvoteCount: raw.upvote_count,
     commentCount: raw.comment_count,
     tags: raw.tags ?? [],
@@ -403,18 +408,21 @@ function toItem(raw: UpstreamItem): RoadmapItem {
   };
 }
 
-function toMutatedItem(raw: UpstreamMutatedItem): MutatedRoadmapItem {
+function toMutatedItem(
+  web: string,
+  raw: UpstreamMutatedItem,
+): MutatedRoadmapItem {
   return {
     slug: raw.slug,
     title: raw.title,
     status: raw.status,
-    url: itemUrl(raw.slug),
+    url: itemUrl(web, raw.slug),
   };
 }
 
-function toItemDetail(raw: UpstreamItemDetail): RoadmapItemDetail {
+function toItemDetail(web: string, raw: UpstreamItemDetail): RoadmapItemDetail {
   return {
-    ...toItem(raw),
+    ...toItem(web, raw),
     description: raw.description ?? "",
     creatorUsername: raw.creator_username,
     creatorKind: raw.creator_kind ?? null,
@@ -467,7 +475,8 @@ async function handleList({
   items: RoadmapItem[];
   total: number;
 }> {
-  const response = await roadmapFetch("", {
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(endpoints, "", {
     key: await assistantApiKey(),
     signal: abortSignal,
     params: {
@@ -483,17 +492,23 @@ async function handleList({
     response,
     "list roadmap items",
   );
-  const items = (data.items ?? []).map(toItem);
+  const items = (data.items ?? []).map((raw) => toItem(endpoints.web, raw));
   return { items, total: data.total ?? items.length };
 }
 
 async function handleGet(args: RouteHandlerArgs): Promise<RoadmapItemDetail> {
   const slug = requireSlug(args);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
-    key: await assistantApiKey(),
-    signal: args.abortSignal,
-  });
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(
+    endpoints,
+    `/${encodeURIComponent(slug)}`,
+    {
+      key: await assistantApiKey(),
+      signal: args.abortSignal,
+    },
+  );
   return toItemDetail(
+    endpoints.web,
     await roadmapJson<UpstreamItemDetail>(response, "get roadmap item"),
   );
 }
@@ -502,13 +517,15 @@ async function handleCreate(
   args: RouteHandlerArgs,
 ): Promise<MutatedRoadmapItem> {
   const item = parseBody(createRequestSchema, args.body);
-  const response = await roadmapFetch("", {
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(endpoints, "", {
     method: "POST",
     key: await requireAssistantApiKey(),
     body: { ...item, title: item.title.trim() },
     signal: args.abortSignal,
   });
   return toMutatedItem(
+    endpoints.web,
     await roadmapJson<UpstreamMutatedItem>(response, "create roadmap item"),
   );
 }
@@ -518,13 +535,19 @@ async function handleUpdate(
 ): Promise<MutatedRoadmapItem> {
   const slug = requireSlug(args);
   const patch = parseBody(updateRequestSchema, args.body);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
-    method: "PATCH",
-    key: await requireAssistantApiKey(),
-    body: patch,
-    signal: args.abortSignal,
-  });
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(
+    endpoints,
+    `/${encodeURIComponent(slug)}`,
+    {
+      method: "PATCH",
+      key: await requireAssistantApiKey(),
+      body: patch,
+      signal: args.abortSignal,
+    },
+  );
   return toMutatedItem(
+    endpoints.web,
     await roadmapJson<UpstreamMutatedItem>(response, "update roadmap item"),
   );
 }
@@ -533,11 +556,15 @@ async function handleDelete(
   args: RouteHandlerArgs,
 ): Promise<{ slug: string; deleted: true }> {
   const slug = requireSlug(args);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
-    method: "DELETE",
-    key: await requireAssistantApiKey(),
-    signal: args.abortSignal,
-  });
+  const response = await roadmapFetch(
+    resolveEndpoints(),
+    `/${encodeURIComponent(slug)}`,
+    {
+      method: "DELETE",
+      key: await requireAssistantApiKey(),
+      signal: args.abortSignal,
+    },
+  );
   if (!response.ok) {
     await throwRoadmapError(response, "delete roadmap item");
   }
@@ -550,11 +577,15 @@ async function vote(
   action: string,
 ): Promise<{ slug: string; upvoteCount: number }> {
   const slug = requireSlug(args);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}/upvote`, {
-    method,
-    key: await requireAssistantApiKey(),
-    signal: args.abortSignal,
-  });
+  const response = await roadmapFetch(
+    resolveEndpoints(),
+    `/${encodeURIComponent(slug)}/upvote`,
+    {
+      method,
+      key: await requireAssistantApiKey(),
+      signal: args.abortSignal,
+    },
+  );
   const data = await roadmapJson<{ slug?: string; upvote_count?: number }>(
     response,
     action,

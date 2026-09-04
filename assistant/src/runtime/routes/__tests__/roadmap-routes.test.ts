@@ -180,6 +180,34 @@ describe("which deployment the roadmap calls reach", () => {
     expect(result.items[0].url).toBe("https://web.test/roadmap/dark-mode");
   });
 
+  test("a platform change mid-flight cannot fail a create that already published", async () => {
+    delete process.env.VELLUM_MARKETING_URL;
+    delete process.env.VELLUM_WEB_URL;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ): Promise<Response> => {
+      // The item is published. Only now is the assistant repointed at a
+      // platform with no roadmap deployment, as a concurrent
+      // `platform_base_url` write would do.
+      platformBaseUrl = "https://platform.self-hosted.example";
+      return new Response(
+        JSON.stringify({
+          slug: "dark-mode",
+          title: "Add dark mode",
+          status: "open",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const created = (await create({
+      body: { title: "Add dark mode" },
+    })) as { url: string };
+
+    expect(created.url).toBe("https://www.vellum.ai/roadmap/dark-mode");
+  });
+
   test("a named endpoint is honored on any deployment", async () => {
     platformBaseUrl = "https://dev-platform.vellum.ai";
     stubFetch({ items: [], total: 0 });
