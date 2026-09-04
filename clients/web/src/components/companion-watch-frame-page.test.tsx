@@ -129,8 +129,7 @@ describe("the frame around what is read", () => {
 
   /**
    * A share is the other way a surface leaves the machine, and the shell
-   * opens and places this window for it exactly as it does for a watch. Only
-   * the page was refusing to draw.
+   * opens and places this window for it exactly as it does for a watch.
    */
   test("draws for a screen a call is sharing", () => {
     const { container } = render(<CompanionWatchFramePage />);

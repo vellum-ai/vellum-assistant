@@ -18,13 +18,12 @@
  * it dims the thing the user is working on and makes the boundary a
  * gradient. The edge is the whole signal.
  *
- * Drawn in the assistant's own accent, the colour the call pill is already
- * ringed in, and resolved through the same `companionAccentHexFor` the
- * surface uses so the two lights cannot come apart. The frame is one end of
- * something the pill is the other end of: a screen going to *this* assistant.
- * A colour of its own would have made the border a second, unrelated light on
- * the same desktop, and the user would be left to work out that the amber
- * edge and the teal pill were about one session.
+ * Drawn in the assistant's own accent, the colour the call pill is ringed in,
+ * and resolved through the same `companionAccentHexFor` the surface uses so
+ * the two lights cannot come apart. The frame is one end of something the
+ * pill is the other end of: a screen going to *this* assistant. A colour of
+ * its own makes the border a second, unrelated light on the same desktop,
+ * leaving the user to work out that the two are about one session.
  *
  * **It draws the session and holds none of it.** The window is pushed the
  * same state the companion surface is, and draws when that state says a
@@ -100,8 +99,8 @@ export function CompanionWatchFramePage() {
   // the alternative is framing a screen nobody is reading.
   const watching = state?.watching === true;
   // A target on the state is the share, since main sends the pick itself and
-  // absence is nothing shared. The shell has already sized this window to it,
-  // so what is left is to draw.
+  // absence is nothing shared. The shell sizes this window to it; the page
+  // only draws.
   const sharing = state?.screenShare !== undefined;
   const lit = watching || sharing;
   // Counted against the watch session alone. `captureCount` is that session's
