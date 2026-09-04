@@ -1,71 +1,89 @@
 /**
- * Personality groups and assistant-name pools for onboarding name selection.
- * Group labels stay here; the names themselves come from the locale-aware
- * pool so every region keeps a grounded, warm, energetic, and poetic set.
+ * Personality groups and assistant-name pools for the onboarding name step.
  */
 
-import {
-  DEFAULT_NAMING_REGION,
-  PERSONALITY_GROUP_IDS,
-  namesForRegion,
-  sampleSuggestionNames as sampleLocaleSuggestionNames,
-  type NamingRegion,
-  type NamingSignals,
-  type PersonalityGroupId,
-} from "@/domains/onboarding/assistant-name-pool";
-
 export interface PersonalityGroup {
-  id: PersonalityGroupId;
+  id: string;
   label: string;
   descriptor: string;
   tagline: string;
   names: string[];
 }
 
-const GROUP_META: Record<
-  PersonalityGroupId,
-  Pick<PersonalityGroup, "label" | "descriptor" | "tagline">
-> = {
-  grounded: {
+export const PERSONALITY_GROUPS: readonly PersonalityGroup[] = [
+  {
+    id: "grounded",
     label: "Grounded",
     descriptor: "Calm and precise",
     tagline: "Measured. No filler.",
+    names: ["Penn", "Sage", "Atlas", "Orion", "Reed", "Quill"],
   },
-  warm: {
+  {
+    id: "warm",
     label: "Warm",
     descriptor: "Warm and easy",
     tagline: "Friendly and casual.",
+    names: ["Kit", "Remy", "Wren", "Milo", "Fenn", "Cleo"],
   },
-  energetic: {
+  {
+    id: "energetic",
     label: "Energetic",
     descriptor: "Fast and direct",
     tagline: "Brief. To the point.",
+    names: ["Nova", "Ember", "Cade", "Lark", "Vela", "Ziggy"],
   },
-  poetic: {
+  {
+    id: "poetic",
     label: "Poetic",
     descriptor: "Quiet and observant",
     tagline: "Listens, then replies.",
+    names: ["Luna", "Iris", "Vesper", "Lyra", "Juno", "Ada"],
   },
-};
+];
 
-export function personalityGroupsFor(
-  region: NamingRegion = DEFAULT_NAMING_REGION,
-): PersonalityGroup[] {
-  const names = namesForRegion(region);
-  return PERSONALITY_GROUP_IDS.map((id) => ({
-    id,
-    ...GROUP_META[id],
-    names: [...names[id]],
-  }));
+export const DEFAULT_GROUP_ID = "grounded";
+
+export type AssistantNamingSource = "randomized" | "custom";
+
+export const RESEARCH_NAMING_VARIANTS = {
+  randomized: "random_initial",
+  custom: "custom_name",
+} as const;
+
+const SUGGESTION_COUNT = 6;
+
+export function allAssistantNames(): string[] {
+  return PERSONALITY_GROUPS.flatMap((group) => group.names);
 }
 
-export const PERSONALITY_GROUPS: readonly PersonalityGroup[] =
-  personalityGroupsFor(DEFAULT_NAMING_REGION);
+export function pickAssistantName(
+  options: { exclude?: string; random?: () => number } = {},
+): string {
+  const names = allAssistantNames();
+  const random = options.random ?? Math.random;
+  const candidates = options.exclude
+    ? names.filter((name) => name !== options.exclude)
+    : names;
+  const pool = candidates.length > 0 ? candidates : names;
+  return pool[Math.floor(random() * pool.length)] ?? names[0] ?? "";
+}
 
-export const DEFAULT_GROUP_ID: PersonalityGroupId = "grounded";
-
+/**
+ * Return `SUGGESTION_COUNT` unique names sampled uniformly at random from
+ * the full 24-name pool (all personality groups). Uses a Fisher-Yates
+ * partial shuffle. The result is stable per call. Callers should memoize
+ * with `useMemo` or `useState` to persist across re-renders.
+ */
 export function sampleSuggestionNames(
-  signals?: NamingSignals,
+  random: () => number = Math.random,
 ): string[] {
-  return sampleLocaleSuggestionNames(signals);
+  const pool = allAssistantNames();
+  const count = Math.min(SUGGESTION_COUNT, pool.length);
+  for (let i = 0; i < count; i += 1) {
+    const j = i + Math.floor(random() * (pool.length - i));
+    const tmp = pool[i]!;
+    pool[i] = pool[j]!;
+    pool[j] = tmp;
+  }
+  return pool.slice(0, count);
 }

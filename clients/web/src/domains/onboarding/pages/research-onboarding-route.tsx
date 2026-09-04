@@ -38,7 +38,10 @@ import {
 } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
+import {
+  DEFAULT_GROUP_ID,
+  RESEARCH_NAMING_VARIANTS,
+} from "@/domains/onboarding/prechat-names";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
@@ -62,10 +65,6 @@ import {
   type ResearchStep,
 } from "@/domains/onboarding/research-onboarding-persistence";
 import { stampAssistantOnboarded } from "@/domains/onboarding/stamp-assistant-onboarded";
-import {
-  formatNamingFunnelScreen,
-  RESEARCH_NAMING_VARIANTS,
-} from "@/domains/onboarding/assistant-name-pool";
 import {
   emitResearchOnboardingStepCompleted,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
@@ -1366,6 +1365,7 @@ export function ResearchOnboardingRoute() {
   if (step === "face" && formValues) {
     return withHatchError(
       <GiveMeAFaceScreen
+        initialName={faceValues?.name}
         onContinue={(face) => {
           setFaceValues(face);
           goForwardTo(
@@ -1373,11 +1373,8 @@ export function ResearchOnboardingRoute() {
             "completed",
             face.naming
               ? {
-                  screen: formatNamingFunnelScreen(face.naming),
-                  variant:
-                    face.naming.source === "surprise_me"
-                      ? RESEARCH_NAMING_VARIANTS.surpriseMe
-                      : RESEARCH_NAMING_VARIANTS.custom,
+                  screen: face.naming.source,
+                  variant: RESEARCH_NAMING_VARIANTS[face.naming.source],
                 }
               : undefined,
           );

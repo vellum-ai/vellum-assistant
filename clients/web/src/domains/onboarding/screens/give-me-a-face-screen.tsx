@@ -26,16 +26,15 @@ import {
 } from "lucide-react";
 
 import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
-import {
-  pickNameFromPool,
-  resolveAssistantNamePool,
-  type AssistantNamingChoice,
-} from "@/domains/onboarding/assistant-name-pool";
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
 import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { resolveAvatarVoice } from "@/domains/onboarding/onboarding-avatar-voices";
+import {
+  pickAssistantName,
+  type AssistantNamingSource,
+} from "@/domains/onboarding/prechat-names";
 import { useUnscopedManagedVoices } from "@/lib/tts/use-managed-voices";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -53,16 +52,17 @@ export interface GiveMeAFaceValues {
    */
   voiceModel: string | null;
   /**
-   * How the name was chosen. Set on every continue from this screen so the
-   * face-step funnel event can tell surprise-me / locale picks from a typed
-   * name. Optional on resumed snapshots that only stored the chosen name.
+   * How the name was chosen. Set on every continue so the face-step funnel
+   * event can tell a kept random pick from a typed or shuffled name.
    */
-  naming?: AssistantNamingChoice;
+  naming?: { source: AssistantNamingSource };
 }
 
 interface GiveMeAFaceScreenProps {
   onContinue: (values: GiveMeAFaceValues) => void;
   onBack: () => void;
+  /** Name already chosen on this step. Restores it after a step back. */
+  initialName?: string;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
@@ -92,6 +92,7 @@ function initialArrangement(count: number, centerChar: number): Arrangement {
 export function GiveMeAFaceScreen({
   onContinue,
   onBack,
+  initialName,
   onForward,
   canAuditionVoice = true,
 }: GiveMeAFaceScreenProps) {
@@ -111,13 +112,12 @@ export function GiveMeAFaceScreen({
   }, [components, ensureGenerated]);
 
   const count = characters.length;
-  const namePool = useMemo(() => resolveAssistantNamePool(), []);
+  const restoredName = initialName?.trim() ?? "";
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => restoredName || pickAssistantName());
   const [editingName, setEditingName] = useState(false);
-  // Empty + not customized is the "Surprise me" default. Editing or shuffling
-  // freezes whatever the user picked so cycling avatars cannot replace it.
-  const nameCustomized = useRef(false);
+  // A restored or edited/shuffled name sticks across avatar cycling.
+  const nameCustomized = useRef(restoredName.length > 0);
   const nameInputRef = useRef<HTMLInputElement>(null);
   // The current swap: the newly selected char + the slot it came from
   // (entering), and the old center + the slot it's heading to (exiting).
@@ -219,28 +219,15 @@ export function GiveMeAFaceScreen({
 
   const ready = !!components && !!arrangement && !!centeredTraits;
 
-  function namingChoice(
-    source: AssistantNamingChoice["source"],
-  ): AssistantNamingChoice {
-    return {
-      source,
-      region: namePool.region,
-      signal: namePool.signal,
-    };
-  }
-
   function handleContinue() {
     if (centeredTraits) {
-      const source = nameCustomized.current ? "custom" : "surprise_me";
-      const resolvedName =
-        source === "surprise_me"
-          ? pickNameFromPool(namePool.names)
-          : name.trim();
       onContinue({
         traits: centeredTraits,
-        name: resolvedName,
+        name: name.trim(),
         voiceModel: centeredVoice?.model ?? null,
-        naming: namingChoice(source),
+        naming: {
+          source: nameCustomized.current ? "custom" : "randomized",
+        },
       });
     }
   }
@@ -250,9 +237,7 @@ export function GiveMeAFaceScreen({
   // (like editing) it sticks across avatar cycling.
   function randomizeCharacter() {
     nameCustomized.current = true;
-    setName((current) =>
-      pickNameFromPool(namePool.names, { exclude: current }),
-    );
+    setName((current) => pickAssistantName({ exclude: current }));
     if (components && arrangement && centeredTraits) {
       let traits = randomCharacterTraits(components);
       while (
@@ -356,8 +341,10 @@ export function GiveMeAFaceScreen({
                 aria-label={t("giveMeAFaceScreen.editName")}
                 className="flex cursor-pointer items-center gap-2.5"
               >
-                <span className="text-2xl font-medium text-[var(--content-default)]">
-                  {name || t("giveMeAFaceScreen.surpriseMe")}
+                <span
+                  className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
+                >
+                  {name || t("giveMeAFaceScreen.namePlaceholder")}
                 </span>
                 <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
               </button>

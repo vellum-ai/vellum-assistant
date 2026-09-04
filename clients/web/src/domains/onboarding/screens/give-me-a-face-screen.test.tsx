@@ -70,19 +70,12 @@ mock.module("@/lib/tts/use-managed-voices", () => ({
   }),
 }));
 
-mock.module("@/i18n/system-locale", () => ({
-  systemLocales: () => ["en-US"],
-}));
-mock.module("@/utils/browser-timezone", () => ({
-  getBrowserTimezone: () => "America/New_York",
-}));
-
 const { useOnboardingAvatarPoolStore } =
   await import("@/domains/onboarding/onboarding-avatar-pool-store");
 const { GiveMeAFaceScreen } =
   await import("@/domains/onboarding/screens/give-me-a-face-screen");
-const { allNamesForRegion } = await import(
-  "@/domains/onboarding/assistant-name-pool"
+const { allAssistantNames } = await import(
+  "@/domains/onboarding/prechat-names"
 );
 
 let played: string[] = [];
@@ -111,9 +104,13 @@ beforeEach(() => {
   played = [];
   paused = 0;
   // The avatar pool is a module-level store, so `cleanup` unmounts the screen
-  // but leaves whichever avatar the last test cycled to still selected. Every
-  // test here asserts on the voice of a KNOWN avatar, so each one starts from
-  // the centered-first avatar.
+  // but leaves whichever avatar the last test cycled to still selected. Voice
+  // tests assert on a KNOWN avatar, so generate the pool (if needed) and pin
+  // the designed first face.
+  useOnboardingAvatarPoolStore.getState().ensureGenerated(
+    { colors: [] } as never,
+    () => 0,
+  );
   useOnboardingAvatarPoolStore.setState({ selectedIndex: 0 });
 });
 
@@ -244,43 +241,51 @@ describe("GiveMeAFaceScreen voice audition", () => {
 });
 
 describe("GiveMeAFaceScreen name default", () => {
-  test("defaults the name field to Surprise me, not Ziggy", () => {
+  test("shows a concrete name from the pool on first paint, not Surprise me", () => {
     renderScreen();
 
-    expect(screen.getByText("Surprise me")).toBeTruthy();
-    expect(screen.queryByText("Ziggy")).toBeNull();
+    const shown = allAssistantNames().find((candidate) =>
+      screen.queryByText(candidate),
+    );
+    expect(shown).toBeTruthy();
+    expect(screen.queryByText("Surprise me")).toBeNull();
   });
 
-  test("keeps Surprise me when the avatar carousel moves", () => {
+  test("keeps the first-paint name when the avatar carousel moves", () => {
     renderScreen();
+    const shown = allAssistantNames().find((candidate) =>
+      screen.queryByText(candidate),
+    );
+    expect(shown).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Next character" }));
 
-    expect(screen.getByText("Surprise me")).toBeTruthy();
-    expect(screen.queryByText("Ziggy")).toBeNull();
+    expect(screen.getByText(shown!)).toBeTruthy();
   });
 
-  test("resolves Surprise me to a locale-fitting name on Continue", () => {
+  test("Continue sends the already-shown random name", () => {
     const onContinue = mock(() => {});
     renderScreen({ onContinue });
+    const shown = allAssistantNames().find((candidate) =>
+      screen.queryByText(candidate),
+    );
+    expect(shown).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     const values = (
       onContinue.mock.calls[0] as unknown as [
-        {
-          name: string;
-          naming: { source: string; region: string; signal: string };
-        },
+        { name: string; naming: { source: string } },
       ]
     )[0];
-    expect(values.name).not.toBe("Surprise me");
-    expect(values.name).not.toBe("");
-    expect(allNamesForRegion("en")).toContain(values.name);
-    expect(values.naming).toEqual({
-      source: "surprise_me",
-      region: "en",
-      signal: "agree",
-    });
+    expect(values.name).toBe(shown);
+    expect(values.naming).toEqual({ source: "randomized" });
+  });
+
+  test("restores a previously chosen name instead of drawing again", () => {
+    renderScreen({ initialName: "Vela" });
+
+    expect(screen.getByText("Vela")).toBeTruthy();
   });
 
   test("a typed name, including non-ASCII, survives Continue", () => {

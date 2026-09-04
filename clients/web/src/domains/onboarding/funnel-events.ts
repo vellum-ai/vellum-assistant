@@ -234,8 +234,8 @@ export function emitResearchOnboardingStepCompleted(
     outcome?: OnboardingFunnelStepOutcome;
     /**
      * Extra dimension on `screen` when it should differ from `step_name`.
-     * The face step stamps name source + region + signal here so locale
-     * surprise-me can be compared with a typed name without a new ingest field.
+     * The face step stamps `randomized` or `custom` here so a kept first-paint
+     * pick can be compared with a typed or shuffled name.
      */
     screen?: string;
     /** A/B arm; research steps default to control unless a step overrides. */
