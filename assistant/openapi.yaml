@@ -33713,6 +33713,116 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
+  /v1/thread-suggestions:
+    get:
+      operationId: threadsuggestions_get
+      summary: Get thread suggestion catalog
+      description:
+        Returns grouped suggestion cards for the new-thread empty state, with requirement statuses annotated based
+        on which OAuth providers are connected for this assistant.
+      tags:
+        - thread-suggestions
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        source:
+                          type: string
+                          enum:
+                            - plugin
+                            - vellum-curated
+                        suggestions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              title:
+                                type: string
+                              iconKey:
+                                type: string
+                                enum:
+                                  - gmail
+                                  - google-calendar
+                                  - google-drive
+                                  - vellum
+                                  - generic
+                              prompt:
+                                type: string
+                              detail:
+                                type: object
+                                properties:
+                                  heading:
+                                    type: string
+                                  description:
+                                    type: string
+                                  requirements:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        label:
+                                          type: string
+                                        status:
+                                          type: string
+                                          enum:
+                                            - ready
+                                            - install
+                                        hint:
+                                          type: string
+                                      required:
+                                        - id
+                                        - label
+                                        - status
+                                      additionalProperties: false
+                                  capabilities:
+                                    type: array
+                                    items:
+                                      type: string
+                                required:
+                                  - heading
+                                  - description
+                                  - requirements
+                                  - capabilities
+                                additionalProperties: false
+                            required:
+                              - id
+                              - title
+                              - iconKey
+                              - prompt
+                              - detail
+                            additionalProperties: false
+                      required:
+                        - id
+                        - title
+                        - source
+                        - suggestions
+                      additionalProperties: false
+                  featuredCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                    description: How many suggestions from the start of groups form the featured row
+                required:
+                  - groups
+                  - featuredCount
+                additionalProperties: false
   /v1/tools:
     get:
       operationId: tools_get

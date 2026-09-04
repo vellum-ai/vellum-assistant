@@ -151,6 +151,7 @@ import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as THEME_ROUTES } from "./theme-routes.js";
+import { ROUTES as THREAD_SUGGESTION_ROUTES } from "./thread-suggestion-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
@@ -303,6 +304,7 @@ export const ROUTES: RouteDefinition[] = [
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,
   ...SUBAGENT_ROUTES,
+  ...THREAD_SUGGESTION_ROUTES,
   ...SURFACE_ACTION_ROUTES,
   ...SURFACE_CONTENT_ROUTES,
   ...TELEGRAM_ROUTES,

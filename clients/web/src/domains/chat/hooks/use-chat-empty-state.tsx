@@ -134,9 +134,10 @@ export function useChatEmptyState({
 
   const newThreadSuggestionsEnabled =
     useClientFeatureFlagStore.use.newThreadSuggestions();
-  // Cheap memoized hook — safe to call unconditionally; the result is only
-  // rendered on the flag-on path below.
-  const { featured, groups } = useThreadSuggestions();
+  // Always called unconditionally; only rendered on the flag-on path below.
+  // Pass assistantId so the hook can fetch live data with connected-provider
+  // statuses; it falls back to the mock catalog until the fetch settles.
+  const { featured, groups } = useThreadSuggestions(assistantId);
 
   const emptyStatePlaceholder = useMemo(() => pickRandomPlaceholder(), []);
   const { greeting: emptyStateGreeting, isGenerating: greetingIsGenerating } =
