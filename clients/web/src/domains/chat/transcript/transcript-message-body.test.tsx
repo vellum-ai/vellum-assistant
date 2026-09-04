@@ -1125,6 +1125,62 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
+  test("collapses prose before a card-backed activity when a later surface has trailing text", () => {
+    // A process card is visible output even though it is not a timeline row.
+    // Prose before that card is earlier activity. The surface and trailing
+    // scrap stay in the reply.
+    const { container, getByRole, queryByRole, queryByTestId, queryByText } =
+      render(
+        <TranscriptMessageBody
+          message={{
+            id: "completed-with-card-then-surface",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("Let me ask first."),
+              toolUseBlock({
+                id: "tc-ask-then-surface",
+                name: "ask_question",
+                input: {},
+                completedAt: 1,
+                answeredQuestion: {
+                  requestId: "req-card-bound",
+                  questions: [
+                    {
+                      id: "q1",
+                      question: "Which Alice?",
+                      options: [{ id: "alice_work", label: "Alice (work)" }],
+                    },
+                  ],
+                  responses: [
+                    {
+                      questionId: "q1",
+                      decision: "option",
+                      optionId: "alice_work",
+                    },
+                  ],
+                  overall: "completed",
+                },
+              }),
+              surfaceBlock("choice-after-card"),
+              textBlock("Sparkle"),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+    expect(queryByText("Let me ask first.")).toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).not.toBeNull();
+    expect(queryByTestId("answered-question-card")).not.toBeNull();
+    expect(queryByText("Sparkle")).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='choice-after-card']"),
+    ).not.toBeNull();
+
+    fireEvent.click(getByRole("button", { name: "Earlier activity" }));
+    expect(queryByText("Let me ask first.")).not.toBeNull();
+  });
+
   test("keeps inline surfaces visible outside collapsed earlier text", () => {
     const { container, queryByText } = render(
       <TranscriptMessageBody

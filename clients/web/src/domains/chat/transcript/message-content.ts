@@ -211,18 +211,21 @@ export function groupContentBlocks(
  * onboarding greeting produces: greeting, `ui_show`, choice surface, then a
  * lone emoji.
  *
- * `rendersRow` reports whether a group draws anything. A group that draws
- * nothing cannot separate two that do, so the walk passes straight through it:
- * the `ui_show` call that opened a surface draws no row of its own, and neither
- * does a thought whose reasoning never arrived. The first activity group that
- * *does* draw a row is real intermediate work and ends the answer.
+ * `drawsVisibleOutput` reports whether a group draws anything the user can
+ * see: a timeline row, a dedicated inline card (subagent, workflow, ACP run,
+ * background task, answered question), or other visible group output. A group
+ * that draws nothing cannot separate two that do, so the walk passes straight
+ * through it. The `ui_show` call that opened a surface draws no output of its
+ * own, and neither does a thought whose reasoning never arrived. The first
+ * activity group that does draw visible output is real intermediate work and
+ * ends the answer.
  *
  * Returns -1 when the response carries no text at all, which leaves every group
  * outside the answer's range.
  */
 export function finalResponseStartIndex(
   groups: readonly ContentBlockGroup[],
-  rendersRow: (group: ContentBlockGroup, index: number) => boolean,
+  drawsVisibleOutput: (group: ContentBlockGroup, index: number) => boolean,
 ): number {
   const lastTextIndex = groups.findLastIndex(
     (group) => group.type === "text" && group.text.trim().length > 0,
@@ -231,7 +234,7 @@ export function finalResponseStartIndex(
   let crossedSurface = false;
   for (let index = lastTextIndex - 1; index >= 0; index--) {
     const group = groups[index];
-    if (!group || !rendersRow(group, index)) {
+    if (!group || !drawsVisibleOutput(group, index)) {
       continue;
     }
     if (group.type === "surface") {
@@ -240,7 +243,7 @@ export function finalResponseStartIndex(
       continue;
     }
     // Prose joins the answer only once the walk has crossed a surface it could
-    // be introducing; text that merely precedes more text is a lead-in to the
+    // be introducing. Text that merely precedes more text is a lead-in to the
     // work between them, and stays collapsible.
     if (group.type === "text" && crossedSurface) {
       start = index;
@@ -385,6 +388,28 @@ export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
     return false;
   }
   return (input as Record<string, unknown>).background === true;
+}
+
+/**
+ * Whether an activity group's tool calls produce a dedicated inline card
+ * rather than a timeline row: a subagent spawn, or a call the render path
+ * treats as card-backed (workflow, ACP run, background task, answered
+ * question). Those cards are visible output and bound the final-response walk
+ * the same way a drawn chip does.
+ */
+export function activityHasDedicatedCard(
+  items: readonly ContentBlockActivityItem[],
+  isCardBacked: (toolCall: ChatMessageToolCall) => boolean,
+): boolean {
+  for (const item of items) {
+    if (item.type !== "tool_use") {
+      continue;
+    }
+    if (isSubagentSpawnCall(item.toolCall) || isCardBacked(item.toolCall)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

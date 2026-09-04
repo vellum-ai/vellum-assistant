@@ -4,6 +4,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
+  activityHasDedicatedCard,
   type ContentBlockGroup,
   finalResponseStartIndex,
   groupContentBlocks,
@@ -440,8 +441,8 @@ describe("finalResponseStartIndex", () => {
     items: [{ type: "tool_use", toolCall: toolCall({ id: "tc-1" }) }],
   });
 
-  /** Every group draws a row except the indexes named by `blank`. */
-  function rendersRow(blank: number[] = []) {
+  /** Every group draws visible output except the indexes named by `blank`. */
+  function drawsVisibleOutput(blank: number[] = []) {
     return (_group: ContentBlockGroup, index: number) => !blank.includes(index);
   }
 
@@ -454,7 +455,7 @@ describe("finalResponseStartIndex", () => {
       surfaceGroup(),
       textGroup("Sparkle"),
     ];
-    expect(finalResponseStartIndex(groups, rendersRow([1]))).toBe(0);
+    expect(finalResponseStartIndex(groups, drawsVisibleOutput([1]))).toBe(0);
   });
 
   test("keeps intermediate text before a drawn tool run out of the response", () => {
@@ -463,7 +464,7 @@ describe("finalResponseStartIndex", () => {
       activityGroup(),
       textGroup("Here is the final answer."),
     ];
-    expect(finalResponseStartIndex(groups, rendersRow())).toBe(2);
+    expect(finalResponseStartIndex(groups, drawsVisibleOutput())).toBe(2);
   });
 
   test("a group that draws nothing does not pull earlier text into the response", () => {
@@ -472,7 +473,7 @@ describe("finalResponseStartIndex", () => {
       activityGroup(),
       textGroup("Here is the final answer."),
     ];
-    expect(finalResponseStartIndex(groups, rendersRow([1]))).toBe(2);
+    expect(finalResponseStartIndex(groups, drawsVisibleOutput([1]))).toBe(2);
   });
 
   test("every text block introducing a surface joins the response", () => {
@@ -483,7 +484,7 @@ describe("finalResponseStartIndex", () => {
       surfaceGroup(),
       textGroup("Sparkle"),
     ];
-    expect(finalResponseStartIndex(groups, rendersRow([2]))).toBe(0);
+    expect(finalResponseStartIndex(groups, drawsVisibleOutput([2]))).toBe(0);
   });
 
   test("a drawn tool run ends the response, surface or not", () => {
@@ -493,10 +494,110 @@ describe("finalResponseStartIndex", () => {
       surfaceGroup(),
       textGroup("Here is the final answer."),
     ];
-    expect(finalResponseStartIndex(groups, rendersRow())).toBe(2);
+    expect(finalResponseStartIndex(groups, drawsVisibleOutput())).toBe(2);
+  });
+
+  test("visible card-backed activity ends the response so earlier prose stays collapsible", () => {
+    // Prose, a process card with no timeline row, a later surface, then a
+    // trailing scrap. The card is visible output, so it bounds the reply.
+    const groups: ContentBlockGroup[] = [
+      textGroup("Let me ask first."),
+      {
+        type: "activity",
+        items: [
+          {
+            type: "tool_use",
+            toolCall: toolCall({ id: "tc-ask", name: "ask_question" }),
+          },
+        ],
+      },
+      surfaceGroup(),
+      textGroup("Sparkle"),
+    ];
+    const includingDedicatedCard = (
+      group: ContentBlockGroup,
+      _index: number,
+    ): boolean => {
+      if (group.type === "text") {
+        return group.text.trim().length > 0;
+      }
+      if (group.type === "surface") {
+        return true;
+      }
+      return activityHasDedicatedCard(group.items, () => true);
+    };
+    expect(finalResponseStartIndex(groups, includingDedicatedCard)).toBe(2);
   });
 
   test("returns -1 for a response carrying no text", () => {
-    expect(finalResponseStartIndex([activityGroup()], rendersRow())).toBe(-1);
+    expect(finalResponseStartIndex([activityGroup()], drawsVisibleOutput())).toBe(
+      -1,
+    );
+  });
+});
+
+describe("activityHasDedicatedCard", () => {
+  test("matches a subagent spawn even when nothing is marked card-backed", () => {
+    expect(
+      activityHasDedicatedCard(
+        [
+          {
+            type: "tool_use",
+            toolCall: toolCall({ id: "x", name: "subagent_spawn" }),
+          },
+        ],
+        () => false,
+      ),
+    ).toBe(true);
+  });
+
+  test("matches a skill_execute subagent spawn", () => {
+    expect(
+      activityHasDedicatedCard(
+        [
+          {
+            type: "tool_use",
+            toolCall: toolCall({
+              id: "x",
+              name: "skill_execute",
+              input: { tool: "subagent_spawn" },
+            }),
+          },
+        ],
+        () => false,
+      ),
+    ).toBe(true);
+  });
+
+  test("matches a call the render path marks card-backed", () => {
+    expect(
+      activityHasDedicatedCard(
+        [
+          {
+            type: "tool_use",
+            toolCall: toolCall({ id: "x", name: "run_workflow" }),
+          },
+        ],
+        (tc) => tc.name === "run_workflow",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not match a plain tool chip", () => {
+    expect(
+      activityHasDedicatedCard(
+        [{ type: "tool_use", toolCall: toolCall({ id: "x", name: "bash" }) }],
+        () => false,
+      ),
+    ).toBe(false);
+  });
+
+  test("does not match thinking-only activity", () => {
+    expect(
+      activityHasDedicatedCard(
+        [{ type: "thinking", thinking: "plan" }],
+        () => true,
+      ),
+    ).toBe(false);
   });
 });
