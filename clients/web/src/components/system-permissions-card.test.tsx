@@ -28,12 +28,15 @@ const setDockBadge = mock(() => undefined);
 function item(
   kind: SystemPermissionKind,
   status: SystemPermissionStatus,
+  remediation: { canRequest?: boolean; canOpenSettings?: boolean } = {},
 ): SystemPermissionStateItem {
   return {
     kind,
     status,
-    canRequest: status !== "granted" && status !== "restricted",
-    canOpenSettings: status !== "granted",
+    canRequest:
+      remediation.canRequest ??
+      (status !== "granted" && status !== "restricted"),
+    canOpenSettings: remediation.canOpenSettings ?? status !== "granted",
     requiresRestart: false,
   };
 }
@@ -182,6 +185,30 @@ describe("SystemPermissionsCard", () => {
     expect(
       screen.queryByRole("switch", { name: "Screen Recording" }),
     ).toBeNull();
+  });
+
+  test("disables a row the host can neither prompt for nor open settings for", () => {
+    hostOS = "linux";
+    // The Linux shell has no settings URI scheme and no prompt outside
+    // notifications, so the microphone toggle would do nothing.
+    state = makeState();
+    state.microphone = item("microphone", "denied", {
+      canRequest: false,
+      canOpenSettings: false,
+    });
+
+    render(<SystemPermissionsCard />);
+
+    expect(
+      screen
+        .getByRole("switch", { name: "Microphone" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("switch", { name: "Notifications" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   test("updates the Dock badge setting without requesting a macOS permission", async () => {

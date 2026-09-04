@@ -292,12 +292,22 @@ export function SystemPermissionsCard({
 
       const copy = systemPermissionCopy(meta.id, t, hostOS);
 
+      // A host that can neither prompt nor open a settings pane for a kind
+      // has nothing for the toggle to do, so do not offer a dead control.
+      // A granted row is exempt: it stays clickable so the user can go and
+      // revoke, which is what `handleSystemToggle` does with it.
+      const noRemediation =
+        !item.canRequest && !item.canOpenSettings && item.status !== "granted";
+
       return {
         id: meta.id,
         label: copy.label,
         description: copy.description,
         checked: item.status === "granted",
-        disabled: pendingKind === meta.id || item.status === "restricted",
+        disabled:
+          pendingKind === meta.id ||
+          item.status === "restricted" ||
+          noRemediation,
         ...(item.error ? { error: item.error } : {}),
       };
     }).filter(Boolean) as PermissionRowViewModel[];
