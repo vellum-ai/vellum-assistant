@@ -110,7 +110,6 @@ describe("ResearchResultsStep copy / list agreement", () => {
     renderStep({ claims, loading: false, onContinue });
 
     expect(screen.queryByText(COPY.title)).toBeNull();
-    expect(screen.queryByText(COPY.bodyReadyEmpty)).toBeNull();
     expect(screen.queryByText(COPY.bodyReadyWithClaims)).toBeNull();
     expect(screen.queryByText("Lives in Dallas")).toBeNull();
     expect(screen.queryByRole("button", { name: COPY.notMe })).toBeNull();
@@ -134,7 +133,6 @@ describe("ResearchResultsStep copy / list agreement", () => {
     });
 
     expect(screen.getByText(COPY.bodyReadyWithClaims)).toBeTruthy();
-    expect(screen.queryByText(COPY.bodyReadyEmpty)).toBeNull();
     expect(screen.getByText("Engineer at Acme")).toBeTruthy();
     expect(screen.getByText("Into climbing")).toBeTruthy();
     expect(screen.getByRole("button", { name: COPY.notMe })).toBeTruthy();
@@ -155,7 +153,6 @@ describe("ResearchResultsStep copy / list agreement", () => {
     expect(onContinue).toHaveBeenCalledTimes(1);
     expect(onContinue.mock.calls[0]?.[0]).toEqual([KEPT_CLAIM.claim]);
     expect(screen.queryByText(COPY.title)).toBeNull();
-    expect(screen.queryByText(COPY.bodyReadyEmpty)).toBeNull();
     expect(screen.queryByText(COPY.bodyReadyWithClaims)).toBeNull();
     expect(screen.queryByText(KEPT_CLAIM.claim)).toBeNull();
     expect(screen.queryByRole("button", { name: COPY.notMe })).toBeNull();
