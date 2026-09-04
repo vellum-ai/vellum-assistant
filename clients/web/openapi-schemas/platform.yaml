@@ -1837,6 +1837,7 @@ paths:
           - notion
           - outlook
           - salesforce
+          - stripe_link
           - todoist
           - twitter
         description: Filter connections by OAuth provider.
@@ -8618,6 +8619,7 @@ components:
       - calendly
       - monday
       - figma
+      - stripe_link
       type: string
       description: |-
         * `twitter` - twitter
@@ -8637,6 +8639,7 @@ components:
         * `calendly` - calendly
         * `monday` - monday
         * `figma` - figma
+        * `stripe_link` - stripe_link
     OAuthStartRequestRequest:
       type: object
       properties:
