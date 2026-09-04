@@ -250,14 +250,27 @@ export function CompanionCapturePicker({
     };
   }, []);
 
-  // A new list is a new desktop: whatever was asked for belonged to the card
-  // the user has already left. Declared above the asking effect so it runs
-  // first when both fire on the same list.
+  // A new list is a new desktop: whatever was asked for, and whatever kind the
+  // user had narrowed to, belonged to the card they have already left. Teach
+  // pressed over Share's open picker is a new question in the same card, and
+  // it opens the way the first one did. Declared above the asking effect so it
+  // runs first when both fire on the same list.
   useEffect(() => {
     asked.current = new Set();
     listing.current += 1;
     setThumbnails(new Map());
+    setChosen(null);
   }, [sources]);
+
+  // The grid is scrolled per card, not per kind: a switch is a different list
+  // in the same box, and the rows above whatever the last kind was scrolled to
+  // would start out of sight.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (listRef.current !== null) {
+      listRef.current.scrollTop = 0;
+    }
+  }, [kind]);
 
   useEffect(() => {
     if (captureThumbnail === undefined) {
@@ -359,6 +372,7 @@ export function CompanionCapturePicker({
        * card past the edge of a window that never resizes.
        */}
       <ScrollShadow
+        ref={listRef}
         className="max-h-48 flex-col px-0.5"
         size={24}
         fadeEdges="end"

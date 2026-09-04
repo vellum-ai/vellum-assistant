@@ -134,6 +134,29 @@ describe("the capture picker", () => {
     expect(checked()).toEqual(["false", "false", "true"]);
   });
 
+  test("opens on the screens again when the card is asked a new question", () => {
+    // Teach pressed over Share's open picker: the host lists afresh and the
+    // card is the same element, so the kind the last question was narrowed to
+    // would otherwise still be showing.
+    const { container, rerender } = render(
+      <CompanionCapturePicker sources={SOURCES} />,
+    );
+    pressKind(container, "Windows");
+    expect(tiles(container)).toEqual(["Groceries (Notes)", "Preview"]);
+    rerender(<CompanionCapturePicker sources={null} />);
+    rerender(<CompanionCapturePicker sources={{ ...SOURCES }} />);
+    expect(tiles(container)).toEqual(["Screen 1", "Screen 2"]);
+  });
+
+  test("starts a kind at its first row rather than where the last one was left", () => {
+    const { container } = render(<CompanionCapturePicker sources={SOURCES} />);
+    const list = container.querySelector(".max-h-48")!;
+    pressKind(container, "Windows");
+    list.scrollTop = 120;
+    pressKind(container, "Chrome tabs");
+    expect(list.scrollTop).toBe(0);
+  });
+
   test("draws each screen and window as a picture of itself", async () => {
     const { container } = render(
       <CompanionCapturePicker sources={SOURCES} captureThumbnail={answering} />,
