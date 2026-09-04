@@ -92,47 +92,58 @@ function resolveDeployment(): EnvironmentDefinition | undefined {
   );
 }
 
+interface RoadmapEndpoints {
+  /**
+   * Marketing service that serves the roadmap API. Reached directly rather
+   * than through the `www.vellum.ai/api/marketing` proxy the user-facing CLI
+   * uses: that proxy carries the owner's session cookie, which is exactly the
+   * identity this surface exists to avoid.
+   */
+  api: string;
+  /** Site that renders roadmap items, for the human-facing item links. */
+  web: string;
+}
+
 /**
- * Marketing service that serves the roadmap API. Reached directly rather than
- * through the `www.vellum.ai/api/marketing` proxy the user-facing CLI uses:
- * that proxy carries the owner's session cookie, which is exactly the identity
- * this surface exists to avoid.
+ * Both endpoints this surface talks to, resolved together from one deployment
+ * so a link can never name a different deployment than the call that fetched
+ * it.
  *
- * Only production has a default, and deliberately so. The roadmap is a single
+ * Only production has defaults, and deliberately so. The roadmap is a single
  * public site, so a non-production assistant that fell back to it would file
  * real items under its own name and hand a key the production service never
- * issued to a production host. Everywhere else the endpoint has to be named.
+ * issued to a production host. Every other deployment, including a self-hosted
+ * platform the seed table does not know, has to name both.
+ *
+ * Resolved before the request rather than while rendering the reply: a
+ * half-configured assistant must fail before it publishes, not after.
  */
-function marketingBaseUrl(): string {
-  const override = process.env.VELLUM_MARKETING_URL?.trim();
-  if (override) {
-    return stripTrailingSlashes(override);
-  }
-  if (resolveDeployment()?.name !== "production") {
+function resolveEndpoints(): RoadmapEndpoints {
+  const deployment = resolveDeployment();
+  const apiOverride = process.env.VELLUM_MARKETING_URL?.trim();
+  const webOverride = process.env.VELLUM_WEB_URL?.trim();
+
+  if (!apiOverride && deployment?.name !== "production") {
     throw new UnprocessableEntityError(
       `The Vellum roadmap has no deployment for a ${getPlatformBaseUrl()} assistant. Set VELLUM_MARKETING_URL to the roadmap service for this environment.`,
     );
   }
-  return DEFAULT_MARKETING_URL;
-}
 
-/**
- * Site that renders roadmap items, for the human-facing item links.
- *
- * Resolved from the same deployment the roadmap call itself reaches. Reading
- * `VELLUM_ENVIRONMENT` here instead would hand a staging-labelled assistant
- * whose platform is production a staging link to a production item.
- */
-function webBaseUrl(): string {
-  const override = process.env.VELLUM_WEB_URL?.trim();
-  if (override) {
-    return stripTrailingSlashes(override);
+  const web = webOverride || deployment?.webUrl;
+  if (!web) {
+    throw new UnprocessableEntityError(
+      `No web origin is known for a ${getPlatformBaseUrl()} assistant, so roadmap item links cannot be built. Set VELLUM_WEB_URL to the site that renders this environment's roadmap.`,
+    );
   }
-  return stripTrailingSlashes((resolveDeployment() ?? SEEDS.production).webUrl);
+
+  return {
+    api: stripTrailingSlashes(apiOverride || DEFAULT_MARKETING_URL),
+    web: stripTrailingSlashes(web),
+  };
 }
 
 function itemUrl(slug: string): string {
-  return `${webBaseUrl()}/roadmap/${slug}`;
+  return `${resolveEndpoints().web}/roadmap/${slug}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +199,7 @@ async function roadmapFetch(
       (entry): entry is [string, string] => entry[1] !== undefined,
     ),
   ).toString();
-  const url = `${marketingBaseUrl()}/v1/roadmap${path}${query ? `?${query}` : ""}`;
+  const url = `${resolveEndpoints().api}/v1/roadmap${path}${query ? `?${query}` : ""}`;
 
   const headers: Record<string, string> = {};
   if (opts.key) {

@@ -159,6 +159,27 @@ describe("which deployment the roadmap calls reach", () => {
     expect(result.items[0].url).toBe("https://www.vellum.ai/roadmap/dark-mode");
   });
 
+  // A self-hosted platform is not in the seed table, so nothing is known about
+  // it: naming its roadmap API says nothing about where its items are rendered.
+  test("a self-hosted deployment must name its web origin too", async () => {
+    platformBaseUrl = "https://platform.self-hosted.example";
+    delete process.env.VELLUM_WEB_URL;
+    stubFetch({ items: [], total: 0 });
+
+    await expect(list({})).rejects.toThrow("Set VELLUM_WEB_URL");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a self-hosted deployment works once both endpoints are named", async () => {
+    platformBaseUrl = "https://platform.self-hosted.example";
+    stubFetch({ items: [UPSTREAM_ITEM], total: 1 });
+
+    const result = (await list({})) as { items: { url: string }[] };
+
+    expect(calls[0].url).toBe("https://marketing.test/v1/roadmap");
+    expect(result.items[0].url).toBe("https://web.test/roadmap/dark-mode");
+  });
+
   test("a named endpoint is honored on any deployment", async () => {
     platformBaseUrl = "https://dev-platform.vellum.ai";
     stubFetch({ items: [], total: 0 });
