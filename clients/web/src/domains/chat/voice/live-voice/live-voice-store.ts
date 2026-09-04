@@ -1479,15 +1479,24 @@ export function attachLiveVoiceImage(
  *
  * Module-level for the reason {@link endLiveVoiceSession} is: the command
  * arrives from the companion surface through main, and the root layout that
- * consumes it holds no session. A target set with no session running is
- * dropped, since nothing could be shown it and the surface would draw a share
- * that never flows; the session's own reset clears it at the end.
+ * consumes it holds no session. A target is dropped unless a session is
+ * running that can actually be shown it, since nothing could be shown one
+ * otherwise and the surface would draw a share that never flows; the session's
+ * own reset clears it at the end.
+ *
+ * The latch is one of the terms, not just the session. A picker left open
+ * when the assistant refuses a frame is still pressable, and a target taken
+ * from it would sit in the store unshown until a reconnect cleared the latch
+ * and started capture off a gesture the user made before the refusal.
  */
 export function setLiveVoiceScreenShare(
   target: WatchCaptureTarget | null,
 ): void {
   const state = useLiveVoiceStore.getState();
-  if (target !== null && !isLiveVoiceSessionActive(state.state)) {
+  if (
+    target !== null &&
+    (!isLiveVoiceSessionActive(state.state) || state.sightFramesUnsupported)
+  ) {
     return;
   }
   state.setScreenShareTarget(target);

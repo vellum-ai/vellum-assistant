@@ -1374,4 +1374,18 @@ describe("useLiveVoiceStore — a refused sight frame ends the share", () => {
     useLiveVoiceStore.getState().reset({ sessionContinues: true });
     expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
   });
+
+  /**
+   * The picker is not closed by the refusal, so its rows stay pressable. A
+   * pick taken then would sit unshown until a reconnect cleared the latch and
+   * started capture off a gesture made before the assistant refused.
+   */
+  test("takes no new target once the assistant has refused the frame", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    setLiveVoiceScreenShare({ kind: "window", windowId: 9 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
 });
