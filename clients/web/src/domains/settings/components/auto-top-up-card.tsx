@@ -507,7 +507,8 @@ export function AutoTopUpCard() {
    * Declining the daily-limit gate leaves auto-reload off: a pending enable
    * is dropped along with the form (nothing was persisted), while a config
    * that is already on is disabled server-side, since it cannot stay on
-   * without a limit.
+   * without a limit. The form stays locked (`submitting` below) until that
+   * disable settles, so a second Save cannot race it.
    */
   const handleDailyLimitDeclined = () => {
     setGatedValues(null);
@@ -759,7 +760,7 @@ export function AutoTopUpCard() {
                 }
               : undefined
           }
-          submitting={updateMutation.isPending}
+          submitting={updateMutation.isPending || disableMutation.isPending}
           saveDisabled={dailyLimitUnknown}
           serverErrors={fieldErrors}
           onCancel={exitFormMode}

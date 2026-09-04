@@ -96,6 +96,8 @@ let dailyLimitRetrieve:
   | null = null;
 let dailyLimitUpdateCalls: Array<Record<string, unknown>> = [];
 let disableCalls = 0;
+// When set, the disable request stays pending until the test releases it.
+let releaseDisable: (() => void) | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -114,9 +116,15 @@ mock.module("@/generated/api/sdk.gen", () => ({
   // the card seed the cache from `DISABLED_CONFIG` instead.
   organizationsBillingAutoTopUpDisableCreate: () => {
     disableCalls += 1;
-    return Promise.resolve({
+    const result = {
       data: { enabled: false, stubbed: false, message: "" },
       response: { ok: true },
+    };
+    if (releaseDisable === null) {
+      return Promise.resolve(result);
+    }
+    return new Promise((resolve) => {
+      releaseDisable = () => resolve(result);
     });
   },
   organizationsBillingDailyCreditLimitRetrieve: () =>
@@ -352,6 +360,7 @@ beforeEach(() => {
   dailyLimitRetrieve = null;
   dailyLimitUpdateCalls = [];
   disableCalls = 0;
+  releaseDisable = null;
   syncCalls = [];
   syncedCard = null;
   nativeAndroid = false;
@@ -1098,7 +1107,7 @@ describe("AutoTopUpCard daily credit limit gate", () => {
 
   test("declining the gate while already enabled disables auto-reload", async () => {
     dailyLimitResponse = { ...NO_DAILY_LIMIT };
-    retrieveResponse = { ...ENABLED_WITH_CARD };
+    releaseDisable = () => {};
     const client = makeClient(ENABLED_WITH_CARD);
     const { getByTestId, queryByTestId } = render(
       wrap(ENABLED_WITH_CARD, "/", client),
@@ -1109,6 +1118,18 @@ describe("AutoTopUpCard daily credit limit gate", () => {
     await waitForSaveEnabled(getByTestId);
     fireEvent.click(getByTestId("auto-top-up-save-button"));
     fireEvent.click(getByTestId("auto-top-up-daily-limit-cancel-button"));
+
+    // The form stays locked while the disable is in flight, so a second Save
+    // cannot reopen the gate against it.
+    await waitFor(() => {
+      const save = getByTestId("auto-top-up-save-button") as HTMLButtonElement;
+      if (!save.disabled) {
+        throw new Error("form still interactive during the disable");
+      }
+    });
+    fireEvent.click(getByTestId("auto-top-up-save-button"));
+    expect(queryByTestId("auto-top-up-daily-limit-modal")).toBeNull();
+    releaseDisable();
 
     await waitFor(() => {
       if (cachedConfig(client).enabled) {
