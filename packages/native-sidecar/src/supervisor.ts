@@ -118,6 +118,7 @@ export class JsonRpcHelperError extends Error {
   }
 }
 
+const SUPPORTED_PLATFORMS: NodeJS.Platform[] = ["darwin", "linux", "win32"];
 const DEFAULT_RESPONSE_TIMEOUT_MS = 2_000;
 const DEFAULT_MAX_FRAME_BYTES = Number.POSITIVE_INFINITY;
 
@@ -319,8 +320,8 @@ export class NativeSidecarClient {
   }
 
   private ensureChild(): ChildProcessWithoutNullStreams {
-    if (this.platform !== "darwin" && this.platform !== "win32") {
-      throw new Error(`${this.name} requires macOS or Windows`);
+    if (!SUPPORTED_PLATFORMS.includes(this.platform)) {
+      throw new Error(`${this.name} requires macOS, Linux, or Windows`);
     }
 
     const child = this.supervisor.ensureRunning();

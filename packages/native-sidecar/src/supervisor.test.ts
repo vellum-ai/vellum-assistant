@@ -69,6 +69,32 @@ describe("NativeSidecarClient", () => {
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
+  test("serves Linux helpers and rejects unsupported platforms", async () => {
+    const child = new FakeChild();
+    const options = {
+      name: "test helper",
+      resolveExecutablePath: () => "unused",
+      logger: logger(),
+      spawn: () => asChild(child),
+    };
+    const linux = new NativeSidecarClient({ ...options, platform: "linux" });
+    const response = linux.call("ping");
+    child.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":"pong"}\n'),
+    );
+    expect(await response).toBe("pong");
+    linux.shutdown();
+
+    const freebsd = new NativeSidecarClient({
+      ...options,
+      platform: "freebsd",
+    });
+    expect(() => freebsd.call("ping")).toThrow(
+      "requires macOS, Linux, or Windows",
+    );
+  });
+
   test("rejects pending calls when the helper exits", async () => {
     const child = new FakeChild();
     const client = new NativeSidecarClient({

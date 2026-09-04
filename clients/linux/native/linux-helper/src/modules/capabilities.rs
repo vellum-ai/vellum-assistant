@@ -1,6 +1,7 @@
 //! `capabilities.state`: what this desktop session can actually support.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 use std::{env, fs, thread};
@@ -114,10 +115,19 @@ fn probe_bus() -> BusState {
     }
 }
 
+/// A probe that outlived its deadline keeps its thread, so at most one is ever
+/// in flight: repeated calls against a wedged bus must not pile threads up.
+static PROBE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
 fn probe_bus_with_timeout() -> BusState {
+    if PROBE_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return BusState::unreachable("an earlier session bus probe is stuck".to_string());
+    }
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
-        let _ = sender.send(probe_bus());
+        let state = probe_bus();
+        PROBE_IN_FLIGHT.store(false, Ordering::SeqCst);
+        let _ = sender.send(state);
     });
     receiver
         .recv_timeout(BUS_PROBE_TIMEOUT)

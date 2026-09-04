@@ -14,14 +14,13 @@ import {
 import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import { handle } from "../ipc.client";
-import { resolveLinuxHelperPath } from "../linux-helper";
 import log from "../logger";
 import { ensureVisible } from "../main-window";
 
 /**
- * Linux notifications feature. Delivery prefers a native helper toast module
- * when one exists. Until a Linux sidecar ships, the shared module's default
- * `electron.Notification` path delivers click-only toasts.
+ * Linux notifications feature. Until the helper implements `notifications/show`,
+ * the shared module's default `electron.Notification` path delivers click-only
+ * toasts; `createHelperToastFactory` is the adapter that replaces it.
  */
 
 // Bound on toasts a user could still interact with.
@@ -132,13 +131,10 @@ export const createHelperToastFactory = (
 const notifications: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "notifications",
   install: () => {
-    const helperPath = resolveLinuxHelperPath();
-    configureNotifications({
-      ipc: { handle },
-      ensureVisible,
-      logger: log,
-      ...(helperPath ? { create: createHelperToastFactory(helperPath) } : {}),
-    });
+    // The helper ships without a `notifications/show` module, so toasts stay on
+    // the shared electron.Notification path. The helper notifications PR passes
+    // `create: createHelperToastFactory(resolveLinuxHelperPath())` here.
+    configureNotifications({ ipc: { handle }, ensureVisible, logger: log });
     installNotifications();
   },
 };
