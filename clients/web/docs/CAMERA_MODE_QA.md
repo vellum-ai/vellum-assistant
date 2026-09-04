@@ -179,9 +179,10 @@ scrim.
 - [ ] The Live pill is opaque and the same colour on every frame. Point the
       camera at something black and then at something white with Live running.
       The pill does not change shade with the frame behind it, which is what
-      makes its label's contrast a property of the accent. The glass Photo pill
-      beside it still lets the frame through, and so does the Live pill on the
-      engines in the iOS 15 row below.
+      makes its label's contrast a property of the fill rather than of the
+      view. True on every engine, including the iOS 15 row below. The glass
+      Photo pill beside it does still let the frame through, and is the one
+      place that is wanted.
 - [ ] The idle and user dots on a pale fill. Those two stay white in every
       mode, so on the yellow fill they are pale marks on a pale fill (about
       1.6:1 for the user's, lower for the half-lit idle one). Note whether they
@@ -190,18 +191,18 @@ scrim.
       this is a design call rather than a contrast bug.
 - [ ] iOS 15 keeps the whole pink pill. On a device or simulator older than
       16.2, where `color-mix()` does not exist, the Live pill draws all three
-      of the crimson fill at 90%, white text, and the rose dot, whatever accent
-      the assistant has. That is the raw crimson rather than the clamped one,
-      so its label sits at 4.48 against a 4.5 floor there and nowhere else; the
-      shipped legacy look is held byte for byte on purpose. The failure to look
-      for is a split set: near-black
-      text on the crimson fill (3.3:1), or a dot mixed for an accent the pill
-      is not wearing. Either means something escaped the feature query the
-      three share. The shutter ring, the Live hint and the thumb ring do follow
-      the accent on those engines, since each is one property with nothing to
-      keep in step; the capture pulse and the kept-frame ring stay crimson
-      there, which is a hue that does not match the ring it leaves and is
-      expected.
+      of the crimson fill, white text, and the rose dot, whatever accent the
+      assistant has. It is the same clamped crimson the newer engines fall back
+      to and it is equally opaque, so the label reads 4.56 there as well. The
+      failure to look for is a split set: near-black text on the crimson fill,
+      or a dot mixed for an accent the pill is not wearing. Either means
+      something escaped the feature query the three share.
+- [ ] iOS 15's one visible difference. On those engines the shutter ring, the
+      Live hint and the thumb ring still follow the assistant's accent, since
+      each is one property with nothing to keep in step, while the capture
+      pulse and the kept-frame ring stay crimson. A teal ring emitting a pink
+      pulse is that mismatch and is expected: the alternative is spending the
+      accent everywhere on those engines to fix one 500ms animation.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection

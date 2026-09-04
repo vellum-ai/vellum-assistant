@@ -334,6 +334,9 @@ describe("CameraStatusPill", () => {
     // legible without reading.
     expect(pill().className).toContain("camera-live-fill");
     expect(pill().className).toContain("border-[rgba(255,255,255,0.25)]");
+    // No blur, unlike the glass: the fill is opaque on every engine, so there
+    // is no frame coming through it to soften.
+    expect(pill().className).not.toContain("backdrop-blur");
     // The ink belongs to the fill, which knows what reads on it: a `text-white`
     // utility beside the class would race it, and lose the pale accents where
     // the ink is the near-black.

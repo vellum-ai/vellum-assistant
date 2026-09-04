@@ -120,11 +120,11 @@ export const CAMERA_PILL_GLASS_CLASS =
  * the accent and the dot is mixed against both, so none of the three can be a
  * utility written beside the class. See that rule for how they move together.
  *
- * The blur is for the engines that draw the fill translucent, which is the
- * pre-color-mix path in that same rule.
+ * No blur, unlike the glass above. That fill is opaque on every engine, so
+ * there is no frame coming through it to soften.
  */
 export const CAMERA_PILL_LIVE_CLASS =
-  "border-[0.5px] border-[rgba(255,255,255,0.25)] camera-live-fill backdrop-blur-[8px]";
+  "border-[0.5px] border-[rgba(255,255,255,0.25)] camera-live-fill";
 
 /**
  * The flash control at rest, which the design draws heavier than the pill and

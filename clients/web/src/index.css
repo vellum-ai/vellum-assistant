@@ -481,13 +481,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * under a green assistant says the wrong thing. What each of them is depends
  * on the other two, which is why they move as a set.
  *
- * The Live fill is opaque. A translucent fill is a colour nobody can name,
- * since the backdrop is arbitrary video, and the ink has to be chosen against
- * SOMETHING: a mid-luminance accent at 90% over a dark frame drops its label to
- * about 3.2:1 while the ink was picked for the accent's own 3.8:1. Opaque is
- * what makes the label's contrast a property of the accent rather than of
- * whatever the lens is pointed at. The pill keeps its blur for the legacy path
- * below, where the fill is still translucent.
+ * The Live fill is opaque on both paths. A translucent fill is a colour nobody
+ * can name, since the backdrop is arbitrary video, and the ink has to be chosen
+ * against SOMETHING: at 90% the same crimson runs from 4.48 over itself to 3.87
+ * over a white frame, and a mid-luminance accent drops to about 3.2 over a dark
+ * one. Opaque is what makes the label's contrast a property of the fill rather
+ * than of whatever the lens is pointed at. Nothing shows through either fill,
+ * so the pill carries no backdrop blur.
  *
  * It fills with `--avatar-accent-fill` rather than the accent itself. Between
  * the two inks' passing regions is a band of mid-tones that carry no readable
@@ -504,15 +504,20 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * The Live set sits behind one feature query. Of its three declarations only
  * the dot's mix needs color-mix(), but an engine without it (Safari/iOS <
  * 16.2, which the iOS shell still targets) cannot draw a dot that reads on a
- * dynamic fill, so it takes the whole shipped trio instead: crimson at 90%,
- * white, and the rose below that pairs with them. Splitting the set is what
- * puts ink on a fill it was not chosen for.
+ * dynamic fill, so it takes the whole crimson trio instead: the same clamped
+ * crimson the modern path falls back to, white, and the rose below that pairs
+ * with them. Splitting the set is what puts ink on a fill it was not chosen
+ * for, and one clamped crimson across both paths is one colour to reason about
+ * rather than two.
  *
  * The dot on the glass pill is outside all of that. It hangs on a dark scrim
  * rather than on the accent, so it is one property with nothing to keep in
  * step, and it dual-declares in place the way the wave accents below do. */
 .camera-live-fill {
-  background-color: rgba(207, 67, 112, 0.9);
+  /* The crimson through `legibleAccentFill`, matching the fallback the query
+   * below uses. `CAMERA_FILL_FALLBACK` in `camera-mode-paint.ts` derives it and
+   * a test holds both copies equal. */
+  background-color: #cd426f;
   color: #fff;
 }
 
