@@ -21,6 +21,7 @@ import {
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
+import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
@@ -394,6 +395,33 @@ describe("finalizeMessageComplete", () => {
     // Bubble content stays whatever the text-delta accumulator left it as —
     // message_complete no longer carries body content on the wire.
     expect(text(result[1]!)).toBe("hello world");
+  });
+
+  it("stamps the assistant-text visibility marker onto the live row", () => {
+    // The live row carries the same marker its persisted twin will, so the
+    // transcript renders it the same way with no refetch in between.
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      assistantTextVisibility: "private",
+    } as MessageCompleteEvent);
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+
+  it("leaves the row unmarked when the event carries no marker", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+
+    expect(result[1]!.assistantTextVisibility).toBeUndefined();
   });
 
   it("keeps a tool-gated reply, whose only text came from send_user_message", () => {

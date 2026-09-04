@@ -184,6 +184,37 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isNoResponse).toBe(true);
   });
 
+  test("carries the assistant-text visibility marker onto the display message", () => {
+    // The marker is the row's own, so every row in a conversation renders the
+    // way the turn that wrote it was run. An unmarked row (written before the
+    // gate, or by a daemon that predates the marker) stays unmarked, and an
+    // unrecognized value is read as no marker rather than guessed at.
+    const plain = makeMessage({ id: "m-plain", role: "assistant" });
+    expect(
+      mapRuntimeToDisplayMessage(plain).assistantTextVisibility,
+    ).toBeUndefined();
+
+    for (const marker of ["private", "visible"] as const) {
+      const m = makeMessage({
+        id: `m-${marker}`,
+        role: "assistant",
+        assistantTextVisibility: marker,
+      } as Partial<ConversationMessage>);
+      expect(mapRuntimeToDisplayMessage(m).assistantTextVisibility).toBe(
+        marker,
+      );
+    }
+
+    const unknown = makeMessage({
+      id: "m-unknown",
+      role: "assistant",
+      assistantTextVisibility: "later",
+    } as Partial<ConversationMessage>);
+    expect(
+      mapRuntimeToDisplayMessage(unknown).assistantTextVisibility,
+    ).toBeUndefined();
+  });
+
   test("carries deletedAt onto the display message", () => {
     const plain = makeMessage({ id: "m-plain", role: "user" });
     expect(mapRuntimeToDisplayMessage(plain).deletedAt).toBeUndefined();
