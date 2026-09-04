@@ -91,6 +91,9 @@ mock.module("./logger", () => ({ default: { error: () => undefined } }));
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
+    on: (event: string, listener: () => void) => {
+      appListeners.set(event, listener);
+    },
     once: (event: string, listener: () => void) => {
       appListeners.set(event, listener);
     },
