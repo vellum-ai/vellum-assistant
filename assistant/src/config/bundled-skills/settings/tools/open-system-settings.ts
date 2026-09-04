@@ -5,10 +5,8 @@ import type {
 import { isLinux, isWindows } from "../../../../util/platform.js";
 
 // Linux desktops expose no URL scheme for these panes, so the assistant offers
-// the desktop-specific command instead of an open_url push.
-const LINUX_SETTINGS_COMMANDS =
-  "gnome-control-center privacy (GNOME) or systemsettings kcm_kscreen (KDE)";
-
+// a desktop-specific command instead of an open_url push. Speech recognition
+// has no Linux equivalent on either desktop, hence the empty command.
 const PANES = {
   microphone: {
     label: "Microphone privacy",
@@ -17,6 +15,8 @@ const PANES = {
         "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
       windows: "ms-settings:privacy-microphone",
     },
+    linuxCommand:
+      "gnome-control-center privacy (GNOME) or systemsettings kcm_pulseaudio (KDE)",
   },
   speech_recognition: {
     label: "Speech Recognition privacy",
@@ -25,6 +25,7 @@ const PANES = {
         "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
       windows: "ms-settings:privacy-speech",
     },
+    linuxCommand: "",
   },
 } as const;
 
@@ -74,7 +75,9 @@ export async function run(
 
   if (platform === "linux") {
     return {
-      content: `Linux has no settings URL for ${meta.label}. Offer to run the settings command for the user's desktop: ${LINUX_SETTINGS_COMMANDS}.`,
+      content: meta.linuxCommand
+        ? `Linux has no settings URL for ${meta.label}. Offer to run the settings command for the user's desktop: ${meta.linuxCommand}.`
+        : `Linux has no ${meta.label} settings pane to open. Tell the user this is not gated by the desktop on Linux.`,
       isError: false,
     };
   }

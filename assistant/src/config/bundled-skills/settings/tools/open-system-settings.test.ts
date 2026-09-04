@@ -94,9 +94,20 @@ describe("open_system_settings tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("gnome-control-center privacy");
-    expect(result.content).toContain("systemsettings kcm_kscreen");
+    expect(result.content).toContain("systemsettings kcm_pulseaudio");
     expect(result.content).not.toContain("x-apple.systempreferences");
     expect(result.content).not.toContain("ms-settings:");
+    expect(sentMessages).toEqual([]);
+  });
+
+  test("says nothing to open for a pane Linux does not gate", async () => {
+    const result = await run(
+      { pane: "speech_recognition", platform: "linux" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("no Speech Recognition privacy settings");
     expect(sentMessages).toEqual([]);
   });
 
@@ -104,7 +115,7 @@ describe("open_system_settings tool", () => {
     windowsHost = false;
     linuxHost = true;
 
-    const result = await run({ pane: "speech_recognition" }, makeContext());
+    const result = await run({ pane: "microphone" }, makeContext());
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("gnome-control-center privacy");
