@@ -44,15 +44,15 @@ const tiles = (container: HTMLElement): string[] =>
   );
 
 /** The segments, by the name on them. */
+const segments = (container: HTMLElement): Element[] => [
+  ...container.querySelectorAll('[data-slot="segment-control"] [role="radio"]'),
+];
+
 const kinds = (container: HTMLElement): string[] =>
-  [...container.querySelectorAll('[data-slot="capture-kinds"] button')].map(
-    (button) => button.textContent ?? "",
-  );
+  segments(container).map((button) => button.textContent ?? "");
 
 const pressKind = (container: HTMLElement, name: string): void => {
-  const button = [
-    ...container.querySelectorAll('[data-slot="capture-kinds"] button'),
-  ].find((each) => each.textContent === name);
+  const button = segments(container).find((each) => each.textContent === name);
   fireEvent.click(button!);
 };
 
@@ -128,9 +128,7 @@ describe("the capture picker", () => {
   test("says which segment is on", () => {
     const { container } = render(<CompanionCapturePicker sources={SOURCES} />);
     const checked = (): (string | null)[] =>
-      [...container.querySelectorAll('[data-slot="capture-kinds"] button')].map(
-        (button) => button.getAttribute("aria-checked"),
-      );
+      segments(container).map((button) => button.getAttribute("aria-checked"));
     expect(checked()).toEqual(["true", "false", "false"]);
     pressKind(container, "Windows");
     expect(checked()).toEqual(["false", "false", "true"]);

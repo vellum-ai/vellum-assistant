@@ -939,7 +939,7 @@ describe("the picker behind Teach", () => {
     const kind = await waitFor(() => {
       const found = [
         ...container.querySelectorAll<HTMLButtonElement>(
-          '[data-slot="capture-kinds"] button',
+          '[data-slot="segment-control"] [role="radio"]',
         ),
       ].find((each) => each.textContent === "Windows");
       if (!found) {
@@ -1738,7 +1738,7 @@ describe("the picker behind Share", () => {
     const kind = await waitFor(() => {
       const found = [
         ...container.querySelectorAll<HTMLButtonElement>(
-          '[data-slot="capture-kinds"] button',
+          '[data-slot="segment-control"] [role="radio"]',
         ),
       ].find((each) => each.textContent === "Windows");
       if (!found) {

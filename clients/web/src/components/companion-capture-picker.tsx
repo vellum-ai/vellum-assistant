@@ -12,6 +12,7 @@ import {
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
 import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
   CompanionCapturePick,
@@ -292,6 +293,16 @@ export function CompanionCapturePicker({
   const answerFor = (key: string): string | null | undefined =>
     captureThumbnail === undefined ? null : thumbnails.get(key);
 
+  /** What a kind is called, as the segment naming it reads. */
+  const nameOf = (of: CaptureKind): string =>
+    t(
+      of === "screens"
+        ? "companionSurface.captureScreens"
+        : of === "tabs"
+          ? "companionSurface.captureTabs"
+          : "companionSurface.captureWindows",
+    );
+
   return (
     <div
       ref={cardRef}
@@ -301,6 +312,12 @@ export function CompanionCapturePicker({
       role="group"
       aria-label={label ?? t("companionSurface.capturePicker")}
       data-companion-capture-picker
+      // The card is dark whatever the app's theme is, and it is drawn in a
+      // window with no theme on its root, so the scope is declared here: the
+      // design library's tokens are written to be read off a non-root
+      // ancestor, and a control taking them from `:root` would draw its light
+      // palette on this card.
+      data-theme="dark"
       className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 p-1.5 shadow-lg shadow-black/40"
       style={{ width: CARD_WIDTH, ...anchor }}
       // A press on a tile is a pick, not a grab of the surface.
@@ -308,20 +325,20 @@ export function CompanionCapturePicker({
         event.stopPropagation();
       }}
     >
+      {/*
+       * Which question the grid below is answering. Drawn only when the
+       * desktop offers more than one kind: a control with a single segment on
+       * it is a label pretending to be a choice.
+       */}
       {kinds.length > 1 && (
-        <KindControl
-          kinds={kinds}
-          kind={kind}
-          nameOf={(of) =>
-            t(
-              of === "screens"
-                ? "companionSurface.captureScreens"
-                : of === "tabs"
-                  ? "companionSurface.captureTabs"
-                  : "companionSurface.captureWindows",
-            )
-          }
-          label={t("companionSurface.captureKind")}
+        <SegmentControl
+          // As wide as its segments rather than the card: the control names
+          // the kinds, and a bar stretched across a card of tiles reads as a
+          // header rather than a choice.
+          className="mx-auto mb-1.5 w-auto shrink-0"
+          items={kinds.map((each) => ({ value: each, label: nameOf(each) }))}
+          value={kind}
+          ariaLabel={t("companionSurface.captureKind")}
           onChange={setChosen}
         />
       )}
@@ -436,63 +453,6 @@ export function CompanionCapturePicker({
           )}
         </div>
       </ScrollShadow>
-    </div>
-  );
-}
-
-/**
- * Which question the grid below is answering.
- *
- * Drawn only when the desktop offers more than one kind: a control with a
- * single segment on it is a label pretending to be a choice.
- *
- * A radio group rather than tabs, and without the roving tab stop a keyboard
- * user would need, because there is no keyboard here: the window this is drawn
- * in never takes focus, so every press is the pointer's. The roles are still
- * stated, since what a segment is and which one is on is what a reader is
- * owed either way.
- */
-function KindControl({
-  kinds,
-  kind,
-  nameOf,
-  label,
-  onChange,
-}: {
-  kinds: CaptureKind[];
-  kind: CaptureKind;
-  nameOf: (kind: CaptureKind) => string;
-  label: string;
-  onChange: (kind: CaptureKind) => void;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      data-slot="capture-kinds"
-      className="mb-1.5 flex shrink-0 items-center justify-center gap-1"
-    >
-      {kinds.map((each) => {
-        const active = each === kind;
-        return (
-          <button
-            key={each}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            className={`h-6 shrink-0 rounded-full px-3 text-[11px] font-medium transition-colors outline-none focus-visible:ring-1 focus-visible:ring-white/40 ${
-              active
-                ? "bg-white/15 text-white"
-                : "text-white/50 hover:bg-white/5 hover:text-white/80"
-            }`}
-            onClick={() => {
-              onChange(each);
-            }}
-          >
-            {nameOf(each)}
-          </button>
-        );
-      })}
     </div>
   );
 }
