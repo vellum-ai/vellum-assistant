@@ -315,7 +315,7 @@ answers nothing here.
       release takes no photo. Tap Space and one photo is taken, the same as a
       click. The page never scrolls under either.
 - [ ] Leaving and re-entering Live quickly shows nothing for a few seconds. Stop
-      Live and start it again: the first keep can take up to five seconds. That
+      Live and start it again: the first keep can take up to three seconds. That
       is the gate's rate floor, which survives the reset by design; it is not a
       stall.
 - [ ] Escape minimizes the room from camera mode, and the camera releases.
