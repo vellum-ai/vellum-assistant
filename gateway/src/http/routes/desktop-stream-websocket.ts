@@ -51,5 +51,9 @@ export function getDesktopStreamWebsocketHandlers() {
     upstreamPath: "/v1/desktop/stream",
     log,
     label: "desktop stream",
+    // RFB has no resync: one dropped frame corrupts the framebuffer for the
+    // rest of the session, so a drop ends it. The JSON streams next door do
+    // not opt in.
+    closeOnDroppedFrame: true,
   });
 }

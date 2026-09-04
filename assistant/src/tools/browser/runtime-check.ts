@@ -1,11 +1,23 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import assistantPkg from "../../../package.json" with { type: "json" };
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getLogger } from "../../util/logger.js";
 import { getExternalDir } from "../../util/platform.js";
 
 const log = getLogger("runtime-check");
+
+/**
+ * The playwright the container image builds against, and therefore the one
+ * whose Chromium build id is baked into `/opt/ms-playwright` (see
+ * `assistant/Dockerfile`). The runtime install below asks for this exact
+ * version rather than floating: a different playwright looks for a different
+ * browser build id, so a floating install would re-download Chromium and the
+ * bake would buy the pod nothing. Read from the manifest so the pin has one
+ * home.
+ */
+export const PLAYWRIGHT_VERSION: string = assistantPkg.dependencies.playwright;
 
 export interface BrowserRuntimeStatus {
   playwrightAvailable: boolean;
@@ -52,6 +64,21 @@ async function tryBundledPlaywright(): Promise<
 }
 
 /**
+ * Version of the runtime-installed playwright, or null when there is none.
+ *
+ * A copy left behind by an earlier floating install is a copy that disagrees
+ * with the baked browser, so it is replaced rather than reused.
+ */
+function installedPlaywrightVersion(pkgDir: string): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf-8"));
+    return typeof pkg.version === "string" ? pkg.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve the package entry point from its package.json exports/main fields.
  */
 function resolvePackageEntry(pkgDir: string): string {
@@ -94,18 +121,21 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
   const externalDir = getExternalDir();
   const pwPkg = join(externalDir, "node_modules", "playwright");
 
-  if (!existsSync(join(pwPkg, "package.json"))) {
+  if (installedPlaywrightVersion(pwPkg) !== PLAYWRIGHT_VERSION) {
     mkdirSync(externalDir, { recursive: true });
     if (!existsSync(join(externalDir, "package.json"))) {
       writeFileSync(join(externalDir, "package.json"), '{"private":true}\n');
     }
     const bunPath = await ensureBun();
-    const proc = Bun.spawn([bunPath, "add", "playwright"], {
-      cwd: externalDir,
-      stdout: "pipe",
-      stderr: "pipe",
-      windowsHide: true,
-    });
+    const proc = Bun.spawn(
+      [bunPath, "add", `playwright@${PLAYWRIGHT_VERSION}`],
+      {
+        cwd: externalDir,
+        stdout: "pipe",
+        stderr: "pipe",
+        windowsHide: true,
+      },
+    );
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();

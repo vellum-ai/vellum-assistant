@@ -6,7 +6,11 @@ import {
   makeConfig,
   makeFakeServer,
   mintEdgeToken,
+  settle,
+  startFakeRuntime,
   upgradedData,
+  waitFor,
+  type FakeRuntime,
 } from "./runtime-stream-test-utils.js";
 
 // The pin itself is covered in `guardian-pin.test.ts`; the binding is mocked
@@ -74,53 +78,6 @@ describe("createDesktopStreamWebsocketHandler", () => {
  * the runtime's close code has to arrive as itself.
  */
 describe("getDesktopStreamWebsocketHandlers", () => {
-  type FakeRuntime = {
-    server: ReturnType<typeof Bun.serve>;
-    received: Uint8Array[];
-    /** Resolves with the upstream socket once the pump has dialed in. */
-    connected: Promise<import("bun").ServerWebSocket<unknown>>;
-    upgradeUrl: () => URL | undefined;
-  };
-
-  /** A loopback server that records what it is sent and echoes a banner. */
-  function startFakeRuntime(banner?: Uint8Array): FakeRuntime {
-    const received: Uint8Array[] = [];
-    let upgradeUrl: URL | undefined;
-    let resolveConnected!: (ws: import("bun").ServerWebSocket<unknown>) => void;
-    const connected = new Promise<import("bun").ServerWebSocket<unknown>>(
-      (resolve) => {
-        resolveConnected = resolve;
-      },
-    );
-    const server = Bun.serve({
-      port: 0,
-      fetch(req, srv) {
-        upgradeUrl = new URL(req.url);
-        if (srv.upgrade(req)) {
-          return undefined as never;
-        }
-        return new Response("not a websocket", { status: 400 });
-      },
-      websocket: {
-        open(ws) {
-          if (banner) {
-            ws.send(banner);
-          }
-          resolveConnected(ws);
-        },
-        message(_ws, message) {
-          received.push(
-            typeof message === "string"
-              ? new TextEncoder().encode(message)
-              : new Uint8Array(message),
-          );
-        },
-        close() {},
-      },
-    });
-    return { server, received, connected, upgradeUrl: () => upgradeUrl };
-  }
-
   /** A viewer socket whose pump dials `runtime`. */
   function makeViewerWs(runtime: FakeRuntime, sendStatus?: number) {
     return createFakeDownstreamWs<DesktopStreamSocketData>(
@@ -132,17 +89,6 @@ describe("getDesktopStreamWebsocketHandlers", () => {
       },
       { sendStatus },
     );
-  }
-
-  /** Poll until `predicate` holds, so the tests need no fixed sleeps. */
-  async function waitFor(predicate: () => boolean, timeoutMs = 2000) {
-    const deadline = Date.now() + timeoutMs;
-    while (!predicate()) {
-      if (Date.now() > deadline) {
-        throw new Error("timed out waiting for condition");
-      }
-      await new Promise((r) => setTimeout(r, 5));
-    }
   }
 
   /** The RFB version banner, the first thing a VNC server sends. */
@@ -197,6 +143,23 @@ describe("getDesktopStreamWebsocketHandlers", () => {
 
     expect(ws.closes[0]).toEqual({ code: 1011, reason: "Viewer too slow" });
     expect(upstreamClose).toHaveBeenCalledWith(1011, "Viewer too slow");
+  });
+
+  /**
+   * Bun reports a byte count, so an empty frame writes zero bytes without
+   * having been dropped. Reading that as a drop would tear down a healthy
+   * session.
+   */
+  test("does not treat an empty frame as a dropped one", async () => {
+    runtime = startFakeRuntime(new Uint8Array(0));
+    const handlers = getDesktopStreamWebsocketHandlers();
+    const ws = makeViewerWs(runtime, 0);
+
+    handlers.open(ws as never);
+    await waitFor(() => ws.sent.length > 0);
+    await settle();
+
+    expect(ws.closes).toEqual([]);
   });
 
   test("delivers the viewer's bytes upstream byte-identical, including frames sent before the dial completes", async () => {

@@ -110,3 +110,78 @@ export function createFakeDownstreamWs<T>(
     }),
   };
 }
+
+/** A loopback WebSocket server standing in for the runtime end of a proxy. */
+export type FakeRuntime = {
+  server: ReturnType<typeof Bun.serve>;
+  /** Every frame the pump forwarded upstream, as bytes. */
+  received: Uint8Array[];
+  /** Resolves with the upstream socket once the pump has dialed in. */
+  connected: Promise<import("bun").ServerWebSocket<unknown>>;
+  upgradeUrl: () => URL | undefined;
+};
+
+/**
+ * Start a loopback server posing as the runtime: it records what it is sent
+ * and, when given a `banner`, sends that downstream the moment a pump
+ * connects. The drop path lives in the pump's upstream message listener, so
+ * exercising it needs a real socket on the other end.
+ */
+export function startFakeRuntime(banner?: string | Uint8Array): FakeRuntime {
+  const received: Uint8Array[] = [];
+  let upgradeUrl: URL | undefined;
+  let resolveConnected!: (ws: import("bun").ServerWebSocket<unknown>) => void;
+  const connected = new Promise<import("bun").ServerWebSocket<unknown>>(
+    (resolve) => {
+      resolveConnected = resolve;
+    },
+  );
+  const server = Bun.serve({
+    port: 0,
+    fetch(req, srv) {
+      upgradeUrl = new URL(req.url);
+      if (srv.upgrade(req)) {
+        return undefined as never;
+      }
+      return new Response("not a websocket", { status: 400 });
+    },
+    websocket: {
+      open(ws) {
+        if (banner !== undefined) {
+          ws.send(banner);
+        }
+        resolveConnected(ws);
+      },
+      message(_ws, message) {
+        received.push(
+          typeof message === "string"
+            ? new TextEncoder().encode(message)
+            : new Uint8Array(message),
+        );
+      },
+      close() {},
+    },
+  });
+  return { server, received, connected, upgradeUrl: () => upgradeUrl };
+}
+
+/** Poll until `predicate` holds, so tests need no fixed sleeps. */
+export async function waitFor(predicate: () => boolean, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("timed out waiting for condition");
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+/**
+ * Let the pump settle after a frame the fake runtime already delivered, so a
+ * test asserting that nothing closed is asserting against a pump that has run.
+ */
+export async function settle(iterations = 5) {
+  for (let i = 0; i < iterations; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}

@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from "bun:test";
+import { afterEach, describe, test, expect, mock } from "bun:test";
 import type { WatchStreamSocketData } from "../http/routes/watch-stream-websocket.js";
 import {
   GUARDIAN_PRINCIPAL,
@@ -7,7 +7,11 @@ import {
   makeFakeServer,
   mintEdgeToken,
   mintServiceEdgeToken,
+  settle,
+  startFakeRuntime,
   upgradedData,
+  waitFor,
+  type FakeRuntime,
 } from "./runtime-stream-test-utils.js";
 
 // The pin itself is covered in `guardian-pin.test.ts`; the binding is mocked
@@ -316,5 +320,55 @@ describe("getWatchStreamWebsocketHandlers", () => {
     handlers.close(ws as never, 1000, "normal");
 
     expect(upstream.close).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Watch carries JSON lifecycle and timeline frames, each self-contained. A
+ * dropped one costs a fragment, not the session, so the desktop stream's
+ * teardown must not reach this route: the usual trigger is a runtime frame
+ * landing just after the browser socket closed.
+ */
+describe("a dropped downstream frame does not end a watch session", () => {
+  let runtime: FakeRuntime;
+  afterEach(() => {
+    runtime?.server.stop(true);
+  });
+
+  const makeViewerWs = (sendStatus?: number) =>
+    createFakeDownstreamWs<WatchStreamSocketData>(
+      {
+        wsType: "watch-stream",
+        config: makeConfig({
+          assistantRuntimeBaseUrl: `http://127.0.0.1:${runtime.server.port}`,
+        }),
+        mimeType: "audio/pcm",
+      },
+      { sendStatus },
+    );
+
+  test("keeps both sides open when a send is dropped", async () => {
+    runtime = startFakeRuntime('{"type":"session_started"}');
+    const handlers = getWatchStreamWebsocketHandlers();
+    const ws = makeViewerWs(0);
+
+    handlers.open(ws as never);
+    await waitFor(() => ws.sent.length > 0);
+    await settle();
+
+    expect(ws.closes).toEqual([]);
+    expect(ws.data.upstream!.readyState).toBe(WebSocket.OPEN);
+  });
+
+  test("does not treat an empty frame as a dropped one", async () => {
+    runtime = startFakeRuntime("");
+    const handlers = getWatchStreamWebsocketHandlers();
+    const ws = makeViewerWs(0);
+
+    handlers.open(ws as never);
+    await waitFor(() => ws.sent.length > 0);
+    await settle();
+
+    expect(ws.closes).toEqual([]);
   });
 });
