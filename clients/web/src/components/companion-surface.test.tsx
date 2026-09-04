@@ -2067,7 +2067,7 @@ describe("the companion surface's Share action", () => {
     expect(presses).toEqual(["share", "stop"]);
   });
 
-  test("is held down for the choice before the share, and spells its name", () => {
+  test("is held down for the choice before the share, and keeps its name for the pointer", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -2077,10 +2077,13 @@ describe("the companion surface's Share action", () => {
       />,
     );
     expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+    // Held down is the whole of what the row draws for it. The name stays
+    // under the pointer like every other control's, so the pill is the same
+    // width mid-share as it is before one.
     expect(
       shareOf(container)
         .querySelector("[data-label]")
         ?.getAttribute("data-label"),
-    ).toBe("pinned");
+    ).toBe("hover");
   });
 });

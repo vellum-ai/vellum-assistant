@@ -1838,7 +1838,6 @@ function ShareButton({
     <PillButton
       icon={<ScreenShare className="size-4" />}
       label={t("companionSurface.share")}
-      revealLabel
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
     />
