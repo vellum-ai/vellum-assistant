@@ -99,16 +99,19 @@ jobs:
         with:
           bun-version: '1.3.11'
 
+      # The runner ships rustup; third-party Rust actions are not on this
+      # repository's allowed-actions list.
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: '1.98.1'
-          components: clippy, rustfmt
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          workspaces: clients/linux/native/linux-helper
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            clients/linux/native/linux-helper/target
+          key: linux-helper-${{ hashFiles('clients/linux/native/linux-helper/Cargo.lock') }}
 
       - name: Format, lint and test the helper crate
         run: bun scripts/build-native-helper.ts --check
