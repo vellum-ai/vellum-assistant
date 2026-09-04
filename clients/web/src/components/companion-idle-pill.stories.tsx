@@ -147,14 +147,22 @@ const LAB_CSS = `
   to { background-position: -200% 0; }
 }
 
+/* The base line is the lit rim's own 78%, not a dim one. It was 22% while
+   every rim was drawn on a 72% fill that carried the shape for it; with no
+   fill the shape is the line, and a sheen whose base is dimmer than the lit
+   rim's is not a different edge to compare, it is a fainter one. The sweep is
+   what makes this rim its own thing.
+
+   No backticks in here: this stylesheet is a template literal, and one would
+   end it. */
 .idle-lab-rim-sheen {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--idle-lab-accent) 22%, transparent) 0%,
-    color-mix(in srgb, var(--idle-lab-accent) 22%, transparent) 38%,
-    color-mix(in srgb, var(--idle-lab-accent) 30%, #ffffff) 50%,
-    color-mix(in srgb, var(--idle-lab-accent) 22%, transparent) 62%,
-    color-mix(in srgb, var(--idle-lab-accent) 22%, transparent) 100%
+    color-mix(in srgb, var(--idle-lab-accent) 78%, transparent) 0%,
+    color-mix(in srgb, var(--idle-lab-accent) 78%, transparent) 38%,
+    color-mix(in srgb, var(--idle-lab-accent) 35%, #ffffff) 50%,
+    color-mix(in srgb, var(--idle-lab-accent) 78%, transparent) 62%,
+    color-mix(in srgb, var(--idle-lab-accent) 78%, transparent) 100%
   );
   background-size: 200% 100%;
   filter: drop-shadow(
