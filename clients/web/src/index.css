@@ -459,24 +459,30 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 .companion-coachmark-caption {
   position: absolute;
   width: max-content;
-  margin-top: 10px;
+  /* Capped, and the cap is load-bearing: the layer places a caption by how
+     many pixels of window are left beside its mark, and it can only do that
+     against a height a caption cannot exceed. `CAPTION_BUDGET_PX` in
+     `companion-coachmarks.tsx` is this height plus the gap, and the two move
+     together. Three lines of the size below, plus the padding. */
+  max-height: 57px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   padding: 4px 10px;
   /* A caption is the assistant's own words about a control, and a control can
      be named by something long and unbroken (a path, an identifier). Held
      inside the width it is allowed rather than running off the surface. */
   overflow-wrap: anywhere;
-  border-radius: 999px;
+  /* Rounded rather than a pill: a caption that wraps is a tall box, and a pill
+     radius on one draws a lozenge around three lines of text. */
+  border-radius: 10px;
   font-size: 12px;
   line-height: 1.35;
   color: #fff;
   background: color-mix(in srgb, black 78%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent);
   animation: companion-coachmark-in 260ms ease-out 1;
-}
-
-.companion-coachmark-caption[data-above] {
-  margin-top: 0;
-  margin-bottom: 10px;
 }
 
 /* Held drawn rather than dropped, the way the frame is: the mark is where the

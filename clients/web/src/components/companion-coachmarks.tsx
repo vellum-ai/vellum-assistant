@@ -20,40 +20,86 @@
 
 import { Fragment } from "react";
 
+import { useWindowBox } from "@/components/companion-window-box";
 import type { CompanionCoachmark } from "@vellumai/ipc-contract";
 
 /**
- * Where a caption goes rather than off the edge of the surface.
+ * Which side of its mark a caption hangs from, across the surface.
  *
- * A caption hangs off one corner of its mark, so a mark near an edge is the
- * case that decides the corner. Past `FLIP_X` of the way across, the caption
- * hangs from the mark's right edge and runs left; past `FLIP_Y` down, it sits
- * above the mark instead of below. The thresholds pair with the width the
- * caption is allowed ({@link CAPTION_MAX_WIDTH}): a caption starting at
- * `FLIP_X` and running the full width it may take ends exactly at the far
- * edge, so neither flip can leave one hanging off the surface.
+ * A fraction, because the horizontal constraint is one: past `FLIP_X` of the
+ * way across, the caption hangs from the mark's right edge and runs back
+ * left. It pairs with the width a caption may take
+ * ({@link CAPTION_MAX_WIDTH}), which is a fraction of the same surface: one
+ * starting at `FLIP_X` and running the full width it is allowed ends exactly
+ * at the far edge, so the flip cannot leave a caption hanging off the side.
  */
 const CAPTION_FLIP_X = 0.6;
-const CAPTION_FLIP_Y = 0.85;
 export const CAPTION_MAX_WIDTH = 0.4;
 
-/** Which corner of a mark its caption hangs from. */
+/**
+ * The tallest a caption is drawn, in the window's pixels, plus the gap it
+ * keeps from its mark.
+ *
+ * Pixels rather than a fraction, and that is the whole reason this constant
+ * exists. The height a caption needs is set by the text in it, not by the
+ * surface it is drawn on: a fraction that leaves room on a display leaves
+ * none at the foot of a short window. The cap is real, held by the
+ * `max-height` on `.companion-coachmark-caption`, so the two must move
+ * together.
+ */
+export const CAPTION_BUDGET_PX = 58;
+const CAPTION_GAP_PX = 10;
+
+/** Which side of a mark its caption hangs from. */
 export interface CaptionPlacement {
   above: boolean;
   trailing: boolean;
 }
 
 /**
- * The corner a mark's caption hangs from, chosen so it stays on the surface.
+ * The side a mark's caption hangs from, chosen so it stays on the surface.
  *
- * Read off the mark's own far edges rather than its origin: what has to stay
- * on screen is the caption, and the caption starts where the mark ends.
+ * Below unless the room under the mark is short of what a caption can need,
+ * measured against the window rather than assumed from a fraction of it. When
+ * neither side has the room, the caption goes where there is more of it and
+ * is held against that edge by {@link captionOffset}.
+ *
+ * Read off the mark's far edge rather than its origin: what has to stay on
+ * screen is the caption, and the caption starts where the mark ends.
  */
-export function captionPlacement(mark: CompanionCoachmark): CaptionPlacement {
+export function captionPlacement(
+  mark: CompanionCoachmark,
+  windowHeight: number,
+): CaptionPlacement {
+  const below = (1 - (mark.y + mark.height)) * windowHeight;
+  const above = mark.y * windowHeight;
   return {
-    above: mark.y + mark.height > CAPTION_FLIP_Y,
+    above: below < CAPTION_BUDGET_PX && above > below,
     trailing: mark.x + mark.width > CAPTION_FLIP_X,
   };
+}
+
+/**
+ * How far a caption sits from the edge it is anchored to, in the window's
+ * pixels.
+ *
+ * Held back from the far edge by the budget, so a mark against the foot of a
+ * short window puts its caption above that edge rather than through it. The
+ * caption is then nearer its mark than the gap asks for, which is the right
+ * trade: a caption touching its mark still reads as belonging to it, and one
+ * off the surface reads as nothing at all.
+ */
+export function captionOffset(
+  mark: CompanionCoachmark,
+  windowHeight: number,
+  above: boolean,
+): number {
+  const edge = above ? 1 - mark.y : mark.y + mark.height;
+  const room = Math.max(windowHeight - CAPTION_BUDGET_PX, 0);
+  // Whole pixels, for the reason {@link percent} rounds: the offset is a
+  // fraction of a measured height, and the tail of that has nowhere to land
+  // on a screen.
+  return Math.round(Math.min(edge * windowHeight + CAPTION_GAP_PX, room));
 }
 
 /**
@@ -87,6 +133,7 @@ export function CompanionCoachmarks({
   marks: readonly CompanionCoachmark[];
   ink: string;
 }) {
+  const box = useWindowBox();
   return (
     <div
       className="pointer-events-none fixed inset-0"
@@ -95,7 +142,8 @@ export function CompanionCoachmarks({
       role="presentation"
     >
       {marks.map((mark) => {
-        const { above, trailing } = captionPlacement(mark);
+        const { above, trailing } = captionPlacement(mark, box.height);
+        const offset = `${captionOffset(mark, box.height, above)}px`;
         return (
           // A fragment rather than a box around the pair: both are placed
           // against this layer, and a wrapper that positioned neither would
@@ -121,9 +169,7 @@ export function CompanionCoachmarks({
                   ...(trailing
                     ? { right: percent(1 - (mark.x + mark.width)) }
                     : { left: percent(mark.x) }),
-                  ...(above
-                    ? { bottom: percent(1 - mark.y) }
-                    : { top: percent(mark.y + mark.height) }),
+                  ...(above ? { bottom: offset } : { top: offset }),
                   maxWidth: percent(CAPTION_MAX_WIDTH),
                 }}
               >

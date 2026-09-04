@@ -2,12 +2,20 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 
 import {
+  CAPTION_BUDGET_PX,
   CAPTION_MAX_WIDTH,
   CompanionCoachmarks,
+  captionOffset,
   captionPlacement,
 } from "./companion-coachmarks";
 
 afterEach(cleanup);
+
+/**
+ * A window with room to spare on either side of a mark, which is the case the
+ * placement rules are about. The short window that has none is its own case.
+ */
+const TALL = 1000;
 
 const INK = "#5eead4";
 
@@ -121,20 +129,54 @@ describe("the caption on a mark", () => {
 
   test("hangs below and leading for a mark near the top left", () => {
     expect(
-      captionPlacement({ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }),
+      captionPlacement({ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }, TALL),
     ).toEqual({ above: false, trailing: false });
   });
 
   test("runs back from the right edge for a mark near it", () => {
     expect(
-      captionPlacement({ x: 0.8, y: 0.1, width: 0.1, height: 0.1 }),
+      captionPlacement({ x: 0.8, y: 0.1, width: 0.1, height: 0.1 }, TALL),
     ).toEqual({ above: false, trailing: true });
   });
 
   test("sits above a mark near the bottom", () => {
     expect(
-      captionPlacement({ x: 0.1, y: 0.9, width: 0.1, height: 0.05 }),
+      captionPlacement({ x: 0.1, y: 0.95, width: 0.1, height: 0.04 }, TALL),
     ).toEqual({ above: true, trailing: false });
+  });
+
+  /**
+   * The room a caption needs is a number of pixels, not a fraction of the
+   * surface: the same mark leaves room to spare on a display and none at the
+   * foot of a short window.
+   */
+  test("reads the room below in pixels rather than in fractions", () => {
+    const mark = { x: 0.1, y: 0.6, width: 0.1, height: 0.2 };
+    expect(captionPlacement(mark, TALL).above).toBe(false);
+    expect(captionPlacement(mark, 120).above).toBe(true);
+  });
+
+  /**
+   * A window too short for a caption on either side still has to draw one
+   * somewhere, and the side with more room is where it is least covered.
+   */
+  test("takes the roomier side when neither side has enough", () => {
+    expect(
+      captionPlacement({ x: 0.1, y: 0.7, width: 0.1, height: 0.1 }, 80).above,
+    ).toBe(true);
+    expect(
+      captionPlacement({ x: 0.1, y: 0.2, width: 0.1, height: 0.1 }, 80).above,
+    ).toBe(false);
+  });
+
+  test("holds a caption off the edge of a window too short for it", () => {
+    const mark = { x: 0.1, y: 0.8, width: 0.1, height: 0.15 };
+    expect(captionOffset(mark, 120, false)).toBe(120 - CAPTION_BUDGET_PX);
+  });
+
+  test("leaves a caption at its mark when the window has the room", () => {
+    const mark = { x: 0.1, y: 0.1, width: 0.1, height: 0.1 };
+    expect(captionOffset(mark, TALL, false)).toBe(0.2 * TALL + 10);
   });
 
   /**
@@ -143,12 +185,10 @@ describe("the caption on a mark", () => {
    * edge, which is what makes the two thresholds enough on their own.
    */
   test("cannot run off the surface it flipped to stay on", () => {
-    const flipped = captionPlacement({
-      x: 0.6,
-      y: 0.1,
-      width: 0.001,
-      height: 0.1,
-    });
+    const flipped = captionPlacement(
+      { x: 0.6, y: 0.1, width: 0.001, height: 0.1 },
+      TALL,
+    );
     expect(flipped.trailing).toBe(true);
     expect(0.6 + CAPTION_MAX_WIDTH).toBeLessThanOrEqual(1);
   });
@@ -163,7 +203,9 @@ describe("the caption on a mark", () => {
     const caption = captionOf(container);
     expect(caption?.textContent).toBe("Press");
     expect(caption?.style.right).toBe("20%");
-    expect(caption?.style.bottom).toBe("10%");
+    expect(caption?.style.bottom).toBe(
+      `${captionOffset({ x: 0.7, y: 0.9, width: 0.1, height: 0.05 }, window.innerHeight, true)}px`,
+    );
     expect(caption?.dataset.above).toBe("");
     expect(caption?.dataset.trailing).toBe("");
   });
