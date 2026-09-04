@@ -8,24 +8,25 @@ metadata:
     platforms:
       - macos
       - windows
+      - linux
     category: "content"
     display-name: "Sounds"
 ---
 
-You are helping the user customize the sound effects their desktop app plays. Sounds are configured in two places: a `data/sounds/` directory of audio files and a `data/sounds/config.json` that controls what plays, at what volume, and whether it is enabled. The Settings > Sounds tab reads the same files on macOS and Windows, so changes appear there live without a restart.
+You are helping the user customize the sound effects their desktop app plays. Sounds are configured in two places: a `data/sounds/` directory of audio files and a `data/sounds/config.json` that controls what plays, at what volume, and whether it is enabled. The Settings > Sounds tab reads the same files on macOS, Windows, and Linux, so changes appear there live without a restart.
 
-**All commands in this skill use the `bash` tool.** `$VELLUM_WORKSPACE_DIR` is available in the sandbox environment — do not use `host_bash`.
+**Every command in this skill uses the `bash` tool** except the Linux preview commands in Mode 5, which need the host's audio devices. `$VELLUM_WORKSPACE_DIR` is available in the sandbox environment.
 
 ## What you're configuring
 
 Two stores, both under `$VELLUM_WORKSPACE_DIR/data/sounds/`:
 
-- **Sound files:** `.aiff`, `.wav`, `.mp3`, `.m4a`, or `.caf`. No other extensions are accepted. The app scans this directory to populate the dropdown for each event. Prefer `.wav`, `.mp3`, or `.m4a` when the same file must play on both macOS and Windows.
+- **Sound files:** `.aiff`, `.wav`, `.mp3`, `.m4a`, or `.caf`. No other extensions are accepted. The app scans this directory to populate the dropdown for each event. Prefer `.wav`, `.mp3`, or `.m4a` when the same file must play on macOS, Windows, and Linux.
 - **`config.json`:** a single JSON file that stores the global on/off switch, the master volume, and a per-event map of `{ enabled, sounds }`. Each event's `sounds` is a **pool** of filenames; the app picks one at random on playback. An empty pool falls back to the platform's default blip.
 
 ## Sound events
 
-macOS supports all nine events below. Windows supports the eight events other than `app_open`. Do not configure `app_open` on Windows because it is not displayed or played there. Other keys are ignored by the app.
+macOS supports all nine events below. Windows and Linux support the eight events other than `app_open`. Do not configure `app_open` on Windows or Linux because it is not displayed or played there. Other keys are ignored by the app.
 
 | Event key          | Fires when                                 |
 | ------------------ | ------------------------------------------ |
@@ -133,19 +134,33 @@ bun run scripts/update-config.ts --event <key> --clear-sounds
 
 (The app already falls back to the platform's default blip if every referenced file is missing, but cleaning up the config is tidier.)
 
+## Mode 5: Preview a sound on Linux
+
+The desktop app plays these sounds itself, so a preview is only needed when the user wants to hear a file before assigning it. On Linux, play it on the host with `host_bash`, trying the players in order until one succeeds:
+
+```bash
+dir={workspaceDir}/data/sounds   # unquoted so a leading ~ expands
+f="$dir/<filename>"
+paplay "$f" || aplay "$f" || ffplay -nodisp -autoexit "$f"
+```
+
+`paplay` ships in `pulseaudio-utils` and works on PulseAudio and PipeWire sessions. `aplay` ships in `alsa-utils` and talks to ALSA directly. `ffplay` comes with `ffmpeg` and is the only one of the three that reliably plays `.mp3` and `.m4a`.
+
+If none is installed, do not install anything yourself. Tell the user which package to add, `pulseaudio-utils` for `paplay` or `alsa-utils` for `aplay`, and offer to continue without a preview. Silence with no error usually means the player chose the wrong sink, so check that the desktop's output device is the one the user is listening on.
+
 ## UX Guidelines
 
 - **Always check current state first.** Don't ask "what do you want to do" if they already have sounds configured — summarize what's set up, then ask what to change.
 - **The master switch is the #1 gotcha.** `globalEnabled` defaults to `false`. If the user assigns a sound to an event and doesn't hear anything, check that flag first. When assigning the user's first sound, offer to flip the master switch on for them.
 - **Per-event enabled is the #2 gotcha.** Each event has its own `enabled` bool. Setting a sound alone doesn't enable the event.
-- **Pool editing in the UI.** The Settings > Sounds tab supports pool editing on macOS and Windows. Users can add and remove entries there without running this script. Power users can weight a sound more heavily by hand-editing `config.json` to include duplicates. For example, `["a.wav","a.wav","b.wav"]` makes `a.wav` twice as likely. The script de-dupes on `--add-sound` but does not re-sort or de-dupe on read, so hand-edited duplicates survive round-trips.
+- **Pool editing in the UI.** The Settings > Sounds tab supports pool editing on macOS, Windows, and Linux. Users can add and remove entries there without running this script. Power users can weight a sound more heavily by hand-editing `config.json` to include duplicates. For example, `["a.wav","a.wav","b.wav"]` makes `a.wav` twice as likely. The script de-dupes on `--add-sound` but does not re-sort or de-dupe on read, so hand-edited duplicates survive round-trips.
 - **Filename sanity.** When the user sends a file named something like `Screen Recording 2026-04-13 at 11.47.23.m4a`, rename it to something memorable before copying — they'll have to pick it from a dropdown later.
 - **Confirm after changes.** Tell the user the Settings > Sounds tab will reflect changes live. Offer to open it: "You can preview it in Settings > Sounds, or I can play it for you next time that event fires."
-- **Don't invent events.** macOS supports the nine keys above, while Windows supports eight and excludes `app_open`. There is currently no event for voice-mode activation or typing indicators. If the user asks for those, tell them it needs a desktop app code change.
+- **Don't invent events.** macOS supports the nine keys above, while Windows and Linux support eight and exclude `app_open`. There is currently no event for voice-mode activation or typing indicators. If the user asks for those, tell them it needs a desktop app code change.
 
 ## Config shape reference
 
-If the user inspects `config.json` directly, this is the macOS superset they may see. On Windows, omit the `app_open` entry. Defaults otherwise match the shared desktop sound configuration.
+If the user inspects `config.json` directly, this is the macOS superset they may see. On Windows and Linux, omit the `app_open` entry. Defaults otherwise match the shared desktop sound configuration.
 
 ```json
 {
