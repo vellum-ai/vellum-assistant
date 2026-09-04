@@ -248,15 +248,24 @@
     "adjust": "調整",
     "capProgress": " / 本月 {cap}",
     "connectCardBanner": "自動加值需要您綁定一張信用卡。",
+    "dailyLimitLookupError": "無法檢查每日點數限制，自動加值需要該限制。請重試以繼續。",
     "declinedCutoffNotice": "多次付款失敗後，我們已暫停自動加值。請新增付款方式以重新開啟自動加值。",
     "disableError": "無法停用自動加值。請再試一次。",
     "dismiss": "關閉",
     "loadError": "無法載入自動加值設定。",
     "loading": "載入中…",
+    "retry": "重試",
     "summary": "當餘額低於 {threshold} 時，自動加值 {amount}",
     "toggleHelper": "自動加值僅在方案用量耗盡時發生",
     "toggleLabel": "啟用自動加值",
     "updateError": "無法儲存自動加值設定。請再試一次。"
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "停用自動加值",
+    "message": "自動加值需要設定每日點數限制。請設定一個限制以儲存自動加值設定，或停用自動加值。",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "title": "設定每日點數限制"
   },
   "autoTopUpDisableConfirm": {
     "disable": "停用",

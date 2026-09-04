@@ -248,15 +248,24 @@
     "adjust": "调整",
     "capProgress": " / 本月 {cap}",
     "connectCardBanner": "自动充值需要您绑定一张信用卡。",
+    "dailyLimitLookupError": "无法检查每日积分限额，自动充值需要该限额。请重试以继续。",
     "declinedCutoffNotice": "多次付款失败后，我们已暂停自动充值。请添加新的付款方式以重新开启自动充值。",
     "disableError": "未能禁用自动充值。请重试。",
     "dismiss": "忽略",
     "loadError": "未能加载自动充值配置。",
     "loading": "加载中…",
+    "retry": "重试",
     "summary": "当余额低于 {threshold} 时，自动充值 {amount}",
     "toggleHelper": "自动充值仅在套餐用量耗尽时发生",
     "toggleLabel": "启用自动充值",
     "updateError": "未能保存自动充值设置。请重试。"
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "禁用自动充值",
+    "message": "自动充值需要设置每日积分限额。请设置一个限额以保存自动充值设置，或禁用自动充值。",
+    "save": "保存",
+    "saving": "保存中…",
+    "title": "设置每日积分限额"
   },
   "autoTopUpDisableConfirm": {
     "disable": "禁用",
