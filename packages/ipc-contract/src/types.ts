@@ -118,6 +118,20 @@ export type VellumCommand =
    */
   | { kind: "toggleWatch"; target?: WatchCaptureTarget }
   /**
+   * Show the running call what the user is looking at, or stop.
+   *
+   * `target` is what to share, as the companion's picker resolved it: a
+   * display or a window. A command carrying one starts the share, or moves a
+   * running one to the new target; a command carrying none is the stop. The
+   * window holding the session takes frames of the target and hands each to
+   * the session as a `sight_frame`, so the transcript is the record of what
+   * the call was shown.
+   *
+   * Like `toggleWatch`, this does not raise the app: what is shared is the
+   * user's own work, and raising Vellum would cover it.
+   */
+  | { kind: "setScreenShare"; target?: WatchCaptureTarget }
+  /**
    * Answer the question the surface asks once a watch session's summary is
    * written: open it now, or not.
    *
@@ -134,16 +148,12 @@ export type VellumCommand =
    */
   | { kind: "answerWatchRetro"; open: boolean }
   /**
-   * The words a dictation had nowhere to put have been answered for, so stop
-   * offering them.
-   *
-   * Carries no answer of its own: the copy is main's, since main holds the
-   * text and the clipboard, and the window this reaches holds only the claim
-   * that something is still waiting. Both answers send it for the reason
-   * `answerWatchRetro` sends both: a dismissal kept on the surface would leave
-   * this window ready to redraw the offer on its next push.
+   * Answer the offer the surface makes when a dictation ends with its words
+   * still in hand: put Vellum's version in place of what another app pasted,
+   * get that app off the key, take the words to the clipboard, or leave
+   * things as they are. See {@link CompanionDictationOffer}.
    */
-  | { kind: "answerDictationOffer" }
+  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer }
   /**
    * Start a live-voice session, or end the one that is running.
    *
@@ -192,7 +202,11 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  "function" | "control" | "shift" | "option" | "command";
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -255,7 +269,8 @@ export interface HotkeyEvent {
 
 /** Whether a helper took a binding, or why it did not. */
 export type HotkeyRegistrationResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
@@ -264,7 +279,8 @@ export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
@@ -342,7 +358,11 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  "suspend" | "resume" | "lock" | "unlock" | "active";
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -420,7 +440,8 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -442,7 +463,8 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  DictationOverlayState | { kind: "dismiss" };
+  | DictationOverlayState
+  | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -707,7 +729,12 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -771,7 +798,8 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
+  | { ok: true; lockfile: Lockfile }
+  | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -1170,6 +1198,46 @@ export interface CompanionCharacter {
 export type CompanionWatchRetro = "pending" | "ready";
 
 /**
+ * Words a dictation produced that the surface is holding out to the user,
+ * and why they were not simply typed where the user was.
+ *
+ * Two things end a hold with the words still in hand, and the surface draws
+ * the same card for both. `claimed`: another dictation app heard the key
+ * too, since nothing on macOS owns one, and has already pasted its own
+ * version, so Vellum offers to put its own in place instead, to get that app
+ * off the key, or to leave it. `no-text-field`: nothing in the application
+ * in front takes text, so no paste was sent at all and the only place left
+ * to put the words is the clipboard.
+ *
+ * The reason is what the card reads to pick its answers, since the two cases
+ * can offer nothing in common: there is no app to quit when none claimed the
+ * key, and nowhere to "use" the words when nothing takes text. `text` is
+ * bounded at {@link COMPANION_DICTATION_OFFER_MAX} on both.
+ */
+export type CompanionDictationOffer =
+  | { reason: "claimed"; app: string; text: string }
+  | { reason: "no-text-field"; text: string };
+
+/**
+ * The most an offered dictation can be, in characters. One bound for the
+ * store, the surface and the insert, so what the user reads on the card is
+ * what "use" puts in the document. Far above any hold's worth of speech.
+ */
+export const COMPANION_DICTATION_OFFER_MAX = 2000;
+
+/**
+ * What the user pressed on the offer's card.
+ *
+ * Which of these a card draws is the offer's reason to decide, and each is
+ * answered by the side that can act on it: `use` and `quit` reach the window
+ * holding the words and the way into the application they came from, `copy`
+ * is main's because main owns the pasteboard and the surface's window never
+ * takes focus, and `dismiss` acts on nothing. Every one of them travels, so
+ * the window still publishing the offer stops.
+ */
+export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
+
+/**
  * What a watch session reads, once the user has picked: one display or one
  * window.
  *
@@ -1188,6 +1256,17 @@ export type CompanionWatchRetro = "pending" | "ready";
 export type WatchCaptureTarget =
   | { kind: "display"; displayId: number }
   | { kind: "window"; windowId: number };
+
+/**
+ * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
+ * with the size it was encoded at. Base64 rather than bytes because it
+ * crosses the bridge as JSON.
+ */
+export interface ScreenCaptureFrame {
+  jpegBase64: string;
+  width: number;
+  height: number;
+}
 
 /**
  * What the companion's picker offers a press of Teach: a display, a window,
@@ -1332,6 +1411,23 @@ export interface CompanionContext {
    */
   watchTargets?: boolean;
   /**
+   * What the running call is being shown, while the user shares a display or
+   * a window with it. Absent when nothing is shared.
+   *
+   * Published by the window that owns the session rather than remembered by
+   * main from the press, for the reason `captureTarget` is: the press is a
+   * request, and this is what the session did with it, so the surface draws
+   * the share as on only once frames can flow to a session that takes them.
+   */
+  screenShare?: WatchCaptureTarget;
+  /**
+   * Whether the call in this window can be shown the screen at all: a session
+   * is running and its assistant understands the frame. The surface offers
+   * the share on a positive answer and nothing on anything else, the bargain
+   * `watchTargets` makes.
+   */
+  screenShareEnabled?: boolean;
+  /**
    * What a dictation started from the keyboard has got to, when one is running.
    *
    * The surface is the only thing on screen while the user is dictating into
@@ -1357,18 +1453,11 @@ export interface CompanionContext {
    */
   dictationText?: string;
   /**
-   * A finished dictation the front application had nowhere to put, whole.
-   *
-   * Whole rather than the tail {@link CompanionContext.dictationText} carries,
-   * because these are the words themselves rather than a sight of them going
-   * past: the surface is where the user reads them and the copy is taken from
-   * here. Unbounded for the same reason, and bounded in practice by how long a
-   * person holds a key down.
-   *
-   * Absent means there is nothing waiting to be offered, which is the state
-   * every dictation that landed leaves behind.
+   * Vellum's version of a dictation another app pasted, while the offer to
+   * use it stands. Absent when there is none. See
+   * {@link CompanionDictationOffer}.
    */
-  dictationOffer?: string;
+  dictationOffer?: CompanionDictationOffer;
 }
 
 /**
@@ -1454,8 +1543,6 @@ export interface CompanionSurfaceState {
   dictating?: CompanionDictating;
   /** See {@link CompanionContext.dictationText}. */
   dictationText?: string;
-  /** See {@link CompanionContext.dictationOffer}. */
-  dictationOffer?: string;
   growth: CompanionGrowth;
   /**
    * Which side of the avatar the canvas reserves the card's height on, and with
@@ -1531,6 +1618,8 @@ export interface CompanionSurfaceState {
    * Optional, and absence means there is nothing to draw.
    */
   watchRetro?: CompanionWatchRetro;
+  /** Vellum's version of a dictation another app pasted, while offered. */
+  dictationOffer?: CompanionDictationOffer;
 
   /**
    * How many screen reads the running session has taken, from the window that
@@ -1558,6 +1647,17 @@ export interface CompanionSurfaceState {
    * whose sessions read the whole screen.
    */
   watchTargets?: boolean;
+  /**
+   * See {@link CompanionContext.screenShare}. Absent is nothing shared, on
+   * every shell including one that predates the field.
+   */
+  screenShare?: WatchCaptureTarget;
+  /**
+   * See {@link CompanionContext.screenShareEnabled}. Read it as
+   * `screenShareEnabled === true`, for the reason `watchTargets` is read that
+   * way: the control this decides starts capturing the user's screen.
+   */
+  screenShareEnabled?: boolean;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the

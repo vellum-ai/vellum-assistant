@@ -4,6 +4,7 @@ import {
   type ClipboardSnapshot,
   type TextInsertionDeps,
   typeIntoFrontAppWithDeps,
+  undoInFrontAppWithDeps,
 } from "./textInsertion";
 
 type Harness = {
@@ -142,10 +143,10 @@ describe("typeIntoFrontApp", () => {
   });
 
   /**
-   * The bug this guard exists for: the words used to go to the clipboard and
-   * a paste used to be sent whatever was in front, so a hold that ended over
-   * a web page or a file list lost everything the user said and reported that
-   * it had been inserted.
+   * A hold that ends over a web page or a file list has nowhere to put its
+   * words. The paste is withheld rather than sent into whatever the keystroke
+   * happens to mean there, and the status says so, so the caller knows it
+   * still holds the words.
    */
   test("sends no paste when nothing in front takes text", async () => {
     const harness = createHarness({ takesText: false });
@@ -159,9 +160,8 @@ describe("typeIntoFrontApp", () => {
 
   /**
    * The user has not asked for their clipboard to be spent, and the words are
-   * about to be offered to them instead. Taking the clipboard for a paste that
-   * never happened would be the one part of the old behaviour worth keeping
-   * out of the new one.
+   * about to be offered to them instead. A clipboard taken for a paste that
+   * never happens is a cost with nothing bought by it.
    */
   test("leaves the clipboard alone when it withholds the paste", async () => {
     const harness = createHarness({
@@ -193,5 +193,31 @@ describe("typeIntoFrontApp", () => {
   });
 });
 
+describe("undoInFrontAppWithDeps", () => {
+  test("sends the undo keystroke to the application in front", async () => {
+    const harness = createHarness();
+    const result = await undoInFrontAppWithDeps(harness.deps);
 
+    expect(result).toEqual({ status: "inserted" });
+    expect(harness.runAppleScript).toHaveBeenCalledWith(
+      'tell application "System Events" to keystroke "z" using command down',
+    );
+  });
 
+  test("does nothing while a Vellum window is in front", async () => {
+    const harness = createHarness({ focused: true });
+    const result = await undoInFrontAppWithDeps(harness.deps);
+
+    expect(result).toEqual({ status: "vellum-focused" });
+    expect(harness.runAppleScript).not.toHaveBeenCalled();
+  });
+
+  test("reads a refused keystroke as blocked", async () => {
+    const harness = createHarness({
+      runAppleScript: () => Promise.reject(new Error("no")),
+    });
+    expect(await undoInFrontAppWithDeps(harness.deps)).toEqual({
+      status: "blocked",
+    });
+  });
+});

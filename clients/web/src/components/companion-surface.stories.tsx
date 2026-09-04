@@ -14,7 +14,6 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
-import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
@@ -296,40 +295,6 @@ export const DictatingSilent: Story = {
   args: { phase: "dictating", dictating: "listening" },
 };
 
-/**
- * The words a dictation had nowhere to put, offered back.
- *
- * Drawn over a resting surface, which is where it actually arrives: the
- * microphone is long shut by the time the paste has been attempted and turned
- * down. The creature comes out of its capsule for it, the way it does for the
- * introduction, so the card is beside something rather than beside a shape.
- */
-export const DictationOffer: Story = {
-  args: {
-    phase: "resting",
-    offer: (
-      <CompanionDictationOffer text="Pick up onions, tomatoes and a bag of rice on the way home, and check whether the pharmacy is still open." />
-    ),
-  },
-};
-
-/** Longer than the card's height, so the words scroll inside it. */
-export const DictationOfferLong: Story = {
-  args: {
-    phase: "resting",
-    offer: (
-      <CompanionDictationOffer
-        text={[
-          "I have been thinking about the way we handle the first run.",
-          "Right now it asks three questions before anything happens, and I do not think anyone reads the third one.",
-          "What if the first thing a person sees is the assistant already doing something small and obviously theirs?",
-          "Then the questions become optional, and the ones we keep are the ones people actually answer.",
-        ].join(" ")}
-      />
-    ),
-  },
-};
-
 /** The keys are up and the last of it is still being transcribed. */
 export const DictatingTranscribing: Story = {
   args: { phase: "dictating", dictating: "transcribing" },
@@ -511,6 +476,29 @@ export const SummaryReady: Story = {
  */
 export const InCallWhileWatching: Story = {
   args: { phase: "call", watching: true, call: DEMO_CALL },
+};
+
+/**
+ * Mid-call with the screen shared: Share held down beside Teach, since the
+ * two are the same gesture aimed at different ends, and the call is being
+ * shown what a Teach session would be reading.
+ */
+export const InCallSharing: Story = {
+  args: { phase: "call", shareEnabled: true, sharing: true, call: DEMO_CALL },
+};
+
+/**
+ * Both held down at once, which is the widest row a call draws and what
+ * `FALLBACK_WIDTHS.call` stands in for before the row has been measured.
+ */
+export const InCallWatchingAndSharing: Story = {
+  args: {
+    phase: "call",
+    watching: true,
+    shareEnabled: true,
+    sharing: true,
+    call: DEMO_CALL,
+  },
 };
 
 /**

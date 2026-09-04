@@ -86,6 +86,8 @@ const captureLanded = () => {
 };
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
+const { clearDictationOffer, setDictationOffer } =
+  await import("@/domains/chat/voice/dictation-offer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
@@ -314,6 +316,32 @@ describe("the middle of a turn, where the client looks idle", () => {
  * it. Without this the surface would go quiet for the whole of a turn the user
  * is waiting on.
  */
+describe("the dictation offer the companion mirror publishes", () => {
+  const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+
+  test("says nothing while none stands", () => {
+    render(<Mirror />);
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  test("carries the words and the other app's name while it stands", async () => {
+    render(<Mirror />);
+    setDictationOffer(WISPR, "Send me the files.", null);
+    await waitFor(() => {
+      expect(latest().dictationOffer).toEqual({
+        reason: "claimed",
+        app: "Wispr Flow",
+        text: "Send me the files.",
+      });
+    });
+
+    clearDictationOffer();
+    await waitFor(() => {
+      expect(latest().dictationOffer).toBeUndefined();
+    });
+  });
+});
+
 describe("the watch summary the companion mirror publishes", () => {
   const SESSION = {
     sessionId: "sess-1",
@@ -615,65 +643,6 @@ describe("dictating", () => {
 });
 
 /**
- * The words a dictation had nowhere to put, which reach the surface after the
- * recording that produced them is already over and stand until answered.
- */
-describe("the offer of a dictation that landed nowhere", () => {
-  const recording = useVoiceRecordingStore.getState;
-
-  test("says nothing while nothing is waiting", () => {
-    render(<Mirror />);
-
-    expect(latest().dictationOffer).toBeUndefined();
-  });
-
-  /**
-   * Published from a phase that is already idle: the paste is attempted after
-   * the transcript is final, so by the time this is known the microphone has
-   * been shut for some time.
-   */
-  test("publishes the whole transcript once it is put up", () => {
-    render(<Mirror />);
-    recording().startRecording({ hold: true });
-    recording().reset();
-
-    act(() => {
-      recording().setDictationOffer("everything the user said");
-    });
-
-    expect(latest().dictationOffer).toBe("everything the user said");
-    expect(latest().dictating).toBeUndefined();
-  });
-
-  test("takes it back down when it is answered", () => {
-    render(<Mirror />);
-    act(() => {
-      recording().setDictationOffer("everything the user said");
-    });
-
-    act(() => {
-      recording().setDictationOffer(null);
-    });
-
-    expect(latest().dictationOffer).toBeUndefined();
-  });
-
-  /** Speaking again is an answer: the last offer was aimed somewhere else. */
-  test("is dropped by the next dictation", () => {
-    render(<Mirror />);
-    act(() => {
-      recording().setDictationOffer("everything the user said");
-    });
-
-    act(() => {
-      recording().startRecording({ hold: true });
-    });
-
-    expect(latest().dictationOffer).toBeUndefined();
-  });
-});
-
-/**
  * The mount itself, with nothing arranged around it.
  *
  * The effect publishes once before wiring any subscription, so anything the
@@ -688,4 +657,86 @@ test("mounts and publishes without throwing", () => {
   }).not.toThrow();
 
   expect(published.length).toBeGreaterThan(0);
+});
+
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { seedLiveVoiceSession } =
+  await import("@/domains/chat/voice/live-voice/live-voice-fakes.test-helper");
+const { MIN_VERSION: SIGHT_MIN_VERSION } =
+  await import("@/lib/backwards-compat/use-supports-sight-stream");
+
+/**
+ * What the call is being shown, and whether it can be shown anything. Both
+ * ride the live-voice store, which moves on every amplitude sample, so the
+ * cases here are also about the mirror publishing only when one of the two
+ * actually changed.
+ */
+describe("the screen share the companion mirror publishes", () => {
+  afterEach(() => {
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+  });
+
+  test("offers nothing with no call, and a share once a session runs on an assistant that takes the frame", async () => {
+    render(<Mirror />);
+    expect(latest().screenShareEnabled).toBe(false);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(false);
+    });
+  });
+
+  test("carries the target only while frames can flow", async () => {
+    render(<Mirror />);
+    act(() => {
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+      useLiveVoiceStore
+        .getState()
+        .setScreenShareTarget({ kind: "window", windowId: 7 });
+    });
+    // An assistant that predates the frame: the share is held in the store
+    // and never reaches the surface.
+    await Promise.resolve();
+    expect(latest().screenShare).toBeUndefined();
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toEqual({ kind: "window", windowId: 7 });
+    });
+    const pushes = published.length;
+    // An amplitude sample moves the store and nothing the surface draws.
+    act(() => {
+      useLiveVoiceStore.getState().setInputAmplitude(0.4);
+    });
+    await Promise.resolve();
+    expect(published.length).toBe(pushes);
+    act(() => {
+      useLiveVoiceStore.getState().setScreenShareTarget(null);
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toBeUndefined();
+    });
+  });
 });

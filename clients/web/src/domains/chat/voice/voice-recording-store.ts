@@ -68,16 +68,6 @@ export interface VoiceRecordingState {
    * recording has finished starting.
    */
   hold: boolean;
-  /**
-   * A finished transcript the front application had nowhere to put, waiting
-   * to be handed to the user, or `null` when nothing is waiting.
-   *
-   * Outlives the recording that produced it: the phase is back to `idle` long
-   * before the user has answered, and the words have to still be here when
-   * they do. Cleared by the answer and by the next recording, which is the one
-   * other thing that means the user has moved on.
-   */
-  dictationOffer: string | null;
 }
 
 export interface VoiceRecordingActions {
@@ -89,8 +79,6 @@ export interface VoiceRecordingActions {
   setInterimTranscript: (text: string) => void;
   setAudioLevel: (level: number) => void;
   flagDictationInsertionError: (code: string) => void;
-  /** Put a transcript up to be offered, or take the offer back down. */
-  setDictationOffer: (text: string | null) => void;
 }
 
 export type VoiceRecordingStore = VoiceRecordingState & VoiceRecordingActions;
@@ -129,7 +117,6 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
   audioLevel: 0,
   dictationInsertionError: null,
   hold: false,
-  dictationOffer: null,
 
   startRecording: (options) => {
     clearDismissTimer();
@@ -140,11 +127,6 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
       audioLevel: 0,
       dictationInsertionError: null,
       hold: options?.hold ?? false,
-      // Speaking again is answer enough for the last offer: it is a hold
-      // aimed at wherever the cursor is now, and words still being offered
-      // from the previous one would be a second answer to a question the
-      // user has walked away from.
-      dictationOffer: null,
     });
   },
 
@@ -185,7 +167,6 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
       audioLevel: 0,
       dictationInsertionError: null,
       hold: false,
-      dictationOffer: null,
     });
   },
 
@@ -200,10 +181,6 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
 
   flagDictationInsertionError: (code: string) => {
     set({ dictationInsertionError: code });
-  },
-
-  setDictationOffer: (text: string | null) => {
-    set({ dictationOffer: text });
   },
 }));
 

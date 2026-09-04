@@ -9,7 +9,9 @@ import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use
 import type {
   ChatDebugRefs,
   PendingInteractionsSnapshot,
+  VellumDebugFlagsApi,
 } from "@/domains/chat/utils/debug-api";
+import type { SleepStageScene } from "@/stores/assistant-sleep-stage-store";
 import {
   RECONCILIATION_DIAGNOSTIC_KIND_PREFIXES,
   createChatDebugApi,
@@ -901,14 +903,17 @@ type DebugWindow = Window & {
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
       toggleAppsSandboxDisabled?: (v?: boolean) => boolean;
+      forceSleepStage?: (v?: unknown) => unknown;
     };
     other?: unknown;
   };
 };
 
-const makeFlagsApi = () => ({
+const makeFlagsApi = (): VellumDebugFlagsApi => ({
   impersonateVersion: (_value?: string | null): string | null => null,
   toggleAppsSandboxDisabled: (_value?: boolean): boolean => false,
+  forceSleepStage: (_value?: SleepStageScene | null): SleepStageScene | null =>
+    null,
 });
 
 describe("installVellumDebugApi", () => {

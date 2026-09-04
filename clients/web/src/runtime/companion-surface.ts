@@ -16,6 +16,9 @@ import type {
   CompanionDictating,
   CompanionIntroAction,
   CompanionSurfaceState,
+  DictationOfferAnswer,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 type CompanionBridge = NonNullable<NonNullable<Window["vellum"]>["companion"]>;
@@ -116,6 +119,39 @@ export function listCompanionCaptureSources(): Promise<CompanionCaptureSources |
 }
 
 /**
+ * Show the running call what the user is looking at, or stop, which is what
+ * the share control does.
+ *
+ * `pick` is the row of the picker the press came from; a press with none is
+ * the stop. Like {@link toggleCompanionWatch} the press leaves this renderer
+ * at once: main resolves a tab to the window showing it and hands the target
+ * to the window holding the session, and what comes back is `screenShare` on
+ * the pushed state once that window has frames flowing.
+ */
+export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
+  bridge()?.setScreenShare?.(pick);
+}
+
+/**
+ * One frame of what the user is sharing, as the helper takes it.
+ *
+ * The one call in this module made from the app's own window on a cadence
+ * rather than on a press: the session lives there, and each frame becomes a
+ * `sight_frame` on it. Resolves to nothing off Electron, on a shell that
+ * predates the share, and whenever the helper could not take one, and the
+ * caller reads every one of those as a frame to skip.
+ */
+export function captureCompanionScreen(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  const companion = bridge();
+  if (!companion?.captureScreen) {
+    return Promise.resolve(null);
+  }
+  return companion.captureScreen(target).catch(() => null);
+}
+
+/**
  * Answer the question a finished watch session leaves on the surface: open its
  * summary now, or not.
  *
@@ -129,16 +165,15 @@ export function answerCompanionWatchRetro(open: boolean): void {
 }
 
 /**
- * Answer the offer a dictation with nowhere to go left on the surface: take
- * the words to the clipboard, or let them go.
- *
- * Both answers leave this renderer, and the copy itself is main's: main is the
- * side holding the text, and this window is a click-through canvas with no
- * clipboard of its own worth using. What comes back either way is the offer
- * going absent on the next pushed state.
+ * Answer the offer of Vellum's dictation: use it in place of what another app
+ * pasted, get that app off the key, or leave it. Every answer leaves this
+ * renderer, for the reason the retro's does: the window that made the offer
+ * is the one holding it.
  */
-export function answerCompanionDictationOffer(copy: boolean): void {
-  bridge()?.answerDictationOffer?.(copy);
+export function answerCompanionDictationOffer(
+  answer: DictationOfferAnswer,
+): void {
+  bridge()?.answerDictationOffer?.(answer);
 }
 
 /**
@@ -218,28 +253,6 @@ export function setCompanionDictation(
     return;
   }
   setCompanionContext({ ...lastContext, dictating, dictationText });
-}
-
-/**
- * Put words a dictation had nowhere to land on the surface, or take the offer
- * back down.
- *
- * Corrects the last context in place for the reason
- * {@link setCompanionDictation} does: this arrives on its own schedule, after
- * the dictation it came from is already over, and rebuilding the whole context
- * for it would reselect a conversation tail that has nothing to do with it.
- *
- * Silent until a context has been published, since a surface with no assistant
- * beside it is not somewhere to offer anything.
- */
-export function setCompanionDictationOffer(offer: string | undefined): void {
-  if (lastContext === null) {
-    return;
-  }
-  if (lastContext.dictationOffer === offer) {
-    return;
-  }
-  setCompanionContext({ ...lastContext, dictationOffer: offer });
 }
 
 export function clearCompanionWorking(): void {

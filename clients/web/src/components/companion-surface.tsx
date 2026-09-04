@@ -5,6 +5,7 @@ import {
   EyeOff,
   Mic,
   MicOff,
+  ScreenShare,
   ScrollText,
   Volume2,
   VolumeX,
@@ -20,7 +21,10 @@ import type {
   Ref,
 } from "react";
 
-import type { CompanionDictating } from "@vellumai/ipc-contract";
+import type {
+  CompanionDictating,
+  CompanionDictationOffer,
+} from "@vellumai/ipc-contract";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
@@ -149,6 +153,20 @@ export type CompanionSurfacePhase =
    * everything is: that is something they are already inside.
    */
   | "dictating"
+  /**
+   * Offer: the pill held open by Vellum's version of a dictation another app
+   * has already pasted.
+   *
+   * Nothing on macOS owns a key, so a hold of the voice key with another
+   * dictation app running dictates twice. Rather than paste beside that app's
+   * words, Vellum shows its own and asks: use them instead, get that app off
+   * the key, or leave it. Open regardless of the pointer, for the reason
+   * `summary` is: a question waiting on an answer rather than a hint.
+   *
+   * It ranks below `dictating`, since a new hold is a new question, and above
+   * `watching`, since it lasts seconds rather than minutes.
+   */
+  | "offer"
   /**
    * Call: the pill held open by a live-voice session, or by the press that
    * asked for one.
@@ -304,6 +322,12 @@ export const NAME_DWELL_MS = 500;
 const TRANSCRIPT_WIDTH = 244;
 
 /**
+ * The width of the offer's line in the pill: a few words and, where there is
+ * one, the other app's name. The words themselves are on the card beside it.
+ */
+const OFFER_WIDTH = 200;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -342,9 +366,13 @@ export const FALLBACK_WIDTHS: Record<
   // has a stated width whatever is in it, so this is the state's actual width
   // rather than a guess at one.
   dictating: TRANSCRIPT_WIDTH + 32,
-  // The line and the four controls of the handlebar, with Teach held down and
-  // so spelling its name out, which is the widest a call draws.
-  call: 332,
+  // The offer's line beside the icon and the row's own clearance, with a
+  // stated width for the reason the transcript's has one.
+  offer: OFFER_WIDTH + 32,
+  // The line and the five controls of the handlebar, with Teach and Share
+  // both held down and so spelling their names out, which is the widest a
+  // call draws.
+  call: 372,
 };
 
 export interface CompanionSurfaceProps {
@@ -484,6 +512,36 @@ export interface CompanionSurfaceProps {
    */
   picking?: boolean;
   /**
+   * Whether the call is being shown the screen, which draws Share held down
+   * for as long as it is. Its own prop for the reason `watching` is: it is
+   * the session's, and the control that ends it belongs to the share rather
+   * than to whatever the pill is drawing.
+   */
+  sharing?: boolean;
+  /**
+   * Whether Share is offered on the call row at all, which is whether the
+   * window holding the session says the session can be shown anything. Off
+   * unless positively on, the way {@link CompanionSurfaceProps.watchEnabled}
+   * is read, and for the same reason: the control starts capturing the
+   * user's screen.
+   */
+  shareEnabled?: boolean;
+  /**
+   * Whether the picker Share opens is on screen, which draws Share held down
+   * for as long as it is. The card itself arrives on
+   * {@link CompanionSurfaceProps.picker}, the same slot Teach's does.
+   */
+  sharePicking?: boolean;
+  /** The press of Share with nothing shared: open the picker. */
+  onShare?: () => void;
+  /**
+   * The press of Share while something is shared: the stop. Its own
+   * callback rather than a toggle, the split {@link CompanionSurfaceProps.onTeach}
+   * makes: the way in stays on the page that draws the choice, and the stop
+   * leaves for the window that owns the session.
+   */
+  onStopShare?: () => void;
+  /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
    * since it is the side holding the session; this side only names the press
@@ -545,6 +603,21 @@ export interface CompanionSurfaceProps {
    * comes back is {@link CompanionSurfaceProps.watchRetro} going absent.
    */
   onWatchRetro?: (open: boolean) => void;
+  /**
+   * A dictation's words while the offer of them stands, and why they were
+   * not simply typed where the user was. Its own prop for the reason
+   * {@link CompanionSurfaceProps.watchRetro} is: a call outranks the phase,
+   * and an offer must not lose its answer because the user picked up the
+   * phone.
+   */
+  dictationOffer?: CompanionDictationOffer;
+  /**
+   * The card offering those words and the answers to them, drawn beside the
+   * surface while the offer stands. Composed by the caller for the reason the
+   * picker is: the card is a sibling of the pill, and the page that owns the
+   * answer owns it.
+   */
+  offer?: ReactNode;
 
   /**
    * Whether Teach is offered on the call row at all, which is the feature flag
@@ -599,17 +672,6 @@ export interface CompanionSurfaceProps {
    */
   picker?: ReactNode;
   /**
-   * The card offering words a dictation had nowhere to put, composed by the
-   * caller for the reason the introduction is.
-   *
-   * Unlike the other two this one can be drawn over a resting surface: it
-   * arrives once a dictation is over, which is a moment with nothing else on
-   * the pill. It brings the creature out of its capsule the way the
-   * introduction's first beat does, so the card is beside something rather
-   * than beside a shape.
-   */
-  offer?: ReactNode;
-  /**
    * What a keyboard dictation has got to, when one is running. See
    * {@link CompanionDictating}.
    */
@@ -640,11 +702,18 @@ export function CompanionSurface({
   onWatch,
   onTeach,
   picking = false,
+  sharing = false,
+  shareEnabled = false,
+  sharePicking = false,
+  onShare,
+  onStopShare,
   onAvatarClick,
   working = false,
   watching = false,
   watchRetro,
   onWatchRetro,
+  dictationOffer,
+  offer,
   watchEnabled = false,
   dictating,
   dictationText = "",
@@ -652,7 +721,6 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
-  offer,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -666,6 +734,7 @@ export function CompanionSurface({
   const expanded =
     phase === "call" ||
     phase === "dictating" ||
+    phase === "offer" ||
     phase === "summary" ||
     phase === "watching";
   /** Whether the creature is out of its capsule, which hover alone does. */
@@ -795,15 +864,6 @@ export function CompanionSurface({
    * that reads it is deciding whether the creature is on screen at all.
    */
   const introDrawn = intro !== null && intro !== undefined;
-  /**
-   * Whether a card is drawn beside a surface that is otherwise at rest.
-   *
-   * The introduction and the offer both do it, and both need the creature out
-   * of its capsule for the same reason: a card pointing at a capsule is a card
-   * about nothing.
-   */
-  const restingCardDrawn =
-    introDrawn || (offer !== null && offer !== undefined);
 
   const style: CSSProperties = inCall
     ? {
@@ -939,9 +999,14 @@ export function CompanionSurface({
                 watching={watching}
                 watchEnabled={watchEnabled}
                 picking={picking}
+                sharing={sharing}
+                shareEnabled={shareEnabled}
+                sharePicking={sharePicking}
                 onControl={onControl}
                 onWatch={onWatch}
                 onTeach={onTeach}
+                onShare={onShare}
+                onStopShare={onStopShare}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -950,6 +1015,8 @@ export function CompanionSurface({
               />
             ) : phase === "summary" && watchRetro !== undefined ? (
               <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
+            ) : phase === "offer" && dictationOffer !== undefined ? (
+              <OfferBody offer={dictationOffer} />
             ) : (
               <IdleBody watching={watching} onWatch={onWatch} />
             )}
@@ -1011,7 +1078,7 @@ export function CompanionSurface({
         // (`introPhase` answers null for `meet`), so the phase is `resting`
         // with a card pointing at a creature that is not drawn. A card
         // introducing the capsule is the one thing this collapse must not do.
-        collapsed={!creatureOut && !restingCardDrawn}
+        collapsed={!creatureOut && !introDrawn}
         // The capsule is drawn at one size on every setting, so it counters
         // what this node carries. That is the avatar's box over the authored
         // one: the options scale on the box above cancels against `avatarRel`.
@@ -1397,6 +1464,31 @@ function DictatingBody({
 }
 
 /**
+ * The pill's line while a dictation's words are on offer beside it.
+ *
+ * Only why they are being offered: the other app that pasted its own version,
+ * or that nothing in front would take them. The words and the answers are on
+ * the card ({@link CompanionSurfaceProps.offer}), since the pill is one line
+ * tall and the words have to be read whole.
+ */
+function OfferBody({ offer }: { offer: CompanionDictationOffer }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-2 px-1">
+      <AudioLines className="size-4 shrink-0" aria-hidden />
+      <span
+        className="truncate text-[12px] text-white/85"
+        style={{ width: OFFER_WIDTH }}
+      >
+        {offer.reason === "claimed"
+          ? t("companionSurface.offerHeard", { app: offer.app })
+          : t("companionSurface.offerNowhere")}
+      </span>
+    </div>
+  );
+}
+
+/**
  * Expanded with no call and no words: the row of a session reading the screen.
  *
  * **The way in is the creature, not a control.** Talk is a press on the
@@ -1564,18 +1656,28 @@ function CallBody({
   watching,
   watchEnabled,
   picking,
+  sharing,
+  shareEnabled,
+  sharePicking,
   onControl,
   onWatch,
   onTeach,
+  onShare,
+  onStopShare,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
   watching: boolean;
   watchEnabled: boolean;
   picking: boolean;
+  sharing: boolean;
+  shareEnabled: boolean;
+  sharePicking: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
   onTeach?: () => void;
+  onShare?: () => void;
+  onStopShare?: () => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1648,6 +1750,16 @@ function CallBody({
         onWatch={onWatch}
         onTeach={onTeach}
       />
+      {/* Beside Teach, since the two are the same gesture aimed at different
+          ends: Teach has the screen read for a lesson, Share has it shown to
+          the call. Not on the dial, where there is no session to show. */}
+      <ShareButton
+        sharing={sharing}
+        shareEnabled={shareEnabled}
+        sharePicking={sharePicking}
+        onShare={onShare}
+        onStopShare={onStopShare}
+      />
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1682,6 +1794,48 @@ function CallBody({
       />
       <EndCallButton onControl={onControl} />
     </>
+  );
+}
+
+/**
+ * Show the call the screen, or stop, on the call row beside Teach.
+ *
+ * The same shape as {@link TeachButton}, edge for edge: absent entirely where
+ * the call cannot be shown anything rather than disabled, held down for the
+ * share and for the choice before it, and the stop is the press on the held
+ * control and never a question. A share already running when the answer
+ * turns negative keeps its stop, for the reason Teach's exit outlives its
+ * door.
+ *
+ * One name for both edges, the way Teach has one: the held-down state and
+ * `aria-pressed` say which press this is, and a control that renamed itself
+ * to "Stop" would be a caption where the row wants an affordance.
+ */
+function ShareButton({
+  sharing,
+  shareEnabled,
+  sharePicking,
+  onShare,
+  onStopShare,
+}: {
+  sharing: boolean;
+  shareEnabled: boolean;
+  sharePicking: boolean;
+  onShare?: () => void;
+  onStopShare?: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!shareEnabled && !sharing) {
+    return null;
+  }
+  return (
+    <PillButton
+      icon={<ScreenShare className="size-4" />}
+      label={t("companionSurface.share")}
+      revealLabel
+      pressed={sharing || sharePicking}
+      onClick={sharing ? onStopShare : onShare}
+    />
   );
 }
 

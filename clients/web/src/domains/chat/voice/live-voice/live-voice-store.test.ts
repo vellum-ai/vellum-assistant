@@ -25,6 +25,7 @@ import {
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
+  isLiveVoiceUserSpeaking,
   LIVE_VOICE_STATE_KEYS,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
@@ -33,6 +34,7 @@ import {
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
   setLiveVoiceMuted,
+  setLiveVoiceScreenShare,
   stopLiveVoiceResponse,
   subscribeSettledLiveVoiceState,
   updateLiveVoiceSessionConfig,
@@ -1286,5 +1288,104 @@ describe("useLiveVoiceStore — playback-progress provider", () => {
 
     useLiveVoiceStore.getState().setPlaybackProgressProvider(() => null);
     expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+});
+
+describe("useLiveVoiceStore — screen share", () => {
+  afterEach(() => {
+    useLiveVoiceStore.getState().reset();
+  });
+
+  test("drops a target with no session to show it to", () => {
+    setLiveVoiceScreenShare({ kind: "display", displayId: 1 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+
+  test("holds the target for a running session, and clears it on the stop", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual({
+      kind: "window",
+      windowId: 7,
+    });
+    setLiveVoiceScreenShare(null);
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+
+  test("survives a reconnect and not a new session", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual({
+      kind: "window",
+      windowId: 7,
+    });
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+});
+
+describe("isLiveVoiceUserSpeaking", () => {
+  test("is the VAD's utterance in hands-free", () => {
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "listening",
+        handsFree: true,
+        utteranceOpen: false,
+      }),
+    ).toBe(false);
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "thinking",
+        handsFree: true,
+        utteranceOpen: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("is the session listening in push-to-talk, which has no VAD", () => {
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "listening",
+        handsFree: false,
+        utteranceOpen: false,
+      }),
+    ).toBe(true);
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "thinking",
+        handsFree: false,
+        utteranceOpen: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — a refused sight frame ends the share", () => {
+  afterEach(() => {
+    useLiveVoiceStore.getState().reset();
+  });
+
+  test("clears the target with the latch, so a reconnect cannot resume it", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+
+  /**
+   * The picker is not closed by the refusal, so its rows stay pressable. A
+   * pick taken then would sit unshown until a reconnect cleared the latch and
+   * started capture off a gesture made before the assistant refused.
+   */
+  test("takes no new target once the assistant has refused the frame", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    setLiveVoiceScreenShare({ kind: "window", windowId: 9 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
   });
 });

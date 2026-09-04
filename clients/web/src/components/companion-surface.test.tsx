@@ -578,47 +578,6 @@ describe("the companion surface's revealed labels", () => {
 });
 
 /**
- * The card a dictation with nowhere to land leaves beside the creature.
- *
- * It arrives over a resting surface, which is the state with the least on it:
- * the microphone shut some time ago and no pill is open. What the surface owes
- * it is the creature, out of its capsule, so the card points at something.
- */
-describe("the offer of a dictation that landed nowhere", () => {
-  test("draws the card beside a resting surface", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="resting"
-        offer={<div data-testid="offer">the words</div>}
-      />,
-    );
-
-    expect(container.querySelector('[data-testid="offer"]')).not.toBeNull();
-  });
-
-  /**
-   * The same bargain the introduction's first beat makes. A card describing
-   * words the user just said, pointing at a capsule, describes nothing.
-   */
-  test("brings the creature out of its capsule for it", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="resting"
-        offer={<div data-testid="offer">the words</div>}
-      />,
-    );
-
-    expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
-  });
-
-  test("leaves the creature tucked away when nothing is waiting", () => {
-    const { container } = render(<CompanionSurface phase="resting" />);
-
-    expect(bobOf(container)?.parentElement?.style.opacity).not.toBe("1");
-  });
-});
-
-/**
  * Teach, and the session it toggles.
  *
  * A thing done from inside the call, so it rides the call row and not the idle
@@ -1268,6 +1227,43 @@ describe("the companion surface's dial", () => {
  * rest across that gap reads as the recording having been thrown away, and the
  * report would land in a thread nobody was ever shown.
  */
+describe("the offer of Vellum's dictation", () => {
+  test("names the app that pasted, and leaves the words to the card", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="offer"
+        dictationOffer={{
+          reason: "claimed",
+          app: "Wispr Flow",
+          text: "Send me the files.",
+        }}
+        offer={<div data-testid="offer-card" />}
+      />,
+    );
+    expect(container.textContent).toContain("Wispr Flow pasted that");
+    expect(
+      container.querySelector('[data-testid="offer-card"]'),
+    ).not.toBeNull();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  /** No app claimed the key here, so the line says the other reason. */
+  test("says so when the words had nowhere to go instead", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="offer"
+        dictationOffer={{
+          reason: "no-text-field",
+          text: "onions, tomatoes, and a bag of rice",
+        }}
+        offer={<div data-testid="offer-card" />}
+      />,
+    );
+    expect(container.textContent).toContain("Nowhere to put these");
+    expect(container.textContent).not.toContain("pasted that");
+  });
+});
+
 describe("the summary a finished watch session leaves on the surface", () => {
   test("says the summary is being written while the turn runs", () => {
     const { container } = render(
@@ -1938,5 +1934,100 @@ describe("the resting capsule's peek", () => {
       <CompanionSurface phase="resting" character={CHARACTER} />,
     );
     expect(peekOf(container)).toBeNull();
+  });
+});
+
+describe("the companion surface's Share action", () => {
+  const shareOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Share"]',
+    );
+    if (!found) {
+      throw new Error("Expected Share to render");
+    }
+    return found;
+  };
+  const labelsOf = (container: HTMLElement): (string | null)[] =>
+    [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+
+  test("sits on the call row beside Teach", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        watchEnabled
+        shareEnabled
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(labelsOf(container)).toEqual([
+      "Teach",
+      "Share",
+      "Mute microphone",
+      "Mute assistant",
+      "End session",
+    ]);
+  });
+
+  test("is absent, not disabled, when the call cannot be shown anything", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
+    );
+    expect(labelsOf(container)).not.toContain("Share");
+  });
+
+  test("is not on the dial, where there is no session to show", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled shareEnabled />,
+    );
+    expect(labelsOf(container)).toEqual(["Teach", "End session"]);
+  });
+
+  test("keeps its stop for a share running after the answer turned negative", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing call={LISTENING_CALL} />,
+    );
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("hands the way in to the page, and the stop to the session", () => {
+    const presses: string[] = [];
+    const surface = (sharing: boolean) => (
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharing={sharing}
+        onShare={() => {
+          presses.push("share");
+        }}
+        onStopShare={() => {
+          presses.push("stop");
+        }}
+      />
+    );
+    const { container, rerender } = render(surface(false));
+    fireEvent.click(shareOf(container));
+    rerender(surface(true));
+    fireEvent.click(shareOf(container));
+    expect(presses).toEqual(["share", "stop"]);
+  });
+
+  test("is held down for the choice before the share, and spells its name", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharePicking
+      />,
+    );
+    expect(shareOf(container).getAttribute("aria-pressed")).toBe("true");
+    expect(
+      shareOf(container)
+        .querySelector("[data-label]")
+        ?.getAttribute("data-label"),
+    ).toBe("pinned");
   });
 });

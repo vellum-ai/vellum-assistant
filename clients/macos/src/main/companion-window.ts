@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   companionCapturePickSchema,
   companionContextSchema,
+  watchCaptureTargetSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
@@ -38,6 +39,7 @@ import {
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
+  type WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 import {
@@ -68,10 +70,12 @@ import {
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
 import {
+  captureTargetFrame,
   listCaptureSources,
   resolveCapturePick,
   windowBoundsFor,
 } from "./companion-capture-sources";
+import { setPointerOnCompanion } from "./companion-pointer";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
@@ -552,6 +556,10 @@ const currentState = (): CompanionSurfaceState => {
     // has no resting value to settle to, since every value it can hold is a
     // claim that something is happening.
     watchRetro: context.watchRetro,
+    // Passed through as it arrived, for the reason `watchRetro` is: an offer
+    // is a claim that something was said, and absence is the only way to say
+    // nothing was.
+    dictationOffer: context.dictationOffer,
     // Settled the same way, and to zero rather than to anything carried over:
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
@@ -563,16 +571,18 @@ const currentState = (): CompanionSurfaceState => {
     // Settled to a boolean the way `watching` is, since a picker offered on
     // an unknown answer is a promise nothing downstream can keep.
     watchTargets: context.watchTargets === true,
+    // Passed through as it arrived, for the reason `captureTarget` is: every
+    // shape it can hold names something being shared, and absence is nothing.
+    screenShare: context.screenShare,
+    // Settled to a boolean the way `watchTargets` is: the control this decides
+    // starts capturing the user's screen, so not knowing reads as not offering.
+    screenShareEnabled: context.screenShareEnabled === true,
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
     // Passed through as it arrived. Bounded by the publisher and again by the
     // schema, so nothing here has to decide how much of it is too much.
     dictationText: context.dictationText,
-    // Passed through as it arrived, for the reason `watchRetro` is: the one
-    // value it can hold is words waiting to be taken, and absence is the only
-    // way to say none are.
-    dictationOffer: context.dictationOffer,
     // Read on every rebuild rather than captured once, because the evaluation
     // lands after launch: the app's window has to sign in and fetch it first,
     // and a targeting change can move it again while the app runs.
@@ -1069,10 +1079,12 @@ const followWindow = (windowId: number): void => {
       .then((bounds) => {
         // The session may have ended, or moved to another target, while the
         // helper was answering. A frame placed for it would be for nothing.
+        const framed = framedTarget();
         if (
-          context.watching !== true ||
-          context.captureTarget?.kind !== "window" ||
-          context.captureTarget.windowId !== windowId
+          framed === null ||
+          framed === "screen" ||
+          framed.kind !== "window" ||
+          framed.windowId !== windowId
         ) {
           return;
         }
@@ -1111,13 +1123,30 @@ const followWindow = (windowId: number): void => {
  * off every screen, so framing where the user is looking says the session is
  * still open, which is the one thing the frame must always say.
  */
+/**
+ * What the frame is drawn around: a watch session's target, the whole screen
+ * when it has none, else what the call is being shared, else nothing.
+ *
+ * The watch session first, because its frame is the one thing on the desktop
+ * that says a machine is being read, and the two rarely disagree: a session
+ * and a share started from the same picker are almost always the same
+ * target.
+ */
+const framedTarget = (): WatchCaptureTarget | "screen" | null => {
+  if (context.watching === true) {
+    return context.captureTarget ?? "screen";
+  }
+  return context.screenShare ?? null;
+};
+
 const syncWatchFrame = (): void => {
-  if (context.watching !== true) {
+  const framed = framedTarget();
+  if (framed === null) {
     stopFollowingWindow();
     closeWatchFrame();
     return;
   }
-  const target = context.captureTarget;
+  const target = framed === "screen" ? undefined : framed;
   if (target?.kind === "window") {
     followWindow(target.windowId);
     return;
@@ -1190,6 +1219,9 @@ const syncCallSurface = (): void => {
  * many times the size of anything visible.
  */
 const setInteractive = (interactive: boolean): void => {
+  // Read by the input-activity forwarder, which must not read a press on
+  // these controls as an edit in the user's document.
+  setPointerOnCompanion(interactive);
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
@@ -1491,6 +1523,49 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * Share, delivered to the renderer holding the session the way Watch is.
+   *
+   * The same two shapes as `toggleWatch`, and the same resolution of a tab
+   * before the command leaves; the difference is what the shapes mean. A pick
+   * is the start, or a move to a new target, and a press with none is the
+   * stop, since the surface can see a share is on and says so. The pick
+   * generation is shared with Watch's: both come from the one picker, and a
+   * pick still resolving when the other control is pressed belonged to a
+   * choice the user has left.
+   */
+  on(
+    "vellum:companion:setScreenShare",
+    z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
+    ([pick]) => {
+      if (pick === undefined) {
+        pickGeneration += 1;
+        dispatchWithoutRaising({ kind: "setScreenShare" });
+        return;
+      }
+      const generation = ++pickGeneration;
+      void resolveCapturePick(pick).then((target) => {
+        if (target === null || generation !== pickGeneration) {
+          return;
+        }
+        dispatchWithoutRaising({ kind: "setScreenShare", target });
+      });
+    },
+  );
+
+  /**
+   * One frame of what is being shared, for the renderer holding the session
+   * to hand to it. Asked by that renderer on its own cadence, so this does
+   * nothing but reach the helper: the target is whatever the renderer was
+   * told it is sharing, and a refusal comes back as null rather than as an
+   * error, since one missed frame is not something the call should notice.
+   */
+  handle(
+    "vellum:companion:captureScreen",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => captureTargetFrame(target),
+  );
+
+  /**
    * The answer to the summary question, delivered to the window that asked it.
    *
    * The one companion press that may raise the app, and only on a yes. Watch's
@@ -1515,37 +1590,26 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
-   * The answer to the offer a dictation with nowhere to go left on the
-   * surface: take the words, or let them go.
+   * The answer to the offer of a dictation's words. Never raises the app:
+   * every answer acts on the application in front, on the pasteboard, or on
+   * nothing, and the user is standing in that application.
    *
-   * **The copy happens here.** Main is holding the text and main owns the
-   * clipboard; the surface's window is a click-through canvas that never takes
-   * focus, so routing a copy through it would be a longer path to the same
-   * pasteboard. It also means the words survive the window that dictated them:
-   * an offer outlives its publisher on purpose, and a copy that needed that
-   * publisher would be a promise this surface could not keep.
-   *
-   * The app is never raised, on either answer. The whole point of the offer is
-   * that the user is working somewhere else and their words were about to be
-   * lost there.
-   *
-   * The offer is dropped here as well as announced, so the card goes away on
-   * the press rather than on a round trip through a window that may be gone.
+   * **Copy is done here** rather than passed on with the rest. Main owns the
+   * pasteboard, and the two windows either side of this one cannot use it: a
+   * renderer's clipboard write needs a focused document, and the surface's
+   * window is a click-through canvas that never takes focus. The answer still
+   * travels afterwards, because the window publishing the offer is the one
+   * that has to stop.
    */
   on(
     "vellum:companion:answerDictationOffer",
-    z.tuple([z.boolean()]),
-    ([copy]) => {
+    z.tuple([z.enum(["use", "quit", "copy", "dismiss"])]),
+    ([answer]) => {
       const offered = context.dictationOffer;
-      if (offered === undefined) {
-        return;
+      if (answer === "copy" && offered !== undefined) {
+        clipboard.writeText(offered.text);
       }
-      if (copy) {
-        clipboard.writeText(offered);
-      }
-      context = { ...context, dictationOffer: undefined };
-      pushState();
-      dispatchWithoutRaising({ kind: "answerDictationOffer" });
+      dispatchWithoutRaising({ kind: "answerDictationOffer", answer });
     },
   );
 
@@ -1750,10 +1814,7 @@ export const installCompanionWindow = (): void => {
    * The watch flag and the dictation, which are the two things in the context
    * that claim a microphone or a socket is open in that window. The name and
    * the tail are a record of what was said and this surface is still where it
-   * is read, the same bargain `working` is given by `clearCompanionWorking`. An
-   * offer waiting to be answered is left standing for the same reason and
-   * more so: those words exist nowhere else the user can reach, and the copy
-   * that hands them over is main's rather than that window's.
+   * is read, the same bargain `working` is given by `clearCompanionWorking`.
    */
   onMainWindowVisibilityChange(() => {
     if (currentMainWindow() !== null) {
@@ -1762,7 +1823,11 @@ export const installCompanionWindow = (): void => {
     // A dial is a claim on that window too: the request it carries is gone
     // with the renderer that parked it.
     const claiming =
-      context.watching === true || context.dictating !== undefined || dialing;
+      context.watching === true ||
+      context.screenShare !== undefined ||
+      context.dictating !== undefined ||
+      context.dictationOffer !== undefined ||
+      dialing;
     if (!claiming) {
       return;
     }
@@ -1773,8 +1838,14 @@ export const installCompanionWindow = (): void => {
       ...context,
       watching: false,
       captureTarget: undefined,
+      screenShare: undefined,
+      screenShareEnabled: false,
       dictating: undefined,
       dictationText: undefined,
+      // The offer belongs to that window too: the words and the way into the
+      // application they would go to went down with it, so an offer left
+      // standing is one whose answers do nothing.
+      dictationOffer: undefined,
     };
     syncWatchFrame();
     pushState();
