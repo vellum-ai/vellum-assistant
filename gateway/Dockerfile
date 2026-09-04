@@ -45,7 +45,7 @@ COPY --from=builder /usr/local/bin/bun /usr/local/bin/bun
 RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
 
-COPY --from=builder --chown=gateway:gateway /app /app
+COPY --link --from=builder --chown=1001:1001 /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY --chown=gateway:gateway packages/assistant-client /app/packages/assistant-client

@@ -50,7 +50,7 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 RUN groupadd --system --gid 1001 ces && \
     useradd --system --uid 1001 --gid ces --create-home ces
 
-COPY --from=builder --chown=ces:ces /app /app
+COPY --link --from=builder --chown=1001:1001 /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY --chown=ces:ces packages/service-contracts /app/packages/service-contracts

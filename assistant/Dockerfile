@@ -104,7 +104,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-COPY --from=builder /app /app
+COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog
