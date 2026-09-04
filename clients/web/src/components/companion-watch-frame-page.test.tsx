@@ -24,6 +24,10 @@ const pushState = (state: CompanionSurfaceState) => {
 };
 
 mock.module("@/runtime/companion-surface", () => ({
+  // The drawing layer's own call. Stubbed rather than watched here: what it
+  // sends is `companion-share-annotation.test.tsx`'s subject, and this file
+  // only cares whether the layer is on the page at all.
+  annotateCompanionShare: () => undefined,
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
@@ -43,6 +47,11 @@ afterEach(() => {
 
 const frameOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>(".companion-watch-frame");
+
+const inkOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(
+    "[data-testid='companion-share-annotation']",
+  );
 
 const LISTENING_CALL = {
   phase: "listening" as const,
@@ -143,5 +152,41 @@ describe("the frame around what is read", () => {
       "pointer-events-none",
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  /**
+   * The one exception to that, and the reason it is drawn off the pushed
+   * state rather than off the share: main is what makes the window take mouse
+   * events, so a layer mounted on any other signal would be a layer
+   * swallowing presses that the desktop is still sending through.
+   */
+  describe("the layer the user draws on", () => {
+    test("is absent while the frame is click-through", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 1 },
+      });
+      expect(inkOf(container)).toBeNull();
+    });
+
+    test("mounts once main says the frame is taking the mouse", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 1 },
+        annotating: true,
+      });
+      expect(inkOf(container)).not.toBeNull();
+    });
+
+    test("goes when the mode does", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true });
+      pushState({ ...STATE, annotating: false });
+      expect(inkOf(container)).toBeNull();
+    });
   });
 });

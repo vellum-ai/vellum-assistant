@@ -5,6 +5,7 @@ import {
   EyeOff,
   Mic,
   MicOff,
+  Pencil,
   ScreenShare,
   ScrollText,
   Volume2,
@@ -542,6 +543,24 @@ export interface CompanionSurfaceProps {
    */
   onStopShare?: () => void;
   /**
+   * Whether the frame around the shared surface is taking the mouse, which
+   * draws Draw held down for as long as it is.
+   *
+   * The one state on this row that is the shell's rather than the session's:
+   * it is a fact about a window the shell opened. Off unless positively on,
+   * the way {@link CompanionSurfaceProps.watching} is read, and for a version
+   * of the same reason: a control drawn held down over a frame that is not
+   * taking presses is a promise about where the user's next click goes.
+   */
+  annotating?: boolean;
+  /**
+   * The press of Draw, carrying the state it is asking for rather than being
+   * a toggle. The mode is the shell's and the shell may refuse it (a share
+   * that has ended takes it down), so the press says what it wants and the
+   * pushed state says what happened.
+   */
+  onAnnotate?: (annotating: boolean) => void;
+  /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
    * since it is the side holding the session; this side only names the press
@@ -707,6 +726,8 @@ export function CompanionSurface({
   sharePicking = false,
   onShare,
   onStopShare,
+  annotating = false,
+  onAnnotate,
   onAvatarClick,
   working = false,
   watching = false,
@@ -1006,11 +1027,13 @@ export function CompanionSurface({
                 sharing={sharing}
                 shareEnabled={shareEnabled}
                 sharePicking={sharePicking}
+                annotating={annotating}
                 onControl={onControl}
                 onWatch={onWatch}
                 onTeach={onTeach}
                 onShare={onShare}
                 onStopShare={onStopShare}
+                onAnnotate={onAnnotate}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -1669,11 +1692,13 @@ function CallBody({
   sharing,
   shareEnabled,
   sharePicking,
+  annotating,
   onControl,
   onWatch,
   onTeach,
   onShare,
   onStopShare,
+  onAnnotate,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -1683,11 +1708,13 @@ function CallBody({
   sharing: boolean;
   shareEnabled: boolean;
   sharePicking: boolean;
+  annotating: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
   onTeach?: () => void;
   onShare?: () => void;
   onStopShare?: () => void;
+  onAnnotate?: (annotating: boolean) => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1770,6 +1797,13 @@ function CallBody({
         onShare={onShare}
         onStopShare={onStopShare}
       />
+      {/* Behind Share and only while one is running, because it acts on what
+          is being shared: there is nothing to draw on until there is. */}
+      <DrawButton
+        sharing={sharing}
+        annotating={annotating}
+        onAnnotate={onAnnotate}
+      />
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1844,6 +1878,46 @@ function ShareButton({
       label={t("companionSurface.share")}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
+    />
+  );
+}
+
+/**
+ * Draw on what the call is being shown, on the call row behind Share.
+ *
+ * Absent unless a share is running, rather than disabled: it acts on the
+ * shared surface, and before there is one it is not a control that is
+ * unavailable, it is a control with nothing to be about. The same reason
+ * {@link ShareButton} is absent off a call.
+ *
+ * The one control on this row whose press changes what the *desktop* does
+ * rather than what the session does: while it is held down the frame around
+ * the shared surface takes the mouse, so a press out there is a mark instead
+ * of a click on the app underneath. That is a big thing to do quietly, which
+ * is why it is a mode with a control drawn held down for as long as it lasts
+ * rather than something that happens on a modifier nobody can see.
+ */
+function DrawButton({
+  sharing,
+  annotating,
+  onAnnotate,
+}: {
+  sharing: boolean;
+  annotating: boolean;
+  onAnnotate?: (annotating: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  if (!sharing) {
+    return null;
+  }
+  return (
+    <PillButton
+      icon={<Pencil className="size-4" />}
+      label={t("companionSurface.draw")}
+      pressed={annotating}
+      onClick={() => {
+        onAnnotate?.(!annotating);
+      }}
     />
   );
 }

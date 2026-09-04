@@ -20,6 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCharacter,
@@ -403,6 +405,11 @@ declare global {
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;
         setScreenShare?(pick?: CompanionCapturePick): void;
+        setAnnotating?(annotating: boolean): void;
+        annotateShare?(
+          phase: CompanionAnnotationPhase,
+          strokes: readonly CompanionAnnotationStroke[],
+        ): void;
         captureScreen?(
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;

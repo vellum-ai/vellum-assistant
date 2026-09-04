@@ -166,6 +166,7 @@
     "captureWindows": "Windows",
     "deny": "Deny",
     "dictating": "Listening",
+    "draw": "Draw",
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
     "muteAssistant": "Mute assistant",

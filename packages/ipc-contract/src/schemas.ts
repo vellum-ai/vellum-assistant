@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import {
   ASSISTANT_STATUSES,
+  COMPANION_ANNOTATION_MAX_POINTS,
   COMPANION_DICTATION_TAIL,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
@@ -131,6 +132,30 @@ export const companionCapturePickSchema = z.discriminatedUnion("kind", [
     tabIndex: z.number().int().positive(),
   }),
 ]);
+
+/**
+ * A drawing made over the shared surface, as the frame's window sends it.
+ *
+ * Bounded on every axis, because this is the one thing crossing the bridge
+ * whose size is decided by how long a user holds the mouse down: the points
+ * are fractions of the surface and so cannot fall outside `0`..`1`, and the
+ * counts are capped where the sender caps them. Past the bounds the command
+ * is refused rather than trimmed, since a stroke arriving longer than the
+ * sender can produce is not a long drawing, it is a sender this main does not
+ * recognise.
+ */
+export const companionAnnotationStrokeSchema = z.object({
+  points: z
+    .array(
+      z.object({
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+      }),
+    )
+    .max(COMPANION_ANNOTATION_MAX_POINTS),
+});
+
+export const companionAnnotationPhaseSchema = z.enum(["drawing", "released"]);
 
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({

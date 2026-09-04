@@ -24,6 +24,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
@@ -630,6 +632,33 @@ export interface VellumBridge {
      * nothing to offer.
      */
     setScreenShare?(pick?: CompanionCapturePick): void;
+    /**
+     * Turn the frame around the shared surface into something the user can
+     * draw on, or give the mouse back to the desktop.
+     *
+     * Main's own state rather than a command passed on, unlike everything
+     * either side of it here: it decides whether a window main opened takes
+     * mouse events, which is not a fact any renderer can hold. What comes
+     * back is `annotating` on `onState`, which is what draws the control
+     * held down and what tells the frame it is the one taking presses.
+     *
+     * Absent on a shell that predates the drawing, which the surface reads
+     * as having nothing to offer, the bargain `setScreenShare` makes.
+     */
+    setAnnotating?(annotating: boolean): void;
+    /**
+     * A mark the user is drawing over the shared surface, from the frame's
+     * own window: `drawing` while the hand is still on it, `released` when it
+     * comes off, carrying every stroke still on the overlay.
+     *
+     * Delivered to the window holding the session as the `annotateShare`
+     * command, since that is the window that takes the frames and the only
+     * one that can draw the strokes onto them.
+     */
+    annotateShare?(
+      phase: CompanionAnnotationPhase,
+      strokes: readonly CompanionAnnotationStroke[],
+    ): void;
     /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame

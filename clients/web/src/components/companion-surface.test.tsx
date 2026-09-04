@@ -2109,3 +2109,80 @@ describe("the companion surface's Share action", () => {
     ).toBe("hover");
   });
 });
+
+/**
+ * Draw, which is the only control on this row whose press changes what the
+ * desktop does rather than what the session does. Everything here is about
+ * that: it never appears without something to draw on, and what it draws is
+ * the shell's answer rather than its own press.
+ */
+describe("the companion surface's Draw action", () => {
+  const drawOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Draw"]',
+    );
+    if (!found) {
+      throw new Error("Expected Draw to render");
+    }
+    return found;
+  };
+  const labelsOf = (container: HTMLElement): (string | null)[] =>
+    [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+
+  test("is absent until something is being shared", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        watchEnabled
+        shareEnabled
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(labelsOf(container)).not.toContain("Draw");
+  });
+
+  test("appears behind Share once a share is running", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing call={LISTENING_CALL} />,
+    );
+    expect(labelsOf(container)).toEqual([
+      "Share",
+      "Draw",
+      "Mute microphone",
+      "Mute assistant",
+      "End session",
+    ]);
+  });
+
+  test("is held down for as long as the frame is taking the mouse", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing annotating call={LISTENING_CALL} />,
+    );
+    expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  /**
+   * The press says what it wants rather than toggling something held here.
+   * The mode is the shell's, and the shell can refuse it: a share that ended
+   * between the render and the press takes it down.
+   */
+  test("asks for the state it wants, both ways", () => {
+    const asked: boolean[] = [];
+    const surface = (annotating: boolean) => (
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        sharing
+        annotating={annotating}
+        onAnnotate={(next) => asked.push(next)}
+      />
+    );
+    const { container, rerender } = render(surface(false));
+    fireEvent.click(drawOf(container));
+    rerender(surface(true));
+    fireEvent.click(drawOf(container));
+    expect(asked).toEqual([true, false]);
+  });
+});

@@ -16,13 +16,21 @@
  * **It draws the session and holds none of it.** The window is pushed the
  * same state the companion surface is, and draws when that state says a
  * session is reading the screen. Where the window sits is the shell's; this
- * page only paints to its own edges. Nothing here is interactive: the page is
- * decoration on a desktop it does not own.
+ * page only paints to its own edges.
+ *
+ * The page takes the mouse in exactly one case: while a call is being shown
+ * this surface and the user has turned drawing on, when the marks they make
+ * on it go to the call with the next frame
+ * (`companion-share-annotation.tsx`). Main is what makes the window take
+ * presses at all, so the two cannot disagree about where a click on the
+ * shared surface goes. Everything else here is decoration on a desktop it
+ * does not own.
  */
 
 import { useEffect, useRef, useState } from "react";
 
 import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
+import { CompanionShareAnnotation } from "@/components/companion-share-annotation";
 import {
   getCompanionState,
   subscribeCompanionState,
@@ -87,6 +95,12 @@ export function CompanionWatchFramePage() {
   // the alternative is framing a screen nobody is reading.
   const lit = state?.watching === true;
   const observedCaptures = useObservedCaptures(state?.captureCount ?? 0, lit);
+  // Read the same way, and for the sharper version of the same reason: this
+  // one decides whether the window under the pointer takes the click. Main
+  // makes the window interactive and says so here, so a shell that never
+  // mentions it is one whose frame is click-through, and a drawing layer
+  // mounted over it would swallow presses that go nowhere.
+  const annotating = state?.annotating === true;
 
   return (
     <div
@@ -117,6 +131,7 @@ export function CompanionWatchFramePage() {
           }}
         />
       )}
+      {annotating && <CompanionShareAnnotation />}
     </div>
   );
 }

@@ -132,6 +132,29 @@ export type VellumCommand =
    */
   | { kind: "setScreenShare"; target?: WatchCaptureTarget }
   /**
+   * A mark the user has drawn over the surface a call is being shown.
+   *
+   * `drawing` is the pointer down and every move under it. The mark is still
+   * being made, so the window holding the session holds its frames: a view
+   * sent mid-stroke would be of a circle half drawn, around nothing.
+   * `released` is the hand coming off, which is the moment the mark means
+   * something, and it carries every stroke still on the overlay.
+   *
+   * Strokes rather than a picture, because the overlay is never in the
+   * pixels: a capture excludes Vellum's own windows (`ScreenCapture.swift`),
+   * so the window that takes the frame is the one that has to draw them onto
+   * it. See {@link CompanionAnnotationStroke} for the coordinates.
+   *
+   * Like `setScreenShare`, this does not raise the app: the user is drawing
+   * on their own work, and raising Vellum would cover the thing they are
+   * pointing at.
+   */
+  | {
+      kind: "annotateShare";
+      phase: CompanionAnnotationPhase;
+      strokes: readonly CompanionAnnotationStroke[];
+    }
+  /**
    * Answer the question the surface asks once a watch session's summary is
    * written: open it now, or not.
    *
@@ -1277,6 +1300,66 @@ export type WatchCaptureTarget =
   | { kind: "window"; windowId: number };
 
 /**
+ * Which edge of a drawing an `annotateShare` command is: the hand still on
+ * it, or the hand off it. See the command.
+ */
+export type CompanionAnnotationPhase = "drawing" | "released";
+
+/**
+ * One mark the user drew over the shared surface, as the points the pointer
+ * passed through.
+ *
+ * **In fractions of the shared surface, from `0` to `1`.** The overlay is a
+ * window sized in points and the frame is a JPEG scaled to fit a bound, so
+ * neither side's pixels mean anything to the other; a fraction of the surface
+ * is the one description both agree on, and it survives the scaling that
+ * happens between them.
+ *
+ * A polyline rather than a shape, because the user is drawing freehand and a
+ * circle they made is not a circle anything should straighten. Thinned on the
+ * way in ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send
+ * a point per frame.
+ */
+export interface CompanionAnnotationStroke {
+  points: readonly { x: number; y: number }[];
+}
+
+/**
+ * How far the pointer must travel before a stroke takes another point, in
+ * fractions of the shared surface's smaller side.
+ *
+ * A stroke is sampled off pointer moves, which arrive at the display's rate
+ * and land on the same pixel whenever the hand pauses. Roughly a couple of
+ * points on a laptop display: below the width of the line being drawn, so
+ * the thinning is invisible, and enough that a deliberate circle is tens of
+ * points rather than hundreds.
+ */
+export const COMPANION_ANNOTATION_MIN_STEP = 0.002;
+
+/**
+ * How much of a drawing crosses the bridge: strokes per command, and points
+ * per stroke.
+ *
+ * Bounds rather than a promise about how anyone draws. The command is
+ * validated in main, and a drawing is the one payload on this surface whose
+ * size is set by how long a user holds the mouse down. Past either bound the
+ * oldest is dropped, so a very long stroke keeps its recent shape.
+ */
+export const COMPANION_ANNOTATION_MAX_STROKES = 24;
+export const COMPANION_ANNOTATION_MAX_POINTS = 512;
+
+/**
+ * How thick the line is, in fractions of the shared surface's smaller side.
+ *
+ * A fraction for the reason the points are one: the overlay draws in the
+ * window's points and the frame is drawn on in the JPEG's pixels, and a mark
+ * that weighed differently in the two would be a heavier or fainter line in
+ * the transcript than the one the user made. About five points on a laptop
+ * display: a deliberate circle, not a highlighter.
+ */
+export const COMPANION_ANNOTATION_STROKE = 0.006;
+
+/**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
  * with the size it was encoded at. Base64 rather than bytes because it
  * crosses the bridge as JSON.
@@ -1677,6 +1760,26 @@ export interface CompanionSurfaceState {
    * way: the control this decides starts capturing the user's screen.
    */
   screenShareEnabled?: boolean;
+  /**
+   * Whether the frame around the shared surface is taking the mouse, so the
+   * user can draw on what they are showing.
+   *
+   * The one thing on this state main owns outright rather than passes on. It
+   * is a fact about a window main opened and main makes click-through, and
+   * the two windows that read it read it for opposite reasons: the frame
+   * because it is the one drawing, and the pill because it draws the control
+   * that turned it on. A mode either of them kept for itself would be a mode
+   * the other could disagree with.
+   *
+   * Never on without a share, and lowered by main when one ends: a screen
+   * that has stopped being shown is a screen the user's clicks belong to.
+   *
+   * Read it as `annotating === true`, for the reason `watching` is read that
+   * way: a shell that predates the field is one whose frame takes no mouse,
+   * and a control drawn held down over a frame that is not would be a lie
+   * about where the next click goes.
+   */
+  annotating?: boolean;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the
