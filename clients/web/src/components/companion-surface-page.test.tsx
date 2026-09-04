@@ -138,6 +138,9 @@ mock.module("@/runtime/companion-surface", () => ({
   setCompanionScreenShare: setScreenShareMock,
   setCompanionAnnotating: setAnnotatingMock,
   listCompanionCaptureSources: listSourcesMock,
+  // The picker's tiles ask for these; a desktop with nothing to picture is
+  // the shape the page is exercised in.
+  captureCompanionSourceThumbnail: () => Promise.resolve(null),
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
@@ -931,6 +934,33 @@ describe("the picker behind Teach", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
+  /**
+   * The window's tile. The card opens on the screens, so the windows are a
+   * segment away: pressing it is what a user does before picking one.
+   */
+  const rowOf = async (container: HTMLElement) => {
+    const kind = await waitFor(() => {
+      const found = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[data-slot="segment-control"] [role="radio"]',
+        ),
+      ].find((each) => each.textContent === "Windows");
+      if (!found) {
+        throw new Error("Expected the Windows segment");
+      }
+      return found;
+    });
+    fireEvent.click(kind);
+    return waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Groceries (Notes)"]',
+      );
+      if (!found) {
+        throw new Error("Expected the window tile");
+      }
+      return found;
+    });
+  };
 
   const SOURCES = {
     displays: [
@@ -975,15 +1005,7 @@ describe("the picker behind Teach", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(teachOf(container));
-    const row = await waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Groceries (Notes)"]',
-      );
-      if (!found) {
-        throw new Error("Expected the window row");
-      }
-      return found;
-    });
+    const row = await rowOf(container);
 
     fireEvent.click(row);
 
@@ -1711,16 +1733,33 @@ describe("the picker behind Share", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
-  const rowOf = (container: HTMLElement) =>
-    waitFor(() => {
+  /**
+   * The window's tile. The card opens on the screens, so the windows are a
+   * segment away: pressing it is what a user does before picking one.
+   */
+  const rowOf = async (container: HTMLElement) => {
+    const kind = await waitFor(() => {
+      const found = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[data-slot="segment-control"] [role="radio"]',
+        ),
+      ].find((each) => each.textContent === "Windows");
+      if (!found) {
+        throw new Error("Expected the Windows segment");
+      }
+      return found;
+    });
+    fireEvent.click(kind);
+    return waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Groceries (Notes)"]',
       );
       if (!found) {
-        throw new Error("Expected the window row");
+        throw new Error("Expected the window tile");
       }
       return found;
     });
+  };
 
   const SOURCES = {
     displays: [

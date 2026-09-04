@@ -267,12 +267,20 @@ let capturedFrame: {
   height: number;
 } | null = { jpegBase64: "/9j/", width: 16, height: 9 };
 
+/** What the helper was asked to take a picker preview of. */
+const thumbnailsAsked: unknown[] = [];
+let capturedThumbnail: string | null = "data:image/jpeg;base64,/9j/";
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
   captureTargetFrame: async (target: unknown) => {
     framesAsked.push(target);
     return capturedFrame;
+  },
+  captureSourceThumbnail: async (target: unknown) => {
+    thumbnailsAsked.push(target);
+    return capturedThumbnail;
   },
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
@@ -2760,6 +2768,19 @@ describe("Share on the companion surface", () => {
     expect(framesAsked).toEqual([{ kind: "display", displayId: 2 }]);
     capturedFrame = null;
     expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
+  });
+
+  test("takes a picker preview of one row from the helper", async () => {
+    const preview = invocable.get("vellum:companion:captureSourceThumbnail");
+    expect(preview).toBeDefined();
+    expect(await preview?.([{ kind: "window", windowId: 7 }])).toBe(
+      "data:image/jpeg;base64,/9j/",
+    );
+    expect(thumbnailsAsked).toEqual([{ kind: "window", windowId: 7 }]);
+    // A window that closed between the list and the grid is a tile with no
+    // picture, not a failed call.
+    capturedThumbnail = null;
+    expect(await preview?.([{ kind: "display", displayId: 2 }])).toBeNull();
   });
 
   test("carries the share and whether one may start to the surface", () => {

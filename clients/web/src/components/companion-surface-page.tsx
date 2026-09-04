@@ -21,6 +21,7 @@ import {
   answerCompanionDictationOffer,
   answerCompanionWatchRetro,
   advanceCompanionIntro,
+  captureCompanionSourceThumbnail,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
@@ -819,6 +820,11 @@ export function CompanionSurfacePage() {
           picking ? (
             <CompanionCapturePicker
               sources={captureSources}
+              // The pictures the tiles are drawn from, asked for one tile at a
+              // time. Passed rather than fetched inside the card so the card
+              // stays a thing that draws what it is handed, and a story or a
+              // test can stand a desktop up without a shell.
+              captureThumbnail={captureCompanionSourceThumbnail}
               cardGrowth={cardGrowth}
               avatarBox={avatarBox}
               optionsBox={optionsBox}

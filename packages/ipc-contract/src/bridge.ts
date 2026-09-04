@@ -670,6 +670,23 @@ export interface VellumBridge {
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
     /**
+     * A preview of one row of the picker, as a JPEG data URL, for the tile
+     * that row is drawn as.
+     *
+     * The same capture {@link captureScreen} takes, asked for small and
+     * asked for many at once: the picker draws a grid of what the desktop is
+     * showing rather than a list of titles, and a title is a poor way to
+     * find the window you mean. Resolves to null on every refusal the frame
+     * path has, plus the one this call adds: a window that closed between
+     * being listed and being drawn. The tile falls back to the owning app's
+     * icon, so a preview nobody could take costs a picture rather than a row.
+     *
+     * A Chrome tab is never asked for. It has no window of its own until it
+     * has been shown, and showing it to draw a picker would move the user's
+     * browser under them.
+     */
+    captureSourceThumbnail?(target: WatchCaptureTarget): Promise<string | null>;
+    /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.
      *

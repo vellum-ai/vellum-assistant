@@ -28,6 +28,7 @@ import {
   type CompanionIntroBeat,
   type CompanionSizeAxis,
   type VoiceActivityState,
+  type WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -502,13 +503,48 @@ export const InCallWatchingAndSharing: Story = {
 };
 
 /**
+ * A stand-in for the pictures the host takes of the desktop: a flat drawing
+ * of a window, in a colour taken from whatever the tile is for, so a grid in
+ * a story reads as a grid of different things without a real window server
+ * behind it.
+ */
+const demoThumbnail = (seed: number, ratio: number): string => {
+  const width = 320;
+  const height = Math.round(width / ratio);
+  const hue = (seed * 47) % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="hsl(${hue} 30% 22%)"/><rect x="0" y="0" width="100%" height="18" fill="hsl(${hue} 26% 30%)"/><circle cx="12" cy="9" r="4" fill="hsl(${hue} 40% 55%)"/><rect x="16" y="42" width="${width - 120}" height="10" rx="5" fill="hsl(${hue} 24% 40%)"/><rect x="16" y="62" width="${width - 60}" height="10" rx="5" fill="hsl(${hue} 24% 36%)"/><rect x="16" y="82" width="${width - 180}" height="10" rx="5" fill="hsl(${hue} 24% 36%)"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+/**
+ * The host answering the picker, a beat late, the way the real one does: the
+ * tiles are drawn waiting and each picture drops in as it lands. A display is
+ * drawn wide and a window in whatever shape its id lands on, since fitting
+ * both into one tile height is what the grid is shaped around.
+ */
+const demoCaptureThumbnail = (target: WatchCaptureTarget) =>
+  new Promise<string | null>((resolve) => {
+    const id = target.kind === "display" ? target.displayId : target.windowId;
+    setTimeout(
+      () =>
+        resolve(
+          demoThumbnail(
+            id,
+            target.kind === "display" ? 16 / 10 : 1 + (id % 3) / 2,
+          ),
+        ),
+      200 + (id % 5) * 120,
+    );
+  });
+
+/**
  * Teach pressed, and the question it asks first: what to read.
  *
  * The picker is a card over the bar rather than a row on it, on the height
  * the host reserves for a card, since a desktop has a dozen windows and the
- * bar is one thin row by design. Screens, then Chrome's tabs, then every
- * other window; the pick is what starts the session, and the picked surface
- * is what gets the frame.
+ * bar is one thin row by design. One kind at a time, each thing drawn as a
+ * picture of itself; the pick is what starts the session, and the picked
+ * surface is what gets the frame.
  */
 export const InCallPicking: Story = {
   args: {
@@ -517,6 +553,7 @@ export const InCallPicking: Story = {
     picking: true,
     picker: (
       <CompanionCapturePicker
+        captureThumbnail={demoCaptureThumbnail}
         sources={{
           displays: [
             { kind: "display", displayId: 1, index: 0, primary: true },
@@ -566,9 +603,46 @@ export const InCallPickingLoading: Story = {
 };
 
 /**
+ * A desktop the host could take no pictures of: Screen Recording not granted,
+ * or every window gone between the list and the grid. The tiles settle on the
+ * owning app's icon rather than waiting, and every one of them is still a
+ * pick, since a picture is how a window is found and not what makes it
+ * readable.
+ */
+export const InCallPickingWithoutPictures: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    picking: true,
+    picker: (
+      <CompanionCapturePicker
+        captureThumbnail={() => Promise.resolve(null)}
+        sources={{
+          displays: [],
+          tabs: [],
+          windows: [
+            { kind: "window", windowId: 7, title: "Groceries", app: "Notes" },
+            { kind: "window", windowId: 8, title: "", app: "Preview" },
+            {
+              kind: "window",
+              windowId: 9,
+              title: "companion-surface.tsx",
+              app: "Code",
+            },
+          ],
+        }}
+      />
+    ),
+  },
+};
+
+/**
  * A desktop with more than the card's reservation can show at once: the fade
  * at the bottom is the only hint, since the card never grows past what the
  * canvas set aside for it.
+ *
+ * No displays, so the card opens on the windows: the kind a desktop actually
+ * has more of than fits.
  */
 export const InCallPickingLongList: Story = {
   args: {
@@ -577,10 +651,9 @@ export const InCallPickingLongList: Story = {
     picking: true,
     picker: (
       <CompanionCapturePicker
+        captureThumbnail={demoCaptureThumbnail}
         sources={{
-          displays: [
-            { kind: "display", displayId: 1, index: 0, primary: true },
-          ],
+          displays: [],
           tabs: [],
           windows: Array.from({ length: 12 }, (_, index) => ({
             kind: "window" as const,

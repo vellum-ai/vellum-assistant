@@ -74,6 +74,7 @@ import {
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
 import {
+  captureSourceThumbnail,
   captureTargetFrame,
   listCaptureSources,
   resolveCapturePick,
@@ -1682,6 +1683,18 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
     ([target]) => captureTargetFrame(target),
+  );
+
+  /**
+   * A preview of one row of the picker, for the tile it is drawn as. Asked
+   * once per display and per window the list came back with, so the answering
+   * is paced in `captureSourceThumbnail` rather than here: this handler is
+   * reached once per tile and knows nothing of the others.
+   */
+  handle(
+    "vellum:companion:captureSourceThumbnail",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => captureSourceThumbnail(target),
   );
 
   /**
