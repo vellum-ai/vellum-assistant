@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { KEY_LINUX_APP_FIRST_SEEN_AT } from "@/hooks/use-linux-app-nudge";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const IPHONE_SAFARI_UA =
@@ -138,6 +139,9 @@ describe("useAppNudges Linux gating", () => {
     expect(result.current.isOnLinux).toBe(false);
     expect(result.current.isOnNudgePlatform).toBe(false);
     expect(result.current.showBanner).toBe(false);
+    // The 24h age gate must not start ticking before the flag turns on, or
+    // every returning Linux reader clears it the moment rollout begins.
+    expect(localStorage.getItem(KEY_LINUX_APP_FIRST_SEEN_AT)).toBeNull();
   });
 
   test("claims the Linux browser once the flag is on", () => {
@@ -149,6 +153,7 @@ describe("useAppNudges Linux gating", () => {
     expect(result.current.isOnLinux).toBe(true);
     expect(result.current.mobilePromotion).toBeNull();
     expect(result.current.isOnNudgePlatform).toBe(true);
+    expect(localStorage.getItem(KEY_LINUX_APP_FIRST_SEEN_AT)).not.toBeNull();
   });
 
   test("leaves other platforms alone when the flag is on", () => {

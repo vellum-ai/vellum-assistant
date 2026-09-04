@@ -249,7 +249,7 @@ export function useAppNudges(
   // -------------------------------------------------------------------------
   const mobileNudge = useNativeAppNudgeState(nudgeTarget ?? "generic");
   const macNudge = useMacOsNudgeState();
-  const linuxNudge = useLinuxNudgeState();
+  const linuxNudge = useLinuxNudgeState(isOnLinux);
   const desktopNudge = isOnLinux ? linuxNudge : macNudge;
   const nudge = mobilePromotion ? mobileNudge : desktopNudge;
 

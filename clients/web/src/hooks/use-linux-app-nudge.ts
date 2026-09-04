@@ -90,7 +90,14 @@ export function ensureLinuxFirstSeenAt(): void {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useLinuxNudgeState(): {
+/**
+ * @param eligible - Whether the current reader is a flag-enabled Linux browser
+ *   user. React hook order forbids calling this conditionally, so eligibility
+ *   is a parameter instead: an ineligible reader must not have the age gate
+ *   stamped, or the 24h wait would already be spent by the time the flag turns
+ *   on and every returning Linux reader would see the banner at once.
+ */
+export function useLinuxNudgeState(eligible: boolean): {
   bannerShouldShow: boolean;
   ageEligible: boolean;
   handleDownload: () => void;
@@ -102,6 +109,9 @@ export function useLinuxNudgeState(): {
   const [ageEligible, setAgeEligible] = useState(false);
 
   useEffect(() => {
+    if (!eligible) {
+      return;
+    }
     setDownloaded(readLinuxAppDownloaded());
     setBannerDismissed(readLinuxAppBannerDismissed());
     ensureLinuxFirstSeenAt();
@@ -110,7 +120,7 @@ export function useLinuxNudgeState(): {
     setAgeEligible(
       seenAt !== 0 && Date.now() - seenAt >= LINUX_APP_BANNER_MIN_AGE_MS,
     );
-  }, []);
+  }, [eligible]);
 
   // Flip eligibility mid-session once the age threshold elapses. For a 24h
   // gate this rarely fires in-session; the mount effect above recomputes it
