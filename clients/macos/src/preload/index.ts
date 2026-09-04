@@ -569,6 +569,13 @@ const bridge: VellumBridge = {
         "vellum:companion:captureScreen",
         target,
       ) as Promise<ScreenCaptureFrame | null>,
+    captureSourceThumbnail: (
+      target: WatchCaptureTarget,
+    ): Promise<string | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:captureSourceThumbnail",
+        target,
+      ) as Promise<string | null>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },

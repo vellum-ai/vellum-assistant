@@ -406,6 +406,9 @@ declare global {
         captureScreen?(
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;
+        captureSourceThumbnail?(
+          target: WatchCaptureTarget,
+        ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
         answerDictationOffer?(
           answer: DictationOfferAnswer,

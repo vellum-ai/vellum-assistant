@@ -1,5 +1,13 @@
 import { AppWindow, Monitor } from "lucide-react";
-import { type CSSProperties, type ReactNode, type Ref } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
@@ -9,39 +17,98 @@ import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
  * The picker Teach and Share open: what a session could read, or be shown, as
- * a list to press.
+ * a grid of what those things currently look like.
  *
  * A card beside the call bar rather than a row on it. The bar is one thin row
  * by design and a desktop has a dozen windows on it, so the choice is drawn
  * where the introduction's card is drawn, on the height the host reserves for
  * a card, and scrolls inside that when the desktop has more than fits.
  *
- * Three sections in the order a person narrows a choice: the screens, then
- * the Chrome tabs, then every other window. A tab is offered as a thing of its
- * own because that is how people think of what is in their browser, and the
- * host resolves a picked tab to the window showing it, so the surface never
- * has to know a tab is not a window.
+ * **One kind at a time, and each thing shown as itself.** A person picking a
+ * window is looking for the one they were just in, and a title is a poor
+ * likeness of it: half the windows on a desktop are called after the app that
+ * owns them, and the rest after a file. So each row is a tile with a picture
+ * of the thing in it, taken when the card opened, and the kinds are separated
+ * onto a segmented control rather than run together down one list, since
+ * "which screen" and "which window" are different questions and a person has
+ * only one of them at a time.
  *
- * **It offers and holds nothing.** The list is the host's answer at the moment
- * the card opened, and a press leaves this renderer as a pick. What comes
- * back, once the window that owns the session has one to report, is
- * `watching` and the target the session actually reads.
+ * A Chrome tab keeps the list it always had. A tab has no window of its own
+ * until Chrome has been told to show it, so the only way to draw a picture of
+ * one is to switch the user's browser to it while they are still deciding.
+ * The host resolves a picked tab to the window showing it, so the surface
+ * never has to know a tab is not a window.
+ *
+ * **It offers and holds nothing** but the pictures. The list is the host's
+ * answer at the moment the card opened, and a press leaves this renderer as a
+ * pick. What comes back, once the window that owns the session has one to
+ * report, is `watching` and the target the session actually reads.
  */
 
 /**
  * The card's width, fixed rather than measured, for the reason the
- * introduction's is: a list of titles has no natural width, and a card that
+ * introduction's is: a grid of pictures has no natural width, and a card that
  * changed shape with what happened to be on the desktop would move under the
  * hand between one open and the next.
+ *
+ * Three tiles across at a size a window is still recognisable at. The canvas
+ * holds it: main sizes the canvas for the call bar's own reach either side of
+ * the creature, which is wider than this at every size the surface is drawn
+ * at.
  */
-const CARD_WIDTH = 260;
+const CARD_WIDTH = 460;
 
-/** How many rows the loading state stands in for, in each of its two groups. */
-const SKELETON_ROWS = 3;
+/** How many tiles stand across the card. */
+const GRID_COLUMNS = 3;
+
+/**
+ * The height of a tile's picture.
+ *
+ * The picture is fitted inside it rather than cropped to it, so a tall window
+ * and a wide display are both shown whole and the rows stay one height. Sized
+ * so that two rows and the segmented control above them fit the height the
+ * host reserves for a card, with the third row under the fold as the hint
+ * that there is more.
+ */
+const THUMBNAIL_HEIGHT = 88;
+
+/** How many tiles the loading state stands in for. */
+const SKELETON_TILES = 3;
+
+/** The three questions the segmented control switches between. */
+type CaptureKind = "screens" | "tabs" | "windows";
+
+const KIND_ORDER: CaptureKind[] = ["screens", "tabs", "windows"];
+
+/** How many of a kind the host listed. */
+const countOf = (
+  sources: CompanionCaptureSources,
+  kind: CaptureKind,
+): number =>
+  kind === "screens"
+    ? sources.displays.length
+    : kind === "tabs"
+      ? sources.tabs.length
+      : sources.windows.length;
+
+/**
+ * The kind the card opens on: the screens when there are any, since that is
+ * the whole-desktop answer and the one a person who has not thought about it
+ * yet means. Falls through to whatever the desktop does have.
+ */
+const openingKind = (sources: CompanionCaptureSources): CaptureKind =>
+  KIND_ORDER.find((kind) => countOf(sources, kind) > 0) ?? "screens";
+
+/** A target as the key its picture is held under. */
+const keyOf = (target: WatchCaptureTarget): string =>
+  target.kind === "display"
+    ? `display-${target.displayId}`
+    : `window-${target.windowId}`;
 
 export interface CompanionCapturePickerProps {
   /**
@@ -50,18 +117,25 @@ export interface CompanionCapturePickerProps {
    * something before the list lands.
    */
   sources: CompanionCaptureSources | null;
+  /**
+   * A picture of one display or window, or nothing where the host could take
+   * none. Absent off the shell, where the tiles are drawn from their icons
+   * alone; the card never waits on it, so the grid is pressable from the
+   * moment it is drawn.
+   */
+  captureThumbnail?: (target: WatchCaptureTarget) => Promise<string | null>;
   cardGrowth?: CompanionCardGrowth;
   avatarBox?: number;
   optionsBox?: number;
   /**
    * The card's own element, for the host to hit-test the pointer against. The
    * companion's window is click-through except where it is told otherwise, and
-   * every row here is a press.
+   * every tile here is a press.
    */
   cardRef?: Ref<HTMLDivElement>;
   /**
    * What the card is choosing for, as a reader hears it: what to teach from,
-   * or what to share. The rows are the same either way; only the question
+   * or what to share. The tiles are the same either way; only the question
    * differs.
    */
   label?: string;
@@ -70,6 +144,7 @@ export interface CompanionCapturePickerProps {
 
 export function CompanionCapturePicker({
   sources,
+  captureThumbnail,
   cardGrowth = "up",
   avatarBox = COMPANION_BASE_AVATAR_BOX,
   optionsBox = COMPANION_BASE_AVATAR_BOX,
@@ -101,11 +176,106 @@ export function CompanionCapturePicker({
         : `translate(-50%, ${stepOff}px)`,
   };
 
-  const empty =
-    sources !== null &&
-    sources.displays.length === 0 &&
-    sources.tabs.length === 0 &&
-    sources.windows.length === 0;
+  const kinds =
+    sources === null
+      ? []
+      : KIND_ORDER.filter((kind) => countOf(sources, kind) > 0);
+  const empty = sources !== null && kinds.length === 0;
+
+  // The user's answer, and null until they give one. Derived rather than
+  // seeded, because the card is drawn before the host has answered: a state
+  // initialised from an empty list would hold the wrong kind for as long as
+  // the card is open. A chosen kind that is not on offer falls back the same
+  // way, which is what a list arriving without it means.
+  const [chosen, setChosen] = useState<CaptureKind | null>(null);
+  const kind =
+    sources === null
+      ? "screens"
+      : chosen !== null && kinds.includes(chosen)
+        ? chosen
+        : openingKind(sources);
+
+  const targets = useMemo((): { key: string; target: WatchCaptureTarget }[] => {
+    if (sources === null) {
+      return [];
+    }
+    if (kind === "screens") {
+      return sources.displays.map((display) => {
+        const target: WatchCaptureTarget = {
+          kind: "display",
+          displayId: display.displayId,
+        };
+        return { key: keyOf(target), target };
+      });
+    }
+    if (kind === "windows") {
+      return sources.windows.map((window) => {
+        const target: WatchCaptureTarget = {
+          kind: "window",
+          windowId: window.windowId,
+        };
+        return { key: keyOf(target), target };
+      });
+    }
+    // A tab is not a window yet, so there is nothing to take a picture of.
+    return [];
+  }, [kind, sources]);
+
+  /**
+   * What the host has answered, per tile. A key with no entry has not been
+   * answered yet and its tile is drawn as waiting; a key answered with null is
+   * one the host could take no picture of, and its tile settles for the icon
+   * rather than waiting forever. Both answers are held in the one map so a
+   * tile's state is a single lookup rather than a lookup and a guess.
+   */
+  const [thumbnails, setThumbnails] = useState<
+    ReadonlyMap<string, string | null>
+  >(new Map());
+  /** Keys already asked for, so switching kinds and back does not ask twice. */
+  const asked = useRef(new Set<string>());
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // A new list is a new desktop: whatever was asked for belonged to the card
+  // the user has already left. Declared above the asking effect so it runs
+  // first when both fire on the same list.
+  useEffect(() => {
+    asked.current = new Set();
+    setThumbnails(new Map());
+  }, [sources]);
+
+  useEffect(() => {
+    if (captureThumbnail === undefined) {
+      return;
+    }
+    for (const { key, target } of targets) {
+      if (asked.current.has(key)) {
+        continue;
+      }
+      asked.current.add(key);
+      void captureThumbnail(target).then((thumbnail) => {
+        if (!mounted.current) {
+          return;
+        }
+        // A null is recorded rather than dropped, and nothing is said about
+        // it: a window that closed while the card was opening is the
+        // desktop's answer, not a fault. The tile keeps its icon and stays
+        // pressable, since the pick may still resolve to something.
+        setThumbnails((prev) => new Map(prev).set(key, thumbnail));
+      });
+    }
+  }, [captureThumbnail, targets]);
+
+  // A shell that cannot take pictures has already answered every tile: there
+  // is nothing coming, so the ground settles on the icon rather than waiting
+  // on a request that was never made.
+  const answerFor = (key: string): string | null | undefined =>
+    captureThumbnail === undefined ? null : thumbnails.get(key);
 
   return (
     <div
@@ -116,21 +286,31 @@ export function CompanionCapturePicker({
       role="group"
       aria-label={label ?? t("companionSurface.capturePicker")}
       data-companion-capture-picker
-      className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 py-1.5 shadow-lg shadow-black/40"
+      className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 p-1.5 shadow-lg shadow-black/40"
       style={{ width: CARD_WIDTH, ...anchor }}
-      // A press on a row is a pick, not a grab of the surface.
+      // A press on a tile is a pick, not a grab of the surface.
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
     >
+      {kinds.length > 1 && (
+        <KindControl
+          kinds={kinds}
+          kind={kind}
+          nameOf={(of) =>
+            t(
+              of === "screens"
+                ? "companionSurface.captureScreens"
+                : of === "tabs"
+                  ? "companionSurface.captureTabs"
+                  : "companionSurface.captureWindows",
+            )
+          }
+          label={t("companionSurface.captureKind")}
+          onChange={setChosen}
+        />
+      )}
       {/*
-       * `max-h-56` (224px) is the most of the card the host's reservation
-       * will show: the canvas reserves `COMPANION_BASE_CARD_HEIGHT` on the
-       * card side of the creature, and the step off the bar takes some of
-       * it. What is left is the list's, and a desktop with more on it
-       * scrolls inside that rather than growing the card past the edge of a
-       * window that never resizes.
-       *
        * `ScrollShadow` fades the bottom edge only while content is actually
        * hidden past it, from the real scroll position rather than a content-
        * height guess, so the hint disappears once the user scrolls to the
@@ -138,38 +318,86 @@ export function CompanionCapturePicker({
        * every other one: a bottom fade already carries the "there is more"
        * hint a visible thumb would duplicate.
        */}
+      {/*
+       * `max-h-48` (192px) is the most of the card the host's reservation will
+       * show once the segmented control has taken its row: the canvas reserves
+       * `COMPANION_BASE_CARD_HEIGHT` on the card side of the creature and the
+       * step off the bar takes some of it. What is left is the grid's, and a
+       * desktop with more on it scrolls inside that rather than growing the
+       * card past the edge of a window that never resizes.
+       */}
       <ScrollShadow
-        className="max-h-56 flex-col px-1.5"
+        className="max-h-48 flex-col px-0.5"
         size={24}
         fadeEdges="end"
         hideScrollBar
       >
-        <div className="flex flex-col">
-          {sources === null && <SkeletonList />}
-          {sources !== null && sources.displays.length > 0 && (
-            <Section title={t("companionSurface.captureScreens")} first>
-              {sources.displays.map((display) => (
-                <Row
-                  key={`display-${display.displayId}`}
-                  icon={<Monitor className="size-4 shrink-0 text-white/70" />}
-                  title={t("companionSurface.captureScreen", {
-                    n: display.index + 1,
-                  })}
-                  onClick={() => {
-                    onPick?.({
-                      kind: "display",
-                      displayId: display.displayId,
-                    });
-                  }}
-                />
-              ))}
-            </Section>
+        <div className="flex flex-col" data-slot="capture-sources">
+          {sources === null && <SkeletonGrid />}
+          {sources !== null && kind === "screens" && (
+            <Grid>
+              {sources.displays.map((display) => {
+                const name = t("companionSurface.captureScreen", {
+                  n: display.index + 1,
+                });
+                const key = keyOf({
+                  kind: "display",
+                  displayId: display.displayId,
+                });
+                return (
+                  <Tile
+                    key={key}
+                    title={name}
+                    ariaLabel={name}
+                    answer={answerFor(key)}
+                    fallback={
+                      <Monitor className="size-5 text-white/40" aria-hidden />
+                    }
+                    onClick={() => {
+                      onPick?.({
+                        kind: "display",
+                        displayId: display.displayId,
+                      });
+                    }}
+                  />
+                );
+              })}
+            </Grid>
           )}
-          {sources !== null && sources.tabs.length > 0 && (
-            <Section
-              title={t("companionSurface.captureTabs")}
-              first={sources.displays.length === 0}
-            >
+          {sources !== null && kind === "windows" && (
+            <Grid>
+              {sources.windows.map((window) => {
+                const key = keyOf({
+                  kind: "window",
+                  windowId: window.windowId,
+                });
+                // The app's name stands in for a window that has none of its
+                // own, which is common enough (a palette, a player) that a tile
+                // reading as blank would be one nobody could pick on purpose.
+                const name = window.title === "" ? window.app : window.title;
+                return (
+                  <Tile
+                    key={key}
+                    title={name}
+                    // The tile's whole text is its name: a reader is told the
+                    // window and the app it belongs to in one breath, the way a
+                    // looking user reads both.
+                    ariaLabel={
+                      window.title === "" ? name : `${name} (${window.app})`
+                    }
+                    answer={answerFor(key)}
+                    fallback={<SourceIcon icon={window.icon} large />}
+                    icon={<SourceIcon icon={window.icon} />}
+                    onClick={() => {
+                      onPick?.({ kind: "window", windowId: window.windowId });
+                    }}
+                  />
+                );
+              })}
+            </Grid>
+          )}
+          {sources !== null && kind === "tabs" && (
+            <div className="flex flex-col">
               {sources.tabs.map((tab) => (
                 <Row
                   key={`tab-${tab.chromeWindowId}-${tab.tabIndex}`}
@@ -184,28 +412,7 @@ export function CompanionCapturePicker({
                   }}
                 />
               ))}
-            </Section>
-          )}
-          {sources !== null && sources.windows.length > 0 && (
-            <Section
-              title={t("companionSurface.captureWindows")}
-              first={sources.displays.length === 0 && sources.tabs.length === 0}
-            >
-              {sources.windows.map((window) => (
-                <Row
-                  key={`window-${window.windowId}`}
-                  icon={<SourceIcon icon={window.icon} />}
-                  // The app's name stands in for a window that has none of its
-                  // own, which is common enough (a palette, a player) that a row
-                  // reading as blank would be a row nobody could pick on purpose.
-                  title={window.title === "" ? window.app : window.title}
-                  detail={window.title === "" ? undefined : window.app}
-                  onClick={() => {
-                    onPick?.({ kind: "window", windowId: window.windowId });
-                  }}
-                />
-              ))}
-            </Section>
+            </div>
           )}
           {empty && (
             <span className="px-2 py-3 text-[12px] text-white/50">
@@ -219,70 +426,186 @@ export function CompanionCapturePicker({
 }
 
 /**
- * One kind of thing to read, named once above its rows. A heading rather
- * than a divider because a tab row and a Chrome window row are otherwise the
- * same icon and nearly the same words.
+ * Which question the grid below is answering.
+ *
+ * Drawn only when the desktop offers more than one kind: a control with a
+ * single segment on it is a label pretending to be a choice.
+ *
+ * A radio group rather than tabs, and without the roving tab stop a keyboard
+ * user would need, because there is no keyboard here: the window this is drawn
+ * in never takes focus, so every press is the pointer's. The roles are still
+ * stated, since what a segment is and which one is on is what a reader is
+ * owed either way.
  */
-function Section({
-  title,
-  first = false,
-  children,
+function KindControl({
+  kinds,
+  kind,
+  nameOf,
+  label,
+  onChange,
 }: {
-  title: string;
-  /** Whether this is the first section drawn, which carries no top hairline. */
-  first?: boolean;
-  children: ReactNode;
+  kinds: CaptureKind[];
+  kind: CaptureKind;
+  nameOf: (kind: CaptureKind) => string;
+  label: string;
+  onChange: (kind: CaptureKind) => void;
 }) {
   return (
     <div
-      className={`flex flex-col ${first ? "" : "mt-1 border-t border-white/5 pt-1"}`}
+      role="radiogroup"
+      aria-label={label}
+      data-slot="capture-kinds"
+      className="mb-1.5 flex shrink-0 items-center justify-center gap-1"
     >
-      <span className="px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-white/35 uppercase select-none">
-        {title}
-      </span>
+      {kinds.map((each) => {
+        const active = each === kind;
+        return (
+          <button
+            key={each}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            className={`h-6 shrink-0 rounded-full px-3 text-[11px] font-medium transition-colors outline-none focus-visible:ring-1 focus-visible:ring-white/40 ${
+              active
+                ? "bg-white/15 text-white"
+                : "text-white/50 hover:bg-white/5 hover:text-white/80"
+            }`}
+            onClick={() => {
+              onChange(each);
+            }}
+          >
+            {nameOf(each)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The tiles, however many of them there are, in fixed columns. */
+function Grid({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="grid gap-1.5 py-0.5"
+      style={{ gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))` }}
+    >
       {children}
     </div>
   );
 }
 
-function Row({
-  icon,
+/**
+ * One thing to read, drawn as itself.
+ *
+ * The picture is fitted rather than cropped: a tall window cropped to a wide
+ * tile is a picture of its middle, which is where windows keep the least of
+ * what identifies them.
+ */
+function Tile({
   title,
-  detail,
+  ariaLabel,
+  answer,
+  fallback,
+  icon,
   onClick,
 }: {
-  icon: ReactNode;
   title: string;
-  /** What the title belongs to, when the title alone does not say. */
-  detail?: string;
+  ariaLabel: string;
+  /**
+   * What the host answered for this tile: a picture, null where it could take
+   * none, and undefined while it has not answered yet. Undefined draws the
+   * ground as waiting; null settles it on the icon rather than waiting
+   * forever.
+   */
+  answer?: string | null;
+  /** What stands in the picture's place: the app's icon, or a glyph. */
+  fallback: ReactNode;
+  /** The owning app, named beside the title, for a tile that has one. */
+  icon?: ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      // The row's whole text is its name: a reader is told the window and the
-      // app it belongs to in one breath, the way a looking user reads both.
-      aria-label={detail === undefined ? title : `${title} (${detail})`}
+      aria-label={ariaLabel}
+      data-slot="capture-source"
+      className="group flex min-w-0 flex-col gap-1 rounded-lg p-1 text-left transition-colors outline-none hover:bg-white/10 focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:ring-inset active:bg-white/15"
+      onClick={onClick}
+    >
+      <span
+        data-slot="capture-preview"
+        className={`flex items-center justify-center overflow-hidden rounded-md bg-black/40 ring-1 ring-white/10 ${
+          answer === undefined ? "animate-pulse" : ""
+        }`}
+        style={{ height: THUMBNAIL_HEIGHT }}
+      >
+        {answer === undefined || answer === null ? (
+          fallback
+        ) : (
+          <img
+            src={answer}
+            alt=""
+            draggable={false}
+            className="max-h-full max-w-full object-contain"
+          />
+        )}
+      </span>
+      <span className="flex min-w-0 items-center gap-1">
+        {icon}
+        <span className="min-w-0 flex-1 truncate text-[11px] text-white/75 group-hover:text-white/90">
+          {title}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/**
+ * One Chrome tab, as a row. Tabs keep the list the whole picker used to be:
+ * there is no picture of a tab that is not the one in front, and the title is
+ * how a person knows a page anyway.
+ */
+function Row({
+  icon,
+  title,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={title}
+      data-slot="capture-source"
       className="flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-white/85 transition-colors outline-none hover:bg-white/10 focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:ring-inset active:bg-white/15"
       onClick={onClick}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{title}</span>
-      {detail !== undefined && (
-        <span className="max-w-[80px] shrink-0 truncate text-[11px] text-white/40">
-          {detail}
-        </span>
-      )}
     </button>
   );
 }
 
 /** The owning app's icon, or a window glyph where the host could read none. */
-function SourceIcon({ icon }: { icon?: string }) {
+function SourceIcon({
+  icon,
+  large = false,
+}: {
+  icon?: string;
+  large?: boolean;
+}) {
+  const box = large ? "size-7 rounded-lg" : "size-3.5 rounded-[4px]";
   return (
-    <span className="flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-[5px] ring-1 ring-white/10">
+    <span
+      className={`flex shrink-0 items-center justify-center overflow-hidden ring-1 ring-white/10 ${box}`}
+    >
       {icon === undefined ? (
-        <AppWindow className="size-3.5 text-white/70" />
+        <AppWindow
+          className={large ? "size-5 text-white/40" : "size-3 text-white/70"}
+          aria-hidden
+        />
       ) : (
         <img src={icon} alt="" className="size-full" draggable={false} />
       )}
@@ -291,32 +614,28 @@ function SourceIcon({ icon }: { icon?: string }) {
 }
 
 /**
- * Rows that stand in for the list before the host has answered, in the same
- * two-group shape the answer draws: a screen never named this early because
- * displays resolve first and rarely more than one or two deep, then a longer
- * run for whatever else the desktop turns out to hold.
+ * Tiles that stand in for the grid before the host has answered, in the shape
+ * the answer draws: one row of the same tiles, since a desktop has at least
+ * one screen on it and usually more windows than fit.
  *
- * Shaped like the eventual rows rather than a spinner or a sentence, so the
+ * Shaped like the eventual tiles rather than a spinner or a sentence, so the
  * card does not change size or layout once the list actually lands.
  */
-function SkeletonList() {
+function SkeletonGrid() {
   return (
-    <div className="flex flex-col gap-1 px-0.5 py-1.5" aria-hidden>
-      {Array.from({ length: SKELETON_ROWS }, (_, index) => (
-        <SkeletonRow key={index} wide={index === 0} />
+    <Grid>
+      {Array.from({ length: SKELETON_TILES }, (_, index) => (
+        <div key={index} className="flex flex-col gap-1 p-1" aria-hidden>
+          <span
+            className="animate-pulse rounded-md bg-white/10"
+            style={{ height: THUMBNAIL_HEIGHT }}
+          />
+          <span
+            className="h-2 animate-pulse rounded-full bg-white/10"
+            style={{ width: index === 0 ? "70%" : "45%" }}
+          />
+        </div>
       ))}
-    </div>
-  );
-}
-
-function SkeletonRow({ wide }: { wide: boolean }) {
-  return (
-    <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg px-2">
-      <span className="size-4 shrink-0 animate-pulse rounded-[5px] bg-white/10" />
-      <span
-        className="h-2 animate-pulse rounded-full bg-white/10"
-        style={{ width: wide ? "70%" : "45%" }}
-      />
-    </div>
+    </Grid>
   );
 }

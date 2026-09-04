@@ -152,6 +152,25 @@ export function captureCompanionScreen(
 }
 
 /**
+ * A preview of one row of the picker, as a JPEG data URL.
+ *
+ * Resolves to nothing off Electron, on a shell that predates the grid, and
+ * whenever the helper would not take one, which the picker reads the same way
+ * every time: the tile falls back to the owning app's icon. A picker that drew
+ * nothing until every preview had landed would be slower than the list it
+ * replaced, so nothing here is awaited before the rows are shown.
+ */
+export function captureCompanionSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  const companion = bridge();
+  if (!companion?.captureSourceThumbnail) {
+    return Promise.resolve(null);
+  }
+  return companion.captureSourceThumbnail(target).catch(() => null);
+}
+
+/**
  * Answer the question a finished watch session leaves on the surface: open its
  * summary now, or not.
  *

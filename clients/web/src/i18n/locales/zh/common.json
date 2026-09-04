@@ -158,6 +158,7 @@
     "allow": "允许",
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
+    "captureKind": "来源类型",
     "captureNothing": "没有可显示的内容",
     "capturePicker": "教学来源",
     "captureScreen": "屏幕 {n}",
