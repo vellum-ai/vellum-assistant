@@ -41,6 +41,13 @@
  * when a frame cannot be taken, and when this hook unmounts, which is the chat
  * layout going away. Each frame lands in the transcript, where the user can
  * see it and delete it.
+ *
+ * The stop is taken synchronously, inside the store write that ends the share,
+ * rather than in this hook's cleanup a render later: a frame uploading in that
+ * gap would otherwise be sent after the user pressed stop. A transport
+ * reconnect keeps the share and voids what was in flight across it, so a view
+ * from before the drop cannot land in the resumed transcript as the current
+ * one.
  */
 
 import { useEffect, useState } from "react";
@@ -145,7 +152,31 @@ export function useLiveVoiceScreenShare(): void {
 
     share();
     let speaking = isLiveVoiceUserSpeaking(useLiveVoiceStore.getState());
+    let reconnecting = useLiveVoiceStore.getState().reconnecting;
     const unsubscribe = useLiveVoiceStore.subscribe((session) => {
+      // **The stop is honoured here, not in the cleanup below.** A store
+      // subscriber runs inside the `set` that ends the share; the cleanup is
+      // a passive effect and runs a render later. An upload resolving in
+      // that gap would still read the epoch it was captured under and send a
+      // frame of what the user has just stopped showing.
+      if (session.screenShareTarget !== target) {
+        sight.revokeConsent();
+        sight.rebaseSendOrder();
+        return;
+      }
+      // A transport that dropped and came back deliberately keeps the share
+      // and the session generation, and `connecting` still reads as a live
+      // session, so nothing above tears this run down. A frame captured
+      // before the drop would pass both guards and land in the resumed
+      // transcript as the current view. The room's sight path draws the same
+      // boundary for the same reason.
+      if (session.reconnecting !== reconnecting) {
+        reconnecting = session.reconnecting;
+        if (reconnecting) {
+          sight.invalidate();
+        }
+        return;
+      }
       const next = isLiveVoiceUserSpeaking(session);
       if (next === speaking) {
         return;

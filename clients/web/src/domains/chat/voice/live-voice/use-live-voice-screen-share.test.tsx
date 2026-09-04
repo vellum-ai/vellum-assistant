@@ -314,3 +314,44 @@ describe("useLiveVoiceScreenShare: stopping", () => {
     expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
   });
 });
+
+describe("useLiveVoiceScreenShare: the boundary a frame in flight can cross", () => {
+  /**
+   * A reconnect keeps the share and the session generation on purpose, and
+   * `connecting` still reads as a live session, so nothing tears this run
+   * down. What must not survive is a frame of the view from before the drop.
+   */
+  test("a frame captured before a reconnect is refused, and the share goes on", async () => {
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+    answerFrame = () =>
+      new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFrame = resolve;
+      });
+    renderShare();
+    share(WINDOW);
+    await Promise.resolve();
+
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+    releaseFrame({ jpegBase64: btoa("jpeg"), width: 16, height: 9 });
+    await flush();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    // The share itself is untouched: the socket came back, and the next thing
+    // the user says is framed as usual.
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual(WINDOW);
+    answerFrame = async () => ({
+      jpegBase64: btoa("jpeg"),
+      width: 16,
+      height: 9,
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(false);
+    });
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-2");
+  });
+});
