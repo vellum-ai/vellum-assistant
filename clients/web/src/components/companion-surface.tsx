@@ -256,7 +256,7 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
  */
 const RESTING_PILL = {
   /** The marker. Wider than the artwork it stands in for, and hollow. */
-  idle: { width: 48, height: 14 },
+  idle: { width: 64, height: 14 },
   /** What a pointer grows it into: the frame the whole creature stands in. */
   active: { width: 150, height: 35 },
   /** The lit line's thickness, at every size and every setting. */

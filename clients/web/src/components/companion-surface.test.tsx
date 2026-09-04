@@ -1818,7 +1818,7 @@ describe("the pill the surface rests in", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
     const pill = restingPillOf(container);
-    expect(pill.style.width).toBe("48px");
+    expect(pill.style.width).toBe("64px");
     expect(pill.style.height).toBe("14px");
     expect(pill.style.background).toBe("");
     expect(pill.style.opacity).toBe("1");
@@ -1900,7 +1900,7 @@ describe("the pill the surface rests in", () => {
     );
 
     const pill = restingPillOf(container);
-    expect(pill.style.width).toBe("48px");
+    expect(pill.style.width).toBe("64px");
     expect(pill.style.height).toBe("14px");
     expect(pill.style.boxShadow).toContain("inset 0 0 0 2.5px");
   });
