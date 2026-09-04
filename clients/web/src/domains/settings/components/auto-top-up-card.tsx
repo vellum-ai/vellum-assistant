@@ -426,14 +426,18 @@ export function AutoTopUpCard() {
   /**
    * The backend requires a daily credit limit while auto-reload is on, so a
    * save goes through the gate unless a limit is known to be on file. While
-   * the limit is unknown (lookup still loading, or failed without ever
-   * producing data) Save stays disabled and nothing is gated: the gate's
-   * default would replace a limit the org may already have.
+   * the limit is unknown (lookup still loading or refetching, or its latest
+   * attempt failed, even over cached data) Save stays disabled and nothing
+   * is gated: the value has to be current before it decides whether the gate
+   * opens, since the gate's default would replace a limit set elsewhere.
    */
-  const dailyLimitUnknown = dailyLimitQuery.data == null;
-  const dailyLimitLookupFailed = dailyLimitQuery.isError && dailyLimitUnknown;
+  const dailyLimitUnknown =
+    dailyLimitQuery.data == null ||
+    dailyLimitQuery.isError ||
+    dailyLimitQuery.isFetching;
+  const dailyLimitLookupFailed = dailyLimitQuery.isError;
   const handleSave = (values: AutoTopUpFormValues) => {
-    const dailyLimit = dailyLimitQuery.data;
+    const dailyLimit = dailyLimitUnknown ? null : dailyLimitQuery.data;
     if (dailyLimit == null) {
       return;
     }
