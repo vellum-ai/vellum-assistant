@@ -48,10 +48,10 @@ export const BindEmailAddress: Story = {
     contactRequest: {
       requestId: "req-contact-channel",
       channel: "email",
-      label: "Carolina Flaherty's email",
+      label: "Alice's email",
       description:
-        "Binding carolina@example.com to recreate Carolina's contact with a working email channel. This creates an address-named record that will be renamed right after.",
-      defaultValue: "carolina@example.com",
+        "Binding user@example.com to recreate Alice's contact with a working email channel. This creates an address-named record that will be renamed right after.",
+      defaultValue: "user@example.com",
       verify: true,
     } satisfies PendingContactRequestState,
   },

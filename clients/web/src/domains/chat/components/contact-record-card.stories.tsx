@@ -50,7 +50,7 @@ export const Delete: Story = {
       requestId: "req-contact-delete",
       operation: "delete",
       contactId: "contact-1",
-      currentDisplayName: "Carolina Flaherty",
+      currentDisplayName: "Alice",
       channels: [{ type: "telegram", address: "+1-555-0142" }],
     } satisfies PendingContactRecordRequestState,
   },
@@ -67,12 +67,11 @@ export const Create: Story = {
     request: {
       requestId: "req-contact-create",
       operation: "create",
-      label: "Recreate Carolina Flaherty",
-      description:
-        "Fresh contact record for Carolina Flaherty, replacing the deleted one.",
-      displayName: "Carolina Flaherty",
+      label: "Recreate Alice",
+      description: "Fresh contact record for Alice, replacing the deleted one.",
+      displayName: "Alice",
       notes:
-        "Recreated after the earlier record was deleted. Email on file: carolina@example.com, carried over from the previous record.",
+        "Recreated after the earlier record was deleted. Email on file: user@example.com, carried over from the previous record.",
       notesProposed: true,
     } satisfies PendingContactRecordRequestState,
   },
