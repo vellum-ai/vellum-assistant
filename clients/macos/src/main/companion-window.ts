@@ -1170,6 +1170,26 @@ const syncCoachmarks = (): void => {
 };
 
 /**
+ * Point at things on the shared surface on the assistant's behalf, and say
+ * whether the marks stand.
+ *
+ * The answer is the point of this entrance. A press from the pill can watch
+ * the surface for what it did; the assistant is somewhere else, and marks it
+ * believes it placed on a screen nobody is sharing would have it talking
+ * about a ring the user cannot see. So a refusal comes back as one rather
+ * than as silence.
+ *
+ * Taking them down always succeeds: whatever the frame is around, marks that
+ * are gone are gone.
+ */
+export const showCompanionCoachmarks = (
+  marks: readonly CompanionCoachmark[],
+): boolean => {
+  setCoachmarks(marks);
+  return marks.length === 0 || framesTheShare();
+};
+
+/**
  * Frame a rectangle of the desktop, or move the frame to it.
  *
  * For a display, its whole bounds rather than its work area, the way a shared
