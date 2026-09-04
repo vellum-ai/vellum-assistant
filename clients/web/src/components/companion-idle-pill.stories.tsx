@@ -397,6 +397,43 @@ function Note({ children }: { children: string }) {
   );
 }
 
+/**
+ * The setting the exercise landed on: the edge alone.
+ *
+ * Wispr Flow's pill was read as semi opaque, and the surprise of turning the
+ * dials was that the fill was never what made it legible. At `fill: 0` there
+ * is no pill at all in the usual sense: a 3.5px lit rim, the creature, and the
+ * user's own desktop showing through the middle. It is more findable than the
+ * 72% fill it replaced, because a thick lit line has an edge to catch the eye
+ * where a dark lozenge only has an area, and it takes far less of the screen
+ * away from whatever it is floating over.
+ *
+ * Stated as its own object rather than only as the story defaults, so the
+ * stories that vary one dial can vary it against this and the numbers survive
+ * someone dragging a slider.
+ */
+const HOLLOW = {
+  rim: "lit",
+  // Wider than tall by about four to one, which is where the shape stops
+  // reading as a lozenge and starts reading as a bar with room in it.
+  width: 150,
+  // Shorter than the 44 the open pill draws. The open pill is tall because it
+  // carries 28pt controls; a resting one carries nobody.
+  height: 35,
+  radius: 28,
+  // No fill. The whole finding: see the story's own note.
+  fill: 0,
+  // Nothing to blur behind a fill that is not there. Kept as a dial because
+  // the moment any fill comes back it is the next thing to turn.
+  blur: 0,
+  glow: 1.3,
+  // Thick enough to be a band rather than a hairline, which is what holds the
+  // shape together once there is no fill inside it.
+  rimWidth: 3.5,
+  accentHex: "#5EEAD4",
+  content: "creature",
+} satisfies IdlePillProps;
+
 type LabArgs = IdlePillProps & { backdrop: Backdrop };
 
 const backdropStage: Decorator = (Story, context) => {
@@ -453,24 +490,7 @@ const meta: Meta<LabArgs> = {
     accentHex: { control: "color" },
   },
   args: {
-    rim: "lit",
-    // Wider than tall by about four to one, which is where the shape stops
-    // reading as a lozenge and starts reading as a bar with room in it.
-    width: 156,
-    // Shorter than the 44 the open pill draws. The open pill is tall because
-    // it carries 28pt controls; a resting one carries nobody.
-    height: 34,
-    radius: 28,
-    // Semi opaque and no lower. Below about 60 the desktop reads through the
-    // creature, and the fill stops being a surface the pill sits on.
-    fill: 72,
-    blur: 12,
-    glow: 1.4,
-    // Thicker than the hairline every other macOS surface draws, which is the
-    // proposition being tested rather than a taste applied to it.
-    rimWidth: 1.5,
-    accentHex: "#5EEAD4",
-    content: "creature",
+    ...HOLLOW,
     backdrop: "busy",
   },
   decorators: [backdropStage],
@@ -489,6 +509,32 @@ type Story = StoryObj<LabArgs>;
  * still legible over the busy desktop it defaults to.
  */
 export const Playground: Story = {};
+
+/**
+ * The hollow pill on the four desktops, at the exact numbers above and
+ * immune to the controls.
+ *
+ * Here because a fill of zero is a bet on the desktop, and the light one is
+ * where it is settled: with nothing behind the creature, all that holds it off
+ * a pale document is its own drop shadow and the rim around it.
+ */
+export const TheEdgeAlone: Story = {
+  parameters: { layout: "fullscreen" },
+  render: () => (
+    <div className="grid min-h-[100vh] grid-cols-2 grid-rows-2">
+      {(Object.keys(BACKDROPS) as Backdrop[]).map((backdrop) => (
+        <div
+          key={backdrop}
+          className="flex min-h-[240px] flex-col items-center justify-center gap-3"
+          style={{ background: BACKDROPS[backdrop] }}
+        >
+          <IdlePill {...HOLLOW} />
+          <Note>{backdrop}</Note>
+        </div>
+      ))}
+    </div>
+  ),
+};
 
 /**
  * Every rim at once, on the same fill, width and creature.
