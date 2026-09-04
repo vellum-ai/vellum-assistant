@@ -257,6 +257,60 @@ describe("useResearchRunner reset", () => {
     expect(result.current.claims).toEqual([]);
   });
 
+  const skippedResults = {
+    status: "done" as const,
+    claims: [],
+    droppedClaims: [],
+    suggestions: [],
+    installedPlugins: [],
+    pluginCatalog: {},
+  };
+
+  test("hydrate releases the subject key so the prior profile can run again", () => {
+    const hatch = pendingHatch();
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
+    });
+    expect(hatch.calls).toBe(1);
+
+    act(() => {
+      result.current.hydrate(skippedResults);
+    });
+    expect(result.current.status).toBe("done");
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
+    });
+    expect(hatch.calls).toBe(2);
+    expect(result.current.status).toBe("running");
+  });
+
+  test("hydrate releases the plugin-install gate of the abandoned run", async () => {
+    const hatch = pendingHatch();
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
+    });
+
+    act(() => {
+      result.current.hydrate(skippedResults);
+    });
+
+    await result.current.awaitPluginInstalls();
+  });
+
   test("reset leaves the plugin-install gate resolved", async () => {
     const hatch = pendingHatch();
     const { result } = renderRunner();

@@ -203,8 +203,8 @@ export function resolveResumeStep(
   if (snapshot.research?.status === "done") {
     return "suggestions";
   }
-  // Empty role + hobbies never start a search, so a refresh must not land on
-  // the research reveal (or the results card that would be empty).
+  // Missing last name, or empty role + hobbies, never start a search, so a
+  // refresh must not land on the research reveal (or an empty results card).
   const skipResearch =
     snapshot.formValues !== null &&
     shouldSkipOnboardingResearch(snapshot.formValues);

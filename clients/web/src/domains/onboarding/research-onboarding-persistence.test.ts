@@ -183,7 +183,7 @@ describe("resolveResumeStep", () => {
   test("skips the research reveal when role and hobbies are both empty", () => {
     const emptyDetails = {
       firstName: "Alice",
-      lastName: "",
+      lastName: "Example",
       role: "",
       hobbies: [] as string[],
     };
@@ -203,6 +203,22 @@ describe("resolveResumeStep", () => {
           step: "meeting",
           checkinBooked: true,
           formValues: emptyDetails,
+        }),
+      ),
+    ).toBe("suggestions");
+  });
+
+  test("skips the research reveal when last name is empty", () => {
+    expect(
+      resolveResumeStep(
+        baseSnapshot({
+          step: "looking",
+          formValues: {
+            firstName: "Alice",
+            lastName: "",
+            role: "Engineer",
+            hobbies: ["chess"],
+          },
         }),
       ),
     ).toBe("suggestions");

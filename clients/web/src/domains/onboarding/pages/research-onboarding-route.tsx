@@ -214,7 +214,8 @@ export function ResearchOnboardingRoute() {
   const [formValues, setFormValues] = useState<ResearchOnboardingValues | null>(
     null,
   );
-  // Empty role + hobbies: no research turn, and no "Searching about you" wait.
+  // Missing last name, or empty role + hobbies: no research turn, and no
+  // "Searching about you" wait.
   const skipResearchReveal =
     formValues !== null && shouldSkipOnboardingResearch(formValues);
   // Established-assistant guard. The verdict resolves in the background once

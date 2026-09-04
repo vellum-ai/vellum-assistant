@@ -689,6 +689,14 @@ export function useResearchRunner(): UseResearchRunner {
             if (!conversation.response?.ok || !id) {
               return undefined;
             }
+            // A deadline race does not cancel conversationsPost. If this run
+            // already gave up (or a newer one superseded it), archive here so
+            // the row is not left behind after finally has already run, and
+            // do not persist a resume id for a search that will not continue.
+            if (isStale() || Date.now() >= deadline) {
+              await archiveResearchConversation(assistantId, id);
+              return undefined;
+            }
             // Surface the new id immediately so the caller can persist it and
             // resume this exact thread across a refresh.
             onConversationCreated?.(id);
@@ -991,11 +999,14 @@ export function useResearchRunner(): UseResearchRunner {
       results: ResearchRunnerState,
       awaitAssistantId?: () => Promise<string>,
     ) => {
-      // Claim a fresh run id so any (improbable) in-flight loop bails, then adopt
-      // the restored results as the settled state. We don't set a subject key:
-      // the route only re-fires `start` while results are absent, so a re-run
-      // can't race this — and an edited subject should still supersede normally.
+      // Supersede any in-flight run: bump the id so its loop bails, drop its
+      // subject key so a later start of that same subject is not treated as a
+      // duplicate, and release the plugin click-gate so a skip/resume cannot
+      // stay blocked on the abandoned turn's installs.
       runIdRef.current += 1;
+      subjectKeyRef.current = null;
+      installPromisesRef.current.clear();
+      pluginsReadyRef.current = Promise.resolve();
       setState(results);
 
       // Re-enqueue the named installs against the (re-)hatched assistant so a

@@ -925,11 +925,11 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
     expect(startResearchMock).not.toHaveBeenCalled();
   });
 
-  test("a restored snapshot with a role still starts research", async () => {
+  test("a restored snapshot with last name and a role still starts research", async () => {
     writeResearchSnapshot(
       USER_ID,
       postFormSnapshot({
-        formValues: { ...nameOnly, role: "Engineer" },
+        formValues: { ...nameOnly, lastName: "Example", role: "Engineer" },
       }),
     );
 
@@ -939,11 +939,11 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
     expect(screen.getByTestId("looking-step")).toBeTruthy();
   });
 
-  test("a restored snapshot with hobbies still starts research", async () => {
+  test("a restored snapshot with last name and hobbies still starts research", async () => {
     writeResearchSnapshot(
       USER_ID,
       postFormSnapshot({
-        formValues: { ...nameOnly, hobbies: ["chess"] },
+        formValues: { ...nameOnly, lastName: "Example", hobbies: ["chess"] },
       }),
     );
 
@@ -951,6 +951,23 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
 
     await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId("looking-step")).toBeTruthy();
+  });
+
+  test("a restored snapshot with role and hobbies but no last name skips research", async () => {
+    writeResearchSnapshot(
+      USER_ID,
+      postFormSnapshot({
+        step: "looking",
+        formValues: { ...nameOnly, role: "Engineer", hobbies: ["chess"] },
+      }),
+    );
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+    );
+    expect(startResearchMock).not.toHaveBeenCalled();
   });
 });
 
