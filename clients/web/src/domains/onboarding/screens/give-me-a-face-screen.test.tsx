@@ -126,6 +126,16 @@ function renderScreen(
 
 const hearButton = () => screen.getByRole("button", { name: "Hear my voice" });
 
+function firstPaintName(): string {
+  const shown = allAssistantNames().find((candidate) =>
+    screen.queryByText(candidate),
+  );
+  if (!shown) {
+    throw new Error("expected a concrete pool name on first paint");
+  }
+  return shown;
+}
+
 describe("GiveMeAFaceScreen voice audition", () => {
   test("auditions the centered avatar's voice on click, never on landing", async () => {
     renderScreen();
@@ -244,32 +254,23 @@ describe("GiveMeAFaceScreen name default", () => {
   test("shows a concrete name from the pool on first paint, not Surprise me", () => {
     renderScreen();
 
-    const shown = allAssistantNames().find((candidate) =>
-      screen.queryByText(candidate),
-    );
-    expect(shown).toBeTruthy();
+    expect(firstPaintName()).toBeTruthy();
     expect(screen.queryByText("Surprise me")).toBeNull();
   });
 
   test("keeps the first-paint name when the avatar carousel moves", () => {
     renderScreen();
-    const shown = allAssistantNames().find((candidate) =>
-      screen.queryByText(candidate),
-    );
-    expect(shown).toBeTruthy();
+    const shown = firstPaintName();
 
     fireEvent.click(screen.getByRole("button", { name: "Next character" }));
 
-    expect(screen.getByText(shown!)).toBeTruthy();
+    expect(screen.getByText(shown)).toBeTruthy();
   });
 
   test("Continue sends the already-shown random name", () => {
     const onContinue = mock(() => {});
     renderScreen({ onContinue });
-    const shown = allAssistantNames().find((candidate) =>
-      screen.queryByText(candidate),
-    );
-    expect(shown).toBeTruthy();
+    const shown = firstPaintName();
 
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
