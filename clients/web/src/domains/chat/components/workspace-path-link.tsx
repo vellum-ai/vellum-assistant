@@ -36,7 +36,7 @@ import {
   toVellumWorkspaceHref,
   workspaceBasenameOf,
   workspaceDirOf,
-} from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/workspace-path-links";
 import { useTranslation } from "@/i18n";
 
 /**

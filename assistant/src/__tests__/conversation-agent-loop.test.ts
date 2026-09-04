@@ -577,6 +577,7 @@ const resolveAssistantAttachmentsMock = mock(async () => ({
   assistantAttachments: [],
   emittedAttachments: [],
   directiveWarnings: [],
+  persistedFiles: [],
 }));
 mock.module("../daemon/conversation-attachments.js", () => ({
   resolveAssistantAttachments: resolveAssistantAttachmentsMock,
@@ -976,6 +977,7 @@ beforeEach(() => {
     assistantAttachments: [],
     emittedAttachments: [],
     directiveWarnings: [],
+    persistedFiles: [],
   }));
   mockMessageById = null;
   resetConversationNoticesForTests();

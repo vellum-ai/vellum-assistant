@@ -12,7 +12,7 @@ import { useMemo, type ReactNode } from "react";
 
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
 import { useBlobObjectUrl } from "@/domains/chat/components/local-file/use-local-file-info";
-import { resolveLocalFileType } from "@/domains/chat/utils/mime-sniff";
+import { resolveLocalFileType } from "@/utils/mime-sniff";
 
 /** The playable subset of the drawer's preview kinds. */
 export type MediaPreviewKind = "image" | "audio" | "video";

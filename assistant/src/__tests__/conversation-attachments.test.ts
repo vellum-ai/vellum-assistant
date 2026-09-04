@@ -187,6 +187,148 @@ describe("resolveAssistantAttachments", () => {
     // fileBacked flag is always true now
     expect(emitted.fileBacked).toBe(true);
   });
+
+  test("persistedFiles carries only directives that resolved and persisted", async () => {
+    const conv = createConversation("test-conv-persisted");
+    const msg = await addMessage(conv.id, "assistant", "hello");
+
+    const accepted: AssistantAttachmentDraft = {
+      sourceType: "sandbox_file",
+      filename: "plan.md",
+      mimeType: "text/markdown",
+      dataBase64: makeBase64(64),
+      sizeBytes: 64,
+      kind: "document",
+      sourcePath: "notes/plan.md",
+    };
+    const oversized: AssistantAttachmentDraft = {
+      sourceType: "sandbox_file",
+      filename: "huge.bin",
+      mimeType: "application/octet-stream",
+      dataBase64: makeBase64(64),
+      sizeBytes: 64,
+      kind: "document",
+      sourcePath: "notes/huge.bin",
+    };
+    const toolBlock: AssistantAttachmentDraft = {
+      sourceType: "tool_block",
+      filename: "tool-output.png",
+      mimeType: "image/png",
+      dataBase64: makeBase64(64),
+      sizeBytes: 64,
+      kind: "image",
+    };
+
+    mock.module("../daemon/assistant-attachments.js", () => ({
+      // The missing file's directive produces a warning and no draft.
+      resolveDirectives: () =>
+        Promise.resolve({
+          drafts: [accepted, oversized],
+          warnings: [
+            'Skipped sandbox attachment "notes/missing.md": file not found.',
+          ],
+        }),
+      contentBlocksToDrafts: () => [toolBlock],
+      deduplicateDrafts: (d: AssistantAttachmentDraft[]) => d,
+      validateDrafts: (d: AssistantAttachmentDraft[]) => ({
+        accepted: d.filter((draft) => draft.filename !== "huge.bin"),
+        warnings: ['Skipped attachment "huge.bin": too large.'],
+      }),
+    }));
+
+    const { resolveAssistantAttachments: resolve } =
+      await import("../daemon/conversation-attachments.js");
+
+    const result = await resolve(
+      [
+        {
+          source: "sandbox" as const,
+          path: "notes/plan.md",
+          filename: "plan.md",
+          mimeType: "text/markdown",
+        },
+        {
+          source: "sandbox" as const,
+          path: "notes/missing.md",
+          filename: undefined,
+          mimeType: undefined,
+        },
+        {
+          source: "sandbox" as const,
+          path: "notes/huge.bin",
+          filename: undefined,
+          mimeType: undefined,
+        },
+      ],
+      [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "" },
+        },
+      ],
+      [],
+      "/tmp",
+      async () => true,
+      msg.id,
+    );
+
+    // The rejected directive, the failed validation, and the tool block
+    // (which has no file of its own) are all absent.
+    expect(result.persistedFiles).toEqual([
+      {
+        sourcePath: "notes/plan.md",
+        displayName: "plan.md",
+        sourceType: "sandbox_file",
+      },
+    ]);
+  });
+
+  test("persistedFiles is empty when there is no message to persist against", async () => {
+    const accepted: AssistantAttachmentDraft = {
+      sourceType: "sandbox_file",
+      filename: "plan.md",
+      mimeType: "text/markdown",
+      dataBase64: makeBase64(64),
+      sizeBytes: 64,
+      kind: "document",
+      sourcePath: "notes/plan.md",
+    };
+
+    mock.module("../daemon/assistant-attachments.js", () => ({
+      resolveDirectives: () =>
+        Promise.resolve({ drafts: [accepted], warnings: [] }),
+      contentBlocksToDrafts: () => [],
+      deduplicateDrafts: (d: AssistantAttachmentDraft[]) => d,
+      validateDrafts: (d: AssistantAttachmentDraft[]) => ({
+        accepted: d,
+        warnings: [],
+      }),
+    }));
+
+    const { resolveAssistantAttachments: resolve } =
+      await import("../daemon/conversation-attachments.js");
+
+    // No assistant message id: the draft is emitted for this turn only and
+    // nothing is stored, so it is not a persisted file.
+    const result = await resolve(
+      [
+        {
+          source: "sandbox" as const,
+          path: "notes/plan.md",
+          filename: "plan.md",
+          mimeType: "text/markdown",
+        },
+      ],
+      [],
+      [],
+      "/tmp",
+      async () => true,
+      undefined,
+    );
+
+    expect(result.emittedAttachments).toHaveLength(1);
+    expect(result.persistedFiles).toEqual([]);
+  });
 });
 
 describe("approveHostAttachmentRead", () => {

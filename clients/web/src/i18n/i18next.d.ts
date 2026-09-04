@@ -13,6 +13,8 @@
  * Reference: https://www.i18next.com/overview/typescript
  */
 import type account from "@/i18n/locales/en/account.json";
+import type activation from "@/i18n/locales/en/activation.json";
+import type activationTasks from "@/i18n/locales/en/activation-tasks.json";
 import type channels from "@/i18n/locales/en/channels.json";
 import type contacts from "@/i18n/locales/en/contacts.json";
 import type credentialRequests from "@/i18n/locales/en/credential-requests.json";
@@ -49,6 +51,8 @@ declare module "i18next" {
       contacts: typeof contacts;
       onboarding: typeof onboarding;
       intelligence: typeof intelligence;
+      activation: typeof activation;
+      "activation-tasks": typeof activationTasks;
     };
     returnNull: false;
   }

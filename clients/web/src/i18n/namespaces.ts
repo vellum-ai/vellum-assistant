@@ -17,6 +17,11 @@
  * That mirrors the boundary `local/no-cross-domain-imports` already enforces,
  * so a string never has to move because the code did not.
  *
+ * One exception stands: `src/components/local-file/` keeps the `chat`
+ * namespace. Its siblings still live under `src/domains/chat/components/
+ * local-file/`, and splitting one file card's copy across two catalogs while
+ * the move is half done would leave the same card reading from both.
+ *
  * **Key naming inside a namespace** is `<component>.<slot>`, camelCase, where
  * `<component>` is the component's own name, lowercased at the first letter:
  * `notFound.title`, `conversationAssets.ariaLabel`. Do not repeat the
@@ -51,9 +56,23 @@ export const NAMESPACES = [
   "contacts",
   "onboarding",
   "intelligence",
+  "activation",
+  "activation-tasks",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];
+
+/**
+ * Namespaces whose keys are addressed by a data id rather than written out at
+ * a call site.
+ *
+ * `activation-tasks` holds one entry per catalog task, keyed by the task id
+ * that `domains/activation/lists.json` references, so no source file spells
+ * any of its key paths. The unreferenced-key guard in `catalogs.test.ts` skips
+ * these; `domains/activation/catalog.test.ts` owns their coverage instead, by
+ * asserting every list id resolves to a complete entry.
+ */
+export const DATA_KEYED_NAMESPACES: readonly Namespace[] = ["activation-tasks"];
 
 /**
  * The namespace used when a call site does not name one. `common` holds the

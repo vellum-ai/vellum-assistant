@@ -22,6 +22,10 @@ import {
 import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
+import {
+  forgetActivationConversation,
+  forgetAllActivationConversations,
+} from "../activation/progress-store.js";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
@@ -224,6 +228,29 @@ function purgeWatchTimelineForDeletedConversation(id: string): void {
       "Failed to purge the watch timeline for a deleted conversation",
     );
   }
+}
+
+/**
+ * Release a deleted conversation from the activation checklist.
+ *
+ * The checklist records which task was launched into which conversation in a
+ * workspace file the cascade never reaches, so a delete that skipped this
+ * would leave the task's row stuck on Working, pointing at a conversation the
+ * user can no longer open and offering no way to launch the task again. A
+ * finished task keeps its record and only loses the dead link.
+ *
+ * Fired from the shared primitive so every delete caller cleans up, and
+ * best-effort for the same reason as the rest of the post-transaction
+ * cleanup: the conversation row is already gone, so throwing here would turn
+ * a completed delete into an error the caller cannot usefully retry.
+ */
+function forgetActivationLinkForDeletedConversation(id: string): void {
+  void forgetActivationConversation(id).catch((err: unknown) => {
+    log.warn(
+      { err, conversationId: id },
+      "Failed to release a deleted conversation from the activation checklist",
+    );
+  });
 }
 
 function deletePendingTelemetryEventsForConversation(id: string): void {
@@ -2245,6 +2272,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   }
 
   purgeWatchTimelineForDeletedConversation(id);
+  forgetActivationLinkForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
   // still-pending jobs for this conversation). Fire-and-forget from this
@@ -2397,6 +2425,7 @@ export async function deleteConversationGently(
   }
 
   purgeWatchTimelineForDeletedConversation(id);
+  forgetActivationLinkForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
   // the synchronous delete primitive.
@@ -3837,6 +3866,16 @@ export async function clearAll(): Promise<{
   }
 
   void clearAllConversationIds();
+
+  // The wipe took every conversation the checklist could be pointing at, so
+  // release all of them at once rather than one delete at a time. Same
+  // best-effort contract as the per-conversation path.
+  void forgetAllActivationConversations().catch((err: unknown) => {
+    log.warn(
+      { err },
+      "clearAll: failed to release conversations from the activation checklist",
+    );
+  });
 
   return { conversations: convCount, messages: msgCount };
 }

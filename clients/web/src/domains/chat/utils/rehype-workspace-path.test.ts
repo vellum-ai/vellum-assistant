@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
-import { WORKSPACE_PATH_TAG } from "@/domains/chat/utils/workspace-path-links";
+import { WORKSPACE_PATH_TAG } from "@/utils/workspace-path-links";
 
 interface TestElement {
   type: "element";

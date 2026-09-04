@@ -1,0 +1,430 @@
+/**
+ * Launching a checklist task: one fresh conversation, started in the
+ * background, while the modal stays open.
+ *
+ * Three writes, in this order: create the conversation, record the link, send
+ * the prompt.
+ *
+ * The conversation is created first because the link and the send both have to
+ * name a row the daemon can resolve. A client-minted draft id resolves for
+ * neither: `POST /v1/messages` looks the strict `conversationId` field up and
+ * 404s on a miss, so a prompt sent against an unmaterialized id never runs.
+ *
+ * The link is recorded before the prompt is sent. The daemon marks a task done
+ * when the linked conversation's first turn completes, so a send that lands
+ * before the link exists can finish against a conversation the daemon has no
+ * task for, and the row would sit on Working forever. Recording the link first
+ * costs one round trip and closes that window.
+ *
+ * A failed link therefore never sends: an unlinked prompt would run a task the
+ * checklist cannot observe. What becomes of the conversation depends on how
+ * the link failed. A 4xx is the daemon answering and refusing, so nothing
+ * points at the conversation and it is given back rather than left in the
+ * sidebar as a thread the user never started. Every other failure leaves the
+ * link's fate unknown: the daemon may already hold it, so the conversation is
+ * kept and its id handed back alongside the error for the row to recover from.
+ *
+ * `launch` never rejects. Every failure, transport included, comes back as a
+ * result: the row has to be able to leave its pending state and say what
+ * happened, and a launch that has already linked has to hand back the
+ * conversation id so the user can open it.
+ *
+ * A start the daemon accepted is written into the progress cache before the
+ * launch leaves its pending state. The row is guarded by two things in
+ * sequence, the pending set and then the daemon's `started` record, and a
+ * pending set that clears first leaves a gap the row renders as Todo and
+ * accepts a second click, which relinks the task to a second conversation.
+ *
+ * Every launch gets its own conversation. Reusing one across tasks would put
+ * two prompts in one thread and give the daemon two tasks pointing at the same
+ * turn.
+ *
+ * The funnel's arm and list are snapshotted at the click rather than read when
+ * the launch settles. Three round trips separate the two, and the user can
+ * switch assistants across them, which would file the launch under whichever
+ * checklist they landed on.
+ *
+ * Launches run concurrently and are tracked as a set, because the list lets the
+ * user start a second task while the first is still in flight. A single pending
+ * id would clear on whichever launch settled first and hand every other row
+ * back to the user mid-launch. The set is mirrored in a ref so the duplicate
+ * guard answers within the click that fires it, before React has re-rendered
+ * the row into its pending state.
+ */
+
+import { useCallback, useRef, useState } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+
+import { activationProgressGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
+import { activationTasksByTaskIdStartPost } from "@/generated/daemon/sdk.gen";
+import { useTranslation } from "@/i18n";
+import {
+  createBackgroundConversation,
+  discardBackgroundConversation,
+  sendBackgroundPrompt,
+} from "@/lib/background-conversation";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  captureActivationTelemetryContext,
+  emitActivationEvent,
+} from "@/utils/activation-telemetry";
+import { extractErrorMessage } from "@/utils/api-errors";
+
+import { readRawActivationTask } from "../catalog";
+
+import {
+  activationProgressQueryKey,
+  invalidateActivationProgress,
+  type ActivationProgress,
+  type ActivationTaskProgress,
+} from "./use-activation-progress";
+
+/**
+ * Fold an answered snapshot's tasks into the cached ones, task by task.
+ *
+ * The daemon answers a start with a snapshot taken while it handled that
+ * start, so a task another launch has since finished can come back as
+ * `started` in an answer the cache is already newer than. A task only ever
+ * moves forward, and `done` is the end of the road, so a cached `done` is the
+ * only record an answer must not overwrite: taking the answer wholesale would
+ * un-finish it, and the row would offer a done task back.
+ */
+function mergeAnsweredTasks(
+  cached: ActivationProgress["tasks"],
+  answered: ActivationProgress["tasks"],
+): ActivationProgress["tasks"] {
+  const merged: ActivationProgress["tasks"] = { ...cached };
+  for (const [taskId, record] of Object.entries(answered)) {
+    const held: ActivationTaskProgress | undefined = merged[taskId];
+    merged[taskId] = held?.status === "done" ? held : record;
+  }
+  return merged;
+}
+
+/**
+ * The later of two dismissal stamps, where `null` means "not yet".
+ *
+ * These stamps say whether the modal is closed and whether the celebration has
+ * already run. A start is answered with a snapshot the daemon took while it
+ * handled that start, so a dismissal the user made in between is missing from
+ * it, and taking the answer wholesale would reopen the modal or replay the
+ * celebration. Both stamps are ISO-8601 UTC, so they order as strings.
+ */
+function laterStamp(
+  cached: string | null,
+  answered: string | null,
+): string | null {
+  if (cached === null) {
+    return answered;
+  }
+  if (answered === null) {
+    return cached;
+  }
+  return cached > answered ? cached : answered;
+}
+
+/**
+ * A link the client never saw succeed. `rejected` is true only when the daemon
+ * answered with a 4xx, which is the one case where the link certainly does not
+ * exist.
+ */
+interface LinkFailure {
+  rejected: boolean;
+  error: string;
+}
+
+interface LinkOutcome {
+  /** Absent once the daemon holds the link. */
+  failure?: LinkFailure;
+  /** The progress document the daemon answered the write with. */
+  progress?: ActivationProgress;
+}
+
+/**
+ * Whether the daemon answered the start with a whole progress document, which
+ * is what the current route returns and what the cache holds.
+ */
+function isActivationProgress(value: unknown): value is ActivationProgress {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const { tasks } = value as Partial<ActivationProgress>;
+  return typeof tasks === "object" && tasks !== null;
+}
+
+/**
+ * Write the started task into the progress cache, on the key
+ * `useActivationProgress` reads, so the row stays guarded from the moment the
+ * daemon holds the link until the next progress read lands.
+ *
+ * The daemon answers the start with the whole document, so that is what is
+ * written. An answer carrying something else falls back to inserting the task
+ * into what is already cached; an absent cache is left absent, because a
+ * progress document the client invented would turn on the surfaces the missing
+ * read keeps hidden.
+ */
+function seedStartedTask(
+  queryClient: QueryClient,
+  assistantId: string,
+  taskId: string,
+  conversationId: string,
+  answered: ActivationProgress | undefined,
+): void {
+  activationProgressGetSetQueryData(
+    queryClient,
+    { path: { assistant_id: assistantId } },
+    (cached) => {
+      if (answered) {
+        // Concurrent starts answer with snapshots taken at different points,
+        // so an older answer must neither erase a task a newer one already
+        // seeded, nor walk one of them back to an earlier status, nor drop a
+        // dismissal the cache already holds.
+        return cached
+          ? {
+              ...answered,
+              modalDismissedAt: laterStamp(
+                cached.modalDismissedAt,
+                answered.modalDismissedAt,
+              ),
+              allDoneShownAt: laterStamp(
+                cached.allDoneShownAt,
+                answered.allDoneShownAt,
+              ),
+              tasks: mergeAnsweredTasks(cached.tasks, answered.tasks),
+            }
+          : answered;
+      }
+      if (!cached) {
+        return cached;
+      }
+      return {
+        ...cached,
+        tasks: {
+          ...cached.tasks,
+          [taskId]: {
+            status: "started",
+            conversationId,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            stepCount: null,
+            artifacts: [],
+          },
+        },
+      };
+    },
+  );
+}
+
+interface LinkActivationTaskArgs {
+  assistantId: string;
+  taskId: string;
+  listId: string;
+  conversationId: string;
+  /** Copy to show when the failure carried no message of its own. */
+  fallback: string;
+}
+
+/**
+ * Record the task's link to `conversationId`, and say what a failure was.
+ *
+ * Called through the SDK rather than the generated react-query mutation
+ * because that mutation throws the parsed body and drops the response: only an
+ * answered 4xx proves the link does not exist, and telling that apart from a
+ * transport failure or a 5xx needs the status in hand. A 5xx counts as unknown
+ * on purpose, since the daemon can persist the link and then fail to answer.
+ */
+async function linkActivationTask({
+  assistantId,
+  taskId,
+  listId,
+  conversationId,
+  fallback,
+}: LinkActivationTaskArgs): Promise<LinkOutcome> {
+  try {
+    const { data, error, response } = await activationTasksByTaskIdStartPost({
+      path: { assistant_id: assistantId, taskId },
+      body: { conversationId, listId },
+      throwOnError: false,
+    });
+    if (response?.ok) {
+      return { progress: isActivationProgress(data) ? data : undefined };
+    }
+    const status = response?.status;
+    return {
+      failure: {
+        rejected: status !== undefined && status >= 400 && status < 500,
+        error: extractErrorMessage(error, response, fallback),
+      },
+    };
+  } catch (error) {
+    return {
+      failure: {
+        rejected: false,
+        error: extractErrorMessage(error, undefined, fallback),
+      },
+    };
+  }
+}
+
+export interface LaunchActivationTaskResult {
+  ok: boolean;
+  /** The conversation the task was launched into, once one is linked to it. */
+  conversationId?: string;
+  /**
+   * What to tell the user. Absent when there is nothing to say: a launch
+   * refused because the same task is already running is not a failure the user
+   * caused or needs to see.
+   */
+  error?: string;
+}
+
+export interface UseLaunchActivationTask {
+  /**
+   * Launch `taskId` into a fresh background conversation, sending its catalog
+   * prompt. `promptOverride` carries whatever the user typed into the row's
+   * "Custom:" field and replaces it; a nonblank one is sent as a typed turn
+   * rather than a scripted one.
+   */
+  launch: (
+    taskId: string,
+    promptOverride?: string,
+  ) => Promise<LaunchActivationTaskResult>;
+  /**
+   * Every task whose launch is in flight, for the rows' pending states. The
+   * only shape on offer: a `has` on one set cannot drift from a predicate
+   * built beside it.
+   */
+  pendingTaskIds: ReadonlySet<string>;
+}
+
+const NONE_PENDING: ReadonlySet<string> = new Set();
+
+export function useLaunchActivationTask(
+  listId: string,
+): UseLaunchActivationTask {
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const queryClient = useQueryClient();
+  const { t } = useTranslation("activation");
+  const [pendingTaskIds, setPendingTaskIds] =
+    useState<ReadonlySet<string>>(NONE_PENDING);
+  // The ref is the authority the guard reads; the state is the copy React
+  // renders. Two clicks in one tick both see the ref, and only one gets past.
+  const inFlight = useRef<Set<string>>(new Set());
+
+  const launch = useCallback(
+    async (
+      taskId: string,
+      promptOverride?: string,
+    ): Promise<LaunchActivationTaskResult> => {
+      if (!assistantId) {
+        return { ok: false, error: t("launch.noAssistant") };
+      }
+      const override = promptOverride?.trim();
+      // Read at click time rather than from a resolved list: the catalog is
+      // data and this is an event handler, so the non-reactive binding is the
+      // right one (see `@/i18n`).
+      const prompt = override || readRawActivationTask(taskId)?.prompt;
+      if (!prompt) {
+        return { ok: false, error: t("launch.unknownTask") };
+      }
+      // A nonblank override is what the user typed into the row's Custom
+      // field, so the turn is typed engagement and activation analytics has to
+      // count it. Only the catalog prompt is scripted.
+      const scripted = !override;
+      // Read before the first await, and handed to every event this launch
+      // emits, so a switch mid-launch cannot refile it.
+      const telemetryContext = captureActivationTelemetryContext(listId);
+
+      // The row is already working. Launching again would open a second
+      // conversation for one task and leave the daemon two rows to mark done.
+      if (inFlight.current.has(taskId)) {
+        return { ok: false };
+      }
+      inFlight.current.add(taskId);
+      setPendingTaskIds(new Set(inFlight.current));
+      try {
+        const created = await createBackgroundConversation({
+          assistantId,
+          fallback: t("launch.failed"),
+        });
+        if (!created.ok) {
+          return { ok: false, error: created.error };
+        }
+        const { conversationId } = created;
+
+        const link = await linkActivationTask({
+          assistantId,
+          taskId,
+          listId,
+          conversationId,
+          fallback: t("launch.failed"),
+        });
+        if (link.failure) {
+          if (link.failure.rejected) {
+            void discardBackgroundConversation(assistantId, conversationId);
+            return { ok: false, error: link.failure.error };
+          }
+          return { ok: false, conversationId, error: link.failure.error };
+        }
+        // The daemon holds the link from here, whatever the send does next, so
+        // the row is guarded and the read is refreshed before either can end.
+        // A read already in flight is cancelled first: it was issued before
+        // the link existed, so its answer would land on top of the seed and
+        // hand the row back as Todo.
+        await queryClient.cancelQueries({
+          queryKey: activationProgressQueryKey(assistantId),
+        });
+        seedStartedTask(
+          queryClient,
+          assistantId,
+          taskId,
+          conversationId,
+          link.progress,
+        );
+        invalidateActivationProgress(queryClient, assistantId);
+
+        let sent;
+        try {
+          sent = await sendBackgroundPrompt({
+            assistantId,
+            conversationId,
+            prompt,
+            scripted,
+          });
+        } catch (error) {
+          // The link already stands, so the conversation is the task's; the
+          // user can open and drive it whatever the transport did.
+          return {
+            ok: false,
+            conversationId,
+            error: extractErrorMessage(error, undefined, t("launch.failed")),
+          };
+        }
+        if (!sent.ok) {
+          return {
+            ok: false,
+            conversationId,
+            error: extractErrorMessage(
+              sent.error,
+              undefined,
+              t("launch.failed"),
+            ),
+          };
+        }
+
+        emitActivationEvent(
+          "activation_task_started",
+          { taskId },
+          telemetryContext,
+        );
+        return { ok: true, conversationId };
+      } finally {
+        inFlight.current.delete(taskId);
+        setPendingTaskIds(new Set(inFlight.current));
+      }
+    },
+    [assistantId, listId, queryClient, t],
+  );
+
+  return { launch, pendingTaskIds };
+}

@@ -43,7 +43,7 @@ import type { DisplayAttachment } from "@/types/attachment-types";
 
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
-import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";

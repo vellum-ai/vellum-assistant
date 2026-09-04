@@ -7,41 +7,63 @@
  * takes the row above the header on a phone rather than a seat in it.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { usePageSurfaceStore } from "@/stores/page-surface-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 let mockIsElectron = false;
-mock.module("@/runtime/is-electron", () => ({
+stubModule("@/runtime/is-electron", await import("@/runtime/is-electron"), {
   isElectron: () => mockIsElectron,
-}));
+});
 
+// The two stores the header writes through are driven by their own state
+// rather than a module stub, so the spies are checked against the real store
+// shapes. Both stores are process-global, so the real actions go back below.
 const toggleCommandPaletteSpy = mock(() => {});
-mock.module("@/stores/command-palette-store", () => ({
-  useCommandPaletteStore: {
-    use: { toggle: () => toggleCommandPaletteSpy },
-  },
-}));
-
 const setInlineTitleBarActiveSpy = mock((_active: boolean) => {});
-mock.module("@/stores/title-bar-store", () => ({
-  useTitleBarStore: {
-    use: {
-      setInlineTitleBarActive: () => setInlineTitleBarActiveSpy,
-      windowsMenuBarSuppressed: () => false,
-    },
-  },
-}));
+const realToggleCommandPalette = useCommandPaletteStore.getState().toggle;
+const realSetInlineTitleBarActive =
+  useTitleBarStore.getState().setInlineTitleBarActive;
 
 let mockIsNativeMobile = false;
 let mockElectronHostOS: "macos" | "windows" | "linux" | null = null;
-mock.module("@/runtime/platform-detection", () => ({
-  detectElectronHostOS: () =>
-    mockIsElectron ? (mockElectronHostOS ?? "macos") : null,
-  isNativeMobile: () => mockIsNativeMobile,
-}));
+stubModule(
+  "@/runtime/platform-detection",
+  await import("@/runtime/platform-detection"),
+  {
+    detectElectronHostOS: () =>
+      mockIsElectron ? (mockElectronHostOS ?? "macos") : null,
+    isNativeMobile: () => mockIsNativeMobile,
+  },
+);
+
+// `mock.module` replaces a module for every file sharing this process, so
+// nothing here may outlive the file: a desktop answer left standing hides
+// every surface that drops a web link inside the app. The store actions the
+// spies stand in for are process-global for the same reason.
+afterAll(() => {
+  useCommandPaletteStore.setState({ toggle: realToggleCommandPalette });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: realSetInlineTitleBarActive,
+  });
+  restoreStubbedModules();
+});
 
 // Imported after the mocks so the header picks up the mocked modules.
 const { ChatLayoutHeader } = await import("@/domains/chat/chat-layout-header");
@@ -53,6 +75,11 @@ beforeEach(() => {
   usePageSurfaceStore.getState().setSurface(null);
   toggleCommandPaletteSpy.mockClear();
   setInlineTitleBarActiveSpy.mockClear();
+  useCommandPaletteStore.setState({ toggle: toggleCommandPaletteSpy });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: setInlineTitleBarActiveSpy,
+    windowsMenuBarSuppressed: false,
+  });
 });
 
 afterEach(() => {

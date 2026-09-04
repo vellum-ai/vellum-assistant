@@ -16,7 +16,7 @@ import {
   MAX_WORKSPACE_PATH_LENGTH,
   workspaceBasenameOf,
   WORKSPACE_ROOT_MARKER,
-} from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/workspace-path-links";
 
 export type MarkdownHrefTarget =
   | { kind: "web" }
