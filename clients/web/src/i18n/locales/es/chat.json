@@ -97,6 +97,15 @@
     "search": "Buscar",
     "searchShortcut": "Buscar ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Ocultar la pantalla de reposo",
+    "sleeping": "Tu asistente está durmiendo",
+    "sleepingNamed": "{name} está durmiendo",
+    "waking": "Tu asistente se está despertando…",
+    "wakingNamed": "{name} se está despertando…",
+    "woke": "Tu asistente acaba de despertarse",
+    "wokeNamed": "{name} acaba de despertarse"
+  },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
     "currentAssistant": "{name}, asistente actual",
@@ -534,6 +543,7 @@
   },
   "contactRecordCard": {
     "cancel": "Cancelar",
+    "channelType": "{channel}:",
     "contactDeleted": "Contacto eliminado",
     "contactMerged": "Contactos combinados",
     "contactSaved": "Contacto guardado",
@@ -547,9 +557,11 @@
     "mergeSurvivorChannels": "Ya están en {name}",
     "mergeTitle": "¿Combinar a {donor} con {survivor}?",
     "mergeWarning": "Estos canales pasan a {survivor} y se elimina el registro de {donor}.",
+    "nameLabel": "Nombre",
     "namePlaceholder": "Nombre",
     "noChannels": "Este contacto no tiene canales.",
-    "notesPlaceholder": "Notas (opcional)",
+    "notesLabel": "Notas",
+    "notesPlaceholder": "Añadir una nota",
     "save": "Guardar",
     "saving": "Guardando…",
     "updateTitle": "Actualizar a {name}"

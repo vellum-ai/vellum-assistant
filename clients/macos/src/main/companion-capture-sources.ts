@@ -32,6 +32,7 @@ import { z } from "zod";
 import type {
   CompanionCapturePick,
   CompanionCaptureSources,
+  ScreenCaptureFrame,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
@@ -596,4 +597,46 @@ export async function windowBoundsFor(
     (w) => w.windowId === windowId,
   );
   return window === undefined ? null : window.bounds;
+}
+
+const capturedFrameSchema = z.object({
+  jpegBase64: z.string().min(1),
+  width: z.number().int().nonnegative(),
+  height: z.number().int().nonnegative(),
+});
+
+/**
+ * The longest side a shared frame is encoded at. Wide enough that text on a
+ * shared window still reads, and no wider: the app resizes every attachment
+ * on its way up, and a display's worth of pixels crosses the bridge as JSON.
+ */
+const SHARED_FRAME_MAX_WIDTH = 1600;
+const SHARED_FRAME_MAX_HEIGHT = 1000;
+
+/**
+ * One frame of a display or a window, as the helper takes it, or nothing
+ * when it could not: the window has gone, the display was unplugged, or
+ * Screen Recording is not granted. The refusal is logged rather than thrown,
+ * since the caller shares frames on a cadence and one missed frame is not an
+ * error the user needs to hear about.
+ */
+export async function captureTargetFrame(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  const params =
+    target.kind === "display"
+      ? { displayId: target.displayId }
+      : { windowId: target.windowId };
+  try {
+    return capturedFrameSchema.parse(
+      await getSharedCuHelper().call("capture.frame", {
+        ...params,
+        maxWidth: SHARED_FRAME_MAX_WIDTH,
+        maxHeight: SHARED_FRAME_MAX_HEIGHT,
+      }),
+    );
+  } catch (err) {
+    log.warn("[companion] could not take a frame of the shared target:", err);
+    return null;
+  }
 }

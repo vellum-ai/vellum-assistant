@@ -1,4 +1,4 @@
-import { CheckCircle, Loader2, X } from "lucide-react";
+import { CheckCircle, Loader2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -68,56 +68,41 @@ export function ContactPromptCard({
   }
 
   return (
-    <Card className="flex flex-col gap-4 p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-col gap-1">
+    <Card.Root padding="md" className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <Typography
+          variant="title-medium"
+          className="text-[var(--content-emphasised)]"
+        >
+          {contactRequest.label ?? t("contactPromptCard.addContact")}
+        </Typography>
+        {contactRequest.contactDisplayName && (
           <Typography
-            variant="label-small-default"
-            className="text-[var(--content-primary)]"
+            variant="body-medium-lighter"
+            className="text-[var(--content-tertiary)]"
           >
-            {contactRequest.label ?? t("contactPromptCard.addContact")}
+            {t("contactPromptCard.addingToContact", {
+              name: contactRequest.contactDisplayName,
+            })}
           </Typography>
-          {contactRequest.contactDisplayName && (
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-secondary)]"
-            >
-              {t("contactPromptCard.addingToContact", {
-                name: contactRequest.contactDisplayName,
-              })}
-            </Typography>
-          )}
-          {contactRequest.description && (
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-secondary)]"
-            >
-              {contactRequest.description}
-            </Typography>
-          )}
-        </div>
-        {!accepted && (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="shrink-0 text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
-            aria-label={t("contactPromptCard.dismiss")}
+        )}
+        {contactRequest.description && (
+          <Typography
+            variant="body-medium-lighter"
+            className="text-[var(--content-tertiary)]"
           >
-            <X size={16} />
-          </button>
+            {contactRequest.description}
+          </Typography>
         )}
       </div>
 
       {accepted ? (
-        // typography: off-scale — inline status badge, not prose
-
-        <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+        <div className="flex items-center gap-2 text-body-medium-default text-[var(--system-positive-strong)]">
           <CheckCircle size={16} />
           {t("contactPromptCard.contactSaved")}
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {proposesName && (
             <Input
               type="text"
@@ -125,20 +110,21 @@ export function ContactPromptCard({
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder={t("contactPromptCard.namePlaceholder")}
               disabled={isSubmitting}
+              fullWidth
             />
           )}
           {/* Read only: `contacts update` is where notes are edited. */}
           {contactRequest.notes && (
             <div className="flex flex-col gap-1">
               <Typography
-                variant="label-small-default"
+                variant="label-medium-default"
                 className="text-[var(--content-secondary)]"
               >
                 {t("contactPromptCard.notesLabel")}
               </Typography>
               <Typography
-                variant="body-small-default"
-                className="text-[var(--content-secondary)]"
+                variant="body-medium-lighter"
+                className="text-[var(--content-tertiary)]"
               >
                 {contactRequest.notes}
               </Typography>
@@ -153,6 +139,7 @@ export function ContactPromptCard({
               t("contactPromptCard.enterAddress", { channel: channelType })
             }
             disabled={isSubmitting}
+            fullWidth
             autoFocus
           />
           <Checkbox
@@ -162,10 +149,10 @@ export function ContactPromptCard({
             label={t("contactPromptCard.markVerified")}
             helperText={t("contactPromptCard.markVerifiedHelp")}
           />
-          <div className="flex justify-end gap-2">
+          <div className="flex items-center justify-end gap-2">
             <Button
               type="button"
-              variant="ghost"
+              variant="outlined"
               onClick={onCancel}
               disabled={isSubmitting}
             >
@@ -186,6 +173,6 @@ export function ContactPromptCard({
           </div>
         </form>
       )}
-    </Card>
+    </Card.Root>
   );
 }

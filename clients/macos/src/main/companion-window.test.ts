@@ -247,9 +247,21 @@ let resolvedPickAsync: (pick: unknown) => Promise<typeof resolvedPick> = async (
   return resolvedPick;
 };
 
+/** What the helper answers for a frame of a shared target, by the target. */
+const framesAsked: unknown[] = [];
+let capturedFrame: {
+  jpegBase64: string;
+  width: number;
+  height: number;
+} | null = { jpegBase64: "/9j/", width: 16, height: 9 };
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
+  captureTargetFrame: async (target: unknown) => {
+    framesAsked.push(target);
+    return capturedFrame;
+  },
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
     return windowBounds;
@@ -2249,6 +2261,66 @@ describe("the watch summary main relays", () => {
   });
 });
 
+describe("the offer of Vellum's dictation on the surface", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context());
+    pushes.length = 0;
+  });
+
+  test("carries the offer through to the surface", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: { app: "Wispr Flow", text: "Send me the files." },
+    });
+    expect(state().dictationOffer).toEqual({
+      app: "Wispr Flow",
+      text: "Send me the files.",
+    });
+  });
+
+  /**
+   * The words and the way into the application they would go to went down
+   * with that window, so an offer left standing is one whose answers do
+   * nothing.
+   */
+  test("stops offering once the window that made the offer is gone", () => {
+    send("vellum:companion:setContext", {
+      ...context(),
+      dictationOffer: { app: "Wispr Flow", text: "Send me the files." },
+    });
+    expect(state().dictationOffer).toBeDefined();
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().dictationOffer).toBeUndefined();
+  });
+
+  test("a context with no offer reports none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().dictationOffer).toBeUndefined();
+  });
+
+  /**
+   * Every answer acts on the application in front, or on nothing, and the
+   * user is standing in that application, so none of them raises the app.
+   */
+  test("forwards every answer without raising the app", () => {
+    for (const answer of ["use", "quit", "dismiss"] as const) {
+      send("vellum:companion:answerDictationOffer", answer);
+    }
+    expect(dispatched).toEqual([
+      { kind: "answerDictationOffer", answer: "use" },
+      { kind: "answerDictationOffer", answer: "quit" },
+      { kind: "answerDictationOffer", answer: "dismiss" },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+});
+
 /**
  * The app's window is destroyed while this surface stays open.
  *
@@ -2498,5 +2570,129 @@ describe("the surface while the app is in front", () => {
     fireAppEvent("did-resign-active");
 
     expect(companionOpen).toBe(false);
+  });
+});
+
+/**
+ * Share, which takes the picker's pick the way Teach does and means the
+ * opposite thing by a press with none: the stop, since the surface can see
+ * a share is on. The frames themselves are the helper's; what this file
+ * holds is that main reaches it with the target it was given.
+ */
+describe("Share on the companion surface", () => {
+  beforeEach(() => {
+    mainWindowOpen = true;
+    dispatched.length = 0;
+    framesAsked.length = 0;
+    capturedFrame = { jpegBase64: "/9j/", width: 16, height: 9 };
+  });
+
+  test("a press with no pick is the stop", () => {
+    send("vellum:companion:setScreenShare");
+    expect(dispatched.at(-1)).toEqual({ kind: "setScreenShare" });
+    expect(picksResolved).toHaveLength(0);
+  });
+
+  test("a pick is resolved and rides the command as the share's target", async () => {
+    resolvedPick = { kind: "window", windowId: 4242 };
+    send("vellum:companion:setScreenShare", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 2,
+    });
+    await Bun.sleep(0);
+    expect(picksResolved.at(-1)).toEqual({
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 2,
+    });
+    expect(dispatched.at(-1)).toEqual({
+      kind: "setScreenShare",
+      target: { kind: "window", windowId: 4242 },
+    });
+  });
+
+  /**
+   * The two controls share one picker and one generation: a pick still
+   * resolving for Share when Teach is pressed belonged to a choice the user
+   * has left, and must not start a share beside the session.
+   */
+  test("a share pick superseded by a Teach press dispatches nothing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = resolvedPickAsync;
+    resolvedPickAsync = async () => {
+      await gate;
+      return { kind: "window", windowId: 1 };
+    };
+    send("vellum:companion:setScreenShare", {
+      kind: "tab",
+      chromeWindowId: 3,
+      tabIndex: 1,
+    });
+    resolvedPickAsync = slow;
+    send("vellum:companion:toggleWatch");
+    release();
+    await Bun.sleep(0);
+    expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+  });
+
+  test("takes a frame of the shared target from the helper", async () => {
+    const capture = invocable.get("vellum:companion:captureScreen");
+    expect(capture).toBeDefined();
+    expect(await capture?.([{ kind: "display", displayId: 2 }])).toEqual({
+      jpegBase64: "/9j/",
+      width: 16,
+      height: 9,
+    });
+    expect(framesAsked).toEqual([{ kind: "display", displayId: 2 }]);
+    capturedFrame = null;
+    expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
+  });
+
+  test("carries the share and whether one may start to the surface", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "window", windowId: 7 },
+      }),
+    );
+    expect(state().screenShare).toEqual({ kind: "window", windowId: 7 });
+    expect(state().screenShareEnabled).toBe(true);
+    send("vellum:companion:setContext", context());
+    expect(state().screenShare).toBeUndefined();
+    expect(state().screenShareEnabled).toBe(false);
+  });
+
+  /**
+   * The frame says what is being shown, the way it says what is being read:
+   * a share with no session reading the screen frames the shared display.
+   */
+  test("frames what is shared when nothing is reading the screen", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+  });
+
+  test("the share ends with the window holding it", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        screenShareEnabled: true,
+        screenShare: { kind: "display", displayId: 2 },
+      }),
+    );
+    mainWindowOpen = false;
+    fireVisibilityChange();
+    expect(state().screenShare).toBeUndefined();
+    expect(state().screenShareEnabled).toBe(false);
+    expect(glow).toBeNull();
   });
 });

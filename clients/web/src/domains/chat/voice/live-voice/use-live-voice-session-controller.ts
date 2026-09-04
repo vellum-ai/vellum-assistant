@@ -53,6 +53,7 @@ import {
 import { drainPendingVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useLiveActivityControls } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
+import { useLiveVoiceScreenShare } from "@/domains/chat/voice/live-voice/use-live-voice-screen-share";
 import { useSightFrameReclaimer } from "@/domains/chat/voice/live-voice/use-sight-frame-reclaimer";
 import {
   activateVoiceAudioSession,
@@ -261,4 +262,8 @@ export function useLiveVoiceSessionController(
   // room is not mounted, and an upload refused while it is minimized would
   // otherwise be stranded when the call ends.
   useSightFrameReclaimer();
+  // The screen the companion's share control shows the session. Here rather
+  // than in the room for the reason the reclaimer is: on a companion call the
+  // room is not open at all.
+  useLiveVoiceScreenShare();
 }

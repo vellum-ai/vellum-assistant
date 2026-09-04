@@ -17,6 +17,7 @@ import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-set
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
@@ -101,6 +102,7 @@ import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
+import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actions";
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -395,6 +397,12 @@ export function RootLayout() {
       // `navigateToConversation` exists to prevent.
       navigateToConversation(navigate, retro.conversationId);
     },
+    answerDictationOffer: (command) => {
+      if (command.kind !== "answerDictationOffer") {
+        return;
+      }
+      void answerDictationOffer(command.answer);
+    },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so
     // its refusal is worth being able to test, and a module is what makes that
@@ -403,6 +411,14 @@ export function RootLayout() {
     toggleWatch: (command) => {
       handleToggleWatchCommand(
         command.kind === "toggleWatch" ? command.target : undefined,
+      );
+    },
+    // The share the companion's control asks for, or its stop. Straight to
+    // the session's store: the frames are taken by a hook mounted beside the
+    // session, and a target with no session to show it to is dropped there.
+    setScreenShare: (command) => {
+      setLiveVoiceScreenShare(
+        command.kind === "setScreenShare" ? (command.target ?? null) : null,
       );
     },
     replayOnboarding: () => {

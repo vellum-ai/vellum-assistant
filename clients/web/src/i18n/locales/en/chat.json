@@ -101,6 +101,15 @@
     "search": "Search",
     "searchShortcut": "Search ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Hide the sleep screen",
+    "sleeping": "Your assistant is asleep",
+    "sleepingNamed": "{name} is asleep",
+    "waking": "Your assistant is waking up…",
+    "wakingNamed": "{name} is waking up…",
+    "woke": "Your assistant just woke up",
+    "wokeNamed": "{name} just woke up"
+  },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
     "currentAssistant": "{name}, current assistant",
@@ -538,6 +547,7 @@
   },
   "contactRecordCard": {
     "cancel": "Cancel",
+    "channelType": "{channel}:",
     "contactDeleted": "Contact deleted",
     "contactMerged": "Contacts merged",
     "contactSaved": "Contact saved",
@@ -551,9 +561,11 @@
     "mergeSurvivorChannels": "Already on {name}",
     "mergeTitle": "Merge {donor} into {survivor}?",
     "mergeWarning": "These channels move to {survivor}, and the {donor} record is deleted.",
+    "nameLabel": "Name",
     "namePlaceholder": "Name",
     "noChannels": "This contact has no channels.",
-    "notesPlaceholder": "Notes (optional)",
+    "notesLabel": "Notes",
+    "notesPlaceholder": "Add custom note",
     "save": "Save",
     "saving": "Saving…",
     "updateTitle": "Update {name}"

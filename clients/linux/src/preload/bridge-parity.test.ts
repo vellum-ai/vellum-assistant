@@ -82,8 +82,14 @@ const LINUX_ONLY_SURFACE = [
 // hold comes from. The Linux sidecar has no such monitor, so its hotkey
 // surface is the shortcut chord alone.
 const MACOS_ONLY_SURFACE = [
+  "helper.apps.frontmost",
+  "helper.apps.quit",
+  "helper.apps.running",
   "helper.hotkey.readFrontSelection",
   "helper.hotkey.setModifierHold",
+  "helper.input.onActivity",
+  "helper.input.setActivityWatch",
+  "text.undoInFrontApp",
 ];
 
 test("the composed Linux bridge satisfies every applicable VellumBridge key", () => {

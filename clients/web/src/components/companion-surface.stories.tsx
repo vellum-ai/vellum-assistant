@@ -479,6 +479,29 @@ export const InCallWhileWatching: Story = {
 };
 
 /**
+ * Mid-call with the screen shared: Share held down beside Teach, since the
+ * two are the same gesture aimed at different ends, and the call is being
+ * shown what a Teach session would be reading.
+ */
+export const InCallSharing: Story = {
+  args: { phase: "call", shareEnabled: true, sharing: true, call: DEMO_CALL },
+};
+
+/**
+ * Both held down at once, which is the widest row a call draws and what
+ * `FALLBACK_WIDTHS.call` stands in for before the row has been measured.
+ */
+export const InCallWatchingAndSharing: Story = {
+  args: {
+    phase: "call",
+    watching: true,
+    shareEnabled: true,
+    sharing: true,
+    call: DEMO_CALL,
+  },
+};
+
+/**
  * Teach pressed, and the question it asks first: what to read.
  *
  * The picker is a card over the bar rather than a row on it, on the height

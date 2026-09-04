@@ -26,6 +26,7 @@ import { create } from "zustand";
 import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
+import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -471,6 +472,15 @@ export interface LiveVoiceState {
    * Session-scoped, so `reset()` clears it with everything else.
    */
   utteranceOpen: boolean;
+  /**
+   * The display or window the user is sharing with the session, or null when
+   * nothing is shared. The ask behind the macOS companion's share control:
+   * `use-live-voice-screen-share.ts` takes frames of it for as long as it is
+   * set and the session can be shown anything, and lowers it when it cannot.
+   * Session-scoped, and kept across a reconnect: the user is still sharing
+   * while the transport comes back.
+   */
+  screenShareTarget: WatchCaptureTarget | null;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -656,6 +666,8 @@ export interface LiveVoiceActions {
   setConfigNotice: (notice: string | null) => void;
   /** Record whether the server VAD is holding an utterance open. */
   setUtteranceOpen: (utteranceOpen: boolean) => void;
+  /** Set or clear what the session is being shown. See `screenShareTarget`. */
+  setScreenShareTarget: (screenShareTarget: WatchCaptureTarget | null) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -782,6 +794,28 @@ export function isLiveVoiceSessionActive(
 }
 
 /**
+ * Whether the user is part-way through saying something, as the session
+ * reports it.
+ *
+ * Two sessions, two signals, and no third opinion about either: hands-free
+ * runs on the server VAD, whose boundary the store publishes as
+ * `utteranceOpen`, and a manual session has no VAD at all, so the thing that
+ * opens the user's turn is the session reaching `listening`, which is where
+ * push-to-talk starts forwarding audio. Named for the user rather than the
+ * session, whose own `speaking` phase is the assistant's voice and the
+ * opposite of this. One answer to "is the user talking" for every surface
+ * that acts on the edge of a turn: the room's sight arms a keep on it, and the
+ * screen share takes a frame on each side of it.
+ */
+export function isLiveVoiceUserSpeaking(
+  session: Pick<LiveVoiceState, "state" | "handsFree" | "utteranceOpen">,
+): boolean {
+  return session.handsFree
+    ? session.utteranceOpen
+    : session.state === "listening";
+}
+
+/**
  * Whether the mic is live in `state` — capturing audio with amplitude flowing
  * into the store. True for the whole listening→speaking span: the capture
  * graph runs for the entire session so amplitude keeps flowing for barge-in
@@ -868,6 +902,7 @@ const INITIAL_SESSION_STATE: Omit<
   sightFrameRetractions: [],
   controls: null,
   utteranceOpen: false,
+  screenShareTarget: null,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -1088,6 +1123,11 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
         const assistantId = s.assistantId;
         return {
           sightFramesUnsupported: true,
+          // The share ends with the latch rather than merely pausing behind
+          // it. The latch resets on a reconnect, which can land on an
+          // upgraded assistant, and a target kept across that gap would
+          // resume a share the surface had already drawn as stopped.
+          screenShareTarget: null,
           outstandingSightFrames: [],
           prunedSightFrames: [],
           sightFramesToReclaim:
@@ -1170,6 +1210,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
   setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
+  setScreenShareTarget: (screenShareTarget) => set({ screenShareTarget }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
@@ -1199,6 +1240,10 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       sessionGeneration: opts?.sessionContinues
         ? s.sessionGeneration
         : s.sessionGeneration + 1,
+      // A share survives a reconnect for the reason the generation does: the
+      // user is still sharing, and the transport coming back is not their
+      // business.
+      screenShareTarget: opts?.sessionContinues ? s.screenShareTarget : null,
       // `sightFramesToReclaim` is absent from INITIAL_SESSION_STATE on purpose
       // and so survives this: a queue a teardown could discard would strand
       // the uploads it exists to collect. It also GROWS here, because the
@@ -1429,6 +1474,34 @@ export function attachLiveVoiceImage(
  * session. Module-level for the same stable-identity reasons as
  * {@link endLiveVoiceSession}.
  */
+/**
+ * Share `target` with the running session, or stop sharing with `null`.
+ *
+ * Module-level for the reason {@link endLiveVoiceSession} is: the command
+ * arrives from the companion surface through main, and the root layout that
+ * consumes it holds no session. A target is dropped unless a session is
+ * running that can actually be shown it, since nothing could be shown one
+ * otherwise and the surface would draw a share that never flows; the session's
+ * own reset clears it at the end.
+ *
+ * The latch is one of the terms, not just the session. A picker left open
+ * when the assistant refuses a frame is still pressable, and a target taken
+ * from it would sit in the store unshown until a reconnect cleared the latch
+ * and started capture off a gesture the user made before the refusal.
+ */
+export function setLiveVoiceScreenShare(
+  target: WatchCaptureTarget | null,
+): void {
+  const state = useLiveVoiceStore.getState();
+  if (
+    target !== null &&
+    (!isLiveVoiceSessionActive(state.state) || state.sightFramesUnsupported)
+  ) {
+    return;
+  }
+  state.setScreenShareTarget(target);
+}
+
 export function sendLiveVoiceSightFrame(
   attachmentId: string,
   sessionGeneration: number,

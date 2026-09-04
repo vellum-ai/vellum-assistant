@@ -4,6 +4,7 @@ import {
   type ClipboardSnapshot,
   type TextInsertionDeps,
   typeIntoFrontAppWithDeps,
+  undoInFrontAppWithDeps,
 } from "./textInsertion";
 
 type Harness = {
@@ -155,5 +156,31 @@ describe("typeIntoFrontApp", () => {
   });
 });
 
+describe("undoInFrontAppWithDeps", () => {
+  test("sends the undo keystroke to the application in front", async () => {
+    const harness = createHarness();
+    const result = await undoInFrontAppWithDeps(harness.deps);
 
+    expect(result).toEqual({ status: "inserted" });
+    expect(harness.runAppleScript).toHaveBeenCalledWith(
+      'tell application "System Events" to keystroke "z" using command down',
+    );
+  });
 
+  test("does nothing while a Vellum window is in front", async () => {
+    const harness = createHarness({ focused: true });
+    const result = await undoInFrontAppWithDeps(harness.deps);
+
+    expect(result).toEqual({ status: "vellum-focused" });
+    expect(harness.runAppleScript).not.toHaveBeenCalled();
+  });
+
+  test("reads a refused keystroke as blocked", async () => {
+    const harness = createHarness({
+      runAppleScript: () => Promise.reject(new Error("no")),
+    });
+    expect(await undoInFrontAppWithDeps(harness.deps)).toEqual({
+      status: "blocked",
+    });
+  });
+});
