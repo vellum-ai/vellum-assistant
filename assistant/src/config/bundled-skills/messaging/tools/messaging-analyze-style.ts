@@ -9,7 +9,10 @@ import {
 } from "../../../../persistence/jobs-store.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import { clampUnitInterval } from "../../../../plugins/defaults/memory/validation.js";
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -124,11 +127,19 @@ export async function run(
       );
     }
 
-    const result = await extractStylePatterns(searchResult.messages);
+    const result = await extractStylePatterns(
+      searchResult.messages,
+      context.signal,
+    );
 
     if (result.stylePatterns.length === 0) {
       return err("No style patterns were extracted. Try with more messages.");
     }
+
+    // Recheck: provider resolution, the message search and the paid analysis
+    // are all awaits, so a cancel landing in any of them must not still write
+    // every extracted style and relationship memory.
+    throwIfCancelled(context);
 
     let savedCount = 0;
 
@@ -179,6 +190,11 @@ export async function run(
 
     return ok(summary);
   } catch (e) {
+    // A cancelled turn is not an analysis failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

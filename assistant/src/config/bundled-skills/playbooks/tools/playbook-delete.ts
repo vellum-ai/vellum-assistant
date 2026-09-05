@@ -3,7 +3,10 @@ import {
   getNode,
   updateNode,
 } from "../../../../plugins/defaults/memory/graph/store.js";
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -50,6 +53,11 @@ export async function executePlaybookDelete(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a playbook failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error deleting playbook: ${msg}`, isError: true };
   }

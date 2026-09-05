@@ -28,6 +28,11 @@ export interface GeminiVideoOptions {
   context?: Record<string, unknown>;
   model?: string;
   maxRetries?: number;
+  /**
+   * Turn cancellation. Stops the upload/poll loop and aborts the paid
+   * generation calls instead of letting them run for their full deadline.
+   */
+  signal?: AbortSignal;
 }
 
 // 2 GB file size limit for Gemini Files API
@@ -45,8 +50,10 @@ async function waitForFileActive(
   client: GoogleGenAI,
   fileName: string,
   onProgress?: (msg: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   for (let i = 0; i < FILE_POLL_MAX_ATTEMPTS; i++) {
+    signal?.throwIfAborted();
     const fileInfo = await client.files.get({ name: fileName });
     if (fileInfo.state === "ACTIVE") {
       return;
@@ -122,12 +129,18 @@ export async function analyzeVideoDirectly(
     );
 
     // Wait for file to be processed
-    await waitForFileActive(client, uploadResult.name, onProgress);
+    await waitForFileActive(
+      client,
+      uploadResult.name,
+      onProgress,
+      options.signal,
+    );
     onProgress?.(`Video processed. Sending to ${model} for analysis...\n`);
 
     // Send to generateContent with retries
     let lastError: string | undefined;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      options.signal?.throwIfAborted();
       try {
         let promptText = `Analyzing full video (${durationSeconds.toFixed(
           1,
@@ -157,6 +170,7 @@ export async function analyzeVideoDirectly(
             },
           ],
           config: {
+            ...(options.signal ? { abortSignal: options.signal } : {}),
             systemInstruction: options.systemPrompt,
             responseMimeType: "application/json",
             responseSchema: options.outputSchema as never,

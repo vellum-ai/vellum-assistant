@@ -96,6 +96,7 @@ export const fileEditTool = {
       oldString,
       newString,
       replaceAll,
+      ...(context.signal ? { signal: context.signal } : {}),
     });
 
     if (!result.ok) {

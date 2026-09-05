@@ -514,6 +514,8 @@ export interface AppGenerateIconInput {
 export async function executeAppGenerateIcon(
   input: AppGenerateIconInput,
   store: AppStoreReader,
+  /** Turn cancellation, checked before the rename and the paid generation. */
+  signal?: AbortSignal,
 ): Promise<ExecutorResult> {
   const app = store.getApp(input.app_id);
   if (!app) {
@@ -529,6 +531,10 @@ export async function executeAppGenerateIcon(
   const { join } = await import("node:path");
   const iconPath = join(getAppDirPath(input.app_id), "icon.png");
   const tempPath = join(getAppDirPath(input.app_id), "icon.tmp.png");
+
+  // The dynamic imports above yield, so recheck before moving the user's
+  // existing icon aside and paying for a replacement.
+  signal?.throwIfAborted();
 
   // Temporarily move existing icon aside so generateAppIcon doesn't skip
   if (existsSync(iconPath)) {

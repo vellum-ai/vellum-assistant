@@ -24,7 +24,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { resolveGroupReference } from "../conversation-groups/group_shared.js";
-import { throwIfCancelled } from "../shared/abort.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -402,6 +402,11 @@ export async function executeScheduleUpdate(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a schedule failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error updating schedule: ${msg}`, isError: true };
   }

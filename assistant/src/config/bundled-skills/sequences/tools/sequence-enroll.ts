@@ -1,5 +1,8 @@
 import { enrollContact, getSequence } from "../../../../sequence/store.js";
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -52,6 +55,11 @@ export async function run(
         results.push(`  ${email} - enrolled (ID: ${enrollment.id})`);
         successCount++;
       } catch (e) {
+        // A cancelled turn is not an enrollment failure: let it reach the executor's
+        // abort handling instead of being rendered as a tool error.
+        if (isAbortLikeError(e)) {
+          throw e;
+        }
         results.push(
           `  ${email} - failed: ${e instanceof Error ? e.message : String(e)}`,
         );
@@ -64,6 +72,11 @@ export async function run(
       }":\n${results.join("\n")}`,
     );
   } catch (e) {
+    // A cancelled turn is not an enrollment failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

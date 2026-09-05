@@ -7,7 +7,10 @@
  * video content.
  */
 
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -49,6 +52,9 @@ export async function run(
     query,
     systemPrompt,
     model,
+    // Composed with the reduce deadline inside the service, so stopping the
+    // turn aborts the paid provider call rather than abandoning it.
+    ...(context.signal ? { signal: context.signal } : {}),
   };
 
   throwIfCancelled(context);
@@ -77,6 +83,11 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a query failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = (err as Error).message;
     return { content: msg, isError: true };
   }

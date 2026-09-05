@@ -5,7 +5,7 @@ import {
   resolveFollowUp,
 } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
-import { throwIfCancelled } from "../shared/abort.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -79,6 +79,11 @@ export async function executeFollowupResolve(
       };
     }
   } catch (err) {
+    // A cancelled turn is not a follow-up failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }

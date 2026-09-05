@@ -121,6 +121,9 @@ export async function executeAcpSpawn(
   try {
     const manager = getAcpSessionManager();
     const cwd = parsedInput.data.cwd || context.workingDir;
+    // Recheck: the auto-install and the agent-env preparation above are both
+    // awaits, and this is the point a long-lived subprocess starts.
+    throwIfCancelled(context);
     const { acpSessionId, protocolSessionId } = await manager.spawn(
       agent,
       agentConfig,

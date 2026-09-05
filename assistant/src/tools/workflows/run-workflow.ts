@@ -22,7 +22,7 @@ import { FALLBACK_TURN_TRUST } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
-import { throwIfCancelled } from "../shared/abort.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -111,6 +111,11 @@ export async function executeRunWorkflow(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a workflow failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to start workflow: ${msg}`, isError: true };
   }

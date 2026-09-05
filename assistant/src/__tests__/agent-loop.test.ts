@@ -6,7 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
-import type { StopContext } from "../plugin-api/types.js";
+import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
@@ -867,6 +867,69 @@ describe("AgentLoop", () => {
     expect(
       (block as { contentBlocks?: ContentBlock[] }).contentBlocks,
     ).toHaveLength(1);
+  });
+
+  // 6c-ii. Grace-settled output is truncated like any other tool result
+  test("an oversized result settling during the abort grace goes through the post-tool-use pipeline", async () => {
+    const controller = new AbortController();
+    const seen: number[] = [];
+
+    // Stand in for the truncate plugin: record what it was handed and shrink
+    // it, so the assertions prove the chain ran on the cancelled batch.
+    registerPlugin({
+      manifest: { name: "grace-truncate", version: "0.0.1" },
+      hooks: {
+        "post-tool-use": async (ctx: PostToolUseContext) => {
+          const block = ctx.toolResponse as { content: string };
+          seen.push(block.content.length);
+          return {
+            ...ctx,
+            toolResponse: { ...ctx.toolResponse, content: "truncated" },
+          };
+        },
+      },
+    });
+
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/big.txt" }),
+      textResponse("Should not reach"),
+    ]);
+
+    const oversized = "x".repeat(50_000);
+    const toolExecutor = async () => {
+      setTimeout(() => controller.abort(), 5);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { content: oversized, isError: false };
+    };
+
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
+
+    // The hook saw the full result and its rewrite reached both history and
+    // the client, so cancelling is not a way past the truncation pipeline.
+    expect(seen).toEqual([oversized.length]);
+    const resultEvent = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
+    );
+    expect(resultEvent!.content).toBe("truncated");
+
+    const lastMsg = history[history.length - 1];
+    const block = lastMsg.content.find((b) => b.type === "tool_result");
+    expect((block as { content: string }).content).toBe("truncated");
   });
 
   // 6d. A tool that ignores the signal is reported as possibly still running

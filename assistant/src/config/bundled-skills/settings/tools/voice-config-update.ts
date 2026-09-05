@@ -468,6 +468,10 @@ export async function run(
     };
   }
 
+  // Recheck: the managed-speech reachability probe above is an await, and the
+  // client broadcast and config write below are what the user would notice.
+  throwIfCancelled(context);
+
   const meta: VoiceSettingMeta = VOICE_SETTINGS[setting as VoiceSettingName];
   const friendlyName =
     setting === "tts_voice_id"
