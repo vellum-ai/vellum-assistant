@@ -93,6 +93,8 @@ import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
+import { mergeMessageMetadata } from "../persistence/message-metadata.js";
+import { injectionMetadataUpdates } from "../plugins/defaults/memory/hooks/injection-metadata.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
@@ -753,6 +755,115 @@ describe("loadFromDb metadata injection rehydration", () => {
         type: "text",
         text: `<memory>\nheader line\n\n${leadA}\n\n${leadB}\n</memory>`,
       },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  // `/conversations/:id/retry` re-runs a turn onto its original anchor row
+  // after a reload; the user-prompt-submit hook then merges the rerun's
+  // `injectionMetadataUpdates` into the row through `mergeMessageMetadata`.
+  // These build the row the same way and reload it.
+  test("retry: a rerun that injects a section body without a pointer leaves no stale pointer for the reload to restore", async () => {
+    mockConversation = defaultConv();
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock:
+        "header line\n\n# memory/concepts/page-a.md\nhead a",
+      memoryV3InjectedBlockFormat: 2,
+      memoryV3PointerBlock:
+        "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-b.md\n</memory_pointer>",
+    });
+    // page-b's lead was pruned since, so the rerun injected its body and
+    // pointed at nothing.
+    const rerun = injectionMetadataUpdates(
+      {
+        memoryV3Active: true,
+        memoryV3InjectedBlock:
+          "header line\n\n# memory/concepts/page-b.md\nhead b",
+      },
+      false,
+    )!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("retry on a spotlight-era anchor: an all-repeat rerun keeps the frozen block and drops the discarded spotlight", async () => {
+    mockConversation = defaultConv();
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock:
+        "header line\n\n# memory/concepts/page-a.md\nhead a",
+      memoryV3SpotlightBlock:
+        "<memory_spotlight>\n# memory/concepts/page-a.md § Alpha\nmatched section text\n</memory_spotlight>",
+    });
+    const rerun = injectionMetadataUpdates({ memoryV3Active: true }, false)!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("retry: a rerun that points again replaces the anchor's old pointer", async () => {
+    mockConversation = defaultConv();
+    const block = "header line\n\n# memory/concepts/page-a.md\nhead a";
+    const oldPointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-b.md\n</memory_pointer>";
+    const newPointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-c.md\n</memory_pointer>";
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock: block,
+      memoryV3InjectedBlockFormat: 2,
+      memoryV3PointerBlock: oldPointer,
+    });
+    const rerun = injectionMetadataUpdates(
+      { memoryV3Active: true, memoryV3PointerBlock: newPointer },
+      false,
+    )!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\n${block}\n</memory>` },
+      { type: "text", text: newPointer },
       { type: "text", text: "First turn" },
     ]);
   });

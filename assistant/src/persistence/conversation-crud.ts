@@ -42,7 +42,6 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
-import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
@@ -117,6 +116,7 @@ import {
 } from "./job-handlers/message-lexical.js";
 import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
+import { mergeMessageMetadata } from "./message-metadata.js";
 import {
   rawAll,
   rawExec,
@@ -4197,8 +4197,9 @@ export function finalizeMessageContent(
 }
 
 /**
- * Merge `updates` into the metadata JSON of an existing message.
- * Reads the current metadata, shallow-merges the new fields, and writes back.
+ * Merge `updates` into the metadata JSON of an existing message
+ * ({@link mergeMessageMetadata}). Reads the current metadata, shallow-merges
+ * the new fields, and writes back.
  */
 export function updateMessageMetadata(
   messageId: string,
@@ -4210,11 +4211,8 @@ export function updateMessageMetadata(
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
-  // Sanitized like the transactional sibling above: a malformed stored
-  // envelope must not fail the update that is trying to stamp the row.
-  const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
   db.update(messages)
-    .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
+    .set({ metadata: mergeMessageMetadata(row?.metadata, updates) })
     .where(eq(messages.id, messageId))
     .run();
 }
@@ -4241,11 +4239,10 @@ export function updateMessageContentAndMetadata(
       .from(messages)
       .where(eq(messages.id, messageId))
       .get();
-    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
     tx.update(messages)
       .set({
         content: newContent,
-        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+        metadata: mergeMessageMetadata(row?.metadata, metadataUpdates),
       })
       .where(eq(messages.id, messageId))
       .run();
