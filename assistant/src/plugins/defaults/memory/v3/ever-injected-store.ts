@@ -32,11 +32,7 @@ import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { memoryV3InjectedSections } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
-import {
-  memoryDbOrNull,
-  type MemorySqlite,
-  memorySqliteOrNull,
-} from "../memory-db.js";
+import { memoryDbOrNull, memorySqliteOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
@@ -45,40 +41,23 @@ import {
   parseInjectedSections,
   renderedBytes,
 } from "../substrate/injected-block-slugs.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
+import {
+  ensureMemoryV3InjectedSectionsSchema,
+  ensureOncePerConnection,
+} from "./plugin-schema.js";
 import type { SectionRef } from "./types.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
 
-/** Connections whose `memory_v3_injected_sections` schema this process has
- *  ensured. */
-const ensuredConnections = new WeakSet<MemorySqlite>();
-let ensureWarned = false;
-
 /**
  * Ensure the store's table on `raw` once per connection in this process
  * (see `plugin-schema.ts`, which also copies the legacy card rows in):
- * idempotent DDL, fail-open. A failed ensure warns once and leaves the
- * statement that follows to fail soft like any other; a reopened connection
- * is ensured again.
+ * idempotent DDL, fail-open.
  */
-function ensureSectionsSchemaOnce(raw: MemorySqlite): void {
-  if (ensuredConnections.has(raw)) {
-    return;
-  }
-  try {
-    ensureMemoryV3InjectedSectionsSchema(raw);
-    ensuredConnections.add(raw);
-  } catch (err) {
-    if (!ensureWarned) {
-      ensureWarned = true;
-      log.warn(
-        { err },
-        "failed to ensure memory_v3_injected_sections; section record degraded",
-      );
-    }
-  }
-}
+const ensureSectionsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3InjectedSectionsSchema,
+  "failed to ensure memory_v3_injected_sections; section record degraded",
+);
 
 /**
  * Ensure the store's table on the memory connection of this process, for the

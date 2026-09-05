@@ -906,6 +906,37 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
     expect(memoryV3TurnMemoSizeForTests()).toBe(2);
   });
 
+  test("after a burst of turns in flight past the cap, a tracked conversation's next turn (a refresh, not an insert) shrinks the memo back to capacity too", async () => {
+    liveEnabled = true;
+    setMemoryV3TurnMemoCapacityForTests(2);
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-c"], [["page-c", gamma]]));
+    const burst = ["conv-b1", "conv-b2", "conv-b3", "conv-b4"];
+    for (const id of burst) {
+      processingConversations.add(id);
+    }
+    for (const id of burst) {
+      await produceSections(id, 0);
+    }
+    expect(memoryV3TurnMemoSizeForTests()).toBe(burst.length);
+
+    // The burst finishes and only an already-tracked conversation stays
+    // active: its next turn refreshes its own entry, evicting idle entries
+    // until the map fits, and keeps that entry for its own re-entries.
+    processingConversations.clear();
+    processingConversations.add("conv-b1");
+    const first = await produceSections("conv-b1", 1);
+    expect(first!.text).toContain("§ Gamma");
+    expect(memoryV3TurnMemoSizeForTests()).toBe(2);
+
+    const again = await produceSectionsWithoutCommit("conv-b1", 1);
+    expect(again!.text).toBe(first!.text);
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(
+      observeTurnSpy.mock.calls.filter(([id]) => id === "conv-b1"),
+    ).toHaveLength(2);
+  });
+
   test("a re-entry never revives a section the valve tombstoned since the first produce", async () => {
     liveEnabled = true;
     turnResults.set(

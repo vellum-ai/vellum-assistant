@@ -10,8 +10,9 @@
  * the live injector freezes only the turn's NET-NEW sections into history and
  * points at the rest. Here we re-render EVERY selection with the injector's
  * own entry renderer (`renderV3InjectionEntry`): the MATCHED SECTION resolved
- * from the persisted `(slug, ordinal)` against the current page when one was
- * recorded, the page's lead otherwise. Section text is re-derived from the
+ * from the persisted section key (title and ordinal for rows recorded before
+ * keys were persisted) against the current page when one was recorded, the
+ * page's lead otherwise. Section text is re-derived from the
  * current page, so it reflects bounded page-drift if the page changed since
  * the turn (the same approximation the v2 inspector accepts).
  *
@@ -35,6 +36,7 @@ import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3InjectionEntry } from "./page-content.js";
+import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
 import {
   type PoolRecord,
   readPoolForMessageIds,
@@ -44,6 +46,7 @@ import { renderInjectionBlockInner } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
 import {
   type Section,
+  sectionKey,
   SELECTION_SOURCES,
   type SelectionSource,
   type Slug,
@@ -56,12 +59,26 @@ interface SelectionRow {
   source: string;
   section_ordinal: number | null;
   section_title: string | null;
+  /** The matched section's `sectionKey`; null for rows recorded before the
+   *  column existed and for selections with no matched section. */
+  section_key: string | null;
 }
 
-const SELECTION_COLUMNS = `conversation_id, turn, slug, source, section_ordinal, section_title`;
+const SELECTION_COLUMNS = `conversation_id, turn, slug, source, section_ordinal, section_title, section_key`;
+
+/** The memory connection with the selection log's plugin-owned
+ *  `section_key` column ensured on the connection's first use in this
+ *  process (`plugin-schema.ts`); `null` when the connection is unavailable. */
+function selectionsDb(context: string): ReturnType<typeof memorySqliteOrNull> {
+  const raw = memorySqliteOrNull(context);
+  if (raw) {
+    ensureMemoryV3SelectionsSectionKeyOnce(raw);
+  }
+  return raw;
+}
 
 function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
-  const raw = memorySqliteOrNull("rowsForTurn");
+  const raw = selectionsDb("rowsForTurn");
   if (!raw) {
     return [];
   }
@@ -82,7 +99,7 @@ function rowsForMessageIds(messageIds: string[]): SelectionRow[] | null {
   if (messageIds.length === 0) {
     return null;
   }
-  const raw = memorySqliteOrNull("rowsForMessageIds");
+  const raw = selectionsDb("rowsForMessageIds");
   if (!raw) {
     return null;
   }
@@ -159,27 +176,37 @@ function viaForkSource<T>(
 }
 
 /**
- * The current section a persisted selection row names. The recorded title
- * is the identity: chunk counts and ordinals shift whenever a page is edited
- * or the chunker changes, so a row resolves to the current section carrying
- * its `section_title`, the recorded ordinal only choosing among repeated
- * headings or chunks of that title when it still points at one of them and
- * the first occurrence otherwise. A title no longer on the page resolves to
- * nothing (the lead renders instead). Rows recorded without a title (older
- * rows) fall back to the ordinal alone.
+ * The current section a persisted selection row names. A row recorded with
+ * a `section_key` resolves to the current section carrying exactly that key
+ * (`sectionKey` in `types.ts`: title, heading occurrence, and chunk), so an
+ * edit or re-chunk of an earlier occurrence of a repeated heading can never
+ * redirect it to another occurrence; a key no longer on the page resolves to
+ * nothing (the lead renders instead). A row recorded before keys were
+ * persisted resolves by its title: chunk counts and ordinals shift whenever
+ * a page is edited or the chunker changes, so it takes the current section
+ * carrying its `section_title`, the recorded ordinal only choosing among
+ * repeated headings or chunks of that title when it still points at one of
+ * them and the first occurrence otherwise. A row with neither falls back to
+ * the ordinal alone.
  */
 function resolveRecordedSection(
   index: Awaited<ReturnType<typeof buildSectionIndex>>,
   row: SelectionRow,
 ): Section | undefined {
+  const sections = (index.byArticle.get(row.slug) ?? []).map(
+    (i) => index.sections[i]!,
+  );
+  if (row.section_key !== null) {
+    return sections.find((section) => sectionKey(section) === row.section_key);
+  }
   if (row.section_title === null) {
     return row.section_ordinal === null
       ? undefined
       : sectionByOrdinal(index, row.slug, row.section_ordinal);
   }
-  const titled = (index.byArticle.get(row.slug) ?? [])
-    .map((i) => index.sections[i]!)
-    .filter((section) => section.title === row.section_title);
+  const titled = sections.filter(
+    (section) => section.title === row.section_title,
+  );
   return (
     titled.find((section) => section.ordinal === row.section_ordinal) ??
     titled[0]
@@ -190,14 +217,19 @@ function resolveRecordedSection(
  * Resolve each selection's persisted matched section to the concrete
  * `Section` in the CURRENT page (see {@link resolveRecordedSection}), so the
  * injected block renders the matched section rather than the lead. Only rows
- * that recorded a section (a title or an ordinal) are resolved; core, hot,
- * fresh, and edge selections record none and render the lead.
+ * that recorded a section (a key, a title, or an ordinal) are resolved; core,
+ * hot, fresh, and edge selections record none and render the lead.
  */
 async function reconstructMatchedSections(
   rows: SelectionRow[],
 ): Promise<Map<Slug, Section>> {
   const sectionSlugs = rows
-    .filter((r) => r.section_ordinal != null || r.section_title != null)
+    .filter(
+      (r) =>
+        r.section_key != null ||
+        r.section_ordinal != null ||
+        r.section_title != null,
+    )
     .map((r) => r.slug);
   if (sectionSlugs.length === 0) {
     return new Map();

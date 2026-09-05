@@ -20,6 +20,7 @@ import { getLogger } from "../logging.js";
 import { runMemoryStartup } from "../startup.js";
 import { ensureMemoryV3InjectedSectionsStore } from "../v3/ever-injected-store.js";
 import { ensureMemoryV3PoolsStore } from "../v3/pool-log-store.js";
+import { ensureMemoryV3SelectionsStore } from "../v3/shadow-plugin.js";
 
 const log = getLogger("memory-init");
 
@@ -31,13 +32,16 @@ const init: HookFunction<InitContext> = async () => {
   // against an empty table and failed as an unknown type.
   registerMemoryPluginJobHandlers();
 
-  // The memory-v3 plugin-owned tables on the memory connection
-  // (`v3/plugin-schema.ts`): created idempotently on every boot, fail-open
-  // (an unopenable memory database degrades the stores to no-ops rather
-  // than failing readiness). Each store ensures again on the first use of a
-  // connection in its process, which covers the memory worker.
+  // The memory-v3 plugin-owned schema on the memory connection
+  // (`v3/plugin-schema.ts`): the pools and injected-sections tables and the
+  // selection log's `section_key` column, ensured idempotently on every
+  // boot, fail-open (an unopenable memory database degrades the stores to
+  // no-ops rather than failing readiness). Each store ensures again on the
+  // first use of a connection in its process, which covers the memory
+  // worker.
   ensureMemoryV3PoolsStore();
   ensureMemoryV3InjectedSectionsStore();
+  ensureMemoryV3SelectionsStore();
 
   // Boot Qdrant, reconcile collections, and start the memory jobs worker in the
   // background so the daemon keeps accepting requests without waiting on it.

@@ -229,7 +229,10 @@ first-call site that persists them. The memo is an LRU over conversations
 (cap 256, counted over idle ones): an entry whose conversation is still
 processing (the loop's busy flag, the window every re-entry runs in) is never
 evicted, so a turn in flight keeps its re-entry bytes however many other
-conversations touch the process, and only idle conversations' memos leave. After a compaction the re-rendered
+conversations touch the process, and only idle conversations' memos leave; a
+burst of turns in flight can carry the map past the cap, and every touch
+after it, an insert or a refresh of a tracked conversation's entry, evicts
+idle entries until it fits again. After a compaction the re-rendered
 sections stay unclaimed: the next turn injects them net-new onto its own
 persisted user message, and the re-entry copy is superseded by the newest-copy
 rule at the following assembly; that rule reaches capability chunks too, under
@@ -376,7 +379,7 @@ Persisted rows; a rename orphans every existing install.
 | `activation_state`                | v2 per-conversation activation                                  |
 | `memory_v2_activation_logs`       | v2 inspector/harness                                            |
 | `memory_v2_injection_events`      | v2 scoring feedback                                             |
-| `memory_v3_selections`            | v3 selection log                                                |
+| `memory_v3_selections`            | v3 selection log (`section_key` column plugin-added, see below) |
 | `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
 | `memory_v3_injected_sections`     | v3 section dedup + prune accounting (plugin-created, see below) |
 | `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
@@ -392,7 +395,14 @@ so a memory database that cannot be opened degrades the stores to no-ops
 instead of failing database readiness. The sections ensure also copies the
 legacy `memory_v3_ever_injected` rows in as lead entries (`INSERT OR IGNORE`,
 plus the `frozen_card_bytes` column and backfill for a table created without
-it).
+it). `memory_v3_selections` itself is created by migration 338, but its
+`section_key` column is plugin-owned the same way: the selection log's writer
+(`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
+it on the first use of a connection, and the `init` hook at boot. Every
+selection row records its matched section's `sectionKey` beside the title and
+ordinal, and the inspector resolves a row by that key first (exactly, so a
+repeated heading's other occurrence is never substituted), falling back to
+title-then-ordinal only for rows written before the column existed.
 
 `memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
 selector's full candidate pool (every stable-prefix card and finder line, in

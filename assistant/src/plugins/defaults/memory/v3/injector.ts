@@ -136,7 +136,8 @@ const log = getLogger("memory-v3-shadow");
  * would read the turn's committed sections as resident and emit pointers
  * for bodies the re-injection strip cleared. The map can therefore exceed
  * the cap by the number of turns in flight, never by idle entries, and the
- * inserts that follow such a burst evict idle entries until it fits again.
+ * touches that follow such a burst, inserts and refreshes alike, evict idle
+ * entries until it fits again.
  */
 const MAX_TRACKED_CONVERSATIONS = 256;
 let trackedConversationsCap = MAX_TRACKED_CONVERSATIONS;
@@ -168,24 +169,23 @@ function turnInFlight(conversationId: string): boolean {
  * LRU-set `key` on `map`: delete-then-set so a re-touched key moves to the
  * back of the Map's insertion order (a plain `set` on an existing key keeps
  * its original position, which would evict the most long-lived ACTIVE
- * conversation first). Eviction only fires when inserting a genuinely new
- * key at the cap, and takes the least-recently-touched entry whose turn is
- * not in flight.
+ * conversation first). Eviction fires on any touch, an insert or a refresh
+ * of a tracked key, that finds the rest of the map at the cap, and takes
+ * the least-recently-touched entries whose turn is not in flight.
  */
 function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
-  if (map.has(key)) {
-    map.delete(key);
-  } else {
-    // Evict idle entries, least recently touched first, until the insert
-    // fits the cap: a burst of turns in flight can carry the map past it,
-    // and the next inserts bring it back once they finish.
-    for (const candidate of map.keys()) {
-      if (map.size < trackedConversationsCap) {
-        break;
-      }
-      if (!turnInFlight(candidate)) {
-        map.delete(candidate);
-      }
+  map.delete(key);
+  // Evict idle entries, least recently touched first, until the entry fits
+  // the cap: a burst of turns in flight can carry the map past it, and the
+  // touches that follow bring it back once they finish. A refresh evicts
+  // like an insert, since after a burst the only conversations still
+  // active may all be tracked already.
+  for (const candidate of map.keys()) {
+    if (map.size < trackedConversationsCap) {
+      break;
+    }
+    if (!turnInFlight(candidate)) {
+      map.delete(candidate);
     }
   }
   map.set(key, value);

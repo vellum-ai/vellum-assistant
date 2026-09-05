@@ -16,12 +16,13 @@
  *
  * `injectedText` is inspector-only, not a verbatim record of the live block,
  * which freezes only the turn's net-new sections. It re-renders every
- * selection's matched section, resolved from the persisted
- * `(slug, sectionOrdinal)` against the CURRENT page, falling back to the
- * page's lead when no section was recorded. Because the section text is
- * re-derived from the current page, it reflects bounded page-drift if the page
- * changed since the turn (the same approximation the v2 inspector accepts). The
- * selected slug set and each row's matched-section heading are exact as logged.
+ * selection's matched section, resolved from its persisted section key
+ * (title and ordinal for rows recorded before keys) against the CURRENT page,
+ * falling back to the page's lead when no section was recorded. Because the
+ * section text is re-derived from the current page, it reflects bounded
+ * page-drift if the page changed since the turn (the same approximation the
+ * v2 inspector accepts). The selected slug set and each row's matched-section
+ * heading are exact as logged.
  *
  * `pool` is the selector's full candidate pool for the turn as persisted in
  * `memory_v3_pools`: every stable-prefix card and finder line in pool order,
@@ -92,8 +93,8 @@ export type MemoryV3SelectionRow = z.infer<typeof MemoryV3SelectionRowSchema>;
 /**
  * Memory v3 selection log shape. `injectedText` is the rendered
  * `<memory>…</memory>` block for the selection — re-rendered from the persisted
- * rows, with each selection's matched section resolved from its
- * `(slug, sectionOrdinal)` (lead fallback when none). `pool` is the turn's
+ * rows, with each selection's matched section resolved from its persisted
+ * section key (lead fallback when none). `pool` is the turn's
  * candidate pool, null for turns logged before pools were persisted; optional
  * so a client ahead of its assistant still parses. See the file header.
  */

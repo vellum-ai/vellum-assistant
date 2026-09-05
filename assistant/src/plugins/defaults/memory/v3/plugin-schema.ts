@@ -1,20 +1,69 @@
 /**
- * The memory-v3 plugin's own tables on the dedicated memory connection
- * (`assistant-memory.db`): `memory_v3_pools` and
- * `memory_v3_injected_sections`. Plugin storage is created by the plugin,
+ * The memory-v3 plugin's own schema on the dedicated memory connection
+ * (`assistant-memory.db`): the `memory_v3_pools` and
+ * `memory_v3_injected_sections` tables, and the `section_key` column of
+ * `memory_v3_selections`. Plugin storage is created by the plugin,
  * idempotently and fail-open, never by the global migration chain that gates
- * database readiness: the memory plugin's `init` hook runs both ensures on
+ * database readiness: the memory plugin's `init` hook runs every ensure on
  * every boot, and each store runs its own again on the first use of a
  * connection in its process (the memory worker is a separate process). A
  * memory database that cannot be opened therefore degrades the stores to
  * no-ops instead of failing the daemon's readiness.
  *
- * This module touches no connection itself (it takes the raw handle), so
- * tests can stand up the memory-side schema on an in-memory database before
- * installing their connection stubs.
+ * This module touches no connection itself (every ensure takes the raw
+ * handle), so tests can stand up the memory-side schema on an in-memory
+ * database before installing their connection stubs.
  */
 
+import { getLogger } from "../logging.js";
 import type { MemorySqlite } from "../memory-db.js";
+
+const log = getLogger("memory-v3-plugin-schema");
+
+/**
+ * Wrap a schema ensure so it runs once per connection in this process:
+ * idempotent DDL, fail-open. A failed ensure warns once, with
+ * `degradedMessage`, and leaves the statement that follows to fail soft like
+ * any other; the connection is tried again on its next use, and a reopened
+ * connection is ensured again.
+ */
+export function ensureOncePerConnection(
+  ensure: (memoryRaw: MemorySqlite) => void,
+  degradedMessage: string,
+): (memoryRaw: MemorySqlite) => void {
+  const ensured = new WeakSet<MemorySqlite>();
+  let warned = false;
+  return (memoryRaw) => {
+    if (ensured.has(memoryRaw)) {
+      return;
+    }
+    try {
+      ensure(memoryRaw);
+      ensured.add(memoryRaw);
+    } catch (err) {
+      if (!warned) {
+        warned = true;
+        log.warn({ err }, degradedMessage);
+      }
+    }
+  };
+}
+
+/** Add `column`, declared as `type`, to `table` unless it already has it. */
+function ensureColumn(
+  memoryRaw: MemorySqlite,
+  table: string,
+  column: string,
+  type: string,
+): void {
+  const columns = memoryRaw
+    .query(/*sql*/ `PRAGMA table_info(${table})`)
+    .all() as Array<{ name: string }>;
+  if (columns.some((existing) => existing.name === column)) {
+    return;
+  }
+  memoryRaw.exec(/*sql*/ `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
 
 /**
  * Create `memory_v3_pools` and its indexes. One row per `(conversation,
@@ -88,14 +137,7 @@ export function ensureMemoryV3InjectedSectionsSchema(
       PRIMARY KEY (conversation_id, slug, section_key)
     )
   `);
-  const columns = memoryRaw
-    .query(/*sql*/ `PRAGMA table_info(${SECTIONS_TABLE})`)
-    .all() as Array<{ name: string }>;
-  if (!columns.some((column) => column.name === "frozen_card_bytes")) {
-    memoryRaw.exec(
-      /*sql*/ `ALTER TABLE ${SECTIONS_TABLE} ADD COLUMN frozen_card_bytes INTEGER`,
-    );
-  }
+  ensureColumn(memoryRaw, SECTIONS_TABLE, "frozen_card_bytes", "INTEGER");
   memoryRaw.exec(/*sql*/ `
     CREATE INDEX IF NOT EXISTS idx_memory_v3_injected_sections_conv
       ON ${SECTIONS_TABLE} (conversation_id)
@@ -129,3 +171,29 @@ export function ensureMemoryV3InjectedSectionsSchema(
       )
   `);
 }
+
+const SELECTIONS_TABLE = "memory_v3_selections";
+
+/**
+ * Add `section_key` to `memory_v3_selections`, the v3 selection log: the
+ * matched section's `sectionKey` (`types.ts`), the identity the inspector
+ * resolves a logged selection's section by, beside the `section_title` and
+ * `section_ordinal` the table carries from its migrations. The table itself
+ * is created on the memory connection by migration 338 (the relocation),
+ * which runs before the plugin on every install, so this ensure only adds
+ * the column, idempotently, and fails on a connection without the table,
+ * which {@link ensureMemoryV3SelectionsSectionKeyOnce} reports and retries
+ * on the connection's next use.
+ */
+export function ensureMemoryV3SelectionsSectionKey(
+  memoryRaw: MemorySqlite,
+): void {
+  ensureColumn(memoryRaw, SELECTIONS_TABLE, "section_key", "TEXT");
+}
+
+/** {@link ensureMemoryV3SelectionsSectionKey} once per connection in this
+ *  process, for the selection log's writer and its inspector reader. */
+export const ensureMemoryV3SelectionsSectionKeyOnce = ensureOncePerConnection(
+  ensureMemoryV3SelectionsSectionKey,
+  "failed to ensure memory_v3_selections.section_key; selection log degraded",
+);

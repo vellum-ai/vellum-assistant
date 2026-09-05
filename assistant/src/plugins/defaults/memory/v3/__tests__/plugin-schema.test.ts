@@ -2,17 +2,24 @@
  * The memory-v3 plugin's own schema on the memory connection
  * (`v3/plugin-schema.ts`): `memory_v3_injected_sections` is created
  * idempotently and seeded from the card-grain `memory_v3_ever_injected`, one
- * lead entry per legacy row; `memory_v3_pools` is created idempotently. Both
- * ensures take the raw handle, so these tests run on in-memory databases with
- * no connection stub.
+ * lead entry per legacy row; `memory_v3_pools` is created idempotently; the
+ * selection log's `section_key` column is added to the `memory_v3_selections`
+ * table migration 338 creates. Every ensure takes the raw handle, so these
+ * tests run on in-memory databases with no connection stub, and the
+ * once-per-connection wrapper the stores share is exercised on plain handles
+ * the same way.
  */
 
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import {
   ensureMemoryV3InjectedSectionsSchema,
   ensureMemoryV3PoolsSchema,
+  ensureMemoryV3SelectionsSectionKey,
+  ensureMemoryV3SelectionsSectionKeyOnce,
+  ensureOncePerConnection,
 } from "../plugin-schema.js";
 
 interface Row {
@@ -229,5 +236,88 @@ describe("ensureMemoryV3PoolsSchema", () => {
         "idx_memory_v3_pools_conv",
       ]),
     );
+  });
+});
+
+describe("ensureMemoryV3SelectionsSectionKey", () => {
+  function columnNames(db: Database): string[] {
+    return (
+      db.query(`PRAGMA table_info(memory_v3_selections)`).all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+  }
+
+  test("adds section_key to the table migration 338 creates, keeping its rows", () => {
+    ensureMemoryV3SelectionsSchema(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_selections
+        (conversation_id, turn, slug, source, created_at, section_ordinal,
+         section_title)
+      VALUES ('conv-1', 0, 'topics/page-a', 'needle', 1000, 2, 'Notes')
+    `);
+
+    ensureMemoryV3SelectionsSectionKey(memorySqlite);
+
+    expect(columnNames(memorySqlite)).toContain("section_key");
+    expect(
+      memorySqlite
+        .query(
+          `SELECT slug, section_title, section_key FROM memory_v3_selections`,
+        )
+        .all(),
+    ).toEqual([
+      { slug: "topics/page-a", section_title: "Notes", section_key: null },
+    ]);
+  });
+
+  test("is a no-op on a table that already has the column", () => {
+    ensureMemoryV3SelectionsSchema(memorySqlite);
+    ensureMemoryV3SelectionsSectionKey(memorySqlite);
+    const columns = columnNames(memorySqlite);
+
+    ensureMemoryV3SelectionsSectionKey(memorySqlite);
+
+    expect(columnNames(memorySqlite)).toEqual(columns);
+    expect(columns.filter((name) => name === "section_key")).toHaveLength(1);
+  });
+
+  test("fails on a connection without the table, which the once-per-connection ensure retries once the table is there", () => {
+    expect(() => ensureMemoryV3SelectionsSectionKey(memorySqlite)).toThrow();
+
+    expect(() =>
+      ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite),
+    ).not.toThrow();
+    ensureMemoryV3SelectionsSchema(memorySqlite);
+    ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite);
+
+    expect(columnNames(memorySqlite)).toContain("section_key");
+  });
+});
+
+describe("ensureOncePerConnection", () => {
+  test("runs the ensure once per connection, again for a new connection, and retries a connection whose ensure failed", () => {
+    const runs: unknown[] = [];
+    let failing = true;
+    const ensureOnce = ensureOncePerConnection((raw) => {
+      runs.push(raw);
+      if (failing) {
+        throw new Error("no such table");
+      }
+    }, "degraded");
+
+    ensureOnce(memorySqlite);
+    ensureOnce(memorySqlite);
+    expect(runs).toHaveLength(2);
+
+    failing = false;
+    ensureOnce(memorySqlite);
+    ensureOnce(memorySqlite);
+    expect(runs).toHaveLength(3);
+
+    const reopened = new Database(":memory:");
+    ensureOnce(reopened);
+    ensureOnce(reopened);
+    expect(runs).toHaveLength(4);
   });
 });

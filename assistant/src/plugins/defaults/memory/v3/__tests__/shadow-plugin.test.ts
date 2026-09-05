@@ -682,6 +682,42 @@ describe("memory-v3 engine", () => {
     expect(readPools()).toHaveLength(0);
   });
 
+  test("the turn log persists each row's section key, adding the column to a selections table created without it", () => {
+    // `makeDb` stands the table up as migration 338 leaves it, without
+    // `section_key`; the writer's first use of the connection adds it.
+    const result = poolOf(["page-1"]);
+    writeTurnLog(
+      "conv-1",
+      1,
+      [
+        {
+          slug: "page-1",
+          source: "needle",
+          sectionOrdinal: 3,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      buildPoolRecord(result),
+    );
+
+    expect(
+      memorySqlite
+        .query(
+          `SELECT slug, section_ordinal, section_title, section_key
+           FROM memory_v3_selections`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        slug: "page-1",
+        section_ordinal: 3,
+        section_title: "Notes",
+        section_key: "Notes#1",
+      },
+    ]);
+  });
+
   test("observeTurn runs orchestration and writes rows with per-lane sources", async () => {
     await observeTurn("conv-1", 2);
 
@@ -960,6 +996,42 @@ describe("memory-v3 engine", () => {
         source: "core",
         sectionOrdinal: null,
         sectionTitle: null,
+        sectionKey: null,
+      },
+    ]);
+  });
+
+  test("a finder hit records the matched section's key beside its title and ordinal, so a repeat of a heading keeps its occurrence", () => {
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1" }],
+      matchedSections: new Map([
+        [
+          "page-1",
+          {
+            article: "page-1",
+            title: "Notes",
+            text: "page-1 - Notes\nsecond notes",
+            ordinal: 3,
+            occurrence: 1,
+          },
+        ],
+      ]),
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [{ slug: "page-1", descriptor: "", lane: "needle" }],
+      },
+      selectorRan: true,
+    });
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "needle",
+        sectionOrdinal: 3,
+        sectionTitle: "Notes",
+        sectionKey: "Notes#1",
       },
     ]);
   });

@@ -73,6 +73,12 @@ export const memoryV3Selections = sqliteTable(
     messageId: text("message_id"),
     sectionOrdinal: integer("section_ordinal"),
     sectionTitle: text("section_title"),
+    /** The matched section's `sectionKey` (`v3/types.ts`), the identity the
+     *  inspector resolves the section by. Plugin-owned: added by the memory
+     *  plugin's schema ensure (`v3/plugin-schema.ts`), not by the migration
+     *  chain. `null` for rows written before the column existed and for
+     *  selections with no matched section. */
+    sectionKey: text("section_key"),
   },
   (table) => [
     primaryKey({ columns: [table.conversationId, table.turn, table.slug] }),

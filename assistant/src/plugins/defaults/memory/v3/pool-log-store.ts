@@ -31,7 +31,10 @@
 import { getLogger } from "../logging.js";
 import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
-import { ensureMemoryV3PoolsSchema } from "./plugin-schema.js";
+import {
+  ensureMemoryV3PoolsSchema,
+  ensureOncePerConnection,
+} from "./plugin-schema.js";
 import type { FinderLane, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-pool-log");
@@ -133,39 +136,13 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
 }
 
 /**
- * Write the turn's pool row on `raw`. The PK is `(conversation_id, turn)`,
- * so a re-observed turn overwrites its row, with `message_id` reset to NULL
- * for the turn-end backfill. Throws on a failed statement: `writeTurnLog` in
- * `shadow-plugin.ts` runs this inside the transaction that also replaces the
- * turn's selection rows, and owns the best-effort boundary around it.
- */
-/** Connections whose `memory_v3_pools` schema this process has ensured. */
-const ensuredConnections = new WeakSet<MemorySqlite>();
-let ensureWarned = false;
-
-/**
  * Ensure the store's table on `raw` once per connection in this process
- * (see `plugin-schema.ts`): idempotent DDL, fail-open. A failed ensure warns
- * once and leaves the statement that follows to fail soft like any other; a
- * reopened connection is ensured again.
+ * (see `plugin-schema.ts`): idempotent DDL, fail-open.
  */
-function ensurePoolsSchemaOnce(raw: MemorySqlite): void {
-  if (ensuredConnections.has(raw)) {
-    return;
-  }
-  try {
-    ensureMemoryV3PoolsSchema(raw);
-    ensuredConnections.add(raw);
-  } catch (err) {
-    if (!ensureWarned) {
-      ensureWarned = true;
-      log.warn(
-        { err },
-        "failed to ensure memory_v3_pools; pool logging degraded",
-      );
-    }
-  }
-}
+const ensurePoolsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3PoolsSchema,
+  "failed to ensure memory_v3_pools; pool logging degraded",
+);
 
 /**
  * Ensure the store's table on the memory connection of this process, for the
@@ -179,6 +156,13 @@ export function ensureMemoryV3PoolsStore(): void {
   }
 }
 
+/**
+ * Write the turn's pool row on `raw`. The PK is `(conversation_id, turn)`,
+ * so a re-observed turn overwrites its row, with `message_id` reset to NULL
+ * for the turn-end backfill. Throws on a failed statement: `writeTurnLog` in
+ * `shadow-plugin.ts` runs this inside the transaction that also replaces the
+ * turn's selection rows, and owns the best-effort boundary around it.
+ */
 export function writePool(
   raw: MemorySqlite,
   conversationId: string,
