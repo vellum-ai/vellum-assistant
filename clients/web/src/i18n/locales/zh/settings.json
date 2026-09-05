@@ -455,12 +455,12 @@
     "urlPlaceholder": "在此处粘贴回调 URL..."
   },
   "checkoutBonusModal": {
-    "body": "领取一次性 {amount} 积分，我们将直接将其添加到您的账户余额中。无需支付。",
-    "claim": "领取 {amount} 积分",
+    "body": "领取一次性 {amount} 额外用量，我们将直接将其添加到您的使用余额中。无需支付。",
+    "claim": "领取 {amount} 额外用量",
     "decline": "不用了，谢谢",
-    "errorToast": "无法添加积分。请重试。",
-    "grantedToast": "{amount} 积分已添加到您的账户。",
-    "title": "我们赠送您 {amount}",
+    "errorToast": "无法添加额外用量。请重试。",
+    "grantedToast": "{amount} 额外用量已添加到您的使用余额。",
+    "title": "我们赠送您 {amount} 额外用量",
     "unavailableToast": "此优惠已不再可用。"
   },
   "checkoutPage": {
