@@ -391,9 +391,9 @@ export interface RecentSimilarSpawns {
  * twice.
  *
  * Rows hold the raw objective as the caller wrote it, every role alike, which
- * is what lets one fold compare them. So the fold has to happen on the column
- * too. It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and has no
- * whitespace-collapsing function, so a SQL predicate would disagree with
+ * is what lets one fold compare them, so the fold has to happen on the column
+ * too. It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and
+ * has no whitespace-collapsing function, so a SQL predicate would disagree with
  * {@link normalizeSpawnObjective} on exactly the objectives (accented, oddly
  * spaced) a re-run is most likely to differ by.
  */
