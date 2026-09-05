@@ -135,8 +135,10 @@ when the page was selected without a match; a capability slug renders its
 whole capability content) into one frozen `<memory>` block, net-new only:
 `memory_v3_injected_sections` records one row per `(conversation, slug,
 section key)` ever injected, where the key is `v3/types.ts`'s `sectionKey()`
-(`""` for the lead, the trimmed heading title otherwise, `title#<n>` for a
-chunked or repeated heading), and a resident pair is never re-rendered. The
+(`""` for the lead, the trimmed heading title otherwise, `title#<n>` for the
+n-th repeat of a heading and `~<n>` appended for the n-th chunk of an over-long
+section, with literal `#` and `~` in titles doubled so the encoding is a
+bijection), and a resident pair is never re-rendered. The
 block's inner grammar is one `# memory/concepts/<slug>.md § <key>` header per
 section (the bare page header for a lead), owned by
 `substrate/injected-block-slugs.ts`. A chunk boundary is a producer header on

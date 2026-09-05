@@ -211,6 +211,31 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
     expect(getInjected("conv-1")).toHaveLength(3);
   });
 
+  test("tombstones a plan far larger than one batch (and SQLite's expression depth) in one call", () => {
+    const refs = Array.from({ length: 1_100 }, (_, i) => ({
+      slug: `topics/page-${i}`,
+      key: i % 2 === 0 ? "" : "Notes",
+    }));
+    recordInjected(
+      "conv-1",
+      refs.map((ref) => ({ ...ref, bytes: 1 })),
+      1_000,
+    );
+    recordInjected("conv-1", [{ slug: "survivor", key: "", bytes: 7 }], 1_000);
+    expect(residentBytes("conv-1")).toBe(1_107);
+
+    markPruned("conv-1", refs, 2_000);
+
+    expect(residentBytes("conv-1")).toBe(7);
+    expect(getActiveSections("conv-1")).toEqual(
+      new Map([["survivor", new Set([""])]]),
+    );
+    expect(getPrunedSections("conv-1").size).toBe(1_100);
+    expect(
+      getInjected("conv-1").filter((row) => row.prunedAt === 2_000),
+    ).toHaveLength(1_100);
+  });
+
   test("empty ref list is a no-op and residentBytes is 0 for unknown conversations", () => {
     recordInjected(
       "conv-1",

@@ -256,9 +256,17 @@ export function recordInjected(
   }
 }
 
+/** Composite keys per tombstone statement. Each key is one `OR` term, and
+ *  SQLite caps expression depth at 1000, so a plan of any size is applied in
+ *  batches well under that. */
+const PRUNE_KEY_BATCH_SIZE = 100;
+
 /**
  * Mark sections pruned from the live context. Rows are never deleted: the
  * record stays auditable and the sections stay eligible for re-injection.
+ * The update runs in {@link PRUNE_KEY_BATCH_SIZE}-key batches inside one
+ * transaction, so a large plan neither exceeds SQLite's expression-depth
+ * limit nor leaves a partially applied tombstone set.
  */
 export function markPruned(
   conversationId: string,
@@ -273,23 +281,27 @@ export function markPruned(
     if (!mdb) {
       return;
     }
-    mdb
-      .update(memoryV3InjectedSections)
-      .set({ prunedAt: at })
-      .where(
-        and(
-          eq(memoryV3InjectedSections.conversationId, conversationId),
-          or(
-            ...refs.map((ref) =>
-              and(
-                eq(memoryV3InjectedSections.slug, ref.slug),
-                eq(memoryV3InjectedSections.sectionKey, ref.key),
+    mdb.transaction((tx) => {
+      for (let i = 0; i < refs.length; i += PRUNE_KEY_BATCH_SIZE) {
+        const batch = refs.slice(i, i + PRUNE_KEY_BATCH_SIZE);
+        tx.update(memoryV3InjectedSections)
+          .set({ prunedAt: at })
+          .where(
+            and(
+              eq(memoryV3InjectedSections.conversationId, conversationId),
+              or(
+                ...batch.map((ref) =>
+                  and(
+                    eq(memoryV3InjectedSections.slug, ref.slug),
+                    eq(memoryV3InjectedSections.sectionKey, ref.key),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-      )
-      .run();
+          )
+          .run();
+      }
+    });
   } catch (err) {
     log.warn({ err }, "failed to mark injected sections pruned; continuing");
   }

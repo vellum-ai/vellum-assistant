@@ -488,11 +488,11 @@ describe("planPrune", () => {
     ]);
   });
 
-  test("a chunked heading (key#n) shares its title's recency", () => {
+  test("a chunked heading (key~n) shares its title's recency", () => {
     recordInjected(
       "conv-1",
       [
-        { slug: "page-a", key: "Long#1", bytes: 200 },
+        { slug: "page-a", key: "Long~1", bytes: 200 },
         { slug: "page-b", key: "", bytes: 200 },
       ],
       1_000,

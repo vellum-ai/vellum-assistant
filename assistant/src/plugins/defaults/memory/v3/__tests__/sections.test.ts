@@ -156,8 +156,59 @@ describe("section keys", () => {
       "Design",
       "Notes#1",
     ]);
-    expect(index.sections[3]!.titleOrdinal).toBe(1);
-    expect(index.sections[1]!.titleOrdinal).toBeUndefined();
+    expect(index.sections[3]!.occurrence).toBe(1);
+    expect(index.sections[3]!.chunk).toBeUndefined();
+    expect(index.sections[1]!.occurrence).toBeUndefined();
+  });
+
+  test("re-chunking an earlier heading never renumbers a later repeat of it", async () => {
+    // Heading occurrence and chunk index are independent key dimensions.
+    // Under one shared counter, shrinking the first `## Topic` from several
+    // chunks to one would hand its second chunk's key to the later repeat.
+    const page = (firstTopicBody: string) =>
+      [
+        "lead",
+        "",
+        "## Topic",
+        firstTopicBody,
+        "",
+        "## Other",
+        "other body",
+        "",
+        "## Topic",
+        "the repeat",
+      ].join("\n");
+    const chunked = await buildSectionIndex(
+      ["p"],
+      reader({ p: page("x".repeat(SECTION_CHUNK_CHARS + 50)) }),
+    );
+    const compact = await buildSectionIndex(
+      ["p"],
+      reader({ p: page("short") }),
+    );
+
+    const chunkKeys = chunked.sections
+      .filter((s) => s.title === "Topic" && s.occurrence === undefined)
+      .map(sectionKey);
+    expect(chunkKeys.length).toBeGreaterThan(1);
+    expect(chunkKeys).toEqual(
+      chunkKeys.map((_, i) => (i === 0 ? "Topic" : `Topic~${i}`)),
+    );
+    expect(chunked.sections.map(sectionKey)).toEqual([
+      "",
+      ...chunkKeys,
+      "Other",
+      "Topic#1",
+    ]);
+    expect(compact.sections.map(sectionKey)).toEqual([
+      "",
+      "Topic",
+      "Other",
+      "Topic#1",
+    ]);
+    // The repeat keeps `Topic#1` whatever the earlier heading's chunk count,
+    // and no chunk of the earlier heading ever carried that key.
+    expect(chunkKeys).not.toContain("Topic#1");
   });
 
   test("a literal `## Topic#1` heading and a repeated `## Topic` get distinct keys", async () => {
@@ -183,7 +234,7 @@ describe("section keys", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  test("a split heading's later chunks key as title#<n> and stay stable when earlier sections move", async () => {
+  test("a split heading's later chunks key as title~<n> and stay stable when earlier sections move", async () => {
     const longBody = "x".repeat(SECTION_CHUNK_CHARS * 2 + 50);
     const page = (prefixSections: number) =>
       [
@@ -205,7 +256,7 @@ describe("section keys", () => {
     expect(chunks).toBeGreaterThan(2);
     expect(longKeys(before)).toEqual(
       Array.from({ length: chunks }, (_, i) =>
-        i === 0 ? "Long" : `Long#${i}`,
+        i === 0 ? "Long" : `Long~${i}`,
       ),
     );
     // Two sections inserted above shift every ordinal but leave the keys.

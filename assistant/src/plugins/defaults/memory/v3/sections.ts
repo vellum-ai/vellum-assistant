@@ -137,20 +137,22 @@ export async function buildSectionIndex(
     const body = await pageBody(article);
 
     let ordinal = 0;
-    // Per-title occurrence counter: the first section under a title keys as
-    // the bare title, later chunks of that section and repeated headings key
-    // as `title#<n>` (see `sectionKey` in `types.ts`).
-    const titleCounts = new Map<string, number>();
+    // Per-title occurrence counter over HEADINGS, not chunks: the n-th repeat
+    // of a heading keys as `title#<n>`, and the chunks of one heading key as
+    // `~<chunk>` on top of that, so re-chunking a heading never renumbers a
+    // later repeat of it (see `sectionKey` in `types.ts`).
+    const occurrences = new Map<string, number>();
     for (const raw of splitIntoRawSections(body)) {
-      for (const chunk of rawSectionChunks(article, raw)) {
-        const titleOrdinal = titleCounts.get(raw.title) ?? 0;
-        titleCounts.set(raw.title, titleOrdinal + 1);
+      const occurrence = occurrences.get(raw.title) ?? 0;
+      occurrences.set(raw.title, occurrence + 1);
+      for (const [chunk, text] of rawSectionChunks(article, raw).entries()) {
         sections.push({
           article,
           title: raw.title,
-          text: chunk,
+          text,
           ordinal: ordinal++,
-          ...(titleOrdinal > 0 ? { titleOrdinal } : {}),
+          ...(occurrence > 0 ? { occurrence } : {}),
+          ...(chunk > 0 ? { chunk } : {}),
         });
       }
     }

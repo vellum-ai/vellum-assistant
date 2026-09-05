@@ -59,57 +59,79 @@ export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
  * fits a typical embedding window. `text` is prefixed with a
  * `${lastSlugSegment} — ${title}` head line for lexical/dense matching.
  *
- * `titleOrdinal` is this section's 0-based index among the article's sections
- * that share its title: a split heading's later chunks and a repeated heading
- * both count up. Absent means 0 (the first, and usually only, section under
- * that title). It feeds {@link sectionKey}; `ordinal` alone cannot, because
- * ordinals shift whenever consolidation adds or removes a section above.
+ * `occurrence` is this heading's 0-based index among the article's headings
+ * that share its title (a repeated `## Topic`); `chunk` is this section's
+ * 0-based index among the pieces its over-long heading was split into. Both
+ * are absent when 0 (the first, and usually only, section under that title).
+ * They feed {@link sectionKey}; `ordinal` alone cannot, because ordinals shift
+ * whenever consolidation adds or removes a section above, and one counter over
+ * both dimensions cannot either, because re-chunking one heading would then
+ * renumber a later repeat of it.
  */
 export interface Section {
   article: Slug;
   title: string;
   text: string;
   ordinal: number;
-  titleOrdinal?: number;
+  occurrence?: number;
+  chunk?: number;
 }
 
 /**
  * The stable identity of a section within its page, used as the section
  * store's `section_key` and carried in the injected header
  * (`# memory/concepts/<slug>.md § <key>`): the lead is `""`, a heading
- * section is its trimmed title, and the second and later sections sharing a
- * title (a chunked or repeated heading) append `#<titleOrdinal>`. Keys are
- * stable across consolidation edits that shift ordinals.
+ * section is its trimmed title, the n-th repeat of a heading appends `#<n>`,
+ * and the n-th chunk of an over-long section appends `~<n>` (`Topic`,
+ * `Topic#1`, `Topic~1`, `Topic#1~1`). Keys are stable across consolidation
+ * edits that shift ordinals, and across a re-chunking of one heading, which
+ * changes only that heading's own `~` keys.
  *
- * The key is a bijection of `(title, titleOrdinal)`: every literal `#` in
- * the title is doubled before the single-`#` occurrence suffix is appended,
- * so a heading that itself ends in `#<n>` (`Topic#1`, key `Topic##1`) can
- * never collide with a repeated heading's key (`Topic` again, key `Topic#1`).
- * {@link sectionKeyTitle} is the exact inverse.
+ * The key is a bijection of `(title, occurrence, chunk)`: every literal `#`
+ * and `~` in the title is doubled before the single-character suffixes are
+ * appended, so a heading that itself ends in `#<n>` (`Topic#1`, key
+ * `Topic##1`) can never collide with a repeat's key (`Topic` again, key
+ * `Topic#1`), nor one ending in `~<n>` with a chunk's. {@link sectionKeyTitle}
+ * is the exact inverse.
  */
 export function sectionKey(section: Section): string {
-  const encoded = section.title.trim().replaceAll("#", "##");
-  return section.titleOrdinal ? `${encoded}#${section.titleOrdinal}` : encoded;
+  const encoded = section.title
+    .trim()
+    .replaceAll("#", "##")
+    .replaceAll("~", "~~");
+  const occurrence = section.occurrence ? `#${section.occurrence}` : "";
+  const chunk = section.chunk ? `~${section.chunk}` : "";
+  return `${encoded}${occurrence}${chunk}`;
 }
 
 /**
- * Matches a key's trailing `#<n>` occurrence suffix together with the run of
- * `#` that precedes the digits. The suffix separator is one `#`, and every
- * `#` a title contributes is doubled by {@link sectionKey}, so the run is odd
- * exactly when the suffix is present: `Topic#1` (run of 1, a repeat of
- * `Topic`) versus `Topic##1` (run of 2, the literal heading `Topic#1`).
+ * Match a key's trailing `<marker><n>` suffix together with the run of the
+ * marker that precedes the digits. A suffix separator is one marker character
+ * and every one a title contributes is doubled by {@link sectionKey}, so the
+ * run is odd exactly when the suffix is present: `Topic#1` (run of 1, a
+ * repeat of `Topic`) versus `Topic##1` (run of 2, the literal heading
+ * `Topic#1`).
  */
-const SECTION_KEY_SUFFIX_REGEX = /^([\s\S]*?)(#+)(\d+)$/;
+const OCCURRENCE_SUFFIX_REGEX = /^([\s\S]*?)(#+)(\d+)$/;
+const CHUNK_SUFFIX_REGEX = /^([\s\S]*?)(~+)(\d+)$/;
+
+function stripOddRunSuffix(key: string, suffix: RegExp): string {
+  const match = suffix.exec(key);
+  return match && match[2]!.length % 2 === 1
+    ? `${match[1]}${match[2]!.slice(1)}`
+    : key;
+}
 
 /** The section title a {@link sectionKey} names (`""` for the lead): the
- *  exact inverse of the key encoding. */
+ *  exact inverse of the key encoding. The chunk suffix is outermost, so it
+ *  is stripped first. */
 export function sectionKeyTitle(key: string): string {
-  const match = SECTION_KEY_SUFFIX_REGEX.exec(key);
-  const encoded =
-    match && match[2]!.length % 2 === 1
-      ? `${match[1]}${match[2]!.slice(1)}`
-      : key;
-  return encoded.replaceAll("##", "#");
+  return stripOddRunSuffix(
+    stripOddRunSuffix(key, CHUNK_SUFFIX_REGEX),
+    OCCURRENCE_SUFFIX_REGEX,
+  )
+    .replaceAll("##", "#")
+    .replaceAll("~~", "~");
 }
 
 /** One injected section's identity in the section store: page slug plus
