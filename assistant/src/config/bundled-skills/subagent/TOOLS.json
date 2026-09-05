@@ -54,7 +54,7 @@
     },
     {
       "name": "subagent_status",
-      "description": "Get the status of a specific subagent or list all subagents for the current conversation. Only use this when the user explicitly asks about subagent status — do NOT poll automatically, as you will be notified when subagents complete.",
+      "description": "Get the status of a specific subagent or list all subagents for the current conversation. Only use this when the user explicitly asks about subagent status. Do NOT poll automatically: you will be notified when subagents complete.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

@@ -237,10 +237,12 @@ export function SkillsReferenceSubagentContent() {
           <p className="mb-4 text-zinc-600">
             Every subagent runs with a role that determines which tools it can
             touch. There are three, and your assistant picks between them with
-            two questions: does the task need to change anything, and does your
-            assistant need the answer before it can carry on? It picks the most
-            restrictive role that can still do the job, which keeps each
-            worker&apos;s blast radius small.
+            two questions: does the task need to change anything, and what does
+            it want back, findings, work done, or guidance? All three run in the
+            background and report back, so the choice is about the result rather
+            than about waiting. Your assistant picks the most restrictive role
+            that can still do the job, which keeps each worker&apos;s blast
+            radius small.
           </p>
           <div className="mb-4 overflow-x-auto">
             <table className="min-w-full text-sm">
