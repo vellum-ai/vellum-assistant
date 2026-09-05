@@ -37,6 +37,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -56,8 +57,8 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { extractTextFromStoredMessageContent } from "../persistence/message-content.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
+import { userFacingTextOfRow } from "../persistence/user-facing-content.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -561,9 +562,20 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */   currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
+  /**
+   * Whether this turn routes its user-facing text through `send_user_message`,
+   * resolved once at turn start. The agent loop's suppression is pinned to
+   * this value for the whole turn, so the tool surface, the reserved row's
+   * visibility marker, and the prompt section read the same snapshot rather
+   * than the live flag: a remote flag change mid-turn must not mark an
+   * ordinarily streamed row private, nor take the only delivery tool away from
+   * a run that is still suppressing its text.
+   * @internal
+   */
+  currentTurnSendUserMessageActive?: boolean;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
@@ -1019,6 +1031,7 @@ export class Conversation {
           personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
+          sendUserMessageTool: resolveSendUserMessageActive(this),
         });
   }
 
@@ -1214,7 +1227,10 @@ export class Conversation {
             rowMeta.deletedAt === undefined &&
             rowMeta.messageId
           ) {
-            const text = extractTextFromStoredMessageContent(row.content);
+            // Quote what the channel actually carried: on a row a
+            // `send_user_message` turn wrote, that is the message the tool
+            // delivered, not the private working notes beside it.
+            const text = userFacingTextOfRow(row.content, row.metadata);
             if (text) {
               // A split reply posts several provider messages from one row;
               // a reaction may name any of them. A post deleted on its own

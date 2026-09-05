@@ -334,7 +334,15 @@ function readPersistedAssistantReply(msg: PersistedMessage): {
   }
 
   const parsed: unknown = msg.content;
-  const rendered = renderHistoryContent(parsed);
+  // The row's own metadata decides whether its plain text is working notes:
+  // a `send_user_message` turn delivers what the tool carried, and a fallback
+  // turn (marked visible) delivers the raw text the user already saw.
+  const rendered = renderHistoryContent(
+    parsed,
+    undefined,
+    undefined,
+    msg.metadata,
+  );
 
   const linked = getAttachmentMetadataForMessage(msg.id);
   const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
@@ -366,6 +374,36 @@ function isToolResultUserMessage(msg: PersistedMessage): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+/**
+ * The row a turn's reply actually lives on, for consumers outside channel
+ * delivery that would otherwise assume it is the turn's last assistant row.
+ *
+ * On a turn that routed its reply through `send_user_message`, the last row is
+ * usually the model's private wrap-up text, which projects to nothing a user
+ * reads; the reply is on the earlier row carrying the tool call. Resolving
+ * through the same scan channel delivery uses keeps the push preview and the
+ * attachment link on the row the user is actually shown, and falls back to the
+ * caller's row when the turn has no separately resolvable reply.
+ */
+export function resolveTurnReplyMessageId(
+  conversationId: string,
+  userMessageId: string | undefined,
+  fallbackMessageId: string,
+): string {
+  if (!userMessageId) {
+    return fallbackMessageId;
+  }
+  try {
+    return (
+      findAssistantReplyMessageIdForTurn(conversationId, userMessageId) ??
+      fallbackMessageId
+    );
+  } catch {
+    // Resolution is a refinement, never a reason to lose the reply.
+    return fallbackMessageId;
   }
 }
 

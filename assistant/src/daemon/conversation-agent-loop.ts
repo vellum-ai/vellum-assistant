@@ -36,6 +36,7 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { isSendUserMessageActiveForTurn } from "../config/send-user-message-gate.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
@@ -75,6 +76,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { resolveTurnReplyMessageId } from "../runtime/channel-reply-delivery.js";
 import { isNoResponseOnlyText } from "../runtime/no-response.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -426,6 +428,28 @@ export async function runAgentLoopImpl(
   const isNonInteractive = !isInteractiveResolved;
   ctx.currentTurnIsNonInteractive = isNonInteractive;
 
+  // Default user-initiated turns to the `mainAgent` call site; other invocation
+  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
+  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
+  // picking up any user overrides under `llm.callSites.<id>` (falling back to
+  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
+  // conversations on `subagentSpawn` when no call site is supplied.
+  const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
+  // Expose the turn's call site on the live conversation so the runtime
+  // injection assembly self-resolves it for the turn's plugin contexts. Set
+  // before the prompt sync below: the tool-gated reply section and the tool
+  // surface both scope on the turn's call site.
+  ctx.currentCallSite = turnCallSite;
+
+  // Whether this turn routes its user-facing text through `send_user_message`:
+  // the flag is on and the turn is a main-agent turn. Resolved once and pinned
+  // on the conversation, because the loop's suppression is fixed for the whole
+  // run: the tool surface, the reserved row's visibility marker, and the
+  // prompt section all read this snapshot instead of the live flag, so a
+  // remote flag change mid-turn cannot contradict what the run is doing.
+  const sendUserMessageActive = isSendUserMessageActiveForTurn(ctx);
+  ctx.currentTurnSendUserMessageActive = sendUserMessageActive;
+
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
   // construction otherwise, so a flow that binds trust after construction (a
@@ -466,17 +490,6 @@ export async function runAgentLoopImpl(
   let emitTerminalExit:
     | ((reason: AgentLoopExitReason) => Promise<void>)
     | null = null;
-
-  // Default user-initiated turns to the `mainAgent` call site; other invocation
-  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
-  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
-  // picking up any user overrides under `llm.callSites.<id>` (falling back to
-  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
-  // conversations on `subagentSpawn` when no call site is supplied.
-  const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
-  // Expose the turn's call site on the live conversation so the runtime
-  // injection assembly self-resolves it for the turn's plugin contexts.
-  ctx.currentCallSite = turnCallSite;
 
   // Expose the turn's request origin (e.g. "memory_consolidation") on the live
   // conversation so the tool context — and through it `buildPolicyContext` —
@@ -1383,6 +1396,7 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
+          suppressAssistantText: sendUserMessageActive,
           supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
@@ -1819,7 +1833,22 @@ export async function runAgentLoopImpl(
       });
       publishLoopMessagesChanged();
     } else {
-      // Resolve attachments (only when not cancelled — this is expensive async I/O)
+      // An attachment belongs on the row whose text asked for it. On a turn
+      // that routed its reply through `send_user_message`, the link the model
+      // wrote is inside that tool's message, while the turn's last row is
+      // private wrap-up text: linking there would leave channel delivery
+      // sending the file from a row with no words on it. Resolve the row the
+      // reply actually lives on, the same one the push preview quotes.
+      const attachmentTargetMessageId =
+        state.lastAssistantTextVisibility === "private" &&
+        state.lastAssistantMessageId
+          ? resolveTurnReplyMessageId(
+              ctx.conversationId,
+              userMessageId,
+              state.lastAssistantMessageId,
+            )
+          : state.lastAssistantMessageId;
+      // Resolve attachments (only when not cancelled, this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
         state.accumulatedDirectives,
         state.accumulatedToolContentBlocks,
@@ -1833,7 +1862,7 @@ export async function runAgentLoopImpl(
             ctx.conversationId,
             ctx.hasNoClient,
           ),
-        state.lastAssistantMessageId,
+        attachmentTargetMessageId,
         state.toolContentBlockToolNames,
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
@@ -1889,6 +1918,11 @@ export async function runAgentLoopImpl(
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
+            : {}),
+          // The marker the row was stamped with, so the live row gets the same
+          // per-row treatment the history projection will hand it.
+          ...(state.lastAssistantTextVisibility
+            ? { assistantTextVisibility: state.lastAssistantTextVisibility }
             : {}),
         });
         if (shouldEmitQueuedConversationNotices) {

@@ -135,6 +135,7 @@ import {
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
+import { assistantTextVisibilityOf } from "../../persistence/user-facing-content.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -1107,6 +1108,11 @@ export async function handleListMessages({
       slackMessage,
       deletedAt,
       clientMessageId: msg.clientMessageId ?? undefined,
+      assistantTextVisibility: assistantTextVisibilityOf(msg.metadata),
+      // The row's raw stored envelope, carried to the render pass below so it
+      // can read the row's own `assistantTextVisibility` marker. Never part of
+      // the wire payload, which the serializer builds field by field.
+      rowMetadata: msg.metadata,
     };
   });
 
@@ -1196,6 +1202,7 @@ export async function handleListMessages({
         m.content,
         attachmentBlocks,
         m.id ?? undefined,
+        m.rowMetadata,
       );
 
       const toolCalls = enrichToolCallsWithQuestion(
@@ -1313,6 +1320,11 @@ export async function handleListMessages({
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
         ...(m.noResponse ? { noResponse: true } : {}),
+        // The row's own marker, so a client gates per-row presentation on what
+        // this row was written with rather than on the live flag.
+        ...(m.assistantTextVisibility
+          ? { assistantTextVisibility: m.assistantTextVisibility }
+          : {}),
         ...(m.reaction ? { reaction: m.reaction } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
@@ -3005,7 +3017,12 @@ export async function handleGetSuggestion(
     }
 
     const content: unknown = msg.content;
-    const rendered = renderHistoryContent(content);
+    const rendered = renderHistoryContent(
+      content,
+      undefined,
+      undefined,
+      msg.metadata,
+    );
     const text = rendered.text.trim();
     if (!text) {
       continue;

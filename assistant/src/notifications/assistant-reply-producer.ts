@@ -28,6 +28,7 @@ import {
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import { projectPersistedAssistantContent } from "../persistence/user-facing-content.js";
 import { isDesktopAttended } from "../runtime/desktop-presence.js";
 import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { safeParseRecord } from "../util/json.js";
@@ -225,7 +226,15 @@ export async function emitAssistantReplyNotification(params: {
     // first: a lock screen renders none of it, and an embed-only reply has to
     // reduce to empty for the fallback to be reachable. A reply with neither
     // text nor media stays silent.
-    const text = stringifyMessageContent(assistantRow.content);
+    // The push preview quotes what the user reads, so it walks the same
+    // user-facing projection the transcript does, keyed on the row's own
+    // marker: a `send_user_message` turn's plain text is private working notes.
+    const text = stringifyMessageContent(
+      projectPersistedAssistantContent(
+        assistantRow.content,
+        assistantRow.metadata,
+      ),
+    );
     const preview =
       sanitizeMultilineMessagePreview(stripMarkdownForPreview(text)) ||
       sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));

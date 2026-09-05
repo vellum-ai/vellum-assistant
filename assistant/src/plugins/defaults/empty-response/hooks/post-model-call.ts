@@ -79,6 +79,62 @@ export const NUDGE_TEXT =
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
   "</system_notice>";
 
+/**
+ * Canonical nudge text for a turn that ended without reaching the user through
+ * `send_user_message`. Shown to the LLM, not the user.
+ */
+export const SEND_USER_MESSAGE_NUDGE_TEXT =
+  "<system_notice>Nothing you wrote reached the user. Call send_user_message with a 1 to 3 sentence reply now." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
+
+/**
+ * LLM-facing name of the tool a suppressed run's reply travels on. Spelled
+ * here as a literal, like the memory block keys the storage schema names, so
+ * the plugin stays self-contained: it reads its own turn content and imports
+ * nothing from the host. The host's declaration is
+ * `config/send-user-message-gate.ts`.
+ */
+const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
+
+/** Whether the content carries a `send_user_message` call with real text. */
+function hasSendUserMessageCall(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (block) =>
+      block.type === "tool_use" &&
+      block.name === SEND_USER_MESSAGE_TOOL_NAME &&
+      typeof (block.input as { message?: unknown })?.message === "string" &&
+      (block.input as { message: string }).message.trim().length > 0,
+  );
+}
+
+/**
+ * Whether the user has been told the OUTCOME of this cycle's work, not merely
+ * that work started.
+ *
+ * The signal is the LAST assistant response that called any tool. A response
+ * whose only tool calls are `send_user_message` reported on everything before
+ * it; a response that sends a message alongside other tool calls is a progress
+ * update, and what those tools found has not reached the user. A cycle with no
+ * tool-bearing response at all told the user nothing.
+ */
+function userWasToldOutcome(cycleMessages: ReadonlyArray<Message>): boolean {
+  for (let i = cycleMessages.length - 1; i >= 0; i--) {
+    const message = cycleMessages[i];
+    if (!isAssistantTurn(message) || !hasToolUse(message.content)) {
+      continue;
+    }
+    const toolCalls = message.content.filter(
+      (block) => block.type === "tool_use",
+    );
+    return (
+      hasSendUserMessageCall(message.content) &&
+      toolCalls.every((block) => block.name === SEND_USER_MESSAGE_TOOL_NAME)
+    );
+  }
+  return false;
+}
+
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
@@ -140,6 +196,42 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText
   ) {
     ctx.content = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    return;
+  }
+
+  // Tool-gated reply surface: nothing the model wrote as plain text reaches
+  // the user, so the turn is only answered when a `send_user_message` call
+  // reported the OUTCOME. This response holds no tool call at all (the guard
+  // above), so it is the terminal one: if the last tool-bearing response was
+  // work rather than a report (a progress update sent alongside that work
+  // counts as work), the turn is ending in silence. Nudge once for a real
+  // reply, and after that let the turn end; the loop then surfaces this
+  // response's raw text as the fallback rather than delivering nothing.
+  //
+  // Owned entirely here: the legacy empty-turn nudge below asks for plain
+  // text, which is exactly what the gate makes invisible.
+  if (
+    ctx.callSite === "mainAgent" &&
+    ctx.assistantTextSuppressed === true &&
+    !userWasToldOutcome(cycleMessages)
+  ) {
+    if (!isEmptyResponseNudged(ctx.conversationId)) {
+      markEmptyResponseNudged(ctx.conversationId);
+      ctx.messages.push({
+        role: "user",
+        content: [{ type: "text", text: SEND_USER_MESSAGE_NUDGE_TEXT }],
+      });
+      ctx.decision = "continue";
+      ctx.logger.warn(
+        { plugin: "empty-response", conversationId: ctx.conversationId },
+        "Turn ended without a send_user_message call, nudging for a reply",
+      );
+      return;
+    }
+    ctx.logger.warn(
+      { plugin: "empty-response", conversationId: ctx.conversationId },
+      "Turn ended without a send_user_message call after a nudge, surfacing the raw reply",
+    );
     return;
   }
 

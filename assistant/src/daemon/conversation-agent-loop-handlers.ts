@@ -19,6 +19,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
@@ -52,6 +53,11 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import { endSection, markSection } from "../persistence/slow-sync-log.js";
+import type { AssistantTextVisibility } from "../persistence/user-facing-content.js";
+import {
+  ASSISTANT_TEXT_VISIBILITY_KEY,
+  projectUserFacingContent,
+} from "../persistence/user-facing-content.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
@@ -254,6 +260,13 @@ export interface EventHandlerState {
   providerErrorProfile: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
+  /**
+   * Visibility marker stamped on {@link lastAssistantMessageId}, when the turn
+   * routed its reply through `send_user_message`. The turn's terminal
+   * `message_complete` SSE carries it so a client can give the live row the
+   * same per-row treatment history will hand it.
+   */
+  lastAssistantTextVisibility?: AssistantTextVisibility;
   /**
    * True when `handleLlmCallStarted` has reserved an empty assistant row
    * that has NOT yet been finalized via `handleMessageComplete`
@@ -1353,6 +1366,15 @@ function buildAssistantChannelMetadata(
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
     ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
+    // A turn routing its reply through `send_user_message` writes working
+    // notes, so the row is marked private from the moment it is reserved: a
+    // turn that dies before `message_complete` still has its scratchpad
+    // projected out of every user-facing read. The finalize below re-stamps
+    // it, promoting the row to `"visible"` when the fallback surfaced the raw
+    // text after all.
+    ...(resolveSendUserMessageActive(deps.ctx)
+      ? { [ASSISTANT_TEXT_VISIBILITY_KEY]: "private" }
+      : {}),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -2931,8 +2953,17 @@ export async function handleMessageComplete(
   // it here separately is the cheapest way to keep the directive
   // side-effects local to this handler while letting the shared helper
   // own the persisted-content shape.
+  // On a row whose plain text is private working notes, the text a user reads
+  // is what `send_user_message` carried, so that is where an attachment
+  // directive has to be found: scanning the raw blocks would miss a
+  // `vellum://` link the model put in its message and the file would never be
+  // attached to the delivered reply.
   const { directives: msgDirectives, warnings: msgWarnings } =
-    cleanAssistantContent(event.message.content);
+    cleanAssistantContent(
+      event.assistantTextVisibility === "private"
+        ? projectUserFacingContent(event.message.content, { toolGated: true })
+        : event.message.content,
+    );
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -2989,12 +3020,24 @@ export async function handleMessageComplete(
   // assembly can attribute each assistant message to the model that actually
   // ran it — including per-call reroutes by a `pre-model-call` hook. Absent on
   // synthesized completions with no provider response; the key is omitted then.
+  // How this row's plain text reached the user, reported by the loop and
+  // stamped in the same transaction as the final content. Only a run under the
+  // tool-gated reply surface carries it: `"private"` for working notes the
+  // projection hides, `"visible"` for a fallback turn whose raw text the user
+  // actually saw and which therefore has to render and deliver like any reply.
+  const finalizeMetadata: Record<string, unknown> = {
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.assistantTextVisibility
+      ? { [ASSISTANT_TEXT_VISIBILITY_KEY]: event.assistantTextVisibility }
+      : {}),
+  };
+  state.lastAssistantTextVisibility = event.assistantTextVisibility;
   const persisted = await finalizeInflightContent(
     state.inflightWriters.get(assistantMessageId),
     assistantMessageId,
     contentJson,
     deps.rlog,
-    event.model ? { model: event.model } : undefined,
+    Object.keys(finalizeMetadata).length > 0 ? finalizeMetadata : undefined,
   );
   // Keep the writer on a failed finalize (e.g. persistent SQLITE_BUSY) so
   // the turn tail's stranded fold can retry — deleting it would leave the

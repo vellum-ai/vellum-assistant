@@ -15,6 +15,7 @@ import { resolveQdrantUrl } from "../embeddings/qdrant-client.js";
 import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { messages } from "../schema/index.js";
+import { projectPersistedRowText } from "../user-facing-content.js";
 
 const log = getLogger("messages-lexical-enqueue");
 
@@ -87,18 +88,26 @@ export async function indexMessageLexicalJob(
       id: messages.id,
       conversationId: messages.conversationId,
       content: messages.content,
+      metadata: messages.metadata,
       createdAt: messages.createdAt,
     })
     .from(messages)
     .where(and(eq(messages.id, messageId), eq(messages.finalized, 1)))
     .get();
 
-  // The message may have been deleted between enqueue and dispatch — no-op.
+  // The message may have been deleted between enqueue and dispatch, so no-op.
   if (!row) {
     return;
   }
 
-  await indexMessageToLexical(row, config);
+  // This index answers message-content SEARCH, so it holds what a user can
+  // read: on a row a `send_user_message` turn marked private, the delivered
+  // message rather than the model's working notes. Model-facing recall is
+  // unaffected, since the memory segment index is written from the raw row.
+  await indexMessageToLexical(
+    { ...row, content: projectPersistedRowText(row.content, row.metadata) },
+    config,
+  );
 }
 
 /**

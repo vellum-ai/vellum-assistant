@@ -46,6 +46,7 @@ import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import type { Message } from "../providers/types.js";
+import { resolveTurnReplyMessageId } from "../runtime/channel-reply-delivery.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import {
   finalizeStrandedInflightContent,
@@ -70,6 +71,12 @@ interface TurnContentState {
 interface TurnTailState {
   readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
   readonly lastAssistantMessageId: string | undefined;
+  /**
+   * Visibility marker stamped on the last assistant row (see
+   * `EventHandlerState`). `"private"` means that row's text is working notes,
+   * so the turn's reply lives on an earlier row.
+   */
+  readonly lastAssistantTextVisibility?: "private" | "visible";
 }
 
 /**
@@ -311,9 +318,21 @@ export async function runDeferredTurnTail(params: {
   // dispatch, which retries with backoff, and nothing below here depends on
   // the emit. The producer never rejects.
   if (turnCompleted && state.lastAssistantMessageId) {
+    // The preview quotes the reply, which is not always the turn's last row: a
+    // turn that routed its text through `send_user_message` usually ends on a
+    // private wrap-up row that projects to nothing. Resolve the row channel
+    // delivery would send, so the push carries the same words.
+    const replyMessageId =
+      state.lastAssistantTextVisibility === "private"
+        ? resolveTurnReplyMessageId(
+            conversationId,
+            userMessageId,
+            state.lastAssistantMessageId,
+          )
+        : state.lastAssistantMessageId;
     void emitAssistantReplyNotification({
       conversationId,
-      assistantMessageId: state.lastAssistantMessageId,
+      assistantMessageId: replyMessageId,
       userMessageId,
       ...(replyDeliveredInAppOnly ? { replyDeliveredInAppOnly: true } : {}),
       rlog,

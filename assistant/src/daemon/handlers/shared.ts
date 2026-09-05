@@ -18,6 +18,10 @@ import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
 import type { ConversationCreateType } from "../../persistence/conversation-types.js";
+import {
+  isPrivateAssistantText,
+  projectUserFacingContent,
+} from "../../persistence/user-facing-content.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -358,13 +362,30 @@ function renderFileBlockForHistory(
   )}`;
 }
 
+/**
+ * @param metadata The row's stored `messages.metadata` (raw JSON string or the
+ * parsed record). Only used to read the row's own
+ * `assistantTextVisibility` marker: a row a `send_user_message` turn wrote
+ * renders its plain text as working notes and its tool calls as the reply.
+ * Omit it for content that is not a persisted assistant row.
+ */
 export function renderHistoryContent(
-  content: unknown,
+  rawContent: unknown,
   attachmentBlocks?: ReadonlyArray<
     ConversationMessageAttachment | null | undefined
   >,
   messageId?: string,
+  metadata?: unknown,
 ): RenderedHistoryContent {
+  // A row whose turn routed its reply through `send_user_message` carries
+  // private working notes, so every consumer of this render (web history,
+  // channel delivery, the CLI) walks the projected content rather than the
+  // model-native blocks. Keyed on the row's own marker, so a row from a call,
+  // a subagent, a fallback turn, or any turn written with the flag off is
+  // untouched.
+  const content = projectUserFacingContent(rawContent, {
+    toolGated: isPrivateAssistantText(metadata),
+  });
   if (!Array.isArray(content)) {
     let text: string;
     if (content == null) {

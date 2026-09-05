@@ -594,6 +594,15 @@ export interface PostModelCallInputContext {
   /** Provider-reported stop reason for the turn; `null` when not reported. */
   readonly stopReason: string | null;
   /**
+   * True when this run's plain assistant text does not reach the user: the
+   * turn routes its reply through the `send_user_message` tool instead, and
+   * {@link content}'s text blocks are private working notes. A hook that
+   * decides whether the user was answered must read this rather than assume
+   * visible text was delivered. Absent or false on every ordinary run, so a
+   * hook reads it as `=== true`.
+   */
+  readonly assistantTextSuppressed?: boolean;
+  /**
    * The provider rejection that ended the call, on a rejection outcome. Absent
    * on a finalized reply. A hook that recovers from a specific rejection class
    * inspects this and may repair {@link messages} and set {@link decision} to

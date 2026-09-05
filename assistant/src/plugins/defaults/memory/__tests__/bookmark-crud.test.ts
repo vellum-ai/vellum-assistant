@@ -40,7 +40,8 @@ function bootstrapMessageTables(raw: Database): void {
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      metadata TEXT
     )
   `);
 }
@@ -52,6 +53,8 @@ interface SeedOptions {
   messageContent?: string;
   messageRole?: string;
   messageCreatedAt?: number;
+  /** Stored envelope, e.g. the row's user-facing visibility marker. */
+  messageMetadata?: string | null;
 }
 
 function seedConversationAndMessage(raw: Database, opts: SeedOptions): void {
@@ -63,7 +66,7 @@ function seedConversationAndMessage(raw: Database, opts: SeedOptions): void {
     .run(opts.conversationId, opts.conversationTitle ?? "Example", now, now);
   raw
     .query(
-      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, conversation_id, role, content, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.messageId,
@@ -71,6 +74,7 @@ function seedConversationAndMessage(raw: Database, opts: SeedOptions): void {
       opts.messageRole ?? "user",
       opts.messageContent ?? "hello",
       opts.messageCreatedAt ?? now,
+      opts.messageMetadata ?? null,
     );
 }
 
@@ -221,6 +225,35 @@ describe("bookmark-crud", () => {
     expect(summary.messagePreview).toBe("Hello, can you help with…");
     const listed = listBookmarks(db);
     expect(listed[0]?.messagePreview).toBe("Hello, can you help with…");
+  });
+
+  test("messagePreview quotes the delivered message on a private assistant row", () => {
+    const { db, raw } = setupDb();
+    seedConversationAndMessage(raw, {
+      conversationId: "conv-private",
+      messageId: "msg-private",
+      messageContent: JSON.stringify([
+        { type: "text", text: "Working notes the user never saw." },
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "send_user_message",
+          input: { message: "You have two meetings today." },
+        },
+      ]),
+      messageRole: "assistant",
+      messageMetadata: JSON.stringify({ assistantTextVisibility: "private" }),
+    });
+
+    const { bookmark: summary } = createBookmark(db, {
+      messageId: "msg-private",
+    });
+
+    expect(summary.messagePreview).toBe("You have two meetings today.");
+    expect(summary.messagePreview).not.toContain("Working notes");
+    expect(listBookmarks(db)[0]?.messagePreview).toBe(
+      "You have two meetings today.",
+    );
   });
 
   test("messagePreview concatenates multi-text blocks and drops non-text blocks", () => {

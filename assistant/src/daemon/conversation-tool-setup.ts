@@ -16,6 +16,10 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import {
+  resolveSendUserMessageActive,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "../config/send-user-message-gate.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -823,6 +827,13 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  // The tool-gated reply surface is main-agent only: the flag must be on, and
+  // the turn must not be a subagent, worker, live-voice, or call leg. Those
+  // keep streamed assistant text, so offering them a delivery tool nothing
+  // reads would silently swallow their replies.
+  if (name === SEND_USER_MESSAGE_TOOL_NAME) {
+    return resolveSendUserMessageActive(ctx);
   }
   // The react capability follows the transport's declaration: the tool is on
   // the wire exactly when the turn's channel transport implements `react`,

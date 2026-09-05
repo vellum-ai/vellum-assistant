@@ -687,6 +687,10 @@ function inspectWakeOutput(
   // "produced output" when the final assistant message is just a summary
   // — we must persist the entire tail so the DB mirrors in-memory
   // history.
+  //
+  // Plain text is the whole signal here: a wake never routes its reply through
+  // `send_user_message` (the tool is off for direct wakes, see the turn-snapshot
+  // pin below), so its assistant text is what the user reads.
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
   for (const msg of tailMessages) {
@@ -1500,8 +1504,19 @@ export async function wakeAgentForOpportunity(
       const priorTurnIsNonInteractive =
         conversation.currentTurnIsNonInteractive;
       const priorTurnTrust = conversation.currentTurnTrustContext;
+      const priorSendUserMessageActive =
+        conversation.currentTurnSendUserMessageActive;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
+      // A wake drives the loop directly rather than through
+      // `runAgentLoopImpl`, so it neither suppresses streamed assistant text
+      // nor stamps a visibility marker on the rows it persists itself. Offering
+      // `send_user_message` here would hand the model a delivery tool whose
+      // message nothing emits, so the wake would end holding a tool chip and no
+      // words. Pinning the turn snapshot false keeps the tool off every direct
+      // wake (scheduled, heartbeat, background-tool, retrospective forks) and
+      // leaves the wake's plain text as its reply, exactly as today.
+      conversation.currentTurnSendUserMessageActive = false;
       // Same reason as the stamps above: a wake triggered by a schedule firing
       // delegates work to subagents whose usage must attribute to that firing.
       conversation.currentTurnCronRunId = opts.cronRunId ?? null;
@@ -1602,6 +1617,8 @@ export async function wakeAgentForOpportunity(
         conversation.currentTurnCronRunId = priorTurnCronRunId;
         conversation.currentTurnIsNonInteractive = priorTurnIsNonInteractive;
         conversation.currentTurnTrustContext = priorTurnTrust;
+        conversation.currentTurnSendUserMessageActive =
+          priorSendUserMessageActive;
       }
 
       // The loop swallows provider rejections into a graceful no-output
