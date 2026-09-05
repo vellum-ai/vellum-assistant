@@ -61,6 +61,45 @@ describe("the computer-use step budget", () => {
     expect(recordAction).not.toHaveBeenCalled();
   });
 
+  /**
+   * Not advancing the count is only half of it: the proxy also refuses a
+   * request once the count is past the limit. A conversation that had spent
+   * its steps on real computer use could otherwise be left unable to take
+   * down a mark it had already put on the user's screen.
+   */
+  test("does not stop a mark once it is spent", async () => {
+    const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
+    const proxy = new HostCuProxy(1);
+    proxy.recordAction("computer_use_click", { element_id: 1 });
+    proxy.recordAction("computer_use_click", { element_id: 2 });
+    expect(proxy.stepCount).toBeGreaterThan(proxy.maxSteps);
+
+    // The guard answers immediately; anything that gets past it goes on to
+    // wait for a client, and there is none here. So "still pending" is the
+    // observable difference between refused and allowed through.
+    const pending = Symbol("pending");
+    const settle = <T>(p: Promise<T>) =>
+      Promise.race([
+        p,
+        new Promise((resolve) => setTimeout(() => resolve(pending), 20)),
+      ]);
+
+    const spent = await settle(
+      proxy.request("computer_use_click", {}, "conv-1", proxy.stepCount),
+    );
+    expect((spent as { content?: string }).content).toContain("Step limit");
+
+    const cleared = await settle(
+      proxy.request(
+        POINT_AT_PROXY_TOOL,
+        { marks: [] },
+        "conv-1",
+        proxy.stepCount,
+      ),
+    );
+    expect(cleared).toBe(pending);
+  });
+
   /** The actions it exists to bound still count. */
   test("is spent by an action that drives the machine", async () => {
     const { proxy, recordAction } = proxyDouble();
