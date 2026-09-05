@@ -12,8 +12,9 @@ import type { Section, SectionIndex, Slug } from "./types.js";
 
 /**
  * Max `Section.text` length in characters. Sections longer than this are split
- * into multiple ordered `Section`s sharing the same `(article, ordinal)` so the
- * embedding backend never receives an over-window input.
+ * into multiple ordered `Section`s, each keyed by its chunk index, so the
+ * embedding backend never receives an over-window input. Every chunk carries
+ * the synthetic head line plus a slice of the section body.
  */
 export const SECTION_CHUNK_CHARS = 6000;
 
@@ -34,9 +35,9 @@ export function sectionHeadLine(article: Slug, title: string): string {
 }
 
 /**
- * A section's text without its synthetic head line. Only the first chunk of a
- * split section carries the head line, so the strip is keyed on the text
- * actually starting with it rather than on chunk position.
+ * A section's text without its synthetic head line. Every chunk of a split
+ * section carries the head line, but a hand-built section may not, so the
+ * strip is keyed on the text actually starting with it.
  */
 export function sectionBody(section: Section): string {
   const head = sectionHeadLine(section.article, section.title);
@@ -79,22 +80,23 @@ function splitIntoRawSections(body: string): RawSection[] {
 }
 
 /**
- * Split `text` into chunks no longer than `SECTION_CHUNK_CHARS`, preferring to
- * break on newlines so chunks stay readable. Order is preserved.
+ * Split `text` into chunks no longer than `limit`, preferring to break on
+ * newlines so chunks stay readable. A single line longer than the limit is
+ * hard-split at the limit. Order is preserved.
  */
-function chunkText(text: string): string[] {
-  if (text.length <= SECTION_CHUNK_CHARS) {
+function chunkText(text: string, limit: number): string[] {
+  if (text.length <= limit) {
     return [text];
   }
 
   const chunks: string[] = [];
   let remaining = text;
-  while (remaining.length > SECTION_CHUNK_CHARS) {
-    const window = remaining.slice(0, SECTION_CHUNK_CHARS);
+  while (remaining.length > limit) {
+    const window = remaining.slice(0, limit);
     const newlineBreak = window.lastIndexOf("\n");
     // Only break on a newline if it leaves a non-trivial chunk; otherwise hard
     // split at the window boundary to guarantee forward progress.
-    const breakAt = newlineBreak > 0 ? newlineBreak : SECTION_CHUNK_CHARS;
+    const breakAt = newlineBreak > 0 ? newlineBreak : limit;
     chunks.push(remaining.slice(0, breakAt));
     remaining = remaining.slice(breakAt).replace(/^\n/, "");
   }
@@ -104,10 +106,18 @@ function chunkText(text: string): string[] {
   return chunks;
 }
 
-/** A raw section's indexed text chunks: the synthetic head line plus the
- *  body, split to the embedding window. */
+/**
+ * A raw section's indexed text chunks: the body split to what the embedding
+ * window leaves after the synthetic head line, with the head line prepended
+ * to every chunk. Chunking the body rather than the head-plus-body text
+ * guarantees no chunk is ever head-only: a first body line longer than the
+ * window hard-splits at the window instead of leaving chunk 0 with nothing
+ * for the injection renderer (`sectionBody`) to show.
+ */
 function rawSectionChunks(article: Slug, raw: RawSection): string[] {
-  return chunkText(`${sectionHeadLine(article, raw.title)}\n${raw.body}`);
+  const head = sectionHeadLine(article, raw.title);
+  const limit = Math.max(1, SECTION_CHUNK_CHARS - head.length - 1);
+  return chunkText(raw.body, limit).map((chunk) => `${head}\n${chunk}`);
 }
 
 /**

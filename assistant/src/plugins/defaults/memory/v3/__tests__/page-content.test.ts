@@ -31,7 +31,12 @@ const { parsePageContent, writePage } =
   await import("../../substrate/page-store.js");
 const { renderV3InjectionEntry, renderV3SectionInjection } =
   await import("../page-content.js");
-const { leadSectionOfBody, sectionHeadLine } = await import("../sections.js");
+const {
+  buildSectionIndex,
+  leadSectionOfBody,
+  SECTION_CHUNK_CHARS,
+  sectionHeadLine,
+} = await import("../sections.js");
 
 const PAGE_A_BODY = "# Page A\nlead prose\n\n## Notes\nnote body";
 
@@ -101,6 +106,22 @@ describe("renderV3InjectionEntry", () => {
 });
 
 describe("renderV3SectionInjection", () => {
+  test("the first chunk of a section whose first line exceeds the window renders body text", async () => {
+    const unbroken = "y".repeat(SECTION_CHUNK_CHARS + 500);
+    const index = await buildSectionIndex(
+      ["page-big"],
+      async () => `lead\n\n## Big\n${unbroken}`,
+    );
+    const first = index.sections.find((s) => s.title === "Big")!;
+    const rendered = renderV3SectionInjection("page-big", first);
+    expect(rendered.startsWith("# memory/concepts/page-big.md § Big\n")).toBe(
+      true,
+    );
+    expect(rendered.length).toBeGreaterThan(
+      "# memory/concepts/page-big.md § Big\n".length + 1000,
+    );
+  });
+
   test("a lead with only a current: annotation still renders; an empty lead without one renders ''", () => {
     const empty = leadSectionOfBody("page-c", "");
     expect(

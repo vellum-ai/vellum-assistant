@@ -41,7 +41,7 @@ Bullets only where a list is genuinely a list.
 
 1. **The lead IS the card, and the fallback injection.** Write every lead as standalone orientation. If it only makes sense after reading the sections, the card is useless, and so is the block that lands in context when the article is selected without a section match. One to three short paragraphs.
 2. **Section names are navigation.** They appear on the card as a table of contents. Name a section so future-you can tell from the name alone whether the answer lives there.
-3. **Sections are the unit of retrieval, injection, and growth.** A fact filed in the right section is findable and arrives in context with only its section around it; a fact buried mid-paragraph in an overlong lead is not. Write each section to read on its own, because that is how it is injected.
+3. **Sections are the unit of retrieval, injection, and growth.** A fact filed in the right section is findable and arrives in context with only its section around it; a fact buried mid-paragraph in an overlong lead is not. Write each section to read on its own, because that is how it is injected. Keep a section under the section index's chunk window (6000 characters, `SECTION_CHUNK_CHARS`): a longer section is split into chunks that are indexed, keyed, and injected independently (`Title`, `Title~1`, ...), and the selector may surface any one of them without the rest.
 
 ## Two article shapes
 

@@ -74,6 +74,52 @@ describe("buildSectionIndex", () => {
     }
   });
 
+  test("a first body line longer than the window still leaves body text in every chunk", async () => {
+    // One unbroken line longer than the window under a heading, then a lead
+    // of the same shape: no chunk may be head-line-only, or the injection
+    // renderer (which strips the head line) would have nothing to show for
+    // the chunk a heading query or the unmatched fallback selects.
+    const unbroken = "y".repeat(SECTION_CHUNK_CHARS + 500);
+    const index = await buildSectionIndex(
+      ["page-a", "page-lead"],
+      reader({
+        "page-a": `lead\n\n## Big\n${unbroken}`,
+        "page-lead": unbroken,
+      }),
+    );
+
+    for (const section of index.sections) {
+      expect(section.text.length).toBeLessThanOrEqual(SECTION_CHUNK_CHARS);
+      expect(
+        section.text.startsWith(
+          `${sectionHeadLine(section.article, section.title)}\n`,
+        ),
+      ).toBe(true);
+      if (section.title === "Big" || section.article === "page-lead") {
+        expect(sectionBody(section).length).toBeGreaterThan(0);
+      }
+    }
+    const big = index.sections.filter((s) => s.title === "Big");
+    expect(big.length).toBeGreaterThan(1);
+    expect(big.map(sectionBody).join("")).toBe(unbroken);
+    const leadChunks = index.sections.filter((s) => s.article === "page-lead");
+    expect(leadChunks.length).toBeGreaterThan(1);
+    expect(leadChunks.map(sectionBody).join("")).toBe(unbroken);
+  });
+
+  test("a section that fits the window is one chunk carrying the head line and the whole body", async () => {
+    const body = "lead\n\n## Notes\nfirst line\nsecond line";
+    const index = await buildSectionIndex(
+      ["page-a"],
+      reader({ "page-a": body }),
+    );
+    const notes = index.sections.find((s) => s.title === "Notes")!;
+    expect(notes.text).toBe(
+      `${sectionHeadLine("page-a", "Notes")}\nfirst line\nsecond line`,
+    );
+    expect(notes.chunk).toBeUndefined();
+  });
+
   test("byArticle maps each article to its section indices", async () => {
     const index = await buildSectionIndex(
       ["page-a", "topic-x"],
