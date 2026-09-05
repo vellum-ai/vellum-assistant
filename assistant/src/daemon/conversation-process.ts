@@ -41,6 +41,7 @@ import {
 } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
+import { PREEMPTED_TOOL_RESULT_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
@@ -334,20 +335,35 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
-// ── Steer / interrupt repair ────────────────────────────────────────
+// ── Interrupt repair ────────────────────────────────────────────────
 
 /**
- * When a steer-to-message abort (or a user interrupt with messages still
- * queued behind the stopped turn) cuts off an in-flight tool call, the
- * conversation history may end with an assistant message containing one
- * or more `tool_use` blocks that have no corresponding `tool_result`.
- * LLM providers reject this sequence. This helper scans the tail of the
- * history and injects synthetic error `tool_result` messages for any
- * unmatched `tool_use` blocks.
+ * Give every abandoned `tool_use` block at the tail of the history a
+ * `tool_result`, so the next provider request is well formed.
+ *
+ * An abort that lands mid-tool leaves the history ending on an assistant
+ * message whose `tool_use` blocks have no matching result, which LLM providers
+ * reject. The agent loop writes its own synthetic results when it unwinds
+ * through its abort handler; this is the backstop for the aborts that never
+ * reach it (the abort watchdog force-unwinding a wedged turn, a processing
+ * flag force-cleared with no live turn behind it).
+ *
+ * The repaired row is persisted, not just pushed onto the in-memory history:
+ * the interrupted turn's dangling `tool_use` blocks are already durable, so a
+ * repair that lived only in memory would leave the next reload of this
+ * conversation with the same broken tail this call just fixed.
+ *
+ * `force` is how the interrupt path asks for the repair unconditionally. The
+ * legacy queue path arms `pendingSteerRepair` / `pendingInterruptRepair`
+ * instead and repairs on the drain that follows.
  */
-function repairPendingToolUseBlocks(conversation: Conversation): void {
-  const steered = conversation.pendingSteerRepair;
-  if (!steered && !conversation.pendingInterruptRepair) {
+export async function repairInterruptedToolUseBlocks(
+  conversation: Conversation,
+  options: { force?: boolean } = {},
+): Promise<void> {
+  const armed =
+    conversation.pendingSteerRepair || conversation.pendingInterruptRepair;
+  if (!armed && options.force !== true) {
     return;
   }
   conversation.pendingSteerRepair = false;
@@ -394,7 +410,7 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
     {
       conversationId: conversation.conversationId,
       pendingToolUseCount: pendingToolUseIds.length,
-      trigger: steered ? "steer" : "interrupt",
+      forced: options.force === true,
     },
     "Injecting synthetic tool_result for pending tool_use blocks",
   );
@@ -403,15 +419,27 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
   const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
     type: "tool_result" as const,
     tool_use_id: toolUseId,
-    content: steered
-      ? "Tool execution was interrupted by user steering."
-      : "Tool execution was interrupted by the user.",
+    content: PREEMPTED_TOOL_RESULT_TEXT,
     is_error: true,
   }));
   conversation.messages.push({
     role: "user",
     content: syntheticContent,
   });
+  try {
+    await addMessage(
+      conversation.conversationId,
+      "user",
+      JSON.stringify(syntheticContent),
+      // A machine-written repair marker, not something to retrieve later.
+      { skipIndexing: true },
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "Failed to persist the synthetic tool_result repair row; the in-memory history is repaired and the next reload repairs it again",
+    );
+  }
 }
 
 // ── drainQueue ───────────────────────────────────────────────────────
@@ -557,7 +585,7 @@ export async function drainQueue(
 
   // Repair any pending tool_use blocks left over from a steered abort
   // before the drain path sends the next message to the LLM.
-  repairPendingToolUseBlocks(conversation);
+  await repairInterruptedToolUseBlocks(conversation);
 
   if (steered) {
     const next = conversation.queue.shift();

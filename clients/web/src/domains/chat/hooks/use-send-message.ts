@@ -79,6 +79,7 @@ import {
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
+import { getInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
@@ -851,7 +852,13 @@ export function useSendMessage({
         }
       }
 
-      const willQueue = isSending(useTurnStore.getState().phase);
+      // Under `interrupt-on-send` a busy conversation is not a reason to
+      // queue: the daemon stops the turn in flight and runs this message at
+      // once, answering without `queued`. So the send takes the ordinary path
+      // — an optimistic row with no queue badge, reconciled by the echo — and
+      // the turn store never enters its `queued` phase.
+      const willQueue =
+        isSending(useTurnStore.getState().phase) && !getInterruptOnSend();
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,

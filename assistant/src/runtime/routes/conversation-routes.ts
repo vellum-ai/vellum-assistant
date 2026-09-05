@@ -50,6 +50,7 @@ import {
 } from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import { interruptRunningTurn } from "../../daemon/conversation-interrupt.js";
 import {
   isConversationBusyError,
   persistQueuedMessageBody,
@@ -2382,7 +2383,18 @@ export async function handleSendMessage(
   };
 
   if (conversation.isProcessing()) {
-    return queueSend(contentAfterScan);
+    // Under `interrupt-on-send` this message stops the turn in flight and
+    // takes its place, so the busy conversation is made idle here and the
+    // ordinary idle path below runs it. `declined` (flag off, or a different
+    // actor's turn) and `busy` (the turn never released) both keep the queue.
+    const outcome = await interruptRunningTurn(conversation, {
+      callerActorPrincipalId: sourceActorPrincipalId,
+      hidden: body.hidden === true,
+      origin: "POST /messages",
+    });
+    if (outcome !== "released") {
+      return queueSend(contentAfterScan);
+    }
   }
 
   // Auto-deny pending confirmations for idle conversations. The legacy

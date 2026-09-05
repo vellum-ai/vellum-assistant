@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { v7 as uuidv7 } from "uuid";
 
+import { interruptRunningTurn } from "../daemon/conversation-interrupt.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -108,7 +109,18 @@ async function dispatchUserMessage(params: {
     }
   }
 
-  if (conversation.isProcessing()) {
+  // Under `interrupt-on-send` this message stops the turn in flight and takes
+  // its place, so a busy conversation is made idle here and the same
+  // background dispatch an idle conversation uses runs it. The CLI carries no
+  // actor principal, so it is the guardian by the routes layer's convention
+  // and always allowed to interrupt.
+  const interruptOutcome = conversation.isProcessing()
+    ? await interruptRunningTurn(conversation, {
+        origin: "signals/user-message",
+      })
+    : "released";
+
+  if (interruptOutcome !== "released" && conversation.isProcessing()) {
     for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
       const att = resolvedAttachments[i];
       if (att.filePath && !att.data) {
