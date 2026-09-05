@@ -1,8 +1,9 @@
 /**
  * Tests for the MemoryTab's v3 candidate-pool card: the pool renders collapsed
  * behind its size / pages-selected summary and expands to the candidate rows
- * with chosen rows marked, and a turn logged before pools were persisted
- * renders the empty state instead.
+ * with chosen rows marked, a turn logged before pools were persisted renders
+ * the empty state, and a turn whose selector never ran says so instead of
+ * listing candidates.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -46,6 +47,7 @@ function contextWithPool(pool: MemoryV3Pool | null): LlmContextResponse {
 const POOL: MemoryV3Pool = {
   poolSize: 3,
   selectedCount: 2,
+  selectorRan: true,
   candidates: [
     {
       slug: "domain-a/page-1",
@@ -104,6 +106,30 @@ describe("MemoryTab v3 candidate pool", () => {
     expect(
       screen.getByText("No candidate pool was recorded for this turn."),
     ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Candidate pool/ })).toBeNull();
+  });
+
+  test("renders the did-not-run state for a turn the selector never judged", () => {
+    // A closed-gate hard skip persists an empty pool with the selector not run.
+    render(
+      <MemoryTab
+        context={contextWithPool({
+          poolSize: 0,
+          selectedCount: 0,
+          selectorRan: false,
+          candidates: [],
+        })}
+        assistantId="assistant-1"
+      />,
+    );
+
+    expect(screen.getByText("Candidate pool")).toBeTruthy();
+    expect(
+      screen.getByText("The selector did not run this turn."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("No candidate pool was recorded for this turn."),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: /Candidate pool/ })).toBeNull();
   });
 });

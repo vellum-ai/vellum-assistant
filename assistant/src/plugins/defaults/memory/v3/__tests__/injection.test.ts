@@ -251,6 +251,7 @@ function result(
         lane: "needle" as const,
       })),
     },
+    selectorRan: true,
   };
 }
 

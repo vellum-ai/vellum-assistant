@@ -10,6 +10,10 @@
  *   - NO blind fallback to a neighbouring turn/message;
  *   - the fork fallback: a turn inherited from a fork resolves to the parent's
  *     rows via the message's `forkSourceMessageId` back-pointer;
+ *   - a pool-only turn (a pool row, no selection rows: the selector rejected
+ *     everything or the gate hard-skipped) resolves through the pool's
+ *     stamped message id, with the same fork walk, to an empty selection
+ *     carrying the pool;
  *   - source/section mapping and the rendered `<memory>` block;
  *   - `live` reflects the config gate.
  *
@@ -117,6 +121,21 @@ function seedMessage(id: string, forkSourceMessageId?: string): void {
   testSqlite
     .query(`INSERT INTO messages (id, metadata) VALUES (?, ?)`)
     .run(id, metadata);
+}
+
+/** Stamp a pool row with its assistant message id, as the turn-end backfill
+ *  does for the pool and selection rows together. */
+function stampPool(
+  conversationId: string,
+  turn: number,
+  messageId: string,
+): void {
+  memorySqlite
+    .query(
+      `UPDATE memory_v3_pools SET message_id = ?
+       WHERE conversation_id = ? AND turn = ?`,
+    )
+    .run(messageId, conversationId, turn);
 }
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
@@ -333,12 +352,14 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       ],
       pool_size: 3,
       selected_count: 2,
+      selector_ran: true,
     });
     // A pool for a neighbouring turn must not bleed in.
     writePool("conv-m", 4, {
       candidates: [candidate("other/page", "core", true)],
       pool_size: 1,
       selected_count: 1,
+      selector_ran: true,
     });
 
     const log = await getMemoryV3SelectionForInspectorByMessageIds([
@@ -347,6 +368,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
     expect(log?.pool).toEqual({
       poolSize: 3,
       selectedCount: 2,
+      selectorRan: true,
       candidates: [
         {
           slug: "domain-a/page-1",
@@ -391,6 +413,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       candidates: [candidate("domain-a/page-1", "needle", true)],
       pool_size: 1,
       selected_count: 1,
+      selector_ran: true,
     });
     seedMessage("fork-msg", "parent-msg");
 
@@ -400,6 +423,113 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
     expect(log?.pool?.candidates.map((c) => c.slug)).toEqual([
       "domain-a/page-1",
     ]);
+  });
+
+  test("a pool-only turn resolves through its stamped message id to an empty selection with the pool", async () => {
+    // The selector saw two candidates and rejected both: no selection rows,
+    // one pool row, stamped at turn end like the selection rows would be.
+    writePool("conv-m", 5, {
+      candidates: [
+        candidate("domain-a/page-1", "core", false),
+        candidate("domain-b/page-2", "needle", false, {
+          title: "Heading B",
+          ordinal: 2,
+        }),
+      ],
+      pool_size: 2,
+      selected_count: 0,
+      selector_ran: true,
+    });
+    stampPool("conv-m", 5, "msg-rejected");
+    // A selection under another message must not be mistaken for this turn.
+    seed("conv-m", 6, [{ slug: "domain-c/page-9", source: "hot" }], "msg-6");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-rejected",
+    ]);
+    expect(log).toEqual({
+      turn: 5,
+      live: false,
+      selections: [],
+      injectedText: "",
+      pool: {
+        poolSize: 2,
+        selectedCount: 0,
+        selectorRan: true,
+        candidates: [
+          {
+            slug: "domain-a/page-1",
+            lane: "core",
+            sectionHeading: null,
+            chosen: false,
+          },
+          {
+            slug: "domain-b/page-2",
+            lane: "needle",
+            sectionHeading: "Heading B",
+            chosen: false,
+          },
+        ],
+      },
+    });
+    // The turn-keyed variant resolves the same pool-only log.
+    expect(await getMemoryV3SelectionForInspector("conv-m", 5)).toEqual(log);
+  });
+
+  test("a hard-skipped turn resolves to an empty selection whose pool records the selector as not run", async () => {
+    writePool("conv-m", 5, {
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    });
+    stampPool("conv-m", 5, "msg-skipped");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-skipped",
+    ]);
+    expect(log?.selections).toEqual([]);
+    expect(log?.injectedText).toBe("");
+    expect(log?.pool).toEqual({
+      poolSize: 0,
+      selectedCount: 0,
+      selectorRan: false,
+      candidates: [],
+    });
+  });
+
+  test("a fork copy of a pool-only turn resolves through the back-pointer walk", async () => {
+    writePool("conv-parent", 4, {
+      candidates: [candidate("domain-a/page-1", "dense", false)],
+      pool_size: 1,
+      selected_count: 0,
+      selector_ran: true,
+    });
+    stampPool("conv-parent", 4, "parent-msg");
+    // A fork of a fork: neither copy carries rows of its own.
+    seedMessage("mid-msg", "parent-msg");
+    seedMessage("fork2-msg", "mid-msg");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "fork2-msg",
+    ]);
+    expect(log?.turn).toBe(4);
+    expect(log?.selections).toEqual([]);
+    expect(log?.pool?.candidates.map((c) => c.slug)).toEqual([
+      "domain-a/page-1",
+    ]);
+  });
+
+  test("does not match a pool row that predates the message-id backfill (null message_id)", async () => {
+    writePool("conv-m", 5, {
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    }); // message_id null
+    expect(
+      await getMemoryV3SelectionForInspectorByMessageIds(["any"]),
+    ).toBeNull();
   });
 
   test("returns null for empty message ids and for an unmatched id", async () => {

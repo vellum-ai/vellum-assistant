@@ -728,7 +728,9 @@ function formatV3Source(source: string, t: MemoryTranslate): string {
 /**
  * The selector's full candidate pool for the turn: every stable-prefix card
  * and finder line it saw, collapsed behind a summary of pool size and pages
- * selected. A turn logged before pools were persisted shows the empty state.
+ * selected. A turn logged before pools were persisted shows the empty state;
+ * a turn whose selector never ran (the injection gate hard-skipped it, or
+ * nothing was pooled) says so instead of listing candidates it never judged.
  */
 function V3CandidatePoolCard({
   pool,
@@ -737,14 +739,16 @@ function V3CandidatePoolCard({
   pool: MemoryV3Pool | null;
   t: MemoryTranslate;
 }): ReactNode {
-  if (pool == null) {
+  if (pool == null || !pool.selectorRan) {
     return (
       <SectionCard title={t("memoryTab.candidatePoolTitle")}>
         <span
           className="text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          {t("memoryTab.candidatePoolNoneBody")}
+          {pool == null
+            ? t("memoryTab.candidatePoolNoneBody")
+            : t("memoryTab.candidatePoolSelectorNotRunBody")}
         </span>
       </SectionCard>
     );

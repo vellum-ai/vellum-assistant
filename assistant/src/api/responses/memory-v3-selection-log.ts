@@ -25,7 +25,9 @@
  * `pool` is the selector's full candidate pool for the turn as persisted in
  * `memory_v3_pools`: every stable-prefix card and finder line in pool order,
  * each with its lane, matched-section heading, and verdict. `null` for turns
- * that predate pool logging.
+ * that predate pool logging. A turn whose selector rejected every candidate,
+ * or whose injection gate hard-skipped selection, logs no selections at all:
+ * its log has empty `selections` and `injectedText` with `pool` populated.
  */
 
 import { z } from "zod";
@@ -50,12 +52,16 @@ export type MemoryV3PoolCandidate = z.infer<typeof MemoryV3PoolCandidateSchema>;
 /**
  * The selector's candidate pool for one turn. `poolSize` is the number of
  * candidates shown; `selectedCount` the distinct pages kept (a page can appear
- * twice when a finder lane also hit a stable-prefix card).
+ * twice when a finder lane also hit a stable-prefix card). `selectorRan` is
+ * whether the selector judged the pool: false with no candidates means the
+ * turn's injection gate hard-skipped selection (or nothing was pooled), so
+ * the inspector shows a did-not-run state rather than an empty list.
  */
 export const MemoryV3PoolSchema = z.object({
   poolSize: z.number(),
   selectedCount: z.number(),
   candidates: z.array(MemoryV3PoolCandidateSchema),
+  selectorRan: z.boolean(),
 });
 
 export type MemoryV3Pool = z.infer<typeof MemoryV3PoolSchema>;

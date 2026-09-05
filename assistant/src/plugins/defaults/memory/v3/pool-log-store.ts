@@ -6,18 +6,25 @@
  * so without this record a retrieval miss can only be diagnosed by rebuilding
  * the lanes offline. `memory_v3_pools` (memory connection, one row per
  * `(conversation, turn)`) stores every candidate the selector saw, in pool
- * order, with its lane, its matched section, and whether it was chosen.
+ * order, with its lane, its matched section, and whether it was chosen, plus
+ * `selector_ran`: whether the selector judged that pool at all. A turn the
+ * injection gate hard-skipped never assembles a pool, so its row is an empty
+ * pool with `selector_ran = 0`; the row exists so the inspector can show the
+ * negative verdict rather than nothing.
  *
  * Writes are best-effort (a failure logs a warning and never fails the turn)
  * and resolve the memory connection via `memorySqliteOrNull`, matching the
  * selections writer in `shadow-plugin.ts`. `message_id` is written NULL and
  * stamped at turn end by `backfillMemoryV3SelectionMessageId`, in the same
- * batch as the selection rows.
+ * batch as the selection rows, so a turn's pool can be read by its message id
+ * even when the turn logged no selections.
  *
  * Rows are per-turn diagnostics (roughly 10KB each) with no retention job;
  * a conversation delete purges them with the other conversation-keyed memory
  * tables (`conversation-memory-purge.ts`).
  */
+
+import type { Database } from "bun:sqlite";
 
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
@@ -45,12 +52,22 @@ export interface PoolCandidateRecord {
 
 export interface PoolRecord {
   /** Every candidate in pool order: core, hot, fresh, and always-candidate
-   *  cards, then the finder tail. */
+   *  cards, then the finder tail. Empty when no pool reached the selector. */
   candidates: PoolCandidateRecord[];
   /** `candidates.length`: the pool size the selector was shown. */
   pool_size: number;
   /** Distinct pages the selector kept (one `memory_v3_selections` row each). */
   selected_count: number;
+  /** Whether the selector judged the pool (`OrchestrateResult.selectorRan`).
+   *  False for a closed-gate hard skip, an empty pool, and the
+   *  disabled-selector passthrough. */
+  selector_ran: boolean;
+}
+
+/** A persisted pool row: the turn it was written for and its record. */
+export interface StoredPool {
+  turn: number;
+  record: PoolRecord;
 }
 
 /**
@@ -61,8 +78,24 @@ export interface PoolRecord {
  * matched section. A finder hit on a stable-prefix page therefore appears
  * twice, exactly as the selector saw it. `chosen` is slug membership in the
  * selection set, so every entry for a selected page reads chosen.
+ *
+ * When the selector did not run and nothing was selected, no pool reached it:
+ * either the injection gate hard-skipped selection (the result's lanes still
+ * carry the stable prefix, which the selector never saw) or the pool was
+ * empty. The record is then empty rather than a list of candidates marked
+ * unchosen, which would read as a rejection the selector never made. The
+ * disabled-selector passthrough keeps every pooled candidate as a selection,
+ * so it still records its pool.
  */
 export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
+  if (!result.selectorRan && result.selections.length === 0) {
+    return {
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    };
+  }
   const selected = new Set<Slug>(result.selections.map((s) => s.slug));
   const card = (slug: Slug, lane: PoolLane): PoolCandidateRecord => ({
     slug,
@@ -92,6 +125,7 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
     candidates,
     pool_size: candidates.length,
     selected_count: result.selections.length,
+    selector_ran: result.selectorRan,
   };
 }
 
@@ -116,8 +150,8 @@ export function writePool(
         /*sql*/ `
         INSERT OR REPLACE INTO memory_v3_pools (
           conversation_id, turn, message_id, created_at,
-          pool_size, selected_count, candidates_json
-        ) VALUES (?, ?, NULL, ?, ?, ?, ?)
+          pool_size, selected_count, selector_ran, candidates_json
+        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
       `,
       )
       .run(
@@ -126,6 +160,7 @@ export function writePool(
         Date.now(),
         record.pool_size,
         record.selected_count,
+        record.selector_ran ? 1 : 0,
         JSON.stringify(record.candidates),
       );
   } catch (err) {
@@ -134,52 +169,108 @@ export function writePool(
 }
 
 interface PoolRow {
+  turn: number;
   pool_size: number;
   selected_count: number;
+  selector_ran: number;
   candidates_json: string;
 }
 
+const POOL_COLUMNS = `turn, pool_size, selected_count, selector_ran, candidates_json`;
+
+function toStoredPool(row: PoolRow): StoredPool {
+  const candidates: unknown = JSON.parse(row.candidates_json);
+  if (!Array.isArray(candidates)) {
+    throw new Error("candidates_json is not an array");
+  }
+  return {
+    turn: row.turn,
+    record: {
+      candidates: candidates as PoolCandidateRecord[],
+      pool_size: row.pool_size,
+      selected_count: row.selected_count,
+      selector_ran: row.selector_ran === 1,
+    },
+  };
+}
+
 /**
- * Read the pool record for an exact `(conversation, turn)`. Returns `null`
- * when the turn has no row (it predates pool logging) or the memory connection
- * is unavailable. Best-effort like the write: a failed read or an unreadable
- * `candidates_json` logs a warning and reads as `null`, so the diagnostic can
- * never break the inspector's selection view.
+ * Best-effort read shared by the two lookups. Returns `null` when the memory
+ * connection is unavailable or `select` finds no row; a failed statement or an
+ * unreadable `candidates_json` logs a warning and also reads as `null`, so the
+ * diagnostic can never break the inspector's selection view.
+ */
+function readPool(
+  context: string,
+  key: Record<string, unknown>,
+  select: (raw: Database) => PoolRow | null,
+): StoredPool | null {
+  const raw = memorySqliteOrNull(context);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const row = select(raw);
+    return row ? toStoredPool(row) : null;
+  } catch (err) {
+    log.warn(
+      { err, ...key },
+      "failed to read memory-v3 pool; treating the turn as unrecorded",
+    );
+    return null;
+  }
+}
+
+/**
+ * Read the pool record for an exact `(conversation, turn)`. `null` when the
+ * turn has no row (it predates pool logging) or the read degraded.
  */
 export function readPoolForTurn(
   conversationId: string,
   turn: number,
 ): PoolRecord | null {
-  const raw = memorySqliteOrNull("readPoolForTurn");
-  if (!raw) {
-    return null;
-  }
-  try {
-    const row = raw
-      .query(
-        /*sql*/ `
-        SELECT pool_size, selected_count, candidates_json FROM memory_v3_pools
+  const stored = readPool(
+    "readPoolForTurn",
+    { conversationId, turn },
+    (raw) =>
+      raw
+        .query(
+          /*sql*/ `
+        SELECT ${POOL_COLUMNS} FROM memory_v3_pools
         WHERE conversation_id = ? AND turn = ?
       `,
-      )
-      .get(conversationId, turn) as PoolRow | null;
-    if (!row) {
-      return null;
-    }
-    const candidates: unknown = JSON.parse(row.candidates_json);
-    if (!Array.isArray(candidates)) {
-      throw new Error("candidates_json is not an array");
-    }
-    return {
-      candidates: candidates as PoolCandidateRecord[],
-      pool_size: row.pool_size,
-      selected_count: row.selected_count,
-    };
-  } catch (err) {
-    log.warn(
-      { err, conversationId, turn },
-      "failed to read memory-v3 pool; treating the turn as unrecorded",
-    );
+        )
+        .get(conversationId, turn) as PoolRow | null,
+  );
+  return stored?.record ?? null;
+}
+
+/**
+ * Read the pool row stamped with one of the given message ids. The turn-end
+ * backfill writes the turn's assistant message id onto its pool row, so this
+ * is how the inspector finds a turn that logged no selections (the selector
+ * rejected every candidate, or the gate hard-skipped it). Message ids are
+ * globally unique, so no conversation scope is needed; a row that predates
+ * the backfill (`message_id` NULL) never matches. `null` when no row matches
+ * or the read degraded.
+ */
+export function readPoolForMessageIds(messageIds: string[]): StoredPool | null {
+  if (messageIds.length === 0) {
     return null;
   }
+  const placeholders = messageIds.map(() => "?").join(", ");
+  return readPool(
+    "readPoolForMessageIds",
+    { messageIds },
+    (raw) =>
+      raw
+        .query(
+          /*sql*/ `
+        SELECT ${POOL_COLUMNS} FROM memory_v3_pools
+        WHERE message_id IN (${placeholders})
+        ORDER BY rowid
+      `,
+        )
+        .get(...messageIds) as PoolRow | null,
+  );
 }

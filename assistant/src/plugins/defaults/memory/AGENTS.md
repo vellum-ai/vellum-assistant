@@ -271,7 +271,11 @@ Persisted rows; a rename orphans every existing install.
 `memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
 selector's full candidate pool (every stable-prefix card and finder line, in
 pool order, with lane, matched section, and verdict) for the inspector's
-Memory tab. Rows are per-turn diagnostics, roughly 10KB each, with no
+Memory tab, plus `selector_ran`. A turn whose selector never judged a pool
+(the injection gate hard-skipped it, or nothing was pooled) persists an empty
+pool with `selector_ran = 0`, and a turn that logged no selections is still
+reachable by its stamped `message_id`, so the inspector shows negative
+verdicts too. Rows are per-turn diagnostics, roughly 10KB each, with no
 retention job; a conversation delete purges them with the other
 conversation-keyed tables (`conversation-memory-purge.ts`).
 

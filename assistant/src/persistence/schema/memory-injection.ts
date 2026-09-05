@@ -69,11 +69,12 @@ export const memoryV3Selections = sqliteTable(
 
 // Per-turn audit record of the memory-v3 selector's candidate pool: every
 // stable-prefix card and finder line the selector saw, in pool order, with its
-// lane, matched section, and verdict (`candidates_json`). One row per
-// (conversation, turn); `message_id` is stamped by the turn-end backfill so the
-// inspector can join it to the turn. Lives in the dedicated memory database
-// (`assistant-memory.db`), not main. Access it via the memory connection
-// (`getMemoryDb()` / `getMemorySqlite()`).
+// lane, matched section, and verdict (`candidates_json`), and whether the
+// selector judged the pool at all (`selector_ran`; a hard-skipped turn is an
+// empty pool with 0). One row per (conversation, turn); `message_id` is
+// stamped by the turn-end backfill so the inspector can join it to the turn.
+// Lives in the dedicated memory database (`assistant-memory.db`), not main.
+// Access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV3Pools = sqliteTable(
   "memory_v3_pools",
   {
@@ -83,6 +84,7 @@ export const memoryV3Pools = sqliteTable(
     createdAt: integer("created_at").notNull(),
     poolSize: integer("pool_size").notNull(),
     selectedCount: integer("selected_count").notNull(),
+    selectorRan: integer("selector_ran").notNull().default(1),
     candidatesJson: text("candidates_json").notNull(),
   },
   (table) => [

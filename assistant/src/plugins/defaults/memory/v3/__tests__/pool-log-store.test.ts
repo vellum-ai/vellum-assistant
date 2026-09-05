@@ -4,9 +4,14 @@
  *     always-candidate cards, then the finder tail), tags each entry with its
  *     lane and the slug's matched section, and marks `chosen` by membership in
  *     the selection set (a finder hit on a stable-prefix page appears twice);
+ *   - a turn whose selector never judged a pool (a closed-gate hard skip, an
+ *     empty pool) records an empty pool with `selector_ran` false, while the
+ *     disabled-selector passthrough keeps its pool;
  *   - `writePool` / `readPoolForTurn` round-trip the record, a re-observed
  *     turn replaces its row, and an absent turn reads `null`;
- *   - both degrade (no-op write, `null` read) when the memory connection is
+ *   - `readPoolForMessageIds` finds the row by its stamped message id and
+ *     ignores unstamped rows;
+ *   - all degrade (no-op write, `null` read) when the memory connection is
  *     unavailable, and an unreadable `candidates_json` reads `null`;
  *   - `ensureMemoryV3PoolsSchema` is idempotent.
  *
@@ -54,7 +59,7 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDb.getMemorySqlite(),
 }));
 
-const { buildPoolRecord, readPoolForTurn, writePool } =
+const { buildPoolRecord, readPoolForMessageIds, readPoolForTurn, writePool } =
   await import("../pool-log-store.js");
 
 beforeEach(() => {
@@ -101,7 +106,39 @@ function orchestrated(): OrchestrateResult {
         { slug: "topic/c", descriptor: "", lane: "edge" },
       ],
     },
+    selectorRan: true,
   };
+}
+
+/**
+ * A turn the injection gate hard-skipped: the selector was never consulted,
+ * so there are no selections, but the result's lanes still carry the stable
+ * prefix (the injector needs it as a prune exemption).
+ */
+function hardSkipped(): OrchestrateResult {
+  return {
+    selections: [],
+    matchedSections: new Map(),
+    lanes: {
+      core: ["core/page"],
+      hot: ["hot/page"],
+      fresh: ["fresh/page"],
+      always: [],
+      finder: [],
+    },
+    selectorRan: false,
+  };
+}
+
+/** Stamp the turn's pool row with its assistant message id, as the turn-end
+ *  backfill does. */
+function stamp(conversationId: string, turn: number, messageId: string): void {
+  memorySqlite
+    .query(
+      `UPDATE memory_v3_pools SET message_id = ?
+       WHERE conversation_id = ? AND turn = ?`,
+    )
+    .run(messageId, conversationId, turn);
 }
 
 const card = (
@@ -153,16 +190,75 @@ describe("buildPoolRecord", () => {
     expect(record.pool_size).toBe(8);
     // Distinct pages kept (core/page counts once), not chosen entries.
     expect(record.selected_count).toBe(3);
+    expect(record.selector_ran).toBe(true);
   });
 
-  test("an empty pool records zero candidates", () => {
+  test("an empty pool records zero candidates with the selector not run", () => {
     expect(
       buildPoolRecord({
         selections: [],
         matchedSections: new Map(),
         lanes: { core: [], hot: [], fresh: [], always: [], finder: [] },
+        selectorRan: false,
       }),
-    ).toEqual({ candidates: [], pool_size: 0, selected_count: 0 });
+    ).toEqual({
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    });
+  });
+
+  test("a closed-gate hard skip records an empty pool, not the stable prefix as rejected", () => {
+    // The selector never saw core/hot/fresh; listing them unchosen would read
+    // as a verdict it never gave.
+    expect(buildPoolRecord(hardSkipped())).toEqual({
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    });
+  });
+
+  test("a pool the selector rejected wholesale keeps every candidate, unchosen", () => {
+    const record = buildPoolRecord({ ...orchestrated(), selections: [] });
+
+    expect(record.selector_ran).toBe(true);
+    expect(record.pool_size).toBe(8);
+    expect(record.selected_count).toBe(0);
+    expect(record.candidates.every((c) => !c.chosen)).toBe(true);
+  });
+
+  test("the disabled-selector passthrough keeps its pool with every candidate chosen", () => {
+    // `selectAllPoolCandidates` turns the whole pool into selections without
+    // a selector judgment: the pool was real, so it is recorded.
+    const record = buildPoolRecord({
+      selections: [
+        { slug: "core/page" },
+        { slug: "hot/page" },
+        { slug: "fresh/page" },
+      ],
+      matchedSections: new Map(),
+      lanes: {
+        core: ["core/page"],
+        hot: ["hot/page"],
+        fresh: ["fresh/page"],
+        always: [],
+        finder: [],
+      },
+      selectorRan: false,
+    });
+
+    expect(record).toEqual({
+      candidates: [
+        card("core/page", "core", true),
+        card("hot/page", "hot", true),
+        card("fresh/page", "fresh", true),
+      ],
+      pool_size: 3,
+      selected_count: 3,
+      selector_ran: false,
+    });
   });
 });
 
@@ -181,11 +277,41 @@ describe("writePool / readPoolForTurn", () => {
 
     const row = memorySqlite
       .query(
-        `SELECT message_id, pool_size, selected_count FROM memory_v3_pools
+        `SELECT message_id, pool_size, selected_count, selector_ran
+         FROM memory_v3_pools
          WHERE conversation_id = 'conv-1' AND turn = 4`,
       )
       .get();
-    expect(row).toEqual({ message_id: null, pool_size: 8, selected_count: 3 });
+    expect(row).toEqual({
+      message_id: null,
+      pool_size: 8,
+      selected_count: 3,
+      selector_ran: 1,
+    });
+  });
+
+  test("a closed-gate turn persists selector_ran = 0 with an empty pool and reads back as such", () => {
+    writePool("conv-1", 4, buildPoolRecord(hardSkipped()));
+
+    const row = memorySqlite
+      .query(
+        `SELECT pool_size, selected_count, selector_ran, candidates_json
+         FROM memory_v3_pools
+         WHERE conversation_id = 'conv-1' AND turn = 4`,
+      )
+      .get();
+    expect(row).toEqual({
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: 0,
+      candidates_json: "[]",
+    });
+    expect(readPoolForTurn("conv-1", 4)).toEqual({
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    });
   });
 
   test("a re-observed turn replaces its row", () => {
@@ -194,6 +320,7 @@ describe("writePool / readPoolForTurn", () => {
       candidates: [card("only/page", "core", true)],
       pool_size: 1,
       selected_count: 1,
+      selector_ran: true,
     };
     writePool("conv-1", 4, smaller);
 
@@ -228,6 +355,38 @@ describe("writePool / readPoolForTurn", () => {
   });
 });
 
+describe("readPoolForMessageIds", () => {
+  test("finds the turn's pool by its stamped message id", () => {
+    const record = buildPoolRecord(orchestrated());
+    writePool("conv-1", 4, record);
+    writePool("conv-1", 5, buildPoolRecord(hardSkipped()));
+    stamp("conv-1", 4, "msg-4");
+    stamp("conv-1", 5, "msg-5");
+
+    expect(readPoolForMessageIds(["msg-4"])).toEqual({ turn: 4, record });
+    // Any of the turn's ids resolves it; a neighbouring turn never bleeds in.
+    expect(readPoolForMessageIds(["other", "msg-5"])).toEqual({
+      turn: 5,
+      record: buildPoolRecord(hardSkipped()),
+    });
+  });
+
+  test("returns null for empty ids, an unmatched id, and an unstamped row", () => {
+    writePool("conv-1", 4, buildPoolRecord(orchestrated())); // message_id NULL
+
+    expect(readPoolForMessageIds([])).toBeNull();
+    expect(readPoolForMessageIds(["nope"])).toBeNull();
+  });
+
+  test("degrades to null when the memory database is unavailable", () => {
+    writePool("conv-1", 4, buildPoolRecord(orchestrated()));
+    stamp("conv-1", 4, "msg-4");
+    memoryDbAvailable = false;
+
+    expect(readPoolForMessageIds(["msg-4"])).toBeNull();
+  });
+});
+
 describe("ensureMemoryV3PoolsSchema", () => {
   test("is idempotent and creates both indexes", () => {
     expect(() => ensureMemoryV3PoolsSchema(memorySqlite)).not.toThrow();
@@ -238,5 +397,15 @@ describe("ensureMemoryV3PoolsSchema", () => {
     const names = new Set(indexes.map((i) => i.name));
     expect(names.has("idx_memory_v3_pools_message")).toBe(true);
     expect(names.has("idx_memory_v3_pools_conv")).toBe(true);
+  });
+
+  test("selector_ran defaults to 1 so a row written without it reads as a judged pool", () => {
+    const column = (
+      memorySqlite.query(`PRAGMA table_info(memory_v3_pools)`).all() as Array<{
+        name: string;
+        dflt_value: string | null;
+      }>
+    ).find((c) => c.name === "selector_ran");
+    expect(column?.dflt_value).toBe("1");
   });
 });

@@ -164,6 +164,7 @@ const orchestrateSpy = mock(
         { slug: "page-5", descriptor: "", lane: "learned" },
       ],
     },
+    selectorRan: true,
   }),
 );
 
@@ -538,7 +539,7 @@ function readPools() {
   return memorySqlite
     .query(
       `SELECT conversation_id, turn, message_id, pool_size, selected_count,
-              candidates_json
+              selector_ran, candidates_json
        FROM memory_v3_pools ORDER BY turn`,
     )
     .all() as Array<{
@@ -547,6 +548,7 @@ function readPools() {
     message_id: string | null;
     pool_size: number;
     selected_count: number;
+    selector_ran: number;
     candidates_json: string;
   }>;
 }
@@ -679,6 +681,7 @@ describe("memory-v3 engine", () => {
       message_id: null,
       pool_size: 9,
       selected_count: 8,
+      selector_ran: 1,
     });
     const card = (slug: string, lane: string, chosen: boolean) => ({
       slug,
@@ -723,6 +726,41 @@ describe("memory-v3 engine", () => {
       .all();
     expect(stamped).toEqual([{ message_id: "m-assistant" }]);
     expect(readPools().map((pool) => pool.message_id)).toEqual(["m-assistant"]);
+  });
+
+  test("a closed-gate turn persists an empty pool with selector_ran = 0, not the stable prefix as rejected", async () => {
+    // The gate hard-skipped selection: the result still carries the stable
+    // lanes (the injector's prune exemptions) but the selector never saw them.
+    orchestrateSpy.mockImplementationOnce(async () => ({
+      selections: [],
+      matchedSections: new Map(),
+      lanes: {
+        core: ["page-core"],
+        hot: ["page-hot"],
+        fresh: ["page-fresh"],
+        always: [CAPABILITY_SLUG],
+        finder: [],
+      },
+      selectorRan: false,
+    }));
+
+    await observeTurn("conv-1", 2);
+
+    expect(readRows()).toHaveLength(0);
+    const pools = readPools();
+    expect(pools).toHaveLength(1);
+    expect(pools[0]).toMatchObject({
+      conversation_id: "conv-1",
+      turn: 2,
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: 0,
+      candidates_json: "[]",
+    });
+
+    // The pool-only turn is still stamped, so the inspector can find it.
+    backfillMemoryV3SelectionMessageId("conv-1", "m-skipped");
+    expect(readPools().map((pool) => pool.message_id)).toEqual(["m-skipped"]);
   });
 
   test("the turn carries the tail of the previous assistant reply for the reply-query pass", async () => {
@@ -775,6 +813,7 @@ describe("memory-v3 engine", () => {
         // "core" because that is where the candidate lived in the pool.
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
       },
+      selectorRan: true,
     });
     expect(rows).toEqual([
       {
@@ -1019,6 +1058,7 @@ describe("memory-v3 engine", () => {
       selections: [],
       matchedSections: new Map(),
       lanes: { core: [], hot: [], fresh: [], always: [], finder: [] },
+      selectorRan: false,
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();

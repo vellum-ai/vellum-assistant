@@ -10028,10 +10028,13 @@ paths:
                                         - sectionHeading
                                         - chosen
                                       additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
                                 required:
                                   - poolSize
                                   - selectedCount
                                   - candidates
+                                  - selectorRan
                                 additionalProperties: false
                               - type: "null"
                         required:
@@ -22268,10 +22271,13 @@ paths:
                                         - sectionHeading
                                         - chosen
                                       additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
                                 required:
                                   - poolSize
                                   - selectedCount
                                   - candidates
+                                  - selectorRan
                                 additionalProperties: false
                               - type: "null"
                         required:

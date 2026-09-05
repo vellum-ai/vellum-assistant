@@ -6,10 +6,11 @@ import { getMemorySqlite } from "../db-connection.js";
  * Create `memory_v3_pools` and its indexes on the memory connection. One row
  * per `(conversation, turn)`: the memory-v3 selector's full candidate pool for
  * that turn (stable-prefix cards and finder lines, in pool order) with each
- * candidate's verdict, serialized as JSON in `candidates_json`. Idempotent
- * (`IF NOT EXISTS`); the dedicated connection performs no DDL on open, so this
- * migration owns the schema. Exported so tests can stand up the memory-side
- * schema directly.
+ * candidate's verdict, serialized as JSON in `candidates_json`, and
+ * `selector_ran` (0 for a turn whose selector never judged a pool, which is
+ * persisted as an empty pool). Idempotent (`IF NOT EXISTS`); the dedicated
+ * connection performs no DDL on open, so this migration owns the schema.
+ * Exported so tests can stand up the memory-side schema directly.
  */
 export function ensureMemoryV3PoolsSchema(memoryRaw: Database): void {
   memoryRaw.exec(/*sql*/ `
@@ -20,6 +21,7 @@ export function ensureMemoryV3PoolsSchema(memoryRaw: Database): void {
       created_at INTEGER NOT NULL,
       pool_size INTEGER NOT NULL,
       selected_count INTEGER NOT NULL,
+      selector_ran INTEGER NOT NULL DEFAULT 1,
       candidates_json TEXT NOT NULL,
       PRIMARY KEY (conversation_id, turn)
     )

@@ -293,6 +293,14 @@ export interface OrchestrateResult {
    *  by the selection telemetry (lane attribution), the per-turn pool record
    *  (`pool-log-store.ts`), and the downstream selector rendering/spotlight. */
   lanes: OrchestrateLanes;
+  /** Whether the selector LLM judged a non-empty pool this turn (the
+   *  `selector_ran` telemetry field). False when the pool was empty, when the
+   *  disabled-selector passthrough kept every candidate, and when a closed
+   *  injection gate hard-skipped selection. On that last path `lanes` still
+   *  carries the stable prefix (the injector exempts it from pruning) but no
+   *  pool was ever assembled, so a false value with empty `selections` means
+   *  the selector was given nothing. */
+  selectorRan: boolean;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -652,7 +660,8 @@ export async function orchestrate(
   //     the provider (also a 0%).
   // The last is why `poolSize` decides this rather than each call site: an empty
   // pool is not a judgment that nothing was relevant, and no caller has to
-  // remember that.
+  // remember that. `selectorRanOver` is that rule; the selection event and the
+  // result's `selectorRan` both read it.
   // `selector_kept_all` and `net_new_count` separate what the selector JUDGED
   // from what actually reaches the turn, which `selected_count` alone conflates:
   //   - kept_all: the recall-safe fallback fired (model omitted `ids`), so every
@@ -664,6 +673,8 @@ export async function orchestrate(
   //     incremental injection, where `selected_count` re-counts the whole
   //     standing set every turn. Omitted when the caller did not supply
   //     `activeSlugs` (tests, shadow-less paths).
+  const selectorRanOver = (poolSize: number): boolean =>
+    deps.selectorEnabled !== false && poolSize > 0;
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
@@ -672,7 +683,7 @@ export async function orchestrate(
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
-      selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selector_ran: selectorRanOver(poolSize),
       selector_kept_all: keptAll,
       selected_count: selections.length,
       pool_size: poolSize,
@@ -742,11 +753,16 @@ export async function orchestrate(
         });
         if (!gate.pass) {
           // A closed gate produces no finder lane and no matched sections; only
-          // the `selections` differ between bypass (stable prefix) and hard-skip.
-          const closed = (selections: SelectedPage[]): OrchestrateResult => ({
+          // `selections` and `selectorRan` differ between bypass (stable
+          // prefix) and hard-skip.
+          const closed = (
+            selections: SelectedPage[],
+            selectorRan: boolean,
+          ): OrchestrateResult => ({
             selections,
             matchedSections: new Map(),
             lanes: { core, hot, fresh, always, finder: [] },
+            selectorRan,
           });
           if (deps.gateConfig.bypassForCore) {
             // Select over the stable prefix only. `runSelection` mirrors the
@@ -764,13 +780,14 @@ export async function orchestrate(
               finder: [],
             });
             recordSelection(bypassed, stableOnly.length, keptAll);
-            return closed(bypassed);
+            return closed(bypassed, selectorRanOver(stableOnly.length));
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
-          // `selector_ran: false` keeps it out of any relevance rate.
+          // `selector_ran: false` keeps it out of any relevance rate, and the
+          // result's `selectorRan` keeps it out of the persisted pool record.
           recordSelection([], 0, false);
-          return closed([]);
+          return closed([], false);
         }
       }
     }
@@ -867,13 +884,15 @@ export async function orchestrate(
     "Gate & edge expansion",
     Date.now() - expandStartedAt,
   );
+  const poolSize = stable.length + finderTail.length;
   const { selections, keptAll } = await runSelection(pool);
-  recordSelection(selections, stable.length + finderTail.length, keptAll);
+  recordSelection(selections, poolSize, keptAll);
 
   return {
     selections,
     matchedSections,
     lanes: { core, hot, fresh, always, finder },
+    selectorRan: selectorRanOver(poolSize),
   };
 }
 
