@@ -459,6 +459,30 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     ).toBe([V3_INJECTION_HEADER, lead("page-b")].join("\n\n"));
   });
 
+  test("a sectionless legacy card with a recorded length prunes whole, grammar-shaped lead lines included", () => {
+    const card = [
+      injectedSectionHeader("stub", ""),
+      "# Stub",
+      "lead prose",
+      "",
+      "# memory/concepts/example.md",
+      "a cited path",
+      "",
+      "# Skill: example-skill",
+      "a skill-shaped line",
+    ].join("\n");
+    const legacyInner = [V3_INJECTION_HEADER, card, lead("page-b")].join(
+      "\n\n",
+    );
+    const knownCardBytes = new Map([["stub", renderedBytes(card)]]);
+    expect(
+      filterPrunedSections(legacyInner, refSet(["stub", ""]), knownCardBytes),
+    ).toBe([V3_INJECTION_HEADER, lead("page-b")].join("\n\n"));
+    expect(
+      filterPrunedSections(legacyInner, refSet(["page-b", ""]), knownCardBytes),
+    ).toBe([V3_INJECTION_HEADER, card].join("\n\n"));
+  });
+
   test("with the conversation's recorded card bytes, a headless legacy card after a sectionless one prunes on its own", () => {
     const stub = [
       injectedSectionHeader("stub", ""),

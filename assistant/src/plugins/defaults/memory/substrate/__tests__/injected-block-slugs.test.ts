@@ -458,6 +458,63 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     ).toEqual([twice, cardB]);
   });
 
+  test("a sectionless card with a recorded length holds its lead together whatever grammar-shaped lines it carries; without one the shape rule falls back to splitting", () => {
+    // No TOC line: the shape alone cannot close this card, so only the
+    // recorded length can.
+    const stubWithLines = [
+      injectedSectionHeader("topics/stub", ""),
+      "# Stub",
+      "lead prose",
+      "",
+      "# memory/concepts/example.md",
+      "a cited path",
+      "",
+      "# Skill: example-skill",
+      "a skill-shaped line",
+      "",
+      "# CLI command: export",
+      "a command-shaped line",
+      "",
+      "# Skills",
+      "a hint-shaped line",
+    ].join("\n");
+    const inner = [preamble, stubWithLines, cardB].join("\n\n");
+
+    const known = parseInjectedSections(inner, {
+      knownCardBytes: new Map([
+        ["topics/stub", renderedBytes(stubWithLines)],
+        ["topics/page-b", renderedBytes(cardB)],
+      ]),
+    });
+    expect(known.pieces.map((piece) => piece.text)).toEqual([
+      stubWithLines,
+      cardB,
+    ]);
+
+    const fallback = parseInjectedSections(inner);
+    expect(fallback.pieces.map((piece) => piece.kind)).toEqual([
+      "section",
+      "section",
+      "capability",
+      "capability",
+      "other",
+      "section",
+    ]);
+  });
+
+  test("a sectionless card with a recorded length ends exactly at its extent: the header there is the next boundary even for a headless card", () => {
+    // The headless card has no recorded length and no title line; the open
+    // card's extent alone makes its header a boundary.
+    const inner = [preamble, stub, headless].join("\n\n");
+    const parsed = parseInjectedSections(inner, {
+      knownCardBytes: new Map([["topics/stub", renderedBytes(stub)]]),
+    });
+    expect(parsed.sections.map((section) => section.text)).toEqual([
+      stub,
+      headless,
+    ]);
+  });
+
   test("a real legacy capability chunk between cards splits whether or not its slug is recorded", () => {
     const skill = "# Skill: meet-join\nJoin a video meeting on request.";
     const inner = [preamble, cardA, skill, cardB].join("\n\n");

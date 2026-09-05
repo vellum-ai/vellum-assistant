@@ -619,6 +619,42 @@ describe("seedEverInjectedFromBlocks", () => {
     ]);
   });
 
+  test("a sectionless legacy card with a recorded length seeds one lead entry, whatever grammar-shaped lines its lead carries", () => {
+    const card = [
+      injectedSectionHeader("topics/stub", ""),
+      "# Stub",
+      "lead prose",
+      "",
+      "# memory/concepts/example.md",
+      "a cited path",
+      "",
+      "# CLI command: export",
+      "a command-shaped line",
+    ].join("\n");
+    recordInjected(
+      "conv-parent",
+      [{ slug: "topics/stub", key: "", bytes: renderedBytes(card) }],
+      1_000,
+    );
+    freeze("conv-parent", "topics/stub", renderedBytes(card));
+
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [`preamble\n\n${card}`],
+      5_000,
+    );
+
+    expect(summary("conv-child")).toEqual([
+      {
+        slug: "topics/stub",
+        key: "",
+        bytes: renderedBytes(card),
+        prunedAt: null,
+      },
+    ]);
+  });
+
   test("carries the parent's pruned_at tombstones for inherited sections", () => {
     // Parent injected both sections of page-a, then pruned Notes: the
     // metadata block the child inherits still contains the Notes section,

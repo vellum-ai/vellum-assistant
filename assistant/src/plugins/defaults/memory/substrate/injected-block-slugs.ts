@@ -337,11 +337,13 @@ function recordedInStore(
 ): boolean {
   const ref = candidates[i]!.ref;
   if (ref.kind === "section") {
-    return spanHasRecordedBytes(
-      inner,
-      candidates,
-      i,
-      options.knownCardBytes?.get(ref.slug) ?? 0,
+    return (
+      recordedSpanEnd(
+        inner,
+        candidates,
+        i,
+        options.knownCardBytes?.get(ref.slug) ?? 0,
+      ) !== undefined
     );
   }
   if (ref.kind === "capability") {
@@ -350,25 +352,26 @@ function recordedInStore(
   return false;
 }
 
-/** Whether the span from candidate `i`'s header to some later candidate
- *  header (or the end of the block), block joiner excluded, is exactly
- *  `recorded` bytes long: the frozen card's own length, so the header is a
- *  real card boundary. Zero (unrecorded) never matches. */
-function spanHasRecordedBytes(
+/** The end (a later candidate's index, or the block's end) at which the span
+ *  from candidate `i`'s header, block joiner excluded, is exactly `recorded`
+ *  bytes long: the frozen card's own extent, so the header is a real card
+ *  boundary and the card runs to that end. `undefined` when no end matches;
+ *  zero (unrecorded) never matches. */
+function recordedSpanEnd(
   inner: string,
   candidates: Boundary[],
   i: number,
   recorded: number,
-): boolean {
+): number | undefined {
   if (recorded <= 0) {
-    return false;
+    return undefined;
   }
   const start = candidates[i]!.index;
   const ends = [
     ...candidates.slice(i + 1).map((candidate) => candidate.index),
     inner.length,
   ];
-  return ends.some(
+  return ends.find(
     (end) => renderedBytes(inner.slice(start, end).trimEnd()) === recorded,
   );
 }
@@ -442,7 +445,14 @@ export interface ParseInjectedSectionsOptions {
  * `options.knownCardBytes`: a concept header whose span to some later
  * candidate matches its slug's recorded frozen length byte for byte, or a
  * capability header naming a recorded capability slug (the hint's `# Skills`
- * was never recorded, so inside a card it is always text). Current blocks
+ * was never recorded, so inside a card it is always text). When the OPEN
+ * card's own slug has a recorded length, that length governs directly: the
+ * card's extent is its header through that many bytes, every candidate
+ * starting inside it is card text, and the first candidate at the extent is
+ * the next boundary, so a sectionless card (which has no TOC line for the
+ * shape to close on) still holds its lead together; the shape rule is the
+ * fallback for an open card with no recorded length, and a capability chunk
+ * (recorded at zero) has no derivable extent and keeps it. Current blocks
  * escape every grammar-shaped line, so none of this applies to them.
  */
 export function parseInjectedSections(
@@ -475,32 +485,53 @@ export function parseInjectedSections(
   candidates.sort((a, b) => a.index - b.index);
 
   const boundaries: Boundary[] = [];
+  // The exact end of the open card when its slug's frozen length is on
+  // record: the header through that many bytes, measured as the injector
+  // measured them. Every candidate starting inside it is card text and the
+  // first candidate at it is the next boundary, TOC line or not, which is
+  // what covers a sectionless card (no TOC line to close it by shape).
+  let openCardEnd: number | null = null;
   for (const [i, candidate] of candidates.entries()) {
-    const open = boundaries[boundaries.length - 1];
     const ref = candidate.ref;
-    // The open card has yet to close when a TOC line lies between this
-    // header and the next header the shape reads as opening a chunk on its
-    // own; other grammar-shaped lines in between are that card's text too.
-    const shapeReadsAsCardText =
-      (ref.kind !== "section" || ref.key.length === 0) &&
-      open !== undefined &&
-      open.ref.kind === "section" &&
-      !shapeOpensChunk(inner, candidate.index) &&
-      hasLegacyTocLine(
-        inner,
-        lineEndAt(inner, candidate.index) + 1,
-        candidates
-          .slice(i + 1)
-          .find((later) => shapeOpensChunk(inner, later.index))?.index ??
-          inner.length,
-      );
-    if (
-      shapeReadsAsCardText &&
-      !recordedInStore(inner, candidates, i, options)
-    ) {
+    if (openCardEnd !== null && candidate.index < openCardEnd) {
       continue;
     }
+    if (openCardEnd === null || candidate.index !== openCardEnd) {
+      const open = boundaries[boundaries.length - 1];
+      // Fallback for an open card with no recorded length: it has yet to
+      // close when a TOC line lies between this header and the next header
+      // the shape reads as opening a chunk on its own; other grammar-shaped
+      // lines in between are that card's text too.
+      const shapeReadsAsCardText =
+        (ref.kind !== "section" || ref.key.length === 0) &&
+        open !== undefined &&
+        open.ref.kind === "section" &&
+        !shapeOpensChunk(inner, candidate.index) &&
+        hasLegacyTocLine(
+          inner,
+          lineEndAt(inner, candidate.index) + 1,
+          candidates
+            .slice(i + 1)
+            .find((later) => shapeOpensChunk(inner, later.index))?.index ??
+            inner.length,
+        );
+      if (
+        shapeReadsAsCardText &&
+        !recordedInStore(inner, candidates, i, options)
+      ) {
+        continue;
+      }
+    }
     boundaries.push(candidate);
+    openCardEnd =
+      ref.kind === "section" && ref.key.length === 0
+        ? (recordedSpanEnd(
+            inner,
+            candidates,
+            i,
+            options.knownCardBytes?.get(ref.slug) ?? 0,
+          ) ?? null)
+        : null;
   }
   if (boundaries.length === 0) {
     return { preamble: inner, sections: [], pieces: [] };

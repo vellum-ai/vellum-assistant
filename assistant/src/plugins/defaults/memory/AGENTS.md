@@ -153,7 +153,10 @@ blocks through the module's `parseInjectedSections`, which also recognises the
 compact-card shape earlier builds froze without escaping (header, page head,
 blank line, `[sections: …]` TOC line) so a header-shaped line inside such a
 card's lead stays card text unless the span from it to a later header is, byte
-for byte, the frozen card length the conversation recorded for that slug
+for byte, the frozen card length the conversation recorded for that slug, and
+an open card whose own slug has a recorded length ends exactly that many bytes
+after its header (so a sectionless card, with no TOC line, still holds its lead
+together and the next boundary is the first header at that extent)
 (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length migration 378
 carried over or the fork seeder measured, which `recordInjected` never
 refreshes, so the evidence survives a prune and re-injection of the lead);
