@@ -164,6 +164,7 @@ import type {
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
+  canSpawnSubagentsForTurn,
   createResolveToolsCallback,
   createToolExecutor,
 } from "./conversation-tool-setup.js";
@@ -561,7 +562,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */   currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
@@ -1019,6 +1020,12 @@ export class Conversation {
           personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
+          // Read off this turn's resolved tool surface: a workspace
+          // `tools.exclude` entry, a background run's `allowedTools` scope, a
+          // read-only subagent pass, or tools disabled all answer no, and the
+          // delegation section renders off rather than pointing at a tool the
+          // turn cannot call.
+          canSpawnSubagents: canSpawnSubagentsForTurn(this),
         });
   }
 
