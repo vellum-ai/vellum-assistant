@@ -372,6 +372,7 @@ export function slackViewOfProviderMetadata(
       ? {
           reaction: {
             emoji: meta.reaction.emoji,
+            ...pickReactionEmojiFields(meta.reaction),
             op: meta.reaction.op,
             targetChannelTs: meta.reaction.targetMessageId,
             ...(meta.reaction.actorDisplayName

@@ -45,23 +45,27 @@ const REACTION_LINES: TranscriptItem[] = [
   ),
   reactionRow("r1", "user", {
     emoji: "heart",
+    emojiDisplay: "❤️",
     op: "added",
     targetMessageId: "m2",
     actorDisplayName: "Alice",
   }),
   reactionRow("r2", "assistant", {
     emoji: "🎉",
+    emojiDisplay: "🎉",
     op: "added",
     targetMessageId: "m1",
     selfAuthored: true,
   }),
   reactionRow("r3", "user", {
     emoji: "+1",
+    emojiDisplay: "👍",
     op: "added",
     targetMessageId: "m2",
   }),
   reactionRow("r4", "user", {
     emoji: "heart",
+    emojiDisplay: "❤️",
     op: "removed",
     targetMessageId: "m2",
     actorDisplayName: "Alice",
@@ -70,33 +74,37 @@ const REACTION_LINES: TranscriptItem[] = [
 
 // Every emoji form a channel can deliver, one row each, distinguishable by
 // its rendered output alone: Alice's unicode emoji renders as itself, Bob's
-// "heart" shortcode resolves through the emoji catalog to the heart emoji,
+// "heart" shortcode renders the glyph the daemon resolved it to,
 // Carol's Discord custom-emoji mention renders as its bare ":vex:", and
 // Dave's custom emoji named "heart" stays ":heart:" right under Bob's
 // resolved heart, because a guild emoji keeps its identity and never swaps
-// into the catalog emoji its name collides with.
+// into the standard emoji its name collides with.
 const EMOJI_RESOLUTION: TranscriptItem[] = [
   message("m1", "assistant", "Deployed. Watching the error rates now."),
   reactionRow("e1", "user", {
     emoji: "🎉",
+    emojiDisplay: "🎉",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Alice",
   }),
   reactionRow("e2", "user", {
     emoji: "heart",
+    emojiDisplay: "❤️",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Bob",
   }),
   reactionRow("e3", "user", {
     emoji: "<:vex:12345>",
+    emojiDisplay: ":vex:",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Carol",
   }),
   reactionRow("e4", "user", {
     emoji: "<:heart:99>",
+    emojiDisplay: ":heart:",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Dave",
@@ -118,6 +126,7 @@ const SLACK_SHAPED: TranscriptItem[] = [
       ...textBody("[reaction]"),
       reaction: {
         emoji: "raised_hands",
+        emojiDisplay: "🙌",
         op: "added",
         targetMessageId: "1725100000.000200",
         actorDisplayName: "Bob",
@@ -145,6 +154,7 @@ const SLACK_SHAPED: TranscriptItem[] = [
       ...textBody("[reaction]"),
       reaction: {
         emoji: "raised_hands",
+        emojiDisplay: "🙌",
         op: "removed",
         targetMessageId: "1725100000.000200",
         actorDisplayName: "Bob",
@@ -197,18 +207,20 @@ type Story = StoryObj<typeof Transcript>;
  * Both directions and both operations around an ordinary exchange: an
  * inbound reaction with a named actor, the assistant's own (`selfAuthored`,
  * no actor name), an inbound one with no actor (the "Someone" fallback,
- * with its `+1` shortcode resolved through the catalog), and a removal.
+ * with its `+1` shortcode rendered from the daemon's display), and a removal.
  */
 export const ReactionLines: Story = {
   args: { items: REACTION_LINES },
 };
 
 /**
- * The emoji-resolution matrix of `displayReactionEmoji`: unicode passes
- * through, a shortcode resolves through the lazy-loaded catalog, and a
- * Discord custom-emoji mention renders as its bare ":name:" even when the
- * name collides with a catalog shortcode ("heart" here), keeping the guild
- * emoji's identity instead of swapping in the standard emoji.
+ * Every emoji form a channel can deliver, rendered from the wire's
+ * `emojiDisplay`: unicode passes through, a shortcode shows the glyph the
+ * daemon resolved it to, and a Discord custom-emoji mention renders as its
+ * bare ":name:" even when the name collides with a standard emoji ("heart"
+ * here), keeping the guild emoji's identity instead of swapping in the
+ * standard one. `displayReactionEmoji` serves only an assistant that
+ * predates the field.
  */
 export const EmojiResolution: Story = {
   args: { items: EMOJI_RESOLUTION },

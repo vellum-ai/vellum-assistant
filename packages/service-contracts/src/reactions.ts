@@ -40,6 +40,23 @@ export const ReactionEmojiFieldsSchema = z.object({
 export type ReactionEmojiFields = z.infer<typeof ReactionEmojiFieldsSchema>;
 
 /**
+ * What the daemon resolved the emoji to for a person to read: the character
+ * itself, or `:name:` for a name nothing resolves (a workspace or server
+ * custom emoji, whose image is the channel's to serve). Computed at
+ * projection time from the typed fields, never stored, so every row reads
+ * the same way whenever it was written.
+ *
+ * The daemon sets it on every reaction it projects. It is optional here
+ * because the web serves its newest bundle against whichever assistant is
+ * installed, and an older one omits it; a client falls back to the
+ * spelling then (`clients/web/docs/BACKWARDS_COMPAT.md`).
+ */
+export const ReactionEmojiDisplaySchema = z.object({
+  emojiDisplay: z.string().optional(),
+});
+export type ReactionEmojiDisplay = z.infer<typeof ReactionEmojiDisplaySchema>;
+
+/**
  * The typed emoji fields a source actually carries, with undefined ones
  * omitted: an absent key and a present-but-undefined one serialize alike, but the
  * stored envelope and the response should carry only what was declared. Every writer of a reaction shape (the wire

@@ -21280,6 +21280,8 @@ paths:
                               type: string
                             emojiAnimated:
                               type: boolean
+                            emojiDisplay:
+                              type: string
                             op:
                               type: string
                               enum:
