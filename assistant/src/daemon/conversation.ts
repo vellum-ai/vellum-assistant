@@ -73,6 +73,7 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
+import { readInjectedBlock } from "../plugins/defaults/memory/substrate/injected-block-slugs.js";
 import {
   getKnownCardBytes,
   getPrunedSections,
@@ -81,7 +82,8 @@ import {
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import {
   filterPrunedPointerEntries,
-  filterPrunedSections,
+  filterResidentSections,
+  newestCopyIndexes,
 } from "../plugins/defaults/memory/v3/prune.js";
 import {
   LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY,
@@ -1260,6 +1262,34 @@ export class Conversation {
       }
       return reactionTargetIndexMemo.get(targetMessageId);
     };
+    // The message index carrying each v3 section's newest persisted copy,
+    // read lazily like the pruned set: a section re-injected after a prune
+    // has an older copy on an earlier message, and only the newest copy is
+    // rehydrated (the older one left the live history when the section was
+    // pruned). Indexed over the same rows the map below walks.
+    let v3NewestCopyMemo: ReadonlyMap<string, number> | null = null;
+    const v3NewestCopy = (): ReadonlyMap<string, number> => {
+      if (v3NewestCopyMemo === null) {
+        v3NewestCopyMemo = newestCopyIndexes(
+          slicedDbMessages.map((row, rowIndex) => {
+            if (
+              row.role !== "user" ||
+              !row.metadata ||
+              rowIndex < preStrippedCount
+            ) {
+              return null;
+            }
+            const block = readInjectedBlock(
+              row.metadata,
+              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+            );
+            return block === null ? null : unwrapMemoryBlock(block);
+          }),
+          v3KnownCardBytes(),
+        );
+      }
+      return v3NewestCopyMemo;
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
@@ -1435,10 +1465,11 @@ export class Conversation {
           // first leaves it BELOW both in the final content, matching the
           // live after-memory-prefix splice (order 1000 lands at the memory
           // boundary, after `<info>` / `<memory>` prefix blocks).
-          // Pruned sections are filtered out here by their header span (the
+          // Pruned sections, and copies superseded by a re-injection on a
+          // later message, are filtered out here by their header span (the
           // metadata itself is never rewritten, auditable and reversible);
-          // an all-pruned block is skipped entirely, matching the live strip
-          // in `memory/v3/prune.ts`.
+          // a block left with nothing is skipped entirely, matching the live
+          // strip in `memory/v3/prune.ts`.
           // Trust-gated on `personalMemoryAllowed`, mirroring the v2 static
           // block below and the live v3 injector: v3 sections carry personal
           // user memory (memory pages, PKB, matched sections), so an
@@ -1452,9 +1483,11 @@ export class Conversation {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
-            const v3Resident = filterPrunedSections(
+            const v3Resident = filterResidentSections(
               unwrapMemoryBlock(v3Block),
+              index,
               v3PrunedSections(),
+              v3NewestCopy(),
               v3KnownCardBytes(),
             );
             if (v3Resident.length > 0) {

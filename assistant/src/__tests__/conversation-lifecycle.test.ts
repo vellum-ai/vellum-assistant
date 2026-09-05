@@ -684,6 +684,55 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("a section re-injected after a prune rehydrates once, on the re-injecting message; the older copy is superseded", async () => {
+    // Turn 1 injected page-a's lead, the valve pruned it, turn 8 re-injected
+    // it (tombstone cleared, so the pruned set is empty). Turn 1's metadata
+    // still carries the old copy; only turn 8's copy is the live one.
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map();
+    const oldCopy = "# memory/concepts/page-a.md\n# Page A\nold lead text";
+    const newCopy = "# memory/concepts/page-a.md\n# Page A\nnew lead text";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Turn 1" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${oldCopy}\n\n# memory/concepts/page-b.md\nhead b`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m8",
+        role: "user",
+        content: [{ type: "text", text: "Turn 8" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${newCopy}`,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "Turn 1" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${newCopy}\n</memory>` },
+      { type: "text", text: "Turn 8" },
+    ]);
+  });
+
   test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
     mockConversation = defaultConv();
     mockPrunedSections = new Map([["page-a", new Set([""])]]);

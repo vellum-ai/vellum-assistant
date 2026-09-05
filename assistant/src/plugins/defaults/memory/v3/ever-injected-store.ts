@@ -251,7 +251,11 @@ export function getKnownCardBytes(
 /**
  * Upsert this turn's injected sections. Re-recording an existing pair clears
  * `pruned_at` and refreshes `bytes`/`injected_at`: a pruned section that is
- * re-selected re-injects as a fresh entry.
+ * re-selected re-injects as a fresh entry on the current message. Its older
+ * copies stay in earlier messages' persisted metadata; rehydration and the
+ * live strip keep only the newest persisted copy of a pair
+ * (`newestCopyIndexes` in `prune.ts`), so clearing the tombstone never
+ * revives them.
  */
 export function recordInjected(
   conversationId: string,

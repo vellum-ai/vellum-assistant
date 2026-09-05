@@ -27,9 +27,18 @@
  *       strip mutates the shared message objects in place so the agent
  *       loop's end-of-turn history fold-back keeps the stripped content;
  *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`
- *       re-applies {@link filterPrunedSections} and
+ *       re-applies {@link filterResidentSections} and
  *       {@link filterPrunedPointerEntries} on every load, so prunes persist
  *       across daemon restarts without touching the metadata.
+ *
+ * A pruned section that is re-selected re-injects as a fresh entry on a
+ * later message, and `recordInjected` clears its tombstone. Its older copies
+ * still sit in earlier messages' persisted metadata, so both filter points
+ * also keep only each section's NEWEST persisted copy
+ * ({@link newestCopyIndexes}): the live conversation holds exactly that one,
+ * every earlier copy having been stripped when the section was pruned, and
+ * rehydrating an earlier copy beside it would double the section and change
+ * the cached prefix.
  *
  * The first post-prune request loses the provider prefix cache from the
  * earliest affected message — ONE amortized bust per prune, logged with
@@ -118,6 +127,68 @@ export function filterPrunedSections(
   pruned: SectionRefSet,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
+  return filterSections(
+    inner,
+    (slug, key) => sectionRefSetHas(pruned, slug, key),
+    knownCardBytes,
+  );
+}
+
+function refId(slug: string, key: string): string {
+  return `${slug}\n${key}`;
+}
+
+/**
+ * The block index carrying each section's newest copy, over a conversation's
+ * v3 blocks in message order (`null` for a message without one). A section
+ * re-injected after a prune has an older copy on an earlier message too; the
+ * live conversation holds only the newest (the older one was stripped when
+ * the section was pruned), so rehydration and the live strip keep exactly
+ * that copy and treat every earlier one as superseded.
+ */
+export function newestCopyIndexes(
+  inners: ReadonlyArray<string | null>,
+  knownCardBytes?: ReadonlyMap<string, number>,
+): ReadonlyMap<string, number> {
+  const newest = new Map<string, number>();
+  inners.forEach((inner, index) => {
+    if (inner === null) {
+      return;
+    }
+    for (const section of parseInjectedSections(inner, { knownCardBytes })
+      .sections) {
+      newest.set(refId(section.slug, section.key), index);
+    }
+  });
+  return newest;
+}
+
+/**
+ * Remove from block `index` of that sequence every section that is pruned or
+ * whose newest copy lives on a later block (`newest` from
+ * {@link newestCopyIndexes}). Same contract as {@link filterPrunedSections}.
+ */
+export function filterResidentSections(
+  inner: string,
+  index: number,
+  pruned: SectionRefSet,
+  newest: ReadonlyMap<string, number>,
+  knownCardBytes?: ReadonlyMap<string, number>,
+): string {
+  return filterSections(
+    inner,
+    (slug, key) =>
+      sectionRefSetHas(pruned, slug, key) ||
+      (newest.get(refId(slug, key)) ?? index) !== index,
+    knownCardBytes,
+  );
+}
+
+function filterSections(
+  inner: string,
+  drop: (slug: string, key: string) => boolean,
+  knownCardBytes?: ReadonlyMap<string, number>,
+): string {
   const { preamble, sections, pieces } = parseInjectedSections(inner, {
     knownCardBytes,
   });
@@ -126,9 +197,7 @@ export function filterPrunedSections(
   }
 
   const kept = pieces.filter(
-    (piece) =>
-      piece.kind !== "section" ||
-      !sectionRefSetHas(pruned, piece.slug, piece.key),
+    (piece) => piece.kind !== "section" || !drop(piece.slug, piece.key),
   );
   if (kept.length === pieces.length) {
     return inner;
@@ -343,9 +412,10 @@ export function collectPersistedV3Sections(
 /**
  * One-time strip of pruned sections from the live in-memory history: for
  * every v3-owned `<memory>` text block (ownership per `knownV3Sections`, see
- * the module doc), drop the pruned sections, and for every `<memory_pointer>`
- * block drop the lines naming them; a block left with no sections (or no
- * pointer entries) is removed outright (matching the rehydration splice,
+ * the module doc), drop the pruned sections and any copy superseded by a
+ * newer one later in the history, and for every `<memory_pointer>` block
+ * drop the lines naming pruned sections; a block left with no sections (or
+ * no pointer entries) is removed outright (matching the rehydration splice,
  * which skips such a block).
  *
  * Mutates the affected `Message` objects IN PLACE (`message.content`
@@ -361,7 +431,38 @@ export function stripPrunedSectionsFromMessages(
   knownV3Sections: ReadonlySet<string>,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): number {
+  // A v3-owned `<memory>` block's inner text, or `null` for any other block:
+  // the ownership test (see the module doc), applied once per text block.
+  const ownedInner = (block: ContentBlock): string | null => {
+    if (block.type !== "text") {
+      return null;
+    }
+    const inner = unwrapMemoryBlock(block.text);
+    if (inner === block.text) {
+      // Not a wrapped `<memory>` block (unwrap is identity on anything
+      // without the full wrapper pair).
+      return null;
+    }
+    const { sections } = parseInjectedSections(inner, { knownCardBytes });
+    return sections.length > 0 &&
+      sections.every((section) => knownV3Sections.has(section.text))
+      ? inner
+      : null;
+  };
+  // Owned blocks in history order, so each section's newest live copy is
+  // known before any block is filtered.
+  const owned: Array<string | null> = [];
+  for (const message of messages) {
+    if (message.role === "user") {
+      for (const block of message.content) {
+        owned.push(ownedInner(block));
+      }
+    }
+  }
+  const newest = newestCopyIndexes(owned, knownCardBytes);
+
   let strippedBlocks = 0;
+  let ownedIndex = 0;
   for (const message of messages) {
     if (message.role !== "user") {
       continue;
@@ -369,12 +470,18 @@ export function stripPrunedSectionsFromMessages(
     let changed = false;
     const nextContent: ContentBlock[] = [];
     for (const block of message.content) {
+      const index = ownedIndex++;
+      const inner = owned[index] ?? null;
       if (block.type !== "text") {
         nextContent.push(block);
         continue;
       }
-      const pointer = filterPrunedPointerEntries(block.text, pruned);
-      if (pointer !== block.text) {
+      if (inner === null) {
+        const pointer = filterPrunedPointerEntries(block.text, pruned);
+        if (pointer === block.text) {
+          nextContent.push(block);
+          continue;
+        }
         strippedBlocks += 1;
         changed = true;
         if (pointer.length > 0) {
@@ -382,22 +489,13 @@ export function stripPrunedSectionsFromMessages(
         }
         continue;
       }
-      const inner = unwrapMemoryBlock(block.text);
-      if (inner === block.text) {
-        // Not a wrapped `<memory>` block (unwrap is identity on anything
-        // without the full wrapper pair).
-        nextContent.push(block);
-        continue;
-      }
-      const { sections } = parseInjectedSections(inner, { knownCardBytes });
-      const isV3Block =
-        sections.length > 0 &&
-        sections.every((section) => knownV3Sections.has(section.text));
-      if (!isV3Block) {
-        nextContent.push(block);
-        continue;
-      }
-      const filtered = filterPrunedSections(inner, pruned, knownCardBytes);
+      const filtered = filterResidentSections(
+        inner,
+        index,
+        pruned,
+        newest,
+        knownCardBytes,
+      );
       if (filtered === inner) {
         nextContent.push(block);
         continue;

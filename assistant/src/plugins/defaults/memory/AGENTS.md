@@ -164,7 +164,11 @@ hint chunk was never recorded. A page's lead injection carries its
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane
-exemptions. Re-selected sections that are already resident are listed, paths
+exemptions. A pruned section that is re-selected re-injects as a fresh entry on
+the current message and its tombstone clears; the older copies still sit in
+earlier messages' metadata, so both filter points keep only each section's
+newest persisted copy (`newestCopyIndexes` / `filterResidentSections`), the one
+the live conversation holds. Re-selected sections that are already resident are listed, paths
 only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block.
 Each turn's pointer stays on the user message that was sent with it (persisted
 under `memoryV3PointerBlock` and rehydrated on load, like the frozen sections);

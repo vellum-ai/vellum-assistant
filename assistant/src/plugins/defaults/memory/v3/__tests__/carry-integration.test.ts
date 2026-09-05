@@ -315,11 +315,12 @@ const {
   forkEverInjected,
   getActiveSections,
   getInjected,
+  getKnownCardBytes,
   getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   residentBytes,
 } = await import("../ever-injected-store.js");
-const { filterPrunedSections, flushPruneValveForTests } =
+const { filterResidentSections, flushPruneValveForTests, newestCopyIndexes } =
   await import("../prune.js");
 const { parseInjectedSections } =
   await import("../../substrate/injected-block-slugs.js");
@@ -765,9 +766,10 @@ async function runTurn(
 
 /** Rebuild a conversation's history from the temp DB — mirrors the
  *  `daemon/conversation.ts` v3 rehydration splice: splice the persisted
- *  pointer back as sent, then re-wrap the persisted section block, filter
- *  pruned sections, skip an all-pruned block, and prepend onto the stored
- *  content (prepends invert, so the layout is [sections, pointer, ...]). */
+ *  pointer back as sent, then re-wrap the persisted section block, keep only
+ *  resident sections (not pruned, and each section's newest persisted copy),
+ *  skip a block left empty, and prepend onto the stored content (prepends
+ *  invert, so the layout is [sections, pointer, ...]). */
 function rehydrateFromDb(convId: string): Message[] {
   const rows = testSqlite
     .query(
@@ -782,7 +784,18 @@ function rehydrateFromDb(convId: string): Message[] {
     metadata: string | null;
   }>;
   const pruned = getPrunedSections(convId);
-  return rows.map((row) => {
+  const knownCardBytes = getKnownCardBytes(convId);
+  const blockOf = (row: (typeof rows)[number]): string | null => {
+    if (row.role !== "user" || !row.metadata) {
+      return null;
+    }
+    const block = (JSON.parse(row.metadata) as Record<string, unknown>)[
+      MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
+    ];
+    return typeof block === "string" ? unwrapMemoryBlock(block) : null;
+  };
+  const newest = newestCopyIndexes(rows.map(blockOf), knownCardBytes);
+  return rows.map((row, index) => {
     let content = JSON.parse(row.content) as ContentBlock[];
     if (row.role === "user" && row.metadata) {
       const meta = JSON.parse(row.metadata) as Record<string, unknown>;
@@ -790,9 +803,15 @@ function rehydrateFromDb(convId: string): Message[] {
       if (typeof pointer === "string") {
         content = [{ type: "text", text: pointer }, ...content];
       }
-      const block = meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
-      if (typeof block === "string") {
-        const resident = filterPrunedSections(unwrapMemoryBlock(block), pruned);
+      const inner = blockOf(row);
+      if (inner !== null) {
+        const resident = filterResidentSections(
+          inner,
+          index,
+          pruned,
+          newest,
+          knownCardBytes,
+        );
         if (resident.length > 0) {
           content = [
             { type: "text", text: wrapMemoryBlock(resident) },
@@ -815,6 +834,10 @@ let forkRecord: TurnRecord;
 let pruneWindow: { max: number; target: number; bytesFreedExpected: number };
 let restartLiveJson = "";
 let restartRehydratedJson = "";
+/** The same comparison taken after turn 10, once a pruned lead has been
+ *  re-injected (turn 9): the restart that must not revive its old copy. */
+let finalLiveJson = "";
+let finalRehydratedJson = "";
 
 /** Per-turn script: query terms drive the needle (each term names one page's
  *  `Detail` or `Notes` section); `keep` is the deterministic selector output
@@ -956,6 +979,12 @@ beforeAll(async () => {
   // Turns 9–10 on the (restarted) parent.
   records.push(await runTurn(CONV, 9, SCRIPT[8]!.query, SCRIPT[8]!.keep));
   records.push(await runTurn(CONV, 10, SCRIPT[9]!.query, SCRIPT[9]!.keep));
+
+  // SECOND RESTART checkpoint, after core-beta's pruned lead re-injected on
+  // turn 9: its turn-1 copy still sits in that message's metadata, and the
+  // rehydrated history must hold only the turn-9 copy the live one does.
+  finalLiveJson = persistentView(histories.get(CONV)!);
+  finalRehydratedJson = JSON.stringify(rehydrateFromDb(CONV));
 });
 
 afterAll(async () => {
@@ -1189,6 +1218,39 @@ describe("memory-v3 carry integration — prune contract", () => {
 describe("memory-v3 carry integration — restart contract", () => {
   test("rehydrating from the DB reproduces the live persistent layer byte-identically", () => {
     expect(restartRehydratedJson).toBe(restartLiveJson);
+  });
+
+  test("after a pruned lead is re-injected, a restart rehydrates the live layer byte-identically: one copy, on the re-injecting turn's message", () => {
+    expect(finalRehydratedJson).toBe(finalLiveJson);
+    const rehydrated = JSON.parse(finalRehydratedJson) as Message[];
+    const entry = render("core-beta", "");
+    const carriers = rehydrated
+      .map((message, index) => ({
+        index,
+        text: message.content
+          .filter((b): b is { type: "text"; text: string } => b.type === "text")
+          .map((b) => b.text)
+          .join("\n"),
+      }))
+      .filter(({ text }) => text.includes(entry))
+      .map(({ index }) => index);
+    // Turn 9's user message (turns are user/assistant pairs) and nothing
+    // else: the turn-1 block's copy, still in its metadata, is superseded.
+    expect(carriers).toEqual([16]);
+    const turn1 = rehydrated[0]!.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(turn1).not.toContain("# memory/concepts/core-beta.md");
+    const turn1Metadata = testSqlite
+      .query(
+        /*sql*/ `
+        SELECT metadata FROM messages
+        WHERE conversation_id = ? AND id = ?
+      `,
+      )
+      .get(CONV, `${CONV}-m1-user`) as { metadata: string };
+    expect(turn1Metadata.metadata).toContain("# memory/concepts/core-beta.md");
   });
 
   test("pruned sections are absent from the rehydrated history (metadata stays intact)", () => {

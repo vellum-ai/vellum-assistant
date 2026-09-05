@@ -114,7 +114,9 @@ const {
   collectPersistedV3Sections,
   filterPrunedPointerEntries,
   filterPrunedSections,
+  filterResidentSections,
   flushPruneValveForTests,
+  newestCopyIndexes,
   planPrune,
   runPruneValve,
   schedulePruneValve,
@@ -475,6 +477,31 @@ describe("parseInjectedSections / filterPrunedSections", () => {
 
 // ─── planPrune ───────────────────────────────────────────────────────────────
 
+describe("newestCopyIndexes / filterResidentSections", () => {
+  const oldA = renderInjectionBlockInner([lead("page-a"), lead("page-b")]);
+  const newA = renderInjectionBlockInner([lead("page-a")]);
+
+  test("a section injected on two blocks is current on the later one only; the earlier copy is superseded", () => {
+    const newest = newestCopyIndexes([oldA, null, newA]);
+    expect(newest.get("page-a\n")).toBe(2);
+    expect(newest.get("page-b\n")).toBe(0);
+
+    expect(filterResidentSections(oldA, 0, refSet(), newest)).toBe(
+      renderInjectionBlockInner([lead("page-b")]),
+    );
+    expect(filterResidentSections(newA, 2, refSet(), newest)).toBe(newA);
+    // Pruned still wins over currency.
+    expect(
+      filterResidentSections(newA, 2, refSet(["page-a", ""]), newest),
+    ).toBe("");
+  });
+
+  test("a section on one block only is current there (the never-pruned case is unchanged)", () => {
+    const newest = newestCopyIndexes([oldA]);
+    expect(filterResidentSections(oldA, 0, refSet(), newest)).toBe(oldA);
+  });
+});
+
 describe("filterPrunedPointerEntries", () => {
   const pointer = wrapMemoryPointerBlock(
     renderPointerInner([
@@ -806,6 +833,35 @@ describe("stripPrunedSectionsFromMessages", () => {
       { type: "text", text: "again" },
     ]);
     expect(third.content).toEqual([{ type: "text", text: "once more" }]);
+  });
+
+  test("strips a copy superseded by a re-injection later in the history, even though the section is not pruned", () => {
+    const oldBlock = renderInjectionBlockInner([
+      lead("page-a"),
+      lead("page-b"),
+    ]);
+    const newBlock = renderInjectionBlockInner([lead("page-a")]);
+    const first = userMessage(wrapMemoryBlock(oldBlock), "turn 1");
+    const later = userMessage(wrapMemoryBlock(newBlock), "turn 8");
+
+    const stripped = stripPrunedSectionsFromMessages(
+      [first, { role: "assistant", content: [] }, later],
+      refSet(),
+      new Set([lead("page-a"), lead("page-b")]),
+    );
+
+    expect(stripped).toBe(1);
+    expect(first.content).toEqual([
+      {
+        type: "text",
+        text: wrapMemoryBlock(renderInjectionBlockInner([lead("page-b")])),
+      },
+      { type: "text", text: "turn 1" },
+    ]);
+    expect(later.content).toEqual([
+      { type: "text", text: wrapMemoryBlock(newBlock) },
+      { type: "text", text: "turn 8" },
+    ]);
   });
 
   test("removes a block whose sections are ALL pruned (matching rehydration's skip)", () => {
