@@ -28,6 +28,7 @@ import type { ToolDefinition, ToolExecutionResult } from "../types.js";
 export const sendUserMessageInputSchema = z.looseObject({
   message: z
     .string()
+    .trim()
     .min(1)
     .describe(
       "What the user reads. 1 to 3 plain sentences, markdown allowed. No " +

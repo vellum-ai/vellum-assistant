@@ -162,6 +162,39 @@ describe("agent loop under the tool-gated reply surface", () => {
     expect(visibilityMarks(events)).toEqual(["visible"]);
   });
 
+  test("keeps a continued output-limit response private", async () => {
+    // The first response stops at max_tokens; the default max-tokens-continue
+    // plugin resumes the turn, so that truncated half-sentence is still
+    // working notes. Only the message the resumed run sends reaches the user.
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: "text", text: "Half a scratchpad sentence that got cut" },
+        ] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "max_tokens",
+      },
+      textAndSend("Done thinking.", "You have two meetings today.", "tu_1"),
+      textResponse("Wrapping up."),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      callSite: "mainAgent",
+      suppressAssistantText: true,
+    });
+
+    expect(streamedText(events)).toBe("You have two meetings today.");
+    expect(streamedText(events)).not.toContain("scratchpad");
+    // Every row of the run stays private: the truncated one because the run
+    // continued, the rest because the tool carried the reply.
+    expect(visibilityMarks(events).every((v) => v === "private")).toBe(true);
+  });
+
   test("surfaces the result when a progress update was followed by work", async () => {
     // The model sends "Checking your calendar." alongside the tool call it
     // announces, then ends with the answer in plain text. The progress update
