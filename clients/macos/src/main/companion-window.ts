@@ -1142,6 +1142,15 @@ const sameCaptureTarget = (
 /** Point at things on the shared surface, or take down what is pointed at. */
 const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
   const resolved = framesTheShare() ? next : NO_COACHMARKS;
+  if (resolved.length > 0) {
+    // A mark says go and press that, so the press has to reach the app under
+    // it. Drawing is the one thing that makes this frame take the mouse, and
+    // a press on a ringed control would land in the drawing instead. Here
+    // rather than at either entrance, because it is a fact about marks being
+    // up rather than about who put them there. The mode is the user's, and
+    // pressing Draw again gets it back.
+    setAnnotating(false);
+  }
   const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
   if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
     return;

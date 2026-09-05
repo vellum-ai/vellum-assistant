@@ -7,12 +7,14 @@
  * nothing, which is how the client says "nothing is being pointed at".
  */
 
-import { forwardComputerUseProxyTool } from "../../../../tools/computer-use/skill-proxy-bridge.js";
+import {
+  forwardComputerUseProxyTool,
+  POINT_AT_PROXY_TOOL,
+} from "../../../../tools/computer-use/skill-proxy-bridge.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { POINT_AT_PROXY_TOOL } from "./screen-point-at.js";
 
 export async function run(
   input: Record<string, unknown>,

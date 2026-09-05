@@ -3225,6 +3225,29 @@ describe("companion window: pointing at what is shared", () => {
   });
 
   /**
+   * The whole promise of a mark is that the user can press the thing inside
+   * it. Drawing is the one mode that makes this frame take the mouse, so a
+   * mark placed while it is on would ring a control and then swallow the
+   * click on it.
+   */
+  test("gives the mouse back to the desktop when marks go up", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(state().annotating).toBe(true);
+    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(state().annotating).toBe(false);
+    expect(glow?.clickThrough).toBe(true);
+  });
+
+  /** Taking marks down is not a reason to touch a mode the user set. */
+  test("leaves the drawing mode alone when marks come down", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setCoachmarks", []);
+    expect(state().annotating).toBe(true);
+  });
+
+  /**
    * Checked against the schema rather than through a send, for the reason the
    * drawing's bounds are: what the registrar refuses never reaches the
    * handler, and the two are indistinguishable from here.

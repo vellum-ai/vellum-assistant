@@ -8,14 +8,14 @@
  * this skill; the name on the wire is the route.
  */
 
-import { forwardComputerUseProxyTool } from "../../../../tools/computer-use/skill-proxy-bridge.js";
+import {
+  forwardComputerUseProxyTool,
+  POINT_AT_PROXY_TOOL,
+} from "../../../../tools/computer-use/skill-proxy-bridge.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-
-/** The wire name, shared with `screen-clear-marks.ts`. */
-export const POINT_AT_PROXY_TOOL = "computer_use_point_at";
 
 export async function run(
   input: Record<string, unknown>,
