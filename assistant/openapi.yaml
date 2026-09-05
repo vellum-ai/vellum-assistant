@@ -9999,6 +9999,44 @@ paths:
                               additionalProperties: false
                           injectedText:
                             type: string
+                          pool:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  poolSize:
+                                    type: number
+                                  selectedCount:
+                                    type: number
+                                  candidates:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        slug:
+                                          type: string
+                                        lane:
+                                          type: string
+                                        sectionHeading:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        chosen:
+                                          type: boolean
+                                      required:
+                                        - slug
+                                        - lane
+                                        - sectionHeading
+                                        - chosen
+                                      additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
+                                required:
+                                  - poolSize
+                                  - selectedCount
+                                  - candidates
+                                  - selectorRan
+                                additionalProperties: false
+                              - type: "null"
                         required:
                           - turn
                           - live
@@ -22204,6 +22242,44 @@ paths:
                               additionalProperties: false
                           injectedText:
                             type: string
+                          pool:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  poolSize:
+                                    type: number
+                                  selectedCount:
+                                    type: number
+                                  candidates:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        slug:
+                                          type: string
+                                        lane:
+                                          type: string
+                                        sectionHeading:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        chosen:
+                                          type: boolean
+                                      required:
+                                        - slug
+                                        - lane
+                                        - sectionHeading
+                                        - chosen
+                                      additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
+                                required:
+                                  - poolSize
+                                  - selectedCount
+                                  - candidates
+                                  - selectorRan
+                                additionalProperties: false
+                              - type: "null"
                         required:
                           - turn
                           - live

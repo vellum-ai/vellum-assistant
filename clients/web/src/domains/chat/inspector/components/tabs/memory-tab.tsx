@@ -8,6 +8,8 @@ import type {
   MemoryRecallLog,
   MemoryV2ActivationLog,
   MemoryV2ConceptRow,
+  MemoryV3Pool,
+  MemoryV3PoolCandidate,
   MemoryV3SelectionLog,
   MemoryV3SelectionRow,
 } from "@vellumai/assistant-api";
@@ -436,13 +438,18 @@ function MemoryV2Section({
   );
 }
 
-/** Collapsible config card mirroring the macOS V2 tab's disclosure group. */
-function V2ConfigCard({
-  config,
-  t,
+/**
+ * Card whose body is revealed by a header toggle (title, subtitle, chevron).
+ * Collapsed by default; the body mounts only while expanded.
+ */
+function DisclosureCard({
+  title,
+  subtitle,
+  children,
 }: {
-  config: MemoryV2ActivationLog["config"];
-  t: MemoryTranslate;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
 
@@ -465,13 +472,13 @@ function V2ConfigCard({
               className="text-body-medium-default"
               style={{ color: "var(--content-default)" }}
             >
-              {t("memoryTab.configTitle")}
+              {title}
             </span>
             <span
               className="text-body-small-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              {t("memoryTab.configSubtitle")}
+              {subtitle}
             </span>
           </span>
           <span
@@ -485,25 +492,44 @@ function V2ConfigCard({
             )}
           </span>
         </button>
-        {expanded && (
-          <MetaGrid
-            rows={[
-              { label: t("memoryTab.configDDecay"), value: fmtAct(config.d) },
-              { label: t("memoryTab.configCUser"), value: fmtAct(config.c_user) },
-              {
-                label: t("memoryTab.configCAssistant"),
-                value: fmtAct(config.c_assistant),
-              },
-              { label: t("memoryTab.configCNow"), value: fmtAct(config.c_now) },
-              { label: t("memoryTab.configKSharpening"), value: fmtAct(config.k) },
-              { label: t("memoryTab.configHops"), value: String(config.hops) },
-              { label: t("memoryTab.configTopK"), value: String(config.top_k) },
-              { label: t("memoryTab.configEpsilon"), value: fmtAct(config.epsilon) },
-            ]}
-          />
-        )}
+        {expanded && children}
       </div>
     </Card>
+  );
+}
+
+/** Collapsible config card mirroring the macOS V2 tab's disclosure group. */
+function V2ConfigCard({
+  config,
+  t,
+}: {
+  config: MemoryV2ActivationLog["config"];
+  t: MemoryTranslate;
+}): ReactNode {
+  return (
+    <DisclosureCard
+      title={t("memoryTab.configTitle")}
+      subtitle={t("memoryTab.configSubtitle")}
+    >
+      <MetaGrid
+        rows={[
+          { label: t("memoryTab.configDDecay"), value: fmtAct(config.d) },
+          { label: t("memoryTab.configCUser"), value: fmtAct(config.c_user) },
+          {
+            label: t("memoryTab.configCAssistant"),
+            value: fmtAct(config.c_assistant),
+          },
+          { label: t("memoryTab.configCNow"), value: fmtAct(config.c_now) },
+          { label: t("memoryTab.configKSharpening"), value: fmtAct(config.k) },
+          { label: t("memoryTab.configHops"), value: String(config.hops) },
+          { label: t("memoryTab.configTopK"), value: String(config.top_k) },
+          {
+            label: t("memoryTab.configEpsilon"),
+            value: fmtAct(config.epsilon),
+          },
+        ]}
+      />
+    </DisclosureCard>
   );
 }
 
@@ -605,6 +631,8 @@ function MemoryV3Section({
         )}
       </SectionCard>
 
+      <V3CandidatePoolCard pool={selection.pool ?? null} t={t} />
+
       {selection.injectedText !== "" && (
         <SectionCard
           title={
@@ -626,22 +654,46 @@ function MemoryV3Section({
 }
 
 /**
- * The persisted v3 selection carries the matched section a finder lane
- * surfaced. The generated `MemoryV3SelectionRow` type may not yet expose these
- * fields (the wire schema is built out-of-band from the assistant); the daemon
- * sends them at runtime, so they are read via this local augmentation until the
- * generated type catches up.
+ * A page slug with its matched-section heading (`slug § Heading`); `dimmed`
+ * renders both in the secondary tones for a candidate that was not chosen.
  */
-type V3SelectionRowData = MemoryV3SelectionRow & {
-  sectionOrdinal?: number | null;
-  sectionHeading?: string | null;
-};
+function V3SlugCode({
+  slug,
+  sectionHeading,
+  dimmed = false,
+}: {
+  slug: string;
+  sectionHeading: string | null | undefined;
+  dimmed?: boolean;
+}): ReactNode {
+  return (
+    <code
+      className="min-w-0 flex-1 truncate text-body-small-default"
+      style={{
+        color: dimmed ? "var(--content-secondary)" : "var(--content-default)",
+      }}
+    >
+      {slug}
+      {sectionHeading ? (
+        <span
+          style={{
+            color: dimmed
+              ? "var(--content-tertiary)"
+              : "var(--content-secondary)",
+          }}
+        >
+          {` § ${sectionHeading}`}
+        </span>
+      ) : null}
+    </code>
+  );
+}
 
 function V3SelectionRow({
   row,
   t,
 }: {
-  row: V3SelectionRowData;
+  row: MemoryV3SelectionRow;
   t: MemoryTranslate;
 }): ReactNode {
   return (
@@ -649,17 +701,7 @@ function V3SelectionRow({
       className="flex items-center justify-between gap-3 rounded-md px-3 py-2"
       style={{ background: "var(--surface-base)" }}
     >
-      <code
-        className="min-w-0 flex-1 truncate text-body-small-default"
-        style={{ color: "var(--content-default)" }}
-      >
-        {row.slug}
-        {row.sectionHeading ? (
-          <span style={{ color: "var(--content-secondary)" }}>
-            {` § ${row.sectionHeading}`}
-          </span>
-        ) : null}
-      </code>
+      <V3SlugCode slug={row.slug} sectionHeading={row.sectionHeading} />
       <div className="shrink-0">
         <TypeChip label={formatV3Source(row.source, t)} />
       </div>
@@ -681,6 +723,104 @@ function formatV3Source(source: string, t: MemoryTranslate): string {
     default:
       return source;
   }
+}
+
+/**
+ * The selector's full candidate pool for the turn: every stable-prefix card
+ * and finder line it saw, collapsed behind a summary of pool size and pages
+ * selected. A turn logged before pools were persisted shows the empty state;
+ * a turn whose selector never ran and that pooled nothing (the injection
+ * gate hard-skipped it, or nothing was pooled) says so instead of listing
+ * candidates it never judged. A pool the selector never ran over but that
+ * still holds candidates is the disabled-selector passthrough: every
+ * candidate went through as a selection, so the list renders under a summary
+ * saying no selector judged it.
+ */
+function V3CandidatePoolCard({
+  pool,
+  t,
+}: {
+  pool: MemoryV3Pool | null;
+  t: MemoryTranslate;
+}): ReactNode {
+  if (pool == null || (!pool.selectorRan && pool.candidates.length === 0)) {
+    return (
+      <SectionCard title={t("memoryTab.candidatePoolTitle")}>
+        <span
+          className="text-body-medium-lighter"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {pool == null
+            ? t("memoryTab.candidatePoolNoneBody")
+            : t("memoryTab.candidatePoolSelectorNotRunBody")}
+        </span>
+      </SectionCard>
+    );
+  }
+
+  return (
+    <DisclosureCard
+      title={t("memoryTab.candidatePoolTitle")}
+      subtitle={
+        pool.selectorRan
+          ? t("memoryTab.candidatePoolSubtitle", {
+              poolSize: pool.poolSize,
+              selectedCount: pool.selectedCount,
+            })
+          : t("memoryTab.candidatePoolPassthroughSubtitle", {
+              poolSize: pool.poolSize,
+            })
+      }
+    >
+      <div className="flex flex-col gap-1">
+        {pool.candidates.map((candidate, i) => (
+          <V3PoolCandidateRow
+            key={`${i}-${candidate.slug}`}
+            candidate={candidate}
+            t={t}
+          />
+        ))}
+      </div>
+    </DisclosureCard>
+  );
+}
+
+/** One pooled candidate. Chosen rows carry a marker dot and chip and read in
+ *  the default text color; unchosen rows are dimmed. */
+function V3PoolCandidateRow({
+  candidate,
+  t,
+}: {
+  candidate: MemoryV3PoolCandidate;
+  t: MemoryTranslate;
+}): ReactNode {
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md px-3 py-2"
+      style={{ background: "var(--surface-base)" }}
+    >
+      <span
+        className="shrink-0 rounded-full"
+        style={{
+          width: 8,
+          height: 8,
+          background: candidate.chosen
+            ? "var(--system-positive-strong)"
+            : "var(--content-disabled)",
+        }}
+        aria-hidden
+      />
+      <V3SlugCode
+        slug={candidate.slug}
+        sectionHeading={candidate.sectionHeading}
+        dimmed={!candidate.chosen}
+      />
+      {candidate.chosen && (
+        <TypeChip label={t("memoryTab.candidatePoolChosenChip")} />
+      )}
+      <TypeChip label={formatV3Source(candidate.lane, t)} />
+    </div>
+  );
 }
 
 function ConceptRow({

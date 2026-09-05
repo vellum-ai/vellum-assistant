@@ -14,6 +14,14 @@
  * full/lead page otherwise. Section text is re-derived from the current page,
  * so it reflects bounded page-drift if the page changed since the turn (the
  * same approximation the v2 inspector accepts).
+ *
+ * The log also carries the turn's candidate `pool` (`memory_v3_pools`, read by
+ * the resolved rows' `(conversation, turn)` so it is always the same turn as
+ * the selections), or `null` for turns that predate pool logging. A turn that
+ * logged no selections (the selector rejected every candidate, or the
+ * injection gate hard-skipped it) has no rows to resolve through, so it is
+ * found by its pool row's stamped message id instead and rendered as an empty
+ * selection with the pool: the negative verdict is part of the audit.
  */
 
 import type { MemoryV3SelectionLog } from "../../../../api/responses/memory-v3-selection-log.js";
@@ -26,6 +34,11 @@ import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3SectionContent } from "./page-content.js";
+import {
+  type PoolRecord,
+  readPoolForMessageIds,
+  readPoolForTurn,
+} from "./pool-log-store.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
 import {
@@ -36,6 +49,7 @@ import {
 } from "./types.js";
 
 interface SelectionRow {
+  conversation_id: string;
   turn: number;
   slug: string;
   source: string;
@@ -43,7 +57,7 @@ interface SelectionRow {
   section_title: string | null;
 }
 
-const SELECTION_COLUMNS = `turn, slug, source, section_ordinal, section_title`;
+const SELECTION_COLUMNS = `conversation_id, turn, slug, source, section_ordinal, section_title`;
 
 function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
   const raw = memorySqliteOrNull("rowsForTurn");
@@ -61,16 +75,18 @@ function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
     .all(conversationId, turn) as SelectionRow[];
 }
 
-function rowsForMessageIds(messageIds: string[]): SelectionRow[] {
+/** The selection rows stamped with any of the given message ids, or `null`
+ *  when there are none (including when the memory connection is unavailable). */
+function rowsForMessageIds(messageIds: string[]): SelectionRow[] | null {
   if (messageIds.length === 0) {
-    return [];
+    return null;
   }
   const raw = memorySqliteOrNull("rowsForMessageIds");
   if (!raw) {
-    return [];
+    return null;
   }
   const placeholders = messageIds.map(() => "?").join(", ");
-  return raw
+  const rows = raw
     .query(
       /*sql*/ `
       SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
@@ -79,6 +95,7 @@ function rowsForMessageIds(messageIds: string[]): SelectionRow[] {
     `,
     )
     .all(...messageIds) as SelectionRow[];
+  return rows.length > 0 ? rows : null;
 }
 
 const MAX_FORK_HOPS = 64;
@@ -110,31 +127,34 @@ function forkSourceIdsOf(messageIds: string[]): string[] {
 
 /**
  * A fork copies the parent's messages under fresh ids but does not copy their
- * `memory_v3_selections` rows, so an inherited turn has no rows under its own
- * message ids. Each copied message preserves a `forkSourceMessageId` pointer to
- * the message it was cloned from; walk that chain (a fork of a fork chains it
- * again) to the nearest ancestor generation that logged selections and return
- * those rows. Returns `[]` when no ancestor has v3 rows (or the ids aren't fork
- * copies).
+ * `memory_v3_selections` or `memory_v3_pools` rows, so an inherited turn has
+ * nothing under its own message ids. Each copied message preserves a
+ * `forkSourceMessageId` pointer to the message it was cloned from; walk that
+ * chain (a fork of a fork chains it again) to the nearest ancestor generation
+ * where `lookup` finds something and return it. Returns `null` when no
+ * ancestor has a match (or the ids aren't fork copies).
  */
-function rowsViaForkSource(messageIds: string[]): SelectionRow[] {
+function viaForkSource<T>(
+  messageIds: string[],
+  lookup: (messageIds: string[]) => T | null,
+): T | null {
   let frontier = messageIds;
   const visited = new Set(messageIds);
   for (let hop = 0; hop < MAX_FORK_HOPS; hop++) {
     const sources = forkSourceIdsOf(frontier).filter((id) => !visited.has(id));
     if (sources.length === 0) {
-      return [];
+      return null;
     }
     for (const id of sources) {
       visited.add(id);
     }
-    const rows = rowsForMessageIds(sources);
-    if (rows.length > 0) {
-      return rows;
+    const found = lookup(sources);
+    if (found !== null) {
+      return found;
     }
     frontier = sources;
   }
-  return [];
+  return null;
 }
 
 /**
@@ -179,10 +199,50 @@ async function reconstructMatchedSections(
   return sectionBySlug;
 }
 
+/**
+ * Map a persisted pool record onto the inspector wire shape. `null` when the
+ * turn has no pool row (it predates pool logging) or the memory connection is
+ * unavailable.
+ */
+function toInspectorPool(
+  record: PoolRecord | null,
+): MemoryV3SelectionLog["pool"] {
+  if (!record) {
+    return null;
+  }
+  return {
+    poolSize: record.pool_size,
+    selectedCount: record.selected_count,
+    selectorRan: record.selector_ran,
+    candidates: record.candidates.map((candidate) => ({
+      slug: candidate.slug,
+      lane: candidate.lane,
+      sectionHeading: candidate.section_title,
+      chosen: candidate.chosen,
+    })),
+  };
+}
+
+/**
+ * The log for a turn that persisted a pool but no selections: the selector
+ * rejected every candidate, or the injection gate hard-skipped it. Nothing was
+ * injected, so the block is empty; the pool carries the verdict.
+ */
+function poolOnlyLog(turn: number, record: PoolRecord): MemoryV3SelectionLog {
+  return {
+    turn,
+    live: isMemoryV3Live(getConfig()),
+    selections: [],
+    injectedText: "",
+    pool: toInspectorPool(record),
+  };
+}
+
 async function buildSelectionLog(
   rows: SelectionRow[],
 ): Promise<MemoryV3SelectionLog | null> {
-  if (rows.length === 0) {
+  const first = rows[0];
+  if (!first) {
     return null;
   }
 
@@ -202,16 +262,17 @@ async function buildSelectionLog(
   );
 
   return {
-    turn: rows[0]!.turn,
+    turn: first.turn,
     live: isMemoryV3Live(config),
     selections,
     injectedText,
+    pool: toInspectorPool(readPoolForTurn(first.conversation_id, first.turn)),
   };
 }
 
 /**
  * Build the inspector's v3 selection log for the inspected message's turn,
- * keyed by the turn's message ids. This is the durable join: `writeSelections`
+ * keyed by the turn's message ids. This is the durable join: `writeTurnLog`
  * logs rows with `message_id = NULL` and the turn-end backfill stamps them with
  * the assistant message id, so a per-message lookup is robust against the drift
  * between v2's tracker turn and v3's orchestrator `turnCount`. Returns `null`
@@ -223,22 +284,34 @@ async function buildSelectionLog(
  * selection rows of their own, so the lookup falls back to the parent's rows by
  * following each message's `forkSourceMessageId` back-pointer.
  *
+ * A turn with no selection rows anywhere may still have a pool row (its
+ * message id is stamped by the same backfill): the selector rejected every
+ * candidate, or the gate hard-skipped it. That turn resolves through the pool,
+ * with the same fork walk, to a log with empty selections.
+ *
  * Selection rows are stored in selection order, so rendering them in row order
  * reproduces the block v3 would inject.
  */
 export async function getMemoryV3SelectionForInspectorByMessageIds(
   messageIds: string[],
 ): Promise<MemoryV3SelectionLog | null> {
-  const rows = rowsForMessageIds(messageIds);
-  return buildSelectionLog(
-    rows.length > 0 ? rows : rowsViaForkSource(messageIds),
-  );
+  const rows =
+    rowsForMessageIds(messageIds) ??
+    viaForkSource(messageIds, rowsForMessageIds);
+  if (rows) {
+    return buildSelectionLog(rows);
+  }
+  const pool =
+    readPoolForMessageIds(messageIds) ??
+    viaForkSource(messageIds, readPoolForMessageIds);
+  return pool ? poolOnlyLog(pool.turn, pool.record) : null;
 }
 
 /**
  * Turn-keyed variant, retained for callers/tests that look up by an exact
- * `(conversation, turn)`. Returns `null` when `turn` is null or there are no
- * rows for it.
+ * `(conversation, turn)`. Resolves a pool-only turn the same way as the
+ * message-id path. Returns `null` when `turn` is null or nothing was logged
+ * for it.
  */
 export async function getMemoryV3SelectionForInspector(
   conversationId: string,
@@ -247,7 +320,12 @@ export async function getMemoryV3SelectionForInspector(
   if (turn == null) {
     return null;
   }
-  return buildSelectionLog(rowsForTurn(conversationId, turn));
+  const rows = rowsForTurn(conversationId, turn);
+  if (rows.length > 0) {
+    return buildSelectionLog(rows);
+  }
+  const pool = readPoolForTurn(conversationId, turn);
+  return pool ? poolOnlyLog(turn, pool) : null;
 }
 
 /**

@@ -1,0 +1,186 @@
+/**
+ * Tests for the MemoryTab's v3 candidate-pool card: the pool renders collapsed
+ * behind its size / pages-selected summary and expands to the candidate rows
+ * with chosen rows marked, a turn logged before pools were persisted renders
+ * the empty state, a turn whose selector never ran says so instead of
+ * listing candidates, and a pool the disabled selector passed through lists
+ * its candidates under the passed-through summary.
+ */
+import { afterEach, describe, expect, test } from "bun:test";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+import type { LlmContextResponse, MemoryV3Pool } from "@vellumai/assistant-api";
+
+import { MemoryTab } from "./memory-tab";
+
+function contextWithPool(pool: MemoryV3Pool | null): LlmContextResponse {
+  return {
+    messageId: "msg-1",
+    conversationKind: "user",
+    conversationTotalEstimatedCostUsd: null,
+    logs: [],
+    memoryRecall: null,
+    memoryV2Activation: null,
+    memoryV3Selection: {
+      turn: 3,
+      live: true,
+      selections: [
+        {
+          slug: "domain-a/page-1",
+          source: "core",
+          sectionOrdinal: null,
+          sectionHeading: null,
+        },
+        {
+          slug: "domain-b/page-2",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionHeading: "Heading B",
+        },
+      ],
+      injectedText: "",
+      pool,
+    },
+  };
+}
+
+/** The pool the selector saw: two chosen cards and one unchosen hot card. */
+const POOL: MemoryV3Pool = {
+  poolSize: 3,
+  selectedCount: 2,
+  selectorRan: true,
+  candidates: [
+    {
+      slug: "domain-a/page-1",
+      lane: "core",
+      sectionHeading: null,
+      chosen: true,
+    },
+    {
+      slug: "domain-c/page-9",
+      lane: "hot",
+      sectionHeading: null,
+      chosen: false,
+    },
+    {
+      slug: "domain-b/page-2",
+      lane: "needle",
+      sectionHeading: "Heading B",
+      chosen: true,
+    },
+  ],
+};
+
+afterEach(cleanup);
+
+describe("MemoryTab v3 candidate pool", () => {
+  test("renders the pool collapsed behind its summary and expands to the candidate rows", () => {
+    render(
+      <MemoryTab context={contextWithPool(POOL)} assistantId="assistant-1" />,
+    );
+
+    const toggle = screen.getByRole("button", { name: /Candidate pool/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("3 candidates shown to the selector");
+    expect(toggle.textContent).toContain("2 pages selected");
+    // The unchosen hot card exists only in the pool, so it stays hidden while
+    // collapsed; the needle selection's heading shows once, in the selection list.
+    expect(screen.queryByText("domain-c/page-9")).toBeNull();
+    expect(screen.getAllByText(/§ Heading B/)).toHaveLength(1);
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("domain-c/page-9")).toBeTruthy();
+    expect(screen.getByText("hot")).toBeTruthy();
+    expect(screen.getAllByText(/§ Heading B/)).toHaveLength(2);
+    // Both chosen rows carry the marker chip; the unchosen hot card does not.
+    expect(screen.getAllByText("selected")).toHaveLength(2);
+  });
+
+  test("renders the empty state for a turn logged before pools were persisted", () => {
+    render(
+      <MemoryTab context={contextWithPool(null)} assistantId="assistant-1" />,
+    );
+
+    expect(screen.getByText("Candidate pool")).toBeTruthy();
+    expect(
+      screen.getByText("No candidate pool was recorded for this turn."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Candidate pool/ })).toBeNull();
+  });
+
+  test("renders the did-not-run state for a turn the selector never judged", () => {
+    // A closed-gate hard skip persists an empty pool with the selector not run.
+    render(
+      <MemoryTab
+        context={contextWithPool({
+          poolSize: 0,
+          selectedCount: 0,
+          selectorRan: false,
+          candidates: [],
+        })}
+        assistantId="assistant-1"
+      />,
+    );
+
+    expect(screen.getByText("Candidate pool")).toBeTruthy();
+    expect(
+      screen.getByText("The selector did not run this turn."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("No candidate pool was recorded for this turn."),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Candidate pool/ })).toBeNull();
+  });
+
+  test("lists a pool the disabled selector passed through under the passed-through summary", () => {
+    // With the selector disabled, every pooled candidate goes through as a
+    // selection and the pool persists with the selector not run.
+    const passthrough: MemoryV3Pool = {
+      poolSize: 2,
+      selectedCount: 2,
+      selectorRan: false,
+      candidates: [
+        {
+          slug: "domain-a/page-1",
+          lane: "core",
+          sectionHeading: null,
+          chosen: true,
+        },
+        {
+          slug: "domain-b/page-2",
+          lane: "needle",
+          sectionHeading: "Heading B",
+          chosen: true,
+        },
+      ],
+    };
+    render(
+      <MemoryTab
+        context={contextWithPool(passthrough)}
+        assistantId="assistant-1"
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: /Candidate pool/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain(
+      "2 candidates passed through without a selector judgment",
+    );
+    expect(toggle.textContent).not.toContain("shown to the selector");
+    expect(
+      screen.queryByText("The selector did not run this turn."),
+    ).toBeNull();
+    // Collapsed, each page shows once, in the selection list above the pool.
+    expect(screen.getAllByText("domain-a/page-1")).toHaveLength(1);
+
+    fireEvent.click(toggle);
+
+    // Expanded, each page shows a second time as a pool row, and every pool
+    // row carries the chosen chip.
+    expect(screen.getAllByText("domain-a/page-1")).toHaveLength(2);
+    expect(screen.getAllByText(/§ Heading B/)).toHaveLength(2);
+    expect(screen.getAllByText("selected")).toHaveLength(2);
+  });
+});
