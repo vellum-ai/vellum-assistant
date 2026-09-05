@@ -22,9 +22,50 @@
  * re-derived from the current page, it reflects bounded page-drift if the page
  * changed since the turn (the same approximation the v2 inspector accepts). The
  * selected slug set and each row's matched-section heading are exact as logged.
+ *
+ * `pool` is the selector's full candidate pool for the turn as persisted in
+ * `memory_v3_pools`: every stable-prefix card and finder line in pool order,
+ * each with its lane, matched-section heading, and verdict. `null` for turns
+ * that predate pool logging. A turn whose selector rejected every candidate,
+ * or whose injection gate hard-skipped selection, logs no selections at all:
+ * its log has empty `selections` and `injectedText` with `pool` populated.
  */
 
 import { z } from "zod";
+
+/**
+ * One candidate the selector saw. `lane` is `core`, `hot`, `fresh`, or
+ * `always` for the stable-prefix cards and a finder lane label for the tail
+ * (kept a permissive string, like `source` below). `sectionHeading` is the
+ * matched section a finder lane surfaced (`""` for the page lead); null for
+ * cards and finder lines with no matched section. `chosen` is whether the
+ * selector kept the candidate's page.
+ */
+export const MemoryV3PoolCandidateSchema = z.object({
+  slug: z.string(),
+  lane: z.string(),
+  sectionHeading: z.string().nullable(),
+  chosen: z.boolean(),
+});
+
+export type MemoryV3PoolCandidate = z.infer<typeof MemoryV3PoolCandidateSchema>;
+
+/**
+ * The selector's candidate pool for one turn. `poolSize` is the number of
+ * candidates shown; `selectedCount` the distinct pages kept (a page can appear
+ * twice when a finder lane also hit a stable-prefix card). `selectorRan` is
+ * whether the selector judged the pool: false with no candidates means the
+ * turn's injection gate hard-skipped selection (or nothing was pooled), so
+ * the inspector shows a did-not-run state rather than an empty list.
+ */
+export const MemoryV3PoolSchema = z.object({
+  poolSize: z.number(),
+  selectedCount: z.number(),
+  candidates: z.array(MemoryV3PoolCandidateSchema),
+  selectorRan: z.boolean(),
+});
+
+export type MemoryV3Pool = z.infer<typeof MemoryV3PoolSchema>;
 
 /**
  * One selected page in the v3 set. `source` is the lane that surfaced it —
@@ -52,13 +93,16 @@ export type MemoryV3SelectionRow = z.infer<typeof MemoryV3SelectionRowSchema>;
  * Memory v3 selection log shape. `injectedText` is the rendered
  * `<memory>…</memory>` block for the selection — re-rendered from the persisted
  * rows, with each selection's matched section resolved from its
- * `(slug, sectionOrdinal)` (lead fallback when none). See the file header.
+ * `(slug, sectionOrdinal)` (lead fallback when none). `pool` is the turn's
+ * candidate pool, null for turns logged before pools were persisted; optional
+ * so a client ahead of its assistant still parses. See the file header.
  */
 export const MemoryV3SelectionLogSchema = z.object({
   turn: z.number(),
   live: z.boolean(),
   selections: z.array(MemoryV3SelectionRowSchema),
   injectedText: z.string(),
+  pool: MemoryV3PoolSchema.nullable().optional(),
 });
 
 export type MemoryV3SelectionLog = z.infer<typeof MemoryV3SelectionLogSchema>;

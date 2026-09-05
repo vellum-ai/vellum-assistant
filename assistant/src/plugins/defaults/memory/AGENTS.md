@@ -300,10 +300,26 @@ Persisted rows; a rename orphans every existing install.
 | `memory_v2_activation_logs`       | v2 inspector/harness                |
 | `memory_v2_injection_events`      | v2 scoring feedback                 |
 | `memory_v3_selections`            | v3 selection log                    |
+| `memory_v3_pools`                 | v3 selector pool audit              |
 | `memory_v3_injected_sections`     | v3 section dedup + prune accounting |
 | `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)  |
 | `memory_retrospective_state`      | retrospective (tier-agnostic)       |
 | `activation_sessions`             | onboarding activation rail          |
+
+`memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
+selector's full candidate pool (every stable-prefix card and finder line, in
+pool order, with lane, matched section, and verdict) for the inspector's
+Memory tab, plus `selector_ran`. A turn whose selector never judged a pool
+(the injection gate hard-skipped it, or nothing was pooled) persists an empty
+pool with `selector_ran = 0`, and a turn that logged no selections is still
+reachable by its stamped `message_id`, so the inspector shows negative
+verdicts too. The pool row and the turn's `memory_v3_selections` rows are
+written in one transaction (`writeTurnLog` in `v3/shadow-plugin.ts`), and a
+turn observed again replaces both, so the pool's `chosen` flags and the
+selection rows always describe the same observation. Rows are per-turn
+diagnostics, roughly 10KB each, with no retention job; a conversation delete
+purges them with the other conversation-keyed tables
+(`conversation-memory-purge.ts`).
 
 ### Job types (`memory_jobs.type`)
 

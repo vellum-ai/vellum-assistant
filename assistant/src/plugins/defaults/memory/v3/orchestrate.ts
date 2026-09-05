@@ -261,8 +261,8 @@ export interface FinderCandidate {
 }
 
 /**
- * The candidate lanes in cache order. `core`, `hot`, and `fresh` are the
- * stable prefix (byte-identical across turns while lanes are unchanged);
+ * The candidate lanes in cache order. `core`, `hot`, `fresh`, and `always` are
+ * the stable prefix (byte-identical across turns while lanes are unchanged);
  * `finder` is the dynamic tail and MAY repeat a stable-prefix slug (a finder
  * hit on a stable-prefix page is kept so its current relevance stays visible
  * downstream).
@@ -274,6 +274,8 @@ export interface OrchestrateLanes {
   hot: Slug[];
   /** Modification-recency fresh set, recency order (never overlaps core/hot). */
   fresh: Slug[];
+  /** Always-candidate skills, install order (never overlaps core/hot/fresh). */
+  always: Slug[];
   /** Finder candidates in surfacing order, deduped among themselves only. */
   finder: FinderCandidate[];
 }
@@ -289,9 +291,17 @@ export interface OrchestrateResult {
    *  section (progressive disclosure). */
   matchedSections: Map<Slug, Section>;
   /** The candidate lanes in cache order; see {@link OrchestrateLanes}. Consumed
-   *  by the selection telemetry (lane attribution) and the downstream selector
-   *  rendering. */
+   *  by the selection telemetry (lane attribution), the per-turn pool record
+   *  (`pool-log-store.ts`), and the downstream selector rendering. */
   lanes: OrchestrateLanes;
+  /** Whether the selector LLM judged a non-empty pool this turn (the
+   *  `selector_ran` telemetry field). False when the pool was empty, when the
+   *  disabled-selector passthrough kept every candidate, and when a closed
+   *  injection gate hard-skipped selection. On that last path `lanes` still
+   *  carries the stable prefix (the injector exempts it from pruning) but no
+   *  pool was ever assembled, so a false value with empty `selections` means
+   *  the selector was given nothing. */
+  selectorRan: boolean;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -651,7 +661,8 @@ export async function orchestrate(
   //     the provider (also a 0%).
   // The last is why `poolSize` decides this rather than each call site: an empty
   // pool is not a judgment that nothing was relevant, and no caller has to
-  // remember that.
+  // remember that. `selectorRanOver` is that rule; the selection event and the
+  // result's `selectorRan` both read it.
   // `selector_kept_all` and `net_new_count` separate what the selector JUDGED
   // from what actually reaches the turn, which `selected_count` alone conflates:
   //   - kept_all: the recall-safe fallback fired (model omitted `ids`), so every
@@ -666,6 +677,8 @@ export async function orchestrate(
   //     `isResident` (tests, shadow-less paths). `sections` is the matched
   //     map the returned result carries, so the count reads the same unit the
   //     injector will (a closed gate returns no sections, so it counts leads).
+  const selectorRanOver = (poolSize: number): boolean =>
+    deps.selectorEnabled !== false && poolSize > 0;
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
@@ -675,7 +688,7 @@ export async function orchestrate(
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
-      selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selector_ran: selectorRanOver(poolSize),
       selector_kept_all: keptAll,
       selected_count: selections.length,
       pool_size: poolSize,
@@ -745,11 +758,16 @@ export async function orchestrate(
         });
         if (!gate.pass) {
           // A closed gate produces no finder lane and no matched sections; only
-          // the `selections` differ between bypass (stable prefix) and hard-skip.
-          const closed = (selections: SelectedPage[]): OrchestrateResult => ({
+          // `selections` and `selectorRan` differ between bypass (stable
+          // prefix) and hard-skip.
+          const closed = (
+            selections: SelectedPage[],
+            selectorRan: boolean,
+          ): OrchestrateResult => ({
             selections,
             matchedSections: new Map(),
-            lanes: { core, hot, fresh, finder: [] },
+            lanes: { core, hot, fresh, always, finder: [] },
+            selectorRan,
           });
           if (deps.gateConfig.bypassForCore) {
             // Select over the stable prefix only. `runSelection` mirrors the
@@ -767,13 +785,14 @@ export async function orchestrate(
               finder: [],
             });
             recordSelection(bypassed, stableOnly.length, keptAll, new Map());
-            return closed(bypassed);
+            return closed(bypassed, selectorRanOver(stableOnly.length));
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
-          // `selector_ran: false` keeps it out of any relevance rate.
+          // `selector_ran: false` keeps it out of any relevance rate, and the
+          // result's `selectorRan` keeps it out of the persisted pool record.
           recordSelection([], 0, false, new Map());
-          return closed([]);
+          return closed([], false);
         }
       }
     }
@@ -870,18 +889,15 @@ export async function orchestrate(
     "Gate & edge expansion",
     Date.now() - expandStartedAt,
   );
+  const poolSize = stable.length + finderTail.length;
   const { selections, keptAll } = await runSelection(pool);
-  recordSelection(
-    selections,
-    stable.length + finderTail.length,
-    keptAll,
-    matchedSections,
-  );
+  recordSelection(selections, poolSize, keptAll, matchedSections);
 
   return {
     selections,
     matchedSections,
-    lanes: { core, hot, fresh, finder },
+    lanes: { core, hot, fresh, always, finder },
+    selectorRan: selectorRanOver(poolSize),
   };
 }
 

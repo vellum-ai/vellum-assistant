@@ -10,9 +10,9 @@
  *      `memory` schema on its `database_list`.
  *   3. The relocated memory tables (`memory_jobs`, `memory_v2_injection_events`,
  *      `memory_v2_activation_logs`, `memory_recall_logs`,
- *      `memory_v3_selections`, `activation_sessions`, `activation_state`,
- *      `conversation_graph_memory_state`, `memory_v3_ever_injected`,
- *      `memory_retrospective_state`, and the graph cluster
+ *      `memory_v3_selections`, `memory_v3_pools`, `activation_sessions`,
+ *      `activation_state`, `conversation_graph_memory_state`,
+ *      `memory_v3_ever_injected`, `memory_retrospective_state`, and the graph cluster
  *      `memory_graph_nodes` / `memory_graph_edges` / `memory_graph_triggers` /
  *      `memory_graph_node_edits`) live in the dedicated memory connection, not
  *      in the main connection — proving the physical split.
@@ -63,6 +63,7 @@ describe("memory database connection", () => {
     "memory_v2_activation_logs",
     "memory_recall_logs",
     "memory_v3_selections",
+    "memory_v3_pools",
     "activation_sessions",
     "activation_state",
     "conversation_graph_memory_state",

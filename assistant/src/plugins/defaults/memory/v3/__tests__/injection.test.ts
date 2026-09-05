@@ -273,12 +273,14 @@ function result(
       core: [],
       hot: [],
       fresh: [],
+      always: [],
       finder: matched.map(([slug]) => ({
         slug,
         descriptor: "",
         lane: "needle" as const,
       })),
     },
+    selectorRan: true,
   };
 }
 

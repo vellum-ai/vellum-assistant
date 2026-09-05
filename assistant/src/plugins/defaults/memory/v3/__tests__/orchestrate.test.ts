@@ -494,6 +494,8 @@ describe("orchestrate — candidate pool composition", () => {
     expect(new Set(result.selections.map((s) => s.slug))).toEqual(
       new Set(["topic-a", "topic-b", "topic-d"]),
     );
+    // A passthrough is not a selector judgment.
+    expect(result.selectorRan).toBe(false);
   });
 
   test("selectorEnabled=false with zero candidate lanes returns no selections", async () => {
@@ -510,7 +512,13 @@ describe("orchestrate — candidate pool composition", () => {
 
     expect(selectCalls).toBe(0);
     expect(result.selections).toEqual([]);
-    expect(result.lanes).toEqual({ core: [], hot: [], fresh: [], finder: [] });
+    expect(result.lanes).toEqual({
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [],
+    });
   });
 
   test("matchedSections is populated from matched lane sections", async () => {
@@ -983,6 +991,7 @@ describe("orchestrate — degradation", () => {
     );
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
+    expect(result.selectorRan).toBe(false);
   });
 
   test("omitted ids keeps ALL pooled candidates (recall-safe)", async () => {
@@ -1109,6 +1118,7 @@ describe("orchestrate — injection gate", () => {
 
     expect(selectCalls).toBe(1);
     expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+    expect(result.selectorRan).toBe(true);
   });
 
   test("gate fail → empty selections, selector never called", async () => {
@@ -1126,6 +1136,7 @@ describe("orchestrate — injection gate", () => {
     expect(selectCalls).toBe(0);
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
+    expect(result.selectorRan).toBe(false);
   });
 
   test("gate stays inert when the dense lane is off (denseK = 0 new-user profile)", async () => {
@@ -1214,6 +1225,8 @@ describe("orchestrate — injection gate", () => {
     );
     expect(result.lanes.finder).toEqual([]);
     expect(result.matchedSections.size).toBe(0);
+    // The selector judged the stable-only pool, so the result says it ran.
+    expect(result.selectorRan).toBe(true);
   });
 
   test("bypassForCore honors selectorEnabled: false — stable prefix passes through without the selector", async () => {
@@ -1245,6 +1258,7 @@ describe("orchestrate — injection gate", () => {
     ]);
     expect(result.lanes.finder).toEqual([]);
     expect(result.matchedSections.size).toBe(0);
+    expect(result.selectorRan).toBe(false);
   });
 
   test("gate disabled (omitted) → unchanged behavior (selector runs, selections produced)", async () => {
@@ -1610,7 +1624,7 @@ describe("orchestrate — injection gate", () => {
     denseHits = [];
     providerStub = selectProvider([]);
 
-    await orchestrate(
+    const result = await orchestrate(
       makeTurn(1, "apple"),
       depsOf(lanes, {
         needle,
@@ -1629,6 +1643,7 @@ describe("orchestrate — injection gate", () => {
       selected_count: 0,
       pool_size: 0,
     });
+    expect(result.selectorRan).toBe(false);
   });
 
   test("a hard-closed gate records a zero selection with selector_ran: false", async () => {
@@ -1638,9 +1653,13 @@ describe("orchestrate — injection gate", () => {
     denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
     providerStub = selectProvider([]);
 
-    await orchestrate(
+    const result = await orchestrate(
       makeTurn(1, "zzzz nomatch"),
-      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        denseK: 100,
+        gateConfig: gateConfigOf(),
+      }),
     );
 
     expect(recordedSelectionEvents).toHaveLength(1);
@@ -1651,6 +1670,12 @@ describe("orchestrate — injection gate", () => {
       selected_count: 0,
       pool_size: 0,
     });
+    // The result carries the same fact for the pool record: the stable prefix
+    // is still reported as a lane (the injector's prune exemption) but the
+    // selector never ran over it.
+    expect(result.selectorRan).toBe(false);
+    expect(result.selections).toEqual([]);
+    expect(result.lanes.core).toEqual(["topic-c"]);
   });
 
   test("gate_reason is null on a selection when the gate never ran", async () => {

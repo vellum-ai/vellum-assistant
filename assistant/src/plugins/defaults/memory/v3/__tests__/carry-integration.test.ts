@@ -63,6 +63,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import { ensureMemoryV3InjectedSectionsSchema } from "../../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import {
@@ -152,6 +153,7 @@ function makeDb() {
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
   ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+  ensureMemoryV3PoolsSchema(memorySqlite);
   // Minimal `messages` shape — metadata persistence, the prune valve's
   // v3-ownership scan, and the restart rehydration read only these columns.
   testSqlite.run(/*sql*/ `
@@ -245,6 +247,7 @@ mock.module("../../../../../daemon/conversation-registry.js", () => ({
 // included), then normalizes the rows' `created_at` to a per-turn stamp so
 // recency ranking is deterministic regardless of wall-clock resolution.
 const { orchestrate } = await import("../orchestrate.js");
+const { buildPoolRecord } = await import("../pool-log-store.js");
 const realShadowPlugin = { ...(await import("../shadow-plugin.js")) };
 
 /** The scripted query per (conversation, turn) — the selector's `keep` list
@@ -277,10 +280,11 @@ async function scriptedObserveTurn(conversationId: string, turnIndex: number) {
       prefixCards: lanes.prefixCards,
     },
   );
-  realShadowPlugin.writeSelections(
+  realShadowPlugin.writeTurnLog(
     conversationId,
     turnIndex,
     realShadowPlugin.attributeSelections(result),
+    buildPoolRecord(result),
   );
   memorySqlite
     .query(

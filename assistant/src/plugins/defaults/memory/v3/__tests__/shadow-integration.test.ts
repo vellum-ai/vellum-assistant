@@ -11,8 +11,8 @@
  *     needle ∪ dense ∪ edge finder candidates → ONE selectPool call)
  *       → attribute selections to lane sources (the plugin's REAL
  *         `attributeSelections`, reading `result.lanes`)
- *       → write to `memory_v3_selections` (the plugin's REAL
- *         `writeSelections`)
+ *       → write to `memory_v3_selections` and `memory_v3_pools` (the plugin's
+ *         REAL `writeTurnLog`)
  *       → summarizeSelections (the offline A/B readout)
  *
  * This is exactly the selection contract the engine records each turn: the
@@ -34,6 +34,7 @@ import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { renderCard } from "../card.js";
@@ -95,9 +96,9 @@ mock.module("../dense.js", () => ({
       : realDense.denseLaneScored(...args),
 }));
 
-// In-memory selections DB. Selection rows live on the dedicated memory
-// connection — `writeSelections` writes and `summarizeSelections` reads via
-// `getMemorySqlite`, stubbed to a DB carrying the relocated table's schema.
+// In-memory selections DB. Selection and pool rows live on the dedicated
+// memory connection: `writeTurnLog` writes and `summarizeSelections` reads
+// via `getMemorySqlite`, stubbed to a DB carrying both tables' schema.
 const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
@@ -110,6 +111,7 @@ function makeDb() {
   const db = drizzle(testSqlite, { schema });
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
 }
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -125,11 +127,12 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
 const { orchestrate } = await import("../orchestrate.js");
 const { summarizeSelections } = await import("../selection-log-store.js");
 // The REAL attribution + writer from the shadow plugin, imported AFTER the
-// db-connection mock so `writeSelections` binds to the in-memory test DB. Using
+// db-connection mock so `writeTurnLog` binds to the in-memory test DB. Using
 // the production code (rather than a local copy) means this test exercises the
 // real `result.lanes` attribution — the only thing that can emit "dense".
-const { attributeSelections, writeSelections } =
+const { attributeSelections, writeTurnLog } =
   await import("../shadow-plugin.js");
+const { buildPoolRecord } = await import("../pool-log-store.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures: a tiny corpus. `page-a` carries a curated link to `topic-x` so the
@@ -284,9 +287,9 @@ function selectProvider(keep: Slug[]): Provider {
 
 // ---------------------------------------------------------------------------
 // Selection read-back. Attribution (`attributeSelections`) and the write
-// (`writeSelections`) are the shadow plugin's REAL functions, imported above —
+// (`writeTurnLog`) are the shadow plugin's REAL functions, imported above,
 // so this test exercises the production `result.lanes` attribution rather
-// than a local copy. The db-connection mock routes `writeSelections` at the
+// than a local copy. The db-connection mock routes `writeTurnLog` at the
 // in-memory test DB.
 // ---------------------------------------------------------------------------
 
@@ -330,7 +333,12 @@ async function runTurn(
       stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),
     ),
   });
-  writeSelections(CONV, turnNumber, attributeSelections(result));
+  writeTurnLog(
+    CONV,
+    turnNumber,
+    attributeSelections(result),
+    buildPoolRecord(result),
+  );
   return result;
 }
 
