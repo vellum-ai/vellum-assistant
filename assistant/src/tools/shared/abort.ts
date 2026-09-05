@@ -1,23 +1,10 @@
 import { type AbortReason, isAbortReason } from "../../util/abort-reasons.js";
-import type { ToolContext } from "../types.js";
 
-/**
- * Stop a side-effecting tool whose turn was cancelled before it acted.
- *
- * Call this immediately before the step that changes something the user would
- * notice: a write, a create/update/delete, a message send, a process spawn, a
- * paid provider call. The agent loop tells the model an aborted batch was
- * cancelled, so anything that lands after the abort is work the model believes
- * never happened.
- *
- * Throws the signal's own reason, which is the daemon's tagged `AbortReason`
- * for a conversation abort and a `DOMException` named `AbortError` for a plain
- * one. The tool executor recognizes both and reports the call as an expected
- * cancellation rather than a tool failure.
- */
-export function throwIfCancelled(context: Pick<ToolContext, "signal">): void {
-  context.signal?.throwIfAborted();
-}
+// The guard itself lives on the plugin API surface, the one module a plugin
+// may import from, so host tools and plugin tools share a single
+// implementation. Re-exported here because this is where host tools look for
+// the cancellation vocabulary.
+export { throwIfCancelled } from "../../plugin-api/tool-cancellation.js";
 
 /**
  * Extract the tagged {@link AbortReason} from a thrown value: the value

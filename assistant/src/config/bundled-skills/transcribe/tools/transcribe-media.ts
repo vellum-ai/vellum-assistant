@@ -5,7 +5,10 @@ import { extname, join } from "node:path";
 
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
 import type { BatchTranscriber } from "../../../../stt/types.js";
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -159,6 +162,16 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
 // Transcription via resolved STT provider
 // ---------------------------------------------------------------------------
 
+/**
+ * The signal a single STT request runs under: the provider's own deadline, and
+ * the turn's cancellation when there is one. Without the turn's signal a paid
+ * request outlives a stopped turn until its five-minute timeout.
+ */
+function sttRequestSignal(context: ToolContext): AbortSignal {
+  const timeout = AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS);
+  return context.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
+}
+
 async function transcribeWithProvider(
   audioPath: string,
   transcriber: BatchTranscriber,
@@ -174,7 +187,7 @@ async function transcribeWithProvider(
     const result = await transcriber.transcribe({
       audio: audioBuffer,
       mimeType: "audio/wav",
-      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+      signal: sttRequestSignal(context),
     });
     return result.text;
   }
@@ -193,15 +206,13 @@ async function transcribeWithProvider(
     const parts: string[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
-      if (context.signal?.aborted) {
-        throw new Error("Cancelled");
-      }
+      throwIfCancelled(context);
       context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
       const audioBuffer = await readFile(chunks[i]);
       const result = await transcriber.transcribe({
         audio: audioBuffer,
         mimeType: "audio/wav",
-        signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+        signal: sttRequestSignal(context),
       });
       if (result.text) {
         parts.push(result.text);
@@ -274,6 +285,11 @@ export async function run(
 
     return { content: text, isError: false };
   } catch (err) {
+    // A cancelled turn is not a transcription failure: let it reach the
+    // executor's abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     return {
       content: `Transcription failed: ${(err as Error).message}`,
       isError: true,

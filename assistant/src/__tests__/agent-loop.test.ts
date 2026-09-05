@@ -797,6 +797,118 @@ describe("AgentLoop", () => {
     ).toBe(true);
   });
 
+  // 6c. A tool that finishes inside the post-abort grace keeps its real result
+  test("a tool that settles during the abort grace reports its real result", async () => {
+    const controller = new AbortController();
+
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/slow.txt" }),
+      textResponse("Should not reach"),
+    ]);
+
+    // Abort lands while the tool is in flight; the tool finishes shortly
+    // after, inside the loop's settlement grace.
+    const toolExecutor = async () => {
+      setTimeout(() => controller.abort(), 5);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return {
+        content: "wrote the file",
+        isError: false,
+        status: "ok",
+        diff: {
+          filePath: "/slow.txt",
+          oldContent: "",
+          newContent: "x",
+          isNewFile: true,
+        },
+        contentBlocks: [
+          { type: "text" as const, text: "attachment" },
+        ] as ContentBlock[],
+        riskLevel: "low",
+      };
+    };
+
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
+
+    const resultEvent = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
+    );
+    expect(resultEvent).toBeDefined();
+    // It ran, so it is not a cancellation: the daemon must still do the
+    // bookkeeping the tool's side effects need.
+    expect(resultEvent!.cancelled).toBeUndefined();
+    expect(resultEvent!.content).toBe("wrote the file");
+    expect(resultEvent!.isError).toBe(false);
+    expect(resultEvent!.diff?.filePath).toBe("/slow.txt");
+    expect(resultEvent!.contentBlocks).toHaveLength(1);
+    expect(resultEvent!.status).toBe("ok");
+    expect(resultEvent!.riskLevel).toBe("low");
+
+    const lastMsg = history[history.length - 1];
+    const block = lastMsg.content.find((b) => b.type === "tool_result");
+    expect(block).toBeDefined();
+    expect((block as { content: string }).content).toBe("wrote the file");
+    expect((block as { is_error: boolean }).is_error).toBe(false);
+    expect(
+      (block as { contentBlocks?: ContentBlock[] }).contentBlocks,
+    ).toHaveLength(1);
+  });
+
+  // 6d. A tool that ignores the signal is reported as possibly still running
+  test("an unsettled tool is flagged cancelled with the may-still-complete wording", async () => {
+    const controller = new AbortController();
+
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/stuck.txt" }),
+      textResponse("Should not reach"),
+    ]);
+
+    const toolExecutor = async () => {
+      setTimeout(() => controller.abort(), 5);
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      return { content: "should never return", isError: false };
+    };
+
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
+
+    const resultEvent = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
+    );
+    expect(resultEvent).toBeDefined();
+    expect(resultEvent!.cancelled).toBe(true);
+    expect(resultEvent!.content).toBe(CANCELLED_UNSETTLED_TOOL_RESULT);
+  });
+
   // 7. Events — verify text_delta and other events are emitted
   test("emits text_delta events during streaming", async () => {
     const { provider } = createMockProvider([textResponse("Hello world")]);

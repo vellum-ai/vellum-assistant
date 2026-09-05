@@ -7,6 +7,8 @@
  * memory feature (`src/memory/*`).
  */
 
+import { throwIfCancelled } from "@vellumai/plugin-api";
+
 import { getConfig, getConfigReadOnly } from "../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import { RiskLevel } from "../../../permissions/types.js";
@@ -51,10 +53,8 @@ export const rememberTool = {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const typedInput = input as unknown as RememberInput;
-    // The append below writes the memory buffer, so a cancelled turn stops
-    // here. Inlined rather than imported: the plugin does not reach into
-    // `tools/` for a one-line guard.
-    context.signal?.throwIfAborted();
+    // The append below writes the memory buffer, so a cancelled turn stops here.
+    throwIfCancelled(context);
     const result = handleRemember(
       typedInput,
       context.conversationId,
@@ -168,7 +168,7 @@ export const deleteMemoryPageTool = {
       };
     }
 
-    context.signal?.throwIfAborted();
+    throwIfCancelled(context);
 
     try {
       await deletePage(getWorkspaceDir(), slug);
