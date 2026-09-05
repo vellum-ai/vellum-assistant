@@ -15,6 +15,16 @@
  * The output contract here MUST stay in sync with the parser in
  * `@/domains/chat/onboarding-research/research-facts.ts`.
  *
+ * The pass is latency-sensitive — the user is watching a spinner behind the
+ * gcal step, and `research-runner.ts` gives up at `MAX_POLL_MS` (120s) — so the
+ * prompt asks for the searches in two PARALLEL BATCHES (discovery, then
+ * corroboration) rather than a query-at-a-time walk. It also explicitly bans
+ * `subagent_spawn`, which is not a latency win here and is actively unsafe for
+ * this flow: a subagent's result is injected into the parent as a user message
+ * that starts a NEW parent turn (`subagent/notify.ts`), so N researchers cost N
+ * extra turns, and an early turn that emits a well-formed-but-partial payload
+ * satisfies `shouldSettleResearchPoll` and freezes a half-researched card.
+ *
  * NOTE(alex): the wording / claim count / confidence rubric / suggestion
  * guidance are all tunable — only the trailing JSON contract (`claims` +
  * `suggestions` shape) is load-bearing for the UI.
@@ -177,6 +187,15 @@ Keep each SHORT and skimmable: under 10 words, ONE clause, ONE artifact, no list
   return `${identity}
 
 Get to know me. Search the web for what's publicly known about me, and infer a handful of things about who I am: what I do, my role, where I'm based, what I'm into, anything that would help you assist me better. Prefer sources people author about themselves — LinkedIn, a personal site, GitHub, an employer's team page, published work, public social profiles. Never fetch or cite people-search or background-check aggregators (Instant Checkmate, Spokeo, BeenVerified, TruePeopleSearch, Whitepages, and similar); data-broker directories (ZoomInfo, RocketReach, Apollo) may corroborate another source but must never be a claim's only basis.
+
+SEARCH IN PARALLEL — I am waiting on this, so latency is part of the job. Work in two batches, and issue every call within a batch AS PARALLEL TOOL CALLS IN ONE STEP, never one at a time:
+
+Batch 1 — discovery. First check the placeholder rule in the identity gate below; if my details are junk input, skip both batches entirely. Otherwise: one search per source class, at most 5 total, all fired together — professional profile (LinkedIn), code and published work (GitHub, papers, talks), personal site or blog, employer team page, and public social. Vary the query per class rather than repeating my name five times.
+Batch 2 — corroboration. From batch 1's hits, fetch the promising candidate pages together in a single parallel step. Do not fetch them one by one to see how each turns out first.
+
+Then run the identity gate below over everything you have and write the JSON. A third small batch is fine if batch 2 leaves a specific claim one source short of its tier; more than that means the footprint isn't there, and an honest thinner card beats another round of searching.
+
+Do NOT delegate this to subagents. It is slower here, and it risks showing me a half-finished card — parallel tool calls in your own turn are what I want.
 
 IDENTITY GATE — decide who a page is about before you use it: a name match alone is NEVER enough to attribute a page to me. Attribute it to me only when it also corroborates something I stated — my role, my hobby, or a location consistent with my timezone if I gave one. If several people share my name and none clears that bar, or you find no verifiable match at all, then I have no public profile you can use: return ONLY inferences from what I stated above, each labeled "guessing" with "sources": []. An honest near-empty card beats a stranger's biography. If my details above read as placeholder or joke input rather than a real identity, skip the web search and return an empty claims array.
 
