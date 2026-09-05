@@ -14,9 +14,22 @@ import type { Section, SectionIndex, Slug } from "./types.js";
  * Max `Section.text` length in characters. Sections longer than this are split
  * into multiple ordered `Section`s, each keyed by its chunk index, so the
  * embedding backend never receives an over-window input. Every chunk carries
- * the synthetic head line plus a slice of the section body.
+ * the synthetic head line plus a slice of the section body; the head line's
+ * title is capped at {@link SECTION_HEAD_TITLE_CHARS} so the body slice always
+ * keeps most of the window.
  */
 export const SECTION_CHUNK_CHARS = 6000;
+
+/**
+ * Max characters of a section title carried in the synthetic head line. A few
+ * hundred is plenty for lexical and dense matching, and the cap keeps a
+ * runaway heading from eating the chunk window: the body budget is the window
+ * minus the head line, so an uncapped heading at the window would leave one
+ * character per chunk and explode the section into thousands of chunks.
+ * `Section.title` itself is never truncated: keys and renders use the full
+ * heading.
+ */
+export const SECTION_HEAD_TITLE_CHARS = 200;
 
 /** Last `/`- or `.`-delimited segment of a slug (used for the head line). */
 function lastSlugSegment(slug: Slug): string {
@@ -31,7 +44,7 @@ function lastSlugSegment(slug: Slug): string {
  * {@link sectionBody}.
  */
 export function sectionHeadLine(article: Slug, title: string): string {
-  return `${lastSlugSegment(article)} - ${title}`;
+  return `${lastSlugSegment(article)} - ${title.slice(0, SECTION_HEAD_TITLE_CHARS)}`;
 }
 
 /**
@@ -116,6 +129,8 @@ function chunkText(text: string, limit: number): string[] {
  */
 function rawSectionChunks(article: Slug, raw: RawSection): string[] {
   const head = sectionHeadLine(article, raw.title);
+  // The capped title keeps the budget near the window; the floor only guards
+  // a pathological slug segment, since a zero limit would never advance.
   const limit = Math.max(1, SECTION_CHUNK_CHARS - head.length - 1);
   return chunkText(raw.body, limit).map((chunk) => `${head}\n${chunk}`);
 }

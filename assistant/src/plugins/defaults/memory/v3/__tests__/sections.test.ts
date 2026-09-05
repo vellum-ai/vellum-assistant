@@ -107,6 +107,32 @@ describe("buildSectionIndex", () => {
     expect(leadChunks.map(sectionBody).join("")).toBe(unbroken);
   });
 
+  test("a heading longer than the window still chunks by near-window bodies; the key keeps the full title", async () => {
+    const title = "H".repeat(SECTION_CHUNK_CHARS + 100);
+    const body = "b".repeat(SECTION_CHUNK_CHARS * 2);
+    const index = await buildSectionIndex(
+      ["page-a"],
+      reader({ "page-a": `lead\n\n## ${title}\n${body}` }),
+    );
+    const chunks = index.sections.filter((s) => s.title === title);
+    // The head line carries the capped title, so the body budget stays near
+    // the window: three chunks here, not thousands.
+    const budget =
+      SECTION_CHUNK_CHARS - sectionHeadLine("page-a", title).length - 1;
+    expect(budget).toBeGreaterThan(SECTION_CHUNK_CHARS - 300);
+    expect(chunks).toHaveLength(Math.ceil(body.length / budget));
+    for (const chunk of chunks) {
+      expect(chunk.text.length).toBeLessThanOrEqual(SECTION_CHUNK_CHARS);
+      expect(
+        chunk.text.startsWith(`${sectionHeadLine("page-a", title)}\n`),
+      ).toBe(true);
+      expect(chunk.title).toBe(title);
+    }
+    expect(chunks.map(sectionBody).join("")).toBe(body);
+    expect(sectionKey(chunks[0]!)).toBe(title);
+    expect(sectionKey(chunks[1]!)).toBe(`${title}~1`);
+  });
+
   test("a section that fits the window is one chunk carrying the head line and the whole body", async () => {
     const body = "lead\n\n## Notes\nfirst line\nsecond line";
     const index = await buildSectionIndex(

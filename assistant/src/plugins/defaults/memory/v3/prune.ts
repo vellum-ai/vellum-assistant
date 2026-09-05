@@ -118,7 +118,7 @@ const log = getLogger("memory-v3-shadow");
  * is a card the conversation actually froze.
  *
  * Returns the input string UNCHANGED (same reference) when nothing is
- * removed — callers use identity to detect a no-op — and `""` when every
+ * removed (callers use identity to detect a no-op) and `""` when every
  * chunk is pruned (the caller drops/skips the whole block; a bare
  * instruction header with no sections carries no content). Non-section
  * chunks (capability content) are always kept, so a block whose sections are
