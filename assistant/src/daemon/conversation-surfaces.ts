@@ -54,6 +54,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { resolveAppId } from "../tools/apps/resolve-app-id.js";
+import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -3050,7 +3051,14 @@ export async function surfaceProxyResolver(
       }
     }
 
-    hostCuProxy.recordAction(toolName, input, reasoning);
+    // Pointing at the screen is not a computer-use step. It drives nothing
+    // and the user does the acting, so counting it against
+    // `maxStepsPerSession` would let a long walkthrough exhaust a budget
+    // meant for actions and be told to call `computer_use_done`, which has
+    // nothing to do with what it was doing.
+    if (toolName !== POINT_AT_PROXY_TOOL) {
+      hostCuProxy.recordAction(toolName, input, reasoning);
+    }
     return hostCuProxy.request(
       toolName,
       input,
