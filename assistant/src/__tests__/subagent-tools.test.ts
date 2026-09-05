@@ -1068,11 +1068,16 @@ describe("Subagent spawn repeat-loop guard", () => {
     expect(JSON.parse(result.content).status).toBe("pending");
   });
 
-  test("advisor consults are guarded like any other spawn", async () => {
+  test("completed advisor consults trip the guard for the next one", async () => {
     // A consult is a background child on a premium profile, so asking the same
     // question a fourth time in a day is the repetition the guard is for.
+    // Seeded as actual advisor rows: the tally counts every role, and a consult
+    // records the caller's raw brief as its objective the way every other spawn
+    // records its own, which is what lets one fold compare the two.
     const objective = "Audit the advisor pipeline for drift";
-    seedSpawns("guard-advisor", objective, 6);
+    for (let i = 0; i < 4; i++) {
+      seedSpawn(`guard-advisor-done-${i}`, objective, { role: "advisor" });
+    }
 
     const { result, spawned } = await spawnWithGuard({
       label: "Consult",
@@ -1081,7 +1086,52 @@ describe("Subagent spawn repeat-loop guard", () => {
     });
 
     expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "near-identical subagents already completed",
+    );
     expect(result.content).toContain("confirm_repeat");
+  });
+
+  test("advisor consults still in flight trip the guard", async () => {
+    // The runaway shape: a burst of identical consults fired before any of them
+    // answers, which the completed counts cannot see for the whole burst.
+    const objective = "Audit the in-flight advisor pipeline for drift";
+    for (let i = 0; i < 2; i++) {
+      seedSpawn(`guard-advisor-flight-${i}`, objective, {
+        role: "advisor",
+        status: "running",
+        completedAt: null,
+      });
+    }
+
+    const { result, spawned } = await spawnWithGuard({
+      label: "Consult",
+      objective,
+      role: "advisor",
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "are already running in this conversation",
+    );
+    expect(result.content).toContain("confirm_repeat");
+  });
+
+  test("confirm_repeat spawns a held consult anyway", async () => {
+    const objective = "Audit the confirmed advisor pipeline for drift";
+    for (let i = 0; i < 4; i++) {
+      seedSpawn(`guard-advisor-confirm-${i}`, objective, { role: "advisor" });
+    }
+
+    const { result, spawned } = await spawnWithGuard({
+      label: "Consult",
+      objective,
+      role: "advisor",
+      confirm_repeat: true,
+    });
+
+    expect(spawned).toBe(true);
+    expect(JSON.parse(result.content).status).toBe("pending");
   });
 
   test("copies still running trip the guard before any of them completes", async () => {
@@ -3020,14 +3070,16 @@ describe("Subagent advisor-role consult", () => {
       // spawn mode is what separates it from a plain spawn in cost telemetry.
       expect(captured.current!.spawnMode).toBe("advisor_consult");
       // The situational context pack must never ride display surfaces: the
-      // system prompt stays minimal and `objective` (rendered verbatim by the
-      // subagent detail panel) stays the concise advice request. Only the
-      // non-display `requestText` may carry the pack.
+      // system prompt stays minimal, and `objective` stays the caller's raw
+      // brief, which is what the durable row and the detail panel show and what
+      // the repeat-spawn guard folds. Only `requestText` carries the framing
+      // and the pack.
       expect(captured.current!.systemPromptOverride).not.toContain(
         "<agent_environment>",
       );
-      expect(captured.current!.objective).not.toContain("<agent_environment>");
+      expect(captured.current!.objective).toBe("advise me");
       expect(captured.current!.requestText).toContain("advise me");
+      expect(captured.current!.requestText).toContain("<agent_request>");
     } finally {
       restore();
       mockFindConversation = () => undefined;
