@@ -3125,8 +3125,8 @@ describe("Subagent advisor-role consult", () => {
       expect(payload.subagentId).toBe("advisor-subagent-id");
       expect(payload.status).toBe("pending");
       expect(payload.role).toBe("advisor");
-      // The whole point of the change: the tool call does not park on the run,
-      // and the model is told where the guidance will show up.
+      // An advisor spawn returns without waiting on the run, and the message
+      // directs the caller to the notification the guidance arrives in.
       expect(payload.message).toContain("background");
       expect(payload.message).toContain("notification");
       expect(captured.current).toBeDefined();
