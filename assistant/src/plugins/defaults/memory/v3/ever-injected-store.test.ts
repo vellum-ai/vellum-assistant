@@ -68,6 +68,7 @@ const {
   getActiveEntries,
   getActiveSections,
   getInjected,
+  getKnownSlugs,
   getPrunedSections,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -234,6 +235,25 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
     expect(
       getInjected("conv-1").filter((row) => row.prunedAt === 2_000),
     ).toHaveLength(1_100);
+  });
+
+  test("getKnownSlugs lists every recorded slug, resident or pruned, per conversation", () => {
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "topics/page-a", key: "", bytes: 100 },
+        { slug: "topics/page-a", key: "Notes", bytes: 100 },
+        { slug: "topics/page-b", key: "", bytes: 100 },
+      ],
+      1_000,
+    );
+    recordInjected("conv-2", [{ slug: "elsewhere", key: "", bytes: 1 }], 1_000);
+    markPruned("conv-1", [{ slug: "topics/page-b", key: "" }], 2_000);
+
+    expect(getKnownSlugs("conv-1")).toEqual(
+      new Set(["topics/page-a", "topics/page-b"]),
+    );
+    expect(getKnownSlugs("conv-unknown")).toEqual(new Set());
   });
 
   test("empty ref list is a no-op and residentBytes is 0 for unknown conversations", () => {
@@ -435,6 +455,46 @@ describe("seedEverInjectedFromBlocks", () => {
         slug: "topics/page-a",
         key: "",
         bytes: renderedBytes(card),
+        prunedAt: null,
+      },
+    ]);
+  });
+
+  test("legacy cards are seeded with the parent's recorded slugs: a headless card after a sectionless one seeds its own entry", () => {
+    const stub = [
+      injectedSectionHeader("topics/stub", ""),
+      "# Stub",
+      "just a lead, no sections",
+    ].join("\n");
+    const headless = [
+      injectedSectionHeader("topics/headless", ""),
+      "prose only, no title line",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const block = `preamble\n\n${stub}\n\n${headless}`;
+    recordInjected(
+      "conv-parent",
+      [
+        { slug: "topics/stub", key: "", bytes: 1 },
+        { slug: "topics/headless", key: "", bytes: 1 },
+      ],
+      1_000,
+    );
+
+    seedEverInjectedFromBlocks("conv-parent", "conv-child", [block], 5_000);
+
+    expect(summary("conv-child")).toEqual([
+      {
+        slug: "topics/headless",
+        key: "",
+        bytes: renderedBytes(headless),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/stub",
+        key: "",
+        bytes: renderedBytes(stub),
         prunedAt: null,
       },
     ]);

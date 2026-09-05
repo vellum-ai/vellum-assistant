@@ -22,9 +22,10 @@
  * Blocks frozen by builds before body escaping (compact cards: concept
  * header, the page head, a blank line, then a `[sections: …]` or
  * `[linked: …]` TOC line) carry no escaping, so the parser recognises that
- * card shape and never splits such a card at a header-shaped line inside its
- * lead; see {@link parseInjectedSections}. Current blocks escape TOC-shaped
- * lines as well, so the card rule can never fire on them.
+ * card shape and, given the slugs the conversation has recorded, never
+ * splits such a card at a header-shaped line inside its lead; see
+ * {@link parseInjectedSections}. Current blocks escape TOC-shaped lines as
+ * well, so the card rule can never fire on them.
  *
  * Skill and CLI-command chunks carry no recoverable slug, so the slug
  * extractor intentionally skips them.
@@ -324,6 +325,16 @@ function classifyNonSectionHeader(line: string): BoundaryRef {
   return { kind: "other" };
 }
 
+export interface ParseInjectedSectionsOptions {
+  /** The slugs the conversation has recorded in its section store, resident
+   *  or pruned. Every real card header names one of them, while a
+   *  user-authored header-shaped line inside a card's lead names an
+   *  arbitrary path, so inside a card frozen before body escaping a concept
+   *  header naming a known slug is always a card boundary. Omitted (no
+   *  conversation at hand): the card shape alone decides. */
+  knownSlugs?: ReadonlySet<string>;
+}
+
 /**
  * Split an UNWRAPPED injection-block body into its preamble (the instruction
  * header: everything before the first boundary), the ordered chunk pieces,
@@ -346,14 +357,18 @@ function classifyNonSectionHeader(line: string): BoundaryRef {
  * Blocks frozen by builds before body escaping hold compact cards (concept
  * header, the page head, a blank line, a `[sections: …]` / `[linked: …]` TOC
  * line) whose leads may contain a header-shaped line. Inside such a card, a
- * concept header on a seam is demoted to card text when it does not open a
- * card (its next line is neither the page's `# Title` nor a `[current: …]`
- * annotation), the previous content line is not a TOC line (the preceding
- * card is still open), and a TOC line follows before the next candidate
- * header (the open card has yet to close). Current blocks escape TOC-shaped
- * lines, so the demotion can never apply to them.
+ * concept header on a seam is demoted to card text when it names no slug in
+ * `options.knownSlugs` and the card shape says it does not open a card: its
+ * next line is neither the page's `# Title` nor a `[current: …]` annotation,
+ * the previous content line is not a TOC line (the preceding card is still
+ * open), and a TOC line follows before the next candidate header (the open
+ * card has yet to close). Current blocks escape TOC-shaped lines, so the
+ * demotion can never apply to them.
  */
-export function parseInjectedSections(inner: string): {
+export function parseInjectedSections(
+  inner: string,
+  options: ParseInjectedSectionsOptions = {},
+): {
   preamble: string;
   sections: ParsedInjectedSection[];
   pieces: InjectionBlockPiece[];
@@ -386,6 +401,7 @@ export function parseInjectedSections(inner: string): {
       candidate.ref.kind === "section" &&
       open !== undefined &&
       open.ref.kind === "section" &&
+      !(options.knownSlugs?.has(candidate.ref.slug) ?? false) &&
       !opensLegacyCard(lineAfter(inner, candidate.index)) &&
       !LEGACY_CARD_TOC_LINE_REGEX.test(
         nonBlankLineBefore(inner, candidate.index) ?? "",

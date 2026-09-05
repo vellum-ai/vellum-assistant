@@ -74,6 +74,7 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  getKnownSlugs,
   getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   type SectionRefSet,
@@ -1201,6 +1202,20 @@ export class Conversation {
       }
       return v3PrunedSectionsMemo;
     };
+    // The conversation's recorded slugs, read the same lazy way: the block
+    // parser's `knownSlugs`, so a card frozen before body escaping splits
+    // only at headers naming pages this conversation injected.
+    let v3KnownSlugsMemo: ReadonlySet<string> | null = null;
+    const v3KnownSlugs = (): ReadonlySet<string> => {
+      if (v3KnownSlugsMemo === null) {
+        try {
+          v3KnownSlugsMemo = getKnownSlugs(this.conversationId);
+        } catch {
+          v3KnownSlugsMemo = new Set();
+        }
+      }
+      return v3KnownSlugsMemo;
+    };
     // Provider-id → row-text index for reaction target resolution, built
     // lazily on the first reaction row: most conversations carry none, so
     // most loads never walk the rows a second time. Keyed over the full
@@ -1439,6 +1454,7 @@ export class Conversation {
             const v3Resident = filterPrunedSections(
               unwrapMemoryBlock(v3Block),
               v3PrunedSections(),
+              v3KnownSlugs(),
             );
             if (v3Resident.length > 0) {
               content = [

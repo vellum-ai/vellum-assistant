@@ -83,6 +83,7 @@ import {
 } from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
+  getKnownSlugs,
   getPrunedSections,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -97,7 +98,9 @@ const log = getLogger("memory-v3-shadow");
 // ─── pruned-section filtering ────────────────────────────────────────────────
 
 /**
- * Remove pruned sections from an unwrapped block body.
+ * Remove pruned sections from an unwrapped block body. `knownSlugs` (the
+ * conversation's recorded slugs, see `getKnownSlugs`) lets the parser split a
+ * card frozen before body escaping only at headers naming recorded pages.
  *
  * Returns the input string UNCHANGED (same reference) when nothing is
  * removed — callers use identity to detect a no-op — and `""` when every
@@ -112,8 +115,11 @@ const log = getLogger("memory-v3-shadow");
 export function filterPrunedSections(
   inner: string,
   pruned: SectionRefSet,
+  knownSlugs?: ReadonlySet<string>,
 ): string {
-  const { preamble, sections, pieces } = parseInjectedSections(inner);
+  const { preamble, sections, pieces } = parseInjectedSections(inner, {
+    knownSlugs,
+  });
   if (sections.length === 0) {
     return inner;
   }
@@ -290,10 +296,12 @@ export function planPrune(
  * a live `<memory>` block is v3-owned iff all of its sections appear here
  * (see the module doc's v2-coexistence note). Capability chunks never
  * contribute: their content renders under `# Skill:` / `# CLI command:`
- * headers, which parse as non-section chunks.
+ * headers, which parse as non-section chunks. `knownSlugs` defaults to the
+ * conversation's recorded slugs; the valve passes the set it already read.
  */
 export function collectPersistedV3Sections(
   conversationId: string,
+  knownSlugs: ReadonlySet<string> = getKnownSlugs(conversationId),
 ): Set<string> {
   // Substring prefilter (indexable LIKE) mirrors the Slack metadata scan;
   // rows are validated by `readInjectedBlock`'s JSON parse.
@@ -319,8 +327,9 @@ export function collectPersistedV3Sections(
     if (block === null) {
       continue;
     }
-    for (const section of parseInjectedSections(unwrapMemoryBlock(block))
-      .sections) {
+    for (const section of parseInjectedSections(unwrapMemoryBlock(block), {
+      knownSlugs,
+    }).sections) {
       sections.add(section.text);
     }
   }
@@ -338,12 +347,15 @@ export function collectPersistedV3Sections(
  * Mutates the affected `Message` objects IN PLACE (`message.content`
  * reassignment): the agent loop's working arrays share these object
  * references, so its end-of-turn history fold-back keeps the strip. Returns
- * the number of blocks changed.
+ * the number of blocks changed. `knownSlugs` is the conversation's recorded
+ * slug set, parsed with the same set the ownership texts were collected
+ * under.
  */
 export function stripPrunedSectionsFromMessages(
   messages: Message[],
   pruned: SectionRefSet,
   knownV3Sections: ReadonlySet<string>,
+  knownSlugs?: ReadonlySet<string>,
 ): number {
   let strippedBlocks = 0;
   for (const message of messages) {
@@ -373,7 +385,7 @@ export function stripPrunedSectionsFromMessages(
         nextContent.push(block);
         continue;
       }
-      const { sections } = parseInjectedSections(inner);
+      const { sections } = parseInjectedSections(inner, { knownSlugs });
       const isV3Block =
         sections.length > 0 &&
         sections.every((section) => knownV3Sections.has(section.text));
@@ -381,7 +393,7 @@ export function stripPrunedSectionsFromMessages(
         nextContent.push(block);
         continue;
       }
-      const filtered = filterPrunedSections(inner, pruned);
+      const filtered = filterPrunedSections(inner, pruned, knownSlugs);
       if (filtered === inner) {
         nextContent.push(block);
         continue;
@@ -462,10 +474,12 @@ export async function runPruneValve(
     : await defaultLiveMessages(conversationId);
   let strippedBlocks = 0;
   if (liveMessages) {
+    const knownSlugs = getKnownSlugs(conversationId);
     strippedBlocks = stripPrunedSectionsFromMessages(
       liveMessages,
       getPrunedSections(conversationId),
-      collectPersistedV3Sections(conversationId),
+      collectPersistedV3Sections(conversationId, knownSlugs),
+      knownSlugs,
     );
   }
 

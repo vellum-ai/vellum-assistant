@@ -76,12 +76,17 @@ const realEverInjectedStore = {
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSections = new Map<string, Set<string>>();
+let mockKnownSlugs = new Set<string>();
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
   getPrunedSections: (conversationId: string) =>
     lifecycleStoreMockActive
       ? mockPrunedSections
       : realEverInjectedStore.getPrunedSections(conversationId),
+  getKnownSlugs: (conversationId: string) =>
+    lifecycleStoreMockActive
+      ? mockKnownSlugs
+      : realEverInjectedStore.getKnownSlugs(conversationId),
 }));
 
 import {
@@ -92,6 +97,7 @@ import {
 beforeEach(() => {
   lifecycleStoreMockActive = true;
   mockPrunedSections = new Map();
+  mockKnownSlugs = new Set();
 });
 
 afterAll(() => {
@@ -639,6 +645,38 @@ describe("loadFromDb metadata injection rehydration", () => {
         type: "text",
         text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
       },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("rehydration parses legacy cards with the conversation's recorded slugs (a headless card after a sectionless one prunes alone)", async () => {
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map([["headless", new Set([""])]]);
+    mockKnownSlugs = new Set(["stub", "headless"]);
+    const stub = "# memory/concepts/stub.md\n# Stub\njust a lead, no sections";
+    const headless =
+      "# memory/concepts/headless.md\nprose only, no title line\n\n[sections: §One]";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${stub}\n\n${headless}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${stub}\n</memory>` },
       { type: "text", text: "First turn" },
     ]);
   });

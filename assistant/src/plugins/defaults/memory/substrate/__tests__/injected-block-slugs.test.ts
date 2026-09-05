@@ -258,6 +258,17 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     "",
     "[sections: §X]",
   ].join("\n");
+  const stub = [
+    injectedSectionHeader("topics/stub", ""),
+    "# Stub",
+    "just a lead, no sections",
+  ].join("\n");
+  const headless = [
+    injectedSectionHeader("topics/headless", ""),
+    "prose only, no title line",
+    "",
+    "[sections: §One]",
+  ].join("\n");
 
   test("a header-shaped line inside a card's lead never splits the card", () => {
     const parsed = parseInjectedSections([preamble, cardA, cardB].join("\n\n"));
@@ -273,11 +284,6 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
   });
 
   test("a sectionless card followed by a card that opens with its title stays two cards", () => {
-    const stub = [
-      injectedSectionHeader("topics/stub", ""),
-      "# Stub",
-      "just a lead, no sections",
-    ].join("\n");
     const parsed = parseInjectedSections([preamble, stub, cardB].join("\n\n"));
     expect(parsed.sections.map((section) => section.text)).toEqual([
       stub,
@@ -286,12 +292,6 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
   });
 
   test("a headless card is still a card when the previous card closed with its TOC line, or when it follows a non-card chunk", () => {
-    const headless = [
-      injectedSectionHeader("topics/headless", ""),
-      "prose only, no title line",
-      "",
-      "[sections: §One]",
-    ].join("\n");
     const afterCard = parseInjectedSections(
       [preamble, cardB, headless].join("\n\n"),
     );
@@ -305,6 +305,46 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     expect(afterHint.pieces.map((piece) => piece.text)).toEqual([
       "# Skills\nhint",
       headless,
+    ]);
+  });
+
+  test("a headless card after a sectionless card is a card when its slug is one the conversation recorded", () => {
+    const inner = [preamble, stub, headless].join("\n\n");
+    // Every real card header names a recorded slug, so the recorded set
+    // decides what the shape alone cannot.
+    const known = parseInjectedSections(inner, {
+      knownSlugs: new Set(["topics/stub", "topics/headless"]),
+    });
+    expect(known.sections.map((section) => section.text)).toEqual([
+      stub,
+      headless,
+    ]);
+    // Without a recorded set the shape rule reads the second header as the
+    // open card's text (the two shapes are identical on the page).
+    const unknown = parseInjectedSections(inner);
+    expect(unknown.sections.map((section) => section.text)).toEqual([
+      `${stub}\n\n${headless}`,
+    ]);
+  });
+
+  test("a header-shaped line naming an unrecorded path stays card text even with a recorded set", () => {
+    const inner = [preamble, cardA, cardB].join("\n\n");
+    const parsed = parseInjectedSections(inner, {
+      knownSlugs: new Set(["topics/page-a", "topics/page-b"]),
+    });
+    expect(parsed.sections.map((section) => section.text)).toEqual([
+      cardA,
+      cardB,
+    ]);
+    // A recorded slug wins over the shape: the same line splits the card
+    // once the path it names is one the conversation injected.
+    const recorded = parseInjectedSections(inner, {
+      knownSlugs: new Set(["topics/page-a", "example", "topics/page-b"]),
+    });
+    expect(recorded.sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "" },
+      { slug: "example", key: "" },
+      { slug: "topics/page-b", key: "" },
     ]);
   });
 

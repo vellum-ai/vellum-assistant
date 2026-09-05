@@ -152,7 +152,8 @@ at zero bytes, as the injector records them), and the inspector all read
 blocks through the module's `parseInjectedSections`, which also recognises the
 compact-card shape earlier builds froze without escaping (header, page head,
 blank line, `[sections: …]` TOC line) so a header-shaped line inside such a
-card's lead stays card text. The valve strips a pruned section
+card's lead stays card text unless it names a slug the conversation recorded
+(`getKnownSlugs`, resident plus pruned), which every real card header does. The valve strips a pruned section
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane

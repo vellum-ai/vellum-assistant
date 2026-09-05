@@ -123,6 +123,7 @@ const {
 const {
   getActiveSections,
   getInjected,
+  getKnownSlugs,
   getPrunedSections,
   recordInjected,
   seedEverInjectedFromBlocks,
@@ -409,6 +410,29 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     expect(filterPrunedSections(legacyInner, refSet(["example", ""]))).toBe(
       legacyInner,
     );
+  });
+
+  test("with the conversation's recorded slugs, a headless legacy card after a sectionless one prunes on its own", () => {
+    const stub = [
+      injectedSectionHeader("stub", ""),
+      "# Stub",
+      "just a lead, no sections",
+    ].join("\n");
+    const headless = [
+      injectedSectionHeader("headless", ""),
+      "prose only, no title line",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
+    const knownSlugs = new Set(["stub", "headless"]);
+
+    expect(
+      filterPrunedSections(legacyInner, refSet(["headless", ""]), knownSlugs),
+    ).toBe([V3_INJECTION_HEADER, stub].join("\n\n"));
+    expect(
+      filterPrunedSections(legacyInner, refSet(["stub", ""]), knownSlugs),
+    ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
   });
 
   test("all sections pruned keeps the preamble + capability chunks", () => {
@@ -1055,6 +1079,66 @@ describe("runPruneValve", () => {
 
     // Idempotent: resident is at 100 ≤ target → next pass is a no-op.
     expect(await runPruneValve("conv-1")).toBeNull();
+  });
+
+  test("the valve parses legacy cards with the conversation's recorded slugs: strip and rehydration split a headless card from a sectionless one", async () => {
+    const stub = [
+      injectedSectionHeader("stub", ""),
+      "# Stub",
+      "just a lead, no sections",
+    ].join("\n");
+    const headless = [
+      injectedSectionHeader("headless", ""),
+      "prose only, no title line",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
+    insertUserRowWithV3Block("conv-1", "m1", legacyInner);
+    // Both cards are recorded (the migration copies legacy card rows in as
+    // lead entries); the stub is the older injection.
+    recordInjected("conv-1", [{ slug: "stub", key: "", bytes: 200 }], 1_000);
+    recordInjected(
+      "conv-1",
+      [{ slug: "headless", key: "", bytes: 200 }],
+      2_000,
+    );
+
+    const liveMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: wrapMemoryBlock(legacyInner) },
+          { type: "text", text: "turn 1" },
+        ],
+      },
+    ];
+    pruneConfig = { maxResidentBytes: 300, targetResidentBytes: 200 };
+    const plan = await runPruneValve("conv-1", {
+      liveMessages: () => liveMessages,
+      now: 9_000,
+    });
+
+    expect(plan).toEqual({
+      sections: [{ slug: "stub", key: "" }],
+      bytesFreed: 200,
+    });
+    // Only the stub card leaves; the headless card is its own card because
+    // its slug is recorded, so it stays byte-identical.
+    expect(liveMessages[0]!.content).toEqual([
+      {
+        type: "text",
+        text: wrapMemoryBlock([V3_INJECTION_HEADER, headless].join("\n\n")),
+      },
+      { type: "text", text: "turn 1" },
+    ]);
+    expect(
+      filterPrunedSections(
+        legacyInner,
+        getPrunedSections("conv-1"),
+        getKnownSlugs("conv-1"),
+      ),
+    ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
   });
 
   test("a pruned section later re-selected re-injects and is kept by the filter again", async () => {

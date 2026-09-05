@@ -211,6 +211,29 @@ export function getPrunedSections(conversationId: string): SectionRefSet {
 }
 
 /**
+ * Every slug with a row for the conversation, resident or pruned: the block
+ * parser's `knownSlugs` for the conversation's persisted blocks (a real card
+ * header names a recorded slug; a header-shaped line inside a legacy card's
+ * lead names an arbitrary path). Empty when the memory connection is
+ * unavailable, which leaves the parser to the card shape alone.
+ */
+export function getKnownSlugs(conversationId: string): ReadonlySet<string> {
+  return readOr(
+    "getKnownSlugs",
+    new Set<string>(),
+    (mdb) =>
+      new Set(
+        mdb
+          .selectDistinct({ slug: memoryV3InjectedSections.slug })
+          .from(memoryV3InjectedSections)
+          .where(eq(memoryV3InjectedSections.conversationId, conversationId))
+          .all()
+          .map((row) => row.slug),
+      ),
+  );
+}
+
+/**
  * Upsert this turn's injected sections. Re-recording an existing pair clears
  * `pruned_at` and refreshes `bytes`/`injected_at`: a pruned section that is
  * re-selected re-injects as a fresh entry.
@@ -433,6 +456,10 @@ export function forkEverInjected(
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
+ * The inherited blocks are parsed with the parent's recorded slugs as the
+ * parser's `knownSlugs`, so a card frozen before body escaping splits only
+ * at headers naming pages the parent actually injected.
+ *
  * No-op when the child inherited no blocks. The rows live on the memory
  * connection, so this writes there rather than on the main fork transaction's
  * handle, and an unavailable memory database is a best-effort no-op.
@@ -443,10 +470,12 @@ export function seedEverInjectedFromBlocks(
   blocks: string[],
   at: number,
 ): void {
+  const knownSlugs = getKnownSlugs(parentConversationId);
   const inherited = new Map<string, SectionRef & { bytes: number }>();
   for (const block of blocks) {
-    for (const piece of parseInjectedSections(unwrapMemoryBlock(block))
-      .pieces) {
+    for (const piece of parseInjectedSections(unwrapMemoryBlock(block), {
+      knownSlugs,
+    }).pieces) {
       if (piece.kind === "section") {
         inherited.set(`${piece.slug} ${piece.key}`, {
           slug: piece.slug,
