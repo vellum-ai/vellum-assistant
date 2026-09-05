@@ -419,6 +419,16 @@ export interface BuildSystemPromptOptions {
    * is selected, the conversation is marked as an activation session.
    */
   conversationId?: string;
+  /**
+   * Whether the turn this prompt serves can actually spawn subagents. Defaults
+   * to true, which is every ordinary turn. A caller that disables or restricts
+   * tools passes `false` so the parallel-delegation section renders off:
+   * telling a model to hand work to subagents it cannot spawn makes it defer
+   * or refuse work it should have done inline. Current opt-outs are the
+   * tool-disabled `/v1/btw` side-chain, the home-content generators, and a
+   * persona workflow leaf running its caller's restricted tool set.
+   */
+  canSpawnSubagents?: boolean;
 }
 
 /**
@@ -487,6 +497,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const ctx = {
     ...options,
     hasNoClient,
+    // Defaults true: an ordinary turn carries the full tool surface. A caller
+    // whose turn cannot spawn (a tool-disabled side-chain, a restricted-tool
+    // workflow leaf) passes `false` and the delegation section renders off.
+    canSpawnSubagents: options?.canSpawnSubagents !== false,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,

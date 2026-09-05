@@ -292,6 +292,10 @@ Before emitting a single tool call, ask whether your next turn would be another 
 
 When your user asks for several independent things at once, or adds new tasks while you are still working on earlier ones, hand each independent task to a subagent so they run in parallel rather than one after another. Keep small, quick requests inline, and keep anything that may need the user's approval on your own turn: a subagent runs unattended, so approval-gated work is denied there rather than prompted.
 `,
+    // Off for a turn that cannot spawn: a tool-disabled side-chain or a
+    // restricted-tool workflow leaf would otherwise be told to delegate work
+    // it can only do inline, and defer or refuse it instead.
+    enabled: "canSpawnSubagents",
   },
   {
     id: "01-progress-surface",

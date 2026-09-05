@@ -48,9 +48,23 @@ describe("parallel-tasks system prompt section", () => {
     expect(sortedIds[index + 1]).toBe("01-parallel-tool-calls");
   });
 
-  test("renders unconditionally, with no options required", () => {
+  test("renders by default, with no options required", () => {
     expect(buildSystemPrompt()).toContain(HEADING);
     expect(buildSystemPrompt({ hasNoClient: true })).toContain(HEADING);
+    expect(buildSystemPrompt({ canSpawnSubagents: true })).toContain(HEADING);
+  });
+
+  test("renders off for a turn that cannot spawn subagents", () => {
+    // The shape a tool-disabled `/v1/btw` side-chain and a restricted-tool
+    // workflow leaf build: telling them to delegate would make them defer work
+    // they can only do inline.
+    expect(buildSystemPrompt({ canSpawnSubagents: false })).not.toContain(
+      HEADING,
+    );
+    // The rest of the prompt is untouched by the opt-out.
+    expect(buildSystemPrompt({ canSpawnSubagents: false })).toContain(
+      "<use_parallel_tool_calls>",
+    );
   });
 
   test("delegates only independent tasks and keeps small requests inline", () => {
