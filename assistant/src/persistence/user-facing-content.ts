@@ -23,6 +23,10 @@
 
 import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
 import type { ContentBlock } from "../providers/types.js";
+import {
+  extractTextFromStoredMessageContent,
+  stringifyMessageContent,
+} from "./message-content.js";
 
 /**
  * Whether an assistant row's plain text was shown to the user.
@@ -186,6 +190,48 @@ export function projectPersistedAssistantContent(
   return projectUserFacingContent(parsed as ContentBlock[], {
     toolGated: true,
   });
+}
+
+/**
+ * The blocks an export shows for a row.
+ *
+ * A private row is projected AND loses its thinking blocks: an export dumps
+ * blocks verbatim (the JSON formatter especially), so leaving the demoted
+ * scratchpad in as `thinking` would put it back in the file. An unmarked row is
+ * returned untouched, thinking blocks included, exactly as it exports today.
+ */
+export function userFacingBlocksOfRow(
+  content: ContentBlock[],
+  metadata: unknown,
+): ContentBlock[] {
+  if (!isPrivateAssistantText(metadata)) {
+    return content;
+  }
+  return projectUserFacingContent(content, { toolGated: true }).filter(
+    (block) => block.type !== "thinking" && block.type !== "redacted_thinking",
+  );
+}
+
+/**
+ * The text a user read from a stored row, for readers that quote a row back
+ * (a reaction quote, the history raw-extract fallback).
+ *
+ * Projection alone is not enough for these: they extract through
+ * `extractTextFromStoredMessageContent`, which renders thinking blocks too, so
+ * a demoted scratchpad would come back out. A private row therefore reduces to
+ * its text blocks (the delivered message); every other row keeps the ordinary
+ * extraction, unchanged.
+ */
+export function userFacingTextOfRow(
+  stored: string | ContentBlock[],
+  metadata: unknown,
+): string {
+  if (!isPrivateAssistantText(metadata)) {
+    return extractTextFromStoredMessageContent(stored);
+  }
+  return stringifyMessageContent(
+    projectPersistedAssistantContent(stored, metadata),
+  );
 }
 
 /**
