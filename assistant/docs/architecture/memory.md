@@ -179,8 +179,9 @@ Ingested pages carry provenance frontmatter with distinct consumers:
   `memory_v3_injected_sections` and bounded by a recency prune valve with no
   lane exemptions. Frozen section blocks stay on historical user messages so
   the provider prefix stays cacheable. Re-selected sections that are already
-  resident are listed, paths only, in an ephemeral `<memory_pointer>` block
-  that assembly strips and re-splices every turn. The static `<info>` block
+  resident are listed, paths only, in a per-turn `<memory_pointer>` block
+  that stays on the user message it was sent with; a new pointer is added
+  only on the new tail, so older messages are not rewritten. The static `<info>` block
   (`substrate/static-context.ts`: essentials/threads/recent/buffer) also
   injects whenever the substrate is active.
 - **v2 (transitional)**: activation/router engine in `v2/`

@@ -26,10 +26,21 @@ export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
  * Injection-block id for the v3 per-turn `<memory_pointer>` block: the list
  * of this turn's selected sections that are already resident in history.
  * Distinct from {@link MEMORY_V3_BLOCK_ID}: the pointer never participates in
- * v2 suppression, is never persisted, and is stripped from every user message
- * at the start of each turn before a fresh one is spliced onto the tail.
+ * v2 suppression. Each turn's block stays on the user message that was sent
+ * with it; a fresh one is spliced only onto the new tail.
  */
 export const MEMORY_V3_POINTER_BLOCK_ID = "memory-v3-pointer" as const;
+
+/**
+ * Message-metadata key for the wrapped `<memory_pointer>` block persisted on
+ * the user row that received it. `loadFromDb` rehydrates from this key so
+ * historical turns keep the pointer they were sent with (the provider prefix
+ * through those messages stays byte-identical). Kept as a literal in
+ * `messageMetadataSchema` (same pattern as `memoryV3InjectedBlock`) so the
+ * storage schema does not import the memory feature.
+ */
+export const MEMORY_V3_POINTER_BLOCK_METADATA_KEY =
+  "memoryV3PointerBlock" as const;
 
 /**
  * A single section of a page: the lead (text before the first `## heading`,

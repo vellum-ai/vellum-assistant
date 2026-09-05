@@ -27,8 +27,9 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
+  MEMORY_POINTER_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
-  stripPointerInjections,
+  stripTailUserTextBlocksByPrefix,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
@@ -61,6 +62,7 @@ import {
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_POINTER_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -1863,11 +1865,16 @@ export interface RuntimeInjectionBlocks {
    * contract (rehydration re-wraps on use). Undefined when v3 attached no new
    * sections (all-repeat turn, v3 off, or v3 failure). Persisted by the
    * user-prompt-submit hook under `metadata.memoryV3InjectedBlock`
-   * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The per-turn `<memory_pointer>`
-   * block has no field here: it is never persisted, and Step 0 strips the
-   * previous turn's copy from every user message before the fresh one splices.
+   * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
    */
   memoryV3InjectedBlock?: string;
+  /**
+   * Rendered `<memory_pointer>` block spliced onto this turn's user message.
+   * Persisted by the user-prompt-submit hook under
+   * `metadata.memoryV3PointerBlock`. Historical turns keep the block they
+   * were sent with; a new pointer is added only on the new tail.
+   */
+  memoryV3PointerBlock?: string;
   /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
@@ -2501,6 +2508,7 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let memoryV3PointerCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2550,6 +2558,11 @@ export async function applyRuntimeInjections(
           }
           break;
         }
+        case MEMORY_V3_POINTER_BLOCK_ID:
+          if (block.text.length > 0) {
+            memoryV3PointerCaptured = block.text;
+          }
+          break;
       }
     }
   }
@@ -2568,18 +2581,18 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: pointer strip + v2 tail suppression ──
+  // ── Step 0: tail pointer strip + v2 tail suppression ──
   //
-  // Pointer strip (every user message): the memory-v3 `<memory_pointer>` is
-  // per-turn by contract. The previous turn's copy is stale, and mid-turn
-  // re-entry / post-compact can hand back a tail that already carries this
-  // turn's, so strip every copy so Step 2 splices a single fresh one onto
-  // the tail. The pointer is the one injected block that is not frozen into
-  // history: it is a few path lines, and the agent loop flags a pointer-
-  // bearing turn start as volatile for the provider's cache anchor. Frozen
+  // Pointer strip (tail only): mid-turn re-entry and post-compact can hand
+  // back a tail that already carries this turn's `<memory_pointer>`. Strip
+  // that leftover from the tail so Step 2 splices a single fresh copy.
+  // Historical user messages keep the pointer they were sent with, so the
+  // provider prefix through those messages stays byte-identical. Frozen
   // `<memory>` section blocks are untouched. With the v3 flag off no pointer
   // blocks exist and this is a content no-op.
-  let runMessagesForAssembly = stripPointerInjections(runMessages);
+  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(runMessages, [
+    MEMORY_POINTER_MATCHER,
+  ]);
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2786,6 +2799,7 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3PointerBlock: memoryV3PointerCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

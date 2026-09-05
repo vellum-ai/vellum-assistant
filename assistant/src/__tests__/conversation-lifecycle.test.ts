@@ -406,6 +406,84 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("memoryV3PointerBlock rehydrates wrapped on ALL rows, after the v3 section block", async () => {
+    // Each turn's pointer persists as the wrapped block that was sent and
+    // comes back on the same row, tail included, so the provider prefix
+    // through historical turns stays byte-identical across a reload. Live
+    // assembly splices it immediately after the frozen sections.
+    mockConversation = defaultConv();
+    const pointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-a.md § Alpha\n</memory_pointer>";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          memoryV3PointerBlock: pointer,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail turn" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointer }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: pointer },
+      { type: "text", text: "First turn" },
+    ]);
+    // Tail row rehydrates too, with or without a section block beside it.
+    expect(messages[2].content).toEqual([
+      { type: "text", text: pointer },
+      { type: "text", text: "Tail turn" },
+    ]);
+  });
+
+  test("untrusted-actor view does not rehydrate memoryV3PointerBlock", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3PointerBlock:
+            "<memory_pointer>\nmemory/concepts/page-a.md\n</memory_pointer>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: "First" },
+    ]);
+  });
+
   test("pruned sections are skipped at v3 rehydration (prune valve persistence)", async () => {
     // The prune valve marks sections pruned in the section store instead of
     // rewriting the persisted metadata; the rehydration splice re-filters on

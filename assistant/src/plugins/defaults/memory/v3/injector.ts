@@ -38,12 +38,15 @@
  *    selected sections that are ALREADY resident in history (selected again,
  *    not injected net-new this turn) as a `<memory_pointer>` block of
  *    `memory/concepts/<slug>.md § <key>` lines, no bodies, so the model knows
- *    which frozen sections the turn is about. Runtime assembly strips every
- *    `<memory_pointer>` from history at the start of each turn and splices
- *    the fresh one after any frozen `<memory>` blocks; the block is never
- *    persisted. Because the pointer changes the turn-start message between
- *    turns, the agent loop flags such a turn start as volatile for the
- *    provider's cache anchor (`turnStartUserMessageHasPointer`).
+ *    which frozen sections the turn is about. Runtime assembly splices the
+ *    block onto the current user message immediately after any frozen
+ *    `<memory>` sections; the user-prompt-submit hook persists the wrapped
+ *    text under `metadata.memoryV3PointerBlock` and `conversation.ts`
+ *    rehydrates it on load. Historical user messages keep the pointer they
+ *    were sent with, so the provider prefix through those messages stays
+ *    byte-identical; mid-turn re-entry and post-compact tail-strip the
+ *    current tail before splicing a fresh pointer so the block does not
+ *    double-stack.
  *
  * Gating: `memory.v3.live` (config) runs orchestration and attaches blocks;
  * with it off, no orchestration runs and nothing is attached.

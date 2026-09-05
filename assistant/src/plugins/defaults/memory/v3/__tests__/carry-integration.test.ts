@@ -14,10 +14,10 @@
  *     → the real injectors (`memoryV3Injector` net-new sections +
  *       recordInjected + schedulePruneValve; `memoryV3PointerInjector`
  *       resident re-selections)
- *     → simulated runtime assembly (strip every prior pointer, splice the
- *       section block and the fresh pointer onto the current user message)
+ *     → simulated runtime assembly (splice the section block and the fresh
+ *       pointer onto the current user message; historical pointers stay)
  *       and metadata persistence (the user-prompt-submit hook's
- *       `memoryV3InjectedBlock` write; the pointer is never persisted)
+ *       `memoryV3InjectedBlock` and `memoryV3PointerBlock` writes)
  *     → the real prune valve against the live history (conversation-registry
  *       stubbed to the simulated message arrays)
  *     → rehydration from the temp DB (mirroring `daemon/conversation.ts`'s
@@ -81,6 +81,7 @@ import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
   type Section,
   type SectionIndex,
   type SectionRef,
@@ -623,18 +624,11 @@ function insertMessageRow(
     .run(id, convId, role, JSON.stringify(content), createdAt);
 }
 
-/** The persistent view of a history: every message with its pointer blocks
- *  removed, which is what assembly's Step 0 strip leaves behind before the
- *  next turn's fresh pointer. */
+/** The persistent view of a history. Frozen sections AND each turn's
+ *  pointer persist on the message they were sent with, so this is the whole
+ *  history: nothing a later turn does rewrites an earlier message. */
 function persistentView(history: Message[]): string {
-  return JSON.stringify(
-    history.map((message) => ({
-      ...message,
-      content: message.content.filter(
-        (block) => !(block.type === "text" && isPointerText(block.text)),
-      ),
-    })),
-  );
+  return JSON.stringify(history);
 }
 
 async function runTurn(
@@ -647,15 +641,9 @@ async function runTurn(
   scriptedTurns.set(`${convId}:${turnIndex}`, query);
   keep = keepList;
 
-  // Runtime assembly Step 0: every prior turn's pointer is stripped from the
-  // live history before this turn's blocks are spliced.
-  for (const message of history) {
-    if (message.role === "user") {
-      message.content = message.content.filter(
-        (block) => !(block.type === "text" && isPointerText(block.text)),
-      );
-    }
-  }
+  // Runtime assembly's Step 0 strips a leftover pointer from the TAIL only
+  // (a mid-turn re-entry); a fresh user message carries none, so it is a
+  // no-op here, and every historical pointer stays where it was sent.
 
   const userRowId = `${convId}-m${turnIndex}-user`;
   const userContent: ContentBlock[] = [
@@ -709,8 +697,8 @@ async function runTurn(
     tail.content = [{ type: "text", text: sections.text }, ...tail.content];
   }
 
-  // The pointer splices after the frozen sections (after-memory-prefix). It
-  // is never persisted.
+  // The pointer splices after the frozen sections (after-memory-prefix).
+  // Historical user messages keep the pointer they already carry.
   const pointer = await memoryV3PointerInjector.produce(ctx);
   if (pointer && pointer.text.length > 0) {
     const tail = history[history.length - 1]!;
@@ -722,17 +710,21 @@ async function runTurn(
     ];
   }
 
+  // The user-prompt-submit hook persists the section block unwrapped and
+  // the pointer wrapped, each under its own metadata key.
+  const metadata: Record<string, string> = {};
   if (sections.text.length > 0) {
+    metadata[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] = unwrapMemoryBlock(
+      sections.text,
+    );
+  }
+  if (pointer?.text) {
+    metadata[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] = pointer.text;
+  }
+  if (Object.keys(metadata).length > 0) {
     testSqlite
       .query(/*sql*/ `UPDATE messages SET metadata = ? WHERE id = ?`)
-      .run(
-        JSON.stringify({
-          [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: unwrapMemoryBlock(
-            sections.text,
-          ),
-        }),
-        userRowId,
-      );
+      .run(JSON.stringify(metadata), userRowId);
   }
 
   const replyContent: ContentBlock[] = [
@@ -766,9 +758,10 @@ async function runTurn(
 }
 
 /** Rebuild a conversation's history from the temp DB — mirrors the
- *  `daemon/conversation.ts` v3 rehydration splice: re-wrap the persisted
- *  metadata block, filter pruned sections, skip an all-pruned block, and
- *  prepend onto the stored content. No pointer is ever rehydrated. */
+ *  `daemon/conversation.ts` v3 rehydration splice: splice the persisted
+ *  pointer back as sent, then re-wrap the persisted section block, filter
+ *  pruned sections, skip an all-pruned block, and prepend onto the stored
+ *  content (prepends invert, so the layout is [sections, pointer, ...]). */
 function rehydrateFromDb(convId: string): Message[] {
   const rows = testSqlite
     .query(
@@ -787,6 +780,10 @@ function rehydrateFromDb(convId: string): Message[] {
     let content = JSON.parse(row.content) as ContentBlock[];
     if (row.role === "user" && row.metadata) {
       const meta = JSON.parse(row.metadata) as Record<string, unknown>;
+      const pointer = meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY];
+      if (typeof pointer === "string") {
+        content = [{ type: "text", text: pointer }, ...content];
+      }
       const block = meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
       if (typeof block === "string") {
         const resident = filterPrunedSections(unwrapMemoryBlock(block), pruned);
@@ -1114,20 +1111,29 @@ describe("memory-v3 carry integration: pointer contract", () => {
     }
   });
 
-  test("the pointer is never persisted and never survives into the next turn's history", () => {
-    const metadataRows = testSqlite
-      .query(
-        /*sql*/ `
-        SELECT metadata FROM messages
-        WHERE conversation_id = ? AND metadata IS NOT NULL
-      `,
-      )
-      .all(CONV) as Array<{ metadata: string }>;
-    expect(metadataRows.length).toBeGreaterThan(0);
-    for (const row of metadataRows) {
-      expect(row.metadata).not.toContain("<memory_pointer>");
+  test("each turn persists its pointer on that user message and keeps historical copies", () => {
+    for (const record of records) {
+      expect(record.blockText).not.toContain("<memory_pointer>");
     }
-    // After the final turn only the tail can carry a pointer (turn 10's).
+    // Turns 5 and 10 pointed at resident sections; their rows carry the
+    // wrapped block under the pointer metadata key.
+    const pointerRows = (
+      testSqlite
+        .query(
+          /*sql*/ `
+          SELECT id FROM messages
+          WHERE conversation_id = ? AND metadata LIKE '%' || ? || '%'
+          ORDER BY created_at ASC
+        `,
+        )
+        .all(CONV, MEMORY_V3_POINTER_BLOCK_METADATA_KEY) as Array<{
+        id: string;
+      }>
+    ).map((row) => row.id);
+    expect(pointerRows).toEqual([`${CONV}-m5-user`, `${CONV}-m10-user`]);
+    // The live history keeps both: turn 5's pointer rode the restart via its
+    // metadata (message index 2 * (turn - 1)), and turn 10's is on the tail
+    // user message. No later turn rewrote turn 5's message.
     const live = histories.get(CONV)!;
     const pointerCarriers = live
       .map((message, index) => ({ message, index }))
@@ -1135,7 +1141,12 @@ describe("memory-v3 carry integration: pointer contract", () => {
         message.content.some((b) => b.type === "text" && isPointerText(b.text)),
       )
       .map(({ index }) => index);
-    expect(pointerCarriers).toEqual([live.length - 2]);
+    expect(pointerCarriers).toEqual([2 * (5 - 1), live.length - 2]);
+    const turn5Pointer = live[2 * (5 - 1)]!.content.find(
+      (b): b is { type: "text"; text: string } =>
+        b.type === "text" && isPointerText(b.text),
+    );
+    expect(turn5Pointer?.text).toBe(records[4]!.pointerText);
   });
 });
 

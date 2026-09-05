@@ -143,12 +143,14 @@ section (the bare page header for a lead), owned by
 pruned section by exactly that header span, in live history and at
 rehydration, and evicts by last selection recency with no lane exemptions.
 Re-selected sections that are already resident are listed, paths only, in the
-`memory-v3-pointer` injector's ephemeral `<memory_pointer>` block, which is
-never persisted, is stripped from every user message at the start of each
-turn, and marks the turn-start message volatile for the provider cache anchor
-(`turnStartUserMessageHasPointer`). `memory_v3_ever_injected` is the
-superseded card-grain record: migration 378 copied its rows in as lead
-entries, and nothing reads or writes it.
+`memory-v3-pointer` injector's per-turn `<memory_pointer>` block. Each turn's
+pointer stays on the user message that was sent with it (persisted under
+`memoryV3PointerBlock` and rehydrated on load, like the frozen sections); a
+fresh one is spliced only onto the new tail, and assembly tail-strips a
+leftover copy on mid-turn re-entry so nothing double-stacks and no historical
+message is ever rewritten. `memory_v3_ever_injected` is the superseded
+card-grain record: migration 378 copied its rows in as lead entries, and
+nothing reads or writes it.
 
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
@@ -355,16 +357,16 @@ failure record and the section re-embed high-water:
 
 ### Wire-visible strings
 
-| Name                                                                                    | Kind                                  | Why frozen                                                          |
-| --------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
-| `memory_v2_consolidation`                                                               | `conversations.source` value          | persisted on every consolidation run                                |
-| `memory_retrospective`                                                                  | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
-| `skill-authored-card`                                                                   | message kind                          | persisted on skill-card messages                                    |
-| `memoryV2Consolidation`, `memoryRetrospective`                                          | LLM call-site ids                     | logging/attribution buckets                                         |
-| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
-| `memory-v2-static`                                                                      | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
-| `MEMORY_V2_DISABLED`                                                                    | error code                            | clients branch on it                                                |
-| `memory.v2.sweep`                                                                       | notification job identifier           | surfaced in `activity.failed`                                       |
+| Name                                                                                                            | Kind                                  | Why frozen                                                          |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
+| `memory_v2_consolidation`                                                                                       | `conversations.source` value          | persisted on every consolidation run                                |
+| `memory_retrospective`                                                                                          | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
+| `skill-authored-card`                                                                                           | message kind                          | persisted on skill-card messages                                    |
+| `memoryV2Consolidation`, `memoryRetrospective`                                                                  | LLM call-site ids                     | logging/attribution buckets                                         |
+| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3PointerBlock`, `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
+| `memory-v2-static`                                                                                              | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
+| `MEMORY_V2_DISABLED`                                                                                            | error code                            | clients branch on it                                                |
+| `memory.v2.sweep`                                                                                               | notification job identifier           | surfaced in `activity.failed`                                       |
 
 ### HTTP surface
 

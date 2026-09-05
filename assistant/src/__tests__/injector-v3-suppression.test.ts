@@ -10,11 +10,11 @@
  * pre-cutover v2 blocks both ride the cached prefix); the old whole-layer
  * strip is gone.
  *
- * `<memory_pointer>` blocks are stripped from EVERY user message (the
- * previous turn's pointer is stale; mid-turn re-entry / post-compact must not
- * double-stack the tail's). The pointer injector's `after-memory-prefix`
- * block is spliced onto the current tail and is never captured on `blocks`
- * (it is not persisted).
+ * Leftover `<memory_pointer>` blocks are stripped from the TAIL user message
+ * only (mid-turn re-entry / post-compact must not double-stack). Historical
+ * user messages keep the pointer they were sent with. The pointer injector's
+ * `after-memory-prefix` block is spliced onto the current tail and captured
+ * on `blocks` for metadata persistence.
  *
  * v2 suppression stays keyed off whether v3 produced a block, NOT off the
  * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
@@ -243,13 +243,13 @@ describe("memory-v3-live v2 suppression", () => {
     expect(result.blocks.memoryV3Active).toBe(true);
   });
 
-  test("the previous turn's pointer is stripped from history; the fresh pointer splices onto the tail", async () => {
+  test("historical pointer stays; the fresh pointer splices onto the tail and is captured", async () => {
     memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
 
-    const stalePointer = {
+    const historicalPointer = {
       type: "text" as const,
-      text: wrapMemoryPointerBlock("stale refs"),
+      text: wrapMemoryPointerBlock("earlier refs"),
     };
     const frozenSections = {
       type: "text" as const,
@@ -260,8 +260,8 @@ describe("memory-v3-live v2 suppression", () => {
         role: "user",
         content: [
           frozenSections,
+          historicalPointer,
           { type: "text", text: "earlier question" },
-          stalePointer,
         ],
       },
       {
@@ -275,21 +275,17 @@ describe("memory-v3-live v2 suppression", () => {
       ...makeTurnContext(),
     });
 
-    // The historical turn loses only its stale pointer; its frozen sections
-    // stay byte-identical.
-    expect(result.messages[0].content).toEqual([
-      frozenSections,
-      { type: "text", text: "earlier question" },
-    ]);
-    // The fresh pointer splices onto the tail (no memory prefix, so index 0).
-    // It is never captured for metadata persistence.
+    // The historical turn keeps the pointer it was sent with, byte-identical
+    // (the same object, in fact: nothing above the tail is rewritten).
+    expect(result.messages[0]).toBe(runMessages[0]);
+    // The fresh pointer splices onto the tail (no memory prefix, so index 0)
+    // and is captured for metadata persistence.
     const texts = tailTexts(result.messages);
     expect(texts).toEqual([
       wrapMemoryPointerBlock("fresh refs"),
       "current question",
     ]);
-    expect(result.blocks).not.toHaveProperty("memoryV3PointerBlock");
-    expect(result.blocks.injectorChainBlock).toContain(
+    expect(result.blocks.memoryV3PointerBlock).toBe(
       wrapMemoryPointerBlock("fresh refs"),
     );
   });
@@ -317,6 +313,21 @@ describe("memory-v3-live v2 suppression", () => {
       wrapMemoryPointerBlock("fresh refs"),
       "current question",
     ]);
+    expect(result.blocks.memoryV3PointerBlock).toBe(
+      wrapMemoryPointerBlock("fresh refs"),
+    );
+  });
+
+  test("a turn with no pointer captures none (nothing to persist)", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector("net-new sections"));
+
+    const result = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "current question" }] }],
+      { ...makeTurnContext() },
+    );
+
+    expect(result.blocks.memoryV3PointerBlock).toBeUndefined();
   });
 
   test("the pointer lands after this turn's frozen <memory> block on the tail", async () => {

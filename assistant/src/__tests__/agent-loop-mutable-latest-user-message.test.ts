@@ -1,10 +1,9 @@
 /**
- * Verifies the agent loop's cache-anchor signal for the memory-v3 pointer: a
- * `<memory_pointer>` block on the turn-starting user message flags that
- * message as volatile (`mutableLatestUserMessage`) for every request in the
- * turn, the loop sends the block as-is (assembly, not the loop, strips it on
- * the next turn), and a history with no pointer sets no flag at all so the
- * wire config stays byte-identical.
+ * Verifies that a persisted memory-v3 pointer already in history is sent
+ * as-is and does not flag the turn-start message as volatile.
+ *
+ * The pointer stays on the user message that was sent. The loop must not
+ * attach, strip, or mark that message mutable.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -91,8 +90,8 @@ const echoTool: ToolDefinition = {
   },
 };
 
-describe("AgentLoop.run: memory-v3 pointer on the turn-start message", () => {
-  test("sends the pointer as-is and flags the turn start as volatile", async () => {
+describe("AgentLoop.run: persisted pointer in history", () => {
+  test("sends a pointer already in history and does not flag the turn-start as volatile", async () => {
     const { provider, configs, sent } = makeRecordingProvider([
       textResponse("done"),
     ]);
@@ -114,7 +113,7 @@ describe("AgentLoop.run: memory-v3 pointer on the turn-start message", () => {
     expect(sent()).toHaveLength(1);
     expect(sent()[0]![0]!.content).toEqual(userMessageWithPointer.content);
     expect(result.history[0]!.content).toEqual(userMessageWithPointer.content);
-    expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
+    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
   test("does not set mutableLatestUserMessage when history has no pointer", async () => {
@@ -140,7 +139,7 @@ describe("AgentLoop.run: memory-v3 pointer on the turn-start message", () => {
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("holds the flag steady through a tool loop and keeps the pointer on the opening message", async () => {
+  test("keeps a persisted pointer on the opening user message through a tool loop", async () => {
     const { provider, sent, configs } = makeRecordingProvider([
       toolUseResponse("t1", "echo", { value: "first" }),
       textResponse("done"),
@@ -166,9 +165,7 @@ describe("AgentLoop.run: memory-v3 pointer on the turn-start message", () => {
     expect(sent()[0]![0]!.content).toEqual(userMessageWithPointer.content);
     expect(sent()[1]![0]!.content).toEqual(userMessageWithPointer.content);
     expect(result.history[0]!.content).toEqual(userMessageWithPointer.content);
-    // The trailing tool-result message is user-role but carries no text, so
-    // the signal still reads the opening message on the second request.
-    expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
-    expect(configs()[1]?.mutableLatestUserMessage).toBe(true);
+    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
+    expect("mutableLatestUserMessage" in (configs()[1] ?? {})).toBe(false);
   });
 });

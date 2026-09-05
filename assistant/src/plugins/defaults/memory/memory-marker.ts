@@ -31,11 +31,12 @@ export function unwrapMemoryBlock(block: string): string {
 
 /**
  * The memory-v3 per-turn pointer wrapper: the `<memory_pointer>` block lists
- * the turn's re-selected sections that are already resident in history. It is
- * ephemeral by contract: never persisted, stripped from every user message at
- * the start of each turn (`stripPointerInjections`) and by compaction via
- * `RUNTIME_INJECTION_PREFIXES`, then re-spliced fresh onto the tail. The
- * producer wrapper lives here beside the `<memory>` marker it parallels.
+ * the turn's re-selected sections that are already resident in history. Each
+ * turn's block stays on the user message that was sent with it (persisted
+ * under `memoryV3PointerBlock` and rehydrated on load), matching frozen
+ * `<memory>` sections; assembly tail-strips a leftover copy on mid-turn
+ * re-entry, and compaction strips every copy via `RUNTIME_INJECTION_PREFIXES`.
+ * The producer wrapper lives here beside the `<memory>` marker it parallels.
  */
 export const MEMORY_POINTER_PREFIX = "<memory_pointer>\n";
 export const MEMORY_POINTER_SUFFIX = "\n</memory_pointer>";

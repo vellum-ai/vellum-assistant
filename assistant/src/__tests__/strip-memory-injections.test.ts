@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  stripPointerInjections,
-  turnStartUserMessageHasPointer,
+  MEMORY_POINTER_MATCHER,
+  stripInjectionsForCompaction,
+  stripTailUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { stripExistingMemoryInjections } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
@@ -223,9 +224,10 @@ describe("stripExistingMemoryInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripPointerInjections: memory-v3 pointer blocks are removed from every user
-// message (the per-turn strip-and-replace, and compaction cleanup). Frozen
-// `<memory>` section blocks must never be touched (the cache contract).
+// The memory-v3 pointer strip is TAIL-ONLY at assembly (a re-entry must not
+// double-stack the current turn's pointer) and history-wide only under
+// compaction. Historical user messages keep the pointer they were sent with,
+// and frozen `<memory>` section blocks are never touched (the cache contract).
 // ---------------------------------------------------------------------------
 
 const pointerBlock = (inner: string): ContentBlock => ({
@@ -233,102 +235,53 @@ const pointerBlock = (inner: string): ContentBlock => ({
   text: wrapMemoryPointerBlock(inner),
 });
 
-describe("stripPointerInjections", () => {
-  test("strips pointer blocks from every user message, leaving <memory> blocks intact", () => {
+describe("tail pointer strip (MEMORY_POINTER_MATCHER)", () => {
+  test("strips the tail's pointer only; earlier turns keep theirs and <memory> blocks stay", () => {
     const messages = [
       userMsg(memoryTextBlock, textBlock("first"), pointerBlock("p1")),
       assistantMsg("ok"),
       userMsg(memoryTextBlock, textBlock("second"), pointerBlock("p2")),
     ];
-    const result = stripPointerInjections(messages);
-    expect(result[0].content).toEqual([memoryTextBlock, textBlock("first")]);
-    expect(result[1]).toBe(messages[1]); // assistant message untouched
+    const result = stripTailUserTextBlocksByPrefix(messages, [
+      MEMORY_POINTER_MATCHER,
+    ]);
+    // Historical turn untouched, identity preserved.
+    expect(result[0]).toBe(messages[0]);
+    expect(result[1]).toBe(messages[1]);
     expect(result[2].content).toEqual([memoryTextBlock, textBlock("second")]);
   });
 
-  test("requires the full wrapper: user text merely starting with the tag survives", () => {
+  test("requires the full wrapper: tail text merely starting with the tag survives", () => {
     const lookalike = textBlock("<memory_pointer>\nnot really a block");
     const messages = [userMsg(lookalike, textBlock("hello"))];
-    const result = stripPointerInjections(messages);
+    const result = stripTailUserTextBlocksByPrefix(messages, [
+      MEMORY_POINTER_MATCHER,
+    ]);
     expect(result[0].content).toEqual([lookalike, textBlock("hello")]);
   });
 
-  test("content no-op when no pointer blocks exist", () => {
-    const messages = [
-      userMsg(memoryTextBlock, textBlock("hello")),
+  test("no-op when the tail carries no pointer or is not a user message", () => {
+    const withoutPointer = [
+      userMsg(memoryTextBlock, textBlock("hello"), pointerBlock("stale")),
       assistantMsg("hi"),
-      userMsg(imageBlock),
     ];
-    const result = stripPointerInjections(messages);
-    expect(result).toEqual(messages);
-    // Untouched messages keep their identity (cheap no-op detection upstream).
-    expect(result[0]).toBe(messages[0]);
-  });
-
-  test("no-op for empty messages array", () => {
-    expect(stripPointerInjections([])).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// turnStartUserMessageHasPointer: the cache-anchor volatility signal, read off
-// the most recent TEXT-bearing user message so it holds across a tool loop.
-// ---------------------------------------------------------------------------
-
-describe("turnStartUserMessageHasPointer", () => {
-  const toolResultMsg: Message = {
-    role: "user",
-    content: [
-      {
-        type: "tool_result",
-        tool_use_id: "t1",
-        content: "ok",
-      },
-    ],
-  };
-
-  test("true when the turn-starting user message carries a pointer block", () => {
     expect(
-      turnStartUserMessageHasPointer([
-        userMsg(textBlock("hi"), pointerBlock("p1")),
-      ]),
-    ).toBe(true);
+      stripTailUserTextBlocksByPrefix(withoutPointer, [MEMORY_POINTER_MATCHER]),
+    ).toBe(withoutPointer);
+    const plain = [userMsg(memoryTextBlock, textBlock("hello"))];
+    expect(
+      stripTailUserTextBlocksByPrefix(plain, [MEMORY_POINTER_MATCHER]),
+    ).toBe(plain);
   });
 
-  test("false when the turn start carries only frozen <memory> blocks and text", () => {
-    expect(
-      turnStartUserMessageHasPointer([
-        userMsg(memoryTextBlock, textBlock("hi")),
-      ]),
-    ).toBe(false);
-    expect(turnStartUserMessageHasPointer([])).toBe(false);
-  });
-
-  test("skips trailing tool-result messages so the signal holds through a tool loop", () => {
-    expect(
-      turnStartUserMessageHasPointer([
-        userMsg(textBlock("hi"), pointerBlock("p1")),
-        assistantMsg("calling a tool"),
-        toolResultMsg,
-      ]),
-    ).toBe(true);
-  });
-
-  test("reads the CURRENT turn start, not an earlier user message", () => {
-    expect(
-      turnStartUserMessageHasPointer([
-        userMsg(textBlock("first"), pointerBlock("stale")),
-        assistantMsg("ok"),
-        userMsg(textBlock("second")),
-      ]),
-    ).toBe(false);
-  });
-
-  test("requires the full wrapper, matching the strip", () => {
-    expect(
-      turnStartUserMessageHasPointer([
-        userMsg(textBlock("<memory_pointer>\nnot really a block")),
-      ]),
-    ).toBe(false);
+  test("compaction strips every turn's pointer along with the other runtime injections", () => {
+    const messages = [
+      userMsg(textBlock("first"), pointerBlock("p1")),
+      assistantMsg("ok"),
+      userMsg(textBlock("second"), pointerBlock("p2")),
+    ];
+    const result = stripInjectionsForCompaction(messages);
+    expect(result[0].content).toEqual([textBlock("first")]);
+    expect(result[2].content).toEqual([textBlock("second")]);
   });
 });
