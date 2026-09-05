@@ -76,17 +76,17 @@ const realEverInjectedStore = {
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSections = new Map<string, Set<string>>();
-let mockKnownSlugs = new Set<string>();
+let mockKnownCardBytes = new Map<string, number>();
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
   getPrunedSections: (conversationId: string) =>
     lifecycleStoreMockActive
       ? mockPrunedSections
       : realEverInjectedStore.getPrunedSections(conversationId),
-  getKnownSlugs: (conversationId: string) =>
+  getKnownCardBytes: (conversationId: string) =>
     lifecycleStoreMockActive
-      ? mockKnownSlugs
-      : realEverInjectedStore.getKnownSlugs(conversationId),
+      ? mockKnownCardBytes
+      : realEverInjectedStore.getKnownCardBytes(conversationId),
 }));
 
 import {
@@ -97,7 +97,7 @@ import {
 beforeEach(() => {
   lifecycleStoreMockActive = true;
   mockPrunedSections = new Map();
-  mockKnownSlugs = new Set();
+  mockKnownCardBytes = new Map();
 });
 
 afterAll(() => {
@@ -649,13 +649,16 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("rehydration parses legacy cards with the conversation's recorded slugs (a headless card after a sectionless one prunes alone)", async () => {
+  test("rehydration parses legacy cards with the conversation's recorded card bytes (a headless card after a sectionless one prunes alone)", async () => {
     mockConversation = defaultConv();
     mockPrunedSections = new Map([["headless", new Set([""])]]);
-    mockKnownSlugs = new Set(["stub", "headless"]);
     const stub = "# memory/concepts/stub.md\n# Stub\njust a lead, no sections";
     const headless =
       "# memory/concepts/headless.md\nprose only, no title line\n\n[sections: §One]";
+    mockKnownCardBytes = new Map([
+      ["stub", Buffer.byteLength(stub, "utf8")],
+      ["headless", Buffer.byteLength(headless, "utf8")],
+    ]);
     mockDbMessages = [
       {
         id: "m1",

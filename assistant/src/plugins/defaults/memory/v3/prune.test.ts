@@ -123,7 +123,7 @@ const {
 const {
   getActiveSections,
   getInjected,
-  getKnownSlugs,
+  getKnownCardBytes,
   getPrunedSections,
   recordInjected,
   seedEverInjectedFromBlocks,
@@ -412,7 +412,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
   });
 
-  test("with the conversation's recorded slugs, a headless legacy card after a sectionless one prunes on its own", () => {
+  test("with the conversation's recorded card bytes, a headless legacy card after a sectionless one prunes on its own", () => {
     const stub = [
       injectedSectionHeader("stub", ""),
       "# Stub",
@@ -425,13 +425,20 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       "[sections: §One]",
     ].join("\n");
     const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
-    const knownSlugs = new Set(["stub", "headless"]);
+    const knownCardBytes = new Map([
+      ["stub", renderedBytes(stub)],
+      ["headless", renderedBytes(headless)],
+    ]);
 
     expect(
-      filterPrunedSections(legacyInner, refSet(["headless", ""]), knownSlugs),
+      filterPrunedSections(
+        legacyInner,
+        refSet(["headless", ""]),
+        knownCardBytes,
+      ),
     ).toBe([V3_INJECTION_HEADER, stub].join("\n\n"));
     expect(
-      filterPrunedSections(legacyInner, refSet(["stub", ""]), knownSlugs),
+      filterPrunedSections(legacyInner, refSet(["stub", ""]), knownCardBytes),
     ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
   });
 
@@ -1081,7 +1088,7 @@ describe("runPruneValve", () => {
     expect(await runPruneValve("conv-1")).toBeNull();
   });
 
-  test("the valve parses legacy cards with the conversation's recorded slugs: strip and rehydration split a headless card from a sectionless one", async () => {
+  test("the valve parses legacy cards with the conversation's recorded card bytes: strip and rehydration split a headless card from a sectionless one", async () => {
     const stub = [
       injectedSectionHeader("stub", ""),
       "# Stub",
@@ -1095,12 +1102,17 @@ describe("runPruneValve", () => {
     ].join("\n");
     const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
     insertUserRowWithV3Block("conv-1", "m1", legacyInner);
-    // Both cards are recorded (the migration copies legacy card rows in as
-    // lead entries); the stub is the older injection.
-    recordInjected("conv-1", [{ slug: "stub", key: "", bytes: 200 }], 1_000);
+    // Both cards are recorded with the length the old injector measured (the
+    // migration copies legacy card rows in as lead entries); the stub is the
+    // older injection.
     recordInjected(
       "conv-1",
-      [{ slug: "headless", key: "", bytes: 200 }],
+      [{ slug: "stub", key: "", bytes: renderedBytes(stub) }],
+      1_000,
+    );
+    recordInjected(
+      "conv-1",
+      [{ slug: "headless", key: "", bytes: renderedBytes(headless) }],
       2_000,
     );
 
@@ -1113,7 +1125,10 @@ describe("runPruneValve", () => {
         ],
       },
     ];
-    pruneConfig = { maxResidentBytes: 300, targetResidentBytes: 200 };
+    pruneConfig = {
+      maxResidentBytes: renderedBytes(stub) + renderedBytes(headless) - 1,
+      targetResidentBytes: renderedBytes(headless),
+    };
     const plan = await runPruneValve("conv-1", {
       liveMessages: () => liveMessages,
       now: 9_000,
@@ -1121,7 +1136,7 @@ describe("runPruneValve", () => {
 
     expect(plan).toEqual({
       sections: [{ slug: "stub", key: "" }],
-      bytesFreed: 200,
+      bytesFreed: renderedBytes(stub),
     });
     // Only the stub card leaves; the headless card is its own card because
     // its slug is recorded, so it stays byte-identical.
@@ -1136,7 +1151,7 @@ describe("runPruneValve", () => {
       filterPrunedSections(
         legacyInner,
         getPrunedSections("conv-1"),
-        getKnownSlugs("conv-1"),
+        getKnownCardBytes("conv-1"),
       ),
     ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
   });

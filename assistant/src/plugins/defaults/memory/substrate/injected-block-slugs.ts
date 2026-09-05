@@ -22,10 +22,10 @@
  * Blocks frozen by builds before body escaping (compact cards: concept
  * header, the page head, a blank line, then a `[sections: …]` or
  * `[linked: …]` TOC line) carry no escaping, so the parser recognises that
- * card shape and, given the slugs the conversation has recorded, never
- * splits such a card at a header-shaped line inside its lead; see
- * {@link parseInjectedSections}. Current blocks escape TOC-shaped lines as
- * well, so the card rule can never fire on them.
+ * card shape and, given the byte lengths the conversation recorded for its
+ * frozen cards, never splits such a card at a header-shaped line inside its
+ * lead; see {@link parseInjectedSections}. Current blocks escape TOC-shaped
+ * lines as well, so the card rule can never fire on them.
  *
  * Skill and CLI-command chunks carry no recoverable slug, so the slug
  * extractor intentionally skips them.
@@ -134,6 +134,12 @@ const LEGACY_CARD_TOC_LINE_REGEX = new RegExp(
 const GRAMMAR_LINE_REGEX = new RegExp(
   `^(?:# ${SECTION_PATH_SOURCE}$|${NON_SECTION_CHUNK_HEADER_SOURCE}|${LEGACY_CARD_TOC_LINE_SOURCE}$)`,
 );
+
+/** UTF-8 byte length of rendered injection text, card or section: the
+ *  measure the injectors record per entry and the prune valve budgets in. */
+export function renderedBytes(text: string): number {
+  return Buffer.byteLength(text, "utf8");
+}
 
 /** Recover the (deduplicated, in-order) concept slugs a persisted injection
  *  block contains. */
@@ -307,6 +313,29 @@ function opensLegacyCard(line: string | null): boolean {
   );
 }
 
+/** Whether the span from candidate `i`'s header to some later candidate
+ *  header (or the end of the block), block joiner excluded, is exactly
+ *  `recorded` bytes long: the frozen card's own length, so the header is a
+ *  real card boundary. Zero (unrecorded) never matches. */
+function spanHasRecordedBytes(
+  inner: string,
+  candidates: Boundary[],
+  i: number,
+  recorded: number,
+): boolean {
+  if (recorded <= 0) {
+    return false;
+  }
+  const start = candidates[i]!.index;
+  const ends = [
+    ...candidates.slice(i + 1).map((candidate) => candidate.index),
+    inner.length,
+  ];
+  return ends.some(
+    (end) => renderedBytes(inner.slice(start, end).trimEnd()) === recorded,
+  );
+}
+
 function classifyNonSectionHeader(line: string): BoundaryRef {
   if (line.startsWith(SKILL_HEADER_PREFIX)) {
     return {
@@ -326,13 +355,17 @@ function classifyNonSectionHeader(line: string): BoundaryRef {
 }
 
 export interface ParseInjectedSectionsOptions {
-  /** The slugs the conversation has recorded in its section store, resident
-   *  or pruned. Every real card header names one of them, while a
-   *  user-authored header-shaped line inside a card's lead names an
-   *  arbitrary path, so inside a card frozen before body escaping a concept
-   *  header naming a known slug is always a card boundary. Omitted (no
-   *  conversation at hand): the card shape alone decides. */
-  knownSlugs?: ReadonlySet<string>;
+  /** Recorded byte length of each page's frozen lead entry for the
+   *  conversation, resident or pruned (`getKnownCardBytes`). For a card
+   *  frozen before body escaping it is the exact UTF-8 length that build's
+   *  injector measured for the whole card, which migration 378 carried over.
+   *  Inside such a card, a concept header on a seam that the card shape reads
+   *  as text is a boundary after all when the span from it to a later
+   *  candidate header (block joiner excluded) has exactly its slug's recorded
+   *  bytes; an unrecorded or zero entry leaves the shape's verdict, never a
+   *  bare slug-membership one. Omitted (no conversation at hand): the card
+   *  shape alone decides. */
+  knownCardBytes?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -357,13 +390,16 @@ export interface ParseInjectedSectionsOptions {
  * Blocks frozen by builds before body escaping hold compact cards (concept
  * header, the page head, a blank line, a `[sections: …]` / `[linked: …]` TOC
  * line) whose leads may contain a header-shaped line. Inside such a card, a
- * concept header on a seam is demoted to card text when it names no slug in
- * `options.knownSlugs` and the card shape says it does not open a card: its
- * next line is neither the page's `# Title` nor a `[current: …]` annotation,
- * the previous content line is not a TOC line (the preceding card is still
- * open), and a TOC line follows before the next candidate header (the open
- * card has yet to close). Current blocks escape TOC-shaped lines, so the
- * demotion can never apply to them.
+ * bare concept header (a lead's; heading-section headers never occur in
+ * those blocks) on a seam is read as card text when the card shape says it
+ * does not open a card: its next line is neither the page's `# Title` nor a
+ * `[current: …]` annotation, the previous content line is not a TOC line
+ * (the preceding card is still open), and a TOC line follows before the next
+ * candidate header (the open card has yet to close). That verdict is
+ * overturned only by exact evidence: when `options.knownCardBytes` records
+ * the slug's frozen card length and the span from the header to some later
+ * candidate matches it byte for byte, the header is a boundary. Current
+ * blocks escape TOC-shaped lines, so neither rule can apply to them.
  */
 export function parseInjectedSections(
   inner: string,
@@ -397,11 +433,12 @@ export function parseInjectedSections(
   const boundaries: Boundary[] = [];
   for (const [i, candidate] of candidates.entries()) {
     const open = boundaries[boundaries.length - 1];
-    const legacyCardText =
-      candidate.ref.kind === "section" &&
+    const ref = candidate.ref;
+    const shapeReadsAsCardText =
+      ref.kind === "section" &&
+      ref.key.length === 0 &&
       open !== undefined &&
       open.ref.kind === "section" &&
-      !(options.knownSlugs?.has(candidate.ref.slug) ?? false) &&
       !opensLegacyCard(lineAfter(inner, candidate.index)) &&
       !LEGACY_CARD_TOC_LINE_REGEX.test(
         nonBlankLineBefore(inner, candidate.index) ?? "",
@@ -410,6 +447,15 @@ export function parseInjectedSections(
         inner,
         lineEndAt(inner, candidate.index) + 1,
         candidates[i + 1]?.index ?? inner.length,
+      );
+    const legacyCardText =
+      shapeReadsAsCardText &&
+      ref.kind === "section" &&
+      !spanHasRecordedBytes(
+        inner,
+        candidates,
+        i,
+        options.knownCardBytes?.get(ref.slug) ?? 0,
       );
     if (!legacyCardText) {
       boundaries.push(candidate);

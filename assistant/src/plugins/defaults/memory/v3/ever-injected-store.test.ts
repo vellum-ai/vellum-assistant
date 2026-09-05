@@ -68,7 +68,7 @@ const {
   getActiveEntries,
   getActiveSections,
   getInjected,
-  getKnownSlugs,
+  getKnownCardBytes,
   getPrunedSections,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -237,23 +237,29 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
     ).toHaveLength(1_100);
   });
 
-  test("getKnownSlugs lists every recorded slug, resident or pruned, per conversation", () => {
+  test("getKnownCardBytes maps each recorded lead entry, resident or pruned, to its bytes per conversation", () => {
     recordInjected(
       "conv-1",
       [
         { slug: "topics/page-a", key: "", bytes: 100 },
-        { slug: "topics/page-a", key: "Notes", bytes: 100 },
-        { slug: "topics/page-b", key: "", bytes: 100 },
+        { slug: "topics/page-a", key: "Notes", bytes: 70 },
+        { slug: "topics/page-b", key: "", bytes: 250 },
+        { slug: "topics/page-c", key: "Only", bytes: 30 },
       ],
       1_000,
     );
     recordInjected("conv-2", [{ slug: "elsewhere", key: "", bytes: 1 }], 1_000);
     markPruned("conv-1", [{ slug: "topics/page-b", key: "" }], 2_000);
 
-    expect(getKnownSlugs("conv-1")).toEqual(
-      new Set(["topics/page-a", "topics/page-b"]),
+    // Section rows never count as card bytes; a page with no lead row is
+    // absent.
+    expect(getKnownCardBytes("conv-1")).toEqual(
+      new Map([
+        ["topics/page-a", 100],
+        ["topics/page-b", 250],
+      ]),
     );
-    expect(getKnownSlugs("conv-unknown")).toEqual(new Set());
+    expect(getKnownCardBytes("conv-unknown")).toEqual(new Map());
   });
 
   test("empty ref list is a no-op and residentBytes is 0 for unknown conversations", () => {
@@ -460,7 +466,7 @@ describe("seedEverInjectedFromBlocks", () => {
     ]);
   });
 
-  test("legacy cards are seeded with the parent's recorded slugs: a headless card after a sectionless one seeds its own entry", () => {
+  test("legacy cards are seeded with the parent's recorded card bytes: a headless card after a sectionless one seeds its own entry", () => {
     const stub = [
       injectedSectionHeader("topics/stub", ""),
       "# Stub",
@@ -473,11 +479,12 @@ describe("seedEverInjectedFromBlocks", () => {
       "[sections: §One]",
     ].join("\n");
     const block = `preamble\n\n${stub}\n\n${headless}`;
+    // The parent's rows carry the lengths the old injector measured.
     recordInjected(
       "conv-parent",
       [
-        { slug: "topics/stub", key: "", bytes: 1 },
-        { slug: "topics/headless", key: "", bytes: 1 },
+        { slug: "topics/stub", key: "", bytes: renderedBytes(stub) },
+        { slug: "topics/headless", key: "", bytes: renderedBytes(headless) },
       ],
       1_000,
     );

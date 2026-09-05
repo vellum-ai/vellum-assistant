@@ -73,6 +73,7 @@ import {
   wrapMemoryBlock,
 } from "../../memory-marker.js";
 import type { PageIndexEntry } from "../../substrate/page-index.js";
+import { parsePageContent } from "../../substrate/page-store.js";
 import { renderCard, renderedBytes } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
@@ -219,13 +220,16 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
   },
 }));
 
-// Leads resolve from the in-memory fixture corpus through the same section
-// index the lanes use (the disk read is the only stubbed step), so injected
-// bytes are exactly what `renderV3SectionInjection` produces for these pages.
+// Pages resolve from the in-memory fixture corpus (the disk read is the only
+// stubbed step), so leads split by the same rules as the lanes' section index
+// and injected bytes are exactly what `renderV3SectionInjection` produces
+// for these pages.
 mock.module("../page-content.js", () => ({
   ...realPageContent,
-  leadSectionOf: async (slug: Slug) =>
-    carryMockActive ? leadOf(slug) : realPageContent.leadSectionOf(slug),
+  readConceptPage: async (slug: Slug) =>
+    carryMockActive
+      ? parsePageContent(slug, RAW[slug] ?? "")
+      : realPageContent.readConceptPage(slug),
 }));
 
 // The prune valve resolves the live conversation through the daemon registry.
@@ -410,10 +414,6 @@ function sectionOf(slug: Slug, title: string): Section {
     throw new Error(`no section "${title}" on ${slug}`);
   }
   return section;
-}
-
-function leadOf(slug: Slug): Section {
-  return sectionOf(slug, "");
 }
 
 /** A section's injected render exactly as the injector attaches it. */

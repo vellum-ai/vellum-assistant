@@ -9,6 +9,7 @@ import {
   parseInjectedSectionPath,
   parseInjectedSections,
   readInjectedBlock,
+  renderedBytes,
   unescapeInjectedBody,
 } from "../injected-block-slugs.js";
 
@@ -308,43 +309,66 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     ]);
   });
 
-  test("a headless card after a sectionless card is a card when its slug is one the conversation recorded", () => {
+  test("a headless card after a sectionless card is a card when its span is exactly the frozen length the conversation recorded", () => {
     const inner = [preamble, stub, headless].join("\n\n");
-    // Every real card header names a recorded slug, so the recorded set
-    // decides what the shape alone cannot.
+    // The old injector recorded each card's UTF-8 length (header through TOC
+    // line, joiner excluded); a span that matches it byte for byte is that
+    // card, which the shape alone cannot tell.
     const known = parseInjectedSections(inner, {
-      knownSlugs: new Set(["topics/stub", "topics/headless"]),
+      knownCardBytes: new Map([
+        ["topics/stub", renderedBytes(stub)],
+        ["topics/headless", renderedBytes(headless)],
+      ]),
     });
     expect(known.sections.map((section) => section.text)).toEqual([
       stub,
       headless,
     ]);
-    // Without a recorded set the shape rule reads the second header as the
-    // open card's text (the two shapes are identical on the page).
-    const unknown = parseInjectedSections(inner);
-    expect(unknown.sections.map((section) => section.text)).toEqual([
-      `${stub}\n\n${headless}`,
-    ]);
+    // Unrecorded, zero, or mismatched bytes leave the shape's verdict: the
+    // second header reads as the open card's text (the two shapes are
+    // identical on the page).
+    const merged = [`${stub}\n\n${headless}`];
+    expect(
+      parseInjectedSections(inner).sections.map((section) => section.text),
+    ).toEqual(merged);
+    expect(
+      parseInjectedSections(inner, {
+        knownCardBytes: new Map([["topics/headless", 0]]),
+      }).sections.map((section) => section.text),
+    ).toEqual(merged);
+    expect(
+      parseInjectedSections(inner, {
+        knownCardBytes: new Map([
+          ["topics/headless", renderedBytes(headless) + 1],
+        ]),
+      }).sections.map((section) => section.text),
+    ).toEqual(merged);
   });
 
-  test("a header-shaped line naming an unrecorded path stays card text even with a recorded set", () => {
-    const inner = [preamble, cardA, cardB].join("\n\n");
+  test("a header-shaped line naming a recorded page stays card text when its span is not that page's frozen card", () => {
+    // Page A's lead cites page B's path; page B is a real card in the same
+    // block. The cited line's span (the rest of A's lead plus A's TOC) is not
+    // B's recorded length, so recorded membership alone never splits A.
+    const citingA = [
+      injectedSectionHeader("topics/page-a", ""),
+      "# Page A",
+      "lead prose",
+      "",
+      injectedSectionHeader("topics/page-b", ""),
+      "more lead prose, after a line that cites page B's path",
+      "",
+      "[sections: §Notes · §Design]",
+    ].join("\n");
+    const inner = [preamble, citingA, cardB].join("\n\n");
     const parsed = parseInjectedSections(inner, {
-      knownSlugs: new Set(["topics/page-a", "topics/page-b"]),
+      knownCardBytes: new Map([
+        ["topics/page-a", renderedBytes(citingA)],
+        ["topics/page-b", renderedBytes(cardB)],
+      ]),
     });
     expect(parsed.sections.map((section) => section.text)).toEqual([
-      cardA,
+      citingA,
       cardB,
-    ]);
-    // A recorded slug wins over the shape: the same line splits the card
-    // once the path it names is one the conversation injected.
-    const recorded = parseInjectedSections(inner, {
-      knownSlugs: new Set(["topics/page-a", "example", "topics/page-b"]),
-    });
-    expect(recorded.sections.map(refOf)).toEqual([
-      { slug: "topics/page-a", key: "" },
-      { slug: "example", key: "" },
-      { slug: "topics/page-b", key: "" },
     ]);
   });
 

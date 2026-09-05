@@ -35,8 +35,10 @@ import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
-import { parseInjectedSections } from "../substrate/injected-block-slugs.js";
-import { renderedBytes } from "./card.js";
+import {
+  parseInjectedSections,
+  renderedBytes,
+} from "../substrate/injected-block-slugs.js";
 import type { SectionRef } from "./types.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
@@ -211,24 +213,37 @@ export function getPrunedSections(conversationId: string): SectionRefSet {
 }
 
 /**
- * Every slug with a row for the conversation, resident or pruned: the block
- * parser's `knownSlugs` for the conversation's persisted blocks (a real card
- * header names a recorded slug; a header-shaped line inside a legacy card's
- * lead names an arbitrary path). Empty when the memory connection is
- * unavailable, which leaves the parser to the card shape alone.
+ * The recorded byte length of each page's lead entry (key `""`) for the
+ * conversation, resident or pruned: the block parser's `knownCardBytes` for
+ * the conversation's persisted blocks. For a card frozen before body
+ * escaping it is the exact length that build's injector measured for the
+ * whole card (migration 378 carried the row over), which is what lets the
+ * parser tell a real card header from a header-shaped line inside a lead.
+ * Empty when the memory connection is unavailable, which leaves the parser
+ * to the card shape alone.
  */
-export function getKnownSlugs(conversationId: string): ReadonlySet<string> {
+export function getKnownCardBytes(
+  conversationId: string,
+): ReadonlyMap<string, number> {
   return readOr(
-    "getKnownSlugs",
-    new Set<string>(),
+    "getKnownCardBytes",
+    new Map<string, number>(),
     (mdb) =>
-      new Set(
+      new Map(
         mdb
-          .selectDistinct({ slug: memoryV3InjectedSections.slug })
+          .select({
+            slug: memoryV3InjectedSections.slug,
+            bytes: memoryV3InjectedSections.bytes,
+          })
           .from(memoryV3InjectedSections)
-          .where(eq(memoryV3InjectedSections.conversationId, conversationId))
+          .where(
+            and(
+              eq(memoryV3InjectedSections.conversationId, conversationId),
+              eq(memoryV3InjectedSections.sectionKey, ""),
+            ),
+          )
           .all()
-          .map((row) => row.slug),
+          .map((row) => [row.slug, row.bytes] as const),
       ),
   );
 }
@@ -456,9 +471,10 @@ export function forkEverInjected(
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
- * The inherited blocks are parsed with the parent's recorded slugs as the
- * parser's `knownSlugs`, so a card frozen before body escaping splits only
- * at headers naming pages the parent actually injected.
+ * The inherited blocks are parsed with the parent's recorded lead-entry
+ * bytes as the parser's `knownCardBytes`, so a card frozen before body
+ * escaping splits only at headers whose span is a card the parent actually
+ * froze.
  *
  * No-op when the child inherited no blocks. The rows live on the memory
  * connection, so this writes there rather than on the main fork transaction's
@@ -470,11 +486,11 @@ export function seedEverInjectedFromBlocks(
   blocks: string[],
   at: number,
 ): void {
-  const knownSlugs = getKnownSlugs(parentConversationId);
+  const knownCardBytes = getKnownCardBytes(parentConversationId);
   const inherited = new Map<string, SectionRef & { bytes: number }>();
   for (const block of blocks) {
     for (const piece of parseInjectedSections(unwrapMemoryBlock(block), {
-      knownSlugs,
+      knownCardBytes,
     }).pieces) {
       if (piece.kind === "section") {
         inherited.set(`${piece.slug} ${piece.key}`, {

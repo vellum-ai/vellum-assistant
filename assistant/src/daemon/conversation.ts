@@ -74,7 +74,7 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
-  getKnownSlugs,
+  getKnownCardBytes,
   getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   type SectionRefSet,
@@ -1202,19 +1202,20 @@ export class Conversation {
       }
       return v3PrunedSectionsMemo;
     };
-    // The conversation's recorded slugs, read the same lazy way: the block
-    // parser's `knownSlugs`, so a card frozen before body escaping splits
-    // only at headers naming pages this conversation injected.
-    let v3KnownSlugsMemo: ReadonlySet<string> | null = null;
-    const v3KnownSlugs = (): ReadonlySet<string> => {
-      if (v3KnownSlugsMemo === null) {
+    // The conversation's recorded lead-entry bytes, read the same lazy way:
+    // the block parser's `knownCardBytes`, so a card frozen before body
+    // escaping splits only at headers whose span is a card this
+    // conversation actually froze.
+    let v3KnownCardBytesMemo: ReadonlyMap<string, number> | null = null;
+    const v3KnownCardBytes = (): ReadonlyMap<string, number> => {
+      if (v3KnownCardBytesMemo === null) {
         try {
-          v3KnownSlugsMemo = getKnownSlugs(this.conversationId);
+          v3KnownCardBytesMemo = getKnownCardBytes(this.conversationId);
         } catch {
-          v3KnownSlugsMemo = new Set();
+          v3KnownCardBytesMemo = new Map();
         }
       }
-      return v3KnownSlugsMemo;
+      return v3KnownCardBytesMemo;
     };
     // Provider-id → row-text index for reaction target resolution, built
     // lazily on the first reaction row: most conversations carry none, so
@@ -1454,7 +1455,7 @@ export class Conversation {
             const v3Resident = filterPrunedSections(
               unwrapMemoryBlock(v3Block),
               v3PrunedSections(),
-              v3KnownSlugs(),
+              v3KnownCardBytes(),
             );
             if (v3Resident.length > 0) {
               content = [
