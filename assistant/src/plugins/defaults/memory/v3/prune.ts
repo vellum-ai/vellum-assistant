@@ -46,15 +46,16 @@
  * every section it names, so filtering it never widens that bust.
  *
  * v2-coexistence note: v2's dynamic `<memory>` blocks share the exact wrapper
- * and `# memory/concepts/<slug>.md` header convention, so the live strip
- * cannot tell layers apart syntactically. A block is treated as v3-owned only
- * when EVERY section in it byte-matches a section of some persisted
- * `memoryV3InjectedBlock` for the conversation
- * ({@link collectPersistedV3Sections}), v2 sections render the page SUMMARY
- * (or full page) rather than an injected section, so pre-flip v2 blocks never
- * qualify and are left untouched, keeping their unfiltered rehydration
- * byte-identical. The `<memory_pointer>` wrapper is v3-only, so pointer
- * blocks need no ownership test.
+ * and `# memory/concepts/<slug>.md` header convention, and a pre-cutover v2
+ * block can even be byte-identical to a v3 lead entry (v2's full-page
+ * fallback on a headingless page), so the live strip never decides ownership
+ * by text. It owns a block by object identity (`isV3LiveBlock` in
+ * `types.ts`): the blocks runtime assembly attaches for the `memory-v3`
+ * injector, `loadFromDb` splices from persisted metadata, and the strip
+ * writes back in their place. Every other `<memory>` block is left untouched,
+ * keeping v2 blocks' unfiltered rehydration byte-identical. The
+ * `<memory_pointer>` wrapper is v3-only, so pointer blocks need no ownership
+ * test.
  *
  * Capability note: skill / CLI-command content renders under its own
  * `# Skill:` / `# CLI command:` header, not a section header, so it can
@@ -75,7 +76,6 @@
 
 import type { ContentBlock, Message } from "@vellumai/plugin-api";
 
-import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
@@ -100,7 +100,12 @@ import {
   type SectionRefSet,
   sectionRefSetHas,
 } from "./ever-injected-store.js";
-import { sectionKeyTitle, type SectionRef } from "./types.js";
+import {
+  isV3LiveBlock,
+  markV3LiveBlock,
+  sectionKeyTitle,
+  type SectionRef,
+} from "./types.js";
 
 const log = getLogger("memory-v3-shadow");
 
@@ -136,6 +141,22 @@ export function filterPrunedSections(
 
 function refId(slug: string, key: string): string {
   return `${slug}\n${key}`;
+}
+
+/**
+ * A message row's persisted v3 section block, unwrapped, or `null` when the
+ * row carries none (or its metadata is malformed): the per-row input of
+ * {@link newestCopyIndexes} for the host's rehydration splice, which reaches
+ * the block grammar only through this module.
+ */
+export function persistedV3BlockInner(
+  metadata: string | null | undefined,
+): string | null {
+  const block = readInjectedBlock(
+    metadata,
+    MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  );
+  return block === null ? null : unwrapMemoryBlock(block);
 }
 
 /**
@@ -361,94 +382,30 @@ export function planPrune(
 // ─── live-history strip ──────────────────────────────────────────────────────
 
 /**
- * Collect the conversation's known v3 SECTION TEXTS from every persisted
- * `metadata.memoryV3InjectedBlock` row — the live strip's v3-ownership test:
- * a live `<memory>` block is v3-owned iff all of its sections appear here
- * (see the module doc's v2-coexistence note). Capability chunks never
- * contribute: their content renders under `# Skill:` / `# CLI command:`
- * headers, which parse as non-section chunks. `knownCardBytes` defaults to
- * the conversation's recorded lead-entry bytes; the valve passes the map it
- * already read.
- */
-export function collectPersistedV3Sections(
-  conversationId: string,
-  knownCardBytes: ReadonlyMap<string, number> = getKnownCardBytes(
-    conversationId,
-  ),
-): Set<string> {
-  // Substring prefilter (indexable LIKE) mirrors the Slack metadata scan;
-  // rows are validated by `readInjectedBlock`'s JSON parse.
-  const rows = getSqliteFrom(getDb())
-    .query(
-      /*sql*/ `
-      -- Any-state scan: only metadata markers are read, and the marker is
-      -- written by the injection path on rows it owns regardless of state.
-      SELECT metadata FROM messages
-      WHERE conversation_id = ? AND metadata LIKE '%' || ? || '%'
-    `,
-    )
-    .all(conversationId, MEMORY_V3_INJECTED_BLOCK_METADATA_KEY) as Array<{
-    metadata: string | null;
-  }>;
-
-  const sections = new Set<string>();
-  for (const row of rows) {
-    const block = readInjectedBlock(
-      row.metadata,
-      MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-    );
-    if (block === null) {
-      continue;
-    }
-    for (const section of parseInjectedSections(unwrapMemoryBlock(block), {
-      knownCardBytes,
-    }).sections) {
-      sections.add(section.text);
-    }
-  }
-  return sections;
-}
-
-/**
  * One-time strip of pruned sections from the live in-memory history: for
- * every v3-owned `<memory>` text block (ownership per `knownV3Sections`, see
- * the module doc), drop the pruned sections and any copy superseded by a
- * newer one later in the history, and for every `<memory_pointer>` block
- * drop the lines naming pruned sections; a block left with no sections (or
- * no pointer entries) is removed outright (matching the rehydration splice,
- * which skips such a block).
+ * every `<memory>` text block memory-v3 owns (by object identity, see the
+ * module doc), drop the pruned sections and any copy superseded by a newer
+ * one later in the history, and for every `<memory_pointer>` block drop the
+ * lines naming pruned sections; a block left with no sections (or no pointer
+ * entries) is removed outright (matching the rehydration splice, which skips
+ * such a block). A rewritten block is registered in the owner's place.
  *
  * Mutates the affected `Message` objects IN PLACE (`message.content`
  * reassignment): the agent loop's working arrays share these object
  * references, so its end-of-turn history fold-back keeps the strip. Returns
  * the number of blocks changed. `knownCardBytes` is the conversation's
- * recorded lead-entry bytes, the same map the ownership texts were collected
- * under.
+ * recorded frozen card lengths (`getKnownCardBytes`).
  */
 export function stripPrunedSectionsFromMessages(
   messages: Message[],
   pruned: SectionRefSet,
-  knownV3Sections: ReadonlySet<string>,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): number {
-  // A v3-owned `<memory>` block's inner text, or `null` for any other block:
-  // the ownership test (see the module doc), applied once per text block.
-  const ownedInner = (block: ContentBlock): string | null => {
-    if (block.type !== "text") {
-      return null;
-    }
-    const inner = unwrapMemoryBlock(block.text);
-    if (inner === block.text) {
-      // Not a wrapped `<memory>` block (unwrap is identity on anything
-      // without the full wrapper pair).
-      return null;
-    }
-    const { sections } = parseInjectedSections(inner, { knownCardBytes });
-    return sections.length > 0 &&
-      sections.every((section) => knownV3Sections.has(section.text))
-      ? inner
+  // A v3-owned `<memory>` block's inner text, or `null` for any other block.
+  const ownedInner = (block: ContentBlock): string | null =>
+    block.type === "text" && isV3LiveBlock(block)
+      ? unwrapMemoryBlock(block.text)
       : null;
-  };
   // Owned blocks in history order, so each section's newest live copy is
   // known before any block is filtered.
   const owned: Array<string | null> = [];
@@ -503,7 +460,9 @@ export function stripPrunedSectionsFromMessages(
       strippedBlocks += 1;
       changed = true;
       if (filtered.length > 0) {
-        nextContent.push({ type: "text", text: wrapMemoryBlock(filtered) });
+        nextContent.push(
+          markV3LiveBlock({ type: "text", text: wrapMemoryBlock(filtered) }),
+        );
       }
     }
     if (changed) {
@@ -555,9 +514,8 @@ export async function runPruneValve(
     return null;
   }
 
-  // Planning needs only the store (cheap); the persisted-metadata scan for
-  // the live strip's ownership test runs only once a plan exists — a
-  // conversation within the cap never pays it (the common case).
+  // Planning needs only the store (cheap): a conversation within the cap
+  // never pays for more than that (the common case).
   const plan = planPrune(
     {
       maxResidentBytes: pruneConfig.maxResidentBytes,
@@ -576,12 +534,10 @@ export async function runPruneValve(
     : await defaultLiveMessages(conversationId);
   let strippedBlocks = 0;
   if (liveMessages) {
-    const knownCardBytes = getKnownCardBytes(conversationId);
     strippedBlocks = stripPrunedSectionsFromMessages(
       liveMessages,
       getPrunedSections(conversationId),
-      collectPersistedV3Sections(conversationId, knownCardBytes),
-      knownCardBytes,
+      getKnownCardBytes(conversationId),
     );
   }
 

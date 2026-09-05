@@ -213,14 +213,16 @@ export function getPrunedSections(conversationId: string): SectionRefSet {
 }
 
 /**
- * The recorded byte length of each page's lead entry (key `""`) for the
- * conversation, resident or pruned: the block parser's `knownCardBytes` for
- * the conversation's persisted blocks. For a card frozen before body
- * escaping it is the exact length that build's injector measured for the
- * whole card (migration 378 carried the row over), which is what lets the
- * parser tell a real card header from a header-shaped line inside a lead.
- * Empty when the memory connection is unavailable, which leaves the parser
- * to the card shape alone.
+ * The frozen length (`frozen_card_bytes`) of each lead entry (key `""`) that
+ * carries one for the conversation, resident or pruned: the block parser's
+ * `knownCardBytes` for the conversation's persisted blocks. For a card frozen
+ * before body escaping it is the exact length that build's injector measured
+ * for the whole card (migration 378 carried it over; capability entries at
+ * zero), which is what lets the parser tell a real card header from a
+ * header-shaped line inside a lead. `recordInjected` never refreshes it, so a
+ * card's evidence survives its lead being pruned and injected again. Empty
+ * when the memory connection is unavailable, which leaves the parser to the
+ * card shape alone.
  */
 export function getKnownCardBytes(
   conversationId: string,
@@ -233,29 +235,31 @@ export function getKnownCardBytes(
         mdb
           .select({
             slug: memoryV3InjectedSections.slug,
-            bytes: memoryV3InjectedSections.bytes,
+            frozenCardBytes: memoryV3InjectedSections.frozenCardBytes,
           })
           .from(memoryV3InjectedSections)
           .where(
             and(
               eq(memoryV3InjectedSections.conversationId, conversationId),
               eq(memoryV3InjectedSections.sectionKey, ""),
+              isNotNull(memoryV3InjectedSections.frozenCardBytes),
             ),
           )
           .all()
-          .map((row) => [row.slug, row.bytes] as const),
+          .map((row) => [row.slug, row.frozenCardBytes!] as const),
       ),
   );
 }
 
 /**
  * Upsert this turn's injected sections. Re-recording an existing pair clears
- * `pruned_at` and refreshes `bytes`/`injected_at`: a pruned section that is
- * re-selected re-injects as a fresh entry on the current message. Its older
- * copies stay in earlier messages' persisted metadata; rehydration and the
- * live strip keep only the newest persisted copy of a pair
- * (`newestCopyIndexes` in `prune.ts`), so clearing the tombstone never
- * revives them.
+ * `pruned_at` and refreshes `bytes`/`injected_at`, never `frozen_card_bytes`:
+ * a pruned section that is re-selected re-injects as a fresh entry on the
+ * current message. Its older copies stay in earlier messages' persisted
+ * metadata; rehydration and the live strip keep only the newest persisted
+ * copy of a pair (`newestCopyIndexes` in `prune.ts`), so clearing the
+ * tombstone never revives them, and the frozen length keeps parsing the
+ * older copy correctly.
  */
 export function recordInjected(
   conversationId: string,
@@ -418,6 +422,7 @@ export function forkEverInjected(
         injectedAt: memoryV3InjectedSections.injectedAt,
         bytes: memoryV3InjectedSections.bytes,
         prunedAt: memoryV3InjectedSections.prunedAt,
+        frozenCardBytes: memoryV3InjectedSections.frozenCardBytes,
       })
       .from(memoryV3InjectedSections)
       .where(eq(memoryV3InjectedSections.conversationId, parentConversationId))
@@ -436,6 +441,7 @@ export function forkEverInjected(
             injectedAt: row.injectedAt,
             bytes: row.bytes,
             prunedAt: row.prunedAt,
+            frozenCardBytes: row.frozenCardBytes,
           },
         })
         .run();
@@ -475,10 +481,12 @@ export function forkEverInjected(
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
- * The inherited blocks are parsed with the parent's recorded lead-entry
- * bytes as the parser's `knownCardBytes`, so a card frozen before body
- * escaping splits only at headers whose span is a card the parent actually
- * froze.
+ * The inherited blocks are parsed with the parent's frozen card lengths as
+ * the parser's `knownCardBytes`, so a card frozen before body escaping splits
+ * only at headers whose span is a card the parent actually froze. Each seeded
+ * lead entry records its inherited span as its own `frozen_card_bytes`, and
+ * each seeded capability entry zero, so the child's persisted copies parse
+ * the same way after its own re-injections.
  *
  * No-op when the child inherited no blocks. The rows live on the memory
  * connection, so this writes there rather than on the main fork transaction's
@@ -491,20 +499,30 @@ export function seedEverInjectedFromBlocks(
   at: number,
 ): void {
   const knownCardBytes = getKnownCardBytes(parentConversationId);
-  const inherited = new Map<string, SectionRef & { bytes: number }>();
+  const inherited = new Map<
+    string,
+    SectionRef & { bytes: number; frozenCardBytes: number | null }
+  >();
   for (const block of blocks) {
     for (const piece of parseInjectedSections(unwrapMemoryBlock(block), {
       knownCardBytes,
     }).pieces) {
       if (piece.kind === "section") {
+        const bytes = renderedBytes(piece.text);
         inherited.set(`${piece.slug} ${piece.key}`, {
           slug: piece.slug,
           key: piece.key,
-          bytes: renderedBytes(piece.text),
+          bytes,
+          frozenCardBytes: piece.key.length === 0 ? bytes : null,
         });
       } else if (piece.kind === "capability") {
         const slug = capabilitySlugOf(piece);
-        inherited.set(`${slug} `, { slug, key: "", bytes: 0 });
+        inherited.set(`${slug} `, {
+          slug,
+          key: "",
+          bytes: 0,
+          frozenCardBytes: 0,
+        });
       }
     }
   }
@@ -533,7 +551,7 @@ export function seedEverInjectedFromBlocks(
     const parentPrunedAt = new Map(
       prunedRows.map((r) => [`${r.slug} ${r.key}`, r.prunedAt]),
     );
-    for (const [id, { slug, key, bytes }] of inherited) {
+    for (const [id, { slug, key, bytes, frozenCardBytes }] of inherited) {
       mdb
         .insert(memoryV3InjectedSections)
         .values({
@@ -543,6 +561,7 @@ export function seedEverInjectedFromBlocks(
           injectedAt: at,
           bytes,
           prunedAt: parentPrunedAt.get(id) ?? null,
+          frozenCardBytes,
         })
         .onConflictDoNothing({
           target: [

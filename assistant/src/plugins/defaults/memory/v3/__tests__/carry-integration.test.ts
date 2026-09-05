@@ -82,6 +82,7 @@ import { renderV3SectionInjection } from "../page-content.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import {
+  markV3LiveBlock,
   MEMORY_V3_COMMIT_META_KEY,
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
   type Section,
@@ -320,8 +321,12 @@ const {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   residentBytes,
 } = await import("../ever-injected-store.js");
-const { filterResidentSections, flushPruneValveForTests, newestCopyIndexes } =
-  await import("../prune.js");
+const {
+  filterResidentSections,
+  flushPruneValveForTests,
+  newestCopyIndexes,
+  persistedV3BlockInner,
+} = await import("../prune.js");
 const { parseInjectedSections } =
   await import("../../substrate/injected-block-slugs.js");
 const { renderInjectionBlockInner, V3_INJECTION_HEADER } =
@@ -701,7 +706,10 @@ async function runTurn(
   // under the v3 metadata key (assembly captures it unwrapped).
   if (sections.text.length > 0) {
     const tail = history[history.length - 1]!;
-    tail.content = [{ type: "text", text: sections.text }, ...tail.content];
+    tail.content = [
+      markV3LiveBlock({ type: "text", text: sections.text }),
+      ...tail.content,
+    ];
   }
 
   // The pointer splices after the frozen sections (after-memory-prefix).
@@ -785,15 +793,8 @@ function rehydrateFromDb(convId: string): Message[] {
   }>;
   const pruned = getPrunedSections(convId);
   const knownCardBytes = getKnownCardBytes(convId);
-  const blockOf = (row: (typeof rows)[number]): string | null => {
-    if (row.role !== "user" || !row.metadata) {
-      return null;
-    }
-    const block = (JSON.parse(row.metadata) as Record<string, unknown>)[
-      MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
-    ];
-    return typeof block === "string" ? unwrapMemoryBlock(block) : null;
-  };
+  const blockOf = (row: (typeof rows)[number]): string | null =>
+    row.role === "user" ? persistedV3BlockInner(row.metadata) : null;
   const newest = newestCopyIndexes(rows.map(blockOf), knownCardBytes);
   return rows.map((row, index) => {
     let content = JSON.parse(row.content) as ContentBlock[];
@@ -814,7 +815,7 @@ function rehydrateFromDb(convId: string): Message[] {
         );
         if (resident.length > 0) {
           content = [
-            { type: "text", text: wrapMemoryBlock(resident) },
+            markV3LiveBlock({ type: "text", text: wrapMemoryBlock(resident) }),
             ...content,
           ];
         }

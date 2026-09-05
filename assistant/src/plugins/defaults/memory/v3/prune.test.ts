@@ -15,8 +15,9 @@
  *     exemptions, `injected_at` fallback, zero-byte (capability) rows
  *     skipped, a truncated fork's inherited sections as candidates carrying
  *     their spans' bytes, idempotence below the cap;
- *   - `runPruneValve` + the live strip: v3-owned blocks stripped in place by
- *     header span, v2-lookalike blocks untouched, all-pruned blocks removed,
+ *   - `runPruneValve` + the live strip: the blocks memory-v3 placed (owned by
+ *     object identity) stripped in place by header span, an unowned twin
+ *     untouched even when byte-identical, all-pruned blocks removed,
  *     and the rehydration filter (the same `filterPrunedSections` over
  *     persisted metadata) converging to the same bytes;
  *   - re-injection round-trip: `recordInjected` clears `pruned_at`, after
@@ -35,7 +36,7 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { Message } from "@vellumai/plugin-api";
+import type { ContentBlock, Message } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
@@ -111,7 +112,6 @@ mock.module("../config.js", () => ({
 }));
 
 const {
-  collectPersistedV3Sections,
   filterPrunedPointerEntries,
   filterPrunedSections,
   filterResidentSections,
@@ -127,9 +127,11 @@ const {
   getInjected,
   getKnownCardBytes,
   getPrunedSections,
+  markPruned,
   recordInjected,
   seedEverInjectedFromBlocks,
 } = await import("./ever-injected-store.js");
+const { markV3LiveBlock } = await import("./types.js");
 const { V3_INJECTION_HEADER, renderInjectionBlockInner, renderPointerInner } =
   await import("./render-injection.js");
 const { renderV3SectionInjection } = await import("./page-content.js");
@@ -164,6 +166,25 @@ function refSet(
     keys.add(key);
   }
   return set;
+}
+
+/** A `<memory>` text block as memory-v3 places it in live history: owned by
+ *  the strip through object identity. */
+function v3Block(text: string): ContentBlock {
+  return markV3LiveBlock({ type: "text" as const, text });
+}
+
+/** Give a lead entry the frozen length migration 378 (or the fork seeder)
+ *  records for it, the block parser's evidence for a pre-escaping card. */
+function freeze(conversationId: string, slug: string, bytes: number): void {
+  memorySqlite
+    .query(
+      /*sql*/ `
+      UPDATE memory_v3_injected_sections SET frozen_card_bytes = ?
+      WHERE conversation_id = ? AND slug = ? AND section_key = ''
+    `,
+    )
+    .run(bytes, conversationId, slug);
 }
 
 function insertSelection(
@@ -767,27 +788,22 @@ describe("stripPrunedSectionsFromMessages", () => {
     section("page-a", "Notes"),
     lead("page-b"),
   ]);
-  const knownSections = new Set([
-    lead("page-a"),
-    section("page-a", "Notes"),
-    lead("page-b"),
-  ]);
-
-  function userMessage(...texts: string[]): Message {
+  function userMessage(...parts: Array<string | ContentBlock>): Message {
     return {
       role: "user",
-      content: texts.map((text) => ({ type: "text" as const, text })),
+      content: parts.map((part) =>
+        typeof part === "string" ? { type: "text" as const, text: part } : part,
+      ),
     };
   }
 
   test("strips pruned sections from v3-owned blocks in place by header span", () => {
-    const message = userMessage(wrapMemoryBlock(innerAB), "hello");
+    const message = userMessage(v3Block(wrapMemoryBlock(innerAB)), "hello");
     const messages = [message];
 
     const stripped = stripPrunedSectionsFromMessages(
       messages,
       refSet(["page-a", "Notes"]),
-      knownSections,
     );
 
     expect(stripped).toBe(1);
@@ -812,14 +828,13 @@ describe("stripPrunedSectionsFromMessages", () => {
     const pointerA = wrapMemoryPointerBlock(
       renderPointerInner([{ slug: "page-a", key: "Notes" }]),
     );
-    const first = userMessage(wrapMemoryBlock(innerAB), "hello");
+    const first = userMessage(v3Block(wrapMemoryBlock(innerAB)), "hello");
     const second = userMessage(pointerAB, "again");
     const third = userMessage(pointerA, "once more");
 
     const stripped = stripPrunedSectionsFromMessages(
       [first, second, third],
       refSet(["page-a", "Notes"]),
-      knownSections,
     );
 
     expect(stripped).toBe(3);
@@ -841,13 +856,12 @@ describe("stripPrunedSectionsFromMessages", () => {
       lead("page-b"),
     ]);
     const newBlock = renderInjectionBlockInner([lead("page-a")]);
-    const first = userMessage(wrapMemoryBlock(oldBlock), "turn 1");
-    const later = userMessage(wrapMemoryBlock(newBlock), "turn 8");
+    const first = userMessage(v3Block(wrapMemoryBlock(oldBlock)), "turn 1");
+    const later = userMessage(v3Block(wrapMemoryBlock(newBlock)), "turn 8");
 
     const stripped = stripPrunedSectionsFromMessages(
       [first, { role: "assistant", content: [] }, later],
       refSet(),
-      new Set([lead("page-a"), lead("page-b")]),
     );
 
     expect(stripped).toBe(1);
@@ -865,33 +879,39 @@ describe("stripPrunedSectionsFromMessages", () => {
   });
 
   test("removes a block whose sections are ALL pruned (matching rehydration's skip)", () => {
-    const message = userMessage(wrapMemoryBlock(innerAB), "hello");
+    const message = userMessage(v3Block(wrapMemoryBlock(innerAB)), "hello");
 
     stripPrunedSectionsFromMessages(
       [message],
       refSet(["page-a", ""], ["page-a", "Notes"], ["page-b", ""]),
-      knownSections,
     );
 
     expect(message.content).toEqual([{ type: "text", text: "hello" }]);
   });
 
-  test("leaves v2-lookalike blocks untouched even when they name a pruned page", () => {
-    // Same wrapper + header convention, but the section body is a v2 SUMMARY,
-    // not an injected section, so it fails the known-sections ownership test.
-    const v2Inner = `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nv2 summary of page a`;
-    const message = userMessage(wrapMemoryBlock(v2Inner));
+  test("leaves a block memory-v3 did not place untouched, even one byte-identical to an owned block naming a pruned page", () => {
+    // A pre-cutover v2 block can render the same bytes as a v3 entry (v2's
+    // full-page fallback on a headingless page). Ownership is by object
+    // identity, never text, so the unowned twin is never rewritten.
+    const twin = userMessage(wrapMemoryBlock(innerAB), "hello");
+    const owned = userMessage(v3Block(wrapMemoryBlock(innerAB)), "later");
 
     const stripped = stripPrunedSectionsFromMessages(
-      [message],
-      refSet(["page-a", ""]),
-      knownSections,
+      [twin, owned],
+      refSet(["page-a", "Notes"]),
     );
 
-    expect(stripped).toBe(0);
-    expect(message.content).toEqual([
-      { type: "text", text: wrapMemoryBlock(v2Inner) },
+    expect(stripped).toBe(1);
+    expect(twin.content).toEqual([
+      { type: "text", text: wrapMemoryBlock(innerAB) },
+      { type: "text", text: "hello" },
     ]);
+    expect(owned.content[0]).toEqual({
+      type: "text",
+      text: wrapMemoryBlock(
+        renderInjectionBlockInner([lead("page-a"), lead("page-b")]),
+      ),
+    });
   });
 
   test("stripping a section from a capability-bearing v3 block keeps the capability chunk", () => {
@@ -900,14 +920,13 @@ describe("stripPrunedSectionsFromMessages", () => {
       CAPABILITY_CHUNK,
       lead("page-b"),
     ]);
-    const message = userMessage(wrapMemoryBlock(mixedInner), "hello");
+    const message = userMessage(v3Block(wrapMemoryBlock(mixedInner)), "hello");
 
     // Ownership is judged on the sections only, the capability chunk (a
     // non-section piece on both the persisted and live side) doesn't break it.
     const stripped = stripPrunedSectionsFromMessages(
       [message],
       refSet(["page-a", ""]),
-      knownSections,
     );
 
     expect(stripped).toBe(1);
@@ -924,13 +943,12 @@ describe("stripPrunedSectionsFromMessages", () => {
       role: "assistant",
       content: [{ type: "text", text: wrapMemoryBlock(innerAB) }],
     };
-    const untouched = userMessage(wrapMemoryBlock(innerAB), "tail");
+    const untouched = userMessage(v3Block(wrapMemoryBlock(innerAB)), "tail");
     const before = untouched.content;
 
     const stripped = stripPrunedSectionsFromMessages(
       [assistant, untouched],
       refSet(["page-z", ""]),
-      knownSections,
     );
 
     expect(stripped).toBe(0);
@@ -940,46 +958,6 @@ describe("stripPrunedSectionsFromMessages", () => {
       type: "text",
       text: wrapMemoryBlock(innerAB),
     });
-  });
-});
-
-describe("collectPersistedV3Sections", () => {
-  test("collects section texts from persisted v3 metadata, skipping malformed rows", () => {
-    insertUserRowWithV3Block(
-      "conv-1",
-      "m1",
-      renderInjectionBlockInner([lead("page-a")]),
-    );
-    insertUserRowWithV3Block(
-      "conv-1",
-      "m2",
-      renderInjectionBlockInner([section("page-b", "Notes")]),
-    );
-    testSqlite
-      .query(
-        /*sql*/ `
-        INSERT INTO messages (id, conversation_id, role, content, metadata, created_at)
-        VALUES ('m3', 'conv-1', 'user', '[]', 'not json memoryV3InjectedBlock', 0)
-      `,
-      )
-      .run();
-
-    expect(collectPersistedV3Sections("conv-1")).toEqual(
-      new Set([lead("page-a"), section("page-b", "Notes")]),
-    );
-    expect(collectPersistedV3Sections("conv-other").size).toBe(0);
-  });
-
-  test("capability chunks contribute no section (they are non-section chunks)", () => {
-    insertUserRowWithV3Block(
-      "conv-1",
-      "m1",
-      renderInjectionBlockInner([lead("page-a"), CAPABILITY_CHUNK]),
-    );
-
-    expect(collectPersistedV3Sections("conv-1")).toEqual(
-      new Set([lead("page-a")]),
-    );
   });
 });
 
@@ -1048,7 +1026,7 @@ describe("runPruneValve", () => {
       {
         role: "user",
         content: [
-          { type: "text", text: wrapMemoryBlock(inner) },
+          v3Block(wrapMemoryBlock(inner)),
           { type: "text", text: "turn 1" },
         ],
       },
@@ -1112,7 +1090,7 @@ describe("runPruneValve", () => {
         role: "user",
         content: [
           { type: "text", text: wrapMemoryBlock(v2Inner) },
-          { type: "text", text: wrapMemoryBlock(innerTurn1) },
+          v3Block(wrapMemoryBlock(innerTurn1)),
           { type: "text", text: "turn 1" },
         ],
       },
@@ -1120,7 +1098,7 @@ describe("runPruneValve", () => {
       {
         role: "user",
         content: [
-          { type: "text", text: wrapMemoryBlock(innerTurn2) },
+          v3Block(wrapMemoryBlock(innerTurn2)),
           { type: "text", text: "turn 2" },
         ],
       },
@@ -1194,12 +1172,14 @@ describe("runPruneValve", () => {
       [{ slug: "headless", key: "", bytes: renderedBytes(headless) }],
       2_000,
     );
+    freeze("conv-1", "stub", renderedBytes(stub));
+    freeze("conv-1", "headless", renderedBytes(headless));
 
     const liveMessages: Message[] = [
       {
         role: "user",
         content: [
-          { type: "text", text: wrapMemoryBlock(legacyInner) },
+          v3Block(wrapMemoryBlock(legacyInner)),
           { type: "text", text: "turn 1" },
         ],
       },
@@ -1233,6 +1213,52 @@ describe("runPruneValve", () => {
         getKnownCardBytes("conv-1"),
       ),
     ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
+  });
+
+  test("a legacy headless card whose lead is pruned and re-injected still parses by its frozen length: the old copy is superseded, not absorbed", () => {
+    const stub = [
+      injectedSectionHeader("stub", ""),
+      "# Stub",
+      "just a lead, no sections",
+    ].join("\n");
+    const headless = [
+      injectedSectionHeader("headless", ""),
+      "prose only, no title line",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "stub", key: "", bytes: renderedBytes(stub) },
+        { slug: "headless", key: "", bytes: renderedBytes(headless) },
+      ],
+      1_000,
+    );
+    freeze("conv-1", "stub", renderedBytes(stub));
+    freeze("conv-1", "headless", renderedBytes(headless));
+    markPruned("conv-1", [{ slug: "headless", key: "" }], 5_000);
+
+    // The re-injection renders the lead under the current grammar and
+    // refreshes the row's bytes, never its frozen length.
+    const reinjected = renderInjectionBlockInner([lead("headless")]);
+    recordInjected(
+      "conv-1",
+      [{ slug: "headless", key: "", bytes: renderedBytes(lead("headless")) }],
+      8_000,
+    );
+    const known = getKnownCardBytes("conv-1");
+    expect(known.get("headless")).toBe(renderedBytes(headless));
+
+    const pruned = getPrunedSections("conv-1");
+    const newest = newestCopyIndexes([legacyInner, reinjected], known);
+    expect(filterResidentSections(legacyInner, 0, pruned, newest, known)).toBe(
+      [V3_INJECTION_HEADER, stub].join("\n\n"),
+    );
+    expect(filterResidentSections(reinjected, 1, pruned, newest, known)).toBe(
+      reinjected,
+    );
   });
 
   test("a pruned section later re-selected re-injects and is kept by the filter again", async () => {

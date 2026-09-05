@@ -88,6 +88,39 @@ afterAll(() => {
   storeMockActive = false;
 });
 
+/** Give a lead entry the frozen length migration 378 (or the fork seeder)
+ *  records for it. */
+function freeze(conversationId: string, slug: string, bytes: number): void {
+  memorySqlite
+    .query(
+      /*sql*/ `
+      UPDATE memory_v3_injected_sections SET frozen_card_bytes = ?
+      WHERE conversation_id = ? AND slug = ? AND section_key = ''
+    `,
+    )
+    .run(bytes, conversationId, slug);
+}
+
+/** The frozen lengths on record for a conversation, by `slug key`. */
+function frozenOf(conversationId: string): Record<string, number | null> {
+  const rows = memorySqlite
+    .query(
+      /*sql*/ `
+      SELECT slug, section_key, frozen_card_bytes AS frozen
+      FROM memory_v3_injected_sections WHERE conversation_id = ?
+      ORDER BY slug, section_key
+    `,
+    )
+    .all(conversationId) as Array<{
+    slug: string;
+    section_key: string;
+    frozen: number | null;
+  }>;
+  return Object.fromEntries(
+    rows.map((row) => [`${row.slug} ${row.section_key}`, row.frozen]),
+  );
+}
+
 /** Project the oracle rows down to the fields a test asserts on. */
 function summary(conversationId: string) {
   return getInjected(conversationId).map(({ slug, key, bytes, prunedAt }) => ({
@@ -237,29 +270,46 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
     ).toHaveLength(1_100);
   });
 
-  test("getKnownCardBytes maps each recorded lead entry, resident or pruned, to its bytes per conversation", () => {
+  test("getKnownCardBytes maps each lead entry carrying a frozen length, resident or pruned, per conversation; re-recording keeps the length", () => {
     recordInjected(
       "conv-1",
       [
         { slug: "topics/page-a", key: "", bytes: 100 },
         { slug: "topics/page-a", key: "Notes", bytes: 70 },
         { slug: "topics/page-b", key: "", bytes: 250 },
-        { slug: "topics/page-c", key: "Only", bytes: 30 },
+        { slug: "topics/page-c", key: "", bytes: 30 },
+        { slug: "skills/meet-join", key: "", bytes: 0 },
       ],
       1_000,
     );
+    freeze("conv-1", "topics/page-a", 900);
+    freeze("conv-1", "topics/page-b", 950);
+    freeze("conv-1", "skills/meet-join", 0);
     recordInjected("conv-2", [{ slug: "elsewhere", key: "", bytes: 1 }], 1_000);
     markPruned("conv-1", [{ slug: "topics/page-b", key: "" }], 2_000);
 
-    // Section rows never count as card bytes; a page with no lead row is
-    // absent.
+    // A lead entry with no frozen length (page-c, recorded by this build) is
+    // absent; the frozen length is the card's, not the row's current bytes.
     expect(getKnownCardBytes("conv-1")).toEqual(
       new Map([
-        ["topics/page-a", 100],
-        ["topics/page-b", 250],
+        ["skills/meet-join", 0],
+        ["topics/page-a", 900],
+        ["topics/page-b", 950],
       ]),
     );
     expect(getKnownCardBytes("conv-unknown")).toEqual(new Map());
+
+    // A prune and re-injection refreshes bytes and clears the tombstone but
+    // never touches the frozen length.
+    recordInjected(
+      "conv-1",
+      [{ slug: "topics/page-b", key: "", bytes: 40 }],
+      3_000,
+    );
+    expect(getKnownCardBytes("conv-1").get("topics/page-b")).toBe(950);
+    expect(
+      getActiveEntries("conv-1").find((e) => e.slug === "topics/page-b"),
+    ).toMatchObject({ bytes: 40 });
   });
 
   test("empty ref list is a no-op and residentBytes is 0 for unknown conversations", () => {
@@ -295,6 +345,19 @@ describe("clearConversation", () => {
 });
 
 describe("forkEverInjected", () => {
+  test("copies the parent's frozen lengths along with the rows", () => {
+    recordInjected(
+      "conv-parent",
+      [{ slug: "topics/page-a", key: "", bytes: 100 }],
+      1_000,
+    );
+    freeze("conv-parent", "topics/page-a", 640);
+
+    forkEverInjected("conv-parent", "conv-child");
+
+    expect(frozenOf("conv-child")).toEqual({ "topics/page-a ": 640 });
+  });
+
   test("copies the parent's full record, pruned state included", () => {
     recordInjected(
       "conv-parent",
@@ -436,6 +499,13 @@ describe("seedEverInjectedFromBlocks", () => {
       ]),
     );
     expect(residentBytes("conv-child")).toBe(renderedBytes(leadA));
+    // Capability entries are recorded at zero, frozen included (membership
+    // is the parser's evidence for them); the lead records its span.
+    expect(frozenOf("conv-child")).toEqual({
+      "cli-commands/export ": 0,
+      "skills/meet-join ": 0,
+      "topics/page-a ": renderedBytes(leadA),
+    });
   });
 
   test("a card frozen before body escaping seeds one lead entry spanning the whole card", () => {
@@ -488,6 +558,8 @@ describe("seedEverInjectedFromBlocks", () => {
       ],
       1_000,
     );
+    freeze("conv-parent", "topics/stub", renderedBytes(stub));
+    freeze("conv-parent", "topics/headless", renderedBytes(headless));
 
     seedEverInjectedFromBlocks("conv-parent", "conv-child", [block], 5_000);
 
@@ -505,6 +577,12 @@ describe("seedEverInjectedFromBlocks", () => {
         prunedAt: null,
       },
     ]);
+    // Each seeded lead entry records its inherited span as its own frozen
+    // length, so the child's copies parse the same way after re-injections.
+    expect(frozenOf("conv-child")).toEqual({
+      "topics/headless ": renderedBytes(headless),
+      "topics/stub ": renderedBytes(stub),
+    });
   });
 
   test("a legacy card whose lead carries a capability-shaped line seeds one lead entry and no capability row", () => {

@@ -53,6 +53,32 @@ export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
   "memoryV3SpotlightBlock" as const;
 
 /**
+ * The `<memory>` content blocks memory-v3 itself placed in live history, by
+ * object identity: the block runtime assembly attaches for the `memory-v3`
+ * injector, the block `loadFromDb` splices from persisted metadata, and the
+ * block the prune valve's strip writes back in their place. The live strip
+ * owns a block only if it is one of these. Ownership is never decided by
+ * text: a pre-cutover v2 block can be byte-identical to a v3 lead entry (v2's
+ * full-page fallback on a headingless page), and v2 blocks must never be
+ * touched. A block that lost its identity (a cloned history) is simply left
+ * alone by the strip; the next `loadFromDb` rebuilds it from metadata, where
+ * the pruned and superseded filters are authoritative. A `WeakSet`, so
+ * entries leave with the histories they belonged to.
+ */
+const v3LiveBlocks = new WeakSet<object>();
+
+/** Register a block memory-v3 placed in live history; returns it. */
+export function markV3LiveBlock<T extends object>(block: T): T {
+  v3LiveBlocks.add(block);
+  return block;
+}
+
+/** Whether memory-v3 placed this block in live history. */
+export function isV3LiveBlock(block: object): boolean {
+  return v3LiveBlocks.has(block);
+}
+
+/**
  * A single section of a page: the lead (text before the first `## heading`,
  * ordinal 0) or a heading-delimited block. Over-long sections are split into
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each

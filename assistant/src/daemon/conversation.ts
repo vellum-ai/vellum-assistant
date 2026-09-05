@@ -73,7 +73,6 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
-import { readInjectedBlock } from "../plugins/defaults/memory/substrate/injected-block-slugs.js";
 import {
   getKnownCardBytes,
   getPrunedSections,
@@ -84,9 +83,11 @@ import {
   filterPrunedPointerEntries,
   filterResidentSections,
   newestCopyIndexes,
+  persistedV3BlockInner,
 } from "../plugins/defaults/memory/v3/prune.js";
 import {
   LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY,
+  markV3LiveBlock,
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/types.js";
 import {
@@ -1271,20 +1272,11 @@ export class Conversation {
     const v3NewestCopy = (): ReadonlyMap<string, number> => {
       if (v3NewestCopyMemo === null) {
         v3NewestCopyMemo = newestCopyIndexes(
-          slicedDbMessages.map((row, rowIndex) => {
-            if (
-              row.role !== "user" ||
-              !row.metadata ||
-              rowIndex < preStrippedCount
-            ) {
-              return null;
-            }
-            const block = readInjectedBlock(
-              row.metadata,
-              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-            );
-            return block === null ? null : unwrapMemoryBlock(block);
-          }),
+          slicedDbMessages.map((row, rowIndex) =>
+            row.role === "user" && rowIndex >= preStrippedCount
+              ? persistedV3BlockInner(row.metadata)
+              : null,
+          ),
           v3KnownCardBytes(),
         );
       }
@@ -1492,7 +1484,10 @@ export class Conversation {
             );
             if (v3Resident.length > 0) {
               content = [
-                { type: "text" as const, text: wrapMemoryBlock(v3Resident) },
+                markV3LiveBlock({
+                  type: "text" as const,
+                  text: wrapMemoryBlock(v3Resident),
+                }),
                 ...content,
               ];
             }

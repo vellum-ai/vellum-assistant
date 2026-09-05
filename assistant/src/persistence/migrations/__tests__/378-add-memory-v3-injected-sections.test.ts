@@ -35,12 +35,14 @@ interface Row {
   injected_at: number;
   bytes: number;
   pruned_at: number | null;
+  frozen_card_bytes: number | null;
 }
 
 function rows(db: Database): Row[] {
   return db
     .query(
-      `SELECT conversation_id, slug, section_key, injected_at, bytes, pruned_at
+      `SELECT conversation_id, slug, section_key, injected_at, bytes, pruned_at,
+              frozen_card_bytes
        FROM memory_v3_injected_sections ORDER BY conversation_id, slug, section_key`,
     )
     .all() as Row[];
@@ -97,6 +99,7 @@ describe("migrateAddMemoryV3InjectedSections", () => {
         injected_at: 1000,
         bytes: 120,
         pruned_at: null,
+        frozen_card_bytes: 120,
       },
       {
         conversation_id: "conv-1",
@@ -105,6 +108,7 @@ describe("migrateAddMemoryV3InjectedSections", () => {
         injected_at: 2000,
         bytes: 340,
         pruned_at: 3000,
+        frozen_card_bytes: 340,
       },
       {
         conversation_id: "conv-2",
@@ -113,6 +117,7 @@ describe("migrateAddMemoryV3InjectedSections", () => {
         injected_at: 4000,
         bytes: 0,
         pruned_at: null,
+        frozen_card_bytes: 0,
       },
     ]);
     // The legacy table is left in place, untouched.
@@ -146,7 +151,52 @@ describe("migrateAddMemoryV3InjectedSections", () => {
         injected_at: 9000,
         bytes: 150,
         pruned_at: null,
+        // The frozen length is the card's, whatever the row's bytes became.
+        frozen_card_bytes: 120,
       },
+    ]);
+  });
+
+  test("adds frozen_card_bytes to a table created without it and backfills copied rows from the legacy table", () => {
+    memorySqlite!.exec(/*sql*/ `
+      CREATE TABLE memory_v3_injected_sections (
+        conversation_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        section_key TEXT NOT NULL,
+        injected_at INTEGER NOT NULL,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        pruned_at INTEGER,
+        PRIMARY KEY (conversation_id, slug, section_key)
+      );
+      INSERT INTO memory_v3_injected_sections
+        (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
+      VALUES
+        ('conv-1', 'topics/page-a', '', 9000, 150, NULL),
+        ('conv-1', 'topics/page-a', 'Notes', 9100, 60, NULL),
+        ('conv-1', 'fresh-page', '', 9200, 80, NULL)
+    `);
+    ensureMemoryV3EverInjectedSchema(memorySqlite!);
+    memorySqlite!.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
+    `);
+
+    migrateAddMemoryV3InjectedSections({} as never);
+    migrateAddMemoryV3InjectedSections({} as never);
+
+    // The copied lead keeps the row the store refreshed but gains the card's
+    // length; a section row and a page the legacy table never had stay null.
+    expect(
+      rows(memorySqlite!).map((row) => [
+        `${row.slug} ${row.section_key}`,
+        row.bytes,
+        row.frozen_card_bytes,
+      ]),
+    ).toEqual([
+      ["fresh-page ", 80, null],
+      ["topics/page-a ", 150, 120],
+      ["topics/page-a Notes", 60, null],
     ]);
   });
 

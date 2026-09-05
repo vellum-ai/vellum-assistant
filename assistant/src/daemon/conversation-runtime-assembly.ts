@@ -61,6 +61,7 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  markV3LiveBlock,
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
   MEMORY_V3_POINTER_BLOCK_ID,
@@ -2033,6 +2034,10 @@ function applyInjectionBlock(
   }
 
   const textBlock = { type: "text" as const, text: block.text };
+  if (block.id === MEMORY_V3_BLOCK_ID) {
+    // The prune valve's live strip owns v3 blocks by object identity.
+    markV3LiveBlock(textBlock);
+  }
 
   switch (placement) {
     case "prepend-user-tail":

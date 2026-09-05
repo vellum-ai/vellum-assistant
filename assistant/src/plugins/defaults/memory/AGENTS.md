@@ -154,8 +154,10 @@ compact-card shape earlier builds froze without escaping (header, page head,
 blank line, `[sections: …]` TOC line) so a header-shaped line inside such a
 card's lead stays card text unless the span from it to a later header is, byte
 for byte, the frozen card length the conversation recorded for that slug
-(`getKnownCardBytes`, the lead-entry bytes migration 378 carried over); page
-slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
+(`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length migration 378
+carried over or the fork seeder measured, which `recordInjected` never
+refreshes, so the evidence survives a prune and re-injection of the lead);
+page slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
 line inside such a lead likewise stays card text unless the capability slug it
 names is a recorded key (capability entries are recorded at zero bytes, so
 membership is the whole signal), and a `# Skills` line always does, since the
@@ -168,7 +170,10 @@ exemptions. A pruned section that is re-selected re-injects as a fresh entry on
 the current message and its tombstone clears; the older copies still sit in
 earlier messages' metadata, so both filter points keep only each section's
 newest persisted copy (`newestCopyIndexes` / `filterResidentSections`), the one
-the live conversation holds. Re-selected sections that are already resident are listed, paths
+the live conversation holds. The live strip owns a `<memory>` block by object
+identity (`markV3LiveBlock` / `isV3LiveBlock` in `v3/types.ts`: the blocks
+assembly attaches, `loadFromDb` splices, and the strip rewrites), never by
+text, so a pre-cutover v2 block byte-identical to a v3 entry is left alone. Re-selected sections that are already resident are listed, paths
 only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block.
 Each turn's pointer stays on the user message that was sent with it (persisted
 under `memoryV3PointerBlock` and rehydrated on load, like the frozen sections);
