@@ -832,8 +832,8 @@ export function ChatComposer({
   // Under `interrupt-on-send` a turn in flight changes nothing about the
   // composer: the message the user types stops that turn and is answered at
   // once, so Send stays where it is and Stop has nothing left to offer that
-  // Send does not. The row keeps its resting shape — attach, dictation, voice,
-  // Send — for the whole turn.
+  // Send does not. The row keeps its resting shape (attach, dictation, voice,
+  // Send) for the whole turn.
   const interruptOnSend = useInterruptOnSend();
   const busyRowActive = isAssistantBusy && !interruptOnSend;
   // The busy row holds exactly one control, and stop is the default: it is the

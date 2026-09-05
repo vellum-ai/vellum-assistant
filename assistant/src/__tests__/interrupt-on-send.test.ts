@@ -25,7 +25,7 @@ import {
 } from "../util/abort-reasons.js";
 
 // ---------------------------------------------------------------------------
-// Mocks — must precede the module imports so Bun applies them at load time.
+// Mocks must precede the module imports so Bun applies them at load time.
 // ---------------------------------------------------------------------------
 
 let flagEnabled = true;

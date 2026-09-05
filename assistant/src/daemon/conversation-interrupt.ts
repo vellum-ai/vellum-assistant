@@ -77,16 +77,16 @@ export interface InterruptOptions {
  *
  * Sequence, and why it is this order:
  *
- *  1. Supersede the interactions the running turn parked — confirmations are
- *     denied and an open `ask_question` is settled by the abort below — so the
- *     turn unwinds immediately instead of sitting on a prompt nobody is going
- *     to answer.
+ *  1. Supersede the interactions the running turn parked (confirmations are
+ *     denied, and an open `ask_question` is settled by the abort below), so
+ *     the turn unwinds immediately instead of sitting on a prompt nobody is
+ *     going to answer.
  *  2. Abort the turn with `preempted_by_new_message`, straight at the
  *     controller rather than through `abortConversation`: that path treats a
  *     non-interrupt abort as a teardown and discards the queue, and the queue
  *     may still hold another actor's messages that this send has no business
  *     dropping. Background subagents keep running for the same reason a steer
- *     leaves them alone — the new turn's model decides what to do about them.
+ *     leaves them alone: the new turn's model decides what to do about them.
  *  3. Wait for the turn's own `finally` to release the processing lock, under
  *     the abort watchdog's budget.
  *  4. Repair the history: every `tool_use` the abort abandoned gets a
@@ -168,8 +168,8 @@ export async function interruptRunningTurn(
 
   // The interrupted turn's `generation_cancelled` told clients the old turn is
   // over, which idles their turn state. This says the conversation is working
-  // again, so the composer's indicator picks straight back up on the new turn
-  // — the same job `message_dequeued` does at the head of a drained turn.
+  // again, so the composer's indicator picks straight back up on the new
+  // turn: the same job `message_dequeued` does at the head of a drained turn.
   conversation.emitActivityState("thinking", "message_interrupted");
 
   return "released";

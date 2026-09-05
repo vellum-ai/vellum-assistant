@@ -74,7 +74,7 @@ export async function repairInterruptedToolUseBlocks(
         }
       }
       // Only repair tool_use blocks from the last assistant message that
-      // has them — earlier history should already be consistent.
+      // has them. Earlier history should already be consistent.
       break;
     }
   }

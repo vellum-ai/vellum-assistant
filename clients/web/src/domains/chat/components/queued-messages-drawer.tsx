@@ -209,8 +209,8 @@ export function QueuedMessagesDrawer({
 
   // Under `interrupt-on-send` nothing this composer sends ever waits: a
   // message sent into a busy turn stops it and is answered at once. The
-  // drawer's whole subject — a backlog with cancel, steer and edit-tail
-  // controls over it — has no counterpart in that flow, so it stays out.
+  // drawer's whole subject (a backlog with cancel, steer and edit-tail
+  // controls over it) has no counterpart in that flow, so it stays out.
   if (interruptOnSend || queuedMessages.length === 0) {
     return null;
   }

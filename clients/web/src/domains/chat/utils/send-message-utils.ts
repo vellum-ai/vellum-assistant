@@ -56,8 +56,8 @@ interface SupersededInteractionCleanupContext {
  * A busy conversation is the only reason a send ever queues, and under
  * `interrupt-on-send` it stops being one: the daemon aborts the turn and runs
  * the message at once, answering without `queued`. The send then takes the
- * ordinary path — an optimistic row with no queue badge, reconciled by the
- * echo — and the turn store never enters its `queued` phase.
+ * ordinary path (an optimistic row with no queue badge, reconciled by the
+ * echo), and the turn store never enters its `queued` phase.
  */
 export function shouldQueueSend(
   phase: TurnPhase,

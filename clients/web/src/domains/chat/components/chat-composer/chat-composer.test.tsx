@@ -1172,7 +1172,7 @@ describe("ChatComposer — send/stop button visibility", () => {
  * Stop has nothing left to offer that Send does not. The row keeps its resting
  * shape for the whole turn.
  */
-describe("ChatComposer — send/stop under interrupt-on-send", () => {
+describe("ChatComposer: send/stop under interrupt-on-send", () => {
   function setInterruptOnSend(value: boolean) {
     act(() => {
       useAssistantFeatureFlagStore.getState().setFlags({

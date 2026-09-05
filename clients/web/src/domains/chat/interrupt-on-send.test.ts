@@ -1,7 +1,7 @@
 /**
  * `interrupt-on-send` on the client: a message sent into a busy turn is not
- * queued, and the stream it produces — the interrupted turn's cancel, then the
- * new turn — folds into a live turn rather than an idle one.
+ * queued, and the stream it produces (the interrupted turn's cancel, then the
+ * new turn) folds into a live turn rather than an idle one.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -130,7 +130,7 @@ describe("history after an interrupt", () => {
   test("a refetch keeps the interrupted reply, the new user row, and the new reply in order", () => {
     // The daemon writes the interrupting user row only after the interrupted
     // turn has settled, so a fetch that lands afterwards reads assistant,
-    // user, assistant — the transcript order the user watched happen.
+    // user, assistant: the transcript order the user watched happen.
     const fetched: ConversationMessage[] = [
       runtimeMessage("m1", "user", "start the long job"),
       runtimeMessage("m2", "assistant", "working on it"),
