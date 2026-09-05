@@ -237,14 +237,14 @@ export function getByConversation(
  * /v1/host-transfer-result after completing the operation, get a 404, and the
  * proxy timer would fire with a spurious timeout error.
  *
- * `question` interactions are also skipped: a new message supersedes an open
- * ask_question by steering to it (see the enqueue path in
- * conversation-routes.ts), which aborts the parked turn and settles the
- * question via its abort signal. Clearing the entry here instead would drop it
- * without settling the prompt's Promise (questions carry no `rpcResolve`
- * fallback like secrets do) and would strip the steer of the entry it needs to
- * fire — which can co-occur with a confirmation, since one model response can
- * open both tools concurrently.
+ * `question` interactions are also skipped: a new message settles an open
+ * ask_question at the enqueue path (see `daemon/handlers/conversations.ts`),
+ * either by answering it with the typed text or by steering to the message,
+ * which aborts the parked turn and settles the question via its abort signal.
+ * Clearing the entry here instead would drop it without settling the prompt's
+ * Promise (questions carry no `rpcResolve` fallback like secrets do) and would
+ * strip both paths of the entry they need, which can co-occur with a
+ * confirmation since one model response can open both tools concurrently.
  */
 export function removeByConversation(
   conversationId: string,

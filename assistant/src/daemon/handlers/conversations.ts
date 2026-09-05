@@ -10,9 +10,11 @@ import { resolveConversationId } from "../../persistence/conversation-key-store.
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
+import { resolvePendingQuestion } from "../../runtime/question-resolution.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
+import type { Conversation } from "../conversation.js";
 import { touchConversation } from "../conversation-evictor.js";
 import { forceClearStaleProcessing } from "../conversation-lifecycle.js";
 import {
@@ -24,7 +26,7 @@ import {
   conversationEntries,
   findConversation,
 } from "../conversation-registry.js";
-import { resolveSlash } from "../conversation-slash.js";
+import { classifySlash, resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
@@ -326,23 +328,36 @@ export function deleteQueuedMessage(
     );
     return { removed: false, reason: "forbidden" };
   }
-  conversation.removeQueuedMessage(requestId);
-  // Queue events come in pairs, so an entry that never produced a
-  // `message_queued` ack (a suppressed daemon-injected send, or a hidden
-  // machine send) must not produce a delete either: clients have no row to
-  // retire and an unpaired event would decrement a counter that was never
-  // incremented.
+  consumeQueuedMessage(conversation, conversationId, queued);
+  return { removed: true };
+}
+
+/**
+ * Drop a queued message from the queue and close out the client row it
+ * created, so a message that will never run leaves no pending indicator
+ * behind.
+ *
+ * Queue events come in pairs, so an entry that never produced a
+ * `message_queued` ack (a suppressed daemon-injected send, or a hidden machine
+ * send) must not produce a delete either: clients have no row to retire and an
+ * unpaired event would decrement a counter that was never incremented.
+ */
+function consumeQueuedMessage(
+  conversation: Conversation,
+  conversationId: string,
+  queued: QueuedMessage,
+): void {
+  conversation.removeQueuedMessage(queued.requestId);
   if (!isSuppressedQueuedMessage(queued.metadata)) {
     queued.onEvent({
       type: "message_queued_deleted",
       conversationId,
-      requestId,
+      requestId: queued.requestId,
       ...(queued.clientMessageId
         ? { clientMessageId: queued.clientMessageId }
         : {}),
     });
   }
-  return { removed: true };
 }
 
 /**
@@ -457,6 +472,92 @@ export function steerToMessage(
 }
 
 /**
+ * Answer an open `ask_question` prompt with a message the user typed into the
+ * chat while the card was up.
+ *
+ * Typing an answer instead of using the card is the same act as typing it into
+ * the card's free-text field, so it resolves the prompt rather than cancelling
+ * it: the parked turn keeps running and the model reads the answer in the tool
+ * result. Channel replies already work this way (the bare-text branch of
+ * `runtime/guardian-reply-router.ts`); this is the app path saying the same
+ * thing through the same `resolvePendingQuestion` core.
+ *
+ * The message is consumed, not run as a turn of its own: it reaches the model
+ * once, through the tool result, and the answered card carries the user's own
+ * words in the transcript. Consuming it retires the client's queued row the
+ * same way a queue delete does.
+ *
+ * Deliberately narrow. Anything the free-text field of a card could not have
+ * carried, or that a single answer cannot honestly stand in for, falls through
+ * to {@link steerOnEnqueuedMessageIfQuestionParked} and supersedes as before:
+ *  - more than one parked question, so which prompt the text answers is a guess
+ *  - a message no longer on the queue, which cannot be consumed
+ *  - attachments, which the tool result has no way to carry
+ *  - a send that is not a person typing: automated, non-interactive, or
+ *    echo-suppressed machine signals
+ *  - empty text, which answers nothing
+ *  - a slash command, which is an instruction to the assistant rather than prose
+ *
+ * Returns `true` when a parked question was answered and the message consumed.
+ */
+export function answerParkedQuestionWithEnqueuedMessage(
+  conversationId: string,
+  enqueuedRequestId: string,
+): boolean {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    return false;
+  }
+
+  const parked = pendingInteractions
+    .getByConversation(conversationId)
+    .filter((interaction) => interaction.kind === "question");
+  if (parked.length !== 1) {
+    return false;
+  }
+
+  const queued = conversation.queue.findByRequestId(enqueuedRequestId);
+  if (!queued || queued.attachments.length > 0) {
+    return false;
+  }
+  if (
+    queued.isInteractive === false ||
+    queued.metadata?.automated === true ||
+    isSuppressedQueuedMessage(queued.metadata)
+  ) {
+    return false;
+  }
+
+  const text = queued.content.trim();
+  if (text.length === 0 || classifySlash(text) !== "passthrough") {
+    return false;
+  }
+
+  const outcome = resolvePendingQuestion(parked[0].requestId, {
+    kind: "chat_reply",
+    text,
+  });
+  if (outcome.status !== "resolved") {
+    log.warn(
+      {
+        conversationId,
+        requestId: parked[0].requestId,
+        outcome: outcome.status,
+      },
+      "Parked question did not resolve from the enqueued message",
+    );
+    return false;
+  }
+
+  consumeQueuedMessage(conversation, conversationId, queued);
+  log.info(
+    { conversationId, requestId: parked[0].requestId, enqueuedRequestId },
+    "Enqueued message answered a parked question",
+  );
+  return true;
+}
+
+/**
  * Supersede an open `ask_question` prompt when a new chat message is enqueued
  * for the same conversation.
  *
@@ -493,7 +594,9 @@ export function steerOnEnqueuedMessageIfQuestionParked(
  *     gateway request-status sync *before* clearing the prompter-owned
  *     confirmations, so a later guardian reply can't match a stale "pending"
  *     record and fail with `pending_interaction_not_found`.
- *  2. Supersede a parked ask_question by steering to the enqueued message.
+ *  2. Answer a parked ask_question with the enqueued message when the message
+ *     reads as an answer ({@link answerParkedQuestionWithEnqueuedMessage}), and
+ *     otherwise supersede it by steering to the enqueued message.
  *
  * Order matters: the steer aborts the turn, which denies the prompter's
  * confirmations as a side effect, so the status/notification sync must be
@@ -538,6 +641,12 @@ export function supersedePendingInteractionsOnEnqueue(
     }
     conversation.denyAllPendingConfirmations();
     pendingInteractions.removeByConversation(conversationId);
+  }
+
+  if (
+    answerParkedQuestionWithEnqueuedMessage(conversationId, enqueuedRequestId)
+  ) {
+    return;
   }
 
   steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);

@@ -58,6 +58,14 @@ export interface QuestionPromptEntryResult {
 export interface QuestionPromptResult {
   entries: QuestionPromptEntryResult[];
   overall: "completed" | "closed" | "timed_out" | "aborted";
+  /**
+   * True when the answer arrived as a message typed into the chat while the
+   * card was still open, rather than through the card itself. Only the first
+   * question carries the typed text; the rest stay `skipped`. The
+   * `ask_question` tool says so in the model-facing result, so the model can
+   * map the reply onto the questions itself.
+   */
+  answeredInChat?: boolean;
 }
 
 /**
@@ -177,10 +185,12 @@ export interface QuestionBatchMetadata {
  *
  * The idle timeout is a backstop (`getConfig().timeouts.questionResponseTimeoutSec`,
  * default 30 min), not the primary way a prompt is dismissed. An interactive
- * user who moves on instead of answering enqueues another message, which
- * supersedes the open prompt at the enqueue handler (see conversation-routes.ts);
- * a non-interactive turn resolves immediately at the tool. The backstop only
- * fires when a prompt is left open with no response and no follow-up message.
+ * user who types into the chat instead of using the card settles the prompt at
+ * the enqueue handler: the typed text answers it, or, when it cannot stand in
+ * for an answer, supersedes it (see
+ * `daemon/handlers/conversations.ts`). A non-interactive turn resolves
+ * immediately at the tool. The backstop only fires when a prompt is left open
+ * with no response and no follow-up message.
  */
 export class QuestionPrompter {
   async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
