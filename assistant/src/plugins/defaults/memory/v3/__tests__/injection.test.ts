@@ -471,7 +471,7 @@ describe("memoryV3Injector: frozen net-new sections", () => {
     expect(t1!.text).toContain(
       "# memory/concepts/page-a.md § Alpha\nalpha section text",
     );
-    expect(t1!.text).not.toContain("page-a — Alpha");
+    expect(t1!.text).not.toContain("page-a - Alpha");
     expect(t1!.text).toContain(leadRender("page-b"));
     expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha", "page-b§"]));
     // Recorded bytes match the rendered sizes (non-zero).

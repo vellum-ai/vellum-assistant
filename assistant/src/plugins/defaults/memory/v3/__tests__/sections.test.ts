@@ -35,12 +35,12 @@ describe("buildSectionIndex", () => {
 
     expect(index.sections[0]!.ordinal).toBe(0);
     expect(index.sections[0]!.title).toBe("");
-    expect(index.sections[0]!.text).toContain("page-a — ");
+    expect(index.sections[0]!.text).toContain("page-a - ");
     expect(index.sections[0]!.text).toContain("Lead paragraph");
 
     expect(index.sections[1]!.ordinal).toBe(1);
     expect(index.sections[1]!.title).toBe("First Heading");
-    expect(index.sections[1]!.text).toContain("page-a — First Heading");
+    expect(index.sections[1]!.text).toContain("page-a - First Heading");
     expect(index.sections[1]!.text).toContain("first body line");
 
     expect(index.sections[2]!.ordinal).toBe(2);

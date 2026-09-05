@@ -31,7 +31,7 @@ function lastSlugSegment(slug: Slug): string {
  * {@link sectionBody}.
  */
 export function sectionHeadLine(article: Slug, title: string): string {
-  return `${lastSlugSegment(article)} — ${title}`;
+  return `${lastSlugSegment(article)} - ${title}`;
 }
 
 /**

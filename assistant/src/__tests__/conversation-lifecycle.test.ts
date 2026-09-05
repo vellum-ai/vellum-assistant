@@ -733,6 +733,50 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("a pre-cutover v2 block byte-identical to a later v3 lead is rehydrated untouched and the v3 copy stays resident", async () => {
+    // The newest-copy pre-pass keys on v3 metadata rows only, so a v2
+    // `memoryInjectedBlock` whose text equals a later v3 lead entry is never
+    // counted as an older copy of it.
+    mockConversation = defaultConv();
+    const entry = "# memory/concepts/page-a.md\n# Page A\nthe same lead text";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Before cutover" }],
+        metadata: JSON.stringify({
+          memoryInjectedBlock: `header line\n\n${entry}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "After cutover" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${entry}`,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${entry}\n</memory>` },
+      { type: "text", text: "Before cutover" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${entry}\n</memory>` },
+      { type: "text", text: "After cutover" },
+    ]);
+  });
+
   test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
     mockConversation = defaultConv();
     mockPrunedSections = new Map([["page-a", new Set([""])]]);

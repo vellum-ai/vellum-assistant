@@ -17,7 +17,7 @@ import { type Section, sectionKey, type Slug } from "./types.js";
  * `[current: …]` annotation when `frontmatter` carries one (directly under
  * the header, where the selector card shows it, so the live state that made
  * the page relevant reaches the model), then the section body. The body is
- * the indexed section text without the synthetic `<segment> — <title>` head
+ * the indexed section text without the synthetic `<segment> - <title>` head
  * line the section index prepends for lexical matching; a lead body opens
  * with the page's own `# Title` line, so the lead reads like the page's head.
  * The body passes through `escapeInjectedBody`, so a line of page text can
