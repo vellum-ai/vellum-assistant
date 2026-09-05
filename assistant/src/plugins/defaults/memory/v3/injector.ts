@@ -89,6 +89,7 @@ import {
   type PendingConversationNotice,
   queueConversationNotice,
 } from "../../../../daemon/conversation-notices.js";
+import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import { isPersonalMemoryAllowed } from "../../../../daemon/trust-context.js";
 import {
   type InjectionBlock,
@@ -126,26 +127,59 @@ import {
 const log = getLogger("memory-v3-shadow");
 
 /**
- * Cap on the per-conversation memo below. Least-recently-touched entries are
- * evicted first; an evicted conversation simply re-runs orchestration on its
- * next turn.
+ * Cap on the per-conversation memo below, counted over IDLE conversations:
+ * the least-recently-touched idle entry is evicted first, and an evicted
+ * conversation simply re-runs orchestration on its next turn. A memo whose
+ * turn is still running is never evicted ({@link turnInFlight}), whatever
+ * the number of other conversations touching the process: a later re-entry
+ * of that turn re-emits the memo's rendered entries, and without them it
+ * would read the turn's committed sections as resident and emit pointers
+ * for bodies the re-injection strip cleared. The map can therefore exceed
+ * the cap by the number of turns in flight, never by idle entries.
  */
 const MAX_TRACKED_CONVERSATIONS = 256;
+let trackedConversationsCap = MAX_TRACKED_CONVERSATIONS;
+
+/** Test-only: shrink the memo cap so eviction is reachable with a handful
+ *  of conversations (`null` restores the default). */
+export function setMemoryV3TurnMemoCapacityForTests(
+  capacity: number | null,
+): void {
+  trackedConversationsCap = capacity ?? MAX_TRACKED_CONVERSATIONS;
+}
+
+/**
+ * Whether the conversation's turn is running: the live conversation's
+ * processing flag, set at turn start and cleared in the agent loop's
+ * `finally`, which is the window every re-entry assembly runs in. A
+ * conversation the registry does not hold, or a registry double without the
+ * method, reads as idle.
+ */
+function turnInFlight(conversationId: string): boolean {
+  const conversation = findConversationOrSubagent(conversationId);
+  return (
+    typeof conversation?.isProcessing === "function" &&
+    conversation.isProcessing()
+  );
+}
 
 /**
  * LRU-set `key` on `map`: delete-then-set so a re-touched key moves to the
  * back of the Map's insertion order (a plain `set` on an existing key keeps
  * its original position, which would evict the most long-lived ACTIVE
  * conversation first). Eviction only fires when inserting a genuinely new
- * key at the cap.
+ * key at the cap, and takes the least-recently-touched entry whose turn is
+ * not in flight.
  */
 function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
   if (map.has(key)) {
     map.delete(key);
-  } else if (map.size >= MAX_TRACKED_CONVERSATIONS) {
-    const oldest = map.keys().next().value;
-    if (oldest !== undefined) {
-      map.delete(oldest);
+  } else if (map.size >= trackedConversationsCap) {
+    for (const candidate of map.keys()) {
+      if (!turnInFlight(candidate)) {
+        map.delete(candidate);
+        break;
+      }
     }
   }
   map.set(key, value);
@@ -268,9 +302,10 @@ function rememberRendered(
   cached.rendered = rendered;
 }
 
-/** Test-only reset for the per-turn memo. */
+/** Test-only reset for the per-turn memo and its cap. */
 export function resetMemoryV3InjectorStateForTests(): void {
   observedTurns.clear();
+  trackedConversationsCap = MAX_TRACKED_CONVERSATIONS;
 }
 
 // ─── injectors ───────────────────────────────────────────────────────────────

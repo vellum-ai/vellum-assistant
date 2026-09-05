@@ -223,7 +223,11 @@ counts them active), points at the pairs still active, renders anew the pairs
 a compaction's store reset left unclaimed, and skips pairs tombstoned since;
 its block carries no commit, and assembly withholds the commit on a
 `reinjection` assembly besides, so a turn's sections are recorded once, at the
-first-call site that persists them. After a compaction the re-rendered
+first-call site that persists them. The memo is an LRU over conversations
+(cap 256, counted over idle ones): an entry whose conversation is still
+processing (the loop's busy flag, the window every re-entry runs in) is never
+evicted, so a turn in flight keeps its re-entry bytes however many other
+conversations touch the process, and only idle conversations' memos leave. After a compaction the re-rendered
 sections stay unclaimed: the next turn injects them net-new onto its own
 persisted user message, and the re-entry copy is superseded by the newest-copy
 rule at the following assembly; that rule reaches capability chunks too, under

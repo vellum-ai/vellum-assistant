@@ -33,6 +33,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
+import type { Conversation } from "../../../../../daemon/conversation.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3InjectedSectionsSchema } from "../../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
@@ -163,8 +164,14 @@ mock.module("../../config.js", () => ({
 // (dynamically imported). Stub it so the deferred valve never drags the heavy
 // daemon module graph into this test process; `undefined` = "conversation not
 // live" (the valve skips the live strip).
+// Conversations whose turn is running: the injector pins their memo against
+// LRU eviction by the live conversation's processing flag.
+let processingConversations = new Set<string>();
 mock.module("../../../../../daemon/conversation-registry.js", () => ({
-  findConversationOrSubagent: () => undefined,
+  findConversationOrSubagent: (conversationId: string) =>
+    processingConversations.has(conversationId)
+      ? ({ isProcessing: () => true } as unknown as Conversation)
+      : undefined,
 }));
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
@@ -223,6 +230,7 @@ const {
   memoryV3Injector,
   memoryV3PointerInjector,
   resetMemoryV3InjectorStateForTests,
+  setMemoryV3TurnMemoCapacityForTests,
 } = await import("../injector.js");
 const {
   clearConversation,
@@ -390,6 +398,7 @@ beforeEach(async () => {
   observeTurnSpy.mockClear();
   logCalls.length = 0;
   testDb = makeDb();
+  processingConversations = new Set();
   resetMemoryV3InjectorStateForTests();
   resetConversationNoticesForTests();
 });
@@ -843,6 +852,36 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
     expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
     expect(await producePointer("conv-1", 1)).toBeNull();
     expect(activeIds("conv-1").size).toBe(0);
+  });
+
+  test("a turn in flight keeps its memo under LRU pressure, so its re-entry still re-emits the first produce's bytes; an idle conversation's memo is evicted", async () => {
+    liveEnabled = true;
+    setMemoryV3TurnMemoCapacityForTests(2);
+    turnResults.set(0, result(["page-a", "page-c"], [["page-c", gamma]]));
+    processingConversations.add("conv-live");
+    const first = await produceSections("conv-live", 0);
+    expect(first!.text).toContain("§ Gamma");
+
+    // More idle conversations than the cap observe their own turns.
+    for (const idle of ["conv-idle-1", "conv-idle-2", "conv-idle-3"]) {
+      await produceSections(idle, 0);
+    }
+
+    // The live turn's re-entry: memoized, byte-identical, no commit.
+    const again = await produceSectionsWithoutCommit("conv-live", 0);
+    expect(again!.text).toBe(first!.text);
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(
+      observeTurnSpy.mock.calls.filter(([id]) => id === "conv-live"),
+    ).toHaveLength(1);
+
+    // The first idle conversation's memo left: its next produce observes
+    // the turn again and is a first produce (it carries a commit).
+    const idleAgain = await produceSectionsWithoutCommit("conv-idle-1", 0);
+    expect(idleAgain!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeDefined();
+    expect(
+      observeTurnSpy.mock.calls.filter(([id]) => id === "conv-idle-1"),
+    ).toHaveLength(2);
   });
 
   test("a re-entry never revives a section the valve tombstoned since the first produce", async () => {
