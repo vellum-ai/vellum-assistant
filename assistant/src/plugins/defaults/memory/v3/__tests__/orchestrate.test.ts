@@ -304,14 +304,14 @@ function parsePool(messages: Message[]): {
 
 /**
  * Provider that selects the pool candidates whose slug is in `keep` (mapping
- * each back to its 1-based id), pinning those in `pin`. Captures the rendered
- * candidate list (slugs and raw lines) for pool assertions.
+ * each back to its 1-based id). Captures the rendered candidate list (slugs
+ * and raw lines) for pool assertions.
  */
 let lastPool: Slug[] = [];
 let lastPoolLines: string[] = [];
 let lastPrefixBlock: string | null = null;
 let selectCalls = 0;
-function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
+function selectProvider(keep: Slug[]): Provider {
   return {
     name: "stub",
     sendMessage: async (messages) => {
@@ -321,16 +321,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
       lastPoolLines = parsed.lines;
       lastPrefixBlock = parsed.prefixBlock;
       const ids: number[] = [];
-      const pinned_ids: number[] = [];
       parsed.slugs.forEach((slug, i) => {
         if (keep.includes(slug)) {
           ids.push(i + 1);
         }
-        if (pin.includes(slug)) {
-          pinned_ids.push(i + 1);
-        }
       });
-      return toolUseResponse({ ids, pinned_ids });
+      return toolUseResponse({ ids });
     },
   };
 }
@@ -402,7 +398,7 @@ describe("orchestrate — candidate pool composition", () => {
     expect(lastPool).toContain(CAP);
   });
 
-  test("always-candidate slugs are pinned into the stable prefix and are selectable", async () => {
+  test("always-candidate slugs are placed in the stable prefix and are selectable", async () => {
     const lanes = await buildLanes();
     const WF: Slug = "skills/workflows";
     // No retrieval lane surfaces WF for "apple" (hits topic-a/b/d) — it reaches
@@ -780,7 +776,7 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     ).toContain("apple");
     // Selecting both ids still yields ONE selection (slug dedup), the finder
     // lane records the hit, and the matched section survives downstream.
-    expect(result.selections).toEqual([{ slug: "topic-a", pinned: false }]);
+    expect(result.selections).toEqual([{ slug: "topic-a" }]);
     expect(result.lanes.finder.map((c) => c.slug)).toContain("topic-a");
     expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
   });
@@ -817,13 +813,6 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     providerStub = selectProvider(["topic-b"]);
     const t2 = await orchestrate(makeTurn(2, "cherry"), deps);
     expect(t2.selections.map((s) => s.slug)).toEqual(["topic-b"]);
-  });
-
-  test("pinned flags survive selection dedup", async () => {
-    const lanes = await buildLanes();
-    providerStub = selectProvider(["topic-a"], ["topic-a"]);
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
-    expect(result.selections).toEqual([{ slug: "topic-a", pinned: true }]);
   });
 });
 

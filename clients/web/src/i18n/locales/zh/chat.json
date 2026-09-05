@@ -1019,8 +1019,6 @@
     "pillMemoryV2": "记忆 V2",
     "pillMemoryV3": "记忆 V3",
     "pillRecallV1": "召回 (v1)",
-    "pinnedChip": "已固定",
-    "pinnedPill": "已固定: {count}",
     "providerLabel": "提供者",
     "queryContextSubtitle": "作为语义检索搜索向量嵌入的文本。",
     "queryContextTitle": "查询上下文",

@@ -134,14 +134,14 @@ const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 const orchestrateSpy = mock(
   async (): Promise<OrchestrateResult> => ({
     selections: [
-      { slug: "page-core", pinned: false },
-      { slug: "page-hot", pinned: false },
-      { slug: "page-fresh", pinned: false },
-      { slug: "page-1", pinned: true },
-      { slug: "page-2", pinned: false },
-      { slug: "page-3", pinned: false },
-      { slug: "page-4", pinned: false },
-      { slug: "page-5", pinned: false },
+      { slug: "page-core" },
+      { slug: "page-hot" },
+      { slug: "page-fresh" },
+      { slug: "page-1" },
+      { slug: "page-2" },
+      { slug: "page-3" },
+      { slug: "page-4" },
+      { slug: "page-5" },
     ],
     matchedSections: new Map([
       ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
@@ -523,10 +523,8 @@ afterAll(() => {
 
 function readRows() {
   return memorySqlite
-    .query(
-      `SELECT slug, source, pinned FROM memory_v3_selections ORDER BY slug`,
-    )
-    .all() as Array<{ slug: string; source: SelectionSource; pinned: number }>;
+    .query(`SELECT slug, source FROM memory_v3_selections ORDER BY slug`)
+    .all() as Array<{ slug: string; source: SelectionSource }>;
 }
 
 beforeEach(() => {
@@ -604,7 +602,6 @@ describe("memory-v3 engine", () => {
         {
           slug: "page-1",
           source: "needle",
-          pinned: 0,
           sectionOrdinal: null,
           sectionTitle: null,
         },
@@ -629,21 +626,21 @@ describe("memory-v3 engine", () => {
     // dense-only page-2 logs "dense", not "needle". The result is
     // current-turn selections only.
     expect(rows).toEqual([
-      // page-1 was surfaced by the needle lane → "needle", pinned.
-      { slug: "page-1", source: "needle", pinned: 1 },
+      // page-1 was surfaced by the needle lane → "needle".
+      { slug: "page-1", source: "needle" },
       // page-2 was surfaced by the dense lane → "dense".
-      { slug: "page-2", source: "dense", pinned: 0 },
+      { slug: "page-2", source: "dense" },
       // page-3 was surfaced by the edge lane → "edge".
-      { slug: "page-3", source: "edge", pinned: 0 },
+      { slug: "page-3", source: "edge" },
       // page-4 was first surfaced by the reply-query pass → "reply".
-      { slug: "page-4", source: "reply", pinned: 0 },
+      { slug: "page-4", source: "reply" },
       // page-5 was first surfaced by the learned-edge pass → "learned".
-      { slug: "page-5", source: "learned", pinned: 0 },
+      { slug: "page-5", source: "learned" },
       // page-core / page-hot / page-fresh sit in the stable prefix →
       // "core" / "hot" / "fresh".
-      { slug: "page-core", source: "core", pinned: 0 },
-      { slug: "page-fresh", source: "fresh", pinned: 0 },
-      { slug: "page-hot", source: "hot", pinned: 0 },
+      { slug: "page-core", source: "core" },
+      { slug: "page-fresh", source: "fresh" },
+      { slug: "page-hot", source: "hot" },
     ]);
   });
 
@@ -686,7 +683,7 @@ describe("memory-v3 engine", () => {
 
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
     const rows = attributeSelections({
-      selections: [{ slug: "page-core", pinned: false }],
+      selections: [{ slug: "page-core" }],
       matchedSections: new Map(),
       lanes: {
         core: ["page-core"],
@@ -701,7 +698,6 @@ describe("memory-v3 engine", () => {
       {
         slug: "page-core",
         source: "core",
-        pinned: 0,
         sectionOrdinal: null,
         sectionTitle: null,
       },

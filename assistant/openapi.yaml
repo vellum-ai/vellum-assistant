@@ -9985,8 +9985,6 @@ paths:
                                   type: string
                                 source:
                                   type: string
-                                pinned:
-                                  type: boolean
                                 sectionOrdinal:
                                   anyOf:
                                     - type: number
@@ -9998,7 +9996,6 @@ paths:
                               required:
                                 - slug
                                 - source
-                                - pinned
                               additionalProperties: false
                           injectedText:
                             type: string
@@ -22193,8 +22190,6 @@ paths:
                                   type: string
                                 source:
                                   type: string
-                                pinned:
-                                  type: boolean
                                 sectionOrdinal:
                                   anyOf:
                                     - type: number
@@ -22206,7 +22201,6 @@ paths:
                               required:
                                 - slug
                                 - source
-                                - pinned
                               additionalProperties: false
                           injectedText:
                             type: string

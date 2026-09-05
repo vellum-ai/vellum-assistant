@@ -10,7 +10,7 @@
  *   - NO blind fallback to a neighbouring turn/message;
  *   - the fork fallback: a turn inherited from a fork resolves to the parent's
  *     rows via the message's `forkSourceMessageId` back-pointer;
- *   - source/pinned/section mapping and the rendered `<memory>` block;
+ *   - source/section mapping and the rendered `<memory>` block;
  *   - `live` reflects the config gate.
  *
  * `mock.module` is process-global and leaks into sibling files in a
@@ -66,7 +66,6 @@ function seed(
   rows: Array<{
     slug: string;
     source: string;
-    pinned?: boolean;
     sectionOrdinal?: number;
     sectionTitle?: string;
   }>,
@@ -74,9 +73,9 @@ function seed(
 ): void {
   const stmt = memorySqlite.query(
     `INSERT INTO memory_v3_selections
-       (conversation_id, turn, slug, source, pinned, created_at,
+       (conversation_id, turn, slug, source, created_at,
         message_id, section_ordinal, section_title)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const r of rows) {
     stmt.run(
@@ -84,7 +83,6 @@ function seed(
       turn,
       r.slug,
       r.source,
-      r.pinned ? 1 : 0,
       1000 + turn,
       messageId,
       r.sectionOrdinal ?? null,
@@ -196,14 +194,14 @@ describe("getMemoryV3SelectionForInspector", () => {
     expect(await getMemoryV3SelectionForInspector("conv-3", 3)).toBeNull();
   });
 
-  test("maps source/pinned/section and renders the <memory> block", async () => {
+  test("maps source/section and renders the <memory> block", async () => {
     // The second row carries a retired free-text source label (the column is
     // permissive); the inspector passes it through verbatim. Neither row has a
     // matched section, so section fields are null and the block falls back to
     // full pages.
     seed("conv-4", 1, [
-      { slug: "domain-a/page-1", source: "edge", pinned: true },
-      { slug: "domain-b/page-2", source: "legacy-carry", pinned: false },
+      { slug: "domain-a/page-1", source: "edge" },
+      { slug: "domain-b/page-2", source: "legacy-carry" },
     ]);
 
     const log = await getMemoryV3SelectionForInspector("conv-4", 1);
@@ -211,14 +209,12 @@ describe("getMemoryV3SelectionForInspector", () => {
       {
         slug: "domain-a/page-1",
         source: "edge",
-        pinned: true,
         sectionOrdinal: null,
         sectionHeading: null,
       },
       {
         slug: "domain-b/page-2",
         source: "legacy-carry",
-        pinned: false,
         sectionOrdinal: null,
         sectionHeading: null,
       },
@@ -273,14 +269,12 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       {
         slug: "domain-a/page-1",
         source: "needle",
-        pinned: false,
         sectionOrdinal: 2,
         sectionHeading: "Heading A",
       },
       {
         slug: "domain-b/page-2",
         source: "core",
-        pinned: false,
         sectionOrdinal: null,
         sectionHeading: null,
       },
@@ -388,7 +382,7 @@ describe("summarizeSelections", () => {
     ]);
     // Turn 2: page-1 re-selected (needle) + page-2 re-surfaced by edge.
     seed("conv-a", 2, [
-      { slug: "domain-a/page-1", source: "needle", pinned: true },
+      { slug: "domain-a/page-1", source: "needle" },
       { slug: "domain-b/page-2", source: "edge" },
     ]);
     // A different conversation must not bleed into the aggregate.

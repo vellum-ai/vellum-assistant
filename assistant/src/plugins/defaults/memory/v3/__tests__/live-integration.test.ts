@@ -222,23 +222,19 @@ function candidateSlugs(messages: Message[]): Slug[] {
   return entries.sort((a, b) => a.id - b.id).map((e) => e.slug);
 }
 
-/** Provider that selects (and optionally pins) the pooled candidates in `keep`. */
-function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
+/** Provider that selects the pooled candidates in `keep`. */
+function selectProvider(keep: Slug[]): Provider {
   return {
     name: "stub",
     sendMessage: async (messages) => {
       const pool = candidateSlugs(messages);
       const ids: number[] = [];
-      const pinned_ids: number[] = [];
       pool.forEach((slug, i) => {
         if (keep.includes(slug)) {
           ids.push(i + 1);
         }
-        if (pin.includes(slug)) {
-          pinned_ids.push(i + 1);
-        }
       });
-      return toolUseResponse({ ids, pinned_ids });
+      return toolUseResponse({ ids });
     },
   };
 }

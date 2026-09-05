@@ -1019,8 +1019,6 @@
     "pillMemoryV2": "記憶體 V2",
     "pillMemoryV3": "記憶體 V3",
     "pillRecallV1": "回溯 (v1)",
-    "pinnedChip": "已釘選",
-    "pinnedPill": "已釘選: {count}",
     "providerLabel": "提供者",
     "queryContextSubtitle": "作為語義檢索搜尋向量嵌入的文字。",
     "queryContextTitle": "查詢上下文",

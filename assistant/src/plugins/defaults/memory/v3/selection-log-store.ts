@@ -39,12 +39,11 @@ interface SelectionRow {
   turn: number;
   slug: string;
   source: string;
-  pinned: number;
   section_ordinal: number | null;
   section_title: string | null;
 }
 
-const SELECTION_COLUMNS = `turn, slug, source, pinned, section_ordinal, section_title`;
+const SELECTION_COLUMNS = `turn, slug, source, section_ordinal, section_title`;
 
 function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
   const raw = memorySqliteOrNull("rowsForTurn");
@@ -191,7 +190,6 @@ async function buildSelectionLog(
   const selections = rows.map((r) => ({
     slug: r.slug,
     source: r.source,
-    pinned: r.pinned === 1,
     sectionOrdinal: r.section_ordinal,
     sectionHeading: r.section_title,
   }));

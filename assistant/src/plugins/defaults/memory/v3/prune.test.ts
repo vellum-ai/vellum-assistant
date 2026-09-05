@@ -133,8 +133,8 @@ function insertSelection(
     .query(
       /*sql*/ `
       INSERT OR REPLACE INTO memory_v3_selections
-        (conversation_id, turn, slug, source, pinned, created_at)
-      VALUES (?, ?, ?, 'needle', 0, ?)
+        (conversation_id, turn, slug, source, created_at)
+      VALUES (?, ?, ?, 'needle', ?)
     `,
     )
     .run(conversationId, turn, slug, createdAt);

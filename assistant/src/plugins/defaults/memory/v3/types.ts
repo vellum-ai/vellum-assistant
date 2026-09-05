@@ -65,10 +65,9 @@ export interface SectionIndex {
   byArticle: Map<Slug, number[]>;
 }
 
-/** A page selected from the candidate pool, with whether the turn centers on it. */
+/** A page selected from the candidate pool. */
 export interface SelectedPage {
   slug: Slug;
-  pinned: boolean;
 }
 
 export interface MemoryRoutingTurn {

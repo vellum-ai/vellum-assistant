@@ -1081,8 +1081,6 @@
     "pillMemoryV2": "Memory V2",
     "pillMemoryV3": "Memory V3",
     "pillRecallV1": "Recall (v1)",
-    "pinnedChip": "pinned",
-    "pinnedPill": "Pinned: {count}",
     "providerLabel": "Provider",
     "queryContextSubtitle": "The text embedded as the search vector for semantic retrieval.",
     "queryContextTitle": "Query context",
