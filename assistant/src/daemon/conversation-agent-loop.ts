@@ -76,6 +76,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { resolveTurnReplyMessageId } from "../runtime/channel-reply-delivery.js";
 import { isNoResponseOnlyText } from "../runtime/no-response.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -1832,7 +1833,22 @@ export async function runAgentLoopImpl(
       });
       publishLoopMessagesChanged();
     } else {
-      // Resolve attachments (only when not cancelled — this is expensive async I/O)
+      // An attachment belongs on the row whose text asked for it. On a turn
+      // that routed its reply through `send_user_message`, the link the model
+      // wrote is inside that tool's message, while the turn's last row is
+      // private wrap-up text: linking there would leave channel delivery
+      // sending the file from a row with no words on it. Resolve the row the
+      // reply actually lives on, the same one the push preview quotes.
+      const attachmentTargetMessageId =
+        state.lastAssistantTextVisibility === "private" &&
+        state.lastAssistantMessageId
+          ? resolveTurnReplyMessageId(
+              ctx.conversationId,
+              userMessageId,
+              state.lastAssistantMessageId,
+            )
+          : state.lastAssistantMessageId;
+      // Resolve attachments (only when not cancelled, this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
         state.accumulatedDirectives,
         state.accumulatedToolContentBlocks,
@@ -1846,7 +1862,7 @@ export async function runAgentLoopImpl(
             ctx.conversationId,
             ctx.hasNoClient,
           ),
-        state.lastAssistantMessageId,
+        attachmentTargetMessageId,
         state.toolContentBlockToolNames,
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
