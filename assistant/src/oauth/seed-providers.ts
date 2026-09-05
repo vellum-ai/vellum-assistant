@@ -1267,6 +1267,67 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
   },
+  stripe_link: {
+    provider: "stripe_link",
+    authorizeUrl: "https://login.link.com/auth",
+    tokenExchangeUrl: "https://login.link.com/auth/token",
+    refreshUrl: "https://login.link.com/auth/token",
+    revokeUrl: "https://login.link.com/auth/revoke",
+    revokeBodyTemplate: {
+      token: "{access_token}",
+      token_type_hint: "access_token",
+    },
+    pingUrl: "https://api.link.com/userinfo",
+    baseUrl: "https://api.link.com",
+    displayLabel: "Link by Stripe",
+    description: "Wallet payment methods for agent purchases",
+    dashboardUrl: "https://dashboard.stripe.com",
+    // Link issues OAuth clients by request rather than through a self-serve
+    // dashboard, so there is no placeholder shape to suggest.
+    clientIdPlaceholder: null,
+    // Simple Icons has no Link mark (`link` 404s on the CDN), so the parent
+    // Stripe mark stands in.
+    logoUrl: "https://cdn.simpleicons.org/stripe",
+    defaultScopes: ["payment_methods.agentic", "userinfo:read"],
+    availableScopes: [
+      {
+        scope: "payment_methods.agentic",
+        description:
+          "Create single-use cards and payment tokens against the wallet",
+      },
+      {
+        scope: "userinfo:read",
+        description: "Read the wallet owner's profile (email, name, phone)",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_post",
+    // Link's authorize request also needs a `key` param holding the Stripe
+    // publishable key of the account behind the OAuth client. Vellum's own
+    // key lives in the platform registry, which is the only place it is the
+    // right answer: it pairs with the platform's client_id. Seeding it here
+    // would hand every self-hosted install our merchant identity to send
+    // alongside their own client_id, so BYO is deliberately left without one.
+    // See setupNotes.
+    loopbackPort: 17340,
+    managedServiceConfigKey: "stripe-link-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.link.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    setupNotes: [
+      "Link is available in managed mode only. Its authorize endpoint requires a `key` parameter carrying the Stripe publishable key for the account that owns the OAuth client, and a bring-your-own connection has nowhere to put one: authorizeParams is re-stamped from seed data on every startup and no CLI or API surface sets it. Use managed mode, where the platform supplies both halves.",
+    ],
+    // /userinfo returns no id, so email is the only stable-ish handle; phone
+    // backstops a wallet that has one but no email on file.
+    identityUrl: "https://api.link.com/userinfo",
+    identityResponsePaths: ["email", "phone"],
+    featureFlag: "stripe-link-oauth",
+  },
 };
 
 export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));

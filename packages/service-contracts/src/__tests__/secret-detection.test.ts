@@ -38,6 +38,8 @@ const FIXTURES: Record<string, string> = {
   "GitLab Token": `glpat-${filler(20)}`,
   "Stripe Secret Key": `sk_live_${filler(24)}`,
   "Stripe Restricted Key": `rk_live_${filler(24)}`,
+  "Link Access Token": `liwltoken_${filler(24)}`,
+  "Link Refresh Token": `liwlrefresh_${filler(24)}`,
   "Slack Bot Token": `xoxb-1234567890-1234567890-${filler(24)}`,
   "Slack User Token": `xoxp-1234567890-1234567890-1234567890-${"0123456789abcdef".repeat(2)}`,
   "Slack App Token": "xapp-1-abc123-4567-defghij890",
