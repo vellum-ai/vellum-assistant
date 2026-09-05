@@ -570,6 +570,62 @@ describe("handleConversationError", () => {
 });
 
 // ---------------------------------------------------------------------------
+// upsertToolCall: the assistant-text visibility a send_user_message implies
+// ---------------------------------------------------------------------------
+
+describe("upsertToolCall and the visibility marker", () => {
+  const sendCall = (id: string): ChatMessageToolCall => ({
+    id,
+    name: "send_user_message",
+    input: { message: "Here you go." },
+  });
+
+  it("marks the row private the moment the reply tool is announced", () => {
+    // The daemon announces the call while its input is still streaming, so the
+    // row knows it is private before its first reply delta and long before
+    // `message_complete` carries the authoritative marker.
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("") });
+
+    const result = upsertToolCall([userMsg, msg], sendCall("tc-send"));
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+
+  it("leaves the row unmarked for an ordinary tool call", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("") });
+
+    const result = upsertToolCall([userMsg, msg], {
+      id: "tc-fetch",
+      name: "web_fetch",
+      input: {},
+    });
+
+    expect(result[1]!.assistantTextVisibility).toBeUndefined();
+  });
+
+  it("does not overwrite a marker message_complete already set", () => {
+    // `message_complete` is authoritative in both directions: a row it marks
+    // visible carries its own text as the reply and keeps the standard
+    // rendering, whatever tool calls follow.
+    const msg = makeAssistantMsg({
+      id: "fallback-row",
+      ...seg("Here you go."),
+      assistantTextVisibility: "visible",
+    });
+
+    const result = upsertToolCall([userMsg, msg], sendCall("tc-send"));
+
+    expect(result[1]!.assistantTextVisibility).toBe("visible");
+  });
+
+  it("marks a bubble it opens for the reply tool", () => {
+    const result = upsertToolCall([userMsg], sendCall("tc-send"), "row-A");
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // upsertToolCall
 // ---------------------------------------------------------------------------
 

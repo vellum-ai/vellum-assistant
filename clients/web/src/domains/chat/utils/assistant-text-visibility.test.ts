@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { readAssistantTextVisibility } from "@/domains/chat/utils/assistant-text-visibility";
+import {
+  isSendUserMessageCall,
+  readAssistantTextVisibility,
+} from "@/domains/chat/utils/assistant-text-visibility";
 
 describe("readAssistantTextVisibility", () => {
   test("reads the two known markers", () => {
@@ -26,5 +29,12 @@ describe("readAssistantTextVisibility", () => {
     expect(readAssistantTextVisibility(undefined)).toBeUndefined();
     expect(readAssistantTextVisibility(null)).toBeUndefined();
     expect(readAssistantTextVisibility("private")).toBeUndefined();
+  });
+});
+
+describe("isSendUserMessageCall", () => {
+  test("matches the reply tool only", () => {
+    expect(isSendUserMessageCall({ name: "send_user_message" })).toBe(true);
+    expect(isSendUserMessageCall({ name: "bash" })).toBe(false);
   });
 });

@@ -8,7 +8,6 @@ import {
   groupContentBlocks,
   isBackgroundBashCall,
   isRunWorkflowCall,
-  isSendUserMessageCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
   isTaskProgressSurface,
@@ -440,17 +439,6 @@ describe("isTaskProgressSurface", () => {
     expect(
       isTaskProgressSurface(surface({ template: "weather_forecast" })),
     ).toBe(false);
-  });
-});
-
-describe("isSendUserMessageCall", () => {
-  test("matches the reply tool only", () => {
-    expect(
-      isSendUserMessageCall(toolCall({ id: "x", name: "send_user_message" })),
-    ).toBe(true);
-    expect(isSendUserMessageCall(toolCall({ id: "x", name: "bash" }))).toBe(
-      false,
-    );
   });
 });
 

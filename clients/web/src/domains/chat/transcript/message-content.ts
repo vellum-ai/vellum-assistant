@@ -17,6 +17,7 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
+import { isSendUserMessageCall } from "@/domains/chat/utils/assistant-text-visibility";
 import { isArtifactPointerSurface } from "@/domains/chat/transcript/response-artifacts";
 import {
   containsInlineThinkingTag,
@@ -61,24 +62,6 @@ function hasToolCallId(
   toolCall: ConversationMessageToolCall,
 ): toolCall is ChatMessageToolCall {
   return typeof toolCall.id === "string" && toolCall.id.length > 0;
-}
-
-/**
- * The tool a tool-gated turn calls to say something to the user. Its argument
- * is the reply itself, which the daemon also streams as ordinary assistant
- * text and projects into a `text` block on the persisted row, so the call is
- * never a step the transcript has anything to draw.
- */
-export const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
-
-/**
- * Whether a tool call is the user-facing reply channel rather than a step of
- * the assistant's work. The reply reaches the transcript as text, so drawing
- * the call as well would show the same sentence twice, once as prose and once
- * as a chip naming the tool that carried it.
- */
-export function isSendUserMessageCall(tc: ChatMessageToolCall): boolean {
-  return tc.name === SEND_USER_MESSAGE_TOOL_NAME;
 }
 
 export interface GroupContentBlocksOptions {
