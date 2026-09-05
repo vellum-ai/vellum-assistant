@@ -67,6 +67,7 @@ describe("memory database connection", () => {
     "activation_state",
     "conversation_graph_memory_state",
     "memory_v3_ever_injected",
+    "memory_v3_injected_sections",
     "memory_retrospective_state",
     "memory_graph_nodes",
     "memory_graph_edges",

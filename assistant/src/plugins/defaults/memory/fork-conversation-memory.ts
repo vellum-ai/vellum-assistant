@@ -12,7 +12,7 @@ import {
 import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-  seedEverInjectedFromSlugs,
+  seedEverInjectedFromBlocks,
 } from "./v3/ever-injected-store.js";
 
 /** Inputs to {@link forkConversationMemory}. */
@@ -92,13 +92,14 @@ export function forkConversationMemory(
     // compaction boundary are not rendered and must stay re-injectable.
     // The v2 and v3 layers persist under separate metadata keys with the
     // same `# memory/concepts/<slug>.md` header convention, so each seeds
-    // its own dedup record from its own blocks.
+    // its own dedup record from its own blocks: v2 at page grain, v3 at
+    // section grain (the store scans the section headers itself).
     const visibleStartIndex = Math.min(
       inheritedCompactedMessageCount,
       messagesToCopy.length,
     );
     const inheritedSlugs = new Set<string>();
-    const inheritedV3Slugs = new Set<string>();
+    const inheritedV3Blocks: string[] = [];
     for (const message of messagesToCopy.slice(visibleStartIndex)) {
       const block = readInjectedBlock(message.metadata, "memoryInjectedBlock");
       if (block) {
@@ -111,16 +112,14 @@ export function forkConversationMemory(
         MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
       );
       if (v3Block) {
-        for (const slug of extractInjectedConceptSlugs(v3Block)) {
-          inheritedV3Slugs.add(slug);
-        }
+        inheritedV3Blocks.push(v3Block);
       }
     }
     seedForkActivationState(forkId, [...inheritedSlugs]);
-    seedEverInjectedFromSlugs(
+    seedEverInjectedFromBlocks(
       sourceConversationId,
       forkId,
-      [...inheritedV3Slugs],
+      inheritedV3Blocks,
       Date.now(),
     );
   }

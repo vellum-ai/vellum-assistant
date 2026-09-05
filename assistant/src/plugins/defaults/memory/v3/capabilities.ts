@@ -23,12 +23,40 @@ import {
   isCliCommandSlug,
 } from "../substrate/cli-command-store.js";
 import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
-import type { Slug } from "./types.js";
+import { type Section, sectionKey, type Slug } from "./types.js";
 
 /** True iff the slug is a synthetic skill or CLI-command capability row. */
 export function isCapabilitySlug(slug: Slug): boolean {
   return isSkillSlug(slug) || isCliCommandSlug(slug);
 }
+
+/**
+ * The section-store key a selected page injects under: a capability slug
+ * always injects its whole capability content (`""`), a page with a matched
+ * section injects that section under its {@link sectionKey}, and a page
+ * selected without a match injects its lead (`""`). Shared by the injector
+ * (dedup against the store), the pointer (what to point at), and the
+ * selection telemetry (`net_new_count`) so the three agree on what "already
+ * resident" means.
+ */
+export function injectionSectionKey(
+  slug: Slug,
+  section: Section | undefined,
+): string {
+  if (isCapabilitySlug(slug) || !section) {
+    return "";
+  }
+  return sectionKey(section);
+}
+
+/**
+ * Header prefixes of the two capability render forms. Capability chunks open
+ * with these instead of a `# memory/concepts/<slug>.md` header, so the v3
+ * injection-block parser (`v3/prune.ts`) treats a line starting with either
+ * as its own non-concept chunk boundary.
+ */
+export const SKILL_HEADER_PREFIX = "# Skill: ";
+export const CLI_COMMAND_HEADER_PREFIX = "# CLI command: ";
 
 interface SkillCapabilityEntry {
   id: string;
@@ -67,19 +95,21 @@ function renderCapability(
 ): string | null {
   if (isSkillSlug(slug)) {
     const entry = resolvers.skill(slug);
-    return entry ? `# Skill: ${entry.id}\n${entry.content}` : "";
+    return entry ? `${SKILL_HEADER_PREFIX}${entry.id}\n${entry.content}` : "";
   }
   if (isCliCommandSlug(slug)) {
     const entry = resolvers.cli(slug);
-    return entry ? `# CLI command: ${entry.id}\n${cliText(entry)}` : "";
+    return entry
+      ? `${CLI_COMMAND_HEADER_PREFIX}${entry.id}\n${cliText(entry)}`
+      : "";
   }
   return null;
 }
 
 /**
  * Render a synthetic skill/CLI slug's INJECTION form for the live `<memory>`
- * block (and the graph node detail / inspector renders), mirroring
- * {@link renderV3PageContent}'s `# header\n<content>` shape. CLI commands
+ * block (and the graph node detail / inspector renders), mirroring the
+ * injected section renderer's `# header\n<content>` shape. CLI commands
  * render {@link buildCliCommandSummary} — description plus a `--help`
  * pointer — NOT their full help: the model fetches full usage itself, and a
  * turn can select dozens of commands, so per-entry cost dominates the block.

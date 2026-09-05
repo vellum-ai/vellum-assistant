@@ -129,6 +129,27 @@ including the v3 pair defined in `v3/injector.ts` — so `plugins/defaults/index
 imports the array and nothing else. A new tier injector is added to that array,
 never registered from the host.
 
+**v3 injection layers.** The v3 injection unit is the SECTION. Each turn the
+`memory-v3` injector renders every selected page's matched section (its lead
+when the page was selected without a match; a capability slug renders its
+whole capability content) into one frozen `<memory>` block, net-new only:
+`memory_v3_injected_sections` records one row per `(conversation, slug,
+section key)` ever injected, where the key is `v3/types.ts`'s `sectionKey()`
+(`""` for the lead, the trimmed heading title otherwise, `title#<n>` for a
+chunked or repeated heading), and a resident pair is never re-rendered. The
+block's inner grammar is one `# memory/concepts/<slug>.md § <key>` header per
+section (the bare page header for a lead), owned by
+`substrate/injected-block-slugs.ts`; the prune valve (`v3/prune.ts`) strips a
+pruned section by exactly that header span, in live history and at
+rehydration, and evicts by last selection recency with no lane exemptions.
+Re-selected sections that are already resident are listed, paths only, in the
+`memory-v3-pointer` injector's ephemeral `<memory_pointer>` block, which is
+never persisted, is stripped from every user message at the start of each
+turn, and marks the turn-start message volatile for the provider cache anchor
+(`turnStartUserMessageHasPointer`). `memory_v3_ever_injected` is the
+superseded card-grain record: migration 378 copied its rows in as lead
+entries, and nothing reads or writes it.
+
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
 import disappears fails loudly instead of lingering. Related guards:
@@ -263,7 +284,8 @@ Persisted rows; a rename orphans every existing install.
 | `memory_v2_activation_logs`       | v2 inspector/harness                |
 | `memory_v2_injection_events`      | v2 scoring feedback                 |
 | `memory_v3_selections`            | v3 selection log                    |
-| `memory_v3_ever_injected`         | v3 card dedup                       |
+| `memory_v3_injected_sections`     | v3 section dedup + prune accounting |
+| `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)  |
 | `memory_retrospective_state`      | retrospective (tier-agnostic)       |
 | `activation_sessions`             | onboarding activation rail          |
 

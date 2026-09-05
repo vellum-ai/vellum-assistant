@@ -2,7 +2,7 @@ export type Slug = string;
 
 /**
  * Injection-block id for the v3 live `<memory>` block. Shared between the
- * producer (the v3 injector in `shadow-plugin.ts`) and the v2-suppression
+ * producer (the v3 injector in `injector.ts`) and the v2-suppression
  * consumer (`conversation-runtime-assembly.ts`), which keys off this id to
  * detect that v3 actually produced a block this turn. Keeping it in one place
  * makes a rename a compile error on both sides instead of a silent
@@ -11,35 +11,25 @@ export type Slug = string;
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
 /**
- * `meta` key under which the v3 cards block carries its attachment-commit
- * callback. The injector defers its everInjected-store write (and the
- * prune-valve schedule) into this callback; runtime assembly invokes it only
- * when the turn's tail is a user message — the same gate as metadata capture
- * — so a block that silently fails to attach never claims its cards in the
- * dedup store. Shared between the producer (`injector.ts`) and the consumer
+ * `meta` key under which the v3 sections block carries its attachment-commit
+ * callback. The injector defers its section-store write (and the prune-valve
+ * schedule) into this callback; runtime assembly invokes it only when the
+ * turn's tail is a user message, the same gate as metadata capture, so a
+ * block that silently fails to attach never claims its sections in the dedup
+ * store. Shared between the producer (`injector.ts`) and the consumer
  * (`conversation-runtime-assembly.ts`) so a rename is a compile error on both
  * sides instead of a silent never-commit.
  */
 export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
 
 /**
- * Injection-block id for the v3 per-turn `<memory_spotlight>` block (the
- * current window's matched sections). Distinct from {@link MEMORY_V3_BLOCK_ID}:
- * the spotlight never participates in v2 suppression. Each turn's block stays
- * on the user message that was sent with it.
+ * Injection-block id for the v3 per-turn `<memory_pointer>` block: the list
+ * of this turn's selected sections that are already resident in history.
+ * Distinct from {@link MEMORY_V3_BLOCK_ID}: the pointer never participates in
+ * v2 suppression, is never persisted, and is stripped from every user message
+ * at the start of each turn before a fresh one is spliced onto the tail.
  */
-export const MEMORY_V3_SPOTLIGHT_BLOCK_ID = "memory-v3-spotlight" as const;
-
-/**
- * Message-metadata key for the wrapped `<memory_spotlight>` block persisted
- * on the user row that received it. `loadFromDb` rehydrates from this key so
- * historical turns keep the spotlight they were sent with. Kept as a
- * literal in `messageMetadataSchema` (same pattern as
- * `memoryV3InjectedBlock`) so the storage schema does not import the
- * memory feature.
- */
-export const MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
-  "memoryV3SpotlightBlock" as const;
+export const MEMORY_V3_POINTER_BLOCK_ID = "memory-v3-pointer" as const;
 
 /**
  * A single section of a page: the lead (text before the first `## heading`,
@@ -47,12 +37,45 @@ export const MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each
  * fits a typical embedding window. `text` is prefixed with a
  * `${lastSlugSegment} — ${title}` head line for lexical/dense matching.
+ *
+ * `titleOrdinal` is this section's 0-based index among the article's sections
+ * that share its title: a split heading's later chunks and a repeated heading
+ * both count up. Absent means 0 (the first, and usually only, section under
+ * that title). It feeds {@link sectionKey}; `ordinal` alone cannot, because
+ * ordinals shift whenever consolidation adds or removes a section above.
  */
 export interface Section {
   article: Slug;
   title: string;
   text: string;
   ordinal: number;
+  titleOrdinal?: number;
+}
+
+/**
+ * The stable identity of a section within its page, used as the section
+ * store's `section_key` and carried in the injected header
+ * (`# memory/concepts/<slug>.md § <key>`): the lead is `""`, a heading
+ * section is its trimmed title, and the second and later sections sharing a
+ * title (a chunked or repeated heading) append `#<titleOrdinal>`. Keys are
+ * stable across consolidation edits that shift ordinals.
+ */
+export function sectionKey(section: Section): string {
+  const title = section.title.trim();
+  return section.titleOrdinal ? `${title}#${section.titleOrdinal}` : title;
+}
+
+/** The section title a {@link sectionKey} names: the key minus the `#<n>`
+ *  suffix a chunked or repeated heading carries (`""` for the lead). */
+export function sectionKeyTitle(key: string): string {
+  return key.replace(/#\d+$/, "");
+}
+
+/** One injected section's identity in the section store: page slug plus
+ *  {@link sectionKey} (`""` for the lead or for capability content). */
+export interface SectionRef {
+  slug: Slug;
+  key: string;
 }
 
 /**

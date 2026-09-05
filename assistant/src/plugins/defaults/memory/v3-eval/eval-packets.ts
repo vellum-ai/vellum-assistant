@@ -210,9 +210,9 @@ export async function buildRetriever(
 }
 
 /**
- * Render the retrieved pages as one "memory set" string: each page's live-style
- * card (lead + section TOC) followed by its matched section in full, mirroring
- * what the model sees (accumulated cards + spotlighted section).
+ * Render the retrieved pages as one "memory set" string: each page's selector
+ * card (lead + section TOC) followed by its matched section in full, the
+ * page-level view the eval scores retrieval against.
  */
 export function renderMemorySet(
   retriever: Retriever,

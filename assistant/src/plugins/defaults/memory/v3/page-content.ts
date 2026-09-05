@@ -1,104 +1,58 @@
 import { getWorkspaceDir } from "../paths.js";
-import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
-import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
+import { readPage } from "../substrate/page-store.js";
 import { renderCapabilityContent } from "./capabilities.js";
-import { renderCard } from "./card.js";
-import type { Section, Slug } from "./types.js";
+import { leadSectionOfBody, sectionBody } from "./sections.js";
+import { type Section, sectionKey, type Slug } from "./types.js";
 
 /**
- * Prefix `body` with the `# memory/concepts/<slug>.md` header marker the v3
- * `<memory>` block uses (shared builder: `injectedConceptHeader`, so the
- * renderers, the card renderer, and the read-side parsers all agree on the
- * exact bytes).
- */
-function withConceptHeader(slug: Slug, body: string): string {
-  return `${injectedConceptHeader(slug)}\n${body}`;
-}
-
-/**
- * Render a selected page's full content for the v3 `<memory>` block. Mirrors
- * the v2 dynamic-memory layout (`# memory/concepts/<slug>.md\n<frontmatter+body>`)
- * so the v3 block reads like v2's. A missing page (or any read
- * failure) degrades to "" — `renderMemoryBlock` still emits a line for the
- * slug, and a blank section is preferable to throwing into the turn.
+ * Render one section for the v3 frozen `<memory>` block: the section's path
+ * header (`# memory/concepts/<slug>.md § <key>` for a heading section, the
+ * bare `# memory/concepts/<slug>.md` for the lead) followed by the section
+ * body. The body is the indexed section text without the synthetic
+ * `<segment> — <title>` head line the section index prepends for lexical
+ * matching; a lead body opens with the page's own `# Title` line, so the lead
+ * reads like the page's head. Returns `""` for a section with no body (the
+ * injector attaches nothing and records nothing for it).
  *
- * Synthetic capability slugs (skills, `assistant` CLI commands) have no on-disk
- * page; they resolve through {@link renderCapabilityContent} instead of
- * `readPage`. A non-null result (including "") means the slug was a capability
- * slug and was handled here.
- *
- * INSPECTOR-ONLY (as the `renderV3SectionContent` fallback): live injection
- * freezes compact CARDS into history via {@link renderV3CardContent} — it no
- * longer renders full pages, so this output is an APPROXIMATE reconstruction
- * for the inspector selection log (`selection-log-store.ts`), not what the
- * model saw.
+ * Pure text → text: capability slugs never reach here (they render their
+ * injection form via `renderCapabilityContent`), and the header is the exact
+ * grammar the prune valve's section parser and the fork seed scan key on.
  */
-export async function renderV3PageContent(slug: Slug): Promise<string> {
-  const capability = renderCapabilityContent(slug);
-  if (capability !== null) {
-    return capability;
-  }
-  try {
-    const page = await readPage(getWorkspaceDir(), slug);
-    if (!page) {
-      return "";
-    }
-    const content = renderPageContent(page).trim();
-    if (content.length === 0) {
-      return "";
-    }
-    return withConceptHeader(slug, content);
-  } catch {
+export function renderV3SectionInjection(slug: Slug, section: Section): string {
+  const body = sectionBody(section).trim();
+  if (body.length === 0) {
     return "";
   }
+  return `${injectedSectionHeader(slug, sectionKey(section))}\n${body}`;
 }
 
 /**
- * Render a selected page's compact CARD for the v3 frozen-injection layer:
- * the `# memory/concepts/<slug>.md` header, the page's head section, and a
- * one-line section TOC (see `card.ts`). Cards are the persistent injection
- * unit — frozen into history once and deduped by the everInjected store.
- *
- * - Capability slugs (skills, `assistant` CLI commands) have no on-disk page
- *   and no meaningful head/TOC split, so they render their injection-form
- *   capability content via {@link renderCapabilityContent} (its own
- *   `# Skill:` / `# CLI command:` header) instead of a card.
- * - A missing page or any read failure degrades to "" — the injector skips
- *   empty cards rather than throwing into the turn.
+ * The lead section (ordinal 0) of a concept page, built from the page on disk
+ * by the same split rules as the lanes' section index so its text and key
+ * match what a finder hit on that lead would carry. `undefined` when the page
+ * is missing or unreadable. Capability slugs have no page and never resolve
+ * here; callers route them through `renderCapabilityContent`.
  */
-export async function renderV3CardContent(slug: Slug): Promise<string> {
-  const capability = renderCapabilityContent(slug);
-  if (capability !== null) {
-    return capability;
-  }
+export async function leadSectionOf(slug: Slug): Promise<Section | undefined> {
   try {
     const page = await readPage(getWorkspaceDir(), slug);
-    if (!page) {
-      return "";
-    }
-    return renderCard(slug, renderPageContent(page));
+    return page ? leadSectionOfBody(slug, page.body) : undefined;
   } catch {
-    return "";
+    return undefined;
   }
 }
 
 /**
- * Render a slug's matched section under the `# memory/concepts/<slug>.md`
- * header marker, the same marker as {@link renderV3PageContent}.
- *
- * INSPECTOR-ONLY: live injection freezes cards ({@link renderV3CardContent})
- * and re-renders the ephemeral spotlight separately; this per-section render
- * remains for the inspector selection log (`selection-log-store.ts`), which
- * reconstructs an approximate view of a turn's selection after the fact.
- *
- * - Capability slugs (skills, `assistant` CLI commands) have no on-disk
- *   section, so they always render their capability content via
- *   {@link renderCapabilityContent}, never a section.
- * - When `section` is undefined (e.g. an edge-only or stable-prefix page with
- *   no current match), fall back to {@link renderV3PageContent} (the full/lead
- *   page) so the slug still contributes content.
+ * Render one selected page's injection entry exactly as the live injector
+ * attaches it: a capability slug renders its injection-form capability
+ * content (its own `# Skill:` / `# CLI command:` header), a page with a
+ * matched section renders that section, and a page selected without a match
+ * renders its lead. `""` when nothing resolves (a deleted page, an
+ * unresolvable capability, an empty section): the injector attaches and
+ * records nothing for it, and the inspector shows nothing.
  */
-export async function renderV3SectionContent(
+export async function renderV3InjectionEntry(
   slug: Slug,
   section: Section | undefined,
 ): Promise<string> {
@@ -106,13 +60,6 @@ export async function renderV3SectionContent(
   if (capability !== null) {
     return capability;
   }
-  if (!section) {
-    return renderV3PageContent(slug);
-  }
-
-  const text = section.text.trim();
-  if (text.length === 0) {
-    return "";
-  }
-  return withConceptHeader(slug, text);
+  const resolved = section ?? (await leadSectionOf(slug));
+  return resolved ? renderV3SectionInjection(slug, resolved) : "";
 }

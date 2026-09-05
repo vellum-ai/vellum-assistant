@@ -48,6 +48,7 @@ import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
 import {
   capabilityOrDiskBody,
+  injectionSectionKey,
   renderCapabilityContent,
 } from "./capabilities.js";
 import { renderCard } from "./card.js";
@@ -56,7 +57,7 @@ import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
-import { getActiveSlugs } from "./ever-injected-store.js";
+import { getActiveSections, sectionRefSetHas } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
@@ -727,6 +728,11 @@ export async function observeTurn(
     // lane-build params (hot/fresh K, learned-edge graph) stay frozen on the
     // lanes for stable-prefix cache reuse.
     const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
+    // Read-only: lets orchestrate compute the `net_new_count` telemetry field
+    // against the same store, and the same per-page injection key, the
+    // injector renders from. This turn has not committed yet, so the set
+    // matches what the injector will see.
+    const activeSections = getActiveSections(conversationId);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -741,10 +747,12 @@ export async function observeTurn(
       needleK: tuning.needleK,
       denseK: tuning.denseK,
       realConceptPageCount: lanes.realConceptPageCount,
-      // Read-only: lets orchestrate compute the `net_new_count` telemetry field
-      // against the same store the injector renders from. This turn has not
-      // committed yet, so the set matches what the injector will see.
-      activeSlugs: getActiveSlugs(conversationId),
+      isResident: (slug, section) =>
+        sectionRefSetHas(
+          activeSections,
+          slug,
+          injectionSectionKey(slug, section),
+        ),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
       spanQueryK: tuning.spanQueryK,
@@ -767,7 +775,8 @@ export async function observeTurn(
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be
     // worth a breadcrumb (observed on meta-prompt-shaped system turns): the
-    // turn itself proceeds normally — cards already in context still serve it.
+    // turn itself proceeds normally, sections already in context still serve
+    // it.
     if (result.selections.length === 0) {
       log.info(
         {

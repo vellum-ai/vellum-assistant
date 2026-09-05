@@ -30,27 +30,16 @@ export function unwrapMemoryBlock(block: string): string {
 }
 
 /**
- * The memory-v3 per-turn spotlight wrapper. Each turn's `<memory_spotlight>`
- * stays on the user message that was sent, matching frozen `<memory>` cards.
- * Compaction still strips these blocks via `RUNTIME_INJECTION_PREFIXES`, and
- * `stripSpotlightInjections` is the full-history leftover cleanup used there.
- * The producer wrapper lives here beside the `<memory>` marker it parallels.
+ * The memory-v3 per-turn pointer wrapper: the `<memory_pointer>` block lists
+ * the turn's re-selected sections that are already resident in history. It is
+ * ephemeral by contract: never persisted, stripped from every user message at
+ * the start of each turn (`stripPointerInjections`) and by compaction via
+ * `RUNTIME_INJECTION_PREFIXES`, then re-spliced fresh onto the tail. The
+ * producer wrapper lives here beside the `<memory>` marker it parallels.
  */
-export const MEMORY_SPOTLIGHT_PREFIX = "<memory_spotlight>\n";
-export const MEMORY_SPOTLIGHT_SUFFIX = "\n</memory_spotlight>";
+export const MEMORY_POINTER_PREFIX = "<memory_pointer>\n";
+export const MEMORY_POINTER_SUFFIX = "\n</memory_pointer>";
 
-export function wrapMemorySpotlightBlock(text: string): string {
-  return `${MEMORY_SPOTLIGHT_PREFIX}${text}${MEMORY_SPOTLIGHT_SUFFIX}`;
-}
-
-/**
- * Whether `text` is a complete `<memory_spotlight>…</memory_spotlight>`
- * wrapper. Requires both ends so user-authored text that merely opens with
- * the tag is not treated as an injected spotlight.
- */
-export function isMemorySpotlightText(text: string): boolean {
-  return (
-    text.startsWith(MEMORY_SPOTLIGHT_PREFIX) &&
-    text.endsWith(MEMORY_SPOTLIGHT_SUFFIX)
-  );
+export function wrapMemoryPointerBlock(text: string): string {
+  return `${MEMORY_POINTER_PREFIX}${text}${MEMORY_POINTER_SUFFIX}`;
 }

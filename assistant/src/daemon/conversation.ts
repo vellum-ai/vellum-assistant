@@ -74,11 +74,11 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
-  getPrunedSlugs,
+  getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  type SectionRefSet,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
-import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
-import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/types.js";
+import { filterPrunedSections } from "../plugins/defaults/memory/v3/prune.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -561,7 +561,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */   currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
@@ -1176,23 +1176,23 @@ export class Conversation {
     // in the HTTP-auth-disabled dev bypass, so a turn with no bound actor
     // resolves the same way on both paths.
     const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
-    // Pruned v3 card slugs, read lazily on the first row that carries a v3
+    // Pruned v3 sections, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
-    // prune valve marks cards pruned in the everInjected store instead of
+    // prune valve marks sections pruned in the section store instead of
     // rewriting the persisted metadata, so the v3 rehydration splice below
     // re-applies the filter on every load — that is what makes a prune
     // survive daemon restarts. Defensive catch: a store failure degrades to
     // an unfiltered (pre-prune) rehydration rather than a failed load.
-    let v3PrunedSlugsMemo: Set<string> | null = null;
-    const v3PrunedSlugs = (): Set<string> => {
-      if (v3PrunedSlugsMemo === null) {
+    let v3PrunedSectionsMemo: SectionRefSet | null = null;
+    const v3PrunedSections = (): SectionRefSet => {
+      if (v3PrunedSectionsMemo === null) {
         try {
-          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+          v3PrunedSectionsMemo = getPrunedSections(this.conversationId);
         } catch {
-          v3PrunedSlugsMemo = new Set();
+          v3PrunedSectionsMemo = new Map();
         }
       }
-      return v3PrunedSlugsMemo;
+      return v3PrunedSectionsMemo;
     };
     // Provider-id → row-text index for reaction target resolution, built
     // lazily on the first reaction row: most conversations carry none, so
@@ -1318,19 +1318,20 @@ export class Conversation {
           // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
           // now-md 40, memory-v3-shadow 1000 — the v2 static block lands
           // inside the memory prefix, so now-md splices *after* it; the
-          // v3 card block is `<memory>`-wrapped and splices LAST, landing
+          // v3 section block is `<memory>`-wrapped and splices LAST, landing
           // at the memory boundary after the `<info>` block but before
           // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <memory>v3cards</memory>,
-          //    <memory_spotlight>, <NOW.md>,
+          //    <info>v2static</info>, <memory>v3sections</memory>, <NOW.md>,
           //    <system_reminder>, <knowledge_base>, ...original]
+          // The per-turn `<memory_pointer>` is never persisted, so no row
+          // rehydrates one; the next turn splices a fresh copy onto its tail.
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
           // depending on when they were persisted.
           // Required so Anthropic's prefix cache keeps matching msg[0]
           // across daemon restart and conversation eviction. The tail
-          // row only rehydrates `memoryInjectedBlock` and the v3 card
+          // row only rehydrates `memoryInjectedBlock` and the v3 section
           // block — the next turn re-injects the rest fresh.
           if (!isTail && typeof meta.pkbContextBlock === "string") {
             content = [
@@ -1353,32 +1354,10 @@ export class Conversation {
             ];
           }
 
-          // The memory-v3 per-turn `<memory_spotlight>` persists under its
-          // own key as the wrapped block that was sent. Rehydrated on ALL
-          // rows (tail included), matching frozen cards: after a reload the
-          // last completed turn is the tail, and the next user message is
-          // appended without re-running loadFromDb. Prepended here, after
-          // now-md and before the v3 card block, so the inverted prepends
-          // land as [cards, spotlight, now-md, ...]. Trust-gated on
-          // `personalMemoryAllowed` like the cards: the spotlight carries
-          // matched personal-memory sections.
-          if (
-            personalMemoryAllowed &&
-            typeof meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] === "string"
-          ) {
-            content = [
-              {
-                type: "text" as const,
-                text: meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] as string,
-              },
-              ...content,
-            ];
-          }
-
-          // The memory-v3 frozen card block (net-new compact cards) persists
+          // The memory-v3 frozen section block (net-new sections) persists
           // under its own key, stored UNWRAPPED like v2's dynamic block below.
           // Rehydrated on ALL rows (tail included): the next turn injects only
-          // net-new cards — deduped via the v3 everInjected store — so this
+          // net-new sections, deduped via the v3 section store, so this
           // row's block must be back in history byte-identical for the dedup
           // (and the provider prefix cache) to hold. A row carries at most one
           // of the v3 and v2-dynamic keys (the user-prompt-submit hook
@@ -1387,16 +1366,16 @@ export class Conversation {
           // first leaves it BELOW both in the final content, matching the
           // live after-memory-prefix splice (order 1000 lands at the memory
           // boundary, after `<info>` / `<memory>` prefix blocks).
-          // Pruned slugs' card sections are filtered out here (the metadata
-          // itself is never rewritten — auditable and reversible); an
-          // all-pruned block is skipped entirely, matching the live strip in
-          // `memory/v3/prune.ts`.
+          // Pruned sections are filtered out here by their header span (the
+          // metadata itself is never rewritten, auditable and reversible);
+          // an all-pruned block is skipped entirely, matching the live strip
+          // in `memory/v3/prune.ts`.
           // Trust-gated on `personalMemoryAllowed`, mirroring the v2 static
-          // block below and the live v3 injector: v3 cards carry personal user
-          // memory (memory pages, PKB, matched sections), so an untrusted-actor
-          // view must not read them back through persisted metadata. The tail
-          // is still rehydrated for trusted views (unlike v2) — the gate is the
-          // only constraint added here.
+          // block below and the live v3 injector: v3 sections carry personal
+          // user memory (memory pages, PKB, matched sections), so an
+          // untrusted-actor view must not read them back through persisted
+          // metadata. The tail is still rehydrated for trusted views (unlike
+          // v2), the gate is the only constraint added here.
           if (
             personalMemoryAllowed &&
             typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string"
@@ -1404,9 +1383,9 @@ export class Conversation {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
-            const v3Resident = filterPrunedCardSections(
+            const v3Resident = filterPrunedSections(
               unwrapMemoryBlock(v3Block),
-              v3PrunedSlugs(),
+              v3PrunedSections(),
             );
             if (v3Resident.length > 0) {
               content = [

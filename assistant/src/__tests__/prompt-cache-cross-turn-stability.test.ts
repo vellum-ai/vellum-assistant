@@ -372,7 +372,7 @@ describe("prompt cache cross-turn stability: render pipeline", () => {
     });
   });
 
-  test("no spotlight in play means neither turn flags the latest user message as volatile", () => {
+  test("no pointer in play means neither turn flags the latest user message as volatile", () => {
     for (const call of calls) {
       const config = call.options?.config as
         | Record<string, unknown>
@@ -475,7 +475,7 @@ describe("prompt cache cross-turn stability: Anthropic wire", () => {
 });
 
 describe("prompt cache cross-turn stability: volatile first turn", () => {
-  // A memory-v3 spotlight on the opening message makes it volatile across
+  // A memory-v3 pointer on the opening message makes it volatile across
   // turns, but it is still fixed within its own turn. The system prompt, the
   // tools, and the message itself must therefore still be written once, so
   // that turn's tool-loop iterations read the prefix back instead of

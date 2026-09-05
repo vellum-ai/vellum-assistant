@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { stripSpotlightInjections } from "../context/strip-injections.js";
+import {
+  stripPointerInjections,
+  turnStartUserMessageHasPointer,
+} from "../context/strip-injections.js";
 import { stripExistingMemoryInjections } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -220,49 +223,112 @@ describe("stripExistingMemoryInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripSpotlightInjections: leftover memory-v3 spotlight blocks are removed
-// from every user message (compaction leftover cleanup). Frozen `<memory>`
-// card blocks must never be touched (the cache contract).
+// stripPointerInjections: memory-v3 pointer blocks are removed from every user
+// message (the per-turn strip-and-replace, and compaction cleanup). Frozen
+// `<memory>` section blocks must never be touched (the cache contract).
 // ---------------------------------------------------------------------------
 
-const spotlightBlock = (inner: string): ContentBlock => ({
+const pointerBlock = (inner: string): ContentBlock => ({
   type: "text",
-  text: wrapMemorySpotlightBlock(inner),
+  text: wrapMemoryPointerBlock(inner),
 });
 
-describe("stripSpotlightInjections", () => {
-  test("strips spotlight blocks from every user message, leaving <memory> blocks intact", () => {
+describe("stripPointerInjections", () => {
+  test("strips pointer blocks from every user message, leaving <memory> blocks intact", () => {
     const messages = [
-      userMsg(memoryTextBlock, textBlock("first"), spotlightBlock("s1")),
+      userMsg(memoryTextBlock, textBlock("first"), pointerBlock("p1")),
       assistantMsg("ok"),
-      userMsg(memoryTextBlock, textBlock("second"), spotlightBlock("s2")),
+      userMsg(memoryTextBlock, textBlock("second"), pointerBlock("p2")),
     ];
-    const result = stripSpotlightInjections(messages);
+    const result = stripPointerInjections(messages);
     expect(result[0].content).toEqual([memoryTextBlock, textBlock("first")]);
     expect(result[1]).toBe(messages[1]); // assistant message untouched
     expect(result[2].content).toEqual([memoryTextBlock, textBlock("second")]);
   });
 
   test("requires the full wrapper: user text merely starting with the tag survives", () => {
-    const lookalike = textBlock("<memory_spotlight>\nnot really a block");
+    const lookalike = textBlock("<memory_pointer>\nnot really a block");
     const messages = [userMsg(lookalike, textBlock("hello"))];
-    const result = stripSpotlightInjections(messages);
+    const result = stripPointerInjections(messages);
     expect(result[0].content).toEqual([lookalike, textBlock("hello")]);
   });
 
-  test("content no-op when no spotlight blocks exist", () => {
+  test("content no-op when no pointer blocks exist", () => {
     const messages = [
       userMsg(memoryTextBlock, textBlock("hello")),
       assistantMsg("hi"),
       userMsg(imageBlock),
     ];
-    const result = stripSpotlightInjections(messages);
+    const result = stripPointerInjections(messages);
     expect(result).toEqual(messages);
     // Untouched messages keep their identity (cheap no-op detection upstream).
     expect(result[0]).toBe(messages[0]);
   });
 
   test("no-op for empty messages array", () => {
-    expect(stripSpotlightInjections([])).toEqual([]);
+    expect(stripPointerInjections([])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// turnStartUserMessageHasPointer: the cache-anchor volatility signal, read off
+// the most recent TEXT-bearing user message so it holds across a tool loop.
+// ---------------------------------------------------------------------------
+
+describe("turnStartUserMessageHasPointer", () => {
+  const toolResultMsg: Message = {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "t1",
+        content: "ok",
+      },
+    ],
+  };
+
+  test("true when the turn-starting user message carries a pointer block", () => {
+    expect(
+      turnStartUserMessageHasPointer([
+        userMsg(textBlock("hi"), pointerBlock("p1")),
+      ]),
+    ).toBe(true);
+  });
+
+  test("false when the turn start carries only frozen <memory> blocks and text", () => {
+    expect(
+      turnStartUserMessageHasPointer([
+        userMsg(memoryTextBlock, textBlock("hi")),
+      ]),
+    ).toBe(false);
+    expect(turnStartUserMessageHasPointer([])).toBe(false);
+  });
+
+  test("skips trailing tool-result messages so the signal holds through a tool loop", () => {
+    expect(
+      turnStartUserMessageHasPointer([
+        userMsg(textBlock("hi"), pointerBlock("p1")),
+        assistantMsg("calling a tool"),
+        toolResultMsg,
+      ]),
+    ).toBe(true);
+  });
+
+  test("reads the CURRENT turn start, not an earlier user message", () => {
+    expect(
+      turnStartUserMessageHasPointer([
+        userMsg(textBlock("first"), pointerBlock("stale")),
+        assistantMsg("ok"),
+        userMsg(textBlock("second")),
+      ]),
+    ).toBe(false);
+  });
+
+  test("requires the full wrapper, matching the strip", () => {
+    expect(
+      turnStartUserMessageHasPointer([
+        userMsg(textBlock("<memory_pointer>\nnot really a block")),
+      ]),
+    ).toBe(false);
   });
 });

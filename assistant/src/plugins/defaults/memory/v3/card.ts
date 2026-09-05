@@ -72,7 +72,9 @@ function renderTocLine(
   if (headings.length === 0) {
     return null;
   }
-  return `[sections: ${headings.map((h) => `§${h}`).join(" · ")}]`;
+  // A heading that already opens with the section sigil keeps it as-is
+  // rather than doubling up.
+  return `[sections: ${headings.map((h) => (h.startsWith("§") ? h : `§${h}`)).join(" · ")}]`;
 }
 
 /** Max characters of a `current:` line carried onto the card. A `current:` is
@@ -166,8 +168,8 @@ export function renderCard(
   return card;
 }
 
-/** UTF-8 byte length of a rendered card (prune-valve and footprint
- * accounting both budget in bytes, not characters). */
-export function cardBytes(card: string): number {
-  return Buffer.byteLength(card, "utf8");
+/** UTF-8 byte length of rendered injection text, card or section (prune-valve
+ * and footprint accounting both budget in bytes, not characters). */
+export function renderedBytes(text: string): number {
+  return Buffer.byteLength(text, "utf8");
 }

@@ -417,18 +417,13 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
-    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
-     *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
-     *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
-     *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
-     *  not import the memory feature. */
+    /** Memory-v3 frozen net-new section block (unwrapped), the v3
+     *  counterpart of `memoryInjectedBlock`. A row carries at most one of the
+     *  two. The key matches the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept as a literal here (like
+     *  `memoryInjectedBlock`) so the storage schema does not import the memory
+     *  feature. */
     memoryV3InjectedBlock: z.string().optional(),
-    /** Memory-v3 per-turn `<memory_spotlight>` block (wrapped). Rehydrated
-     *  by `loadFromDb` so historical turns keep the spotlight they were sent
-     *  with. The key matches the memory plugin's
-     *  `MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`, kept as a literal here so
-     *  the storage schema does not import the memory feature. */
-    memoryV3SpotlightBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

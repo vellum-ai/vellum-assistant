@@ -1,150 +1,68 @@
 import { describe, expect, test } from "bun:test";
 
-import { wrapMemoryBlock } from "../../memory-marker.js";
 import {
-  renderCardsBlockInner,
-  renderMemoryBlock,
-  renderSpotlightInner,
-  V3_CARDS_INJECTION_HEADER,
+  MEMORY_POINTER_LEAD_LINE,
+  renderInjectionBlockInner,
+  renderPointerInner,
+  V3_INJECTION_HEADER,
 } from "../render-injection.js";
-import type { Section, Slug } from "../types.js";
 
-function section(article: Slug, text: string): Section {
-  return { article, title: "", text, ordinal: 0 };
-}
-
-/**
- * Stub resolver mirroring `renderV3SectionContent`'s branch: render the matched
- * section's text when present, otherwise fall back to a "full body" stand-in.
- */
-const resolver =
-  (fullBodies: Record<Slug, string>) =>
-  async (slug: Slug, sec: Section | undefined): Promise<string> =>
-    sec ? sec.text : (fullBodies[slug] ?? "");
-
-describe("renderCardsBlockInner", () => {
-  test("prefixes the v2 read-affordance header and joins cards with blank lines", () => {
-    const inner = renderCardsBlockInner([
-      "# memory/concepts/page-a.md\nhead a",
-      "# memory/concepts/page-b.md\nhead b",
+describe("renderInjectionBlockInner", () => {
+  test("prefixes the v2 read-affordance header and joins entries with blank lines", () => {
+    const inner = renderInjectionBlockInner([
+      "# memory/concepts/page-a.md\nlead a",
+      "# memory/concepts/page-b.md § Notes\nnotes b",
     ]);
     expect(inner).toBe(
-      `${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b`,
+      `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nlead a\n\n# memory/concepts/page-b.md § Notes\nnotes b`,
     );
   });
 
-  test("empty card list renders the empty string (no header-only block)", () => {
-    expect(renderCardsBlockInner([])).toBe("");
+  test("empty entry list renders the empty string (no header-only block)", () => {
+    expect(renderInjectionBlockInner([])).toBe("");
   });
 
-  test("skill cards get a one-shot catalog hint that is not a concept card", () => {
-    const inner = renderCardsBlockInner([
+  test("skill entries get a one-shot catalog hint that is not a concept section", () => {
+    const inner = renderInjectionBlockInner([
       "# Skill: telegram-setup\nSet up Telegram.",
-      "# memory/concepts/page-a.md\nhead a",
+      "# memory/concepts/page-a.md\nlead a",
     ]);
-    expect(inner).toContain(V3_CARDS_INJECTION_HEADER);
+    expect(inner).toContain(V3_INJECTION_HEADER);
     expect(inner).toContain("# Skills\n");
     expect(inner).toContain("assistant plugins search <name>");
     expect(inner).toContain("assistant skills search <name>");
     expect(inner).toContain("currently in the workspace");
     expect(inner.indexOf("# Skills")).toBeLessThan(inner.indexOf("# Skill:"));
-    expect(inner.startsWith(`${V3_CARDS_INJECTION_HEADER}\n\n# Skills\n`)).toBe(
-      true,
-    );
+    expect(inner.startsWith(`${V3_INJECTION_HEADER}\n\n# Skills\n`)).toBe(true);
   });
 
-  test("concept-only cards omit the skill catalog hint", () => {
-    const inner = renderCardsBlockInner(["# memory/concepts/page-a.md\nhead a"]);
+  test("concept-only entries omit the skill catalog hint", () => {
+    const inner = renderInjectionBlockInner([
+      "# memory/concepts/page-a.md\nlead a",
+    ]);
     expect(inner).not.toContain("# Skills\n");
     expect(inner).not.toContain("assistant plugins search");
   });
 });
 
-describe("renderSpotlightInner", () => {
-  test("renders each entry as a § header plus section text", () => {
-    const inner = renderSpotlightInner([
-      { slug: "page-a", title: "Alpha", text: "alpha text" },
-      { slug: "page-b", title: "Beta", text: "beta text" },
+describe("renderPointerInner", () => {
+  test("renders the lead line plus one path line per entry, leads as the bare path", () => {
+    const inner = renderPointerInner([
+      { slug: "page-a", key: "Alpha" },
+      { slug: "topics/page-b", key: "" },
+      { slug: "page-c", key: "Notes#1" },
     ]);
     expect(inner).toBe(
-      "## memory/concepts/page-a.md § Alpha\nalpha text\n\n## memory/concepts/page-b.md § Beta\nbeta text",
+      [
+        MEMORY_POINTER_LEAD_LINE,
+        "memory/concepts/page-a.md § Alpha",
+        "memory/concepts/topics/page-b.md",
+        "memory/concepts/page-c.md § Notes#1",
+      ].join("\n"),
     );
   });
 
-  test("empty window renders the empty string", () => {
-    expect(renderSpotlightInner([])).toBe("");
-  });
-});
-
-describe("renderMemoryBlock", () => {
-  test("renders the matched section (not the full body) for each slug", async () => {
-    const sections = new Map<Slug, Section>([
-      ["page-a", section("page-a", "matched section A")],
-      ["topic-x", section("topic-x", "matched section X")],
-    ]);
-
-    const block = await renderMemoryBlock(
-      ["page-a", "topic-x"],
-      sections,
-      resolver({ "page-a": "FULL body A", "topic-x": "FULL body X" }),
-    );
-
-    expect(block).toBe(
-      "<memory>\nmatched section A\nmatched section X\n</memory>",
-    );
-    expect(block).not.toContain("FULL body");
-  });
-
-  test("falls back to the full/lead body for a slug with no matched section", async () => {
-    const sections = new Map<Slug, Section>([
-      ["page-a", section("page-a", "matched section A")],
-    ]);
-
-    const block = await renderMemoryBlock(
-      ["page-a", "topic-x"],
-      sections,
-      resolver({ "topic-x": "lead body X" }),
-    );
-
-    // page-a renders its matched section; topic-x (no entry) falls back.
-    expect(block).toBe("<memory>\nmatched section A\nlead body X\n</memory>");
-  });
-
-  test("empty selection renders the empty string", async () => {
-    const block = await renderMemoryBlock([], new Map(), async () => "unused");
-    expect(block).toBe("");
-  });
-
-  test("preserves input order deterministically", async () => {
-    const sections = new Map<Slug, Section>([
-      ["page-a", section("page-a", "A")],
-      ["page-b", section("page-b", "B")],
-      ["page-c", section("page-c", "C")],
-    ]);
-
-    const forward = await renderMemoryBlock(
-      ["page-a", "page-b", "page-c"],
-      sections,
-      resolver({}),
-    );
-    const reversed = await renderMemoryBlock(
-      ["page-c", "page-b", "page-a"],
-      sections,
-      resolver({}),
-    );
-
-    expect(forward).toBe("<memory>\nA\nB\nC\n</memory>");
-    expect(reversed).toBe("<memory>\nC\nB\nA\n</memory>");
-  });
-
-  test("emits the shared wrapMemoryBlock marker the v2 stripper recognizes", async () => {
-    const block = await renderMemoryBlock(
-      ["page-a"],
-      new Map([["page-a", section("page-a", "x")]]),
-      resolver({}),
-    );
-    // Guard the v2/v3 marker contract: the rendered block must be byte-identical
-    // to wrapping the joined content with the shared helper.
-    expect(block).toBe(wrapMemoryBlock("x"));
+  test("empty list renders the empty string", () => {
+    expect(renderPointerInner([])).toBe("");
   });
 });

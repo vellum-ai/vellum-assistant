@@ -484,6 +484,7 @@ import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-inde
 import { migrateChannelInboundMessageIdIndex } from "./migrations/374-channel-inbound-message-id-index.js";
 import { migrateCreateChannelOutboundPosts } from "./migrations/375-create-channel-outbound-posts.js";
 import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/376-notification-deliveries-canonical-message-id.js";
+import { migrateAddMemoryV3InjectedSections } from "./migrations/378-add-memory-v3-injected-sections.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1602,4 +1603,12 @@ export const migrationSteps: MigrationStep[] = [
   migrateChannelInboundMessageIdIndex,
   migrateCreateChannelOutboundPosts,
   migrateNotificationDeliveriesCanonicalMessageId,
+  {
+    name: "migrateAddMemoryV3InjectedSections",
+    run: migrateAddMemoryV3InjectedSections,
+    // The legacy-row copy reads `memory_v3_ever_injected` on the memory
+    // connection, so its relocation must be checkpointed first or the copy
+    // would silently seed nothing and be checkpointed as done.
+    dependsOn: ["migrateMoveMemoryV3EverInjectedToMemoryDb"],
+  },
 ];

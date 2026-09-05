@@ -71,13 +71,13 @@ function resetTables(): void {
   getMemoryDb()!.delete(activationState).run();
   db.delete(conversationCompactionEvents).run();
   // conversation_graph_memory_state, memory_retrospective_state, and
-  // memory_v3_ever_injected all live on the memory connection now.
+  // memory_v3_injected_sections all live on the memory connection.
   getMemoryDb()!.delete(conversationGraphMemoryState).run();
   getMemoryDb()!.delete(memoryRetrospectiveState).run();
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   getMemoryDb()!.delete(memoryJobs).run();
-  getMemorySqlite()!.exec("DELETE FROM memory_v3_ever_injected");
+  getMemorySqlite()!.exec("DELETE FROM memory_v3_injected_sections");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
   db.run("DELETE FROM messages");
@@ -1180,31 +1180,53 @@ describe("forkConversation", () => {
     ]);
   });
 
-  test("copies the parent's memory-v3 everInjected record into a full fork", async () => {
+  test("copies the parent's memory-v3 section record into a full fork", async () => {
     const source = createConversation("V3 carry thread");
     await addMessage(source.id, "user", "first turn", { skipIndexing: true });
 
     recordV3Injected(
       source.id,
       [
-        { slug: "topics/page-a", bytes: 120 },
-        { slug: "topics/page-b", bytes: 340 },
+        { slug: "topics/page-a", key: "", bytes: 120 },
+        { slug: "topics/page-a", key: "Notes", bytes: 80 },
+        { slug: "topics/page-b", key: "", bytes: 340 },
       ],
       1_700_000_000_000,
     );
-    markV3Pruned(source.id, ["topics/page-b"], 1_700_000_001_000);
+    markV3Pruned(
+      source.id,
+      [{ slug: "topics/page-b", key: "" }],
+      1_700_000_001_000,
+    );
 
     const fork = forkConversation({ conversationId: source.id });
 
     // Full-row copy, pruned state included.
-    expect(getV3Injected(fork.id)).toEqual(
-      new Map([
-        ["topics/page-a", { bytes: 120, prunedAt: null }],
-        ["topics/page-b", { bytes: 340, prunedAt: 1_700_000_001_000 }],
-      ]),
-    );
+    expect(getV3Injected(fork.id)).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: 120,
+        injectedAt: 1_700_000_000_000,
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: 80,
+        injectedAt: 1_700_000_000_000,
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-b",
+        key: "",
+        bytes: 340,
+        injectedAt: 1_700_000_000_000,
+        prunedAt: 1_700_000_001_000,
+      },
+    ]);
     // Parent record is untouched.
-    expect(getV3Injected(source.id).size).toBe(2);
+    expect(getV3Injected(source.id)).toHaveLength(3);
   });
 
   test("leaves the fork's memory-v3 record empty when the parent has none", async () => {
@@ -1215,15 +1237,17 @@ describe("forkConversation", () => {
 
     const fork = forkConversation({ conversationId: source.id });
 
-    expect(getV3Injected(fork.id).size).toBe(0);
+    expect(getV3Injected(fork.id)).toEqual([]);
   });
 
-  test("truncated fork seeds the memory-v3 record from inherited v3 card blocks", async () => {
+  test("truncated fork seeds the memory-v3 record from inherited v3 section blocks", async () => {
     const source = createConversation("V3 truncated seed thread");
     await addMessage(source.id, "user", "first turn", {
       metadata: {
+        // A lead (bare page header) and a heading section of one page, plus
+        // another page's lead.
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-a.md\nCard A\n\n# memory/concepts/topics/page-b.md\nCard B",
+          "# memory/concepts/topics/page-a.md\nLead A\n\n# memory/concepts/topics/page-a.md § Notes\nNotes A\n\n# memory/concepts/topics/page-b.md\nLead B",
         // A v2 block on the same message must seed only the v2 record.
         memoryInjectedBlock: "# memory/concepts/topics/page-v2.md\nSummary",
       },
@@ -1238,11 +1262,11 @@ describe("forkConversation", () => {
     await addMessage(source.id, "assistant", "second reply", {
       skipIndexing: true,
     });
-    // Past the fork boundary — its card must NOT be claimed.
+    // Past the fork boundary, its section must NOT be claimed.
     await addMessage(source.id, "user", "third turn", {
       metadata: {
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-c.md\nCard C",
+          "# memory/concepts/topics/page-c.md\nLead C",
       },
       skipIndexing: true,
     });
@@ -1250,9 +1274,10 @@ describe("forkConversation", () => {
     recordV3Injected(
       source.id,
       [
-        { slug: "topics/page-a", bytes: 120 },
-        { slug: "topics/page-b", bytes: 340 },
-        { slug: "topics/page-c", bytes: 90 },
+        { slug: "topics/page-a", key: "", bytes: 120 },
+        { slug: "topics/page-a", key: "Notes", bytes: 60 },
+        { slug: "topics/page-b", key: "", bytes: 340 },
+        { slug: "topics/page-c", key: "", bytes: 90 },
       ],
       1_700_000_000_000,
     );
@@ -1262,30 +1287,36 @@ describe("forkConversation", () => {
       throughMessageId: boundaryMessage.id,
     });
 
-    // Exactly the slugs whose card blocks live in the copied history,
+    // Exactly the sections whose blocks live in the copied history,
     // dedup-only (`bytes = 0` — resident accounting restarts on the child).
-    expect(getV3Injected(fork.id)).toEqual(
-      new Map([
-        ["topics/page-a", { bytes: 0, prunedAt: null }],
-        ["topics/page-b", { bytes: 0, prunedAt: null }],
-      ]),
-    );
-    // The v2 seed picked up only the v2 block, not the v3 cards.
+    expect(
+      getV3Injected(fork.id).map(({ slug, key, bytes, prunedAt }) => ({
+        slug,
+        key,
+        bytes,
+        prunedAt,
+      })),
+    ).toEqual([
+      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
+      { slug: "topics/page-a", key: "Notes", bytes: 0, prunedAt: null },
+      { slug: "topics/page-b", key: "", bytes: 0, prunedAt: null },
+    ]);
+    // The v2 seed picked up only the v2 block, not the v3 sections.
     const childState = await hydrateActivationState(fork.id);
     expect(childState?.everInjected.map((e) => e.slug)).toEqual([
       "topics/page-v2",
     ]);
   });
 
-  test("truncated fork carries the parent's pruned tombstones for inherited v3 slugs", async () => {
+  test("truncated fork carries the parent's pruned tombstones for inherited v3 sections", async () => {
     // Pruning never rewrites the persisted metadata block, so the fork scan
-    // sees pruned cards' sections too — the seed must tombstone them, or the
-    // child's rehydration would resurrect cards the parent's live view lost.
+    // sees pruned sections too, the seed must tombstone them, or the child's
+    // rehydration would resurrect sections the parent's live view lost.
     const source = createConversation("V3 truncated pruned thread");
     await addMessage(source.id, "user", "first turn", {
       metadata: {
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-a.md\nCard A\n\n# memory/concepts/topics/page-b.md\nCard B",
+          "# memory/concepts/topics/page-a.md\nLead A\n\n# memory/concepts/topics/page-b.md § Notes\nNotes B",
       },
       skipIndexing: true,
     });
@@ -1302,24 +1333,38 @@ describe("forkConversation", () => {
     recordV3Injected(
       source.id,
       [
-        { slug: "topics/page-a", bytes: 120 },
-        { slug: "topics/page-b", bytes: 340 },
+        { slug: "topics/page-a", key: "", bytes: 120 },
+        { slug: "topics/page-b", key: "Notes", bytes: 340 },
       ],
       1_700_000_000_000,
     );
-    markV3Pruned(source.id, ["topics/page-b"], 1_700_000_005_000);
+    markV3Pruned(
+      source.id,
+      [{ slug: "topics/page-b", key: "Notes" }],
+      1_700_000_005_000,
+    );
 
     const fork = forkConversation({
       conversationId: source.id,
       throughMessageId: boundaryMessage.id,
     });
 
-    expect(getV3Injected(fork.id)).toEqual(
-      new Map([
-        ["topics/page-a", { bytes: 0, prunedAt: null }],
-        ["topics/page-b", { bytes: 0, prunedAt: 1_700_000_005_000 }],
-      ]),
-    );
+    expect(
+      getV3Injected(fork.id).map(({ slug, key, bytes, prunedAt }) => ({
+        slug,
+        key,
+        bytes,
+        prunedAt,
+      })),
+    ).toEqual([
+      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
+      {
+        slug: "topics/page-b",
+        key: "Notes",
+        bytes: 0,
+        prunedAt: 1_700_000_005_000,
+      },
+    ]);
   });
 
   test("defaults conversationType to standard and inherits the parent's group", async () => {

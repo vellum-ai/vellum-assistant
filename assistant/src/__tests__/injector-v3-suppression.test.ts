@@ -1,20 +1,20 @@
 /**
  * Tests for the memory-v3 step-0 branch in `applyRuntimeInjections`:
- * spotlight strip + v2 tail suppression.
+ * pointer strip + v2 tail suppression.
  *
  * When `memory.v3.live` is on AND the v3 injector (id `memory-v3`,
  * placement `after-memory-prefix`) produces a block — possibly EMPTY-TEXT on
  * an all-repeat turn — runtime assembly strips the v2 `<memory>` prefix from
  * the TAIL user message only before splicing the v3 block. Historical user
- * messages keep their memory blocks byte-identical (frozen v3 cards and
+ * messages keep their memory blocks byte-identical (frozen v3 sections and
  * pre-cutover v2 blocks both ride the cached prefix); the old whole-layer
  * strip is gone.
  *
- * Leftover `<memory_spotlight>` blocks are stripped from the TAIL user
- * message only (mid-turn re-entry / post-compact must not double-stack).
- * Historical user messages keep the spotlight they were sent with. The
- * spotlight injector's `after-memory-prefix` block is spliced onto the
- * current tail and captured on `blocks`.
+ * `<memory_pointer>` blocks are stripped from EVERY user message (the
+ * previous turn's pointer is stale; mid-turn re-entry / post-compact must not
+ * double-stack the tail's). The pointer injector's `after-memory-prefix`
+ * block is spliced onto the current tail and is never captured on `blocks`
+ * (it is not persisted).
  *
  * v2 suppression stays keyed off whether v3 produced a block, NOT off the
  * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
@@ -24,7 +24,7 @@
  * `isMemoryV3Live` mock slot.
  *
  * The strip discriminates v2's dynamic block by IDENTITY, not by prefix: v2's
- * `INJECTION_HEADER` and v3's `V3_CARDS_INJECTION_HEADER` are deliberately
+ * `INJECTION_HEADER` and v3's `V3_INJECTION_HEADER` are deliberately
  * byte-identical, and v2's router block leads with that header whenever any
  * summary section is present, so no prefix can tell the layers apart. The
  * identity — the exact text v2 prepended this turn — is read off the live
@@ -34,9 +34,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import { INJECTION_HEADER } from "../plugins/defaults/memory/v2/injection.js";
-import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
+import { V3_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
 import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
@@ -129,15 +129,15 @@ function v3Injector(inner: string | null, commit?: () => void): Injector {
   };
 }
 
-/** A fake v3 spotlight injector mirroring the real id + placement. */
-function spotlightInjector(inner: string): Injector {
+/** A fake v3 pointer injector mirroring the real id + placement. */
+function pointerInjector(inner: string): Injector {
   return {
-    name: "memory-v3-spotlight",
+    name: "memory-v3-pointer",
     order: 1001,
     async produce(): Promise<InjectionBlock | null> {
       return {
-        id: "memory-v3-spotlight",
-        text: wrapMemorySpotlightBlock(inner),
+        id: "memory-v3-pointer",
+        text: wrapMemoryPointerBlock(inner),
         placement: "after-memory-prefix",
       };
     },
@@ -243,18 +243,26 @@ describe("memory-v3-live v2 suppression", () => {
     expect(result.blocks.memoryV3Active).toBe(true);
   });
 
-  test("historical leftover spotlight stays; the fresh spotlight splices onto the tail", async () => {
+  test("the previous turn's pointer is stripped from history; the fresh pointer splices onto the tail", async () => {
     memoryV3LiveSlot = true;
-    injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
+    injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
 
-    const staleSpotlight = {
+    const stalePointer = {
       type: "text" as const,
-      text: wrapMemorySpotlightBlock("stale sections"),
+      text: wrapMemoryPointerBlock("stale refs"),
+    };
+    const frozenSections = {
+      type: "text" as const,
+      text: "<memory>\nfrozen sections\n</memory>",
     };
     const runMessages: Message[] = [
       {
         role: "user",
-        content: [{ type: "text", text: "earlier question" }, staleSpotlight],
+        content: [
+          frozenSections,
+          { type: "text", text: "earlier question" },
+          stalePointer,
+        ],
       },
       {
         role: "assistant",
@@ -267,28 +275,30 @@ describe("memory-v3-live v2 suppression", () => {
       ...makeTurnContext(),
     });
 
-    // Historical turn keeps the spotlight it was sent with.
+    // The historical turn loses only its stale pointer; its frozen sections
+    // stay byte-identical.
     expect(result.messages[0].content).toEqual([
+      frozenSections,
       { type: "text", text: "earlier question" },
-      staleSpotlight,
     ]);
-    // Fresh spotlight splices onto the tail (no memory prefix, so index 0)
-    // and is captured for metadata persist.
+    // The fresh pointer splices onto the tail (no memory prefix, so index 0).
+    // It is never captured for metadata persistence.
     const texts = tailTexts(result.messages);
     expect(texts).toEqual([
-      wrapMemorySpotlightBlock("fresh sections"),
+      wrapMemoryPointerBlock("fresh refs"),
       "current question",
     ]);
-    expect(result.blocks.memoryV3SpotlightBlock).toBe(
-      wrapMemorySpotlightBlock("fresh sections"),
+    expect(result.blocks).not.toHaveProperty("memoryV3PointerBlock");
+    expect(result.blocks.injectorChainBlock).toContain(
+      wrapMemoryPointerBlock("fresh refs"),
     );
   });
 
-  test("tail leftover spotlight is stripped before the fresh spotlight splices", async () => {
+  test("a tail leftover pointer is stripped before the fresh pointer splices (no double-stack)", async () => {
     memoryV3LiveSlot = true;
-    injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
+    injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
 
-    const staleOnTail = wrapMemorySpotlightBlock("stale sections");
+    const staleOnTail = wrapMemoryPointerBlock("stale refs");
     const runMessages: Message[] = [
       {
         role: "user",
@@ -304,12 +314,31 @@ describe("memory-v3-live v2 suppression", () => {
     });
 
     expect(tailTexts(result.messages)).toEqual([
-      wrapMemorySpotlightBlock("fresh sections"),
+      wrapMemoryPointerBlock("fresh refs"),
       "current question",
     ]);
-    expect(result.blocks.memoryV3SpotlightBlock).toBe(
-      wrapMemorySpotlightBlock("fresh sections"),
+  });
+
+  test("the pointer lands after this turn's frozen <memory> block on the tail", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(
+      v3Injector("net-new sections"),
+      pointerInjector("fresh refs"),
     );
+
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "current question" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      "<memory>\nnet-new sections\n</memory>",
+      wrapMemoryPointerBlock("fresh refs"),
+      "current question",
+    ]);
   });
 
   test("convergence re-entry: a tail leading with this turn's frozen v3 cards (and <info>) is NOT stripped", async () => {
@@ -324,7 +353,7 @@ describe("memory-v3-live v2 suppression", () => {
     injectorChainSlot.push(v3Injector(""));
     seedV2Identity("fresh recalled fact");
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const infoBlock = "<info>\nstatic memory\n</info>";
     const runMessages: Message[] = [
       {
@@ -356,7 +385,7 @@ describe("memory-v3-live v2 suppression", () => {
     injectorChainSlot.push(v3Injector(""));
     seedV2Identity("fresh recalled fact");
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const runMessages: Message[] = [
       {
         role: "user",
@@ -385,12 +414,12 @@ describe("memory-v3-live v2 suppression", () => {
     // The collision this guards: v2's router block leads with
     // INJECTION_HEADER whenever any summary section is present — the dominant
     // production case — and v3's card header is deliberately the same bytes.
-    expect(INJECTION_HEADER).toBe(V3_CARDS_INJECTION_HEADER);
+    expect(INJECTION_HEADER).toBe(V3_INJECTION_HEADER);
 
     const v2Inner = `${INJECTION_HEADER}\n\n## memory/concepts/page-b.md\nsummary of page b`;
     seedV2Identity(v2Inner);
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const infoBlock = "<info>\nstatic memory\n</info>";
     const runMessages: Message[] = [
       {
@@ -429,7 +458,7 @@ describe("memory-v3-live v2 suppression", () => {
     const v2Inner = `${INJECTION_HEADER}\n\n## memory/concepts/page-b.md\nsummary of page b`;
     seedV2Identity(v2Inner);
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const runMessages: Message[] = [
       {
         role: "user",

@@ -55,6 +55,7 @@ describe("conversation memory purge", () => {
         "memory_segments",
         "memory_v2_activation_logs",
         "memory_v3_ever_injected",
+        "memory_v3_injected_sections",
         "memory_v3_selections",
       ].sort(),
     );

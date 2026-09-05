@@ -23,6 +23,32 @@ function lastSlugSegment(slug: Slug): string {
   return segments[segments.length - 1] ?? slug;
 }
 
+/**
+ * The synthetic head line prepended to a section's text for lexical and dense
+ * matching: the slug's last segment and the section title, so a query naming
+ * either scores the section. The injection renderer strips it back off via
+ * {@link sectionBody}.
+ */
+export function sectionHeadLine(article: Slug, title: string): string {
+  return `${lastSlugSegment(article)} — ${title}`;
+}
+
+/**
+ * A section's text without its synthetic head line. Only the first chunk of a
+ * split section carries the head line, so the strip is keyed on the text
+ * actually starting with it rather than on chunk position.
+ */
+export function sectionBody(section: Section): string {
+  const head = sectionHeadLine(section.article, section.title);
+  if (section.text === head) {
+    return "";
+  }
+  if (section.text.startsWith(`${head}\n`)) {
+    return section.text.slice(head.length + 1);
+  }
+  return section.text;
+}
+
 interface RawSection {
   title: string;
   body: string;
@@ -78,6 +104,28 @@ function chunkText(text: string): string[] {
   return chunks;
 }
 
+/** A raw section's indexed text chunks: the synthetic head line plus the
+ *  body, split to the embedding window. */
+function rawSectionChunks(article: Slug, raw: RawSection): string[] {
+  return chunkText(`${sectionHeadLine(article, raw.title)}\n${raw.body}`);
+}
+
+/**
+ * The lead section (ordinal 0) of one page body, built by the same split and
+ * chunk rules as {@link buildSectionIndex} so its text and key are exactly
+ * the index's own lead for that page. For callers that need a single page's
+ * lead (the injector's unmatched-page fallback) without indexing the corpus.
+ */
+export function leadSectionOfBody(article: Slug, body: string): Section {
+  const raw = splitIntoRawSections(body)[0]!;
+  return {
+    article,
+    title: raw.title,
+    text: rawSectionChunks(article, raw)[0]!,
+    ordinal: 0,
+  };
+}
+
 export async function buildSectionIndex(
   slugs: Slug[],
   pageBody: (slug: Slug) => Promise<string>,
@@ -87,18 +135,22 @@ export async function buildSectionIndex(
   // Sort slugs so the flat `sections` array is deterministic across runs.
   for (const article of [...slugs].sort((a, b) => a.localeCompare(b))) {
     const body = await pageBody(article);
-    const segment = lastSlugSegment(article);
 
     let ordinal = 0;
+    // Per-title occurrence counter: the first section under a title keys as
+    // the bare title, later chunks of that section and repeated headings key
+    // as `title#<n>` (see `sectionKey` in `types.ts`).
+    const titleCounts = new Map<string, number>();
     for (const raw of splitIntoRawSections(body)) {
-      const head = `${segment} — ${raw.title}`;
-      const fullText = `${head}\n${raw.body}`;
-      for (const chunk of chunkText(fullText)) {
+      for (const chunk of rawSectionChunks(article, raw)) {
+        const titleOrdinal = titleCounts.get(raw.title) ?? 0;
+        titleCounts.set(raw.title, titleOrdinal + 1);
         sections.push({
           article,
           title: raw.title,
           text: chunk,
           ordinal: ordinal++,
+          ...(titleOrdinal > 0 ? { titleOrdinal } : {}),
         });
       }
     }

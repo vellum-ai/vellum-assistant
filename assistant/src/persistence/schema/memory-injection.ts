@@ -26,26 +26,32 @@ export const memoryV2InjectionEvents = sqliteTable(
   ],
 );
 
-// Per-conversation record of every memory-v3 card ever injected, with a
-// pruned_at tombstone so re-injection can be suppressed after pruning. Lives in
-// the dedicated memory database (`assistant-memory.db`), not main — access it
-// via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
-export const memoryV3EverInjected = sqliteTable(
-  "memory_v3_ever_injected",
+// Per-conversation record of every memory-v3 section ever injected, keyed by
+// (page slug, section key: `""` for the page lead or capability content), with
+// a pruned_at tombstone so re-injection can be suppressed after pruning. Lives
+// in the dedicated memory database (`assistant-memory.db`), not main, access
+// it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`). The
+// legacy card-grain `memory_v3_ever_injected` table stays on disk (migrations
+// are append-only) but nothing reads or writes it.
+export const memoryV3InjectedSections = sqliteTable(
+  "memory_v3_injected_sections",
   {
     conversationId: text("conversation_id").notNull(),
     slug: text("slug").notNull(),
+    sectionKey: text("section_key").notNull(),
     injectedAt: integer("injected_at").notNull(),
     bytes: integer("bytes").notNull().default(0),
     prunedAt: integer("pruned_at"),
   },
   (table) => [
-    primaryKey({ columns: [table.conversationId, table.slug] }),
-    index("idx_memory_v3_ever_injected_conv").on(table.conversationId),
+    primaryKey({
+      columns: [table.conversationId, table.slug, table.sectionKey],
+    }),
+    index("idx_memory_v3_injected_sections_conv").on(table.conversationId),
   ],
 );
 
-// Per-turn log of which memory-v3 cards were selected, with lane attribution.
+// Per-turn log of which memory-v3 pages were selected, with lane attribution.
 // Lives in the dedicated memory database (`assistant-memory.db`), not main —
 // access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV3Selections = sqliteTable(

@@ -66,7 +66,7 @@ mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-// `loadFromDb` reads the conversation's pruned v3 card slugs (prune valve)
+// `loadFromDb` reads the conversation's pruned v3 sections (prune valve)
 // when a row carries a `memoryV3InjectedBlock`. Stub the store read so these
 // tests never touch a real DB; the stub DELEGATES to the real implementation
 // unless this file is actively running (`mock.module` is process-global and
@@ -75,13 +75,13 @@ const realEverInjectedStore = {
   ...(await import("../plugins/defaults/memory/v3/ever-injected-store.js")),
 };
 let lifecycleStoreMockActive = false;
-let mockPrunedSlugs = new Set<string>();
+let mockPrunedSections = new Map<string, Set<string>>();
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
-  getPrunedSlugs: (conversationId: string) =>
+  getPrunedSections: (conversationId: string) =>
     lifecycleStoreMockActive
-      ? mockPrunedSlugs
-      : realEverInjectedStore.getPrunedSlugs(conversationId),
+      ? mockPrunedSections
+      : realEverInjectedStore.getPrunedSections(conversationId),
 }));
 
 import {
@@ -91,7 +91,7 @@ import {
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
-  mockPrunedSlugs = new Set();
+  mockPrunedSections = new Map();
 });
 
 afterAll(() => {
@@ -406,12 +406,12 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("pruned slugs' card sections are skipped at v3 rehydration (prune valve persistence)", async () => {
-    // The prune valve marks cards pruned in the everInjected store instead of
+  test("pruned sections are skipped at v3 rehydration (prune valve persistence)", async () => {
+    // The prune valve marks sections pruned in the section store instead of
     // rewriting the persisted metadata; the rehydration splice re-filters on
     // every load, which is what makes a prune survive restarts.
     mockConversation = defaultConv();
-    mockPrunedSlugs = new Set(["page-a"]);
+    mockPrunedSections = new Map([["page-a", new Set([""])]]);
     mockDbMessages = [
       {
         id: "m1",
@@ -444,7 +444,7 @@ describe("loadFromDb metadata injection rehydration", () => {
 
   test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
     mockConversation = defaultConv();
-    mockPrunedSlugs = new Set(["page-a"]);
+    mockPrunedSections = new Map([["page-a", new Set([""])]]);
     mockDbMessages = [
       {
         id: "m1",

@@ -14,10 +14,11 @@
  * written). The rendered `injectedText` is the `<memory>` block for the logged
  * selection.
  *
- * `injectedText` is inspector-only, not a verbatim record of the live cards +
- * spotlight. It re-renders each selection's matched section — resolved from the
- * persisted `(slug, sectionOrdinal)` against the CURRENT page — falling back to
- * the full page when no section was recorded. Because the section text is
+ * `injectedText` is inspector-only, not a verbatim record of the live block,
+ * which freezes only the turn's net-new sections. It re-renders every
+ * selection's matched section, resolved from the persisted
+ * `(slug, sectionOrdinal)` against the CURRENT page, falling back to the
+ * page's lead when no section was recorded. Because the section text is
  * re-derived from the current page, it reflects bounded page-drift if the page
  * changed since the turn (the same approximation the v2 inspector accepts). The
  * selected slug set and each row's matched-section heading are exact as logged.
@@ -51,7 +52,7 @@ export type MemoryV3SelectionRow = z.infer<typeof MemoryV3SelectionRowSchema>;
  * Memory v3 selection log shape. `injectedText` is the rendered
  * `<memory>…</memory>` block for the selection — re-rendered from the persisted
  * rows, with each selection's matched section resolved from its
- * `(slug, sectionOrdinal)` (full-page fallback when none). See the file header.
+ * `(slug, sectionOrdinal)` (lead fallback when none). See the file header.
  */
 export const MemoryV3SelectionLogSchema = z.object({
   turn: z.number(),

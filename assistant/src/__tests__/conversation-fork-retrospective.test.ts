@@ -68,7 +68,7 @@ function resetTables(): void {
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   getMemoryDb()!.delete(memoryJobs).run();
-  getMemorySqlite()!.exec("DELETE FROM memory_v3_ever_injected");
+  getMemorySqlite()!.exec("DELETE FROM memory_v3_injected_sections");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
   db.run("DELETE FROM conversation_compaction_events");
@@ -357,9 +357,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
         forkRows,
         fork.contextCompactedMessageCount,
       ),
-    ).toEqual(
-      renderWindow(source.summary, sourceRows, source.compactedCount),
-    );
+    ).toEqual(renderWindow(source.summary, sourceRows, source.compactedCount));
 
     // The synchronous user fork keeps the full physical history.
     const syncFork = forkConversation({
@@ -388,8 +386,8 @@ describe("forkConversationForRetrospective — compacted source", () => {
       .run();
     getMemorySqlite()!
       .query(
-        `INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
-         VALUES (?, 'card-a', ?, 12, NULL)`,
+        `INSERT INTO memory_v3_injected_sections (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
+         VALUES (?, 'card-a', '', ?, 12, NULL)`,
       )
       .run(source.id, Date.now());
 
@@ -412,7 +410,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
     expect(forkActivation?.everInjectedJson).toBe(everInjected);
     const v3Rows = getMemorySqlite()!
       .query(
-        "SELECT slug FROM memory_v3_ever_injected WHERE conversation_id = ?",
+        "SELECT slug FROM memory_v3_injected_sections WHERE conversation_id = ?",
       )
       .all(fork.id) as Array<{ slug: string }>;
     expect(v3Rows.map((r) => r.slug)).toEqual(["card-a"]);

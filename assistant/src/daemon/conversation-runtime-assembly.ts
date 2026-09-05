@@ -27,9 +27,8 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
-  MEMORY_SPOTLIGHT_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
-  stripTailUserTextBlocksByPrefix,
+  stripPointerInjections,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
@@ -62,7 +61,6 @@ import {
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
-  MEMORY_V3_SPOTLIGHT_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -1860,21 +1858,16 @@ export interface RuntimeInjectionBlocks {
    */
   nonInteractiveContextBlock?: string;
   /**
-   * UNWRAPPED inner text of the memory-v3 frozen net-new card block the v3
+   * UNWRAPPED inner text of the memory-v3 frozen net-new section block the v3
    * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
    * contract (rehydration re-wraps on use). Undefined when v3 attached no new
-   * cards (all-repeat turn, v3 off, or v3 failure). Persisted by the
+   * sections (all-repeat turn, v3 off, or v3 failure). Persisted by the
    * user-prompt-submit hook under `metadata.memoryV3InjectedBlock`
-   * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
+   * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The per-turn `<memory_pointer>`
+   * block has no field here: it is never persisted, and Step 0 strips the
+   * previous turn's copy from every user message before the fresh one splices.
    */
   memoryV3InjectedBlock?: string;
-  /**
-   * Rendered `<memory_spotlight>` body spliced onto this turn's user
-   * message. Persisted by the user-prompt-submit hook under
-   * `metadata.memoryV3SpotlightBlock`. Historical turns keep the block they
-   * were sent with; a new spotlight is added only on the new tail.
-   */
-  memoryV3SpotlightBlock?: string;
   /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
@@ -1911,10 +1904,7 @@ export interface RuntimeInjectionResult {
  * non-overlapping so the inspector's "Other" remainder is honest. The
  * names are pinned by `injector-registry-order-guard.test.ts`.
  */
-const SELF_INSTRUMENTED_INJECTORS = new Set([
-  "memory-v3-shadow",
-  "memory-v3-spotlight",
-]);
+const SELF_INSTRUMENTED_INJECTORS = new Set(["memory-v3-shadow"]);
 
 /**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
@@ -2511,7 +2501,6 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
-  let memoryV3SpotlightCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2542,7 +2531,7 @@ export async function applyRuntimeInjections(
           backgroundTurnCaptured = block.text;
           break;
         case MEMORY_V3_BLOCK_ID: {
-          // The v3 frozen card block is persisted UNWRAPPED (the v2
+          // The v3 frozen section block is persisted UNWRAPPED (the v2
           // `memoryInjectedBlock` contract — rehydration re-wraps on use).
           // An empty-text block (all-repeat turn) attaches no content, so
           // nothing is captured for persistence either.
@@ -2551,21 +2540,16 @@ export async function applyRuntimeInjections(
           }
           // Attachment is guaranteed from here (user tail — the gate this
           // capture loop runs under), so commit the injector's deferred
-          // everInjected-store write. On a non-user tail the block silently
+          // section-store write. On a non-user tail the block silently
           // no-ops in `applyInjectionBlock`, and skipping the commit keeps
-          // the store from claiming cards that never attached (which would
-          // suppress them until compaction).
+          // the store from claiming sections that never attached (which
+          // would suppress them until compaction).
           const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
           if (typeof commit === "function") {
             (commit as () => void)();
           }
           break;
         }
-        case MEMORY_V3_SPOTLIGHT_BLOCK_ID:
-          if (block.text.length > 0) {
-            memoryV3SpotlightCaptured = block.text;
-          }
-          break;
       }
     }
   }
@@ -2584,18 +2568,18 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: tail spotlight strip + v2 tail suppression ──
+  // ── Step 0: pointer strip + v2 tail suppression ──
   //
-  // Spotlight strip (tail only): mid-turn re-entry and post-compact can
-  // hand back a tail that already carries this turn's `<memory_spotlight>`.
-  // Strip that leftover from the tail so Step 2 splices a single fresh
-  // copy. Historical user messages keep the spotlight they were sent with,
-  // so the provider prefix through those messages stays byte-identical.
-  // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
-  // spotlight blocks exist and this is a content no-op.
-  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(runMessages, [
-    MEMORY_SPOTLIGHT_MATCHER,
-  ]);
+  // Pointer strip (every user message): the memory-v3 `<memory_pointer>` is
+  // per-turn by contract. The previous turn's copy is stale, and mid-turn
+  // re-entry / post-compact can hand back a tail that already carries this
+  // turn's, so strip every copy so Step 2 splices a single fresh one onto
+  // the tail. The pointer is the one injected block that is not frozen into
+  // history: it is a few path lines, and the agent loop flags a pointer-
+  // bearing turn start as volatile for the provider's cache anchor. Frozen
+  // `<memory>` section blocks are untouched. With the v3 flag off no pointer
+  // blocks exist and this is a content no-op.
+  let runMessagesForAssembly = stripPointerInjections(runMessages);
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2603,13 +2587,13 @@ export async function applyRuntimeInjections(
   // fresh `<memory>` block to the tail user message — strip the TAIL's v2
   // dynamic prefix only, so the v3 `after-memory-prefix` block (Step 2) lands
   // at the top of the tail with no v2 prefix ahead of it. Historical user
-  // messages keep their memory blocks byte-identical: frozen v3 card blocks
-  // from prior turns AND pre-cutover v2 blocks both ride the cached prefix
-  // (the old whole-layer `stripAllMemoryInjections` replace is gone). The
-  // strip discriminates v2's dynamic block by IDENTITY ({@link
+  // messages keep their memory blocks byte-identical: frozen v3 section
+  // blocks from prior turns AND pre-cutover v2 blocks both ride the cached
+  // prefix (the old whole-layer `stripAllMemoryInjections` replace is gone).
+  // The strip discriminates v2's dynamic block by IDENTITY ({@link
   // stripTailV2DynamicMemoryPrefix}): the live graph handle holds the exact
   // text the wiring layer prepended this turn, so a re-entry tail's
-  // just-frozen v3 card block (and the `<info>` static block) survive even
+  // just-frozen v3 section block (and the `<info>` static block) survive even
   // though v2 and v3 blocks share identical wrapper + header bytes — the v2
   // prefix this strip exists to remove was already stripped on first entry.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
@@ -2802,7 +2786,6 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
-      memoryV3SpotlightBlock: memoryV3SpotlightCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

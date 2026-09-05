@@ -172,12 +172,15 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 
 - **v3 (live)**: per-turn lane selection over concept pages (dense/sparse
   retrieval via `substrate/sim.ts` over the concept-page collection,
-  learned edges, entity/hot/fresh/core sets) rendered as the `<memory>`
-  card by `v3/injector.ts`. Frozen cards stay on historical user messages
-  so the provider prefix stays cacheable. Each turn's `<memory_spotlight>`
-  stays on the user message that was sent with it. A new spotlight is
-  added only on the new tail, so older messages are not rewritten. The
-  static `<info>` block
+  learned edges, entity/hot/fresh/core sets). The injection unit is the
+  SECTION: `v3/injector.ts` renders each selected page's matched section
+  (its lead when it was selected without a match) into a `<memory>` block,
+  net-new sections only, deduped per `(page, section)` through
+  `memory_v3_injected_sections` and bounded by a recency prune valve with no
+  lane exemptions. Frozen section blocks stay on historical user messages so
+  the provider prefix stays cacheable. Re-selected sections that are already
+  resident are listed, paths only, in an ephemeral `<memory_pointer>` block
+  that assembly strips and re-splices every turn. The static `<info>` block
   (`substrate/static-context.ts`: essentials/threads/recent/buffer) also
   injects whenever the substrate is active.
 - **v2 (transitional)**: activation/router engine in `v2/`
@@ -192,8 +195,8 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 
 The live voice front door does not await current-turn memory retrieval. Its
 prompt hook skips legacy graph retrieval, and both v3 injectors skip
-orchestration for `voiceFrontDoor`. Frozen cards from prior turns and the static
-substrate context remain available. When the answer depends on a saved personal
+orchestration for `voiceFrontDoor`. Frozen sections from prior turns and the
+static substrate context remain available. When the answer depends on a saved personal
 fact that is absent from that context, the front-door rule escalates instead of
 guessing.
 

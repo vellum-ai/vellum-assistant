@@ -134,14 +134,14 @@ mock.module("../page-content.js", () => ({
   ...realPageContent,
   // The inspector store reconstructs each selection's matched section from the
   // current page; in this unit the test pages don't exist on disk, so the
-  // section map is empty and the renderer falls back to the full page. The mock
+  // section map is empty and the renderer falls back to the lead. The mock
   // stands in for that render and reflects whether a section was supplied.
-  renderV3SectionContent: async (slug: string, section?: { title: string }) =>
+  renderV3InjectionEntry: async (slug: string, section?: { title: string }) =>
     storeMockActive
       ? section
-        ? `section[${section.title}] for ${slug}`
-        : `body for ${slug}`
-      : realPageContent.renderV3SectionContent(slug, undefined),
+        ? `# memory/concepts/${slug}.md § ${section.title}\nsection[${section.title}] for ${slug}`
+        : `# memory/concepts/${slug}.md\nbody for ${slug}`
+      : realPageContent.renderV3InjectionEntry(slug, undefined),
 }));
 
 const {
@@ -198,7 +198,7 @@ describe("getMemoryV3SelectionForInspector", () => {
     // The second row carries a retired free-text source label (the column is
     // permissive); the inspector passes it through verbatim. Neither row has a
     // matched section, so section fields are null and the block falls back to
-    // full pages.
+    // each page's lead.
     seed("conv-4", 1, [
       { slug: "domain-a/page-1", source: "edge" },
       { slug: "domain-b/page-2", source: "legacy-carry" },

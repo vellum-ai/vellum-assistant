@@ -7,13 +7,13 @@
  * after the fact.
  *
  * The rendered text is inspector-only and NOT byte-identical to live injection:
- * the live injector freezes net-new compact CARDS into history
- * (`renderV3CardContent`) plus an ephemeral spotlight. Here we re-render each
- * selection's MATCHED SECTION — resolved from the persisted `(slug, ordinal)`
- * against the current page — when one was recorded, falling back to the
- * full/lead page otherwise. Section text is re-derived from the current page,
- * so it reflects bounded page-drift if the page changed since the turn (the
- * same approximation the v2 inspector accepts).
+ * the live injector freezes only the turn's NET-NEW sections into history and
+ * points at the rest. Here we re-render EVERY selection with the injector's
+ * own entry renderer (`renderV3InjectionEntry`): the MATCHED SECTION resolved
+ * from the persisted `(slug, ordinal)` against the current page when one was
+ * recorded, the page's lead otherwise. Section text is re-derived from the
+ * current page, so it reflects bounded page-drift if the page changed since
+ * the turn (the same approximation the v2 inspector accepts).
  */
 
 import type { MemoryV3SelectionLog } from "../../../../api/responses/memory-v3-selection-log.js";
@@ -21,12 +21,13 @@ import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { memorySqliteOrNull } from "../memory-db.js";
+import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
-import { renderV3SectionContent } from "./page-content.js";
-import { renderMemoryBlock } from "./render-injection.js";
+import { renderV3InjectionEntry } from "./page-content.js";
+import { renderInjectionBlockInner } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
 import {
   type Section,
@@ -140,10 +141,10 @@ function rowsViaForkSource(messageIds: string[]): SelectionRow[] {
 /**
  * Resolve each selection's persisted matched section `(slug, ordinal)` to the
  * concrete `Section` in the CURRENT page, so the injected block renders the
- * matched section rather than the full page. Only slugs with a recorded ordinal
- * are resolved (core/hot/fresh/edge selections have none and render full-page).
+ * matched section rather than the lead. Only slugs with a recorded ordinal
+ * are resolved (core/hot/fresh/edge selections have none and render the lead).
  * A page edited since the turn re-derives the current section at that ordinal,
- * or falls back to full-page when the ordinal no longer exists.
+ * or falls back to the lead when the ordinal no longer exists.
  */
 async function reconstructMatchedSections(
   rows: SelectionRow[],
@@ -195,11 +196,17 @@ async function buildSelectionLog(
   }));
   const slugs: Slug[] = selections.map((s) => s.slug);
   const sectionBySlug = await reconstructMatchedSections(rows);
-  const injectedText = await renderMemoryBlock(
-    slugs,
-    sectionBySlug,
-    renderV3SectionContent,
-  );
+  // Each entry is an independent page read; the rendered block keeps `slugs`
+  // order regardless of which resolves first.
+  const entries = (
+    await Promise.all(
+      slugs.map((slug) =>
+        renderV3InjectionEntry(slug, sectionBySlug.get(slug)),
+      ),
+    )
+  ).filter((entry) => entry.length > 0);
+  const inner = renderInjectionBlockInner(entries);
+  const injectedText = inner.length === 0 ? "" : wrapMemoryBlock(inner);
 
   return {
     turn: rows[0]!.turn,

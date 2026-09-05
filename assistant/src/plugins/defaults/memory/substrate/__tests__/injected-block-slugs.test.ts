@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   extractInjectedConceptSlugs,
+  extractInjectedSectionRefs,
   injectedConceptHeader,
+  injectedSectionHeader,
+  injectedSectionPath,
   readInjectedBlock,
 } from "../injected-block-slugs.js";
 
@@ -61,6 +64,61 @@ describe("injectedConceptHeader", () => {
     expect(extractInjectedConceptSlugs(`${header}\nBody.`)).toEqual([
       "topics/page-a",
     ]);
+  });
+});
+
+describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
+  test("a lead key renders the bare page header; a heading key appends § key", () => {
+    expect(injectedSectionHeader("topics/page-a", "")).toBe(
+      "# memory/concepts/topics/page-a.md",
+    );
+    expect(injectedSectionHeader("topics/page-a", "Notes")).toBe(
+      "# memory/concepts/topics/page-a.md § Notes",
+    );
+    expect(injectedSectionPath("topics/page-a", "Notes#1")).toBe(
+      "memory/concepts/topics/page-a.md § Notes#1",
+    );
+  });
+
+  test('recovers (slug, key) pairs, deduped in order, with the lead as key ""', () => {
+    const block = [
+      injectedSectionHeader("topics/page-a", ""),
+      "Lead A",
+      "",
+      injectedSectionHeader("topics/page-a", "Notes"),
+      "Notes A",
+      "",
+      injectedSectionHeader("topics/page-b", "Notes#1"),
+      "Second Notes chunk of B",
+      "",
+      injectedSectionHeader("topics/page-a", "Notes"),
+      "Notes A again",
+    ].join("\n");
+
+    expect(extractInjectedSectionRefs(block)).toEqual([
+      { slug: "topics/page-a", key: "" },
+      { slug: "topics/page-a", key: "Notes" },
+      { slug: "topics/page-b", key: "Notes#1" },
+    ]);
+    // The slug extractor sees the same headers at page grain.
+    expect(extractInjectedConceptSlugs(block)).toEqual([
+      "topics/page-a",
+      "topics/page-b",
+    ]);
+  });
+
+  test("a key containing .md never bleeds into the slug", () => {
+    const header = injectedSectionHeader(
+      "topics/page-a",
+      "Reading notes.md § x",
+    );
+    expect(extractInjectedSectionRefs(header)).toEqual([
+      { slug: "topics/page-a", key: "Reading notes.md § x" },
+    ]);
+    // Dotted slugs still round-trip.
+    expect(
+      extractInjectedSectionRefs(injectedSectionHeader("a.b", "Notes")),
+    ).toEqual([{ slug: "a.b", key: "Notes" }]);
   });
 });
 

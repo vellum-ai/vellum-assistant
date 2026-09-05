@@ -1,15 +1,16 @@
 /**
- * Verifies that a persisted memory-v3 spotlight already in history is sent
- * as-is and does not flag the turn-start message as volatile.
- *
- * Spotlight stays on the user message that was sent. The loop must not
- * attach, strip, or mark that message mutable.
+ * Verifies the agent loop's cache-anchor signal for the memory-v3 pointer: a
+ * `<memory_pointer>` block on the turn-starting user message flags that
+ * message as volatile (`mutableLatestUserMessage`) for every request in the
+ * turn, the loop sends the block as-is (assembly, not the loop, strips it on
+ * the next turn), and a history with no pointer sets no flag at all so the
+ * wire config stays byte-identical.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { AgentLoop } from "../agent/loop.js";
-import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type {
   Message,
   Provider,
@@ -18,18 +19,20 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 
-const spotlightText = wrapMemorySpotlightBlock("recalled: Alice's plan");
+const pointerText = wrapMemoryPointerBlock(
+  "Already in context above, relevant again this turn:\nmemory/concepts/plans.md § Alpha",
+);
 
 const userMessage: Message = {
   role: "user",
   content: [{ type: "text", text: "hi" }],
 };
 
-const userMessageWithSpotlight: Message = {
+const userMessageWithPointer: Message = {
   role: "user",
   content: [
     { type: "text", text: "hi" },
-    { type: "text", text: spotlightText },
+    { type: "text", text: pointerText },
   ],
 };
 
@@ -88,8 +91,8 @@ const echoTool: ToolDefinition = {
   },
 };
 
-describe("AgentLoop.run: persisted spotlight in history", () => {
-  test("sends a spotlight already in history and does not flag the turn-start as volatile", async () => {
+describe("AgentLoop.run: memory-v3 pointer on the turn-start message", () => {
+  test("sends the pointer as-is and flags the turn start as volatile", async () => {
     const { provider, configs, sent } = makeRecordingProvider([
       textResponse("done"),
     ]);
@@ -102,21 +105,19 @@ describe("AgentLoop.run: persisted spotlight in history", () => {
 
     const result = await loop.run({
       requestId: "test-request",
-      messages: [userMessageWithSpotlight],
+      messages: [userMessageWithPointer],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
 
     expect(sent()).toHaveLength(1);
-    expect(sent()[0]![0]!.content).toEqual(userMessageWithSpotlight.content);
-    expect(result.history[0]!.content).toEqual(
-      userMessageWithSpotlight.content,
-    );
-    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
+    expect(sent()[0]![0]!.content).toEqual(userMessageWithPointer.content);
+    expect(result.history[0]!.content).toEqual(userMessageWithPointer.content);
+    expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
   });
 
-  test("does not set mutableLatestUserMessage when history has no spotlight", async () => {
+  test("does not set mutableLatestUserMessage when history has no pointer", async () => {
     const { provider, sent, configs } = makeRecordingProvider([
       textResponse("hi"),
     ]);
@@ -139,7 +140,7 @@ describe("AgentLoop.run: persisted spotlight in history", () => {
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("keeps a persisted spotlight on the opening user message through a tool loop", async () => {
+  test("holds the flag steady through a tool loop and keeps the pointer on the opening message", async () => {
     const { provider, sent, configs } = makeRecordingProvider([
       toolUseResponse("t1", "echo", { value: "first" }),
       textResponse("done"),
@@ -155,19 +156,19 @@ describe("AgentLoop.run: persisted spotlight in history", () => {
 
     const result = await loop.run({
       requestId: "test-request",
-      messages: [userMessageWithSpotlight],
+      messages: [userMessageWithPointer],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
 
     expect(sent()).toHaveLength(2);
-    expect(sent()[0]![0]!.content).toEqual(userMessageWithSpotlight.content);
-    expect(sent()[1]![0]!.content).toEqual(userMessageWithSpotlight.content);
-    expect(result.history[0]!.content).toEqual(
-      userMessageWithSpotlight.content,
-    );
-    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
-    expect("mutableLatestUserMessage" in (configs()[1] ?? {})).toBe(false);
+    expect(sent()[0]![0]!.content).toEqual(userMessageWithPointer.content);
+    expect(sent()[1]![0]!.content).toEqual(userMessageWithPointer.content);
+    expect(result.history[0]!.content).toEqual(userMessageWithPointer.content);
+    // The trailing tool-result message is user-role but carries no text, so
+    // the signal still reads the opening message on the second request.
+    expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
+    expect(configs()[1]?.mutableLatestUserMessage).toBe(true);
   });
 });
