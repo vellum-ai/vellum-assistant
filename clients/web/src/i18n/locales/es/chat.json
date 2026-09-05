@@ -991,6 +991,7 @@
     "breakdownStatus": "estado",
     "candidatePoolChosenChip": "seleccionada",
     "candidatePoolNoneBody": "No se registró ningún grupo de candidatos para este turno.",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, one {# candidato admitido directamente} other {# candidatos admitidos directamente}} sin evaluación del selector · selector desactivado",
     "candidatePoolSelectorNotRunBody": "El selector no se ejecutó en este turno.",
     "candidatePoolSubtitle": "{poolSize, plural, one {# candidato mostrado} other {# candidatos mostrados}} al selector · {selectedCount, plural, one {# página seleccionada} other {# páginas seleccionadas}}",
     "candidatePoolTitle": "Grupo de candidatos",

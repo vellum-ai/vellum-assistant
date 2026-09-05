@@ -729,8 +729,12 @@ function formatV3Source(source: string, t: MemoryTranslate): string {
  * The selector's full candidate pool for the turn: every stable-prefix card
  * and finder line it saw, collapsed behind a summary of pool size and pages
  * selected. A turn logged before pools were persisted shows the empty state;
- * a turn whose selector never ran (the injection gate hard-skipped it, or
- * nothing was pooled) says so instead of listing candidates it never judged.
+ * a turn whose selector never ran and that pooled nothing (the injection
+ * gate hard-skipped it, or nothing was pooled) says so instead of listing
+ * candidates it never judged. A pool the selector never ran over but that
+ * still holds candidates is the disabled-selector passthrough: every
+ * candidate went through as a selection, so the list renders under a summary
+ * saying no selector judged it.
  */
 function V3CandidatePoolCard({
   pool,
@@ -739,7 +743,7 @@ function V3CandidatePoolCard({
   pool: MemoryV3Pool | null;
   t: MemoryTranslate;
 }): ReactNode {
-  if (pool == null || !pool.selectorRan) {
+  if (pool == null || (!pool.selectorRan && pool.candidates.length === 0)) {
     return (
       <SectionCard title={t("memoryTab.candidatePoolTitle")}>
         <span
@@ -757,10 +761,16 @@ function V3CandidatePoolCard({
   return (
     <DisclosureCard
       title={t("memoryTab.candidatePoolTitle")}
-      subtitle={t("memoryTab.candidatePoolSubtitle", {
-        poolSize: pool.poolSize,
-        selectedCount: pool.selectedCount,
-      })}
+      subtitle={
+        pool.selectorRan
+          ? t("memoryTab.candidatePoolSubtitle", {
+              poolSize: pool.poolSize,
+              selectedCount: pool.selectedCount,
+            })
+          : t("memoryTab.candidatePoolPassthroughSubtitle", {
+              poolSize: pool.poolSize,
+            })
+      }
     >
       <div className="flex flex-col gap-1">
         {pool.candidates.map((candidate, i) => (

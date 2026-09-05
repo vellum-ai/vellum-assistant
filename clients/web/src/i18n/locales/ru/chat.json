@@ -559,6 +559,7 @@
     "breakdownStatus": "статус",
     "candidatePoolChosenChip": "выбрана",
     "candidatePoolNoneBody": "Пул кандидатов для этого хода не записан.",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, one {# кандидат передан напрямую} few {# кандидата передано напрямую} many {# кандидатов передано напрямую} other {# кандидата передано напрямую}} без оценки селектора · селектор отключён",
     "candidatePoolSelectorNotRunBody": "Селектор не запускался в этом ходе.",
     "candidatePoolSubtitle": "{poolSize, plural, one {# кандидат показан} few {# кандидата показано} many {# кандидатов показано} other {# кандидата показано}} селектору · {selectedCount, plural, one {выбрана # страница} few {выбраны # страницы} many {выбрано # страниц} other {выбрано # страницы}}",
     "candidatePoolTitle": "Пул кандидатов",
