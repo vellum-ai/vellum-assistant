@@ -1100,15 +1100,21 @@ export const companionBaselineFor = (avatarBox: number): number =>
   (COMPANION_BASE_AVATAR_IMAGE / 2) * companionScaleFor(avatarBox);
 
 /**
- * The height of the pill the surface rests in once a pointer has grown it, at
- * the authored avatar box.
+ * The tallest the pill the surface rests in has ever been drawn, at the
+ * authored avatar box.
  *
  * Here rather than in the renderer alone because main places the window by it:
- * the grown pill is centred on the avatar and reaches further below that
- * centre than the creature does, so a placement that did not know this number
- * would rest the surface low enough to hang the pill's lower rim off the
- * bottom of the display. Two readings of it is a pill drawn somewhere main did
- * not leave room for.
+ * this shape is centred on the avatar, so a placement that did not know how
+ * far below that centre it reached would rest the surface low enough to hang
+ * its lower rim off the bottom of the display.
+ *
+ * **Now a floor rather than a measurement.** The pill no longer grows under
+ * the pointer: it draws in onto the creature and goes out, so nothing the
+ * surface draws is this tall any more and the renderer no longer reads this
+ * number. It stays because the room it reserves is room the surface already
+ * had, and giving it back would move every companion that rests near the
+ * bottom of a display up against the edge as a side effect of an animation
+ * change. Retiring it is its own change, and takes the term below with it.
  */
 export const COMPANION_BASE_RESTING_PILL_HEIGHT = 35;
 
@@ -1125,10 +1131,12 @@ export const COMPANION_BASE_CALL_RING = 2;
  * **The whole surface, not the state it happens to be in.** The window is
  * placed once and does not move when the pointer arrives or a call starts, so
  * the room kept under it has to answer for every state it can enter from
- * there. Three things are centred on that point and each is the lowest at some
- * size: the creature's own artwork, the pill a pointer grows around it, and
- * the call's bar, which stands on the centre rather than beside it and is
- * sized by the options box instead of the avatar's.
+ * there. Three things are centred on that point: the creature's own artwork,
+ * the resting pill, and the call's bar, which stands on the centre rather than
+ * beside it and is sized by the options box instead of the avatar's. The last
+ * two are the lowest at some size; the pill's term is now a floor over a shape
+ * that has stopped growing, and {@link COMPANION_BASE_RESTING_PILL_HEIGHT}
+ * says why it is still here.
  *
  * Whole points, as every distance the window is placed by is: the options
  * sizes are not whole multiples of the authored box, and a reach carrying a
