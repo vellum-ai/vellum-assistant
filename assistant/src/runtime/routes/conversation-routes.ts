@@ -2374,6 +2374,17 @@ export async function handleSendMessage(
       }
     }
 
+    // A queued message normally rides the running turn's `finally` into
+    // `drainQueue`. When the conversation is already idle by the time it lands
+    // there is no such turn ahead of it, so kick the drain here. Reachable
+    // whenever the turn releases inside the awaits above, and always on the
+    // interrupt path's `busy` fallback, where the interrupted turn has already
+    // ended. `kickDrainQueue` is a no-op on an empty queue or a busy
+    // conversation, so an unnecessary kick costs nothing.
+    if (!conversation.isProcessing()) {
+      void conversation.kickDrainQueue("loop_complete", "queue_send_idle");
+    }
+
     return {
       accepted: true,
       queued: true,

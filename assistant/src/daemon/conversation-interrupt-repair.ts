@@ -8,6 +8,7 @@
  */
 
 import { addMessage } from "../persistence/conversation-crud.js";
+import type { Message } from "../providers/types.js";
 import { PREEMPTED_TOOL_RESULT_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
@@ -31,16 +32,23 @@ const log = getLogger("conversation-interrupt-repair");
  * conversation with the same broken tail this call just fixed.
  *
  * `force` is how the interrupt path asks for the repair unconditionally. The
- * legacy queue path arms `pendingSteerRepair` / `pendingInterruptRepair`
- * instead and repairs on the drain that follows.
+ * queue drain arms `pendingSteerRepair` / `pendingInterruptRepair` instead and
+ * repairs on the drain that follows.
+ *
+ * `requireDurable` decides what a failed persist means. The drain runs the
+ * next turn off the in-memory history, so it keeps the repair and settles; the
+ * interrupt writes a user row after this call, and a user row after a durable
+ * `tool_use` with no durable result is a sequence the provider rejects on
+ * every later load, so it asks for the throw and gets the history back
+ * untouched.
  */
 export async function repairInterruptedToolUseBlocks(
   conversation: Conversation,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; requireDurable?: boolean } = {},
 ): Promise<void> {
-  const armed =
-    conversation.pendingSteerRepair || conversation.pendingInterruptRepair;
-  if (!armed && options.force !== true) {
+  const wasSteerArmed = conversation.pendingSteerRepair;
+  const wasArmed = conversation.pendingInterruptRepair;
+  if (!wasSteerArmed && !wasArmed && options.force !== true) {
     return;
   }
   conversation.pendingSteerRepair = false;
@@ -99,10 +107,8 @@ export async function repairInterruptedToolUseBlocks(
     content: PREEMPTED_TOOL_RESULT_TEXT,
     is_error: true,
   }));
-  conversation.messages.push({
-    role: "user",
-    content: syntheticContent,
-  });
+  const repairRow: Message = { role: "user", content: syntheticContent };
+  conversation.messages.push(repairRow);
   try {
     await addMessage(
       conversation.conversationId,
@@ -112,9 +118,22 @@ export async function repairInterruptedToolUseBlocks(
       { skipIndexing: true },
     );
   } catch (err) {
+    if (options.requireDurable === true) {
+      // Take the row back out so the caller sees the history exactly as this
+      // call found it, and let the failure reach it.
+      const idx = conversation.messages.lastIndexOf(repairRow);
+      if (idx !== -1) {
+        conversation.messages.splice(idx, 1);
+      }
+      // Arm the drain that runs the queued message this caller falls back to,
+      // so the repair happens there instead.
+      conversation.pendingInterruptRepair = true;
+      conversation.pendingSteerRepair = wasSteerArmed;
+      throw err;
+    }
     log.warn(
       { err, conversationId: conversation.conversationId },
-      "Failed to persist the synthetic tool_result repair row; the in-memory history is repaired and the next reload repairs it again",
+      "Failed to persist the synthetic tool_result repair row; the in-memory history carries the repair and the next turn runs on it",
     );
   }
 }

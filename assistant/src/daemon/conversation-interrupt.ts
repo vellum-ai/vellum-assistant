@@ -20,7 +20,6 @@ import { getLogger } from "../util/logger.js";
 import { ABORT_RELEASE_WAIT_MS } from "./abort-watchdog.js";
 import type { Conversation } from "./conversation.js";
 import { repairInterruptedToolUseBlocks } from "./conversation-interrupt-repair.js";
-import { forceClearStaleProcessing } from "./conversation-lifecycle.js";
 import { denyPendingConfirmationsOnSupersession } from "./handlers/conversations.js";
 
 const log = getLogger("conversation-interrupt");
@@ -30,11 +29,15 @@ const log = getLogger("conversation-interrupt");
  *
  * - `released`: the running turn is over and the conversation is idle. The
  *   caller starts the new message's turn on the ordinary idle path.
- * - `declined`: this send must not interrupt (the flag is off, or the sender
- *   is not the actor running the turn). The caller queues it as before.
- * - `busy`: the interrupt was issued but the turn never let go of the
- *   processing lock inside the abort budget. The caller queues the message so
- *   it still runs, rather than racing a turn that is still unwinding.
+ * - `declined`: this send must not interrupt (the flag is off, the send is a
+ *   hidden machine signal, or the sender is not the actor running the turn).
+ *   The caller queues it, which is what the flag-off path does with every
+ *   send.
+ * - `busy`: the conversation cannot be handed over. Either the lock is held by
+ *   something that is not an abortable turn, or the interrupted turn never let
+ *   go of it inside the abort budget, or its history repair could not be
+ *   persisted. The caller queues the message so it still runs, rather than
+ *   racing a live holder or writing a user row onto a broken history.
  */
 export type InterruptOutcome = "released" | "declined" | "busy";
 
@@ -64,8 +67,8 @@ export interface InterruptOptions {
   /** Verified identity of the caller sending the interrupting message. */
   callerActorPrincipalId?: string;
   /**
-   * A hidden send is a machine signal rather than a user decision, so it must
-   * not auto-deny live approval prompts. Mirrors the queue path's own bypass.
+   * A hidden send is a machine signal rather than a user decision. It is not
+   * eligible to interrupt: see the check in {@link interruptRunningTurn}.
    */
   hidden?: boolean;
   /** Names the calling site in logs and in the abort reason. */
@@ -74,6 +77,9 @@ export interface InterruptOptions {
 
 /**
  * Stop the running turn and leave the conversation ready for the new message.
+ *
+ * Only an abortable agent turn is interruptible. Every other hold on the
+ * processing flag answers `busy`, and the message queues behind it.
  *
  * Sequence, and why it is this order:
  *
@@ -92,7 +98,9 @@ export interface InterruptOptions {
  *  4. Repair the history: every `tool_use` the abort abandoned gets a
  *     synthetic `tool_result`, persisted, BEFORE the caller writes the new
  *     user row. A user message between a `tool_use` and its result is a
- *     sequence every provider rejects, so the order is load-bearing.
+ *     sequence every provider rejects, so the order is load-bearing, and a
+ *     repair that cannot be made durable answers `busy` rather than letting
+ *     the caller write that row over a broken durable history.
  */
 export async function interruptRunningTurn(
   conversation: Conversation,
@@ -103,6 +111,15 @@ export async function interruptRunningTurn(
   }
   if (!conversation.isProcessing()) {
     return "released";
+  }
+  if (options.hidden === true) {
+    // A hidden send is a machine signal (proactive-greeting priming, the
+    // channel-setup wizard close), not a user deciding to move on, which is
+    // the whole justification for ending a turn somebody is watching. It is
+    // also exempt from the confirmation sweep an interrupt has to run to get
+    // the lock released, so it takes the queue instead, exactly as it does
+    // with the flag off.
+    return "declined";
   }
   if (!mayInterruptRunningTurn(conversation, options.callerActorPrincipalId)) {
     log.info(
@@ -115,35 +132,41 @@ export async function interruptRunningTurn(
     );
     return "declined";
   }
+  if (!conversation.abortController) {
+    // The processing flag is held by something that is not an abortable agent
+    // turn: a `/compact` or `/clean` fence, another `acquireProcessingFenced`
+    // holder, or a turn that already tore its controller down. Nothing here
+    // can tell a live holder from an orphaned latch, and force-clearing a live
+    // one would start a turn that rewrites the history its holder is still
+    // persisting. So it stays busy, and the message queues behind it.
+    log.info(
+      { conversationId: conversation.conversationId, origin: options.origin },
+      "Processing is held with no abortable turn behind it; queueing the message instead of interrupting",
+    );
+    return "busy";
+  }
 
   log.info(
     { conversationId: conversation.conversationId, origin: options.origin },
     "Interrupting the running turn for a newly arrived user message",
   );
 
-  if (options.hidden !== true) {
-    try {
-      denyPendingConfirmationsOnSupersession(conversation.conversationId);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: conversation.conversationId },
-        "Pre-interrupt interaction supersession failed; the abort below still settles the turn",
-      );
-    }
+  try {
+    denyPendingConfirmationsOnSupersession(conversation.conversationId);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "Pre-interrupt interaction supersession failed; the abort below still settles the turn",
+    );
   }
 
-  const reason = createAbortReason(
-    "preempted_by_new_message",
-    options.origin,
-    conversation.conversationId,
+  conversation.abortController.abort(
+    createAbortReason(
+      "preempted_by_new_message",
+      options.origin,
+      conversation.conversationId,
+    ),
   );
-  if (conversation.abortController) {
-    conversation.abortController.abort(reason);
-  } else {
-    // Processing is latched with no live turn behind it, so no agent-loop
-    // `finally` is coming to release the flag. Clear it here.
-    forceClearStaleProcessing(conversation, options.origin);
-  }
   // Deny pending confirmations so the abort unblocks immediately, the same
   // way a steer does.
   conversation.denyAllPendingConfirmations();
@@ -152,21 +175,30 @@ export async function interruptRunningTurn(
     timeoutMs: ABORT_RELEASE_WAIT_MS,
   });
   if (!released) {
-    if (conversation.abortController) {
-      log.warn(
-        { conversationId: conversation.conversationId, origin: options.origin },
-        "Interrupted turn did not release the processing lock within the abort budget; queueing the message instead",
-      );
-      return "busy";
-    }
-    // The turn tore its controller down without clearing the flag, which is
-    // exactly the stale latch `forceClearStaleProcessing` exists for.
-    forceClearStaleProcessing(conversation, `${options.origin}:post_wait`);
+    log.warn(
+      { conversationId: conversation.conversationId, origin: options.origin },
+      "Interrupted turn did not release the processing lock within the abort budget; queueing the message instead",
+    );
+    return "busy";
   }
 
-  await repairInterruptedToolUseBlocks(conversation, { force: true });
+  try {
+    await repairInterruptedToolUseBlocks(conversation, {
+      force: true,
+      requireDurable: true,
+    });
+  } catch (err) {
+    // The repair row is not durable, so the caller must not write the
+    // interrupting user row after it. Queue the message instead: it runs on
+    // the next drain, against an unchanged history.
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "Could not persist the interrupt's tool_result repair; queueing the message instead",
+    );
+    return "busy";
+  }
 
-  // The interrupted turn's `generation_cancelled` told clients the old turn is
+  // The interrupted turn's `generation_cancelled` tells clients the old turn is
   // over, which idles their turn state. This says the conversation is working
   // again, so the composer's indicator picks straight back up on the new
   // turn: the same job `message_dequeued` does at the head of a drained turn.

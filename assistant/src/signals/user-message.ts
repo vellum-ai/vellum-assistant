@@ -163,6 +163,12 @@ async function dispatchUserMessage(params: {
           "Post-enqueue supersession failed — queued message unaffected",
         );
       }
+      // Same reason the HTTP send path kicks one: a message that lands on a
+      // conversation which is already idle has no running turn whose `finally`
+      // would drain it.
+      if (!conversation.isProcessing()) {
+        void conversation.kickDrainQueue("loop_complete", "signal_send_idle");
+      }
     }
     return { accepted: !result.rejected };
   }

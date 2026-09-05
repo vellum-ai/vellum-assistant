@@ -35,6 +35,7 @@ mock.module("../config/interrupt-on-send-gate.js", () => ({
 
 const persisted: Array<{ role: string; content: string }> = [];
 let persistGate: Promise<void> = Promise.resolve();
+let persistShouldFail = false;
 
 // Only the persist seam is replaced; every other CRUD export stays real so the
 // repair module's import graph resolves as it does in production.
@@ -48,6 +49,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
     content: string,
   ) => {
     await persistGate;
+    if (persistShouldFail) {
+      throw new Error("simulated persist failure");
+    }
     persisted.push({ role, content });
     return { id: `msg-${persisted.length}` };
   },
@@ -226,6 +230,7 @@ beforeEach(() => {
   flagEnabled = true;
   persisted.length = 0;
   persistGate = Promise.resolve();
+  persistShouldFail = false;
 });
 
 afterEach(() => {
@@ -269,7 +274,7 @@ describe("interruptRunningTurn", () => {
     expect(persisted[0].role).toBe("user");
   });
 
-  test("forces the repair past the flags the legacy queue path arms", async () => {
+  test("forces the repair past the flags the queue drain arms", async () => {
     const turn = registerBusyTurn({
       messages: [assistantWithToolUse("tool-1")],
     });
@@ -388,15 +393,60 @@ describe("interruptRunningTurn", () => {
     expect(turn.messages).toHaveLength(1);
   });
 
-  test("force-clears a processing flag latched with no live turn behind it", async () => {
-    const turn = registerBusyTurn({ hasController: false });
+  test("leaves a lock held by something that is not an agent turn alone", async () => {
+    // What `/compact`, `/clean` and every other `acquireProcessingFenced`
+    // holder look like: processing, with no abort controller because they are
+    // not agent-loop turns. Clearing that lock would run a turn that rewrites
+    // the history its holder is still persisting.
+    const turn = registerBusyTurn({
+      hasController: false,
+      messages: [assistantWithToolUse("tool-1")],
+    });
 
     const outcome = await interruptRunningTurn(turn.conversation, {
       origin: "test",
     });
 
-    expect(outcome).toBe("released");
-    expect(turn.conversation.isProcessing()).toBe(false);
+    expect(outcome).toBe("busy");
+    expect(turn.conversation.isProcessing()).toBe(true);
+    expect(turn.denyAllCount()).toBe(0);
+    expect(turn.messages).toHaveLength(1);
+    expect(persisted).toEqual([]);
+  });
+
+  test("declines a hidden machine send, leaving pending confirmations alone", async () => {
+    const turn = registerBusyTurn({ messages: [assistantWithToolUse("t-1")] });
+
+    const outcome = await interruptRunningTurn(turn.conversation, {
+      origin: "test",
+      hidden: true,
+    });
+
+    expect(outcome).toBe("declined");
+    expect(turn.aborts).toEqual([]);
+    expect(turn.denyAllCount()).toBe(0);
+    expect(turn.conversation.isProcessing()).toBe(true);
+    expect(turn.messages).toHaveLength(1);
+  });
+
+  test("falls back to the queue when the repair row cannot be persisted", async () => {
+    const turn = registerBusyTurn({
+      messages: [assistantWithToolUse("tool-1")],
+    });
+    persistShouldFail = true;
+
+    const outcome = await interruptRunningTurn(turn.conversation, {
+      origin: "test",
+    });
+
+    expect(outcome).toBe("busy");
+    // The history is exactly as the call found it, so the caller never writes
+    // a user row after a durable `tool_use` that has no durable result.
+    expect(turn.messages).toHaveLength(1);
+    expect(persisted).toEqual([]);
+    // Armed instead, so the drain that runs the queued message repairs it.
+    expect(turn.conversation.pendingInterruptRepair).toBe(true);
+    expect(turn.activityEvents).toEqual([]);
   });
 
   test("a second interrupt stops the turn the first one started", async () => {
@@ -503,7 +553,38 @@ describe("repairInterruptedToolUseBlocks", () => {
     expect(persisted).toEqual([]);
   });
 
-  test("stays armed by its flags for the legacy queue path", async () => {
+  test("keeps the in-memory repair when a drain cannot persist it", async () => {
+    // The drain runs its turn off the in-memory history, so a failed persist
+    // costs durability, not the next provider call. It settles rather than
+    // throwing, which is what keeps a DB hiccup from stranding the queue.
+    const messages: Message[] = [assistantWithToolUse("tool-1")];
+    persistShouldFail = true;
+
+    await repairInterruptedToolUseBlocks(fakeConversation(messages), {
+      force: true,
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(persisted).toEqual([]);
+  });
+
+  test("hands a durable repair's failure back, history untouched", async () => {
+    const messages: Message[] = [assistantWithToolUse("tool-1")];
+    const conversation = fakeConversation(messages);
+    persistShouldFail = true;
+
+    await expect(
+      repairInterruptedToolUseBlocks(conversation, {
+        force: true,
+        requireDurable: true,
+      }),
+    ).rejects.toThrow("simulated persist failure");
+
+    expect(messages).toHaveLength(1);
+    expect(conversation.pendingInterruptRepair).toBe(true);
+  });
+
+  test("stays armed by its flags for the queue drain", async () => {
     const messages: Message[] = [assistantWithToolUse("tool-1")];
     const conversation = fakeConversation(messages);
 

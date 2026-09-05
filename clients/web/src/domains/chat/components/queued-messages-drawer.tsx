@@ -9,7 +9,6 @@ import {
 } from "react";
 import { useTranslation } from "@/i18n";
 
-import { useInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { useSupportsQueueSteering } from "@/lib/backwards-compat/use-supports-queue-steering";
@@ -158,7 +157,6 @@ export function QueuedMessagesDrawer({
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
   const { t } = useTranslation("chat");
-  const interruptOnSend = useInterruptOnSend();
   // Read once per mount: the primary pointer does not change under a live
   // component, and re-reading per render would fight the reveal state.
   const twoStep = useMemo(() => isPointerCoarse(), []);
@@ -207,11 +205,7 @@ export function QueuedMessagesDrawer({
     }
   }, [queuedMessages, revealedMessageId]);
 
-  // Under `interrupt-on-send` nothing this composer sends ever waits: a
-  // message sent into a busy turn stops it and is answered at once. The
-  // drawer's whole subject (a backlog with cancel, steer and edit-tail
-  // controls over it) has no counterpart in that flow, so it stays out.
-  if (interruptOnSend || queuedMessages.length === 0) {
+  if (queuedMessages.length === 0) {
     return null;
   }
 
