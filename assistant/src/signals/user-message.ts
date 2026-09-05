@@ -120,7 +120,12 @@ async function dispatchUserMessage(params: {
       })
     : "released";
 
-  if (interruptOutcome !== "released" && conversation.isProcessing()) {
+  // Every outcome but `released` queues, whatever the flag now reads. A `busy`
+  // that comes back after the interrupted turn has already ended is the case
+  // this must not treat as idle: its history carries a durable `tool_use` the
+  // repair could not answer, and running the message here would persist a user
+  // row after it. The idle kick below is what gets the queued message drained.
+  if (interruptOutcome !== "released") {
     for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
       const att = resolvedAttachments[i];
       if (att.filePath && !att.data) {

@@ -123,6 +123,8 @@ interface FakeTurn {
   aborts: AbortReason[];
   activityEvents: Array<{ phase: string; reason: string }>;
   denyAllCount: () => number;
+  /** Whether any claim currently holds the processing lock. */
+  isLocked: () => boolean;
 }
 
 /**
@@ -137,6 +139,12 @@ function registerBusyTurn(
     hasController?: boolean;
     turnActorPrincipalId?: string;
     messages?: Message[];
+    /**
+     * Stand in for a waiter registered before this interrupt (channel
+     * admission, an agent wake) that takes the lock on the same idle
+     * transition, leaving nothing for the interrupt to claim.
+     */
+    competingWaiterTakesLock?: boolean;
   } = {},
 ): FakeTurn {
   const {
@@ -144,11 +152,15 @@ function registerBusyTurn(
     hasController = true,
     turnActorPrincipalId,
     messages = [],
+    competingWaiterTakesLock = false,
   } = options;
   const aborts: AbortReason[] = [];
   const activityEvents: Array<{ phase: string; reason: string }> = [];
   let denyAllCount = 0;
   let processing = true;
+  let owner = 1;
+  let nextOwner = 1;
+  let competingWaiterPending = competingWaiterTakesLock;
   const idleWaiters = new Set<() => void>();
 
   const release = () => {
@@ -156,10 +168,17 @@ function registerBusyTurn(
       return;
     }
     processing = false;
+    owner = 0;
     for (const notify of [...idleWaiters]) {
       notify();
     }
     idleWaiters.clear();
+    if (competingWaiterPending) {
+      // FIFO notification means the earlier waiter's continuation runs first.
+      competingWaiterPending = false;
+      processing = true;
+      owner = ++nextOwner;
+    }
   };
 
   const fake = {
@@ -172,9 +191,25 @@ function registerBusyTurn(
     setProcessing: (value: boolean) => {
       if (value) {
         processing = true;
+        owner = ++nextOwner;
         return;
       }
       release();
+    },
+    acquireProcessingFenced: async () => {
+      if (processing) {
+        return null;
+      }
+      processing = true;
+      owner = ++nextOwner;
+      return owner;
+    },
+    releaseProcessing: (claim: number) => {
+      if (owner !== claim) {
+        return false;
+      }
+      release();
+      return true;
     },
     abortController: hasController
       ? {
@@ -223,6 +258,7 @@ function registerBusyTurn(
     aborts,
     activityEvents,
     denyAllCount: () => denyAllCount,
+    isLocked: () => processing,
   };
 }
 
@@ -427,6 +463,53 @@ describe("interruptRunningTurn", () => {
     expect(turn.denyAllCount()).toBe(0);
     expect(turn.conversation.isProcessing()).toBe(true);
     expect(turn.messages).toHaveLength(1);
+  });
+
+  test("falls back to the queue when another waiter takes the released lock", async () => {
+    // An idle transition is not a free lock: waiters are notified FIFO off the
+    // same `setProcessing(false)`, so one registered earlier can be running its
+    // own turn by the time this continuation gets to the repair.
+    const turn = registerBusyTurn({
+      competingWaiterTakesLock: true,
+      messages: [assistantWithToolUse("tool-1")],
+    });
+
+    const outcome = await interruptRunningTurn(turn.conversation, {
+      origin: "test",
+    });
+
+    expect(outcome).toBe("busy");
+    // The competing turn owns the conversation, so nothing here touched it.
+    expect(turn.messages).toHaveLength(1);
+    expect(persisted).toEqual([]);
+    expect(turn.activityEvents).toEqual([]);
+    expect(turn.isLocked()).toBe(true);
+  });
+
+  test("holds the processing lock across the repair, then hands it back", async () => {
+    const turn = registerBusyTurn({
+      messages: [assistantWithToolUse("tool-1")],
+    });
+    let lockedDuringPersist = false;
+    let releasePersist = () => {};
+    persistGate = new Promise<void>((resolve) => {
+      releasePersist = resolve;
+    });
+
+    const pending = interruptRunningTurn(turn.conversation, { origin: "test" });
+
+    // Let the abort, the idle wait and the claim settle, then read the lock
+    // from inside the repair's own persist.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    lockedDuringPersist = turn.isLocked();
+    releasePersist();
+
+    expect(await pending).toBe("released");
+    expect(lockedDuringPersist).toBe(true);
+    // Handed back, so the caller's own turn can claim it.
+    expect(turn.isLocked()).toBe(false);
   });
 
   test("falls back to the queue when the repair row cannot be persisted", async () => {
