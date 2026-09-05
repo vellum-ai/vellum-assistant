@@ -333,6 +333,28 @@ interface ChromeDebuggerTargetInfo {
   faviconUrl?: string;
 }
 
+interface ChromeScriptingInjectionTarget {
+  tabId: number;
+  allFrames?: boolean;
+  frameIds?: number[];
+}
+
+interface ChromeScriptingInjection {
+  target: ChromeScriptingInjectionTarget;
+  files: string[];
+}
+
+interface ChromeScriptingInjectionResult {
+  frameId: number;
+  result?: unknown;
+}
+
+interface ChromeScriptingNamespace {
+  executeScript(
+    injection: ChromeScriptingInjection,
+  ): Promise<ChromeScriptingInjectionResult[]>;
+}
+
 interface ChromeActionSetIconDetails {
   path?: Record<string, string> | string;
 }
@@ -347,6 +369,7 @@ interface ChromeGlobal {
   storage: ChromeStorageNamespace;
   identity: ChromeIdentityNamespace;
   runtime: ChromeRuntimeNamespace;
+  scripting: ChromeScriptingNamespace;
   tabs: ChromeTabsNamespace;
   windows: ChromeWindowsNamespace;
   debugger: ChromeDebuggerNamespace;

@@ -9,6 +9,7 @@
     "alarms",
     "debugger",
     "identity",
+    "scripting",
     "storage",
     "tabs"
   ],

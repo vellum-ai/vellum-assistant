@@ -91,6 +91,7 @@ do_build() {
 
   rm -rf "$DIST_DIR"
   mkdir -p "$DIST_DIR/background"
+  mkdir -p "$DIST_DIR/content"
   mkdir -p "$DIST_DIR/popup"
   mkdir -p "$DIST_DIR/icons"
 
@@ -104,6 +105,18 @@ do_build() {
     --minify \
     --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\"" \
     || { echo "❌ Service worker bundle failed."; return 1; }
+
+  # Content scripts are injected via chrome.scripting.executeScript, which
+  # runs them as classic scripts. The source has no imports/exports, so the
+  # esm-format bundle contains none and is safe to inject.
+  echo "Bundling content scripts with bun build..."
+  bun build \
+    "$SCRIPT_DIR/content/deslop.ts" \
+    --outdir "$DIST_DIR/content" \
+    --target browser \
+    --format esm \
+    --minify \
+    || { echo "❌ Content script bundle failed."; return 1; }
 
   echo "Building popup with Vite..."
   (cd "$SCRIPT_DIR" && bunx vite build) \
@@ -188,7 +201,7 @@ fi
 # need it.
 # ---------------------------------------------------------------------------
 if [ "$CMD" = "run" ]; then
-  WATCH_DIRS=("background" "popup" "types" "icons")
+  WATCH_DIRS=("background" "content" "popup" "types" "icons")
   WATCH_FILES=("manifest.json" "package.json" "tsconfig.json")
   POLL_INTERVAL=3
   DEBOUNCE=2

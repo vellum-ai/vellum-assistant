@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { LLMSchema } from "../../../config/schemas/llm.js";
 import type { ConfiguredProviderOptions } from "../../../providers/provider-send-message.js";
 import type {
+  Message,
   ProviderResponse,
   SendMessageOptions,
 } from "../../../providers/types.js";
@@ -27,6 +28,7 @@ let nextResponse: ProviderResponse;
 let sendMessageImpl: (() => Promise<ProviderResponse>) | undefined;
 let getConfiguredProviderOptions: ConfiguredProviderOptions | undefined;
 let sendMessageOptions: SendMessageOptions | undefined;
+let sentMessages: Message[] | undefined;
 // Connection the stubbed resolution reports, mirroring the real resolver:
 // the connection is chosen while resolving the provider, not while sending.
 let resolutionConnectionName: string | undefined;
@@ -44,7 +46,8 @@ mock.module("../../../providers/provider-send-message.js", () => ({
     }
     return {
       name: "stub",
-      sendMessage: async (_messages: unknown, options: SendMessageOptions) => {
+      sendMessage: async (messages: Message[], options: SendMessageOptions) => {
+        sentMessages = messages;
         sendMessageOptions = options;
         return sendMessageImpl ? sendMessageImpl() : nextResponse;
       },
@@ -66,8 +69,17 @@ mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({ llm: configuredLlm }),
 }));
 
+// The handler re-checks live owner authority, which reads the guardian binding
+// over IPC. Stub the answer so the profile and evidence cases exercise the
+// handler body, and so one case can present a caller who is not the owner.
+let callerIsOwner = true;
+mock.module("../../auth/owner-caller.js", () => ({
+  isOwnerCaller: async () => callerIsOwner,
+}));
+
 const { ROUTES } = await import("../inference-send-routes.js");
-const { BadRequestError, UpstreamProviderError } = await import("../errors.js");
+const { BadRequestError, ForbiddenError, UpstreamProviderError } =
+  await import("../errors.js");
 const { recordProviderRequestDiagnostics } =
   await import("../../../providers/request-diagnostics.js");
 
@@ -90,12 +102,103 @@ function baseResponse(overrides: Partial<ProviderResponse>): ProviderResponse {
 }
 
 beforeEach(() => {
+  callerIsOwner = true;
   configuredLlm = LLMSchema.parse({});
   nextResponse = baseResponse({});
   sendMessageImpl = undefined;
   getConfiguredProviderOptions = undefined;
   sendMessageOptions = undefined;
+  sentMessages = undefined;
   resolutionConnectionName = undefined;
+});
+
+describe("inference_send owner authority", () => {
+  test("rejects a caller who no longer holds owner authority", async () => {
+    // GIVEN an actor token whose guardian binding no longer matches
+    callerIsOwner = false;
+
+    // WHEN the inference_send handler processes a request
+    const error = await Promise.resolve(
+      inferenceSendHandler()({ body: { message: "hi" } }),
+    ).then(
+      () => new Error("expected the request to be rejected"),
+      (err: unknown) => err,
+    );
+
+    // THEN the send is refused before any provider call is made
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect((error as Error).message).toContain("owner");
+    expect(getConfiguredProviderOptions).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A stateless client (e.g. a paired browser extension) carries its own short
+// transcript, so the route accepts a `messages` array as an alternative to the
+// single `message` form. The two are mutually exclusive, and the transcript is
+// size-capped because the send spends the owner's provider budget.
+// ---------------------------------------------------------------------------
+
+describe("inference_send transcript input", () => {
+  function rejection(body: Record<string, unknown>): Promise<Error> {
+    return Promise.resolve(inferenceSendHandler()({ body })).then(
+      () => new Error("expected the request to be rejected"),
+      (err: Error) => err,
+    );
+  }
+
+  test("forwards every transcript turn to the provider in order", async () => {
+    // GIVEN a transcript alternating user and assistant turns
+    const messages = [
+      { role: "user", content: "first" },
+      { role: "assistant", content: "second" },
+      { role: "user", content: "third" },
+    ];
+
+    // WHEN the inference_send handler processes the request
+    const result = (await inferenceSendHandler()({ body: { messages } })) as {
+      response: string;
+    };
+
+    // THEN the provider sees all turns in the order the caller supplied them
+    expect(sentMessages).toEqual([
+      { role: "user", content: [{ type: "text", text: "first" }] },
+      { role: "assistant", content: [{ type: "text", text: "second" }] },
+      { role: "user", content: [{ type: "text", text: "third" }] },
+    ]);
+
+    // AND the response echoes the model text
+    expect(result.response).toBe("hello");
+  });
+
+  test("rejects a request carrying both message and messages", async () => {
+    const err = await rejection({
+      message: "hi",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect(err.message).toContain("not both");
+    expect(getConfiguredProviderOptions).toBeUndefined();
+  });
+
+  test("rejects a request carrying neither message nor messages", async () => {
+    const err = await rejection({});
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect(err.message).toContain("Provide either message");
+    expect(getConfiguredProviderOptions).toBeUndefined();
+  });
+
+  test("rejects a transcript above the total content size cap", async () => {
+    const err = await rejection({
+      messages: [
+        { role: "user", content: "a".repeat(150_000) },
+        { role: "assistant", content: "b".repeat(60_000) },
+      ],
+    });
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect(err.message).toContain("200000 character limit");
+    expect(getConfiguredProviderOptions).toBeUndefined();
+  });
 });
 
 describe("inference_send profile routing", () => {

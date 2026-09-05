@@ -17,6 +17,7 @@ export function MainScreen() {
   const [paired, setPaired] = useState(selfHostedPaired);
   const [assistantName, setAssistantName] = useState('');
   const [accountEmail, setAccountEmail] = useState('');
+  const [deslopError, setDeslopError] = useState('');
 
   useEffect(() => {
     sendMessage<{
@@ -46,6 +47,20 @@ export function MainScreen() {
   const handleFeedbackClick = useCallback(() => {
     setScreen({ name: 'feedback' });
   }, [setScreen]);
+
+  const handleDeslopClick = useCallback(() => {
+    setDeslopError('');
+    sendMessage<{ ok: boolean; error?: string }>({
+      type: 'deslop-activate',
+    }).then((response) => {
+      if (response?.ok) {
+        // Close the popup so the user can pick an element on the page.
+        window.close();
+        return;
+      }
+      setDeslopError(response?.error ?? 'Could not start Deslop on this page.');
+    });
+  }, []);
 
   const isCloud = mode === 'cloud';
   const isSelfHosted = mode === 'self-hosted';
@@ -79,6 +94,43 @@ export function MainScreen() {
       )}
 
       {showConnectedState && <StatusCard />}
+
+      {showConnectedState && (
+        <div className="mb-2.5">
+          <button
+            type="button"
+            onClick={handleDeslopClick}
+            className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-edge bg-surface px-4 py-3.5 transition-colors hover:border-edge-hover hover:bg-surface-alt"
+          >
+            <div className="flex items-center gap-2.5">
+              <svg
+                className="shrink-0 text-fg-muted"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M15 4V2M15 10V8M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span className="text-[13px] font-medium text-fg">Deslop</span>
+            </div>
+            <span className="text-[11px] text-fg-subtle">
+              Click text on the page to rewrite it
+            </span>
+          </button>
+          {deslopError && (
+            <p className="mt-1.5 px-1 text-[11px] text-red-600 dark:text-red-400">
+              {deslopError}
+            </p>
+          )}
+        </div>
+      )}
 
       {showConnectedState && (
         <button
