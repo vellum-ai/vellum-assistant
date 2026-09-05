@@ -777,6 +777,75 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("a pointer written before its section's re-injection loses that line at rehydration; a later pointer keeps it", async () => {
+    // Turn 1 injected page-a's lead, turn 3 pointed at it, the valve pruned
+    // it (stripping turn 3's line live), turn 8 re-injected it (tombstone
+    // cleared), turn 10 pointed at it again. After a restart, turn 3's
+    // pointer must not claim a section whose only copy is further down.
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map();
+    const leadLine = "Already in context above, relevant again this turn:";
+    const pointer = `<memory_pointer>\n${leadLine}\nmemory/concepts/page-a.md\n</memory_pointer>`;
+    const block = (text: string) =>
+      `header line\n\n# memory/concepts/page-a.md\n# Page A\n${text}`;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Turn 1" }],
+        metadata: JSON.stringify({ memoryV3InjectedBlock: block("old lead") }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Turn 3" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointer }),
+      },
+      {
+        id: "m4",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m8",
+        role: "user",
+        content: [{ type: "text", text: "Turn 8" }],
+        metadata: JSON.stringify({ memoryV3InjectedBlock: block("new lead") }),
+      },
+      {
+        id: "m9",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m10",
+        role: "user",
+        content: [{ type: "text", text: "Turn 10" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointer }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([{ type: "text", text: "Turn 1" }]);
+    expect(messages[2].content).toEqual([{ type: "text", text: "Turn 3" }]);
+    expect(messages[4].content).toEqual([
+      { type: "text", text: `<memory>\n${block("new lead")}\n</memory>` },
+      { type: "text", text: "Turn 8" },
+    ]);
+    expect(messages[6].content).toEqual([
+      { type: "text", text: pointer },
+      { type: "text", text: "Turn 10" },
+    ]);
+  });
+
   test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
     mockConversation = defaultConv();
     mockPrunedSections = new Map([["page-a", new Set([""])]]);

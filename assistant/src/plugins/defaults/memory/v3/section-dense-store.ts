@@ -25,7 +25,11 @@ import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { deleteMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
+import {
+  deleteMemoryCheckpoint,
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../../persistence/checkpoints.js";
 import {
   geminiCacheExtras,
   getMemoryBackendStatus,
@@ -58,6 +62,51 @@ export const SECTION_COLLECTION = "memory_v3_sections";
  */
 export const MAINTAIN_EMBED_HIGH_WATER_KEY =
   "memory_v3_maintain:sections_embedded_through_ms";
+
+/**
+ * Checkpoint key of the section chunker version the stored vectors were built
+ * with, and the current version. Point ids derive from `(article, ordinal)`
+ * and the dense lane resolves hits by ordinal against the in-memory index, so
+ * a chunker change that moves chunk text or ordinals (version 2: the body
+ * budget that keeps the head line on every chunk) leaves a collection built
+ * by the previous chunker pointing at the wrong sections until every page is
+ * re-embedded. {@link ensureSectionChunkerVersion} forces that rebuild once
+ * per version change through the same high-water reset a recreated
+ * collection uses.
+ */
+export const SECTION_CHUNKER_VERSION_KEY =
+  "memory_v3_maintain:section_chunker_version";
+export const SECTION_CHUNKER_VERSION = 2;
+
+/**
+ * Compare the recorded chunker version with the current one before an embed
+ * pass. On a mismatch: clear the embed high-water when one is set (so the
+ * next maintain pass re-embeds every page and prunes stale points through its
+ * usual paths), record the current version, and log once. On a match, do
+ * nothing. Returns whether a rebuild was forced (a fresh install records the
+ * version with nothing to rebuild). Called by the maintain job and the
+ * one-time backfill, whichever runs first, so the version is on record
+ * before either commits a high-water.
+ */
+export function ensureSectionChunkerVersion(): boolean {
+  const recorded = getMemoryCheckpoint(SECTION_CHUNKER_VERSION_KEY);
+  if (recorded === String(SECTION_CHUNKER_VERSION)) {
+    return false;
+  }
+  const rebuild = getMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY) !== null;
+  if (rebuild) {
+    deleteMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY);
+    log.info(
+      { recorded, current: SECTION_CHUNKER_VERSION },
+      "memory-v3 section chunker version changed: the next maintain pass rebuilds the section dense store from every page",
+    );
+  }
+  setMemoryCheckpoint(
+    SECTION_CHUNKER_VERSION_KEY,
+    String(SECTION_CHUNKER_VERSION),
+  );
+  return rebuild;
+}
 
 /**
  * Stable UUIDv5 namespace used to derive a deterministic Qdrant point ID from a

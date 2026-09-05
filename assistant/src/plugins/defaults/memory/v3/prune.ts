@@ -28,7 +28,7 @@
  *       loop's end-of-turn history fold-back keeps the stripped content;
  *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`
  *       re-applies {@link filterResidentSections} and
- *       {@link filterPrunedPointerEntries} on every load, so prunes persist
+ *       {@link filterResidentPointerEntries} on every load, so prunes persist
  *       across daemon restarts without touching the metadata.
  *
  * A pruned section that is re-selected re-injects as a fresh entry on a
@@ -38,7 +38,9 @@
  * ({@link newestCopyIndexes}): the live conversation holds exactly that one,
  * every earlier copy having been stripped when the section was pruned, and
  * rehydrating an earlier copy beside it would double the section and change
- * the cached prefix.
+ * the cached prefix. Pointer entries follow the same rule: a line naming a
+ * section whose newest copy sits further down predates its re-injection and
+ * is dropped.
  *
  * The first post-prune request loses the provider prefix cache from the
  * earliest affected message — ONE amortized bust per prune, logged with
@@ -235,17 +237,23 @@ function filterSections(
 }
 
 /**
- * Remove pruned sections' lines from a WRAPPED `<memory_pointer>` block, so
- * the pointer never claims a section is in context after the valve removed
- * it. Same contract as {@link filterPrunedSections}: the input is returned
- * UNCHANGED (same reference) when it is not a pointer block or names no
- * pruned section, and `""` when every entry line is pruned (the caller drops
- * the block: a pointer with nothing to point at carries no content). The
- * lead line and any other non-path line are kept as-is.
+ * Remove from a WRAPPED `<memory_pointer>` block sitting at `index` (a
+ * message index at rehydration, a block index in the live strip) every entry
+ * that is pruned or whose section's newest persisted copy sits on a LATER
+ * index (`newest` from {@link newestCopyIndexes}): such a pointer predates
+ * the section's re-injection, and the live history lost the line when the
+ * section was pruned, so restoring it would claim a section that is only in
+ * context further down. Same contract as {@link filterPrunedSections}: the
+ * input is returned UNCHANGED (same reference) when it is not a pointer block
+ * or nothing is dropped, and `""` when every entry line is dropped (the
+ * caller drops the block: a pointer with nothing to point at carries no
+ * content). The lead line and any other non-path line are kept as-is.
  */
-export function filterPrunedPointerEntries(
+export function filterResidentPointerEntries(
   block: string,
+  index: number,
   pruned: SectionRefSet,
+  newest: ReadonlyMap<string, number>,
 ): string {
   const inner = unwrapMemoryPointerBlock(block);
   if (inner === block) {
@@ -259,7 +267,10 @@ export function filterPrunedPointerEntries(
       return true;
     }
     entries += 1;
-    if (sectionRefSetHas(pruned, ref.slug, ref.key)) {
+    if (
+      sectionRefSetHas(pruned, ref.slug, ref.key) ||
+      (newest.get(refId(ref.slug, ref.key)) ?? index) > index
+    ) {
       return false;
     }
     kept += 1;
@@ -434,7 +445,12 @@ export function stripPrunedSectionsFromMessages(
         continue;
       }
       if (inner === null) {
-        const pointer = filterPrunedPointerEntries(block.text, pruned);
+        const pointer = filterResidentPointerEntries(
+          block.text,
+          index,
+          pruned,
+          newest,
+        );
         if (pointer === block.text) {
           nextContent.push(block);
           continue;

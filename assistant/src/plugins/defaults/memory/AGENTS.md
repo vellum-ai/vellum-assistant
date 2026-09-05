@@ -170,7 +170,9 @@ exemptions. A pruned section that is re-selected re-injects as a fresh entry on
 the current message and its tombstone clears; the older copies still sit in
 earlier messages' metadata, so both filter points keep only each section's
 newest persisted copy (`newestCopyIndexes` / `filterResidentSections`), the one
-the live conversation holds. The live strip owns a `<memory>` block by object
+the live conversation holds, and a pointer line naming a section whose newest
+copy sits on a later message is dropped the same way
+(`filterResidentPointerEntries`). The live strip owns a `<memory>` block by object
 identity (`markV3LiveBlock` / `isV3LiveBlock` in `v3/types.ts`: the blocks
 assembly attaches, `loadFromDb` splices, and the strip rewrites), never by
 text, so a pre-cutover v2 block byte-identical to a v3 entry is left alone. Re-selected sections that are already resident are listed, paths
@@ -392,6 +394,13 @@ failure record and the section re-embed high-water:
   absent the maintain job re-embeds EVERY page, so losing or renaming it forces
   a full rebuild. Distinct from the `memory_v3_maintain_last_run` cadence key
   despite the shared prefix
+- `memory_v3_maintain:section_chunker_version`
+  (`v3/section-dense-store.ts`'s `SECTION_CHUNKER_VERSION_KEY`, current value
+  `SECTION_CHUNKER_VERSION`): the chunker version the stored section vectors
+  were built with. `ensureSectionChunkerVersion` (run by the maintain job and
+  the backfill before an embed pass) clears the high-water above on a
+  mismatch so the collection is rebuilt from every page, since point ids and
+  dense hits key on `(article, ordinal)`
 - v1: `graph_maintenance:{decay,consolidate,pattern_scan,narrative}:last_run`,
   `pkb_filing_last_run`, `pkb_compaction_last_run`,
   `graph_bootstrap:*`, `memory:backfill:*`

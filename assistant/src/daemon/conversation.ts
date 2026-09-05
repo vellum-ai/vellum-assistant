@@ -80,7 +80,7 @@ import {
   type SectionRefSet,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import {
-  filterPrunedPointerEntries,
+  filterResidentPointerEntries,
   filterResidentSections,
   newestCopyIndexes,
   persistedV3BlockInner,
@@ -1406,17 +1406,21 @@ export class Conversation {
           // now-md and before the v3 section block, so the inverted prepends
           // land as [sections, pointer, now-md, ...]. Trust-gated on
           // `personalMemoryAllowed` like the sections: the pointer names
-          // personal-memory pages and headings. A pruned section's line is
-          // filtered out here the way the section is filtered out of its
-          // frozen block below; a pointer left with no entries is skipped
-          // entirely (matching the live strip in `memory/v3/prune.ts`).
+          // personal-memory pages and headings. A pruned section's line, and
+          // a line naming a section whose newest copy sits on a later message
+          // (the pointer predates its re-injection), are filtered out here
+          // the way the section is filtered out of its frozen block below; a
+          // pointer left with no entries is skipped entirely (matching the
+          // live strip in `memory/v3/prune.ts`).
           if (
             personalMemoryAllowed &&
             typeof meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] === "string"
           ) {
-            const pointer = filterPrunedPointerEntries(
+            const pointer = filterResidentPointerEntries(
               meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] as string,
+              index,
               v3PrunedSections(),
+              v3NewestCopy(),
             );
             if (pointer.length > 0) {
               content = [{ type: "text" as const, text: pointer }, ...content];

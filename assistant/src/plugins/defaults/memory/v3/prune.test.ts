@@ -7,8 +7,9 @@
  *     terminating a section and surviving its prune, arbitrary `# ` lines
  *     inside a section body staying inside it, and a body line that would
  *     read as a header arriving escaped from the renderer;
- *   - `filterPrunedPointerEntries`: a pruned section's line leaves the
- *     `<memory_pointer>` block, an emptied pointer collapses to `""`;
+ *   - `filterResidentPointerEntries`: a pruned section's line, or one whose
+ *     section was re-injected further down, leaves the `<memory_pointer>`
+ *     block; an emptied pointer collapses to `""`;
  *   - `planPrune`: no-op below the cap, oldest-first selection-recency ranking
  *     down to the target at section grain (a heading section's recency is its
  *     own title's selections; a lead's is any selection of the page), no lane
@@ -112,8 +113,8 @@ mock.module("../config.js", () => ({
 }));
 
 const {
-  filterPrunedPointerEntries,
   filterPrunedSections,
+  filterResidentPointerEntries,
   filterResidentSections,
   flushPruneValveForTests,
   newestCopyIndexes,
@@ -523,7 +524,7 @@ describe("newestCopyIndexes / filterResidentSections", () => {
   });
 });
 
-describe("filterPrunedPointerEntries", () => {
+describe("filterResidentPointerEntries", () => {
   const pointer = wrapMemoryPointerBlock(
     renderPointerInner([
       { slug: "page-a", key: "" },
@@ -531,20 +532,26 @@ describe("filterPrunedPointerEntries", () => {
       { slug: "page-b", key: "Design#1" },
     ]),
   );
+  const none = new Map<string, number>();
 
-  test("returns the same reference when nothing named is pruned, or for a non-pointer block", () => {
-    expect(filterPrunedPointerEntries(pointer, refSet(["page-c", ""]))).toBe(
-      pointer,
-    );
+  test("returns the same reference when nothing named is pruned or superseded, or for a non-pointer block", () => {
+    expect(
+      filterResidentPointerEntries(pointer, 3, refSet(["page-c", ""]), none),
+    ).toBe(pointer);
     const notPointer = wrapMemoryBlock(lead("page-a"));
-    expect(filterPrunedPointerEntries(notPointer, refSet(["page-a", ""]))).toBe(
-      notPointer,
-    );
+    expect(
+      filterResidentPointerEntries(notPointer, 3, refSet(["page-a", ""]), none),
+    ).toBe(notPointer);
   });
 
   test("drops exactly the pruned sections' lines, keeping the lead line and the rest byte-identical", () => {
     expect(
-      filterPrunedPointerEntries(pointer, refSet(["page-a", "Notes"])),
+      filterResidentPointerEntries(
+        pointer,
+        3,
+        refSet(["page-a", "Notes"]),
+        none,
+      ),
     ).toBe(
       wrapMemoryPointerBlock(
         renderPointerInner([
@@ -555,11 +562,47 @@ describe("filterPrunedPointerEntries", () => {
     );
   });
 
-  test("returns '' when every entry is pruned (the caller drops the block)", () => {
+  test("drops a line whose section's newest copy sits on a later index; keeps one at or before the pointer", () => {
+    const newest = new Map([
+      ["page-a\n", 5],
+      ["page-a\nNotes", 3],
+      ["page-b\nDesign#1", 1],
+    ]);
+    // Index 3: page-a's lead is only re-injected at 5, so that line predates
+    // the re-injection; the other two are already in context.
+    expect(filterResidentPointerEntries(pointer, 3, refSet(), newest)).toBe(
+      wrapMemoryPointerBlock(
+        renderPointerInner([
+          { slug: "page-a", key: "Notes" },
+          { slug: "page-b", key: "Design#1" },
+        ]),
+      ),
+    );
+    // Index 5 and later keep every line.
+    expect(filterResidentPointerEntries(pointer, 5, refSet(), newest)).toBe(
+      pointer,
+    );
+  });
+
+  test("returns '' when every entry is pruned or superseded (the caller drops the block)", () => {
     expect(
-      filterPrunedPointerEntries(
+      filterResidentPointerEntries(
         pointer,
+        3,
         refSet(["page-a", ""], ["page-a", "Notes"], ["page-b", "Design#1"]),
+        none,
+      ),
+    ).toBe("");
+    expect(
+      filterResidentPointerEntries(
+        pointer,
+        0,
+        refSet(),
+        new Map([
+          ["page-a\n", 8],
+          ["page-a\nNotes", 8],
+          ["page-b\nDesign#1", 8],
+        ]),
       ),
     ).toBe("");
   });
@@ -848,6 +891,45 @@ describe("stripPrunedSectionsFromMessages", () => {
       { type: "text", text: "again" },
     ]);
     expect(third.content).toEqual([{ type: "text", text: "once more" }]);
+  });
+
+  test("drops a pointer line written before its section's re-injection, keeps the one written after", () => {
+    const oldBlock = renderInjectionBlockInner([
+      lead("page-a"),
+      lead("page-b"),
+    ]);
+    const newBlock = renderInjectionBlockInner([lead("page-a")]);
+    const pointerA = () =>
+      wrapMemoryPointerBlock(renderPointerInner([{ slug: "page-a", key: "" }]));
+    const turn1 = userMessage(v3Block(wrapMemoryBlock(oldBlock)), "turn 1");
+    const turn3 = userMessage(pointerA(), "turn 3");
+    const turn8 = userMessage(v3Block(wrapMemoryBlock(newBlock)), "turn 8");
+    const turn10 = userMessage(pointerA(), "turn 10");
+
+    const stripped = stripPrunedSectionsFromMessages(
+      [turn1, turn3, turn8, turn10],
+      refSet(),
+    );
+
+    // Turn 1's superseded copy and turn 3's pointer (written before the
+    // re-injection on turn 8) go; turn 8 and turn 10 stay byte-identical.
+    expect(stripped).toBe(2);
+    expect(turn1.content).toEqual([
+      {
+        type: "text",
+        text: wrapMemoryBlock(renderInjectionBlockInner([lead("page-b")])),
+      },
+      { type: "text", text: "turn 1" },
+    ]);
+    expect(turn3.content).toEqual([{ type: "text", text: "turn 3" }]);
+    expect(turn8.content).toEqual([
+      { type: "text", text: wrapMemoryBlock(newBlock) },
+      { type: "text", text: "turn 8" },
+    ]);
+    expect(turn10.content).toEqual([
+      { type: "text", text: pointerA() },
+      { type: "text", text: "turn 10" },
+    ]);
   });
 
   test("strips a copy superseded by a re-injection later in the history, even though the section is not pruned", () => {

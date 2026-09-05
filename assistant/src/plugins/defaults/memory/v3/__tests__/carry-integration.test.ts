@@ -322,6 +322,7 @@ const {
   residentBytes,
 } = await import("../ever-injected-store.js");
 const {
+  filterResidentPointerEntries,
   filterResidentSections,
   flushPruneValveForTests,
   newestCopyIndexes,
@@ -802,7 +803,15 @@ function rehydrateFromDb(convId: string): Message[] {
       const meta = JSON.parse(row.metadata) as Record<string, unknown>;
       const pointer = meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY];
       if (typeof pointer === "string") {
-        content = [{ type: "text", text: pointer }, ...content];
+        const resident = filterResidentPointerEntries(
+          pointer,
+          index,
+          pruned,
+          newest,
+        );
+        if (resident.length > 0) {
+          content = [{ type: "text", text: resident }, ...content];
+        }
       }
       const inner = blockOf(row);
       if (inner !== null) {
