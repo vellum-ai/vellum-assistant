@@ -7,6 +7,7 @@
  * video content.
  */
 
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -49,6 +50,8 @@ export async function run(
     systemPrompt,
     model,
   };
+
+  throwIfCancelled(context);
 
   try {
     const result: ReduceResult = await reduceForAsset(

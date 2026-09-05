@@ -24,6 +24,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { resolveGroupReference } from "../conversation-groups/group_shared.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -98,6 +99,7 @@ export async function executeScheduleUpdate(
   if (!jobId) {
     return { content: "Error: job_id is required", isError: true };
   }
+  throwIfCancelled(context);
 
   const existing = getSchedule(jobId);
 

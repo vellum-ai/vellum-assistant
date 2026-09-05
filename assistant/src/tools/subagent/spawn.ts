@@ -31,6 +31,7 @@ import {
   type SubagentRole,
 } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -173,6 +174,7 @@ export async function executeSubagentSpawn(
   if (contractError) {
     return { content: contractError, isError: true };
   }
+  throwIfCancelled(context);
 
   let requestedOverrideProfile: string | undefined;
   let forceOverrideProfile = false;

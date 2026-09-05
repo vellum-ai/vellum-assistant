@@ -13,6 +13,7 @@ import {
   registerMediaAsset,
   updateMediaAssetStatus,
 } from "../../../../persistence/media-store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -125,6 +126,7 @@ export async function run(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   // Validate file exists
   try {
@@ -188,6 +190,8 @@ export async function run(
   if (input.metadata && typeof input.metadata === "object") {
     metadata = input.metadata as Record<string, unknown>;
   }
+
+  throwIfCancelled(context);
 
   // Register the asset
   const asset = registerMediaAsset({

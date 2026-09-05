@@ -1,3 +1,4 @@
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -42,6 +43,8 @@ export async function run(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   if (context.sendToClient) {
     context.sendToClient({

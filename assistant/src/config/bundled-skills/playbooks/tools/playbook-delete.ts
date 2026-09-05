@@ -3,6 +3,7 @@ import {
   getNode,
   updateNode,
 } from "../../../../plugins/defaults/memory/graph/store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -10,7 +11,7 @@ import type {
 
 export async function executePlaybookDelete(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {
@@ -19,6 +20,7 @@ export async function executePlaybookDelete(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   try {
     const existing = getNode(playbookId);

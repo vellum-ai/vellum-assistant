@@ -21,6 +21,7 @@ import {
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
 import { resolveGroupReference } from "../conversation-groups/group_shared.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -92,6 +93,7 @@ export async function executeScheduleCreate(
   if (!parsedInput.success) {
     return invalidToolInputResult("schedule_create", parsedInput.error);
   }
+  throwIfCancelled(context);
   const parsed = parsedInput.data;
 
   const name = parsed.name;

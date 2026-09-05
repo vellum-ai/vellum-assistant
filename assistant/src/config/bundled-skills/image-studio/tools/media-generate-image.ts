@@ -15,6 +15,10 @@ import {
 } from "../../../../media/image-service.js";
 import { getFilePathBySourcePath } from "../../../../persistence/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
@@ -107,6 +111,7 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  throwIfCancelled(context);
   const config = getConfig();
   const svc = config.services["image-generation"];
   let modelOverride = input.model;
@@ -211,6 +216,7 @@ export async function run(
     });
 
     const imageCount = result.images.length;
+    throwIfCancelled(context);
     const { savedPaths, saveError } = saveGeneratedImages(
       result.images,
       prompt,
@@ -254,6 +260,11 @@ export async function run(
       contentBlocks,
     };
   } catch (error) {
+    // A cancelled turn is not a generation failure: let it reach the
+    // executor's abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(error)) {
+      throw error;
+    }
     // Echo the model that failed so callers (including the skill's retry
     // branch) can key off the error text instead of remembering their input.
     return {

@@ -1,4 +1,5 @@
 import { isArchiveBySenderAuthorized } from "../../../../runtime/effective-capabilities.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -28,6 +29,7 @@ export async function run(
   if (!query) {
     return err("query is required.");
   }
+  throwIfCancelled(context);
 
   try {
     const provider = await resolveProvider(platform);

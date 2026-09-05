@@ -15,6 +15,7 @@ import {
   updateNode,
 } from "../../../../plugins/defaults/memory/graph/store.js";
 import type { NewNode } from "../../../../plugins/defaults/memory/graph/types.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -24,7 +25,7 @@ const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookCreate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const trigger = input.trigger as string;
   const action = input.action as string;
@@ -41,6 +42,8 @@ export async function executePlaybookCreate(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   const channel = typeof input.channel === "string" ? input.channel : "*";
   const category =

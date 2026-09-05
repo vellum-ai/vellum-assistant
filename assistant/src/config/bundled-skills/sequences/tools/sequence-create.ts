@@ -1,5 +1,6 @@
 import { createSequence } from "../../../../sequence/store.js";
 import type { SequenceStep } from "../../../../sequence/types.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -8,7 +9,7 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const name = input.name as string;
   const channel = input.channel as string;
@@ -25,6 +26,8 @@ export async function run(
   if (!stepsRaw || stepsRaw.length === 0) {
     return err("steps array is required and must have at least one step.");
   }
+
+  throwIfCancelled(context);
 
   try {
     const steps: SequenceStep[] = stepsRaw.map((s, i) => ({

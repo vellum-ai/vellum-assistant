@@ -10,6 +10,7 @@ import type {
   SequenceStatus,
   SequenceStep,
 } from "../../../../sequence/types.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -18,11 +19,13 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const id = input.id as string | undefined;
   const enrollmentId = input.enrollment_id as string | undefined;
   const enrollmentAction = input.enrollment_action as string | undefined;
+
+  throwIfCancelled(context);
 
   // ── Enrollment-level lifecycle actions ──────────────────────────────
   if (enrollmentId) {

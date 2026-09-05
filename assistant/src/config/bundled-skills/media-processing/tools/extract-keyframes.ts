@@ -4,6 +4,7 @@ import {
   getKeyframesForAsset,
   getMediaAssetById,
 } from "../../../../persistence/media-store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -38,6 +39,8 @@ export async function run(
     shortEdge: (input.short_edge as number) || undefined,
     includeAudio,
   };
+
+  throwIfCancelled(context);
 
   try {
     const manifest = await preprocessForAsset(

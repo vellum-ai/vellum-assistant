@@ -1,5 +1,6 @@
 import { bulkEnroll, parseContactFile } from "../../../../sequence/importer.js";
 import { getSequence } from "../../../../sequence/store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -8,7 +9,7 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const filePath = input.file_path as string;
   const sequenceId = input.sequence_id as string;
@@ -19,6 +20,10 @@ export async function run(
   }
   if (!sequenceId) {
     return err("sequence_id is required.");
+  }
+  // Only the auto-enroll branch mutates; the default preview branch reads.
+  if (autoEnroll) {
+    throwIfCancelled(context);
   }
 
   try {

@@ -5,6 +5,7 @@ import { extname, join } from "node:path";
 
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
 import type { BatchTranscriber } from "../../../../stt/types.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -168,6 +169,7 @@ async function transcribeWithProvider(
 
   // If small enough, send directly
   if (fileSize <= STT_CHUNK_MAX_BYTES) {
+    throwIfCancelled(context);
     const audioBuffer = await readFile(audioPath);
     const result = await transcriber.transcribe({
       audio: audioBuffer,
@@ -233,6 +235,7 @@ export async function run(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   // Resolve the configured STT provider. A typed resolver error already names
   // the mismatch (e.g. a streaming-only provider) and its fix, so it reaches

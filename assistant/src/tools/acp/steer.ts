@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -36,6 +37,7 @@ export async function executeAcpSteer(
   if (!instruction) {
     return { content: '"instruction" is required.', isError: true };
   }
+  throwIfCancelled(context);
 
   const manager = getAcpSessionManager();
   const sendToClient = getSendToClient(context);

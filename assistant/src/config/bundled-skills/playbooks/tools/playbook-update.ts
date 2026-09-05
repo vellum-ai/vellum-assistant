@@ -15,6 +15,7 @@ import {
   getNode,
   updateNode,
 } from "../../../../plugins/defaults/memory/graph/store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -24,7 +25,7 @@ const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookUpdate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {
@@ -33,6 +34,7 @@ export async function executePlaybookUpdate(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   try {
     const existing = getNode(playbookId);

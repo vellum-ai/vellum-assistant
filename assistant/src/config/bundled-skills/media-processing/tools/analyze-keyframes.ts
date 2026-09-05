@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 import { getMediaAssetById } from "../../../../persistence/media-store.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -116,6 +117,8 @@ export async function run(
   if (maxRetries !== undefined && maxRetries < 0) {
     return { content: "max_retries must be non-negative.", isError: true };
   }
+
+  throwIfCancelled(context);
 
   try {
     let output: MapOutput;

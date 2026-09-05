@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { createGroup, listGroups } from "../../persistence/group-crud.js";
 import { publishConversationListChanged } from "../../runtime/sync/resource-sync-events.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -20,7 +21,7 @@ export const conversationGroupCreateInputSchema = z.looseObject({
 
 export async function executeConversationGroupCreate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedInput = conversationGroupCreateInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -37,6 +38,7 @@ export async function executeConversationGroupCreate(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   const existing = listGroups().find(
     (g) => g.name.trim().toLowerCase() === name.toLowerCase(),
