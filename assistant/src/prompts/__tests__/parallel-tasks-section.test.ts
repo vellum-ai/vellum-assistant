@@ -37,10 +37,15 @@ describe("parallel-tasks system prompt section", () => {
     ensurePromptFiles();
   });
 
-  test("is in the bundled section list next to the parallel-tool-calls section", () => {
-    const ids = BUNDLED_SYSTEM_SECTIONS.map((section) => section.id);
-    expect(ids).toContain("01-parallel-tasks");
-    expect(ids).toContain("01-parallel-tool-calls");
+  test("renders immediately before the parallel-tool-calls section", () => {
+    // The renderer sorts section ids, so adjacency in the rendered prompt is
+    // adjacency in the sorted id list, not in the declaration order.
+    const sortedIds = BUNDLED_SYSTEM_SECTIONS.map((section) => section.id)
+      .slice()
+      .sort();
+    const index = sortedIds.indexOf("01-parallel-tasks");
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(sortedIds[index + 1]).toBe("01-parallel-tool-calls");
   });
 
   test("renders unconditionally, with no options required", () => {
@@ -53,5 +58,12 @@ describe("parallel-tasks system prompt section", () => {
     expect(prompt).toContain("several independent things at once");
     expect(prompt).toContain("subagent");
     expect(prompt).toContain("Keep small, quick requests inline");
+  });
+
+  test("keeps approval-gated work on the assistant's own turn", () => {
+    // A subagent runs non-interactive, so an operation that needs the user's
+    // approval is denied there rather than prompting.
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("may need the user's approval on your own turn");
   });
 });
