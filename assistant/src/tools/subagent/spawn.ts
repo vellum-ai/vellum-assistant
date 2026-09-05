@@ -346,12 +346,16 @@ export async function executeSubagentSpawn(
  * consult: the advice framing, and the brief it advises off.
  *
  * The consult sees only what it is handed. The spawning agent's own
- * `objective` IS the brief, so it carries into the request verbatim, and the
- * situational pack from `buildAdvisorContext` rides in `requestText` only,
- * keeping the system prompt minimal and the display-facing `objective` free of
- * bulky internal context. Nothing of the parent conversation's transcript or
+ * `objective` IS the brief, so it carries into the request verbatim inside
+ * `requestText`, together with the situational pack from
+ * `buildAdvisorContext`. Nothing of the parent conversation's transcript or
  * system prompt travels with it, so a consult costs the brief rather than a
  * re-prefill of the whole chat at premium rates.
+ *
+ * `objective` is left to the caller's raw brief, unframed: it is the field the
+ * durable row and the subagent detail panel show, and the field the
+ * repeat-spawn guard folds, so a consult has to record it the same way every
+ * other spawn does or the guard could never match one consult against another.
  *
  * The context pack is best effort: the parent conversation is looked up only
  * for its warm skill catalog, so an unresolvable one (e.g. evicted) costs the
@@ -361,7 +365,6 @@ async function buildAdvisorFields(
   context: ToolContext,
   objective: string,
 ): Promise<{
-  objective: string;
   requestText: string;
   systemPromptOverride: string;
 }> {
@@ -382,7 +385,6 @@ async function buildAdvisorFields(
     skillCatalog: parentConversation?.skillProjectionCache?.catalog,
   });
   return {
-    objective: advisorRequestText(objective),
     requestText: advisorRequestText(objective, situationalContext),
     systemPromptOverride: buildAdvisorSystem(),
   };

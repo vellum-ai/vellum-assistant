@@ -228,14 +228,27 @@ describe("recent similar spawn tallies", () => {
     ).toBe(2);
   });
 
-  test("spawns older than the cutoff and advisor consults are left out", () => {
+  test("spawns older than the cutoff are left out", () => {
     upsertSubagentRecord(spawn("fresh"));
     upsertSubagentRecord(
       spawn("stale", { createdAt: Date.now() - 90_000_000 }),
     );
-    upsertSubagentRecord(spawn("consult", { role: "advisor" }));
 
     expect(tally().assistant.count).toBe(1);
+  });
+
+  test("every role counts, advisor consults included", () => {
+    // A consult is a background child on a premium profile, so a standing
+    // re-ask of one brief is exactly the spend the guard exists to surface.
+    upsertSubagentRecord(spawn("built", { role: "builder" }));
+    upsertSubagentRecord(spawn("read", { role: "researcher" }));
+    upsertSubagentRecord(spawn("consult", { role: "advisor" }));
+    upsertSubagentRecord(
+      spawn("consult-running", { role: "advisor", status: "running" }),
+    );
+
+    expect(tally().assistant.count).toBe(3);
+    expect(tally().assistant.inFlight).toBe(1);
   });
 
   test("runs that ended without an answer are left out of both scopes", () => {

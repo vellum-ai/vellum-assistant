@@ -118,7 +118,7 @@ export function SkillsReferenceSubagentContent() {
                     it&rdquo;
                   </td>
                   <td className="px-3 py-2">
-                    Consults the advisor and waits for its guidance
+                    Consults the advisor, which reports its guidance back
                   </td>
                 </tr>
                 <tr>
@@ -192,11 +192,11 @@ export function SkillsReferenceSubagentContent() {
                     <strong>Advisor</strong>
                   </td>
                   <td className="px-3 py-2">
-                    Synchronously (your assistant waits for its answer)
+                    In the background, in parallel with your conversation
                   </td>
                   <td className="px-3 py-2">
                     A written brief from your assistant; runs on a more capable
-                    model and returns guidance
+                    model and reports back guidance
                   </td>
                 </tr>
               </tbody>
@@ -221,9 +221,11 @@ export function SkillsReferenceSubagentContent() {
               you&apos;re not paying for sign-off on the obvious. It reasons
               from a brief your assistant writes it (the task, the plan, the
               evidence gathered so far, and the question) and can read and
-              search the files in your workspace to check a fact, then replies
-              with focused guidance. It never changes anything, and it cannot
-              see your conversations.
+              search the files in your workspace to check a fact, then reports
+              back focused guidance. Your assistant keeps working while the
+              advisor thinks and weighs the guidance in when it arrives, so a
+              consult never stalls your conversation. It never changes anything,
+              and it cannot see your conversations.
             </li>
           </ul>
         </section>
@@ -291,7 +293,8 @@ export function SkillsReferenceSubagentContent() {
                     your workspace
                   </td>
                   <td className="px-3 py-2">
-                    A one-shot strategic review that your assistant waits on
+                    A one-shot strategic review, reported back while your
+                    assistant keeps working
                   </td>
                 </tr>
               </tbody>
