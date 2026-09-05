@@ -247,6 +247,7 @@ const {
   deliverRenderedReplyViaCallback,
   deliverReplyViaCallback,
   findAssistantReplyMessageIdForTurn,
+  resolveTurnReplyMessageId,
 } = await import("../runtime/channel-reply-delivery.js");
 
 describe("channel-reply-delivery", () => {
@@ -316,6 +317,52 @@ describe("channel-reply-delivery", () => {
     expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
       "assistant-target",
     );
+  });
+
+  it("resolves the reply row past a trailing row that renders empty", () => {
+    // The shape a tool-gated turn ends in: the reply is on the row carrying
+    // the `send_user_message` call, and the turn's LAST row is private wrap-up
+    // text that projects to nothing. The push preview and the attachment link
+    // both resolve through this helper so they land on the row with words.
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "target" },
+      { id: "assistant-reply", role: "assistant", content: "sent message" },
+      { id: "assistant-private", role: "assistant", content: "working notes" },
+    );
+    // The scan runs newest-first, so the private row renders first.
+    renderedHistoryContentQueue.push(
+      {
+        text: "",
+        textSegments: [],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: [],
+        surfaces: [],
+        thinkingSegments: ["working notes"],
+      },
+      {
+        text: "You have two meetings today.",
+        textSegments: ["You have two meetings today."],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      },
+    );
+
+    expect(
+      resolveTurnReplyMessageId("conv-1", "user-target", "assistant-private"),
+    ).toBe("assistant-reply");
+  });
+
+  it("falls back to the caller's row when the turn has no resolvable reply", () => {
+    expect(resolveTurnReplyMessageId("conv-1", undefined, "assistant-x")).toBe(
+      "assistant-x",
+    );
+    expect(
+      resolveTurnReplyMessageId("conv-1", "missing-user", "assistant-x"),
+    ).toBe("assistant-x");
   });
 
   it("renders a candidate reply with the row's own visibility metadata", () => {
