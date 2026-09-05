@@ -160,6 +160,29 @@ describe("section keys", () => {
     expect(index.sections[1]!.titleOrdinal).toBeUndefined();
   });
 
+  test("a literal `## Topic#1` heading and a repeated `## Topic` get distinct keys", async () => {
+    const body = [
+      "lead",
+      "",
+      "## Topic#1",
+      "literal numbered heading",
+      "",
+      "## Topic",
+      "first plain",
+      "",
+      "## Topic",
+      "second plain",
+    ].join("\n");
+    const index = await buildSectionIndex(
+      ["page-a"],
+      reader({ "page-a": body }),
+    );
+
+    const keys = index.sections.map(sectionKey);
+    expect(keys).toEqual(["", "Topic##1", "Topic", "Topic#1"]);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   test("a split heading's later chunks key as title#<n> and stay stable when earlier sections move", async () => {
     const longBody = "x".repeat(SECTION_CHUNK_CHARS * 2 + 50);
     const page = (prefixSections: number) =>

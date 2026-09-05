@@ -49,18 +49,34 @@ describe("sectionKey", () => {
     expect(sectionKey(section("", 1))).toBe("#1");
   });
 
-  test("sectionKeyTitle strips the chunk suffix back to the title", () => {
-    for (const s of [
-      section(""),
-      section("Notes"),
-      section("Notes", 2),
-      section("", 1),
-    ]) {
-      expect(sectionKeyTitle(sectionKey(s))).toBe(s.title);
+  test("a literal # in a title is doubled so a heading ending in #<n> never collides with a repeated heading", () => {
+    // `## Topic#1` (first of its kind) versus a second `## Topic`.
+    expect(sectionKey(section("Topic#1"))).toBe("Topic##1");
+    expect(sectionKey(section("Topic", 1))).toBe("Topic#1");
+    expect(sectionKey(section("Topic#1", 1))).toBe("Topic##1#1");
+    expect(sectionKey(section("Issue #12"))).toBe("Issue ##12");
+  });
+
+  test("sectionKeyTitle is the exact inverse of sectionKey", () => {
+    const titles = [
+      "",
+      "Notes",
+      "Topic#1",
+      "Topic#",
+      "#",
+      "##",
+      "1#",
+      "A #1 b",
+    ];
+    for (const title of titles) {
+      for (const titleOrdinal of [undefined, 1, 12]) {
+        const s = section(title, titleOrdinal);
+        expect(sectionKeyTitle(sectionKey(s))).toBe(title);
+      }
     }
-    // The strip is mechanical: a heading that itself ends in `#<n>` loses
-    // that tail too, which is why key consumers try the full key as a title
-    // before the stripped one.
-    expect(sectionKeyTitle("Issue #12")).toBe("Issue ");
+    // Keys that differ decode to different (title, occurrence) pairs.
+    expect(sectionKeyTitle("Topic##1")).toBe("Topic#1");
+    expect(sectionKeyTitle("Topic#1")).toBe("Topic");
+    expect(sectionKeyTitle("Topic##1#1")).toBe("Topic#1");
   });
 });

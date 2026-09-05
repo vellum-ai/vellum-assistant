@@ -245,9 +245,10 @@ export interface PruneDeps {
  * `memory_v3_selections` over the dedicated memory connection (an unavailable
  * memory database reads as no selection rows): a heading section takes the
  * latest `created_at` of a selection of its page whose `section_title` is
- * that heading (the key itself when a heading literally ends in `#<n>`, else
- * the key minus its chunk suffix), and a lead section (empty title) takes the
- * latest selection of its page under any title. A section with no matching
+ * that heading (the key decoded through `sectionKeyTitle`, so a chunked or
+ * repeated heading shares its title's recency), and a lead section (empty
+ * title) takes the latest selection of its page under any title. A section
+ * with no matching
  * selection rows (e.g. rows copied by a full fork) falls back to the store's
  * `injected_at`. Candidates are taken oldest-first until the footprint is at
  * `targetResidentBytes`. There are no exemptions; zero-byte rows (capability
@@ -304,8 +305,7 @@ export function planPrune(
       const lastSelectedAt =
         title.length === 0
           ? bySlug.get(entry.slug)
-          : (byTitle.get(`${entry.slug}\n${entry.key}`) ??
-            byTitle.get(`${entry.slug}\n${title}`));
+          : byTitle.get(`${entry.slug}\n${title}`);
       return { ...entry, recency: lastSelectedAt ?? entry.injectedAt };
     })
     // Oldest first; slug then key ascending as the deterministic tiebreak.

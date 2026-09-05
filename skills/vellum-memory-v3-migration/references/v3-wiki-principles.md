@@ -1,6 +1,6 @@
 # v3 Wiki Principles
 
-What a good memory-v3 article _is_. The SKILL.md owns ordering; this owns shape. Retrieval is **section-grain**: search runs over individual `## ` sections, and what rides into context per article is a compact **card** — the article's lead plus its section names — with the single best-matching section spotlighted in full. Three consequences drive everything below.
+What a good memory-v3 article _is_. The SKILL.md owns ordering; this owns shape. Retrieval is **section-grain**: search runs over individual `## ` sections, the selector judges each candidate article by a compact **card** (the article's lead plus its section names), and what rides into context per selected article is its best-matching section in full (the lead when the article was selected without a section match). An injected section stays in the conversation as a frozen block; a later turn that selects it again adds only a one-line pointer to it, and the resident sections are pruned by recency under one byte cap. Three consequences drive everything below.
 
 ## The article skeleton
 
@@ -39,9 +39,9 @@ Bullets only where a list is genuinely a list.
 
 ## The three consequences
 
-1. **The lead IS the card.** Write every lead as standalone orientation. If it only makes sense after reading the sections, the card is useless. One to three short paragraphs.
+1. **The lead IS the card, and the fallback injection.** Write every lead as standalone orientation. If it only makes sense after reading the sections, the card is useless, and so is the block that lands in context when the article is selected without a section match. One to three short paragraphs.
 2. **Section names are navigation.** They appear on the card as a table of contents. Name a section so future-you can tell from the name alone whether the answer lives there.
-3. **Sections are the unit of retrieval and growth.** A fact filed in the right section is findable; a fact buried mid-paragraph in an overlong lead is not.
+3. **Sections are the unit of retrieval, injection, and growth.** A fact filed in the right section is findable and arrives in context with only its section around it; a fact buried mid-paragraph in an overlong lead is not. Write each section to read on its own, because that is how it is injected.
 
 ## Two article shapes
 
@@ -68,9 +68,9 @@ Each fact gets exactly one place. Before shipping an article:
 
 Duplication _across_ articles is fine when a fact is genuinely load-bearing for two topics. Duplication _within_ a page is the bug. **Route, don't restate:** if a fact lives on a linked article, the link is enough — retrieval follows the graph.
 
-## The card budget
+## The injection budget
 
-Every conversation accumulates a bounded bundle of cards. **Bloated leads starve other articles' cards.** Optimize for orientation density in the lead and fact density in the sections — not completeness. Watch for over-investment: the pages that feel most important tend to attract the most bytes, but byte count should track _retrieval need_, not how significant the topic feels. When a page grows long, the fix is section discipline — split detail into named sections — not a longer lead.
+Every conversation accumulates a bounded bundle of injected sections: the matched `## ` section of each selected article, or its lead when nothing narrower matched. The bundle is capped in bytes and pruned by recency, uniformly, so **a bloated section or lead evicts other articles' sections** and, once evicted, has to be re-injected whole the next time it is selected. Optimize for orientation density in the lead and fact density in the sections, not completeness. Watch for over-investment: the pages that feel most important tend to attract the most bytes, but byte count should track _retrieval need_, not how significant the topic feels. When a page grows long, the fix is section discipline (split detail into named sections, each a self-contained unit to inject) rather than a longer lead.
 
 ## Sections you never write
 

@@ -70,16 +70,36 @@ export interface Section {
  * section is its trimmed title, and the second and later sections sharing a
  * title (a chunked or repeated heading) append `#<titleOrdinal>`. Keys are
  * stable across consolidation edits that shift ordinals.
+ *
+ * The key is a bijection of `(title, titleOrdinal)`: every literal `#` in
+ * the title is doubled before the single-`#` occurrence suffix is appended,
+ * so a heading that itself ends in `#<n>` (`Topic#1`, key `Topic##1`) can
+ * never collide with a repeated heading's key (`Topic` again, key `Topic#1`).
+ * {@link sectionKeyTitle} is the exact inverse.
  */
 export function sectionKey(section: Section): string {
-  const title = section.title.trim();
-  return section.titleOrdinal ? `${title}#${section.titleOrdinal}` : title;
+  const encoded = section.title.trim().replaceAll("#", "##");
+  return section.titleOrdinal ? `${encoded}#${section.titleOrdinal}` : encoded;
 }
 
-/** The section title a {@link sectionKey} names: the key minus the `#<n>`
- *  suffix a chunked or repeated heading carries (`""` for the lead). */
+/**
+ * Matches a key's trailing `#<n>` occurrence suffix together with the run of
+ * `#` that precedes the digits. The suffix separator is one `#`, and every
+ * `#` a title contributes is doubled by {@link sectionKey}, so the run is odd
+ * exactly when the suffix is present: `Topic#1` (run of 1, a repeat of
+ * `Topic`) versus `Topic##1` (run of 2, the literal heading `Topic#1`).
+ */
+const SECTION_KEY_SUFFIX_REGEX = /^([\s\S]*?)(#+)(\d+)$/;
+
+/** The section title a {@link sectionKey} names (`""` for the lead): the
+ *  exact inverse of the key encoding. */
 export function sectionKeyTitle(key: string): string {
-  return key.replace(/#\d+$/, "");
+  const match = SECTION_KEY_SUFFIX_REGEX.exec(key);
+  const encoded =
+    match && match[2]!.length % 2 === 1
+      ? `${match[1]}${match[2]!.slice(1)}`
+      : key;
+  return encoded.replaceAll("##", "#");
 }
 
 /** One injected section's identity in the section store: page slug plus

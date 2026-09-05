@@ -107,6 +107,21 @@ describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
     ]);
   });
 
+  test("an escaped key (doubled #) round-trips through the header verbatim", () => {
+    // `sectionKey` doubles a title's literal `#`; the header carries the key
+    // as-is and the extractor hands it back unchanged for `sectionKeyTitle`.
+    const header = injectedSectionHeader("topics/page-a", "Topic##1");
+    expect(header).toBe("# memory/concepts/topics/page-a.md § Topic##1");
+    expect(extractInjectedSectionRefs(`${header}\nBody.`)).toEqual([
+      { slug: "topics/page-a", key: "Topic##1" },
+    ]);
+    expect(
+      extractInjectedSectionRefs(
+        injectedSectionHeader("topics/page-a", "Topic#1"),
+      ),
+    ).toEqual([{ slug: "topics/page-a", key: "Topic#1" }]);
+  });
+
   test("a key containing .md never bleeds into the slug", () => {
     const header = injectedSectionHeader(
       "topics/page-a",

@@ -413,20 +413,28 @@ describe("planPrune", () => {
     ]);
   });
 
-  test("a heading whose own title ends in #<n> matches its selections by the full key", () => {
+  test("a heading whose own title ends in #<n> decodes to its selections' title, distinct from a repeated heading", () => {
+    // The literal heading `Topic#1` keys as `Topic##1`; a second `Topic`
+    // heading keys as `Topic#1`. Each row must find its own selections.
     recordInjected(
       "conv-1",
       [
-        { slug: "page-a", key: "Issue #12", bytes: 200 },
+        { slug: "page-a", key: "Topic##1", bytes: 200 },
+        { slug: "page-a", key: "Topic#1", bytes: 200 },
         { slug: "page-b", key: "", bytes: 200 },
       ],
       1_000,
     );
-    insertSelection("conv-1", 0, "page-a", 9_000, "Issue #12");
+    insertSelection("conv-1", 0, "page-a", 9_000, "Topic#1");
+    insertSelection("conv-1", 1, "page-a", 8_000, "Topic");
     insertSelection("conv-1", 0, "page-b", 2_000);
 
+    // Resident 600 > max 300: page-b's lead (2_000) goes first, then the
+    // repeated `Topic` section (8_000); the literal `Topic#1` heading (9_000)
+    // is the most recent and survives.
     expect(planPrune(deps, "conv-1")!.sections).toEqual([
       { slug: "page-b", key: "" },
+      { slug: "page-a", key: "Topic#1" },
     ]);
   });
 

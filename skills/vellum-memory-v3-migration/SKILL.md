@@ -24,7 +24,7 @@ This skill is the **successor** to `vellum-memory-v2-migration`. That skill back
 
 ## What actually changes, and why it's two jobs
 
-The mechanical cutover is cheap and mostly automatic: v3 reads the same `memory/concepts/*.md` tree, the schema is shared, the DB tables already exist, and section embeddings backfill on demand. **The work is the reform.** v3 retrieval is section-grain: it shows a compact **card** (the article's lead + its section names) and spotlights the single best-matching `## ` section. A flat v2 page — bullets, no `## ` headings, a `summary:` field v3 ignores — collapses under v3 into **one giant lead with no sections**: a bloated card that starves the card budget and exposes no section to match. So this skill does two things at once:
+The mechanical cutover is cheap and mostly automatic: v3 reads the same `memory/concepts/*.md` tree, the schema is shared, the DB tables already exist, and section embeddings backfill on demand. **The work is the reform.** v3 retrieval is section-grain: the selector sees a compact **card** per candidate (the article's lead + its section names), and what reaches context is the best-matching `## ` section of each selected article in full (the lead when the article was selected without a section match). Each injected section is frozen into the conversation once, re-selections point back at it with a one-line pointer, and every resident section is pruned by recency under one byte cap, with no exemptions for any lane. A flat v2 page (bullets, no `## ` headings, a `summary:` field v3 ignores) collapses under v3 into **one giant lead with no sections**: every selection injects the whole page, nothing narrower can match, and that one oversized block crowds the resident budget. So this skill does two things at once:
 
 1. **Reshape each surviving page** into the v3 article skeleton (lead + sections, flat slug, `links:` not `edges:`, optional `current:`).
 2. **Re-organize the corpus** — merge over-fragmented pages into topical articles under hubs, so the wiki is navigable, not a pile of stubs.
@@ -35,7 +35,7 @@ The mechanical cutover is cheap and mostly automatic: v3 reads the same `memory/
 
 ### Step 0 — Read the principles
 
-Read `references/v3-wiki-principles.md` end-to-end first. It defines the v3 article skeleton, the lead-is-the-card rule, the event-vs-topic distinction, hubs (`kind: index`), section discipline, the card budget, and the banned content shapes. It owns _what a good v3 article is_; this SKILL.md owns _what order to do things in_.
+Read `references/v3-wiki-principles.md` end-to-end first. It defines the v3 article skeleton, the lead-is-the-card rule, the event-vs-topic distinction, hubs (`kind: index`), section discipline, the injection budget, and the banned content shapes. It owns _what a good v3 article is_; this SKILL.md owns _what order to do things in_.
 
 Then read `references/loss-proofing.md` — the snapshot/staging/provenance/verify contract that every later step depends on.
 
