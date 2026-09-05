@@ -13,9 +13,9 @@ describe("readAssistantTextVisibility", () => {
   });
 
   test("answers undefined for anything else", () => {
-    // An unmarked row, a daemon that predates the marker, a value this client
-    // does not recognize, and a malformed payload all degrade to the shipped
-    // rendering rather than hiding or restyling a reply.
+    // An unmarked row, a value this client does not recognize, and a malformed
+    // payload all read as no marker, which is the standard rendering rather
+    // than a hidden or restyled reply.
     expect(readAssistantTextVisibility({})).toBeUndefined();
     expect(
       readAssistantTextVisibility({ assistantTextVisibility: "later" }),
