@@ -1242,12 +1242,14 @@ describe("forkConversation", () => {
 
   test("truncated fork seeds the memory-v3 record from inherited v3 section blocks", async () => {
     const source = createConversation("V3 truncated seed thread");
+    // A lead (bare page header) and a heading section of one page, plus
+    // another page's lead.
+    const leadA = "# memory/concepts/topics/page-a.md\nLead A";
+    const notesA = "# memory/concepts/topics/page-a.md § Notes\nNotes A";
+    const leadB = "# memory/concepts/topics/page-b.md\nLead B";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
-        // A lead (bare page header) and a heading section of one page, plus
-        // another page's lead.
-        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-a.md\nLead A\n\n# memory/concepts/topics/page-a.md § Notes\nNotes A\n\n# memory/concepts/topics/page-b.md\nLead B",
+        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesA}\n\n${leadB}`,
         // A v2 block on the same message must seed only the v2 record.
         memoryInjectedBlock: "# memory/concepts/topics/page-v2.md\nSummary",
       },
@@ -1287,8 +1289,9 @@ describe("forkConversation", () => {
       throughMessageId: boundaryMessage.id,
     });
 
-    // Exactly the sections whose blocks live in the copied history,
-    // dedup-only (`bytes = 0` — resident accounting restarts on the child).
+    // Exactly the sections whose blocks live in the copied history, each
+    // carrying the bytes of its inherited span (the child's resident
+    // accounting starts at what it inherited).
     expect(
       getV3Injected(fork.id).map(({ slug, key, bytes, prunedAt }) => ({
         slug,
@@ -1297,9 +1300,24 @@ describe("forkConversation", () => {
         prunedAt,
       })),
     ).toEqual([
-      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
-      { slug: "topics/page-a", key: "Notes", bytes: 0, prunedAt: null },
-      { slug: "topics/page-b", key: "", bytes: 0, prunedAt: null },
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: Buffer.byteLength(leadA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: Buffer.byteLength(notesA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-b",
+        key: "",
+        bytes: Buffer.byteLength(leadB),
+        prunedAt: null,
+      },
     ]);
     // The v2 seed picked up only the v2 block, not the v3 sections.
     const childState = await hydrateActivationState(fork.id);
@@ -1313,10 +1331,11 @@ describe("forkConversation", () => {
     // sees pruned sections too, the seed must tombstone them, or the child's
     // rehydration would resurrect sections the parent's live view lost.
     const source = createConversation("V3 truncated pruned thread");
+    const leadA = "# memory/concepts/topics/page-a.md\nLead A";
+    const notesB = "# memory/concepts/topics/page-b.md § Notes\nNotes B";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
-        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-a.md\nLead A\n\n# memory/concepts/topics/page-b.md § Notes\nNotes B",
+        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesB}`,
       },
       skipIndexing: true,
     });
@@ -1357,11 +1376,16 @@ describe("forkConversation", () => {
         prunedAt,
       })),
     ).toEqual([
-      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: Buffer.byteLength(leadA),
+        prunedAt: null,
+      },
       {
         slug: "topics/page-b",
         key: "Notes",
-        bytes: 0,
+        bytes: Buffer.byteLength(notesB),
         prunedAt: 1_700_000_005_000,
       },
     ]);

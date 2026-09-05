@@ -318,6 +318,32 @@ describe("memory-v3-live v2 suppression", () => {
     );
   });
 
+  test("a legacy <memory_spotlight> rehydrated onto the tail from an earlier build's row is stripped the same way", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
+
+    const legacyOnTail =
+      "<memory_spotlight>\nlegacy matched section\n</memory_spotlight>";
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: legacyOnTail },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      wrapMemoryPointerBlock("fresh refs"),
+      "current question",
+    ]);
+  });
+
   test("a turn with no pointer captures none (nothing to persist)", async () => {
     memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector("net-new sections"));

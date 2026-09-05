@@ -7,7 +7,8 @@
  *     `residentBytes`, leaving sibling sections of the page resident;
  *   - `clearConversation` (compaction reset);
  *   - fork hooks: full-row copy (pruned state included) and truncated-fork
- *     seeding from inherited block headers (`bytes = 0`, dedup-only);
+ *     seeding from inherited block sections (bytes measured from each
+ *     inherited span, tombstones carried over);
  *   - migration idempotence (run twice).
  *
  * The rows live on the dedicated memory connection, resolved via
@@ -27,7 +28,9 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { ensureMemoryV3InjectedSectionsSchema } from "../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../persistence/schema/index.js";
+import { wrapMemoryBlock } from "../memory-marker.js";
 import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
+import { renderedBytes } from "./card.js";
 
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
@@ -282,20 +285,16 @@ describe("forkEverInjected", () => {
 });
 
 describe("seedEverInjectedFromBlocks", () => {
-  const blockA = [
-    injectedSectionHeader("topics/page-a", ""),
-    "Lead A",
-    "",
-    injectedSectionHeader("topics/page-a", "Notes"),
-    "Notes A",
-  ].join("\n");
-  const blockB = `${injectedSectionHeader("topics/page-b", "Design#1")}\nDesign B`;
+  const leadA = `${injectedSectionHeader("topics/page-a", "")}\nLead A`;
+  const notesA = `${injectedSectionHeader("topics/page-a", "Notes")}\nNotes A`;
+  const blockA = `${leadA}\n\n${notesA}`;
+  const designB = `${injectedSectionHeader("topics/page-b", "Design#1")}\nDesign B`;
 
-  test("seeds dedup-only rows for every header the inherited blocks carry, stamped at the given time", () => {
+  test("seeds a row per inherited section, stamped at the given time, with the bytes of its inherited span", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [blockA, blockB],
+      [blockA, wrapMemoryBlock(designB)],
       5_000,
     );
 
@@ -303,28 +302,54 @@ describe("seedEverInjectedFromBlocks", () => {
       {
         slug: "topics/page-a",
         key: "",
-        bytes: 0,
+        bytes: renderedBytes(leadA),
         injectedAt: 5_000,
         prunedAt: null,
       },
       {
         slug: "topics/page-a",
         key: "Notes",
-        bytes: 0,
+        bytes: renderedBytes(notesA),
         injectedAt: 5_000,
         prunedAt: null,
       },
       {
         slug: "topics/page-b",
         key: "Design#1",
-        bytes: 0,
+        bytes: renderedBytes(designB),
         injectedAt: 5_000,
         prunedAt: null,
       },
     ]);
-    // Inherited sections carry no byte accounting, resident accounting
-    // restarts from the fork's own injections.
-    expect(residentBytes("conv-child")).toBe(0);
+    // The child's resident accounting starts at what it inherited.
+    expect(residentBytes("conv-child")).toBe(
+      renderedBytes(leadA) + renderedBytes(notesA) + renderedBytes(designB),
+    );
+  });
+
+  test("a section inherited from several blocks takes its latest span; an escaped forged header seeds no phantom row", () => {
+    const notesAgain = `${injectedSectionHeader("topics/page-a", "Notes")}\nNotes A, re-injected after a prune\n\\# memory/concepts/phantom.md`;
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [blockA, notesAgain],
+      5_000,
+    );
+
+    expect(summary("conv-child")).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: renderedBytes(leadA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: renderedBytes(notesAgain),
+        prunedAt: null,
+      },
+    ]);
   });
 
   test("carries the parent's pruned_at tombstones for inherited sections", () => {
@@ -346,12 +371,24 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks("conv-parent", "conv-child", [blockA], 5_000);
 
     expect(summary("conv-child")).toEqual([
-      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
-      { slug: "topics/page-a", key: "Notes", bytes: 0, prunedAt: 2_000 },
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: renderedBytes(leadA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: renderedBytes(notesA),
+        prunedAt: 2_000,
+      },
     ]);
     expect(getActiveSections("conv-child")).toEqual(
       new Map([["topics/page-a", new Set([""])]]),
     );
+    // A tombstoned seed carries its bytes but stays out of the resident sum.
+    expect(residentBytes("conv-child")).toBe(renderedBytes(leadA));
 
     // Re-selection clears the inherited tombstone, same as in the parent.
     recordInjected(
@@ -381,7 +418,12 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks("conv-parent", "conv-child", [blockA], 5_000);
     expect(summary("conv-child")).toEqual([
       { slug: "topics/page-a", key: "", bytes: 100, prunedAt: null },
-      { slug: "topics/page-a", key: "Notes", bytes: 0, prunedAt: null },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: renderedBytes(notesA),
+        prunedAt: null,
+      },
     ]);
   });
 });

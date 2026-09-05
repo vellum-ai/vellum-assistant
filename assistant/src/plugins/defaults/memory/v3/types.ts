@@ -43,6 +43,16 @@ export const MEMORY_V3_POINTER_BLOCK_METADATA_KEY =
   "memoryV3PointerBlock" as const;
 
 /**
+ * Message-metadata key under which builds that shipped the per-turn
+ * `<memory_spotlight>` layer persisted each turn's wrapped block. No producer
+ * writes it; `loadFromDb` rehydrates a row's legacy block verbatim as inert
+ * history so a conversation that spans the upgrade keeps the prefix those
+ * turns were sent with.
+ */
+export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
+  "memoryV3SpotlightBlock" as const;
+
+/**
  * A single section of a page: the lead (text before the first `## heading`,
  * ordinal 0) or a heading-delimited block. Over-long sections are split into
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each

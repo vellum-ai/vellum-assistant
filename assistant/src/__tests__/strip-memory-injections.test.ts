@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   MEMORY_POINTER_MATCHER,
   stripInjectionsForCompaction,
   stripTailUserTextBlocksByPrefix,
@@ -272,6 +273,34 @@ describe("tail pointer strip (MEMORY_POINTER_MATCHER)", () => {
     expect(
       stripTailUserTextBlocksByPrefix(plain, [MEMORY_POINTER_MATCHER]),
     ).toBe(plain);
+  });
+
+  test("a legacy <memory_spotlight> persisted by an earlier build is tail-stripped and compaction-stripped like the pointer", () => {
+    const spotlight = textBlock(
+      "<memory_spotlight>\nlegacy matched section\n</memory_spotlight>",
+    );
+    const messages = [
+      userMsg(memoryTextBlock, textBlock("first"), spotlight),
+      assistantMsg("ok"),
+      userMsg(memoryTextBlock, textBlock("second"), spotlight),
+    ];
+    const tailStripped = stripTailUserTextBlocksByPrefix(messages, [
+      MEMORY_POINTER_MATCHER,
+      LEGACY_MEMORY_SPOTLIGHT_MATCHER,
+    ]);
+    expect(tailStripped[0]).toBe(messages[0]);
+    expect(tailStripped[2].content).toEqual([
+      memoryTextBlock,
+      textBlock("second"),
+    ]);
+
+    const compacted = stripInjectionsForCompaction([
+      userMsg(textBlock("first"), spotlight),
+      assistantMsg("ok"),
+      userMsg(textBlock("second"), spotlight),
+    ]);
+    expect(compacted[0].content).toEqual([textBlock("first")]);
+    expect(compacted[2].content).toEqual([textBlock("second")]);
   });
 
   test("compaction strips every turn's pointer along with the other runtime injections", () => {

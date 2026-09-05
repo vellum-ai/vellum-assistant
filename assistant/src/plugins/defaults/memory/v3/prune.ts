@@ -12,26 +12,29 @@
  *
  * Pruning is `markPruned` (the store's audit-preserving tombstone) plus two
  * FILTER points — never a metadata rewrite, so the persisted
- * `metadata.memoryV3InjectedBlock` rows stay intact (auditable, and a
- * re-selected section re-injects as a fresh entry because `recordInjected`
- * clears `pruned_at`):
+ * `metadata.memoryV3InjectedBlock` / `memoryV3PointerBlock` rows stay intact
+ * (auditable, and a re-selected section re-injects as a fresh entry because
+ * `recordInjected` clears `pruned_at`):
  *
  *   (a) a one-time strip of the pruned sections from the `<memory>` blocks
- *       riding the LIVE in-memory history
- *       ({@link stripPrunedSectionsFromMessages}, per-section boundaries are
+ *       riding the LIVE in-memory history, and of their lines from the
+ *       `<memory_pointer>` blocks that named them
+ *       ({@link stripPrunedSectionsFromMessages}; per-section boundaries are
  *       the `# memory/concepts/<slug>.md` / `# memory/concepts/<slug>.md § <key>`
  *       headers within a block, terminated at the next header or at a
  *       non-section chunk such as capability content; see
- *       {@link parseInjectedSections}). The strip mutates the shared message
- *       objects in place so the agent loop's end-of-turn history fold-back
- *       keeps the stripped content;
+ *       `parseInjectedSections` in `substrate/injected-block-slugs.ts`). The
+ *       strip mutates the shared message objects in place so the agent
+ *       loop's end-of-turn history fold-back keeps the stripped content;
  *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`
- *       re-applies {@link filterPrunedSections} on every load, so prunes
- *       persist across daemon restarts without touching the metadata.
+ *       re-applies {@link filterPrunedSections} and
+ *       {@link filterPrunedPointerEntries} on every load, so prunes persist
+ *       across daemon restarts without touching the metadata.
  *
  * The first post-prune request loses the provider prefix cache from the
  * earliest affected message — ONE amortized bust per prune, logged with
- * `prunedSections` / `bytesFreed`.
+ * `prunedSections` / `bytesFreed`. A pointer always sits after the block of
+ * every section it names, so filtering it never widens that bust.
  *
  * v2-coexistence note: v2's dynamic `<memory>` blocks share the exact wrapper
  * and `# memory/concepts/<slug>.md` header convention, so the live strip
@@ -41,7 +44,8 @@
  * ({@link collectPersistedV3Sections}), v2 sections render the page SUMMARY
  * (or full page) rather than an injected section, so pre-flip v2 blocks never
  * qualify and are left untouched, keeping their unfiltered rehydration
- * byte-identical.
+ * byte-identical. The `<memory_pointer>` wrapper is v3-only, so pointer
+ * blocks need no ownership test.
  *
  * Capability note: skill / CLI-command content renders under its own
  * `# Skill:` / `# CLI command:` header, not a section header, so it can
@@ -66,15 +70,17 @@ import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
-  INJECTED_CONCEPT_HEADER_REGEX,
+  unwrapMemoryBlock,
+  unwrapMemoryPointerBlock,
+  wrapMemoryBlock,
+  wrapMemoryPointerBlock,
+} from "../memory-marker.js";
+import {
+  parseInjectedSectionPath,
+  parseInjectedSections,
   readInjectedBlock,
 } from "../substrate/injected-block-slugs.js";
-import {
-  CLI_COMMAND_HEADER_PREFIX,
-  SKILL_HEADER_PREFIX,
-} from "./capabilities.js";
 import {
   getActiveEntries,
   getPrunedSections,
@@ -84,102 +90,11 @@ import {
   type SectionRefSet,
   sectionRefSetHas,
 } from "./ever-injected-store.js";
-import { SKILLS_CATALOG_HINT_HEADER } from "./render-injection.js";
 import { sectionKeyTitle, type SectionRef } from "./types.js";
 
 const log = getLogger("memory-v3-shadow");
 
-// ─── section parsing & filtering ─────────────────────────────────────────────
-
-/**
- * Matches the header line of a NON-section chunk: the skills catalog hint or
- * a capability render. Built from the producers' own header constants so the
- * parser's grammar cannot drift from what `renderInjectionBlockInner` emits.
- * Only these lines (never an arbitrary `# ` line, which a section body may
- * legitimately contain) terminate a section.
- */
-const NON_SECTION_CHUNK_HEADER_REGEX = new RegExp(
-  `^(?:${RegExp.escape(SKILLS_CATALOG_HINT_HEADER)}$|${RegExp.escape(SKILL_HEADER_PREFIX)}|${RegExp.escape(CLI_COMMAND_HEADER_PREFIX)})`,
-  "gm",
-);
-
-/** One parsed injected section: the header line plus everything up to the
- *  next chunk boundary (or end of block), trailing whitespace removed. */
-export interface ParsedInjectedSection extends SectionRef {
-  /** The section text INCLUDING its header line, `trimEnd()`ed so re-joining
-   *  with `\n\n` reproduces the renderer's exact bytes. */
-  text: string;
-}
-
-/** One ordered chunk of a parsed injection block: an injected section
- *  (prunable, owned by `(slug, key)`) or any other `\n\n`-joined chunk (the
- *  skills hint, capability content under its own header): never prunable. */
-export type InjectionBlockPiece =
-  | { kind: "section"; slug: string; key: string; text: string }
-  | { kind: "other"; text: string };
-
-/**
- * Split an UNWRAPPED injection-block body into its preamble (the instruction
- * header: everything before the first boundary), the ordered chunk pieces,
- * and the injected sections (the `kind: "section"` pieces, kept as a
- * convenience view). Returns zero sections/pieces when the text carries no
- * section headers.
- *
- * A section ends at the next section header OR at a non-section chunk header
- * (the skills hint, `# Skill:`, `# CLI command:`) that starts its own
- * `\n\n`-joined chunk, so capability content trailing a section
- * (`renderInjectionBlockInner` joins them with `\n\n`) is parsed as a separate
- * non-section piece instead of being absorbed, and pruning the section never
- * deletes it. Any other `# ` line, including a lead's own `# Title` line and
- * any heading a section body carries, stays inside its section, and the
- * blank-line requirement guarantees splits land on the renderer's `\n\n`
- * seams so re-joins stay byte-identical.
- */
-export function parseInjectedSections(inner: string): {
-  preamble: string;
-  sections: ParsedInjectedSection[];
-  pieces: InjectionBlockPiece[];
-} {
-  const headerMatches = [...inner.matchAll(INJECTED_CONCEPT_HEADER_REGEX)];
-  if (headerMatches.length === 0) {
-    return { preamble: inner, sections: [], pieces: [] };
-  }
-
-  const boundaries: Array<{ index: number; ref: SectionRef | null }> =
-    headerMatches.map((match) => ({
-      index: match.index!,
-      ref: { slug: match[1]!, key: match[2] ?? "" },
-    }));
-  for (const match of inner.matchAll(NON_SECTION_CHUNK_HEADER_REGEX)) {
-    const i = match.index!;
-    // A non-section header opening the text or sitting on a `\n\n` seam
-    // starts its own chunk.
-    if (i === 0 || (i >= 2 && inner[i - 1] === "\n" && inner[i - 2] === "\n")) {
-      boundaries.push({ index: i, ref: null });
-    }
-  }
-  boundaries.sort((a, b) => a.index - b.index);
-
-  const preamble = inner.slice(0, boundaries[0]!.index).trimEnd();
-  const pieces = boundaries.map((boundary, i): InjectionBlockPiece => {
-    const end =
-      i + 1 < boundaries.length ? boundaries[i + 1]!.index : undefined;
-    const text = inner.slice(boundary.index, end).trimEnd();
-    return boundary.ref === null
-      ? { kind: "other", text }
-      : {
-          kind: "section",
-          slug: boundary.ref.slug,
-          key: boundary.ref.key,
-          text,
-        };
-  });
-  const sections = pieces.filter(
-    (piece): piece is Extract<InjectionBlockPiece, { kind: "section" }> =>
-      piece.kind === "section",
-  );
-  return { preamble, sections, pieces };
-}
+// ─── pruned-section filtering ────────────────────────────────────────────────
 
 /**
  * Remove pruned sections from an unwrapped block body.
@@ -222,6 +137,46 @@ export function filterPrunedSections(
   return texts.join("\n\n");
 }
 
+/**
+ * Remove pruned sections' lines from a WRAPPED `<memory_pointer>` block, so
+ * the pointer never claims a section is in context after the valve removed
+ * it. Same contract as {@link filterPrunedSections}: the input is returned
+ * UNCHANGED (same reference) when it is not a pointer block or names no
+ * pruned section, and `""` when every entry line is pruned (the caller drops
+ * the block: a pointer with nothing to point at carries no content). The
+ * lead line and any other non-path line are kept as-is.
+ */
+export function filterPrunedPointerEntries(
+  block: string,
+  pruned: SectionRefSet,
+): string {
+  const inner = unwrapMemoryPointerBlock(block);
+  if (inner === block) {
+    return block;
+  }
+  let entries = 0;
+  let kept = 0;
+  const lines = inner.split("\n").filter((line) => {
+    const ref = parseInjectedSectionPath(line);
+    if (ref === null) {
+      return true;
+    }
+    entries += 1;
+    if (sectionRefSetHas(pruned, ref.slug, ref.key)) {
+      return false;
+    }
+    kept += 1;
+    return true;
+  });
+  if (kept === entries) {
+    return block;
+  }
+  if (kept === 0) {
+    return "";
+  }
+  return wrapMemoryPointerBlock(lines.join("\n"));
+}
+
 // ─── prune planning ──────────────────────────────────────────────────────────
 
 export interface PrunePlan {
@@ -248,12 +203,11 @@ export interface PruneDeps {
  * that heading (the key decoded through `sectionKeyTitle`, so a chunked or
  * repeated heading shares its title's recency), and a lead section (empty
  * title) takes the latest selection of its page under any title. A section
- * with no matching
- * selection rows (e.g. rows copied by a full fork) falls back to the store's
- * `injected_at`. Candidates are taken oldest-first until the footprint is at
- * `targetResidentBytes`. There are no exemptions; zero-byte rows (capability
- * slugs, truncated-fork seeds: dedup-only, no byte accounting) are skipped,
- * since pruning them frees nothing while discarding inherited context.
+ * with no matching selection rows (e.g. rows copied or seeded by a fork)
+ * falls back to the store's `injected_at`. Candidates are taken oldest-first
+ * until the footprint is at `targetResidentBytes`. There are no exemptions;
+ * zero-byte rows (capability slugs: dedup-only, no byte accounting) are
+ * skipped, since pruning them frees nothing.
  */
 export function planPrune(
   deps: PruneDeps,
@@ -376,9 +330,10 @@ export function collectPersistedV3Sections(
 /**
  * One-time strip of pruned sections from the live in-memory history: for
  * every v3-owned `<memory>` text block (ownership per `knownV3Sections`, see
- * the module doc), drop the pruned sections; a block whose sections are all
- * pruned is removed outright (matching the rehydration splice, which skips
- * an all-pruned block).
+ * the module doc), drop the pruned sections, and for every `<memory_pointer>`
+ * block drop the lines naming them; a block left with no sections (or no
+ * pointer entries) is removed outright (matching the rehydration splice,
+ * which skips such a block).
  *
  * Mutates the affected `Message` objects IN PLACE (`message.content`
  * reassignment): the agent loop's working arrays share these object
@@ -400,6 +355,15 @@ export function stripPrunedSectionsFromMessages(
     for (const block of message.content) {
       if (block.type !== "text") {
         nextContent.push(block);
+        continue;
+      }
+      const pointer = filterPrunedPointerEntries(block.text, pruned);
+      if (pointer !== block.text) {
+        strippedBlocks += 1;
+        changed = true;
+        if (pointer.length > 0) {
+          nextContent.push({ type: "text", text: pointer });
+        }
         continue;
       }
       const inner = unwrapMemoryBlock(block.text);

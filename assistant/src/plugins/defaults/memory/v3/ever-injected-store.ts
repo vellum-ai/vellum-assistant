@@ -33,7 +33,9 @@ import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { memoryV3InjectedSections } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
-import { extractInjectedSectionRefs } from "../substrate/injected-block-slugs.js";
+import { unwrapMemoryBlock } from "../memory-marker.js";
+import { parseInjectedSections } from "../substrate/injected-block-slugs.js";
+import { renderedBytes } from "./card.js";
 import type { SectionRef } from "./types.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
@@ -397,9 +399,14 @@ export function forkEverInjected(
  * `seedForkActivationState`: a wholesale copy would over-claim, while seeding
  * nothing would re-attach every inherited section as a duplicate.
  *
- * Rows are stamped `injected_at = at` and `bytes = 0`: the rendered size of
- * inherited sections is unknown, so `residentBytes` accounting restarts from
- * the fork's own injections.
+ * Rows are stamped `injected_at = at` and `bytes` = the byte length of the
+ * section's span in the inherited block (header through body, the measure
+ * `recordInjected` takes from the live render), so the child's resident
+ * accounting starts at what it actually inherited and the valve can evict an
+ * inherited section like any other. A section present in several inherited
+ * blocks (re-injected after a prune) takes its latest span, mirroring the
+ * upsert. Capability chunks carry no concept header and are not seeded,
+ * matching the injector's zero-byte treatment of them.
  *
  * The parent's `pruned_at` tombstones are carried over: pruning leaves the
  * persisted metadata block intact and relies on the tombstone to filter the
@@ -421,8 +428,18 @@ export function seedEverInjectedFromBlocks(
   blocks: string[],
   at: number,
 ): void {
-  const refs = toSectionRefSet(blocks.flatMap(extractInjectedSectionRefs));
-  if (refs.size === 0) {
+  const inherited = new Map<string, SectionRef & { bytes: number }>();
+  for (const block of blocks) {
+    for (const section of parseInjectedSections(unwrapMemoryBlock(block))
+      .sections) {
+      inherited.set(`${section.slug} ${section.key}`, {
+        slug: section.slug,
+        key: section.key,
+        bytes: renderedBytes(section.text),
+      });
+    }
+  }
+  if (inherited.size === 0) {
     return;
   }
   try {
@@ -447,27 +464,25 @@ export function seedEverInjectedFromBlocks(
     const parentPrunedAt = new Map(
       prunedRows.map((r) => [`${r.slug} ${r.key}`, r.prunedAt]),
     );
-    for (const [slug, keys] of refs) {
-      for (const key of keys) {
-        mdb
-          .insert(memoryV3InjectedSections)
-          .values({
-            conversationId: newConversationId,
-            slug,
-            sectionKey: key,
-            injectedAt: at,
-            bytes: 0,
-            prunedAt: parentPrunedAt.get(`${slug} ${key}`) ?? null,
-          })
-          .onConflictDoNothing({
-            target: [
-              memoryV3InjectedSections.conversationId,
-              memoryV3InjectedSections.slug,
-              memoryV3InjectedSections.sectionKey,
-            ],
-          })
-          .run();
-      }
+    for (const [id, { slug, key, bytes }] of inherited) {
+      mdb
+        .insert(memoryV3InjectedSections)
+        .values({
+          conversationId: newConversationId,
+          slug,
+          sectionKey: key,
+          injectedAt: at,
+          bytes,
+          prunedAt: parentPrunedAt.get(id) ?? null,
+        })
+        .onConflictDoNothing({
+          target: [
+            memoryV3InjectedSections.conversationId,
+            memoryV3InjectedSections.slug,
+            memoryV3InjectedSections.sectionKey,
+          ],
+        })
+        .run();
     }
   } catch (err) {
     log.warn(

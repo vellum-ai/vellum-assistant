@@ -22,6 +22,11 @@ import {
   getCliCommandCapability,
   isCliCommandSlug,
 } from "../substrate/cli-command-store.js";
+import {
+  CLI_COMMAND_HEADER_PREFIX,
+  escapeInjectedBody,
+  SKILL_HEADER_PREFIX,
+} from "../substrate/injected-block-slugs.js";
 import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
 import { type Section, sectionKey, type Slug } from "./types.js";
 
@@ -49,15 +54,6 @@ export function injectionSectionKey(
   return sectionKey(section);
 }
 
-/**
- * Header prefixes of the two capability render forms. Capability chunks open
- * with these instead of a `# memory/concepts/<slug>.md` header, so the v3
- * injection-block parser (`v3/prune.ts`) treats a line starting with either
- * as its own non-concept chunk boundary.
- */
-export const SKILL_HEADER_PREFIX = "# Skill: ";
-export const CLI_COMMAND_HEADER_PREFIX = "# CLI command: ";
-
 interface SkillCapabilityEntry {
   id: string;
   content: string;
@@ -79,6 +75,12 @@ const defaultResolvers: CapabilityResolvers = {
   cli: getCliCommandCapability,
 };
 
+/** The body text each render form places under a capability's header. */
+interface CapabilityBodies {
+  skill: (entry: SkillCapabilityEntry) => string;
+  cli: (entry: CliCapabilityEntry) => string;
+}
+
 /**
  * Shared dispatch for the two render forms. Returns:
  *  - the rendered block when the slug is a capability slug and resolves;
@@ -91,16 +93,18 @@ const defaultResolvers: CapabilityResolvers = {
 function renderCapability(
   slug: Slug,
   resolvers: CapabilityResolvers,
-  cliText: (entry: CliCapabilityEntry) => string,
+  body: CapabilityBodies,
 ): string | null {
   if (isSkillSlug(slug)) {
     const entry = resolvers.skill(slug);
-    return entry ? `${SKILL_HEADER_PREFIX}${entry.id}\n${entry.content}` : "";
+    return entry
+      ? `${SKILL_HEADER_PREFIX}${entry.id}\n${body.skill(entry)}`
+      : "";
   }
   if (isCliCommandSlug(slug)) {
     const entry = resolvers.cli(slug);
     return entry
-      ? `${CLI_COMMAND_HEADER_PREFIX}${entry.id}\n${cliText(entry)}`
+      ? `${CLI_COMMAND_HEADER_PREFIX}${entry.id}\n${body.cli(entry)}`
       : "";
   }
   return null;
@@ -113,6 +117,8 @@ function renderCapability(
  * render {@link buildCliCommandSummary} — description plus a `--help`
  * pointer — NOT their full help: the model fetches full usage itself, and a
  * turn can select dozens of commands, so per-entry cost dominates the block.
+ * The body passes through `escapeInjectedBody`, so a line of capability text
+ * can never read as an injected-block chunk boundary.
  * Return contract (block / `""` / `null`) is {@link renderCapability}'s.
  *
  * `resolvers` is injectable for tests; production uses the substrate caches.
@@ -121,9 +127,11 @@ export function renderCapabilityContent(
   slug: Slug,
   resolvers: CapabilityResolvers = defaultResolvers,
 ): string | null {
-  return renderCapability(slug, resolvers, (entry) =>
-    buildCliCommandSummary(entry.id, entry.description),
-  );
+  return renderCapability(slug, resolvers, {
+    skill: (entry) => escapeInjectedBody(entry.content),
+    cli: (entry) =>
+      escapeInjectedBody(buildCliCommandSummary(entry.id, entry.description)),
+  });
 }
 
 /**
@@ -138,7 +146,10 @@ export function renderCapabilityBody(
   slug: Slug,
   resolvers: CapabilityResolvers = defaultResolvers,
 ): string | null {
-  return renderCapability(slug, resolvers, (entry) => entry.content);
+  return renderCapability(slug, resolvers, {
+    skill: (entry) => entry.content,
+    cli: (entry) => entry.content,
+  });
 }
 
 /**

@@ -1,13 +1,16 @@
-import { injectedSectionPath } from "../substrate/injected-block-slugs.js";
+import {
+  escapeInjectedBody,
+  injectedSectionPath,
+  SKILL_HEADER_PREFIX,
+  SKILLS_CATALOG_HINT_HEADER,
+} from "../substrate/injected-block-slugs.js";
 import { SKILLS_INJECTION_CATALOG_HINT } from "../substrate/skill-content.js";
-import { SKILL_HEADER_PREFIX } from "./capabilities.js";
 import type { SectionRef } from "./types.js";
 
-/** Header line of the skills catalog hint chunk. Its own `# ` chunk so the
- *  prune valve's section parser treats the hint as a non-section piece. */
-export const SKILLS_CATALOG_HINT_HEADER = "# Skills";
-
-const SKILLS_CATALOG_HINT_CHUNK = `${SKILLS_CATALOG_HINT_HEADER}\n${SKILLS_INJECTION_CATALOG_HINT}`;
+/** The skills catalog hint: its own `# Skills` chunk, so the block parser
+ *  treats the hint as a non-section piece; the body is escaped like every
+ *  other chunk body. */
+const SKILLS_CATALOG_HINT_CHUNK = `${SKILLS_CATALOG_HINT_HEADER}\n${escapeInjectedBody(SKILLS_INJECTION_CATALOG_HINT)}`;
 
 /**
  * Leading instruction line of the frozen `<memory>` block, byte-identical to
@@ -45,7 +48,7 @@ export const MEMORY_POINTER_LEAD_LINE =
   "Already in context above, relevant again this turn:";
 
 /**
- * Render the UNWRAPPED inner text of the ephemeral `<memory_pointer>` block:
+ * Render the UNWRAPPED inner text of the per-turn `<memory_pointer>` block:
  * the lead line plus one `memory/concepts/<slug>.md § <key>` line per
  * resident section (a lead entry is the bare path), in selection order. No
  * bodies: the sections themselves ride the frozen blocks earlier in history.

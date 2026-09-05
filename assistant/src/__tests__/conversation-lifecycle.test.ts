@@ -484,6 +484,129 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("a pruned section's line is filtered out of a historical memoryV3PointerBlock; an all-pruned pointer is skipped", async () => {
+    // The pointer claims its sections are in context; once the valve removes
+    // one, the rehydrated pointer must stop naming it, the same way the
+    // frozen block below stops carrying it.
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map([["page-a", new Set(["Alpha"])]]);
+    const leadLine = "Already in context above, relevant again this turn:";
+    const pointerAB = `<memory_pointer>\n${leadLine}\nmemory/concepts/page-a.md § Alpha\nmemory/concepts/page-b.md\n</memory_pointer>`;
+    const pointerA = `<memory_pointer>\n${leadLine}\nmemory/concepts/page-a.md § Alpha\n</memory_pointer>`;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointerAB }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Second turn" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointerA }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: `<memory_pointer>\n${leadLine}\nmemory/concepts/page-b.md\n</memory_pointer>`,
+      },
+      { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: "Second turn" },
+    ]);
+  });
+
+  test("a legacy memoryV3SpotlightBlock from an earlier build rehydrates verbatim, in the pointer's slot, on ALL rows", async () => {
+    // Builds that shipped the per-turn spotlight persisted each turn's
+    // wrapped block under this key and rehydrated it on load. Keeping that
+    // exact behavior means the prompts those turns were sent with do not
+    // change after the upgrade, and neither does the cached prefix through
+    // them.
+    mockConversation = defaultConv();
+    const spotlight =
+      "<memory_spotlight>\n# memory/concepts/page-a.md § Alpha\nmatched section text\n</memory_spotlight>";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          memoryV3SpotlightBlock: spotlight,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail turn" }],
+        metadata: JSON.stringify({ memoryV3SpotlightBlock: spotlight }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: spotlight },
+      { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: spotlight },
+      { type: "text", text: "Tail turn" },
+    ]);
+  });
+
+  test("untrusted-actor view does not rehydrate a legacy memoryV3SpotlightBlock", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3SpotlightBlock:
+            "<memory_spotlight>\nmatched section text\n</memory_spotlight>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: "First" },
+    ]);
+  });
+
   test("pruned sections are skipped at v3 rehydration (prune valve persistence)", async () => {
     // The prune valve marks sections pruned in the section store instead of
     // rewriting the persisted metadata; the rehydration splice re-filters on

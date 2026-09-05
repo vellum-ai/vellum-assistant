@@ -35,7 +35,9 @@ export function unwrapMemoryBlock(block: string): string {
  * turn's block stays on the user message that was sent with it (persisted
  * under `memoryV3PointerBlock` and rehydrated on load), matching frozen
  * `<memory>` sections; assembly tail-strips a leftover copy on mid-turn
- * re-entry, and compaction strips every copy via `RUNTIME_INJECTION_PREFIXES`.
+ * re-entry, compaction strips every copy via `RUNTIME_INJECTION_PREFIXES`,
+ * and the prune valve filters a pruned section's line out of it (live and at
+ * rehydration) the way it filters the section out of its frozen block.
  * The producer wrapper lives here beside the `<memory>` marker it parallels.
  */
 export const MEMORY_POINTER_PREFIX = "<memory_pointer>\n";
@@ -44,3 +46,22 @@ export const MEMORY_POINTER_SUFFIX = "\n</memory_pointer>";
 export function wrapMemoryPointerBlock(text: string): string {
   return `${MEMORY_POINTER_PREFIX}${text}${MEMORY_POINTER_SUFFIX}`;
 }
+
+/** Inverse of {@link wrapMemoryPointerBlock}, with the same full-pair guard
+ *  as {@link unwrapMemoryBlock}: anything else passes through unchanged. */
+export function unwrapMemoryPointerBlock(block: string): string {
+  return block.startsWith(MEMORY_POINTER_PREFIX) &&
+    block.endsWith(MEMORY_POINTER_SUFFIX)
+    ? block.slice(MEMORY_POINTER_PREFIX.length, -MEMORY_POINTER_SUFFIX.length)
+    : block;
+}
+
+/**
+ * Wrapper of the retired per-turn `<memory_spotlight>` block. Nothing renders
+ * it; rows persisted by builds that shipped it still carry the wrapped text
+ * under `memoryV3SpotlightBlock`, which `loadFromDb` rehydrates verbatim as
+ * inert history, and the strip machinery keeps matching it so a leftover copy
+ * is removed from a re-entered tail and from compacted history.
+ */
+export const LEGACY_MEMORY_SPOTLIGHT_PREFIX = "<memory_spotlight>\n";
+export const LEGACY_MEMORY_SPOTLIGHT_SUFFIX = "\n</memory_spotlight>";

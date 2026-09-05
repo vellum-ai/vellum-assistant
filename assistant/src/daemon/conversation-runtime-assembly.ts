@@ -27,6 +27,7 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
+  LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   MEMORY_POINTER_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripTailUserTextBlocksByPrefix,
@@ -2588,10 +2589,13 @@ export async function applyRuntimeInjections(
   // that leftover from the tail so Step 2 splices a single fresh copy.
   // Historical user messages keep the pointer they were sent with, so the
   // provider prefix through those messages stays byte-identical. Frozen
-  // `<memory>` section blocks are untouched. With the v3 flag off no pointer
-  // blocks exist and this is a content no-op.
+  // `<memory>` section blocks are untouched. A legacy `<memory_spotlight>`
+  // that a row persisted by an earlier build rehydrated onto the tail is
+  // stripped the same way (that build tail-stripped it too). With the v3
+  // flag off no pointer blocks exist and this is a content no-op.
   let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(runMessages, [
     MEMORY_POINTER_MATCHER,
+    LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   ]);
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector

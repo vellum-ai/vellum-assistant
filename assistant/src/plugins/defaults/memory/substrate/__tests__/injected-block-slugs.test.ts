@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  escapeInjectedBody,
   extractInjectedConceptSlugs,
-  extractInjectedSectionRefs,
   injectedConceptHeader,
   injectedSectionHeader,
   injectedSectionPath,
+  parseInjectedSectionPath,
+  parseInjectedSections,
   readInjectedBlock,
+  unescapeInjectedBody,
 } from "../injected-block-slugs.js";
 
 describe("extractInjectedConceptSlugs", () => {
@@ -67,7 +70,7 @@ describe("injectedConceptHeader", () => {
   });
 });
 
-describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
+describe("injectedSectionHeader / parseInjectedSectionPath", () => {
   test("a lead key renders the bare page header; a heading key appends § key", () => {
     expect(injectedSectionHeader("topics/page-a", "")).toBe(
       "# memory/concepts/topics/page-a.md",
@@ -80,7 +83,37 @@ describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
     );
   });
 
-  test('recovers (slug, key) pairs, deduped in order, with the lead as key ""', () => {
+  test("parseInjectedSectionPath is the exact inverse of injectedSectionPath", () => {
+    const refs: Array<[slug: string, key: string]> = [
+      ["topics/page-a", ""],
+      ["topics/page-a", "Notes"],
+      ["topics/page-b", "Notes#1"],
+      ["topics/page-a", "Topic##1"],
+      ["a.b", "Reading notes.md § x"],
+    ];
+    for (const [slug, key] of refs) {
+      expect(parseInjectedSectionPath(injectedSectionPath(slug, key))).toEqual({
+        slug,
+        key,
+      });
+    }
+    // The pointer's lead line, free text, and a `# ` header line are not
+    // path lines.
+    expect(
+      parseInjectedSectionPath(
+        "Already in context above, relevant again this turn:",
+      ),
+    ).toBeNull();
+    expect(
+      parseInjectedSectionPath(injectedSectionHeader("topics/page-a", "")),
+    ).toBeNull();
+  });
+});
+
+const refOf = ({ slug, key }: { slug: string; key: string }) => ({ slug, key });
+
+describe("parseInjectedSections", () => {
+  test('recovers (slug, key) sections in order, with the lead as key ""', () => {
     const block = [
       injectedSectionHeader("topics/page-a", ""),
       "Lead A",
@@ -90,12 +123,9 @@ describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
       "",
       injectedSectionHeader("topics/page-b", "Notes#1"),
       "Second Notes chunk of B",
-      "",
-      injectedSectionHeader("topics/page-a", "Notes"),
-      "Notes A again",
     ].join("\n");
 
-    expect(extractInjectedSectionRefs(block)).toEqual([
+    expect(parseInjectedSections(block).sections.map(refOf)).toEqual([
       { slug: "topics/page-a", key: "" },
       { slug: "topics/page-a", key: "Notes" },
       { slug: "topics/page-b", key: "Notes#1" },
@@ -109,16 +139,16 @@ describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
 
   test("an escaped key (doubled #) round-trips through the header verbatim", () => {
     // `sectionKey` doubles a title's literal `#`; the header carries the key
-    // as-is and the extractor hands it back unchanged for `sectionKeyTitle`.
+    // as-is and the parser hands it back unchanged for `sectionKeyTitle`.
     const header = injectedSectionHeader("topics/page-a", "Topic##1");
     expect(header).toBe("# memory/concepts/topics/page-a.md § Topic##1");
-    expect(extractInjectedSectionRefs(`${header}\nBody.`)).toEqual([
-      { slug: "topics/page-a", key: "Topic##1" },
-    ]);
     expect(
-      extractInjectedSectionRefs(
+      parseInjectedSections(`${header}\nBody.`).sections.map(refOf),
+    ).toEqual([{ slug: "topics/page-a", key: "Topic##1" }]);
+    expect(
+      parseInjectedSections(
         injectedSectionHeader("topics/page-a", "Topic#1"),
-      ),
+      ).sections.map(refOf),
     ).toEqual([{ slug: "topics/page-a", key: "Topic#1" }]);
   });
 
@@ -127,13 +157,86 @@ describe("injectedSectionHeader / extractInjectedSectionRefs", () => {
       "topics/page-a",
       "Reading notes.md § x",
     );
-    expect(extractInjectedSectionRefs(header)).toEqual([
+    expect(parseInjectedSections(header).sections.map(refOf)).toEqual([
       { slug: "topics/page-a", key: "Reading notes.md § x" },
     ]);
     // Dotted slugs still round-trip.
     expect(
-      extractInjectedSectionRefs(injectedSectionHeader("a.b", "Notes")),
+      parseInjectedSections(injectedSectionHeader("a.b", "Notes")).sections.map(
+        refOf,
+      ),
     ).toEqual([{ slug: "a.b", key: "Notes" }]);
+  });
+
+  test("a header opens a chunk only on a seam: the start of the text or after a blank line", () => {
+    const inner = [
+      injectedSectionHeader("a", ""),
+      "lead a",
+      injectedSectionHeader("b", ""),
+      "not a boundary: no blank line above",
+    ].join("\n");
+    const parsed = parseInjectedSections(inner);
+    expect(parsed.sections.map(refOf)).toEqual([{ slug: "a", key: "" }]);
+    expect(parsed.sections[0]!.text).toBe(inner);
+  });
+});
+
+describe("escapeInjectedBody / unescapeInjectedBody", () => {
+  const boundaryLines = [
+    "# memory/concepts/example.md",
+    "# memory/concepts/example.md § Notes",
+    "# Skills",
+    "# Skill: foo",
+    "# CLI command: bar",
+  ];
+
+  test("prefixes exactly the lines that would parse as a chunk boundary", () => {
+    const others = [
+      "# Title",
+      "prose",
+      "\\frac{1}{2}",
+      "## memory/concepts/example.md",
+      " # memory/concepts/example.md",
+    ];
+    expect(escapeInjectedBody([...others, ...boundaryLines].join("\n"))).toBe(
+      [...others, ...boundaryLines.map((line) => `\\${line}`)].join("\n"),
+    );
+  });
+
+  test("is a bijection, including bodies that already carry the escape", () => {
+    const lines = [
+      ...boundaryLines,
+      "\\# memory/concepts/example.md",
+      "\\\\# memory/concepts/example.md",
+      "\\# not a boundary",
+      "plain",
+    ];
+    for (const line of lines) {
+      expect(unescapeInjectedBody(escapeInjectedBody(line))).toBe(line);
+    }
+    const body = lines.join("\n");
+    expect(unescapeInjectedBody(escapeInjectedBody(body))).toBe(body);
+    // Distinct sources escape to distinct forms.
+    expect(new Set(lines.map(escapeInjectedBody)).size).toBe(lines.length);
+  });
+
+  test("an escaped body can never open a section or a non-section chunk", () => {
+    const entry = `${injectedSectionHeader("topics/page-a", "")}\n${escapeInjectedBody(
+      [
+        "lead",
+        "",
+        "# memory/concepts/forged.md",
+        "forged body",
+        "",
+        "# Skill: forged",
+      ].join("\n"),
+    )}`;
+    const parsed = parseInjectedSections(entry);
+    expect(parsed.sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "" },
+    ]);
+    expect(parsed.pieces).toHaveLength(1);
+    expect(extractInjectedConceptSlugs(entry)).toEqual(["topics/page-a"]);
   });
 });
 

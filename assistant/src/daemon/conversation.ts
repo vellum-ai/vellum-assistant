@@ -78,8 +78,14 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   type SectionRefSet,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
-import { filterPrunedSections } from "../plugins/defaults/memory/v3/prune.js";
-import { MEMORY_V3_POINTER_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/types.js";
+import {
+  filterPrunedPointerEntries,
+  filterPrunedSections,
+} from "../plugins/defaults/memory/v3/prune.js";
+import {
+  LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY,
+  MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
+} from "../plugins/defaults/memory/v3/types.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -1362,15 +1368,40 @@ export class Conversation {
           // now-md and before the v3 section block, so the inverted prepends
           // land as [sections, pointer, now-md, ...]. Trust-gated on
           // `personalMemoryAllowed` like the sections: the pointer names
-          // personal-memory pages and headings.
+          // personal-memory pages and headings. A pruned section's line is
+          // filtered out here the way the section is filtered out of its
+          // frozen block below; a pointer left with no entries is skipped
+          // entirely (matching the live strip in `memory/v3/prune.ts`).
           if (
             personalMemoryAllowed &&
             typeof meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] === "string"
           ) {
+            const pointer = filterPrunedPointerEntries(
+              meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] as string,
+              v3PrunedSections(),
+            );
+            if (pointer.length > 0) {
+              content = [{ type: "text" as const, text: pointer }, ...content];
+            }
+          }
+
+          // Rows persisted by builds that shipped the per-turn
+          // `<memory_spotlight>` layer carry that turn's wrapped block under
+          // the legacy key. No producer writes it; it is rehydrated verbatim,
+          // in the slot those builds spliced it (the pointer's), so the
+          // prompts those turns were sent with stay byte-identical across
+          // the upgrade. Trust-gated like the pointer.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] ===
+              "string"
+          ) {
             content = [
               {
                 type: "text" as const,
-                text: meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] as string,
+                text: meta[
+                  LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY
+                ] as string,
               },
               ...content,
             ];

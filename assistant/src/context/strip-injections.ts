@@ -12,6 +12,8 @@
  * without reaching up into the daemon orchestrator.
  */
 import {
+  LEGACY_MEMORY_SPOTLIGHT_PREFIX,
+  LEGACY_MEMORY_SPOTLIGHT_SUFFIX,
   MEMORY_POINTER_PREFIX,
   MEMORY_POINTER_SUFFIX,
 } from "../plugins/defaults/memory/memory-marker.js";
@@ -129,6 +131,17 @@ export const MEMORY_POINTER_MATCHER: InjectionMatcher = {
   suffix: MEMORY_POINTER_SUFFIX,
 };
 
+/**
+ * Full-wrapper matcher for the retired `<memory_spotlight>` block that rows
+ * persisted by earlier builds still carry (rehydrated verbatim as inert
+ * history): re-entry tail-strips a leftover copy and compaction strips every
+ * copy, exactly as those builds did.
+ */
+export const LEGACY_MEMORY_SPOTLIGHT_MATCHER: InjectionMatcher = {
+  prefix: LEGACY_MEMORY_SPOTLIGHT_PREFIX,
+  suffix: LEGACY_MEMORY_SPOTLIGHT_SUFFIX,
+};
+
 /** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */
 export const NOW_SCRATCHPAD_STRIP_PREFIXES: InjectionMatcher[] = [
   "<NOW.md Always keep this up to date",
@@ -173,6 +186,7 @@ export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // fresh copy on the new tail. Full-wrapper shape for the same reason as
   // `<memory>`.
   MEMORY_POINTER_MATCHER,
+  LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // The `<workspace>` top-level block is stripped so each compaction re-injects

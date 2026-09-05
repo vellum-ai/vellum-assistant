@@ -430,6 +430,12 @@ export const messageMetadataSchema = z
      *  `MEMORY_V3_POINTER_BLOCK_METADATA_KEY`, kept as a literal here so the
      *  storage schema does not import the memory feature. */
     memoryV3PointerBlock: z.string().optional(),
+    /** Persisted `<memory_spotlight>` text (wrapped) from earlier builds that
+     *  shipped the per-turn spotlight layer. Never written; `loadFromDb`
+     *  rehydrates it verbatim as inert history so the prompts those turns
+     *  were sent with stay byte-identical across the upgrade. The key matches
+     *  the memory plugin's `LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`. */
+    memoryV3SpotlightBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

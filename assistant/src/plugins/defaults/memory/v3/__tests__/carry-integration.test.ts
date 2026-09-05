@@ -311,8 +311,10 @@ const {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   residentBytes,
 } = await import("../ever-injected-store.js");
-const { filterPrunedSections, flushPruneValveForTests, parseInjectedSections } =
+const { filterPrunedSections, flushPruneValveForTests } =
   await import("../prune.js");
+const { parseInjectedSections } =
+  await import("../../substrate/injected-block-slugs.js");
 const { renderInjectionBlockInner, V3_INJECTION_HEADER } =
   await import("../render-injection.js");
 const { computeHotSet } = await import("../hot-set.js");

@@ -1,5 +1,8 @@
 import { getWorkspaceDir } from "../paths.js";
-import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
+import {
+  escapeInjectedBody,
+  injectedSectionHeader,
+} from "../substrate/injected-block-slugs.js";
 import { readPage } from "../substrate/page-store.js";
 import { renderCapabilityContent } from "./capabilities.js";
 import { leadSectionOfBody, sectionBody } from "./sections.js";
@@ -12,8 +15,10 @@ import { type Section, sectionKey, type Slug } from "./types.js";
  * body. The body is the indexed section text without the synthetic
  * `<segment> — <title>` head line the section index prepends for lexical
  * matching; a lead body opens with the page's own `# Title` line, so the lead
- * reads like the page's head. Returns `""` for a section with no body (the
- * injector attaches nothing and records nothing for it).
+ * reads like the page's head. The body passes through `escapeInjectedBody`,
+ * so a line of page text can never read as an injected-block chunk boundary.
+ * Returns `""` for a section with no body (the injector attaches nothing and
+ * records nothing for it).
  *
  * Pure text → text: capability slugs never reach here (they render their
  * injection form via `renderCapabilityContent`), and the header is the exact
@@ -24,7 +29,7 @@ export function renderV3SectionInjection(slug: Slug, section: Section): string {
   if (body.length === 0) {
     return "";
   }
-  return `${injectedSectionHeader(slug, sectionKey(section))}\n${body}`;
+  return `${injectedSectionHeader(slug, sectionKey(section))}\n${escapeInjectedBody(body)}`;
 }
 
 /**

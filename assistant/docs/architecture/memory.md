@@ -177,7 +177,10 @@ Ingested pages carry provenance frontmatter with distinct consumers:
   (its lead when it was selected without a match) into a `<memory>` block,
   net-new sections only, deduped per `(page, section)` through
   `memory_v3_injected_sections` and bounded by a recency prune valve with no
-  lane exemptions. Frozen section blocks stay on historical user messages so
+  lane exemptions. Section bodies are backslash-escaped where a line would
+  read as a block header, so page text never forges a section boundary, and a
+  pruned section is dropped from any pointer that named it. Frozen section
+  blocks stay on historical user messages so
   the provider prefix stays cacheable. Re-selected sections that are already
   resident are listed, paths only, in a per-turn `<memory_pointer>` block
   that stays on the user message it was sent with; a new pointer is added
