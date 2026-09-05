@@ -664,17 +664,20 @@ export function writeSelections(
 
 /**
  * Stamp the turn's assistant message id onto the selection rows and the pool
- * row just written for it. Mirrors the v2 activation-log backfill:
+ * row written for it. Mirrors the v2 activation-log backfill:
  * `writeSelections` and `writePool` write `message_id = NULL` at injection
- * time, and this runs at turn end once the assistant message exists. Relies on
- * the single-threaded-per-conversation turn invariant: every NULL-`message_id`
- * row for the conversation belongs to the turn that just finished. Lets the
- * inspector look v3 selections up by the turn's message ids (robust against
- * v2/v3 turn-counter drift). The selection rows are stamped first so a failing
- * pool stamp degrades the inspector to selections-only rather than blanking it.
+ * time, and this runs at turn end once the assistant message exists. `turn`
+ * is the injector's `turnIndex` for the finished turn, so a row an earlier
+ * turn left unstamped (it crashed or was cancelled before reaching turn end)
+ * is never claimed by a later message: it stays NULL and stays unreachable by
+ * message id. Lets the inspector look v3 selections up by the turn's message
+ * ids (robust against v2/v3 turn-counter drift). The selection rows are
+ * stamped first so a failing pool stamp degrades the inspector to
+ * selections-only rather than blanking it.
  */
 export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
+  turn: number,
   assistantMessageId: string,
 ): void {
   try {
@@ -685,15 +688,15 @@ export function backfillMemoryV3SelectionMessageId(
     raw
       .query(
         /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
-                 WHERE conversation_id = ? AND message_id IS NULL`,
+                 WHERE conversation_id = ? AND turn = ? AND message_id IS NULL`,
       )
-      .run(assistantMessageId, conversationId);
+      .run(assistantMessageId, conversationId, turn);
     raw
       .query(
         /*sql*/ `UPDATE memory_v3_pools SET message_id = ?
-                 WHERE conversation_id = ? AND message_id IS NULL`,
+                 WHERE conversation_id = ? AND turn = ? AND message_id IS NULL`,
       )
-      .run(assistantMessageId, conversationId);
+      .run(assistantMessageId, conversationId, turn);
   } catch (err) {
     log.warn(
       { err },

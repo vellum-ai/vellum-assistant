@@ -24,10 +24,8 @@
  * tables (`conversation-memory-purge.ts`).
  */
 
-import type { Database } from "bun:sqlite";
-
 import { getLogger } from "../logging.js";
-import { memorySqliteOrNull } from "../memory-db.js";
+import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import type { FinderLane, Slug } from "./types.js";
 
@@ -203,7 +201,7 @@ function toStoredPool(row: PoolRow): StoredPool {
 function readPool(
   context: string,
   key: Record<string, unknown>,
-  select: (raw: Database) => PoolRow | null,
+  select: (raw: MemorySqlite) => PoolRow | null,
 ): StoredPool | null {
   const raw = memorySqliteOrNull(context);
   if (!raw) {

@@ -5,7 +5,8 @@
  *   - {@link observeTurn} runs orchestration and selection rows land in
  *     `memory_v3_selections` with the new lane source tags, while the turn's
  *     full candidate pool and verdict land in one `memory_v3_pools` row that
- *     the turn-end backfill stamps alongside the selections;
+ *     the turn-end backfill stamps alongside the selections, touching only
+ *     that turn's rows;
  *   - {@link observeTurn} is skipped when global memory is disabled;
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
@@ -516,6 +517,7 @@ const {
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
 const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
+const { readPoolForMessageIds } = await import("../pool-log-store.js");
 
 /** Seed the real config from the current mutable knobs, then run the real
  *  `observeTurn` — mirrors how each test sets its knobs immediately before
@@ -634,7 +636,7 @@ describe("memory-v3 engine", () => {
       ]),
     ).not.toThrow();
     expect(() =>
-      backfillMemoryV3SelectionMessageId("conv-1", "m-1"),
+      backfillMemoryV3SelectionMessageId("conv-1", 1, "m-1"),
     ).not.toThrow();
 
     // Nothing landed while the connection was down.
@@ -719,13 +721,40 @@ describe("memory-v3 engine", () => {
   test("the turn-end backfill stamps the message id onto the turn's selections and pool", async () => {
     await observeTurn("conv-1", 2);
 
-    backfillMemoryV3SelectionMessageId("conv-1", "m-assistant");
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-assistant");
 
     const stamped = memorySqlite
       .query(`SELECT DISTINCT message_id FROM memory_v3_selections`)
       .all();
     expect(stamped).toEqual([{ message_id: "m-assistant" }]);
     expect(readPools().map((pool) => pool.message_id)).toEqual(["m-assistant"]);
+  });
+
+  test("the turn-end backfill leaves an earlier turn's unstamped rows alone", async () => {
+    // Turn 1 wrote its rows but never reached its backfill (the turn crashed
+    // or was cancelled), so they still carry a NULL message id when turn 2
+    // stamps its own.
+    await observeTurn("conv-1", 1);
+    await observeTurn("conv-1", 2);
+
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-turn-2");
+
+    const stamped = memorySqlite
+      .query(
+        `SELECT DISTINCT turn, message_id FROM memory_v3_selections ORDER BY turn`,
+      )
+      .all();
+    expect(stamped).toEqual([
+      { turn: 1, message_id: null },
+      { turn: 2, message_id: "m-turn-2" },
+    ]);
+    expect(readPools().map((pool) => [pool.turn, pool.message_id])).toEqual([
+      [1, null],
+      [2, "m-turn-2"],
+    ]);
+    // The inspector resolves turn 2's message to turn 2's pool, never to the
+    // stale earlier row.
+    expect(readPoolForMessageIds(["m-turn-2"])?.turn).toBe(2);
   });
 
   test("a closed-gate turn persists an empty pool with selector_ran = 0, not the stable prefix as rejected", async () => {
@@ -759,7 +788,7 @@ describe("memory-v3 engine", () => {
     });
 
     // The pool-only turn is still stamped, so the inspector can find it.
-    backfillMemoryV3SelectionMessageId("conv-1", "m-skipped");
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-skipped");
     expect(readPools().map((pool) => pool.message_id)).toEqual(["m-skipped"]);
   });
 

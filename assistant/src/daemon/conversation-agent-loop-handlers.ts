@@ -3085,8 +3085,11 @@ export async function handleMessageComplete(
   }
 
   try {
+    // The loop advances `turnCount` after the turn ends, so here it is still
+    // the `turnIndex` the injector stamped on this turn's v3 rows.
     backfillMemoryV3SelectionMessageId(
       deps.ctx.conversationId,
+      deps.ctx.turnCount,
       assistantMessageId,
     );
   } catch (err) {
