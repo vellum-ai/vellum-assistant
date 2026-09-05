@@ -455,7 +455,7 @@
     "urlPlaceholder": "Paste callback URL here..."
   },
   "checkoutBonusModal": {
-    "body": "Claim a one-time {amount} of extra usage and we'll add it straight to your usage balance. No payment required.",
+    "body": "Claim {amount} in one-time extra usage and we'll add it straight to your usage balance. No payment required.",
     "claim": "Claim {amount} in extra usage",
     "decline": "No thanks",
     "errorToast": "Could not add the extra usage. Please try again.",
