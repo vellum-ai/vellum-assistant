@@ -207,7 +207,14 @@ block key is written only when the turn rendered net-new sections. A retry
 re-runs a turn onto its original anchor row after a reload, and assembly
 strips the anchor's old pointer and spotlight from the tail before
 re-injecting, so the deletions keep a reload from restoring what the rerun
-discarded. A re-injection assembly (the post-compaction hook,
+discarded. The anchor's rehydrated frozen block stays on the tail: a
+current-format one takes the rerun's net-new entries (`mergeIntoAnchorBlock`
+in `v3/prune.ts`, at assembly's Step 2), so the tail carries one merged block
+(the first run's entries, then the rerun's) and the persisted block gives every
+section the store claims a body that rehydrates; a legacy-format one (a
+pre-stamp row) cannot take current-format entries under one key, so the
+rerun's block rides the tail in memory only, uncaptured and uncommitted, the
+post-compaction no-claim shape. A re-injection assembly (the post-compaction hook,
 which also serves the overflow ladder's rungs) attaches its blocks in memory
 only and never persists them. The injector's turn memo remembers what the
 turn's first produce rendered, and a re-entry re-emits those entries byte for

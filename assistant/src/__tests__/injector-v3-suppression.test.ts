@@ -40,6 +40,7 @@ import { V3_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-inject
 import {
   markV3LiveBlock,
   MEMORY_V3_COMMIT_META_KEY,
+  v3LiveBlockFormat,
 } from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
@@ -768,6 +769,115 @@ describe("memory-v3-live v2 suppression", () => {
     ]);
     expect(result.blocks.memoryV3InjectedBlock).toBe("re-injected sections");
     expect(commits).toBe(0);
+  });
+
+  test("a turn re-run onto an anchor carrying a current-format frozen block merges the net-new block into it: one block, the first run's entries then the rerun's, captured merged, committed once", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    injectorChainSlot.push(
+      v3Injector(
+        `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-b.md\nhead b`,
+        () => {
+          commits += 1;
+        },
+      ),
+    );
+    const pointerInner =
+      "Already in context above, relevant again this turn:\nmemory/concepts/page-a.md";
+    injectorChainSlot.push(pointerInjector(pointerInner));
+    seedV2Identity(null);
+    // The anchor as `loadFromDb` rehydrated it for the retry: the first
+    // run's frozen block, marked current from its row's format stamp.
+    const anchorBlock = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+    });
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [anchorBlock, { type: "text", text: "retried question" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    const mergedInner = `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b`;
+    expect(tailTexts(result.messages)).toEqual([
+      `<memory>\n${mergedInner}\n</memory>`,
+      wrapMemoryPointerBlock(pointerInner),
+      "retried question",
+    ]);
+    const tail = result.messages[result.messages.length - 1]!;
+    expect(v3LiveBlockFormat(tail.content[0]!)).toBe("current");
+    expect(result.blocks.memoryV3InjectedBlock).toBe(mergedInner);
+    expect(commits).toBe(1);
+  });
+
+  test("a legacy-format anchor block cannot take the rerun's entries: the block rides the tail in memory only, uncaptured, commit withheld", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    const rerunBlock = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-b.md\nhead b\n</memory>`;
+    injectorChainSlot.push(
+      v3Injector(
+        `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-b.md\nhead b`,
+        () => {
+          commits += 1;
+        },
+      ),
+    );
+    seedV2Identity(null);
+    // A pre-stamp row's block: rehydrated legacy.
+    const anchorBlock = markV3LiveBlock(
+      {
+        type: "text" as const,
+        text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+      },
+      "legacy",
+    );
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [anchorBlock, { type: "text", text: "retried question" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    const tail = result.messages[result.messages.length - 1]!;
+    expect(tail.content[0]).toBe(anchorBlock);
+    expect(tailTexts(result.messages)).toEqual([
+      anchorBlock.text,
+      rerunBlock,
+      "retried question",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(commits).toBe(0);
+  });
+
+  test("an all-repeat v3 block on a user tail attaches nothing but still commits (the valve pass)", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    injectorChainSlot.push(
+      v3Injector("", () => {
+        commits += 1;
+      }),
+    );
+    seedV2Identity(null);
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual(["question"]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(commits).toBe(1);
   });
 
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {

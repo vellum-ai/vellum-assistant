@@ -416,6 +416,102 @@ export function planPrune(
 // ─── live-history strip ──────────────────────────────────────────────────────
 
 /**
+ * The rendering format of the v3-owned `<memory>` block a user message
+ * already carries, or `undefined` when it carries none. At a turn's first
+ * assembly the tail carries one only when the turn re-runs onto its original
+ * anchor row (`/conversations/:id/retry`), rehydrated from the anchor's
+ * metadata with the first run's frozen entries.
+ */
+export function ownedTailBlockFormat(
+  message: Message,
+): InjectedBlockFormat | undefined {
+  for (const block of message.content) {
+    const format = block.type === "text" ? v3LiveBlockFormat(block) : undefined;
+    if (format !== undefined) {
+      return format;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Where a turn's net-new section block goes when the tail user message
+ * already carries a v3-owned block ({@link ownedTailBlockFormat}):
+ *  - `"none"`: it carries none; the block is spliced as on any turn.
+ *  - `"merged"`: it carries a current-format block, which took the new
+ *    entries: `messages` holds the tail with that block replaced by one
+ *    holding the first run's entries followed by the new ones (re-marked
+ *    current in the owner's place), and `inner` is the merged block
+ *    unwrapped, what the turn persists so every section the store claims
+ *    has a body that rehydrates.
+ *  - `"legacy"`: it carries a legacy-format block, which cannot take
+ *    current-format entries under one metadata key; the caller attaches the
+ *    new block in memory only and neither persists nor claims it.
+ */
+export type AnchorBlockMerge =
+  | { kind: "none" }
+  | { kind: "legacy" }
+  | { kind: "merged"; messages: Message[]; inner: string };
+
+/**
+ * Append a turn's net-new section block (`newInner`, unwrapped, as
+ * `renderInjectionBlockInner` produced it) to the v3-owned block the tail
+ * user message of `messages` already carries; see {@link AnchorBlockMerge}.
+ * The new block's entries are taken piece by piece behind its preamble, and
+ * its skills hint chunk is dropped when the anchor's block already carries
+ * one, so the merged block reads as one render.
+ */
+export function mergeIntoAnchorBlock(
+  messages: Message[],
+  newInner: string,
+): AnchorBlockMerge {
+  const tail = messages[messages.length - 1];
+  if (!tail || tail.role !== "user") {
+    return { kind: "none" };
+  }
+  const index = tail.content.findIndex(
+    (block) => block.type === "text" && v3LiveBlockFormat(block) !== undefined,
+  );
+  if (index === -1) {
+    return { kind: "none" };
+  }
+  const owned = tail.content[index]!;
+  if (owned.type !== "text" || v3LiveBlockFormat(owned) !== "current") {
+    return { kind: "legacy" };
+  }
+  const existing = unwrapMemoryBlock(owned.text);
+  const hasHint = parseInjectedSections(existing, {
+    format: "current",
+  }).pieces.some((piece) => piece.kind === "other");
+  const appended = parseInjectedSections(newInner, { format: "current" })
+    .pieces.filter((piece) => !(hasHint && piece.kind === "other"))
+    .map((piece) => piece.text);
+  if (appended.length === 0) {
+    return { kind: "none" };
+  }
+  const inner = [existing, ...appended].join("\n\n");
+  const merged = markV3LiveBlock(
+    { type: "text" as const, text: wrapMemoryBlock(inner) },
+    "current",
+  );
+  return {
+    kind: "merged",
+    messages: [
+      ...messages.slice(0, -1),
+      {
+        ...tail,
+        content: [
+          ...tail.content.slice(0, index),
+          merged,
+          ...tail.content.slice(index + 1),
+        ],
+      },
+    ],
+    inner,
+  };
+}
+
+/**
  * Strip pruned sections from the live in-memory history: for every
  * `<memory>` text block memory-v3 owns (by object identity, see the module
  * doc), drop the pruned sections and any copy superseded by a newer one

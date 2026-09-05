@@ -64,7 +64,10 @@ import {
   getKnownCardBytes,
   getPrunedSections,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
-import { stripPrunedSectionsFromMessages } from "../plugins/defaults/memory/v3/prune.js";
+import {
+  mergeIntoAnchorBlock,
+  stripPrunedSectionsFromMessages,
+} from "../plugins/defaults/memory/v3/prune.js";
 import {
   markV3LiveBlock,
   MEMORY_V3_BLOCK_ID,
@@ -2562,29 +2565,11 @@ export async function applyRuntimeInjections(
         case "background-turn":
           backgroundTurnCaptured = block.text;
           break;
-        case MEMORY_V3_BLOCK_ID: {
-          // The v3 frozen section block is persisted UNWRAPPED (the v2
-          // `memoryInjectedBlock` contract — rehydration re-wraps on use).
-          // An empty-text block (all-repeat turn) attaches no content, so
-          // nothing is captured for persistence either.
-          if (block.text.length > 0) {
-            memoryV3Captured = unwrapMemoryBlock(block.text);
-          }
-          // Attachment is guaranteed from here (user tail — the gate this
-          // capture loop runs under), so commit the injector's deferred
-          // section-store write. On a non-user tail the block silently
-          // no-ops in `applyInjectionBlock`, and skipping the commit keeps
-          // the store from claiming sections that never attached (which
-          // would suppress them until compaction). A re-injection assembly
-          // (`options.reinjection`) skips it too: its block is never
-          // persisted, so the store must not claim sections whose only copy
-          // vanishes on restart.
-          const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
-          if (typeof commit === "function" && !options.reinjection) {
-            (commit as () => void)();
-          }
+        case MEMORY_V3_BLOCK_ID:
+          // Captured and committed at its Step 2 splice, where the block's
+          // place on the tail (merged into a retried anchor's frozen block
+          // or spliced as its own) is decided.
           break;
-        }
         case MEMORY_V3_POINTER_BLOCK_ID:
           if (block.text.length > 0) {
             memoryV3PointerCaptured = block.text;
@@ -2714,8 +2699,54 @@ export async function applyRuntimeInjections(
   // Ascending `order`: each splice lands at the memory-prefix boundary,
   // pushing any previously-spliced block one slot further from memory.
   // So higher-`order` blocks end up closer to the memory prefix.
+  //
+  // The v3 frozen section block is captured here, UNWRAPPED (the v2
+  // `memoryInjectedBlock` contract; rehydration re-wraps on use), and its
+  // deferred section-store commit runs here, once attachment is certain (a
+  // user tail; on any other tail `applyInjectionBlock` no-ops the block and
+  // a commit would claim sections that never attached, suppressing them
+  // until compaction). A turn re-run onto its original anchor row
+  // (`/conversations/:id/retry`) assembles onto a tail that already carries
+  // the first run's frozen block, rehydrated from the anchor's metadata:
+  // a current-format one takes the rerun's net-new entries
+  // (`mergeIntoAnchorBlock`), so the tail carries one merged block and the
+  // persisted block gives every section the store claims a body that
+  // rehydrates; a legacy-format one (a pre-stamp row) cannot take
+  // current-format entries under one metadata key, so the rerun's block
+  // rides the tail in memory only, uncaptured and uncommitted, the
+  // post-compaction no-claim shape: the next turn injects those sections
+  // net-new onto its own message and the newest-copy rule retires this
+  // copy. A re-injection assembly (`options.reinjection`) never commits:
+  // its block is never persisted, so the store must not claim sections
+  // whose only copy vanishes on restart. An empty-text block (all-repeat
+  // turn) attaches nothing and captures nothing.
   for (const block of afterMemory) {
-    result = applyInjectionBlock(result, block);
+    if (block.id !== MEMORY_V3_BLOCK_ID) {
+      result = applyInjectionBlock(result, block);
+      continue;
+    }
+    const tail = result[result.length - 1];
+    if (!tail || tail.role !== "user") {
+      continue;
+    }
+    if (block.text.length > 0) {
+      const merge = mergeIntoAnchorBlock(result, unwrapMemoryBlock(block.text));
+      if (merge.kind === "legacy") {
+        result = applyInjectionBlock(result, block);
+        continue;
+      }
+      if (merge.kind === "merged") {
+        result = merge.messages;
+        memoryV3Captured = merge.inner;
+      } else {
+        result = applyInjectionBlock(result, block);
+        memoryV3Captured = unwrapMemoryBlock(block.text);
+      }
+    }
+    const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
+    if (typeof commit === "function" && !options.reinjection) {
+      (commit as () => void)();
+    }
   }
 
   // ── Step 3: hardcoded branches that stayed outside the injector chain ──

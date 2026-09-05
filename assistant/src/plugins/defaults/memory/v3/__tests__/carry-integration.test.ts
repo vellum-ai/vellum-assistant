@@ -326,10 +326,15 @@ const {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   residentBytes,
 } = await import("../ever-injected-store.js");
+const { injectionMetadataUpdates } =
+  await import("../../hooks/injection-metadata.js");
+const { mergeMessageMetadata } =
+  await import("../../../../../persistence/message-metadata.js");
 const {
   filterResidentPointerEntries,
   filterResidentSections,
   flushPruneValveForTests,
+  mergeIntoAnchorBlock,
   newestCopyIndexes,
   persistedV3Block,
   stripPrunedSectionsFromMessages,
@@ -407,6 +412,9 @@ const COMPACT_CONV = "conv-carry-compact";
 const COMPACT_LIVE_CONV = "conv-carry-compact-live";
 /** Conversation for the re-entry contract (an overflow rung, no compaction). */
 const REENTRY_CONV = "conv-carry-reentry";
+/** Conversations for the retry contract (a rerun onto the original anchor). */
+const RETRY_CONV = "conv-carry-retry";
+const RETRY_LEGACY_CONV = "conv-carry-retry-legacy";
 /** Fixed epoch base for all timestamps (determinism). */
 const BASE = 1_700_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -850,6 +858,154 @@ async function reinjectTurn(
           }).sections.map(refId)
         : [],
     ),
+  };
+}
+
+/** Message metadata as stored, parsed. */
+function readMetadata(rowId: string): Record<string, unknown> {
+  const row = testSqlite
+    .query(/*sql*/ `SELECT metadata FROM messages WHERE id = ?`)
+    .get(rowId) as { metadata: string | null } | null;
+  return row?.metadata
+    ? (JSON.parse(row.metadata) as Record<string, unknown>)
+    : {};
+}
+
+/** The `(slug, key)` refs a v3 block text carries. */
+function blockRefs(text: string): Set<string> {
+  return new Set(
+    parseInjectedSections(unwrapMemoryBlock(text), {
+      format: "current",
+    }).sections.map(refId),
+  );
+}
+
+/** The v3-owned blocks of a message. */
+function ownedBlocks(message: Message): Array<{ type: "text"; text: string }> {
+  return message.content.filter(
+    (block): block is { type: "text"; text: string } =>
+      block.type === "text" && isV3LiveBlock(block),
+  );
+}
+
+/** Splice a block after the tail's leading `<memory>` blocks, as assembly's
+ *  after-memory-prefix placement does. */
+function spliceAfterMemoryPrefix(tail: Message, block: ContentBlock): void {
+  let prefix = 0;
+  while (
+    prefix < tail.content.length &&
+    tail.content[prefix]!.type === "text" &&
+    (tail.content[prefix] as { text: string }).text.startsWith("<memory>\n")
+  ) {
+    prefix += 1;
+  }
+  tail.content = [
+    ...tail.content.slice(0, prefix),
+    block,
+    ...tail.content.slice(prefix),
+  ];
+}
+
+/** A retry as the daemon runs it (`/conversations/:id/retry`): the reply row
+ *  is discarded, the conversation reloads (the anchor rehydrates with its
+ *  first run's frozen block and pointer), and the turn re-runs onto the
+ *  anchor at the next turn index. Mirrors runtime assembly: the tail's
+ *  pointer is stripped, the rerun's net-new block merges into a
+ *  current-format anchor block (`mergeIntoAnchorBlock`) or rides the tail in
+ *  memory only beside a legacy one (uncaptured, uncommitted), the pointer
+ *  splices after the memory prefix, and the hook's metadata update merges
+ *  into the anchor row. */
+async function retryTurn(
+  convId: string,
+  anchorTurn: number,
+  retryTurnIndex: number,
+  query: string,
+  keepList: Slug[],
+): Promise<{ merged: boolean; sectionsText: string; pointerText: string }> {
+  testSqlite
+    .query(/*sql*/ `DELETE FROM messages WHERE id = ?`)
+    .run(`${convId}-m${anchorTurn}-assistant`);
+  let history = rehydrateFromDb(convId);
+  histories.set(convId, history);
+  const anchorRowId = `${convId}-m${anchorTurn}-user`;
+  const tail = history[history.length - 1]!;
+  tail.content = tail.content.filter(
+    (block) => !(block.type === "text" && isPointerText(block.text)),
+  );
+  scriptedTurns.set(`${convId}:${retryTurnIndex}`, query);
+  keep = keepList;
+  const ctx = {
+    requestId: `req-${retryTurnIndex}`,
+    conversationId: convId,
+    turnIndex: retryTurnIndex,
+    trust: {
+      sourceChannel: "vellum" as const,
+      trustClass: "guardian" as const,
+    },
+  };
+
+  const sections = await memoryV3Injector.produce(ctx);
+  if (!sections) {
+    throw new Error(`retry ${retryTurnIndex}: sections injector returned null`);
+  }
+  let merged = false;
+  let capturedInner: string | undefined;
+  let commit = sections.meta?.[MEMORY_V3_COMMIT_META_KEY];
+  if (sections.text.length > 0) {
+    const merge = mergeIntoAnchorBlock(
+      history,
+      unwrapMemoryBlock(sections.text),
+    );
+    if (merge.kind === "merged") {
+      history = merge.messages;
+      histories.set(convId, history);
+      merged = true;
+      capturedInner = merge.inner;
+    } else if (merge.kind === "legacy") {
+      spliceAfterMemoryPrefix(
+        history[history.length - 1]!,
+        markV3LiveBlock({ type: "text", text: sections.text }),
+      );
+      commit = undefined;
+    } else {
+      spliceAfterMemoryPrefix(
+        history[history.length - 1]!,
+        markV3LiveBlock({ type: "text", text: sections.text }),
+      );
+      capturedInner = unwrapMemoryBlock(sections.text);
+    }
+  }
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
+  const pointer = await memoryV3PointerInjector.produce(ctx);
+  if (pointer && pointer.text.length > 0) {
+    spliceAfterMemoryPrefix(history[history.length - 1]!, {
+      type: "text",
+      text: pointer.text,
+    });
+  }
+  const updates = injectionMetadataUpdates(
+    {
+      memoryV3Active: true,
+      ...(capturedInner === undefined
+        ? {}
+        : { memoryV3InjectedBlock: capturedInner }),
+      ...(pointer?.text ? { memoryV3PointerBlock: pointer.text } : {}),
+    },
+    false,
+  )!;
+  const existing = testSqlite
+    .query(/*sql*/ `SELECT metadata FROM messages WHERE id = ?`)
+    .get(anchorRowId) as { metadata: string | null } | null;
+  testSqlite
+    .query(/*sql*/ `UPDATE messages SET metadata = ? WHERE id = ?`)
+    .run(mergeMessageMetadata(existing?.metadata, updates), anchorRowId);
+  await flushPruneValveForTests();
+  return {
+    merged,
+    sectionsText: sections.text,
+    pointerText: pointer?.text ?? "",
   };
 }
 
@@ -1640,5 +1796,84 @@ describe("memory-v3 carry integration: re-entry contract", () => {
     expect(reentry.pointerText).toBe(second.pointerText);
     expect(JSON.stringify(tail.content)).toBe(sent);
     expect(getInjected(REENTRY_CONV)).toEqual(storeBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retry contract: a rerun onto the original anchor row.
+// ---------------------------------------------------------------------------
+
+describe("memory-v3 carry integration: retry contract", () => {
+  const FIRST: Slug[] = ["core-alpha", "core-beta", "hot-one", "page-a"];
+  const RERUN: Slug[] = ["page-a", "core-alpha", "page-b"];
+
+  test("a rerun that injects net-new sections merges them into the anchor's frozen block: one block, both runs' sections once each after a reload, and the store claims exactly those", async () => {
+    histories.set(RETRY_CONV, []);
+    await runTurn(RETRY_CONV, 1, "apple", FIRST);
+    const claimedBefore = refIds(getActiveSections(RETRY_CONV));
+
+    const retry = await retryTurn(RETRY_CONV, 1, 2, "apple banana", RERUN);
+    expect(retry.merged).toBe(true);
+    expect(retry.pointerText).toContain("memory/concepts/page-a.md");
+
+    const expected = new Set([...claimedBefore, "page-b§Detail"]);
+    expect(refIds(getActiveSections(RETRY_CONV))).toEqual(expected);
+    // The live tail carries exactly one block holding both runs' sections.
+    const live = histories.get(RETRY_CONV)!;
+    const liveBlocks = ownedBlocks(live[live.length - 1]!);
+    expect(liveBlocks).toHaveLength(1);
+    expect(blockRefs(liveBlocks[0]!.text)).toEqual(expected);
+    // A reload rehydrates the same single block, each section once, and
+    // reproduces the live persistent layer.
+    const rehydrated = rehydrateFromDb(RETRY_CONV);
+    const anchorBlocks = ownedBlocks(rehydrated[rehydrated.length - 1]!);
+    expect(anchorBlocks).toHaveLength(1);
+    expect(blockRefs(anchorBlocks[0]!.text)).toEqual(expected);
+    expect(
+      parseInjectedSections(unwrapMemoryBlock(anchorBlocks[0]!.text), {
+        format: "current",
+      }).sections,
+    ).toHaveLength(expected.size);
+    expect(JSON.stringify(rehydrated)).toBe(persistentView(live));
+  });
+
+  test("a retry on a legacy-format anchor leaves the anchor's block untouched and claims nothing new", async () => {
+    histories.set(RETRY_LEGACY_CONV, []);
+    await runTurn(RETRY_LEGACY_CONV, 1, "apple", FIRST);
+    // The anchor was persisted by a pre-stamp build: no format stamp.
+    const anchorRowId = `${RETRY_LEGACY_CONV}-m1-user`;
+    const {
+      [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]: _stamp,
+      ...legacy
+    } = readMetadata(anchorRowId);
+    testSqlite
+      .query(/*sql*/ `UPDATE messages SET metadata = ? WHERE id = ?`)
+      .run(JSON.stringify(legacy), anchorRowId);
+    const claimedBefore = refIds(getActiveSections(RETRY_LEGACY_CONV));
+    const blockBefore = legacy[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
+
+    const retry = await retryTurn(
+      RETRY_LEGACY_CONV,
+      1,
+      2,
+      "apple banana",
+      RERUN,
+    );
+    expect(retry.merged).toBe(false);
+    expect(retry.sectionsText).toContain("memory/concepts/page-b.md");
+
+    // Nothing new is claimed and the anchor's block (and its lack of a
+    // stamp) is untouched; the rerun's block lived on the tail in memory
+    // only, so a reload rehydrates the anchor's block alone.
+    expect(refIds(getActiveSections(RETRY_LEGACY_CONV))).toEqual(claimedBefore);
+    const after = readMetadata(anchorRowId);
+    expect(after[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]).toBe(blockBefore);
+    expect(after[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]).toBeUndefined();
+    const live = histories.get(RETRY_LEGACY_CONV)!;
+    expect(ownedBlocks(live[live.length - 1]!)).toHaveLength(2);
+    const rehydrated = rehydrateFromDb(RETRY_LEGACY_CONV);
+    const anchorBlocks = ownedBlocks(rehydrated[rehydrated.length - 1]!);
+    expect(anchorBlocks).toHaveLength(1);
+    expect(blockRefs(anchorBlocks[0]!.text)).toEqual(claimedBefore);
   });
 });

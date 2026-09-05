@@ -803,6 +803,43 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("retry: a rerun with net-new sections persists the anchor's block merged with them, so a reload rehydrates both runs' sections once", async () => {
+    mockConversation = defaultConv();
+    const firstBlock = "header line\n\n# memory/concepts/page-a.md\nhead a";
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock: firstBlock,
+      memoryV3InjectedBlockFormat: 2,
+    });
+    // Assembly merged the rerun's net-new entry into the anchor's block and
+    // captured the merged block for persistence.
+    const rerun = injectionMetadataUpdates(
+      {
+        memoryV3Active: true,
+        memoryV3InjectedBlock: `${firstBlock}\n\n# memory/concepts/page-b.md\nhead b`,
+      },
+      false,
+    )!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: `<memory>\n${firstBlock}\n\n# memory/concepts/page-b.md\nhead b\n</memory>`,
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
   test("retry on a spotlight-era anchor: an all-repeat rerun keeps the frozen block and drops the discarded spotlight", async () => {
     mockConversation = defaultConv();
     const firstRun = JSON.stringify({
