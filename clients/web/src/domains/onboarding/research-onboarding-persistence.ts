@@ -38,6 +38,7 @@ import { isElectron } from "@/runtime/is-electron";
 
 import type { ResearchStatus } from "@/domains/onboarding/research-runner";
 import type { ResearchOnboardingValues } from "@/domains/onboarding/screens/research-onboarding-screen";
+import { shouldSkipOnboardingResearch } from "@/domains/onboarding/should-skip-onboarding-research";
 import type { GiveMeAFaceValues } from "@/domains/onboarding/screens/give-me-a-face-screen";
 import type { ResearchFact, ResearchSuggestion } from "@/utils/research-facts";
 
@@ -202,8 +203,22 @@ export function resolveResumeStep(
   if (snapshot.research?.status === "done") {
     return "suggestions";
   }
+  // Missing last name, or empty role + hobbies, never start a search, so a
+  // refresh must not land on the research reveal (or an empty results card).
+  const skipResearch =
+    snapshot.formValues !== null &&
+    shouldSkipOnboardingResearch(snapshot.formValues);
   if (snapshot.step === "meeting") {
-    return snapshot.checkinBooked ? "looking" : "letschat";
+    if (snapshot.checkinBooked) {
+      return skipResearch ? "suggestions" : "looking";
+    }
+    return "letschat";
+  }
+  if (
+    skipResearch &&
+    (snapshot.step === "looking" || snapshot.step === "results")
+  ) {
+    return "suggestions";
   }
   // The established-assistant guard holds an intercepted submit in transient
   // state that a snapshot can't restore, so a saved journey never resumes onto

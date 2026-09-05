@@ -10,7 +10,7 @@
 import { createElement, type ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "bun:test";
 
 import type { ResearchSubject } from "@/domains/onboarding/research-prompt";
@@ -236,6 +236,79 @@ describe("useResearchRunner reset", () => {
     });
     expect(hatch.calls).toBe(2);
     expect(result.current.status).toBe("running");
+  });
+
+  test("a hung hatch settles error when the research budget expires", async () => {
+    const hatch = pendingHatch();
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+        timeoutMs: 30,
+      });
+    });
+    expect(result.current.status).toBe("running");
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("error");
+    });
+    expect(result.current.claims).toEqual([]);
+  });
+
+  const skippedResults = {
+    status: "done" as const,
+    claims: [],
+    droppedClaims: [],
+    suggestions: [],
+    installedPlugins: [],
+    pluginCatalog: {},
+  };
+
+  test("hydrate releases the subject key so the prior profile can run again", () => {
+    const hatch = pendingHatch();
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
+    });
+    expect(hatch.calls).toBe(1);
+
+    act(() => {
+      result.current.hydrate(skippedResults);
+    });
+    expect(result.current.status).toBe("done");
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
+    });
+    expect(hatch.calls).toBe(2);
+    expect(result.current.status).toBe("running");
+  });
+
+  test("hydrate releases the plugin-install gate of the abandoned run", async () => {
+    const hatch = pendingHatch();
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
+    });
+
+    act(() => {
+      result.current.hydrate(skippedResults);
+    });
+
+    await result.current.awaitPluginInstalls();
   });
 
   test("reset leaves the plugin-install gate resolved", async () => {

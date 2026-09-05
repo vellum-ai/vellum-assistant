@@ -43,6 +43,8 @@ let getCalls = 0;
 let listed: { processing?: boolean; messages: unknown[] } = { messages: [] };
 /** When set, the prompt POST fails, so the run gives up before the poll loop. */
 let failMessagePost = false;
+/** When set, conversationsPost waits here before resolving so a deadline can win. */
+let createConversationHold: Promise<void> | null = null;
 
 const ok = <T>(data: T) =>
   Promise.resolve({ data, error: undefined, response: { ok: true } });
@@ -58,8 +60,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   pluginsSearchGet: () => ok({ matches: [] }),
   pluginsInstallPost: () => ok({}),
   telemetryIngestPost: () => ok({}),
-  conversationsPost: (opts: CreateCall) => {
+  conversationsPost: async (opts: CreateCall) => {
     createCalls.push(opts);
+    if (createConversationHold) {
+      await createConversationHold;
+    }
     return ok({ id: "conv-fresh" });
   },
   conversationsByIdArchivePost: (opts: ArchiveCall) => {
@@ -103,6 +108,7 @@ afterEach(() => {
   getCalls = 0;
   listed = { messages: [] };
   failMessagePost = false;
+  createConversationHold = null;
 });
 
 /**
@@ -231,7 +237,67 @@ describe("research prompt send", () => {
   });
 });
 
+describe("research wait budget", () => {
+  test("a poll that never completes settles error when the budget expires", async () => {
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+        timeoutMs: 40,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("error");
+    });
+    expect(result.current.claims).toEqual([]);
+    expect(createCalls).toHaveLength(1);
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+});
+
 describe("research conversation archive", () => {
+  test("archives a conversation that lands after the research budget expires", async () => {
+    let releaseCreate: () => void = () => {};
+    createConversationHold = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const onConversationCreated = mock((_id: string) => {});
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+        timeoutMs: 30,
+        onConversationCreated,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("error");
+    });
+    expect(onConversationCreated).not.toHaveBeenCalled();
+    expect(archiveCalls).toHaveLength(0);
+
+    releaseCreate();
+
+    await waitFor(() => {
+      expect(archiveCalls).toHaveLength(1);
+    });
+    expect(archiveCalls[0]?.path.id).toBe("conv-fresh");
+    expect(onConversationCreated).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+
   test("archives the side conversation when the prompt fails to post", async () => {
     // A failed prompt POST abandons the run before the poll loop, with the
     // conversation already minted. The archive is unconditional, so the

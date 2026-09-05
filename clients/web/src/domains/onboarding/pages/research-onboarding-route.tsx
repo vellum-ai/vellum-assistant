@@ -69,6 +69,7 @@ import {
   type ResearchStep,
 } from "@/domains/onboarding/research-onboarding-persistence";
 import { stampAssistantOnboarded } from "@/domains/onboarding/stamp-assistant-onboarded";
+import { shouldSkipOnboardingResearch } from "@/domains/onboarding/should-skip-onboarding-research";
 import {
   emitResearchOnboardingStepCompleted,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
@@ -135,6 +136,11 @@ function researchSubjectFrom(
 function researchTitleFor(values: ResearchOnboardingValues): string {
   const first = values.firstName.trim();
   return first ? `Getting to know ${first}` : "Getting to know you";
+}
+
+/** The research reveal, or the suggestions when there is nothing to search. */
+function researchRevealStep(skipResearch: boolean): ResearchStep {
+  return skipResearch ? "suggestions" : "looking";
 }
 
 // Warm the (~48 kB) bundled-avatar chunk the instant this lazy route loads, so
@@ -219,6 +225,10 @@ export function ResearchOnboardingRoute() {
   const [formValues, setFormValues] = useState<ResearchOnboardingValues | null>(
     null,
   );
+  // Missing last name, or empty role + hobbies: no research turn, and no
+  // "Searching about you" wait.
+  const skipResearchReveal =
+    formValues !== null && shouldSkipOnboardingResearch(formValues);
   // Established-assistant guard. The verdict resolves in the background once
   // the hatch lands (see the effect below); an intercepted submit parks its
   // values in `gatedFormValues` — deliberately NOT `formValues`, so neither
@@ -329,7 +339,7 @@ export function ResearchOnboardingRoute() {
   // skipped, straight to the research reveal (skipping credits implies a
   // self-hosted flow, which skips the calendar steps too).
   const stepAfterPersonality: ResearchStep = skipClaimCreditsStep
-    ? "looking"
+    ? researchRevealStep(skipResearchReveal)
     : "integration";
   // The skip verdict can land while the credits step is already on screen:
   // the pre-settle window kept the step (or restored a snapshot onto it) and
@@ -337,9 +347,16 @@ export function ResearchOnboardingRoute() {
   // promise can't be claimed.
   useEffect(() => {
     if (skipClaimCreditsStep && step === "integration") {
-      setStep("looking");
+      setStep(researchRevealStep(skipResearchReveal));
     }
-  }, [skipClaimCreditsStep, step]);
+  }, [skipClaimCreditsStep, skipResearchReveal, step]);
+  // Nothing to research: leave the looking/results steps if a resume or
+  // earlier destination still landed there.
+  useEffect(() => {
+    if (skipResearchReveal && (step === "looking" || step === "results")) {
+      setStep("suggestions");
+    }
+  }, [skipResearchReveal, step]);
   const {
     start: startHatch,
     retry: retryHatch,
@@ -401,6 +418,16 @@ export function ResearchOnboardingRoute() {
   // found" step (it would only say "I didn't turn up much") and go straight to
   // the suggestions.
   const noClaims = !researchLoading && research.claims.length === 0;
+  const stepBeforeResearchReveal: ResearchStep = skipClaimCreditsStep
+    ? "personality"
+    : skipCheckinSteps
+      ? "integration"
+      : "letschat";
+  const stepBeforeSuggestions: ResearchStep = skipResearchReveal
+    ? stepBeforeResearchReveal
+    : noClaims
+      ? "looking"
+      : "results";
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
@@ -465,6 +492,19 @@ export function ResearchOnboardingRoute() {
     (values: ResearchOnboardingValues) => {
       // A fresh run produces fresh drops — re-arm the one-shot scrub below.
       syncDroppedClaimsScrubbed(false);
+      if (shouldSkipOnboardingResearch(values)) {
+        // Settle as an empty success so the looking carousel is never armed
+        // and a resume does not re-fire a search with nothing to go on.
+        hydrateResearch({
+          status: "done",
+          claims: [],
+          droppedClaims: [],
+          suggestions: [],
+          installedPlugins: [],
+          pluginCatalog: {},
+        });
+        return;
+      }
       startResearch({
         awaitAssistantId: awaitHatchReady,
         subject: researchSubjectFrom(values),
@@ -480,6 +520,7 @@ export function ResearchOnboardingRoute() {
     },
     [
       syncDroppedClaimsScrubbed,
+      hydrateResearch,
       startResearch,
       awaitHatchReady,
       researchConversationId,
@@ -544,7 +585,13 @@ export function ResearchOnboardingRoute() {
         (skipCheckinSteps &&
           (resumeStep === "letschat" || resumeStep === "meeting")) ||
         (skipClaimCreditsStep && resumeStep === "integration");
-      setStep(resumeStepDropped ? "looking" : resumeStep);
+      setStep(
+        resumeStepDropped
+          ? researchRevealStep(
+              shouldSkipOnboardingResearch(snapshot.formValues),
+            )
+          : resumeStep,
+      );
       setForwardStack([]);
     }
     setRestored(true);
@@ -1086,7 +1133,11 @@ export function ResearchOnboardingRoute() {
         {step === "integration" && (
           <IntegrationStep
             onClaim={() =>
-              goForwardTo(skipCheckinSteps ? "looking" : "letschat")
+              goForwardTo(
+                skipCheckinSteps
+                  ? researchRevealStep(skipResearchReveal)
+                  : "letschat",
+              )
             }
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() =>
@@ -1105,7 +1156,7 @@ export function ResearchOnboardingRoute() {
             onRetry={() => setMissingCalendarScope(false)}
             onSkip={() => {
               setMissingCalendarScope(false);
-              goForwardTo("looking", "skipped");
+              goForwardTo(researchRevealStep(skipResearchReveal), "skipped");
             }}
             onBack={() => goBackTo("integration")}
             onForward={onForward}
@@ -1115,7 +1166,7 @@ export function ResearchOnboardingRoute() {
           <MeetingCreatedStep
             scheduledTime={checkinTime ?? undefined}
             awaitingTime={checkinPending}
-            onDone={() => goForwardTo("looking")}
+            onDone={() => goForwardTo(researchRevealStep(skipResearchReveal))}
             onBack={() => goBackTo("letschat")}
             onForward={onForward}
           />
@@ -1123,15 +1174,7 @@ export function ResearchOnboardingRoute() {
         {step === "looking" && (
           <LookingYouUpStep
             onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
-            onBack={() =>
-              goBackTo(
-                skipClaimCreditsStep
-                  ? "personality"
-                  : skipCheckinSteps
-                    ? "integration"
-                    : "letschat",
-              )
-            }
+            onBack={() => goBackTo(stepBeforeResearchReveal)}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
             // Gate only on the web-search turn — the personality rewrite runs
@@ -1241,7 +1284,7 @@ export function ResearchOnboardingRoute() {
               }
               await finishAndEnterChat();
             }}
-            onBack={() => goBackTo(noClaims ? "looking" : "results")}
+            onBack={() => goBackTo(stepBeforeSuggestions)}
             onForward={onForward}
           />
         )}
@@ -1283,7 +1326,7 @@ export function ResearchOnboardingRoute() {
                 skip: true,
               });
             }}
-            onBack={() => goBackTo(noClaims ? "looking" : "results")}
+            onBack={() => goBackTo(stepBeforeSuggestions)}
             onForward={onForward}
           />
         )}
