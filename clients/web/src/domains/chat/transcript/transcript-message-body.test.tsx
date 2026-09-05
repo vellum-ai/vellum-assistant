@@ -880,6 +880,46 @@ describe("TranscriptMessageBody", () => {
     expect(getByRole("button", { name: "Earlier activity" })).not.toBeNull();
   });
 
+  test("keeps an already-sent reply visible while the turn keeps working", () => {
+    // A turn can speak, keep working, and speak again. Once the second reply
+    // opens a later text group, the first sits before the final one and would
+    // fold into "Earlier activity" if the row were not already marked private,
+    // hiding a reply the user has read.
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "two-reply-row",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            thinkingBlock("planning"),
+            toolUseBlock({
+              id: "tc-fetch",
+              name: "web_fetch",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Found it."),
+            toolUseBlock({
+              id: "tc-bash",
+              name: "bash",
+              input: {},
+              completedAt: 2,
+            }),
+            textBlock("All done."),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(queryByText("Found it.")).not.toBeNull();
+    expect(queryByText("All done.")).not.toBeNull();
+  });
+
   test("renders a projected private row through the thinking UI", () => {
     // The server projects such a row before it ships: the raw prose arrives as
     // thinking, each `send_user_message` call as its own text block. Nothing

@@ -33,3 +33,24 @@ export function readAssistantTextVisibility(
     .assistantTextVisibility;
   return value === "private" || value === "visible" ? value : undefined;
 }
+
+/**
+ * The tool a row's reply travels through when its prose is a scratchpad. Its
+ * argument is the reply itself, which the daemon also streams as ordinary
+ * assistant text and projects into a `text` block on the persisted row, so the
+ * call is never a step the transcript has anything to draw.
+ *
+ * A call to it is also the earliest proof a row is private: the daemon
+ * announces the call while its input is still streaming, before the reply text
+ * and before `message_complete` carries the authoritative marker.
+ */
+export const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
+
+/**
+ * Whether a tool call is the user-facing reply channel rather than a step of
+ * the assistant's work. Structural in its argument so both the render path and
+ * the stream fold can ask, without either owning the answer.
+ */
+export function isSendUserMessageCall(toolCall: { name: string }): boolean {
+  return toolCall.name === SEND_USER_MESSAGE_TOOL_NAME;
+}

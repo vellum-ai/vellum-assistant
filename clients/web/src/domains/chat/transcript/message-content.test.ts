@@ -11,7 +11,6 @@ import {
   groupContentBlocks,
   isBackgroundBashCall,
   isRunWorkflowCall,
-  isSendUserMessageCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
   isTaskProgressSurface,
