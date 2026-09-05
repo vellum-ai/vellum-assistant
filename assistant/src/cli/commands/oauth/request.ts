@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { exitCodeFromIpcResult } from "../../../ipc/cli-client.js";
 import {
   findContentTypeHeader,
   parseRequestBodyBytes,
@@ -10,7 +10,7 @@ import {
 } from "../../../util/oauth-request-body.js";
 import { readStdinBytesSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
-import { shouldOutputJson, writeOutput } from "../../output.js";
+import { shouldOutputJson, writeError, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,16 +72,35 @@ export function readBodyData(
 }
 
 // ---------------------------------------------------------------------------
-// Command registration
+// The authenticated request, shared by every command that makes one
 // ---------------------------------------------------------------------------
 
-export function registerRequestCommand(oauth: Command): void {
-  // Options are registered imperatively (not in index.help.ts): the
-  // repeatable "-H, --header" flag needs a Commander collect parser
-  // (function + array default) that the declarative help contract cannot
-  // express, and option order around it must be preserved for help output.
-  subcommand(oauth, "request")
-    .requiredOption("--provider <key>", "Provider name (e.g. google, slack)")
+/**
+ * The request-shaping options every authenticated-request command offers:
+ * method, headers, body, output, and verbosity. What differs between the
+ * commands is only how the provider is named, so that flag is the caller's.
+ */
+export interface AuthenticatedRequestOptions {
+  request?: string;
+  header: string[];
+  data?: string;
+  get?: boolean;
+  head?: boolean;
+  output?: string;
+  silent?: boolean;
+  verbose?: boolean;
+  include?: boolean;
+}
+
+/**
+ * Attach the request-shaping options to a subcommand. Registered
+ * imperatively (not in a help contract): the repeatable "-H, --header" flag
+ * needs a Commander collect parser (function + array default) that the
+ * declarative help contract cannot express, and option order around it must
+ * be preserved for help output.
+ */
+export function attachRequestOptions(command: Command): Command {
+  return command
     .option("-X, --request <method>", "HTTP method (default: GET)")
     .option(
       "-H, --header <header>",
@@ -98,198 +117,220 @@ export function registerRequestCommand(oauth: Command): void {
     .option("-o, --output <file>", "Write response body to file")
     .option("-s, --silent", "Suppress informational stderr output")
     .option("-v, --verbose", "Show request/response details on stderr")
-    .option("-i, --include", "Show response headers on stderr")
+    .option("-i, --include", "Show response headers on stderr");
+}
+
+/**
+ * Make one authenticated request through a provider and print the outcome.
+ *
+ * The provider is named by key; the route resolves its connection and injects
+ * its credential, so the caller never handles a token. `account` and
+ * `clientId` disambiguate a multi-account OAuth integration and mean nothing
+ * for a channel's bot credential, so a caller that cannot have them omits
+ * them. `diagnosticsHint` names the command a person runs next when the
+ * request fails, in the vocabulary of the command that made it.
+ */
+export async function runAuthenticatedRequest(params: {
+  providerKey: string;
+  url: string;
+  opts: AuthenticatedRequestOptions;
+  account?: string;
+  clientId?: string;
+  diagnosticsHint: string;
+  cmd: Command;
+}): Promise<void> {
+  const { providerKey, url, opts, cmd } = params;
+  const jsonMode = shouldOutputJson(cmd);
+
+  // Helper: write info to stderr (respects -s)
+  const writeInfo = (msg: string): void => {
+    if (!opts.silent) {
+      process.stderr.write(msg + "\n");
+    }
+  };
+
+  try {
+    // Parse headers for verbose output (before sending to daemon)
+    const parsedHeaders: Record<string, string> = {};
+    for (const raw of opts.header) {
+      const [key, value] = parseHeader(raw);
+      parsedHeaders[key] = value;
+    }
+
+    // Verbose: show request details
+    if (opts.verbose) {
+      const method = opts.head
+        ? "HEAD"
+        : opts.request
+          ? opts.request.toUpperCase()
+          : opts.get
+            ? "GET"
+            : opts.data !== undefined
+              ? "POST"
+              : "GET";
+      writeInfo(`> ${method} ${url}`);
+      for (const [key, value] of Object.entries(parsedHeaders)) {
+        writeInfo(`> ${key}: ${value}`);
+      }
+      writeInfo(`> Authorization: Bearer [REDACTED]`);
+      writeInfo(`>`);
+    }
+
+    // Read body data on the CLI side (file/stdin reading must happen here)
+    let parsedData: unknown;
+    if (opts.data !== undefined) {
+      parsedData = readBodyData(opts.data, parsedHeaders);
+    }
+
+    const body: Record<string, unknown> = {
+      provider: providerKey,
+      url,
+    };
+    if (opts.request) {
+      body.method = opts.request;
+    }
+    if (Object.keys(parsedHeaders).length > 0) {
+      body.headers = parsedHeaders;
+    }
+    if (parsedData !== undefined) {
+      body.parsed_data = parsedData;
+    }
+    if (opts.get) {
+      body.force_get = true;
+    }
+    if (opts.head) {
+      body.head = true;
+    }
+    if (params.account) {
+      body.account = params.account;
+    }
+    if (params.clientId) {
+      body.client_id = params.clientId;
+    }
+
+    // Run the route handler in this process so Gmail-sized fetch and
+    // JSON parse stay off the assistant event loop.
+    const { handleRequest } =
+      await import("../../../runtime/routes/oauth-commands-routes.js");
+    const { RouteError } = await import("../../../runtime/routes/errors.js");
+
+    let result: {
+      ok: boolean;
+      status: number;
+      headers: Record<string, string>;
+      body: unknown;
+      bodyEncoding?: "base64";
+      hint?: string;
+      account?: string | null;
+      accountWarning?: string;
+    };
+    try {
+      result = (await handleRequest({ body })) as typeof result;
+    } catch (err) {
+      if (err instanceof RouteError) {
+        // A structured route failure (unknown provider, no connection) is
+        // reported the way every other failure here is, so `--json` gets its
+        // envelope and the caller's diagnostics hint is not lost; only the
+        // exit code comes from the route's status.
+        writeError(cmd, `${err.message}\n\n${params.diagnosticsHint}`);
+        process.exitCode = exitCodeFromIpcResult({
+          statusCode: err.statusCode,
+        });
+        return;
+      }
+      throw err;
+    }
+
+    // Non-2xx exit code
+    if (result.status < 200 || result.status >= 300) {
+      process.exitCode = 1;
+    }
+
+    // Which account served the request, and any multi-account ambiguity.
+    if (result.account) {
+      writeInfo(`* Account: ${result.account}`);
+    }
+    if (result.accountWarning) {
+      writeInfo(result.accountWarning);
+    }
+
+    // Auth hint
+    if (result.hint) {
+      writeInfo(result.hint);
+    }
+
+    // JSON output mode
+    if (jsonMode) {
+      writeOutput(cmd, result);
+      return;
+    }
+
+    // Verbose / include: response headers to stderr
+    if (opts.verbose || opts.include) {
+      writeInfo(`< HTTP ${result.status}`);
+      for (const [key, value] of Object.entries(result.headers)) {
+        writeInfo(`< ${key}: ${value}`);
+      }
+      writeInfo(`<`);
+    }
+
+    // Body output (skip for null bodies: HEAD requests, 204, etc.)
+    if (result.body != null || result.bodyEncoding === "base64") {
+      const { materializeOAuthRequestOutput } =
+        await import("../../../oauth/connection.js");
+      const output = materializeOAuthRequestOutput(result);
+      if (output) {
+        if (opts.output) {
+          writeFileSync(opts.output, output.bytes);
+        } else {
+          process.stdout.write(output.bytes);
+          if (!output.isBinary) {
+            process.stdout.write("\n");
+          }
+        }
+      }
+    } else if (opts.output) {
+      writeFileSync(opts.output, Buffer.alloc(0));
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    writeError(cmd, `${message}\n\n${params.diagnosticsHint}`);
+    process.exitCode = 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Command registration
+// ---------------------------------------------------------------------------
+
+export function registerRequestCommand(oauth: Command): void {
+  attachRequestOptions(
+    subcommand(oauth, "request").requiredOption(
+      "--provider <key>",
+      "Provider name (e.g. google, slack)",
+    ),
+  )
     .option("--account <account>", "Account identifier for multi-account")
     .option("--client-id <id>", "BYO app client ID disambiguation")
     .action(
       async (
         url: string,
-        opts: {
+        opts: AuthenticatedRequestOptions & {
           provider: string;
-          request?: string;
-          header: string[];
-          data?: string;
-          get?: boolean;
-          head?: boolean;
-          output?: string;
-          silent?: boolean;
-          verbose?: boolean;
-          include?: boolean;
           account?: string;
           clientId?: string;
         },
         cmd: Command,
       ) => {
-        const jsonMode = shouldOutputJson(cmd);
-
-        // Helper: write an error and set exit code
-        const writeError = (error: string, hint?: string): void => {
-          if (jsonMode) {
-            const payload: Record<string, unknown> = { ok: false, error };
-            if (hint) {
-              payload.hint = hint;
-            }
-            writeOutput(cmd, payload);
-          } else {
-            process.stderr.write(error + "\n");
-          }
-          process.exitCode = 1;
-        };
-
-        // Helper: write info to stderr (respects -s)
-        const writeInfo = (msg: string): void => {
-          if (!opts.silent) {
-            process.stderr.write(msg + "\n");
-          }
-        };
-
-        try {
-          // Parse headers for verbose output (before sending to daemon)
-          const parsedHeaders: Record<string, string> = {};
-          for (const raw of opts.header) {
-            const [key, value] = parseHeader(raw);
-            parsedHeaders[key] = value;
-          }
-
-          // Verbose: show request details
-          if (opts.verbose) {
-            const method = opts.head
-              ? "HEAD"
-              : opts.request
-                ? opts.request.toUpperCase()
-                : opts.get
-                  ? "GET"
-                  : opts.data !== undefined
-                    ? "POST"
-                    : "GET";
-            writeInfo(`> ${method} ${url}`);
-            for (const [key, value] of Object.entries(parsedHeaders)) {
-              writeInfo(`> ${key}: ${value}`);
-            }
-            writeInfo(`> Authorization: Bearer [REDACTED]`);
-            writeInfo(`>`);
-          }
-
-          // Read body data on the CLI side (file/stdin reading must happen here)
-          let parsedData: unknown;
-          if (opts.data !== undefined) {
-            parsedData = readBodyData(opts.data, parsedHeaders);
-          }
-
-          const body: Record<string, unknown> = {
-            provider: opts.provider,
-            url,
-          };
-          if (opts.request) {
-            body.method = opts.request;
-          }
-          if (Object.keys(parsedHeaders).length > 0) {
-            body.headers = parsedHeaders;
-          }
-          if (parsedData !== undefined) {
-            body.parsed_data = parsedData;
-          }
-          if (opts.get) {
-            body.force_get = true;
-          }
-          if (opts.head) {
-            body.head = true;
-          }
-          if (opts.account) {
-            body.account = opts.account;
-          }
-          if (opts.clientId) {
-            body.client_id = opts.clientId;
-          }
-
-          // Run the route handler in this process so Gmail-sized fetch and
-          // JSON parse stay off the assistant event loop.
-          const { handleRequest } =
-            await import("../../../runtime/routes/oauth-commands-routes.js");
-          const { RouteError } =
-            await import("../../../runtime/routes/errors.js");
-
-          let result: {
-            ok: boolean;
-            status: number;
-            headers: Record<string, string>;
-            body: unknown;
-            bodyEncoding?: "base64";
-            hint?: string;
-            account?: string | null;
-            accountWarning?: string;
-          };
-          try {
-            result = (await handleRequest({ body })) as typeof result;
-          } catch (err) {
-            if (err instanceof RouteError) {
-              return exitFromIpcResult({
-                ok: false,
-                error: err.message,
-                statusCode: err.statusCode,
-              });
-            }
-            throw err;
-          }
-
-          // Non-2xx exit code
-          if (result.status < 200 || result.status >= 300) {
-            process.exitCode = 1;
-          }
-
-          // Which account served the request, and any multi-account ambiguity.
-          if (result.account) {
-            writeInfo(`* Account: ${result.account}`);
-          }
-          if (result.accountWarning) {
-            writeInfo(result.accountWarning);
-          }
-
-          // Auth hint
-          if (result.hint) {
-            writeInfo(result.hint);
-          }
-
-          // JSON output mode
-          if (jsonMode) {
-            writeOutput(cmd, result);
-            return;
-          }
-
-          // Verbose / include — response headers to stderr
-          if (opts.verbose || opts.include) {
-            writeInfo(`< HTTP ${result.status}`);
-            for (const [key, value] of Object.entries(result.headers)) {
-              writeInfo(`< ${key}: ${value}`);
-            }
-            writeInfo(`<`);
-          }
-
-          // Body output (skip for null bodies: HEAD requests, 204, etc.)
-          if (result.body != null || result.bodyEncoding === "base64") {
-            const { materializeOAuthRequestOutput } =
-              await import("../../../oauth/connection.js");
-            const output = materializeOAuthRequestOutput(result);
-            if (output) {
-              if (opts.output) {
-                writeFileSync(opts.output, output.bytes);
-              } else {
-                process.stdout.write(output.bytes);
-                if (!output.isBinary) {
-                  process.stdout.write("\n");
-                }
-              }
-            }
-          } else if (opts.output) {
-            writeFileSync(opts.output, Buffer.alloc(0));
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          writeError(
-            `Error: ${message}\n\n` +
-              `For provider diagnostics, run 'assistant oauth providers get ${opts.provider}'.`,
-          );
-        }
+        await runAuthenticatedRequest({
+          providerKey: opts.provider,
+          url,
+          opts,
+          account: opts.account,
+          clientId: opts.clientId,
+          diagnosticsHint: `For provider diagnostics, run 'assistant oauth providers get ${opts.provider}'.`,
+          cmd,
+        });
       },
     );
 }
