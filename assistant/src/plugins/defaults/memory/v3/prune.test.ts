@@ -599,6 +599,38 @@ describe("newestCopyIndexes / filterResidentSections", () => {
     ).toBe("");
   });
 
+  test("a capability chunk rendered again on a later block supersedes the earlier copy under its capability slug; the earlier block's sections and its other capability stay", () => {
+    const cli = "# CLI command: export\nExport a conversation.";
+    const older = renderInjectionBlockInner([
+      lead("page-a"),
+      CAPABILITY_CHUNK,
+      cli,
+    ]);
+    const newer = renderInjectionBlockInner([CAPABILITY_CHUNK]);
+    const newest = newestCopyIndexes([current(older), current(newer)]);
+    expect(newest.get("skills/meet-join\n")).toBe(1);
+    expect(newest.get("cli-commands/export\n")).toBe(0);
+    expect(newest.get("page-a\n")).toBe(0);
+
+    // The older skill copy goes, and with it the skills hint chunk the
+    // renderer adds beside skill entries; the lead and the CLI command stay,
+    // byte-identical to a fresh render of those two.
+    expect(filterResidentSections(older, "current", 0, refSet(), newest)).toBe(
+      renderInjectionBlockInner([lead("page-a"), cli]),
+    );
+    expect(filterResidentSections(newer, "current", 1, refSet(), newest)).toBe(
+      newer,
+    );
+
+    // A CLI command re-rendered later retires the same way; the skill and
+    // its hint stay.
+    const newerCli = renderInjectionBlockInner([cli]);
+    const newestCli = newestCopyIndexes([current(older), current(newerCli)]);
+    expect(
+      filterResidentSections(older, "current", 0, refSet(), newestCli),
+    ).toBe(renderInjectionBlockInner([lead("page-a"), CAPABILITY_CHUNK]));
+  });
+
   test("a section on one block only is current there (the never-pruned case is unchanged)", () => {
     const newest = newestCopyIndexes([current(oldA)]);
     expect(filterResidentSections(oldA, "current", 0, refSet(), newest)).toBe(
@@ -1076,6 +1108,39 @@ describe("stripPrunedSectionsFromMessages", () => {
       text: wrapMemoryBlock(
         renderInjectionBlockInner([lead("page-a"), lead("page-b")]),
       ),
+    });
+  });
+
+  test("a re-entry copy of a skill chunk and of a CLI command retires once a later turn's persisted copy exists; the older block's section stays", () => {
+    const cli = "# CLI command: export\nExport a conversation.";
+    const reentry = userMessage(
+      v3Block(
+        wrapMemoryBlock(
+          renderInjectionBlockInner([lead("page-a"), CAPABILITY_CHUNK, cli]),
+        ),
+      ),
+      "turn 1",
+    );
+    const later = userMessage(
+      v3Block(
+        wrapMemoryBlock(renderInjectionBlockInner([CAPABILITY_CHUNK, cli])),
+      ),
+      "turn 2",
+    );
+
+    const stripped = stripPrunedSectionsFromMessages(
+      [reentry, later],
+      refSet(),
+    );
+
+    expect(stripped).toBe(1);
+    expect(reentry.content[0]).toEqual({
+      type: "text",
+      text: wrapMemoryBlock(renderInjectionBlockInner([lead("page-a")])),
+    });
+    expect(later.content[0]).toEqual({
+      type: "text",
+      text: wrapMemoryBlock(renderInjectionBlockInner([CAPABILITY_CHUNK, cli])),
     });
   });
 

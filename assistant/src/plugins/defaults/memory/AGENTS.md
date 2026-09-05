@@ -226,7 +226,10 @@ its block carries no commit, and assembly withholds the commit on a
 first-call site that persists them. After a compaction the re-rendered
 sections stay unclaimed: the next turn injects them net-new onto its own
 persisted user message, and the re-entry copy is superseded by the newest-copy
-rule at the following assembly. `memory_v3_ever_injected` is the superseded
+rule at the following assembly; that rule reaches capability chunks too, under
+the identity the store records them by (the capability slug, empty key), so a
+re-entry copy of a skill or CLI command retires once a later turn persists the
+capability again. `memory_v3_ever_injected` is the superseded
 card-grain record: migration 378 copied its rows in as lead entries, and
 nothing reads or writes it. Rows written by builds that shipped the per-turn
 `<memory_spotlight>` layer carry `memoryV3SpotlightBlock`

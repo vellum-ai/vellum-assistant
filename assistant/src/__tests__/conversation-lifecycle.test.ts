@@ -905,6 +905,52 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("a capability chunk persisted again on a later row supersedes the earlier row's copy at rehydration; the earlier row's section stays", async () => {
+    mockConversation = defaultConv();
+    const cli = "# CLI command: export\nExport a conversation.";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n# memory/concepts/page-a.md\nhead a\n\n${cli}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Second turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${cli}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${cli}\n</memory>` },
+      { type: "text", text: "Second turn" },
+    ]);
+  });
+
   test("a section re-injected after a prune rehydrates once, on the re-injecting message; the older copy is superseded", async () => {
     // Turn 1 injected page-a's lead, the valve pruned it, turn 8 re-injected
     // it (tombstone cleared, so the pruned set is empty). Turn 1's metadata

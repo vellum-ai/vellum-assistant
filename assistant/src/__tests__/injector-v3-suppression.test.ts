@@ -699,6 +699,50 @@ describe("memory-v3-live v2 suppression", () => {
     };
   }
 
+  test("Step 0 retires an older capability copy once a later owned block carries the capability again, sections untouched", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""));
+    seedV2Identity(null);
+    const cli = "# CLI command: export\nExport a conversation.";
+    // A post-compaction re-entry rendered the CLI command in memory on turn
+    // 1; turn 2 selected it again against the reset store and persisted a
+    // new copy.
+    const reentry = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n${cli}\n</memory>`,
+    });
+    const persisted = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n${cli}\n</memory>`,
+    });
+    const turn1: Message = {
+      role: "user",
+      content: [reentry, { type: "text", text: "turn 1" }],
+    };
+    const turn2: Message = {
+      role: "user",
+      content: [persisted, { type: "text", text: "turn 2" }],
+    };
+    const runMessages: Message[] = [
+      turn1,
+      { role: "assistant", content: [{ type: "text", text: "reply" }] },
+      turn2,
+      { role: "assistant", content: [{ type: "text", text: "reply" }] },
+      { role: "user", content: [{ type: "text", text: "turn 3" }] },
+    ];
+
+    await applyRuntimeInjections(runMessages, { ...makeTurnContext() });
+
+    expect(turn1.content).toEqual([
+      {
+        type: "text",
+        text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+      },
+      { type: "text", text: "turn 1" },
+    ]);
+    expect(turn2.content[0]).toBe(persisted);
+  });
+
   test("Step 0 strips the store's tombstoned sections from the v3-owned blocks of the folded-back history, every turn", async () => {
     memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""));

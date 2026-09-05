@@ -68,12 +68,14 @@
  * test.
  *
  * Capability note: skill / CLI-command content renders under its own
- * `# Skill:` / `# CLI command:` header, not a section header, so it can
- * never be located (and therefore never stripped) by slug. The injector
+ * `# Skill:` / `# CLI command:` header, not a section header. The injector
  * records capability slugs at `bytes: 0`, which keeps them out of the resident
  * measure AND out of candidacy (zero-byte rows are skipped — pruning them
- * frees nothing); capability content riding a block survives the prune of
- * its neighboring sections as a non-section chunk.
+ * frees nothing), so capability content riding a block survives the prune of
+ * its neighboring sections. Both filter points still reach it under the
+ * identity the store records it by (its capability slug, empty key): a copy
+ * a later block renders again (a post-compaction re-entry copy, once the
+ * next turn persists the capability anew) is superseded like a section's.
  *
  * Accounting-drift note: a section whose recorded bytes have no locatable
  * persisted text (e.g. its metadata row was lost) can be planned and
@@ -95,9 +97,11 @@ import {
   wrapMemoryBlock,
   wrapMemoryPointerBlock,
 } from "../memory-marker.js";
+import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
   type InjectedBlock,
   type InjectedBlockFormat,
+  type InjectionBlockPiece,
   parseInjectedSectionPath,
   parseInjectedSections,
   readInjectedMetadata,
@@ -133,12 +137,15 @@ const log = getLogger("memory-v3-shadow");
  * Returns the input string UNCHANGED (same reference) when nothing is
  * removed (callers use identity to detect a no-op) and `""` when every
  * chunk is pruned (the caller drops/skips the whole block; a bare
- * instruction header with no sections carries no content). Non-section
- * chunks (capability content) are always kept, so a block whose sections are
- * all pruned but which carries capability content keeps its preamble and
- * that content. Kept chunks are re-joined exactly as the renderer joined
- * them (`\n\n`), so an unpruned remainder stays byte-identical to what a
- * fresh render of those chunks would produce.
+ * instruction header with no sections carries no content). A capability
+ * chunk is reached under its capability slug with the empty key (the
+ * identity the store records it by); the store never tombstones one, so a
+ * block whose sections are all pruned but which carries capability content
+ * keeps its preamble and that content. Kept chunks are re-joined exactly as
+ * the renderer joined them (`\n\n`), so an unpruned remainder stays
+ * byte-identical to what a fresh render of those chunks would produce: the
+ * skills hint chunk the renderer adds beside skill chunks leaves with the
+ * block's last skill chunk.
  */
 export function filterPrunedSections(
   inner: string,
@@ -156,6 +163,26 @@ export function filterPrunedSections(
 
 function refId(slug: string, key: string): string {
   return `${slug}\n${key}`;
+}
+
+/** The `(slug, key)` identity a parsed chunk carries in the section store:
+ *  a section's own pair, a capability chunk's capability slug under the
+ *  empty key, and none for the skills hint chunk. */
+function pieceIdentity(
+  piece: InjectionBlockPiece,
+): { slug: string; key: string } | null {
+  switch (piece.kind) {
+    case "section":
+      return { slug: piece.slug, key: piece.key };
+    case "capability":
+      return { slug: capabilitySlugOf(piece), key: "" };
+    case "other":
+      return null;
+  }
+}
+
+function isSkillChunk(piece: InjectionBlockPiece): boolean {
+  return piece.kind === "capability" && piece.capability === "skill";
 }
 
 /**
@@ -179,12 +206,14 @@ export function persistedV3Block(
 }
 
 /**
- * The block index carrying each section's newest copy, over a conversation's
- * v3 blocks in message order (`null` for a message without one). A section
- * re-injected after a prune has an older copy on an earlier message too; the
- * live conversation holds only the newest (the older one was stripped when
- * the section was pruned), so rehydration and the live strip keep exactly
- * that copy and treat every earlier one as superseded.
+ * The block index carrying each section's and each capability chunk's
+ * newest copy, over a conversation's v3 blocks in message order (`null` for
+ * a message without one). A section re-injected after a prune has an older
+ * copy on an earlier message too, and a capability a post-compaction
+ * re-entry rendered in memory gets a persisted copy again when a later turn
+ * selects it against the reset store; the live conversation holds only the
+ * newest, so rehydration and the live strip keep exactly that copy and treat
+ * every earlier one as superseded.
  */
 export function newestCopyIndexes(
   blocks: ReadonlyArray<InjectedBlock | null>,
@@ -195,11 +224,14 @@ export function newestCopyIndexes(
     if (block === null) {
       return;
     }
-    for (const section of parseInjectedSections(block.inner, {
+    for (const piece of parseInjectedSections(block.inner, {
       format: block.format,
       knownCardBytes,
-    }).sections) {
-      newest.set(refId(section.slug, section.key), index);
+    }).pieces) {
+      const identity = pieceIdentity(piece);
+      if (identity !== null) {
+        newest.set(refId(identity.slug, identity.key), index);
+      }
     }
   });
   return newest;
@@ -234,17 +266,24 @@ function filterSections(
   drop: (slug: string, key: string) => boolean,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
-  const { preamble, sections, pieces } = parseInjectedSections(inner, {
+  const { preamble, pieces } = parseInjectedSections(inner, {
     format,
     knownCardBytes,
   });
-  if (sections.length === 0) {
+  if (pieces.length === 0) {
     return inner;
   }
 
-  const kept = pieces.filter(
-    (piece) => piece.kind !== "section" || !drop(piece.slug, piece.key),
-  );
+  const survivors = pieces.filter((piece) => {
+    const identity = pieceIdentity(piece);
+    return identity === null || !drop(identity.slug, identity.key);
+  });
+  // The renderer adds the skills hint chunk only beside skill chunks, so a
+  // block that loses its last one loses the hint with it.
+  const kept =
+    pieces.some(isSkillChunk) && !survivors.some(isSkillChunk)
+      ? survivors.filter((piece) => piece.kind !== "other")
+      : survivors;
   if (kept.length === pieces.length) {
     return inner;
   }
