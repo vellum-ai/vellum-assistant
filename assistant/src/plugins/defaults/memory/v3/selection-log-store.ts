@@ -272,7 +272,7 @@ async function buildSelectionLog(
 
 /**
  * Build the inspector's v3 selection log for the inspected message's turn,
- * keyed by the turn's message ids. This is the durable join: `writeSelections`
+ * keyed by the turn's message ids. This is the durable join: `writeTurnLog`
  * logs rows with `message_id = NULL` and the turn-end backfill stamps them with
  * the assistant message id, so a per-message lookup is robust against the drift
  * between v2's tracker turn and v3's orchestrator `turnCount`. Returns `null`

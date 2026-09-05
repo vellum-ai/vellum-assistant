@@ -341,7 +341,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
     // The pool the selector saw: the core card, an unchosen hot card, and the
     // needle line with its matched section. The join is by the selection rows'
     // (conversation, turn), so the pool row needs no message id of its own.
-    writePool("conv-m", 3, {
+    writePool(memorySqlite, "conv-m", 3, {
       candidates: [
         candidate("domain-a/page-1", "core", true),
         candidate("domain-c/page-9", "hot", false),
@@ -355,7 +355,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       selector_ran: true,
     });
     // A pool for a neighbouring turn must not bleed in.
-    writePool("conv-m", 4, {
+    writePool(memorySqlite, "conv-m", 4, {
       candidates: [candidate("other/page", "core", true)],
       pool_size: 1,
       selected_count: 1,
@@ -409,7 +409,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       [{ slug: "domain-a/page-1", source: "needle" }],
       "parent-msg",
     );
-    writePool("conv-parent", 4, {
+    writePool(memorySqlite, "conv-parent", 4, {
       candidates: [candidate("domain-a/page-1", "needle", true)],
       pool_size: 1,
       selected_count: 1,
@@ -428,7 +428,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
   test("a pool-only turn resolves through its stamped message id to an empty selection with the pool", async () => {
     // The selector saw two candidates and rejected both: no selection rows,
     // one pool row, stamped at turn end like the selection rows would be.
-    writePool("conv-m", 5, {
+    writePool(memorySqlite, "conv-m", 5, {
       candidates: [
         candidate("domain-a/page-1", "core", false),
         candidate("domain-b/page-2", "needle", false, {
@@ -477,7 +477,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
   });
 
   test("a hard-skipped turn resolves to an empty selection whose pool records the selector as not run", async () => {
-    writePool("conv-m", 5, {
+    writePool(memorySqlite, "conv-m", 5, {
       candidates: [],
       pool_size: 0,
       selected_count: 0,
@@ -499,7 +499,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
   });
 
   test("a fork copy of a pool-only turn resolves through the back-pointer walk", async () => {
-    writePool("conv-parent", 4, {
+    writePool(memorySqlite, "conv-parent", 4, {
       candidates: [candidate("domain-a/page-1", "dense", false)],
       pool_size: 1,
       selected_count: 0,
@@ -521,7 +521,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
   });
 
   test("does not match a pool row that predates the message-id backfill (null message_id)", async () => {
-    writePool("conv-m", 5, {
+    writePool(memorySqlite, "conv-m", 5, {
       candidates: [],
       pool_size: 0,
       selected_count: 0,

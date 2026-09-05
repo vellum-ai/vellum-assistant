@@ -7,6 +7,9 @@
  *     full candidate pool and verdict land in one `memory_v3_pools` row that
  *     the turn-end backfill stamps alongside the selections, touching only
  *     that turn's rows;
+ *   - a turn observed again replaces its selection rows and its pool row as
+ *     one transaction, so both describe the latest observation, and a failed
+ *     pool write leaves the earlier observation's rows in place in both;
  *   - {@link observeTurn} is skipped when global memory is disabled;
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
@@ -511,13 +514,14 @@ const {
   resetShadowLanesForTests,
   invalidateLanes,
   attributeSelections,
-  writeSelections,
+  writeTurnLog,
   backfillMemoryV3SelectionMessageId,
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
 const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
-const { readPoolForMessageIds } = await import("../pool-log-store.js");
+const { buildPoolRecord, readPoolForMessageIds } =
+  await import("../pool-log-store.js");
 
 /** Seed the real config from the current mutable knobs, then run the real
  *  `observeTurn` — mirrors how each test sets its knobs immediately before
@@ -553,6 +557,39 @@ function readPools() {
     selector_ran: number;
     candidates_json: string;
   }>;
+}
+
+/** The `chosen` verdict per pooled slug, read from the single pool row. */
+function chosenBySlug(): Record<string, boolean> {
+  const pools = readPools();
+  expect(pools).toHaveLength(1);
+  const candidates = JSON.parse(pools[0]!.candidates_json) as Array<{
+    slug: string;
+    chosen: boolean;
+  }>;
+  return Object.fromEntries(candidates.map((c) => [c.slug, c.chosen]));
+}
+
+/** An orchestrate result over a fixed three-page finder pool (page-1 via the
+ *  needle lane, page-2 via dense, page-3 via edge) whose selector kept exactly
+ *  `kept`. */
+function poolOf(kept: string[]): OrchestrateResult {
+  return {
+    selections: kept.map((slug) => ({ slug })),
+    matchedSections: new Map(),
+    lanes: {
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [
+        { slug: "page-1", descriptor: "", lane: "needle" },
+        { slug: "page-2", descriptor: "", lane: "dense" },
+        { slug: "page-3", descriptor: "", lane: "edge" },
+      ],
+    },
+    selectorRan: true,
+  };
 }
 
 beforeEach(() => {
@@ -623,17 +660,16 @@ describe("memory-v3 engine", () => {
     expect(readRows()).toHaveLength(0);
   });
 
-  test("selection writes and the message-id backfill no-op when the memory database is unavailable", () => {
+  test("the turn-log write and the message-id backfill no-op when the memory database is unavailable", () => {
     memoryDbAvailable = false;
+    const result = poolOf(["page-1"]);
     expect(() =>
-      writeSelections("conv-1", 1, [
-        {
-          slug: "page-1",
-          source: "needle",
-          sectionOrdinal: null,
-          sectionTitle: null,
-        },
-      ]),
+      writeTurnLog(
+        "conv-1",
+        1,
+        attributeSelections(result),
+        buildPoolRecord(result),
+      ),
     ).not.toThrow();
     expect(() =>
       backfillMemoryV3SelectionMessageId("conv-1", 1, "m-1"),
@@ -642,6 +678,7 @@ describe("memory-v3 engine", () => {
     // Nothing landed while the connection was down.
     memoryDbAvailable = true;
     expect(readRows()).toHaveLength(0);
+    expect(readPools()).toHaveLength(0);
   });
 
   test("observeTurn runs orchestration and writes rows with per-lane sources", async () => {
@@ -790,6 +827,78 @@ describe("memory-v3 engine", () => {
     // The pool-only turn is still stamped, so the inspector can find it.
     backfillMemoryV3SelectionMessageId("conv-1", 2, "m-skipped");
     expect(readPools().map((pool) => pool.message_id)).toEqual(["m-skipped"]);
+  });
+
+  test("a turn observed again replaces its selection rows in step with its pool", async () => {
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-1", "page-2"]),
+    );
+    await observeTurn("conv-1", 2);
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-first");
+
+    // The same turn index is observed again (a retried turn) and the selector
+    // now keeps page-3 instead of page-1.
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-2", "page-3"]),
+    );
+    await observeTurn("conv-1", 2);
+
+    // Exactly the later observation's rows: page-1, kept only by the earlier
+    // observation, does not survive as a stale selection.
+    expect(readRows()).toEqual([
+      { slug: "page-2", source: "dense" },
+      { slug: "page-3", source: "edge" },
+    ]);
+    // The single pool row records the same verdict.
+    expect(chosenBySlug()).toEqual({
+      "page-1": false,
+      "page-2": true,
+      "page-3": true,
+    });
+    expect(readPools()[0]).toMatchObject({ turn: 2, selected_count: 2 });
+
+    // The re-observation is a fresh, unstamped turn in both tables: the
+    // earlier message id no longer resolves it, and its own turn-end backfill
+    // stamps every row.
+    expect(readPoolForMessageIds(["m-first"])).toBeNull();
+    const stampedIds = () =>
+      memorySqlite
+        .query(`SELECT DISTINCT message_id FROM memory_v3_selections`)
+        .all();
+    expect(stampedIds()).toEqual([{ message_id: null }]);
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-second");
+    expect(stampedIds()).toEqual([{ message_id: "m-second" }]);
+    expect(readPoolForMessageIds(["m-second"])?.turn).toBe(2);
+  });
+
+  test("a failed pool write leaves the earlier observation's selections and pool in place", async () => {
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-1", "page-2"]),
+    );
+    await observeTurn("conv-1", 2);
+
+    // Refuse every pool write from here on: the re-observation's pool
+    // statement fails after its selection rows were replaced, and the
+    // transaction rolls the replacement back with it.
+    memorySqlite.run(
+      `CREATE TRIGGER refuse_pool_writes BEFORE INSERT ON memory_v3_pools
+       BEGIN SELECT RAISE(ABORT, 'pool write refused'); END`,
+    );
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-2", "page-3"]),
+    );
+    // The write is best-effort: the turn itself still gets its result.
+    expect(await observeTurn("conv-1", 2)).not.toBeNull();
+
+    expect(readRows()).toEqual([
+      { slug: "page-1", source: "needle" },
+      { slug: "page-2", source: "dense" },
+    ]);
+    expect(chosenBySlug()).toEqual({
+      "page-1": true,
+      "page-2": true,
+      "page-3": false,
+    });
   });
 
   test("the turn carries the tail of the previous assistant reply for the reply-query pass", async () => {

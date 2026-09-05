@@ -9,10 +9,13 @@
  *     disabled-selector passthrough keeps its pool;
  *   - `writePool` / `readPoolForTurn` round-trip the record, a re-observed
  *     turn replaces its row, and an absent turn reads `null`;
+ *   - `writePool` writes on the connection it is handed and throws on a failed
+ *     statement (the transaction and the best-effort boundary live in
+ *     `shadow-plugin.ts`'s `writeTurnLog`, with the selection rows);
  *   - `readPoolForMessageIds` finds the row by its stamped message id and
  *     ignores unstamped rows;
- *   - all degrade (no-op write, `null` read) when the memory connection is
- *     unavailable, and an unreadable `candidates_json` reads `null`;
+ *   - reads degrade to `null` when the memory connection is unavailable, and
+ *     an unreadable `candidates_json` reads `null`;
  *   - `ensureMemoryV3PoolsSchema` is idempotent.
  *
  * `mock.module` is process-global and leaks into sibling files in a directory
@@ -265,7 +268,7 @@ describe("buildPoolRecord", () => {
 describe("writePool / readPoolForTurn", () => {
   test("round-trips the record for the exact (conversation, turn)", () => {
     const record = buildPoolRecord(orchestrated());
-    writePool("conv-1", 4, record);
+    writePool(memorySqlite, "conv-1", 4, record);
 
     expect(readPoolForTurn("conv-1", 4)).toEqual(record);
     expect(readPoolForTurn("conv-1", 3)).toBeNull();
@@ -273,7 +276,7 @@ describe("writePool / readPoolForTurn", () => {
   });
 
   test("writes message_id NULL for the turn-end backfill to stamp", () => {
-    writePool("conv-1", 4, buildPoolRecord(orchestrated()));
+    writePool(memorySqlite, "conv-1", 4, buildPoolRecord(orchestrated()));
 
     const row = memorySqlite
       .query(
@@ -291,7 +294,7 @@ describe("writePool / readPoolForTurn", () => {
   });
 
   test("a closed-gate turn persists selector_ran = 0 with an empty pool and reads back as such", () => {
-    writePool("conv-1", 4, buildPoolRecord(hardSkipped()));
+    writePool(memorySqlite, "conv-1", 4, buildPoolRecord(hardSkipped()));
 
     const row = memorySqlite
       .query(
@@ -315,14 +318,14 @@ describe("writePool / readPoolForTurn", () => {
   });
 
   test("a re-observed turn replaces its row", () => {
-    writePool("conv-1", 4, buildPoolRecord(orchestrated()));
+    writePool(memorySqlite, "conv-1", 4, buildPoolRecord(orchestrated()));
     const smaller: PoolRecord = {
       candidates: [card("only/page", "core", true)],
       pool_size: 1,
       selected_count: 1,
       selector_ran: true,
     };
-    writePool("conv-1", 4, smaller);
+    writePool(memorySqlite, "conv-1", 4, smaller);
 
     expect(readPoolForTurn("conv-1", 4)).toEqual(smaller);
     expect(
@@ -330,15 +333,22 @@ describe("writePool / readPoolForTurn", () => {
     ).toEqual({ n: 1 });
   });
 
-  test("degrades to a no-op write and a null read when the memory database is unavailable", () => {
-    memoryDbAvailable = false;
-    expect(() =>
-      writePool("conv-1", 4, buildPoolRecord(orchestrated())),
-    ).not.toThrow();
-    expect(readPoolForTurn("conv-1", 4)).toBeNull();
+  test("throws on a failed statement so the caller's transaction can roll back", () => {
+    memorySqlite.run(
+      `CREATE TRIGGER refuse_pool_writes BEFORE INSERT ON memory_v3_pools
+       BEGIN SELECT RAISE(ABORT, 'pool write refused'); END`,
+    );
 
-    // Nothing landed while the connection was down.
-    memoryDbAvailable = true;
+    expect(() =>
+      writePool(memorySqlite, "conv-1", 4, buildPoolRecord(orchestrated())),
+    ).toThrow("pool write refused");
+    expect(readPoolForTurn("conv-1", 4)).toBeNull();
+  });
+
+  test("degrades to a null read when the memory database is unavailable", () => {
+    writePool(memorySqlite, "conv-1", 4, buildPoolRecord(orchestrated()));
+    memoryDbAvailable = false;
+
     expect(readPoolForTurn("conv-1", 4)).toBeNull();
   });
 
@@ -358,8 +368,8 @@ describe("writePool / readPoolForTurn", () => {
 describe("readPoolForMessageIds", () => {
   test("finds the turn's pool by its stamped message id", () => {
     const record = buildPoolRecord(orchestrated());
-    writePool("conv-1", 4, record);
-    writePool("conv-1", 5, buildPoolRecord(hardSkipped()));
+    writePool(memorySqlite, "conv-1", 4, record);
+    writePool(memorySqlite, "conv-1", 5, buildPoolRecord(hardSkipped()));
     stamp("conv-1", 4, "msg-4");
     stamp("conv-1", 5, "msg-5");
 
@@ -372,14 +382,14 @@ describe("readPoolForMessageIds", () => {
   });
 
   test("returns null for empty ids, an unmatched id, and an unstamped row", () => {
-    writePool("conv-1", 4, buildPoolRecord(orchestrated())); // message_id NULL
+    writePool(memorySqlite, "conv-1", 4, buildPoolRecord(orchestrated())); // message_id NULL
 
     expect(readPoolForMessageIds([])).toBeNull();
     expect(readPoolForMessageIds(["nope"])).toBeNull();
   });
 
   test("degrades to null when the memory database is unavailable", () => {
-    writePool("conv-1", 4, buildPoolRecord(orchestrated()));
+    writePool(memorySqlite, "conv-1", 4, buildPoolRecord(orchestrated()));
     stamp("conv-1", 4, "msg-4");
     memoryDbAvailable = false;
 

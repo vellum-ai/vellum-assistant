@@ -275,9 +275,13 @@ Memory tab, plus `selector_ran`. A turn whose selector never judged a pool
 (the injection gate hard-skipped it, or nothing was pooled) persists an empty
 pool with `selector_ran = 0`, and a turn that logged no selections is still
 reachable by its stamped `message_id`, so the inspector shows negative
-verdicts too. Rows are per-turn diagnostics, roughly 10KB each, with no
-retention job; a conversation delete purges them with the other
-conversation-keyed tables (`conversation-memory-purge.ts`).
+verdicts too. The pool row and the turn's `memory_v3_selections` rows are
+written in one transaction (`writeTurnLog` in `v3/shadow-plugin.ts`), and a
+turn observed again replaces both, so the pool's `chosen` flags and the
+selection rows always describe the same observation. Rows are per-turn
+diagnostics, roughly 10KB each, with no retention job; a conversation delete
+purges them with the other conversation-keyed tables
+(`conversation-memory-purge.ts`).
 
 ### Job types (`memory_jobs.type`)
 

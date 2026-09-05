@@ -12,12 +12,16 @@
  * pool with `selector_ran = 0`; the row exists so the inspector can show the
  * negative verdict rather than nothing.
  *
- * Writes are best-effort (a failure logs a warning and never fails the turn)
- * and resolve the memory connection via `memorySqliteOrNull`, matching the
- * selections writer in `shadow-plugin.ts`. `message_id` is written NULL and
- * stamped at turn end by `backfillMemoryV3SelectionMessageId`, in the same
- * batch as the selection rows, so a turn's pool can be read by its message id
- * even when the turn logged no selections.
+ * The row is written by `writeTurnLog` in `shadow-plugin.ts`, in one
+ * transaction with the turn's `memory_v3_selections` rows: a turn observed
+ * again replaces both together, so the pool's `chosen` flags and the
+ * selection rows always describe the same observation. That writer is
+ * best-effort (a failure logs a warning, leaves the earlier rows in place,
+ * and never fails the turn). Reads resolve the memory connection via
+ * `memorySqliteOrNull` and degrade to `null`. `message_id` is written NULL
+ * and stamped at turn end by `backfillMemoryV3SelectionMessageId`, in the
+ * same batch as the selection rows, so a turn's pool can be read by its
+ * message id even when the turn logged no selections.
  *
  * Rows are per-turn diagnostics (roughly 10KB each) with no retention job;
  * a conversation delete purges them with the other conversation-keyed memory
@@ -128,42 +132,36 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
 }
 
 /**
- * Persist the turn's pool record. Best-effort: an unavailable memory database
- * or a failed statement drops the record rather than affecting the turn.
+ * Write the turn's pool row on `raw`. The PK is `(conversation_id, turn)`,
+ * so a re-observed turn overwrites its row, with `message_id` reset to NULL
+ * for the turn-end backfill. Throws on a failed statement: `writeTurnLog` in
+ * `shadow-plugin.ts` runs this inside the transaction that also replaces the
+ * turn's selection rows, and owns the best-effort boundary around it.
  */
 export function writePool(
+  raw: MemorySqlite,
   conversationId: string,
   turn: number,
   record: PoolRecord,
 ): void {
-  try {
-    const raw = memorySqliteOrNull("writePool");
-    if (!raw) {
-      return;
-    }
-    // PK is (conversation_id, turn); OR REPLACE keeps a retried turn
-    // idempotent and resets `message_id` for the turn-end backfill.
-    raw
-      .query(
-        /*sql*/ `
-        INSERT OR REPLACE INTO memory_v3_pools (
-          conversation_id, turn, message_id, created_at,
-          pool_size, selected_count, selector_ran, candidates_json
-        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
-      `,
-      )
-      .run(
-        conversationId,
-        turn,
-        Date.now(),
-        record.pool_size,
-        record.selected_count,
-        record.selector_ran ? 1 : 0,
-        JSON.stringify(record.candidates),
-      );
-  } catch (err) {
-    log.warn({ err }, "failed to write memory-v3 pool; continuing");
-  }
+  raw
+    .query(
+      /*sql*/ `
+      INSERT OR REPLACE INTO memory_v3_pools (
+        conversation_id, turn, message_id, created_at,
+        pool_size, selected_count, selector_ran, candidates_json
+      ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+    `,
+    )
+    .run(
+      conversationId,
+      turn,
+      Date.now(),
+      record.pool_size,
+      record.selected_count,
+      record.selector_ran ? 1 : 0,
+      JSON.stringify(record.candidates),
+    );
 }
 
 interface PoolRow {

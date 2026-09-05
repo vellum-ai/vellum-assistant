@@ -18,7 +18,8 @@
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution, plus the
- *      full candidate pool and verdict to `memory_v3_pools` for the inspector.
+ *      full candidate pool and verdict to `memory_v3_pools` for the inspector,
+ *      as one transaction ({@link writeTurnLog}).
  *
  * {@link observeTurn} wraps everything in try/catch — any failure is logged and
  * swallowed so it can never affect the live turn. The injector treats a
@@ -44,7 +45,7 @@ import {
 } from "../../../../daemon/turn-latency-sub-spans.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
-import { memorySqliteOrNull } from "../memory-db.js";
+import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
 import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
@@ -65,7 +66,11 @@ import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
-import { buildPoolRecord, writePool } from "./pool-log-store.js";
+import {
+  buildPoolRecord,
+  type PoolRecord,
+  writePool,
+} from "./pool-log-store.js";
 import {
   MemoryV3RetrievalUnavailableError,
   resolveSelectorPrompt,
@@ -617,63 +622,97 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
 }
 
 /**
- * Write the attributed selection rows to `memory_v3_selections` over the
- * dedicated memory connection. Best-effort: an unavailable memory database or
- * a failed write drops the turn's log rows rather than affecting the turn.
+ * Replace the turn's rows in `memory_v3_selections` on `raw` with `rows`, in
+ * selection order. The turn's earlier rows are deleted rather than upserted
+ * over, so a slug an earlier observation of the same turn kept and this one
+ * did not does not survive: a re-observed turn carries only its latest
+ * observation's rows, which is also what the frecency hot set and the
+ * learned-edge graph count. `message_id` is written NULL (the assistant
+ * message does not exist at injection time) and stamped at turn end by
+ * `backfillMemoryV3SelectionMessageId`. Throws on a failed statement; the
+ * caller owns the transaction.
  */
-export function writeSelections(
+function replaceSelections(
+  raw: MemorySqlite,
   conversationId: string,
   turn: number,
   rows: SelectionRow[],
 ): void {
+  raw
+    .query(
+      /*sql*/ `DELETE FROM memory_v3_selections
+               WHERE conversation_id = ? AND turn = ?`,
+    )
+    .run(conversationId, turn);
   if (rows.length === 0) {
     return;
   }
+  const stmt = raw.query(/*sql*/ `
+    INSERT INTO memory_v3_selections (
+      conversation_id, turn, slug, source, created_at,
+      message_id, section_ordinal, section_title
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+  `);
+  const now = Date.now();
+  for (const row of rows) {
+    stmt.run(
+      conversationId,
+      turn,
+      row.slug,
+      row.source,
+      now,
+      row.sectionOrdinal,
+      row.sectionTitle,
+    );
+  }
+}
+
+/**
+ * Write the turn's log over the dedicated memory connection: its attributed
+ * selection rows to `memory_v3_selections` and its candidate pool to
+ * `memory_v3_pools`, in one transaction. A turn observed again (a retried or
+ * re-entered turn index) replaces its rows in both tables as a unit, so the
+ * pool's `chosen` flags and the selection rows always describe the same
+ * observation. Best-effort: an unavailable memory database or a failed
+ * statement drops this observation's log rather than affecting the turn, and
+ * the transaction leaves the earlier observation's rows in place in both
+ * tables.
+ */
+export function writeTurnLog(
+  conversationId: string,
+  turn: number,
+  rows: SelectionRow[],
+  pool: PoolRecord,
+): void {
   try {
-    const raw = memorySqliteOrNull("writeSelections");
+    const raw = memorySqliteOrNull("writeTurnLog");
     if (!raw) {
       return;
     }
-    // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
-    // idempotent if the same turn is observed twice (e.g. a retried turn).
-    // `message_id` is written NULL here (the assistant message does not exist
-    // at injection time) and stamped at turn end by
-    // `backfillMemoryV3SelectionMessageId`.
-    const stmt = raw.query(/*sql*/ `
-      INSERT OR REPLACE INTO memory_v3_selections (
-        conversation_id, turn, slug, source, created_at,
-        message_id, section_ordinal, section_title
-      ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
-    `);
-    const now = Date.now();
-    for (const row of rows) {
-      stmt.run(
-        conversationId,
-        turn,
-        row.slug,
-        row.source,
-        now,
-        row.sectionOrdinal,
-        row.sectionTitle,
-      );
-    }
+    raw.transaction(() => {
+      replaceSelections(raw, conversationId, turn, rows);
+      writePool(raw, conversationId, turn, pool);
+    })();
   } catch (err) {
-    log.warn({ err }, "failed to write memory-v3 selections; continuing");
+    log.warn(
+      { err },
+      "failed to write memory-v3 selections and pool; continuing",
+    );
   }
 }
 
 /**
  * Stamp the turn's assistant message id onto the selection rows and the pool
- * row written for it. Mirrors the v2 activation-log backfill:
- * `writeSelections` and `writePool` write `message_id = NULL` at injection
- * time, and this runs at turn end once the assistant message exists. `turn`
- * is the injector's `turnIndex` for the finished turn, so a row an earlier
- * turn left unstamped (it crashed or was cancelled before reaching turn end)
- * is never claimed by a later message: it stays NULL and stays unreachable by
- * message id. Lets the inspector look v3 selections up by the turn's message
- * ids (robust against v2/v3 turn-counter drift). The selection rows are
- * stamped first so a failing pool stamp degrades the inspector to
- * selections-only rather than blanking it.
+ * row written for it. Mirrors the v2 activation-log backfill: `writeTurnLog`
+ * writes `message_id = NULL` on both at injection time, and this runs at turn
+ * end once the assistant message exists. `turn` is the injector's `turnIndex`
+ * for the finished turn, so a row an earlier turn left unstamped (it crashed
+ * or was cancelled before reaching turn end) is never claimed by a later
+ * message: it stays NULL and stays unreachable by message id. Lets the
+ * inspector look v3 selections up by the turn's message ids (robust against
+ * v2/v3 turn-counter drift). The selection rows are stamped first so a
+ * failing pool stamp degrades the inspector to selections-only rather than
+ * blanking it.
  */
 export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
@@ -796,9 +835,12 @@ export async function observeTurn(
     }
 
     const persistStartedAt = Date.now();
-    const rows = attributeSelections(result);
-    writeSelections(conversationId, turnIndex, rows);
-    writePool(conversationId, turnIndex, buildPoolRecord(result));
+    writeTurnLog(
+      conversationId,
+      turnIndex,
+      attributeSelections(result),
+      buildPoolRecord(result),
+    );
     recordLatencySubSpan(
       "v3_persist",
       "Selection persistence",
