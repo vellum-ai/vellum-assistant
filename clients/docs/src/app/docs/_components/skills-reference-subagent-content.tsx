@@ -228,7 +228,8 @@ export function SkillsReferenceSubagentContent() {
               and it cannot see your conversations. Because it runs on a more
               capable model, it also runs to a fixed budget of a few lookups and
               a few minutes, so a consult cannot quietly become an expensive
-              open-ended job.
+              open-ended job, and it answers once rather than being sent
+              follow-ups: a further question is a fresh consult.
             </li>
           </ul>
         </section>

@@ -83,6 +83,8 @@ The environment snapshot is what lets its guidance point you at existing platfor
 
 The advisor has read-only workspace tools (`file_read`, `file_list`, `code_search`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It has no memory search and cannot see other conversations or external systems, and it runs on a budget of 8 tool calls and 5 minutes, after which it is stopped and you are told which ceiling it hit. So put the evidence you already have (a file's contents, a command's output, results gathered elsewhere) into the objective rather than making it go find them: a brief that carries its own evidence gets better advice than one that spends the budget looking for it.
 
+A consult is one-shot: the advisor takes no `subagent_message` follow-up, and its whole answer is the guidance in its notification. If you need something else weighed in on, spawn a new advisor with a brief that carries the new question and what the first consult told you.
+
 Because the guidance lands after you have moved on, consult **early**: spawn the advisor before you commit to an approach, not after you have built on one. When its guidance arrives, weigh it against what you have done since. Adopt what still applies, and say so plainly if it means undoing a step you already took.
 
 ## Parent Communication

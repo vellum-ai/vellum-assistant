@@ -60,6 +60,17 @@ export async function executeSubagentMessage(
     };
   }
 
+  if (result === "one_shot") {
+    return {
+      content:
+        `The advisor "${state.config.label}" takes no follow-up: a consult answers one question once, ` +
+        "and its whole answer is the guidance in its notification. " +
+        "To ask something else, spawn a new advisor with subagent_spawn and a brief that carries the question " +
+        "and the evidence you have now, including whatever the first consult told you.",
+      isError: true,
+    };
+  }
+
   if (result !== "sent") {
     return {
       content: `Could not send message to subagent "${subagentId}". It may not exist or be in a terminal state.`,

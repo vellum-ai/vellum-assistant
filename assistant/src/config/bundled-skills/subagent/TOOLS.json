@@ -98,7 +98,7 @@
     },
     {
       "name": "subagent_message",
-      "description": "Send a follow-up message to a running subagent.",
+      "description": "Send a follow-up message to a running subagent. Not available for role 'advisor': a consult is one-shot and answers in its notification, so ask it something else by spawning a new advisor instead.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

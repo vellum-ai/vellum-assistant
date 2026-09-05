@@ -1416,12 +1416,19 @@ export class SubagentManager {
    * firing that asked for it. Only the immediately-processed turn carries it,
    * since a queued message drains through the conversation's own queue, which
    * holds no per-message run options.
+   *
+   * An advisor takes no follow-up (`one_shot`). A consult answers one question
+   * once, and a follow-up would escape the budget its spawn set: the drained
+   * turn starts after `runSubagent` has already settled the run and cleared the
+   * runtime timer, so it would run on the premium profile under no ceiling at
+   * all. Asking the advisor something else is a new consult, which gets its own
+   * budget and passes the repeat guard on the way in.
    */
   async sendMessage(
     subagentId: string,
     content: string,
     opts?: { cronRunId?: string | null },
-  ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
+  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "one_shot"> {
     const trimmed = content?.trim();
     if (!trimmed) {
       return "empty";
@@ -1430,6 +1437,9 @@ export class SubagentManager {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
       return "not_found";
+    }
+    if (managed.state.config.role === "advisor") {
+      return "one_shot";
     }
     if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation) {
       return "terminal";
