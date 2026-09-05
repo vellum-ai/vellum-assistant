@@ -29,6 +29,9 @@ let mockGenerateResult = {
 let mockGenerateError: Error | null = null;
 let lastGenerateProvider: unknown = null;
 let lastGenerateCredentials: unknown = null;
+let lastGenerateRequest: Record<string, unknown> | null = null;
+/** Holds the mocked generation in flight so a test can cancel mid-request. */
+let mockGenerateDelayMs = 0;
 
 /**
  * Seed the image-generation service entry in the real workspace config.
@@ -69,10 +72,14 @@ mock.module("../media/image-service.js", () => ({
   generateImage: async (
     provider: unknown,
     credentials: unknown,
-    _request: Record<string, unknown>,
+    request: Record<string, unknown>,
   ) => {
     lastGenerateProvider = provider;
     lastGenerateCredentials = credentials;
+    lastGenerateRequest = request;
+    if (mockGenerateDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, mockGenerateDelayMs));
+    }
     if (mockGenerateError) {
       throw mockGenerateError;
     }
@@ -145,6 +152,8 @@ beforeEach(() => {
   mockGenerateError = null;
   lastGenerateProvider = null;
   lastGenerateCredentials = null;
+  lastGenerateRequest = null;
+  mockGenerateDelayMs = 0;
   mockManagedBaseUrl = undefined;
   mockManagedProxyContext = {
     enabled: false,
@@ -593,6 +602,51 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("outside the working directory");
+  });
+});
+
+describe("image-studio cancellation", () => {
+  test("an already-cancelled turn never starts a generation", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const context = {
+      ...makeContext(),
+      signal: controller.signal,
+    } as ToolContext;
+
+    await expect(run({ prompt: "a cat" }, context)).rejects.toThrow();
+    expect(lastGenerateProvider).toBeNull();
+  });
+
+  test("passes the turn signal to the generation request", async () => {
+    const controller = new AbortController();
+    const context = {
+      ...makeContext(),
+      signal: controller.signal,
+    } as ToolContext;
+
+    await run({ prompt: "a cat" }, context);
+
+    expect(lastGenerateRequest?.signal).toBe(controller.signal);
+  });
+
+  test("keeps a generation that resolves after the abort", async () => {
+    // The user cancels while the request is in flight and the provider still
+    // returns. The generation was paid for, so its images reach the model
+    // rather than being discarded as a cancellation.
+    const controller = new AbortController();
+    const context = {
+      ...makeContext(),
+      signal: controller.signal,
+    } as ToolContext;
+    mockGenerateDelayMs = 20;
+    setTimeout(() => controller.abort(), 5);
+
+    const result = await run({ prompt: "a cat" }, context);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Generated 1 image");
+    expect(result.contentBlocks).toHaveLength(1);
   });
 });
 

@@ -762,26 +762,79 @@ async function awaitAbortSettlementGrace(
 }
 
 /**
- * Content and error flag for the synthetic `tool_result` an aborted batch
- * writes for one call. A call whose tool reported back keeps its real result;
- * one still in flight is reported as possibly still running.
+ * What an aborted batch writes for one of its calls.
+ *
+ * A call whose tool reported back before the grace expired carries its real
+ * `result`: it ran, so it travels the same path a tool result always does,
+ * rich fields and all. A call with no `result` is synthetic, and the loop
+ * flags it `cancelled` so the daemon skips the side effects that assume the
+ * tool ran.
  */
-function cancelledToolResultFor(
+interface CancelledToolOutcome {
+  toolUse: ToolUseBlock;
+  content: string;
+  isError: boolean;
+  /** The tool's own result, present only when the call actually finished. */
+  result?: LoopToolResult;
+}
+
+function cancelledToolOutcomeFor(
   toolUse: ToolUseBlock,
   calls: readonly InFlightToolCall[],
-): { content: string; isError: boolean } {
+): CancelledToolOutcome {
+  const synthetic = (content: string): CancelledToolOutcome => ({
+    toolUse,
+    content,
+    isError: true,
+  });
   const call = calls.find((candidate) => candidate.toolUse === toolUse);
   if (call === undefined) {
-    return { content: CANCELLED_TOOL_RESULT, isError: true };
+    return synthetic(CANCELLED_TOOL_RESULT);
   }
   if (call.settled) {
     if (call.result !== undefined) {
-      return { content: call.result.content, isError: call.result.isError };
+      return {
+        toolUse,
+        content: call.result.content,
+        isError: call.result.isError,
+        result: call.result,
+      };
     }
     // The executor rejected, so the tool stopped rather than ran on.
-    return { content: CANCELLED_TOOL_RESULT, isError: true };
+    return synthetic(CANCELLED_TOOL_RESULT);
   }
-  return { content: CANCELLED_UNSETTLED_TOOL_RESULT, isError: true };
+  return synthetic(CANCELLED_UNSETTLED_TOOL_RESULT);
+}
+
+/**
+ * The `tool_result` event fields a tool's own result contributes. Shared by
+ * the turn's normal emission and the abort path's settled calls so a result
+ * that survives a cancellation reaches the client with the same payload it
+ * would have had on an uninterrupted turn.
+ */
+function toolResultEventFields(
+  result: LoopToolResult,
+): Omit<Extract<AgentEvent, { type: "tool_result" }>, "type" | "toolUseId"> {
+  return {
+    content: result.content,
+    isError: result.isError,
+    diff: result.diff,
+    status: result.status,
+    contentBlocks: result.contentBlocks,
+    riskLevel: result.riskLevel,
+    riskReason: result.riskReason,
+    matchedTrustRuleId: result.matchedTrustRuleId,
+    isContainerized: result.isContainerized,
+    riskScopeOptions: result.riskScopeOptions,
+    riskAllowlistOptions: result.riskAllowlistOptions,
+    riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
+    approvalMode: result.approvalMode,
+    approvalReason: result.approvalReason,
+    riskThreshold: result.riskThreshold,
+    activityMetadata: result.activityMetadata,
+    answeredQuestion: result.answeredQuestion,
+    errorCode: result.errorCode,
+  };
 }
 
 interface NormalizedToolUse {
@@ -2501,24 +2554,8 @@ export class AgentLoop {
           onEvent({
             type: "tool_result",
             toolUseId: toolUse.id,
+            ...toolResultEventFields(result),
             content: emitContent,
-            isError: result.isError,
-            diff: result.diff,
-            status: result.status,
-            contentBlocks: result.contentBlocks,
-            riskLevel: result.riskLevel,
-            riskReason: result.riskReason,
-            matchedTrustRuleId: result.matchedTrustRuleId,
-            isContainerized: result.isContainerized,
-            riskScopeOptions: result.riskScopeOptions,
-            riskAllowlistOptions: result.riskAllowlistOptions,
-            riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
-            approvalMode: result.approvalMode,
-            approvalReason: result.approvalReason,
-            riskThreshold: result.riskThreshold,
-            activityMetadata: result.activityMetadata,
-            answeredQuestion: result.answeredQuestion,
-            errorCode: result.errorCode,
           });
         }
 
@@ -2588,27 +2625,40 @@ export class AgentLoop {
             // Tools that honour the signal settle on the abort; wait briefly so
             // they report their real outcome instead of the hedge below.
             await awaitAbortSettlementGrace(inFlightToolCalls);
-            const cancelled = toolUseBlocks.map((toolUse) => ({
-              toolUse,
-              ...cancelledToolResultFor(toolUse, inFlightToolCalls),
-            }));
-            const cancelledBlocks: ContentBlock[] = cancelled.map(
-              ({ toolUse, content, isError }) => ({
+            const outcomes = toolUseBlocks.map((toolUse) =>
+              cancelledToolOutcomeFor(toolUse, inFlightToolCalls),
+            );
+            const cancelledBlocks: ContentBlock[] = outcomes.map(
+              ({ toolUse, content, isError, result }) => ({
                 type: "tool_result" as const,
                 tool_use_id: toolUse.id,
                 content,
                 is_error: isError,
+                ...(result?.contentBlocks
+                  ? { contentBlocks: result.contentBlocks }
+                  : {}),
               }),
             );
             history.push({ role: "user", content: cancelledBlocks });
-            for (const { toolUse, content, isError } of cancelled) {
-              await onEvent({
-                type: "tool_result",
-                toolUseId: toolUse.id,
-                content,
-                isError,
-                cancelled: true,
-              });
+            for (const { toolUse, content, isError, result } of outcomes) {
+              // A call that finished ran, so it is not a cancellation: sending
+              // it with `cancelled` set would tell the daemon to skip the
+              // bookkeeping its side effects need.
+              await onEvent(
+                result
+                  ? {
+                      type: "tool_result",
+                      toolUseId: toolUse.id,
+                      ...toolResultEventFields(result),
+                    }
+                  : {
+                      type: "tool_result",
+                      toolUseId: toolUse.id,
+                      content,
+                      isError,
+                      cancelled: true,
+                    },
+              );
             }
           }
           await stopTurn("aborted_via_error");

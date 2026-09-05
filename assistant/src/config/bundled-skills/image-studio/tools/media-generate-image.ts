@@ -206,6 +206,12 @@ export async function run(
     sourceImages = validPathImages;
   }
 
+  // Recheck: credential resolution and the source-image reads above are all
+  // awaits, so a cancel landing during them must not still start a paid
+  // generation. Past this line the request is in flight and carries the turn's
+  // signal, so a cancel aborts it rather than being checked for.
+  throwIfCancelled(context);
+
   try {
     const result = await generateImage(provider, credentials, {
       prompt,
@@ -213,10 +219,12 @@ export async function run(
       sourceImages,
       model,
       variants,
+      ...(context.signal ? { signal: context.signal } : {}),
     });
 
+    // No cancellation check here on purpose. The generation resolved, so it was
+    // paid for; discarding it would charge the user and hand the model nothing.
     const imageCount = result.images.length;
-    throwIfCancelled(context);
     const { savedPaths, saveError } = saveGeneratedImages(
       result.images,
       prompt,
