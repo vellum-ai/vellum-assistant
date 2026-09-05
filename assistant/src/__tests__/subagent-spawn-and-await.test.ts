@@ -127,6 +127,11 @@ class FakeConversation {
     return { id: "msg-id", deduplicated: false };
   }
 
+  /** A busy child queues a follow-up; `sendMessage` reads `queued` off this. */
+  enqueueMessage() {
+    return { queued: true, rejected: false, requestId: "req-child" };
+  }
+
   async runAgentLoop() {
     runLoopInvoked = true;
     this.cfg.onLoopStart?.();
@@ -696,6 +701,61 @@ describe("SubagentManager.spawn cancellation", () => {
 
     expect(runLoopInvoked).toBe(true);
     expect(manager.getState(subagentId)?.status).toBe("completed");
+  });
+});
+
+// ── Advisor follow-ups ──────────────────────────────────────────────────────
+
+describe("SubagentManager.sendMessage on an advisor", () => {
+  beforeEach(() => {
+    clearConversations();
+    bootstrapGate = undefined;
+  });
+
+  test("an advisor refuses a follow-up rather than running an unbudgeted turn", async () => {
+    // A queued follow-up drains after `runSubagent` has already settled the run
+    // and cleared the runtime timer, so it would run on the premium profile
+    // under neither the time nor the tool-call ceiling. The advisor is
+    // documented as one-shot, so the refusal is the consistent answer.
+    const cfg = makeConfig({ role: "advisor", maxToolCalls: 8 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    // Mid-run, which is exactly when a follow-up would be queued.
+    expect(manager.getState(subagentId)?.status).toBe("running");
+
+    await expect(
+      manager.sendMessage(subagentId, "one more thing"),
+    ).resolves.toBe("one_shot");
+
+    // Nothing was queued, so no drained turn can escape the budget later.
+    expect(manager.getState(subagentId)?.status).toBe("running");
+    manager.abort(subagentId, () => {}, undefined, {
+      suppressNotification: true,
+    });
+    clearConversations();
+  });
+
+  test("other roles still take follow-ups", async () => {
+    // The refusal is the advisor's alone: delegated work is steerable mid-run,
+    // which is what subagent_message is for.
+    const cfg = makeConfig({ role: "researcher" });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+
+    await expect(
+      manager.sendMessage(subagentId, "also check the queue"),
+    ).resolves.not.toBe("one_shot");
+
+    manager.abort(subagentId, () => {}, undefined, {
+      suppressNotification: true,
+    });
+    clearConversations();
   });
 });
 

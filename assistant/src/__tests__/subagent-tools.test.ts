@@ -1117,6 +1117,72 @@ describe("Subagent spawn repeat-loop guard", () => {
     expect(result.content).toContain("confirm_repeat");
   });
 
+  test("a burst of identical spawns in one response is held after the limit", async () => {
+    // The three guards all run before any of them reaches the row write, so the
+    // durable in-flight count reads the whole burst as zero. Only an in-flight
+    // reservation taken with no await between the check and the claim can see a
+    // sibling that has passed the guard but not yet persisted.
+    const objective = "Audit the burst pipeline for drift";
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawned = 0;
+    let releaseSpawns: () => void = () => {};
+    const spawnsHeld = new Promise<void>((resolve) => {
+      releaseSpawns = resolve;
+    });
+    // Hold every spawn open so all three tool calls are in flight at once, the
+    // way one model response issuing three of them behaves.
+    manager.spawn = async () => {
+      spawned += 1;
+      await spawnsHeld;
+      return `burst-subagent-${spawned}`;
+    };
+    try {
+      const results = Promise.all([
+        executeSubagentSpawn(
+          { label: "Burst", objective },
+          makeContext("guard-burst", { sendToClient: () => {} }),
+        ),
+        executeSubagentSpawn(
+          { label: "Burst", objective },
+          makeContext("guard-burst", { sendToClient: () => {} }),
+        ),
+        executeSubagentSpawn(
+          { label: "Burst", objective },
+          makeContext("guard-burst", { sendToClient: () => {} }),
+        ),
+      ]);
+      releaseSpawns();
+      const settled = await results;
+
+      // Two get through, the third is held: the in-flight ceiling for one
+      // conversation is 2.
+      expect(spawned).toBe(2);
+      const held = settled.filter((r) =>
+        r.content.includes("already running in this conversation"),
+      );
+      expect(held).toHaveLength(1);
+      expect(held[0]!.content).toContain("confirm_repeat");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("a reservation is released once its spawn settles", async () => {
+    // A held slot that outlived its spawn would wedge the objective for the
+    // rest of the process, so the release has to cover the success path too.
+    const objective = "Audit the released pipeline for drift";
+
+    const first = await spawnWithGuard({ label: "Once", objective });
+    expect(first.spawned).toBe(true);
+
+    // The stub above never persisted a row, so nothing durable is in flight.
+    // A leaked reservation is the only thing that could hold this one back.
+    const second = await spawnWithGuard({ label: "Twice", objective });
+    expect(second.spawned).toBe(true);
+    expect(second.result.content).not.toContain("already running");
+  });
+
   test("confirm_repeat spawns a held consult anyway", async () => {
     const objective = "Audit the confirmed advisor pipeline for drift";
     for (let i = 0; i < 4; i++) {
@@ -3143,6 +3209,49 @@ describe("Subagent advisor-role consult", () => {
       expect(captured.current).toBeUndefined();
     } finally {
       restore();
+    }
+  });
+
+  test("the advisor takes no follow-up message", async () => {
+    // A consult answers one question once. A follow-up would also escape the
+    // budget its spawn set: the drained turn starts after the run has settled
+    // and the runtime timer is cleared, so it would run on the premium profile
+    // under no ceiling at all.
+    const manager = getSubagentManager();
+    const subagentId = "advisor-one-shot";
+    const originalGetState = manager.getState.bind(manager);
+    manager.getState = ((id: string) =>
+      id === subagentId
+        ? {
+            config: {
+              id: subagentId,
+              parentConversationId: "advisor-sess-one-shot",
+              label: "Consult",
+              objective: "x",
+              role: "advisor",
+            },
+            status: "running",
+          }
+        : originalGetState(id)) as unknown as typeof manager.getState;
+    // The refusal itself is the manager's, so every caller gets it, not just
+    // this tool (see the manager-level test in subagent-spawn-and-await). What
+    // is asserted here is that the tool turns it into something the model can
+    // act on rather than a bare failure.
+    const originalSend = manager.sendMessage.bind(manager);
+    manager.sendMessage = (async () =>
+      "one_shot") as unknown as typeof manager.sendMessage;
+    try {
+      const result = await executeSubagentMessage(
+        { subagent_id: subagentId, content: "also consider the queue" },
+        makeContext("advisor-sess-one-shot", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("takes no follow-up");
+      // The model is told what to do instead, or it will just retry.
+      expect(result.content).toContain("subagent_spawn");
+    } finally {
+      manager.getState = originalGetState;
+      manager.sendMessage = originalSend;
     }
   });
 

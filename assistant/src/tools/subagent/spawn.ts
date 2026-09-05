@@ -196,6 +196,12 @@ export async function executeSubagentSpawn(
   // day buys the same answer twice, so the guard hands the repetition back to
   // the caller with what it has already cost. It never blocks: `confirm_repeat`
   // always spawns.
+  //
+  // Checking and reserving happen together, with no `await` between them, so a
+  // burst of identical spawns issued in one model response cannot all read the
+  // same pre-burst tally and all pass. The reservation covers the window from
+  // here until `manager.spawn` persists the row the durable in-flight count
+  // reads, and is released either way.
   if (parsed.confirm_repeat !== true) {
     const guardResult = repeatSpawnGuardResult(
       context.conversationId,
@@ -205,6 +211,66 @@ export async function executeSubagentSpawn(
       return guardResult;
     }
   }
+  const releaseReservation = reserveSpawn(context.conversationId, objective);
+  try {
+    return await spawnReservedSubagent({
+      context,
+      manager,
+      sendToClient,
+      label,
+      objective,
+      extraContext,
+      fork,
+      isAdvisor,
+      resolvedRole,
+      outputContract,
+      sendResultToUser,
+      requestedOverrideProfile,
+      forceOverrideProfile,
+    });
+  } finally {
+    // Released at every exit: on success `manager.spawn` has already persisted
+    // the row the durable in-flight count reads, and on any failure or early
+    // return no child was started, so nothing is left holding a slot.
+    releaseReservation();
+  }
+}
+
+/**
+ * The spawn itself, run with this objective's in-flight reservation held.
+ * Split out so the reservation has one release point covering every way this
+ * can return, rather than a release per exit that a later branch could miss.
+ */
+async function spawnReservedSubagent(args: {
+  context: ToolContext;
+  manager: ReturnType<typeof getSubagentManager>;
+  sendToClient: (msg: { type: string; [key: string]: unknown }) => void;
+  label: string;
+  objective: string;
+  extraContext: string | undefined;
+  fork: boolean;
+  isAdvisor: boolean;
+  resolvedRole: ResolvedSubagentRole;
+  outputContract: SubagentOutputContract | undefined;
+  sendResultToUser: boolean;
+  requestedOverrideProfile: string | undefined;
+  forceOverrideProfile: boolean;
+}): Promise<ToolExecutionResult> {
+  const {
+    context,
+    manager,
+    sendToClient,
+    label,
+    objective,
+    extraContext,
+    fork,
+    isAdvisor,
+    resolvedRole,
+    outputContract,
+    sendResultToUser,
+    requestedOverrideProfile,
+  } = args;
+  let { forceOverrideProfile } = args;
 
   // ── Fork mode: resolve parent context ────────────────────────────
   let forkFields:
@@ -552,6 +618,86 @@ function resolvedRoleNote(resolved: ResolvedSubagentRole): string | undefined {
   return undefined;
 }
 
+// ── In-flight spawn reservations ─────────────────────────────────────
+
+/**
+ * Spawns that have passed the repeat guard but whose durable row does not exist
+ * yet, keyed `parentConversationId` → normalized objective → count.
+ *
+ * The guard reads the `subagents` table, and a row is written inside
+ * `manager.spawn`, several awaits after the guard runs. A model that issues
+ * three identical spawns in one response runs all three guards before any of
+ * them reaches that write, so all three read the same pre-burst tally and all
+ * three pass: exactly the burst the in-flight limit exists to catch. These
+ * reservations cover that window, and are counted into the in-flight tallies
+ * alongside the rows.
+ *
+ * In-memory and process-local, like the manager's own indexes. A restart drops
+ * them, which is correct: nothing is mid-spawn across a restart, and the rows
+ * that survive are the durable record.
+ */
+const inFlightSpawnReservations = new Map<string, Map<string, number>>();
+
+/**
+ * Claim an in-flight slot for `objective` under `parentConversationId`, and
+ * return the release. Call it with no `await` between the guard's read and this
+ * write, so the check and the claim cannot interleave with a sibling spawn.
+ */
+function reserveSpawn(
+  parentConversationId: string,
+  objective: string,
+): () => void {
+  const key = normalizeSpawnObjective(objective);
+  let byObjective = inFlightSpawnReservations.get(parentConversationId);
+  if (!byObjective) {
+    byObjective = new Map();
+    inFlightSpawnReservations.set(parentConversationId, byObjective);
+  }
+  byObjective.set(key, (byObjective.get(key) ?? 0) + 1);
+
+  let released = false;
+  return () => {
+    // Idempotent: a double release would under-count the burst still running.
+    if (released) {
+      return;
+    }
+    released = true;
+    const held = inFlightSpawnReservations.get(parentConversationId);
+    const remaining = (held?.get(key) ?? 0) - 1;
+    if (!held) {
+      return;
+    }
+    if (remaining > 0) {
+      held.set(key, remaining);
+      return;
+    }
+    held.delete(key);
+    // Drop the conversation's map once empty so a long-lived daemon does not
+    // accumulate an entry per conversation that ever spawned.
+    if (held.size === 0) {
+      inFlightSpawnReservations.delete(parentConversationId);
+    }
+  };
+}
+
+/** Reservations held for `objective`, in this conversation and assistant-wide. */
+function reservedInFlight(
+  parentConversationId: string,
+  normalizedObjective: string,
+): { conversation: number; assistant: number } {
+  let assistant = 0;
+  for (const byObjective of inFlightSpawnReservations.values()) {
+    assistant += byObjective.get(normalizedObjective) ?? 0;
+  }
+  return {
+    conversation:
+      inFlightSpawnReservations
+        .get(parentConversationId)
+        ?.get(normalizedObjective) ?? 0,
+    assistant,
+  };
+}
+
 // ── Repeat-spawn guard ───────────────────────────────────────────────
 
 /**
@@ -575,11 +721,12 @@ function repeatSpawnGuardResult(
   parentConversationId: string,
   objective: string,
 ): ToolExecutionResult | undefined {
+  const normalizedObjective = normalizeSpawnObjective(objective);
   let recent: RecentSimilarSpawns;
   try {
     recent = countRecentSimilarSpawns({
       parentConversationId,
-      normalizedObjective: normalizeSpawnObjective(objective),
+      normalizedObjective,
       sinceMs: Date.now() - LOOP_GUARD_WINDOW_MS,
     });
   } catch (err) {
@@ -589,6 +736,15 @@ function repeatSpawnGuardResult(
     );
     return undefined;
   }
+
+  // Siblings from the same burst that have passed this guard but not yet
+  // written their row. Without them the durable count alone reads a burst
+  // issued in one model response as a single spawn, since none of its rows
+  // exists while the others are still being checked.
+  const reserved = reservedInFlight(parentConversationId, normalizedObjective);
+  const conversationInFlight =
+    recent.conversation.inFlight + reserved.conversation;
+  const assistantInFlight = recent.assistant.inFlight + reserved.assistant;
 
   // The spawn being asked for is itself part of the limit, so a window whose
   // runs already fill the allowance is what trips the guard. Completed runs are
@@ -602,17 +758,10 @@ function repeatSpawnGuardResult(
   } else if (recent.assistant.count >= LOOP_GUARD_ASSISTANT_LIMIT) {
     scope = "across this assistant";
     tally = recent.assistant;
-  } else if (
-    recent.conversation.inFlight >= LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT
-  ) {
-    return inFlightGuardResult(
-      recent.conversation.inFlight,
-      "this conversation",
-    );
-  } else if (
-    recent.assistant.inFlight >= LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT
-  ) {
-    return inFlightGuardResult(recent.assistant.inFlight, "this assistant");
+  } else if (conversationInFlight >= LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT) {
+    return inFlightGuardResult(conversationInFlight, "this conversation");
+  } else if (assistantInFlight >= LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT) {
+    return inFlightGuardResult(assistantInFlight, "this assistant");
   } else {
     return undefined;
   }
