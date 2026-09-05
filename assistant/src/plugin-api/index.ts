@@ -378,6 +378,12 @@ export {
 // sent). Persisted and pushed to clients; not seated in the turn's working
 // history.
 export { persistSystemCard } from "./system-card.js";
+// Turn cancellation: the guard a side-effecting tool calls immediately before
+// it acts, so a tool does not land work on a turn the user already stopped.
+// The agent loop tells the model an aborted batch was cancelled, and this is
+// what makes that true. Host tools and plugin tools share this one guard.
+export type { CancellableToolContext } from "./tool-cancellation.js";
+export { throwIfCancelled } from "./tool-cancellation.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing

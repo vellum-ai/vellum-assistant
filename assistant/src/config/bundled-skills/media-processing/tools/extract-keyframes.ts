@@ -4,6 +4,10 @@ import {
   getKeyframesForAsset,
   getMediaAssetById,
 } from "../../../../persistence/media-store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -39,6 +43,8 @@ export async function run(
     includeAudio,
   };
 
+  throwIfCancelled(context);
+
   try {
     const manifest = await preprocessForAsset(
       assetId,
@@ -68,6 +74,11 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a preprocess failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = (err as Error).message;
     if (
       msg.startsWith("Media asset not found:") ||

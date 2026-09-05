@@ -6,7 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
-import type { StopContext } from "../plugin-api/types.js";
+import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
@@ -18,6 +18,10 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import {
+  CANCELLED_TOOL_RESULT,
+  CANCELLED_UNSETTLED_TOOL_RESULT,
+} from "../tools/execution-timeout.js";
 import {
   createMockProvider,
   textResponse,
@@ -769,6 +773,8 @@ describe("AgentLoop", () => {
     expect(lastMsg.role).toBe("user");
     expect(lastMsg.content).toHaveLength(1);
     expect(lastMsg.content[0].type).toBe("tool_result");
+    // The tool ignores the signal, so it is abandoned mid-flight and the
+    // synthesized result says the work may still land.
     expect(
       (
         lastMsg.content[0] as {
@@ -778,7 +784,7 @@ describe("AgentLoop", () => {
           is_error: boolean;
         }
       ).content,
-    ).toBe("Cancelled by user");
+    ).toBe(CANCELLED_UNSETTLED_TOOL_RESULT);
     expect(
       (
         lastMsg.content[0] as {
@@ -789,6 +795,181 @@ describe("AgentLoop", () => {
         }
       ).is_error,
     ).toBe(true);
+  });
+
+  // 6c. A tool that finishes inside the post-abort grace keeps its real result
+  test("a tool that settles during the abort grace reports its real result", async () => {
+    const controller = new AbortController();
+
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/slow.txt" }),
+      textResponse("Should not reach"),
+    ]);
+
+    // Abort lands while the tool is in flight; the tool finishes shortly
+    // after, inside the loop's settlement grace.
+    const toolExecutor = async () => {
+      setTimeout(() => controller.abort(), 5);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return {
+        content: "wrote the file",
+        isError: false,
+        status: "ok",
+        diff: {
+          filePath: "/slow.txt",
+          oldContent: "",
+          newContent: "x",
+          isNewFile: true,
+        },
+        contentBlocks: [
+          { type: "text" as const, text: "attachment" },
+        ] as ContentBlock[],
+        riskLevel: "low",
+      };
+    };
+
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
+
+    const resultEvent = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
+    );
+    expect(resultEvent).toBeDefined();
+    // It ran, so it is not a cancellation: the daemon must still do the
+    // bookkeeping the tool's side effects need.
+    expect(resultEvent!.cancelled).toBeUndefined();
+    expect(resultEvent!.content).toBe("wrote the file");
+    expect(resultEvent!.isError).toBe(false);
+    expect(resultEvent!.diff?.filePath).toBe("/slow.txt");
+    expect(resultEvent!.contentBlocks).toHaveLength(1);
+    expect(resultEvent!.status).toBe("ok");
+    expect(resultEvent!.riskLevel).toBe("low");
+
+    const lastMsg = history[history.length - 1];
+    const block = lastMsg.content.find((b) => b.type === "tool_result");
+    expect(block).toBeDefined();
+    expect((block as { content: string }).content).toBe("wrote the file");
+    expect((block as { is_error: boolean }).is_error).toBe(false);
+    expect(
+      (block as { contentBlocks?: ContentBlock[] }).contentBlocks,
+    ).toHaveLength(1);
+  });
+
+  // 6c-ii. Grace-settled output is truncated like any other tool result
+  test("an oversized result settling during the abort grace goes through the post-tool-use pipeline", async () => {
+    const controller = new AbortController();
+    const seen: number[] = [];
+
+    // Stand in for the truncate plugin: record what it was handed and shrink
+    // it, so the assertions prove the chain ran on the cancelled batch.
+    registerPlugin({
+      manifest: { name: "grace-truncate", version: "0.0.1" },
+      hooks: {
+        "post-tool-use": async (ctx: PostToolUseContext) => {
+          const block = ctx.toolResponse as { content: string };
+          seen.push(block.content.length);
+          return {
+            ...ctx,
+            toolResponse: { ...ctx.toolResponse, content: "truncated" },
+          };
+        },
+      },
+    });
+
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/big.txt" }),
+      textResponse("Should not reach"),
+    ]);
+
+    const oversized = "x".repeat(50_000);
+    const toolExecutor = async () => {
+      setTimeout(() => controller.abort(), 5);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { content: oversized, isError: false };
+    };
+
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
+
+    // The hook saw the full result and its rewrite reached both history and
+    // the client, so cancelling is not a way past the truncation pipeline.
+    expect(seen).toEqual([oversized.length]);
+    const resultEvent = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
+    );
+    expect(resultEvent!.content).toBe("truncated");
+
+    const lastMsg = history[history.length - 1];
+    const block = lastMsg.content.find((b) => b.type === "tool_result");
+    expect((block as { content: string }).content).toBe("truncated");
+  });
+
+  // 6d. A tool that ignores the signal is reported as possibly still running
+  test("an unsettled tool is flagged cancelled with the may-still-complete wording", async () => {
+    const controller = new AbortController();
+
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/stuck.txt" }),
+      textResponse("Should not reach"),
+    ]);
+
+    const toolExecutor = async () => {
+      setTimeout(() => controller.abort(), 5);
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      return { content: "should never return", isError: false };
+    };
+
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
+
+    const resultEvent = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
+    );
+    expect(resultEvent).toBeDefined();
+    expect(resultEvent!.cancelled).toBe(true);
+    expect(resultEvent!.content).toBe(CANCELLED_UNSETTLED_TOOL_RESULT);
   });
 
   // 7. Events — verify text_delta and other events are emitted
@@ -1216,10 +1397,10 @@ describe("AgentLoop", () => {
     );
     expect(toolResultBlocks).toHaveLength(2);
     expect(toolResultBlocks[0].tool_use_id).toBe("t1");
-    expect(toolResultBlocks[0].content).toBe("Cancelled by user");
+    expect(toolResultBlocks[0].content).toBe(CANCELLED_TOOL_RESULT);
     expect(toolResultBlocks[0].is_error).toBe(true);
     expect(toolResultBlocks[1].tool_use_id).toBe("t2");
-    expect(toolResultBlocks[1].content).toBe("Cancelled by user");
+    expect(toolResultBlocks[1].content).toBe(CANCELLED_TOOL_RESULT);
     expect(toolResultBlocks[1].is_error).toBe(true);
   });
 

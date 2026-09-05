@@ -5,6 +5,7 @@ import {
   resolveFollowUp,
 } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -38,7 +39,7 @@ function formatFollowUp(f: FollowUp): string {
 
 export async function executeFollowupResolve(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedInput = followupResolveInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -53,6 +54,8 @@ export async function executeFollowupResolve(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   try {
     if (id) {
@@ -76,6 +79,11 @@ export async function executeFollowupResolve(
       };
     }
   } catch (err) {
+    // A cancelled turn is not a follow-up failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }

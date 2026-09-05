@@ -15,6 +15,7 @@ import {
 } from "../../skills/managed-store.js";
 import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("scaffold-managed-skill");
@@ -392,6 +393,8 @@ export async function executeScaffoldManagedSkill(
     typeof input.emoji === "string"
       ? sanitizeFrontmatterValue(input.emoji)
       : undefined;
+
+  throwIfCancelled(context);
 
   const result = createManagedSkill({
     id,

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { notifyParentFromChild } from "../../subagent/notify.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -55,6 +56,8 @@ export async function executeSubagentNotifyParent(
   if (!message) {
     return { content: '"message" is required.', isError: true };
   }
+
+  throwIfCancelled(context);
 
   const sent = notifyParentFromChild(context.conversationId, message, urgency);
 

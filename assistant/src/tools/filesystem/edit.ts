@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { RiskLevel } from "../../permissions/types.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
@@ -88,11 +89,14 @@ export const fileEditTool = {
       sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
 
+    throwIfCancelled(context);
+
     const result = await ops.editFileSafe({
       path: rawPath,
       oldString,
       newString,
       replaceAll,
+      ...(context.signal ? { signal: context.signal } : {}),
     });
 
     if (!result.ok) {

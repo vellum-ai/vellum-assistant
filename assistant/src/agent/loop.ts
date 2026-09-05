@@ -46,6 +46,11 @@ import {
   isContextOverflowError,
   NATIVE_WEB_SEARCH_TOOL_NAME,
 } from "../providers/types.js";
+import {
+  ABORT_SETTLE_GRACE_MS,
+  CANCELLED_TOOL_RESULT,
+  CANCELLED_UNSETTLED_TOOL_RESULT,
+} from "../tools/execution-timeout.js";
 import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
@@ -713,6 +718,125 @@ export type LoopToolExecutor = (
 
 type ToolUseBlock = Extract<ContentBlock, { type: "tool_use" }>;
 
+type LoopToolResult = Awaited<ReturnType<LoopToolExecutor>>;
+
+/**
+ * One dispatched tool call of the current turn's batch, carrying whether it has
+ * reported back. The abort path reads this to tell a call whose tool finished
+ * from one abandoned while it was still running: only the latter can still be
+ * doing work after the model has been told the batch was cancelled.
+ */
+interface InFlightToolCall {
+  readonly toolUse: ToolUseBlock;
+  /** True once the executor promise fulfilled or rejected. */
+  settled: boolean;
+  /** The executor's result once the call fulfilled. */
+  result?: LoopToolResult;
+  /** The executor promise, awaited by the post-abort settlement grace. */
+  promise?: Promise<{ toolUse: ToolUseBlock; result: LoopToolResult }>;
+}
+
+/**
+ * Give tools that honour the abort signal a bounded moment to settle so their
+ * real outcome, not the "may still be running" hedge, reaches the model.
+ * Returns as soon as every call has settled.
+ */
+async function awaitAbortSettlementGrace(
+  calls: readonly InFlightToolCall[],
+): Promise<void> {
+  const pending = calls
+    .filter((call) => !call.settled && call.promise !== undefined)
+    .map((call) => call.promise!);
+  if (pending.length === 0) {
+    return;
+  }
+  let graceHandle: ReturnType<typeof setTimeout>;
+  const grace = new Promise<void>((resolve) => {
+    graceHandle = setTimeout(resolve, ABORT_SETTLE_GRACE_MS);
+  });
+  try {
+    await Promise.race([Promise.allSettled(pending), grace]);
+  } finally {
+    clearTimeout(graceHandle!);
+  }
+}
+
+/**
+ * What an aborted batch writes for one of its calls.
+ *
+ * A call whose tool reported back before the grace expired carries its real
+ * `result`: it ran, so it travels the same path a tool result always does,
+ * rich fields and all. A call with no `result` is synthetic, and the loop
+ * flags it `cancelled` so the daemon skips the side effects that assume the
+ * tool ran.
+ */
+interface CancelledToolOutcome {
+  toolUse: ToolUseBlock;
+  content: string;
+  isError: boolean;
+  /** The tool's own result, present only when the call actually finished. */
+  result?: LoopToolResult;
+}
+
+function cancelledToolOutcomeFor(
+  toolUse: ToolUseBlock,
+  calls: readonly InFlightToolCall[],
+): CancelledToolOutcome {
+  const synthetic = (content: string): CancelledToolOutcome => ({
+    toolUse,
+    content,
+    isError: true,
+  });
+  const call = calls.find((candidate) => candidate.toolUse === toolUse);
+  if (call === undefined) {
+    return synthetic(CANCELLED_TOOL_RESULT);
+  }
+  if (call.settled) {
+    if (call.result !== undefined) {
+      return {
+        toolUse,
+        content: call.result.content,
+        isError: call.result.isError,
+        result: call.result,
+      };
+    }
+    // The executor rejected, so the tool stopped rather than ran on.
+    return synthetic(CANCELLED_TOOL_RESULT);
+  }
+  return synthetic(CANCELLED_UNSETTLED_TOOL_RESULT);
+}
+
+/**
+ * The `tool_result` event fields a tool's own result contributes. Shared by
+ * the turn's normal emission and the abort path's settled calls so a result
+ * that survives a cancellation reaches the client with the same payload it
+ * would have had on an uninterrupted turn.
+ */
+function toolResultEventFields(
+  result: LoopToolResult,
+): Omit<Extract<AgentEvent, { type: "tool_result" }>, "type" | "toolUseId"> {
+  return {
+    content: result.content,
+    isError: result.isError,
+    diff: result.diff,
+    status: result.status,
+    contentBlocks: result.contentBlocks,
+    riskLevel: result.riskLevel,
+    riskReason: result.riskReason,
+    matchedTrustRuleId: result.matchedTrustRuleId,
+    isContainerized: result.isContainerized,
+    riskScopeOptions: result.riskScopeOptions,
+    riskAllowlistOptions: result.riskAllowlistOptions,
+    riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
+    approvalMode: result.approvalMode,
+    approvalReason: result.approvalReason,
+    riskThreshold: result.riskThreshold,
+    activityMetadata: result.activityMetadata,
+    answeredQuestion: result.answeredQuestion,
+    errorCode: result.errorCode,
+  };
+}
+
 interface NormalizedToolUse {
   /** Assistant content with at most one `tool_use` block per call id. */
   content: ContentBlock[];
@@ -1204,6 +1328,87 @@ export class AgentLoop {
       );
     }
 
+    /**
+     * Turn a batch's raw `tool_result` blocks into the ones that reach the
+     * provider-bound history and the client: oversized output is spooled to
+     * `.tool-results/` and swapped for its stub, then every block passes
+     * through the `post-tool-use` hook chain (whose default plugin tail-drops
+     * what is still too large for the context window).
+     *
+     * Spooling runs first so the file on disk holds the tool's full output
+     * rather than the truncate plugin's tail-dropped copy, and stubbing before
+     * the first send keeps the provider-bound history append-only.
+     *
+     * Both the turn's normal path and the abort path's grace-settled results
+     * run through here: a result must not reach history unbounded merely
+     * because the turn was cancelled while it was finishing.
+     */
+    const finalizeToolResultBlocks = async (
+      rawBlocks: ContentBlock[],
+      calls: readonly ToolUseBlock[],
+      messages: Message[],
+      model: string,
+      turn: number,
+    ): Promise<{
+      resultBlocks: ContentBlock[];
+      additionalContextBlocks: ContentBlock[];
+    }> => {
+      if (conversationDir) {
+        const toolCallByUseId = new Map(
+          calls.map((tu) => [tu.id, { name: tu.name, input: tu.input }]),
+        );
+        try {
+          spoolAndStubOversizedToolResults(rawBlocks, {
+            conversationDir,
+            toolCallById: (id) => toolCallByUseId.get(id),
+          });
+        } catch (err) {
+          rlog.warn(
+            { err, turn },
+            "Spooling oversized tool results to disk failed (non-fatal)",
+          );
+        }
+      }
+
+      const contextWindowTokens =
+        options.resolveContextWindow?.().maxInputTokens ??
+        this.config.maxInputTokens ??
+        180_000;
+
+      const resultBlocks: ContentBlock[] = [];
+      const additionalContextBlocks: ContentBlock[] = [];
+      for (const block of rawBlocks) {
+        if (block.type !== "tool_result") {
+          resultBlocks.push(block);
+          continue;
+        }
+        const postToolUseCtx: PostToolUseInputContext = {
+          conversationId: this.conversationId,
+          toolResponse: block as ToolResultContent,
+          messages,
+          additionalContext: null,
+          model,
+          maxInputTokens: contextWindowTokens,
+          callSite: callSite ?? null,
+          supportsDynamicUi,
+        };
+        const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
+        resultBlocks.push(finalCtx.toolResponse);
+        if (finalCtx.additionalContext !== null) {
+          additionalContextBlocks.push({
+            type: "text",
+            text: finalCtx.additionalContext,
+          });
+        }
+      }
+      return { resultBlocks, additionalContextBlocks };
+    };
+
+    // The model the most recent provider response reported. The abort path
+    // finalizes tool results outside the scope that holds the response, and
+    // the `post-tool-use` hook contract requires a model name.
+    let lastResponseModel = runModel ?? "";
+
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
     // before the next model call; absent a resolver the turn-start value holds.
@@ -1281,6 +1486,10 @@ export class AgentLoop {
       );
 
       let toolUseBlocks: ToolUseBlock[] = [];
+      // This iteration's dispatched tool calls, in `tool_use` order. Declared
+      // here so the outer catch, where an abort lands, can read each call's
+      // settlement state while synthesizing cancellation results.
+      let inFlightToolCalls: InFlightToolCall[] = [];
       // The provider rejection thrown by this iteration's call, if any. Set in
       // the inner provider catch and read by the outer catch to confine
       // error-stop recovery to genuine provider rejections — a throw from
@@ -1864,6 +2073,8 @@ export class AgentLoop {
         // serialized in `handleUsage` already sees it.
         latencyTracker?.mark("call_complete");
 
+        lastResponseModel = response.model;
+
         onEvent({
           type: "usage",
           inputTokens: response.usage.inputTokens,
@@ -2180,13 +2391,14 @@ export class AgentLoop {
           });
         }
 
-        // If already cancelled, synthesize cancelled results and stop
+        // If already cancelled, synthesize cancelled results and stop. No call
+        // was dispatched, so nothing can still be running.
         if (signal?.aborted) {
           const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
             (toolUse) => ({
               type: "tool_result" as const,
               tool_use_id: toolUse.id,
-              content: "Cancelled by user",
+              content: CANCELLED_TOOL_RESULT,
               is_error: true,
             }),
           );
@@ -2195,7 +2407,7 @@ export class AgentLoop {
             await onEvent({
               type: "tool_result",
               toolUseId: toolUse.id,
-              content: "Cancelled by user",
+              content: CANCELLED_TOOL_RESULT,
               isError: true,
               cancelled: true,
             });
@@ -2240,29 +2452,49 @@ export class AgentLoop {
           );
         }
 
-        const toolExecutionPromise = Promise.all(
-          toolUseBlocks.map(async (toolUse) => {
-            if (deferSiblings && toolUse !== exclusiveBlock) {
-              const result: Awaited<ReturnType<LoopToolExecutor>> = {
-                content: deferredForExclusiveMessage(exclusiveBlock!.name),
-                isError: false,
-              };
-              return { toolUse, result };
-            }
-            const result = await this.toolExecutor!(
-              toolUse.name,
-              toolUse.input,
-              (chunk) => {
-                onEvent({
-                  type: "tool_output_chunk",
-                  toolUseId: toolUse.id,
-                  chunk,
-                });
-              },
-              toolUse.id,
-            );
+        inFlightToolCalls = toolUseBlocks.map((toolUse) => ({
+          toolUse,
+          settled: false,
+        }));
 
-            return { toolUse, result };
+        const toolExecutionPromise = Promise.all(
+          inFlightToolCalls.map((call) => {
+            const { toolUse } = call;
+            const promise = (async () => {
+              if (deferSiblings && toolUse !== exclusiveBlock) {
+                const result: LoopToolResult = {
+                  content: deferredForExclusiveMessage(exclusiveBlock!.name),
+                  isError: false,
+                };
+                return { toolUse, result };
+              }
+              const result = await this.toolExecutor!(
+                toolUse.name,
+                toolUse.input,
+                (chunk) => {
+                  onEvent({
+                    type: "tool_output_chunk",
+                    toolUseId: toolUse.id,
+                    chunk,
+                  });
+                },
+                toolUse.id,
+              );
+
+              return { toolUse, result };
+            })().then(
+              (settled) => {
+                call.settled = true;
+                call.result = settled.result;
+                return settled;
+              },
+              (err) => {
+                call.settled = true;
+                throw err;
+              },
+            );
+            call.promise = promise;
+            return promise;
           }),
         );
 
@@ -2323,73 +2555,17 @@ export class AgentLoop {
           }),
         );
 
-        // Spool oversized results to `.tool-results/` and swap the inline
-        // copy for the post-turn pass's stub now — on the raw blocks, before
-        // the post-tool-use hooks, event emission, and history append. Running
-        // ahead of the hooks means the spooled file holds the tool's full
-        // output rather than the truncate plugin's tail-dropped copy, and the
-        // hooks then see the stub. Stubbing before the first send keeps the
-        // provider-bound history strictly append-only (rewriting an earlier
-        // message between calls would invalidate the prompt-cache prefix on
-        // every iteration).
-        if (conversationDir) {
-          const toolCallByUseId = new Map(
-            toolUseBlocks.map((tu) => [
-              tu.id,
-              { name: tu.name, input: tu.input },
-            ]),
+        // Spool oversized results and run the `post-tool-use` hook chain
+        // before the results join the provider-bound history or reach a
+        // client.
+        const { resultBlocks, additionalContextBlocks } =
+          await finalizeToolResultBlocks(
+            rawResultBlocks,
+            toolUseBlocks,
+            history,
+            response.model,
+            toolUseTurns,
           );
-          try {
-            spoolAndStubOversizedToolResults(rawResultBlocks, {
-              conversationDir,
-              toolCallById: (id) => toolCallByUseId.get(id),
-            });
-          } catch (err) {
-            rlog.warn(
-              { err, turn: toolUseTurns },
-              "Spooling oversized tool results to disk failed (non-fatal)",
-            );
-          }
-        }
-
-        // Run the `post-tool-use` hook once per tool result, after the tool
-        // returns and before the result joins the provider-bound history.
-        // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window (spool-stubbed results are already tiny;
-        // spool-exempt ones still rely on it); user hooks can swap in a
-        // smarter strategy (e.g. a summariser) or observe results for side
-        // effects.
-        const contextWindowTokens =
-          options.resolveContextWindow?.().maxInputTokens ??
-          this.config.maxInputTokens ??
-          180_000;
-
-        const resultBlocks: ContentBlock[] = [];
-        const additionalContextBlocks: ContentBlock[] = [];
-        for (const block of rawResultBlocks) {
-          if (block.type !== "tool_result") {
-            resultBlocks.push(block);
-            continue;
-          }
-          const postToolUseCtx: PostToolUseInputContext = {
-            conversationId: this.conversationId,
-            toolResponse: block as ToolResultContent,
-            messages: history,
-            additionalContext: null,
-            model: response.model,
-            maxInputTokens: contextWindowTokens,
-            callSite: callSite ?? null,
-            supportsDynamicUi,
-          };
-          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
-          resultBlocks.push(finalCtx.toolResponse);
-          if (finalCtx.additionalContext !== null) {
-            additionalContextBlocks.push({
-              type: "text",
-              text: finalCtx.additionalContext,
-            });
-          }
-        }
 
         // Emit tool_result events AFTER truncation so downstream consumers
         // (e.g. session persistence) receive the truncated content.
@@ -2405,24 +2581,8 @@ export class AgentLoop {
           onEvent({
             type: "tool_result",
             toolUseId: toolUse.id,
+            ...toolResultEventFields(result),
             content: emitContent,
-            isError: result.isError,
-            diff: result.diff,
-            status: result.status,
-            contentBlocks: result.contentBlocks,
-            riskLevel: result.riskLevel,
-            riskReason: result.riskReason,
-            matchedTrustRuleId: result.matchedTrustRuleId,
-            isContainerized: result.isContainerized,
-            riskScopeOptions: result.riskScopeOptions,
-            riskAllowlistOptions: result.riskAllowlistOptions,
-            riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
-            approvalMode: result.approvalMode,
-            approvalReason: result.approvalReason,
-            riskThreshold: result.riskThreshold,
-            activityMetadata: result.activityMetadata,
-            answeredQuestion: result.answeredQuestion,
-            errorCode: result.errorCode,
           });
         }
 
@@ -2489,23 +2649,73 @@ export class AgentLoop {
         // Anthropic API (every tool_use must have a matching tool_result).
         if (signal?.aborted) {
           if (toolUseBlocks.length > 0) {
-            const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
-              (toolUse) => ({
+            // Tools that honour the signal settle on the abort; wait briefly so
+            // they report their real outcome instead of the hedge below.
+            await awaitAbortSettlementGrace(inFlightToolCalls);
+            const outcomes = toolUseBlocks.map((toolUse) =>
+              cancelledToolOutcomeFor(toolUse, inFlightToolCalls),
+            );
+            const rawCancelledBlocks: ContentBlock[] = outcomes.map(
+              ({ toolUse, content, isError, result }) => ({
                 type: "tool_result" as const,
                 tool_use_id: toolUse.id,
-                content: "Cancelled by user",
-                is_error: true,
+                content,
+                is_error: isError,
+                ...(result?.contentBlocks
+                  ? { contentBlocks: result.contentBlocks }
+                  : {}),
               }),
             );
+            // A tool that finished inside the grace produced real output, which
+            // can be arbitrarily large. Spool and truncate it the same way an
+            // uninterrupted turn does, so cancelling is not a way to put an
+            // unbounded result into history and onto a client.
+            let cancelledBlocks = rawCancelledBlocks;
+            try {
+              ({ resultBlocks: cancelledBlocks } =
+                await finalizeToolResultBlocks(
+                  rawCancelledBlocks,
+                  toolUseBlocks,
+                  history,
+                  lastResponseModel,
+                  toolUseTurns,
+                ));
+            } catch (finalizeErr) {
+              // Every tool_use still needs a tool_result for the history to
+              // stay well-formed, so a failing hook falls back to raw blocks.
+              rlog.warn(
+                { err: finalizeErr, turn: toolUseTurns },
+                "Finalizing cancelled tool results failed (non-fatal)",
+              );
+            }
             history.push({ role: "user", content: cancelledBlocks });
-            for (const toolUse of toolUseBlocks) {
-              await onEvent({
-                type: "tool_result",
-                toolUseId: toolUse.id,
-                content: "Cancelled by user",
-                isError: true,
-                cancelled: true,
-              });
+            for (const { toolUse, content, isError, result } of outcomes) {
+              const finalized = cancelledBlocks.find(
+                (b) => b.type === "tool_result" && b.tool_use_id === toolUse.id,
+              );
+              const emitContent =
+                finalized && finalized.type === "tool_result"
+                  ? finalized.content
+                  : content;
+              // A call that finished ran, so it is not a cancellation: sending
+              // it with `cancelled` set would tell the daemon to skip the
+              // bookkeeping its side effects need.
+              await onEvent(
+                result
+                  ? {
+                      type: "tool_result",
+                      toolUseId: toolUse.id,
+                      ...toolResultEventFields(result),
+                      content: emitContent,
+                    }
+                  : {
+                      type: "tool_result",
+                      toolUseId: toolUse.id,
+                      content: emitContent,
+                      isError,
+                      cancelled: true,
+                    },
+              );
             }
           }
           await stopTurn("aborted_via_error");

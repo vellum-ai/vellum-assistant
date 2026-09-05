@@ -14,6 +14,7 @@ import {
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import { desktopClientName } from "../client-os.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -48,6 +49,13 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    // Showing or updating a surface writes to the user's screen. Dismissal is
+    // teardown and still runs on a cancelled turn, so the surface the model
+    // opened does not outlive the turn that opened it.
+    if (toolName !== "ui_dismiss") {
+      throwIfCancelled(context);
+    }
+
     if (toolName === "ui_show") {
       const teachingError = uiShowTeachingError(input);
       if (teachingError !== null) {

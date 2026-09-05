@@ -22,6 +22,7 @@ import {
   supportsChannelReaction,
 } from "../../messaging/providers/index.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   toToolInputSchema,
@@ -80,6 +81,7 @@ export const reactToMessageTool = {
     if (!parsed.success) {
       return invalidToolInputResult("react_to_message", parsed.error);
     }
+    throwIfCancelled(context);
 
     const channel = context.executionChannel;
     const chatId = context.requesterChatId;

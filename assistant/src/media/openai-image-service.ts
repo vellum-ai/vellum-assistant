@@ -118,18 +118,24 @@ export async function generateImageOpenAI(
         }),
       ),
     );
-    response = (await client.images.edit({
-      model,
-      prompt: request.prompt,
-      image: files,
-      n: variants,
-    })) as { data?: Array<{ b64_json?: string }> };
+    response = (await client.images.edit(
+      {
+        model,
+        prompt: request.prompt,
+        image: files,
+        n: variants,
+      },
+      request.signal ? { signal: request.signal } : undefined,
+    )) as { data?: Array<{ b64_json?: string }> };
   } else {
-    response = (await client.images.generate({
-      model,
-      prompt: request.prompt,
-      n: variants,
-    })) as { data?: Array<{ b64_json?: string }> };
+    response = (await client.images.generate(
+      {
+        model,
+        prompt: request.prompt,
+        n: variants,
+      },
+      request.signal ? { signal: request.signal } : undefined,
+    )) as { data?: Array<{ b64_json?: string }> };
   }
 
   const images: GeneratedImage[] = [];

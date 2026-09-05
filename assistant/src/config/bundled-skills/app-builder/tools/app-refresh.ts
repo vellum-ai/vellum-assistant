@@ -4,6 +4,7 @@ import {
   missingAppIdError,
   resolveAppId,
 } from "../../../../tools/apps/resolve-app-id.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -17,5 +18,6 @@ export async function run(
   if (!appId) {
     return missingAppIdError();
   }
+  throwIfCancelled(context);
   return executeAppRefresh({ app_id: appId }, appStore);
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -36,6 +37,7 @@ export async function executeAcpSteer(
   if (!instruction) {
     return { content: '"instruction" is required.', isError: true };
   }
+  throwIfCancelled(context);
 
   const manager = getAcpSessionManager();
   const sendToClient = getSendToClient(context);
@@ -60,6 +62,11 @@ export async function executeAcpSteer(
     );
     return steeredResult(acpSessionId, { resumed });
   } catch (err) {
+    // A cancelled turn is not a steer failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return steerError(acpSessionId, msg);
   }

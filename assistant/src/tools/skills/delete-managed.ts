@@ -1,5 +1,6 @@
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { deleteManagedSkill } from "../../skills/managed-store.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -8,7 +9,7 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
  */
 export async function executeDeleteManagedSkill(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {
@@ -17,6 +18,8 @@ export async function executeDeleteManagedSkill(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   const result = deleteManagedSkill(skillId.trim());
 

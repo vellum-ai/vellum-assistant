@@ -14,6 +14,10 @@ import { resolveProactiveHomeConversation } from "../../../../notifications/conv
 import { recordDeliveredChannelPost } from "../../../../notifications/delivered-post-record.js";
 import { getConversation } from "../../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../../persistence/conversation-disk-view.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -129,6 +133,8 @@ export async function run(
   if (!text) {
     return err("text is required.");
   }
+
+  throwIfCancelled(context);
 
   try {
     const provider = await resolveProvider(platform);
@@ -291,6 +297,7 @@ export async function run(
     const attachments = attachmentPaths?.length
       ? await readAttachments(attachmentPaths)
       : undefined;
+    throwIfCancelled(context);
     const result = await provider.sendMessage(conn, conversationId, text, {
       subject,
       inReplyTo,
@@ -313,6 +320,11 @@ export async function run(
 
     return ok(`Message sent (ID: ${result.id}${threadSuffix}).`);
   } catch (e) {
+    // A cancelled turn is not a send failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

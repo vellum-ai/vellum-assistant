@@ -18,6 +18,7 @@ import {
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
 import { FailedDependencyError } from "../../runtime/routes/errors.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -69,6 +70,7 @@ export async function executeAcpSpawn(
   if (!task) {
     return { content: '"task" is required.', isError: true };
   }
+  throwIfCancelled(context);
 
   // Pure precondition: the session streams its results through the
   // conversation's event sink, so a context with no sink at all (a tool run
@@ -119,6 +121,9 @@ export async function executeAcpSpawn(
   try {
     const manager = getAcpSessionManager();
     const cwd = parsedInput.data.cwd || context.workingDir;
+    // Recheck: the auto-install and the agent-env preparation above are both
+    // awaits, and this is the point a long-lived subprocess starts.
+    throwIfCancelled(context);
     const { acpSessionId, protocolSessionId } = await manager.spawn(
       agent,
       agentConfig,
