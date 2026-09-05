@@ -60,6 +60,12 @@ export async function readConceptPage(slug: Slug): Promise<ConceptPage | null> {
   }
 }
 
+/** Reads the page an injection entry renders from. The injector reads the
+ *  workspace ({@link readConceptPage}); the corpus eval supplies a reader
+ *  over each of its on-disk corpora, so a packet carries the entry
+ *  production would attach for that corpus. */
+export type ConceptPageReader = (slug: Slug) => Promise<ConceptPage | null>;
+
 /**
  * Render one selected page's injection entry exactly as the live injector
  * attaches it: a capability slug renders its injection-form capability
@@ -67,14 +73,16 @@ export async function readConceptPage(slug: Slug): Promise<ConceptPage | null> {
  * matched heading section renders that section, and a page whose injection
  * unit is its lead (selected without a match, or matched on the lead itself)
  * renders the lead with the page's `[current: …]` annotation, the lead built
- * from the page on disk by the same split rules as the lanes' section index
- * when no matched section supplies it. `""` when nothing resolves (a deleted
+ * from the page `readPage` supplies (the workspace page unless a caller
+ * reads elsewhere) by the same split rules as the lanes' section index when
+ * no matched section supplies it. `""` when nothing resolves (a deleted
  * page, an unresolvable capability, an empty section): the injector attaches
  * and records nothing for it, and the inspector shows nothing.
  */
 export async function renderV3InjectionEntry(
   slug: Slug,
   section: Section | undefined,
+  readPage: ConceptPageReader = readConceptPage,
 ): Promise<string> {
   const capability = renderCapabilityContent(slug);
   if (capability !== null) {
@@ -83,7 +91,7 @@ export async function renderV3InjectionEntry(
   if (section && section.title.length > 0) {
     return renderV3SectionInjection(slug, section);
   }
-  const page = await readConceptPage(slug);
+  const page = await readPage(slug);
   const lead =
     section ?? (page ? leadSectionOfBody(slug, page.body) : undefined);
   return lead ? renderV3SectionInjection(slug, lead, page?.frontmatter) : "";

@@ -468,6 +468,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
           // ends with the two memory layers mutually exclusive per row.
           memoryInjectedBlock: undefined,
           memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+          memoryV3InjectedBlockFormat: 2,
         },
       ],
     ]);

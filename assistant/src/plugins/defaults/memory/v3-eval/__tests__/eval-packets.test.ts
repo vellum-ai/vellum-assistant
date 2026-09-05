@@ -158,13 +158,30 @@ describe("buildRetriever + retrieve", () => {
 });
 
 describe("renderMemorySet", () => {
-  test("renders cards + matched sections, and a sentinel for empty", async () => {
+  test("renders each hit as its live injection entry (the matched section, no selector card), and a sentinel for empty", async () => {
     const retriever = await buildRetriever(makeCorpus(), fakeEmbed, false);
     const hits = retriever.retrieve("alice laptop", null, 2);
-    const set = renderMemorySet(retriever, hits, 1200);
-    expect(set).toContain("memory/concepts/alice.md");
+    const set = await renderMemorySet(retriever, hits, 1200);
+    expect(set).toContain("# memory/concepts/alice.md § laptop\n");
     expect(set).toContain("Alice works on her laptop");
-    expect(renderMemorySet(retriever, [], 1200)).toBe("(no pages retrieved)");
+    // The card's lead and section TOC never reach a packet for a heading
+    // match: production does not inject them for that hit.
+    expect(set).not.toContain("# Alice");
+    expect(set).not.toContain("[sections:");
+    expect(await renderMemorySet(retriever, [], 1200)).toBe(
+      "(no pages retrieved)",
+    );
+  });
+
+  test("a hit on the lead renders the lead entry, and the body cap applies below the header line", async () => {
+    const retriever = await buildRetriever(makeCorpus(), fakeEmbed, false);
+    const leadIdx = retriever.index.byArticle.get("alice")![0]!;
+    const hits = [{ slug: "alice", sectionIdx: leadIdx }];
+    const set = await renderMemorySet(retriever, hits, 1200);
+    expect(set).toBe("# memory/concepts/alice.md\n# Alice");
+    expect(await renderMemorySet(retriever, hits, 5)).toBe(
+      "# memory/concepts/alice.md\n# Ali",
+    );
   });
 });
 
