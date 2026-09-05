@@ -44,7 +44,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -75,6 +75,7 @@ import {
   newTurnId,
   resolvePostError,
   shouldCleanupSupersededInteractions,
+  shouldQueueSend,
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
@@ -852,13 +853,10 @@ export function useSendMessage({
         }
       }
 
-      // Under `interrupt-on-send` a busy conversation is not a reason to
-      // queue: the daemon stops the turn in flight and runs this message at
-      // once, answering without `queued`. So the send takes the ordinary path
-      // — an optimistic row with no queue badge, reconciled by the echo — and
-      // the turn store never enters its `queued` phase.
-      const willQueue =
-        isSending(useTurnStore.getState().phase) && !getInterruptOnSend();
+      const willQueue = shouldQueueSend(
+        useTurnStore.getState().phase,
+        getInterruptOnSend(),
+      );
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,

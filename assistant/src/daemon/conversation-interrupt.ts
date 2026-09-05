@@ -19,8 +19,8 @@ import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { ABORT_RELEASE_WAIT_MS } from "./abort-watchdog.js";
 import type { Conversation } from "./conversation.js";
+import { repairInterruptedToolUseBlocks } from "./conversation-interrupt-repair.js";
 import { forceClearStaleProcessing } from "./conversation-lifecycle.js";
-import { repairInterruptedToolUseBlocks } from "./conversation-process.js";
 import { denyPendingConfirmationsOnSupersession } from "./handlers/conversations.js";
 
 const log = getLogger("conversation-interrupt");

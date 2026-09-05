@@ -48,6 +48,7 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
@@ -1162,6 +1163,56 @@ describe("ChatComposer — send/stop button visibility", () => {
     useTurnStore.setState(INITIAL_TURN_STATE);
     const html = renderComposer({ isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
+  });
+});
+
+/**
+ * Under `interrupt-on-send` a turn in flight is not a reason to take Send
+ * away: the message the user types stops that turn and is answered at once, so
+ * Stop has nothing left to offer that Send does not. The row keeps its resting
+ * shape for the whole turn.
+ */
+describe("ChatComposer — send/stop under interrupt-on-send", () => {
+  function setInterruptOnSend(value: boolean) {
+    act(() => {
+      useAssistantFeatureFlagStore.getState().setFlags({
+        interruptOnSend: value,
+      });
+    });
+  }
+
+  afterEach(() => {
+    setInterruptOnSend(false);
+  });
+
+  test("a busy composer offers Send, never Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Send message"');
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("a busy composer with an empty draft still offers Send, not Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "", isAssistantBusy: true });
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("the attach control stays on the busy row", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Attach file"');
+  });
+
+  test("the flag off leaves the busy row exactly as it was", () => {
+    setInterruptOnSend(false);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
   });
 });
 

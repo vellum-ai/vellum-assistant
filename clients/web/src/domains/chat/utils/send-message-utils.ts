@@ -12,6 +12,7 @@ import {
 } from "@/domains/chat/types/types";
 
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
+import { isSending, type TurnPhase } from "@/domains/chat/turn-store";
 import {
   filterMessageSurfaces,
   mapMessageSurfaces,
@@ -48,6 +49,22 @@ interface SupersededInteractionCleanupContext {
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable
 // ---------------------------------------------------------------------------
+
+/**
+ * Whether a send made while a turn is in flight joins the queue.
+ *
+ * A busy conversation is the only reason a send ever queues, and under
+ * `interrupt-on-send` it stops being one: the daemon aborts the turn and runs
+ * the message at once, answering without `queued`. The send then takes the
+ * ordinary path — an optimistic row with no queue badge, reconciled by the
+ * echo — and the turn store never enters its `queued` phase.
+ */
+export function shouldQueueSend(
+  phase: TurnPhase,
+  interruptOnSend: boolean,
+): boolean {
+  return isSending(phase) && !interruptOnSend;
+}
 
 export function shouldCleanupSupersededInteractions(
   uiContext: SupersededInteractionCleanupContext | null | undefined,
