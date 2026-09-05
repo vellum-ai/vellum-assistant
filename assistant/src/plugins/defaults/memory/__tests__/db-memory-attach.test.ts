@@ -25,6 +25,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { removeTestDbFiles } from "../../../../__tests__/assert-not-live-db.js";
+import { ensureMemoryV3InjectedSectionsStore } from "../v3/ever-injected-store.js";
+import { ensureMemoryV3PoolsStore } from "../v3/pool-log-store.js";
 
 const { getSqlite, getMemorySqlite } =
   await import("../../../../persistence/db-connection.js");
@@ -35,6 +37,10 @@ const { getMemoryDbPath } = await import("../../../../util/memory-db-path.js");
 const { findSqlite3 } = await import("../../../../util/sqlite3-runtime.js");
 
 await initializeDb();
+// The memory-v3 plugin creates its own tables (init hook, or a store's
+// first use), not the global chain: stand them up as the init hook does.
+ensureMemoryV3PoolsStore();
+ensureMemoryV3InjectedSectionsStore();
 
 const sqlite3Available = findSqlite3() !== undefined;
 
@@ -68,6 +74,7 @@ describe("memory database connection", () => {
     "activation_state",
     "conversation_graph_memory_state",
     "memory_v3_ever_injected",
+    "memory_v3_injected_sections",
     "memory_retrospective_state",
     "memory_graph_nodes",
     "memory_graph_edges",

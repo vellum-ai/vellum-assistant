@@ -30,9 +30,13 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import {
+  ensureMemoryV3PoolsSchema,
+  ensureMemoryV3SelectionsSectionKey,
+} from "../plugin-schema.js";
 import type { PoolCandidateRecord, PoolLane } from "../pool-log-store.js";
+import { type Section, sectionKey } from "../types.js";
 
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
@@ -41,6 +45,7 @@ const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
 const realPageContent = { ...(await import("../page-content.js")) };
+const realPageStore = { ...(await import("../../substrate/page-store.js")) };
 
 let storeMockActive = false;
 let liveEnabled = false;
@@ -63,6 +68,8 @@ function makeDb() {
   testSqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  // The plugin's own column on the relocated table, so `seed` can write keys.
+  ensureMemoryV3SelectionsSectionKey(memorySqlite);
   ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
 }
@@ -91,14 +98,15 @@ function seed(
     source: string;
     sectionOrdinal?: number;
     sectionTitle?: string;
+    sectionKey?: string;
   }>,
   messageId: string | null = null,
 ): void {
   const stmt = memorySqlite.query(
     `INSERT INTO memory_v3_selections
        (conversation_id, turn, slug, source, created_at,
-        message_id, section_ordinal, section_title)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        message_id, section_ordinal, section_title, section_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const r of rows) {
     stmt.run(
@@ -110,6 +118,7 @@ function seed(
       messageId,
       r.sectionOrdinal ?? null,
       r.sectionTitle ?? null,
+      r.sectionKey ?? null,
     );
   }
 }
@@ -168,18 +177,31 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDb.getMemorySqlite(),
 }));
 
+// Bodies of the pages the inspector reconstructs matched sections from; a
+// slug with no entry reads from disk, where this unit's pages do not exist.
+const pageBodies = new Map<string, string>();
+mock.module("../../substrate/page-store.js", () => ({
+  ...realPageStore,
+  readPage: async (workspaceDir: string, slug: string) =>
+    storeMockActive && pageBodies.has(slug)
+      ? ({ body: pageBodies.get(slug)! } as unknown as Awaited<
+          ReturnType<typeof realPageStore.readPage>
+        >)
+      : realPageStore.readPage(workspaceDir, slug),
+}));
+
 mock.module("../page-content.js", () => ({
   ...realPageContent,
-  // The inspector store reconstructs each selection's matched section from the
-  // current page; in this unit the test pages don't exist on disk, so the
-  // section map is empty and the renderer falls back to the full page. The mock
-  // stands in for that render and reflects whether a section was supplied.
-  renderV3SectionContent: async (slug: string, section?: { title: string }) =>
+  // The inspector store reconstructs each selection's matched section from
+  // the current page and renders that section, or the lead when the row
+  // resolved to none. The mock stands in for that render and names the
+  // section it was handed by key, so a repeat or chunk is told apart.
+  renderV3InjectionEntry: async (slug: string, section?: Section) =>
     storeMockActive
       ? section
-        ? `section[${section.title}] for ${slug}`
-        : `body for ${slug}`
-      : realPageContent.renderV3SectionContent(slug, undefined),
+        ? `# memory/concepts/${slug}.md § ${sectionKey(section)}\nsection[${sectionKey(section)}] for ${slug}`
+        : `# memory/concepts/${slug}.md\nbody for ${slug}`
+      : realPageContent.renderV3InjectionEntry(slug, undefined),
 }));
 
 const {
@@ -198,6 +220,7 @@ beforeEach(() => {
   // The inspector's `live` flag comes from `isMemoryV3Live(getConfig())`,
   // which reads `memory.v3.live` — seed it for real.
   setConfig("memory", { v3: { live: false } });
+  pageBodies.clear();
   testDb = makeDb();
 });
 
@@ -239,7 +262,7 @@ describe("getMemoryV3SelectionForInspector", () => {
     // The second row carries a retired free-text source label (the column is
     // permissive); the inspector passes it through verbatim. Neither row has a
     // matched section, so section fields are null and the block falls back to
-    // full pages.
+    // each page's lead.
     seed("conv-4", 1, [
       { slug: "domain-a/page-1", source: "edge" },
       { slug: "domain-b/page-2", source: "legacy-carry" },
@@ -713,5 +736,246 @@ describe("summarizeSelections", () => {
     // But the turn and both distinct slugs are still reflected.
     expect(summary.turns).toBe(1);
     expect(summary.distinctSlugs).toBe(2);
+  });
+});
+
+describe("matched-section reconstruction", () => {
+  const page = [
+    "Lead.",
+    "",
+    "## Heading A",
+    "",
+    "Body A.",
+    "",
+    "## Heading B",
+    "",
+    "Body B.",
+  ].join("\n");
+
+  const repeated = [
+    "Lead.",
+    "",
+    "## Notes",
+    "",
+    "First.",
+    "",
+    "## Notes",
+    "",
+    "Second.",
+  ].join("\n");
+
+  test("a row recorded with a section key resolves to that exact occurrence of a repeated heading, even when its ordinal now points at the other", async () => {
+    // The page now: lead (0), "Notes" (1), "Notes" again (2). Both rows were
+    // recorded before a section above the headings was removed, so each
+    // recorded ordinal now sits on the OTHER occurrence of the title.
+    pageBodies.set("domain-a/page-1", repeated);
+    seed(
+      "conv-k",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+          sectionKey: "Notes",
+        },
+      ],
+      "msg-k-1",
+    );
+    seed(
+      "conv-k",
+      1,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 1,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      "msg-k-2",
+    );
+
+    const first = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-k-1",
+    ]);
+    expect(first?.injectedText).toContain("section[Notes] for domain-a/page-1");
+    expect(first?.injectedText).not.toContain("Notes#1");
+    const second = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-k-2",
+    ]);
+    expect(second?.injectedText).toContain(
+      "section[Notes#1] for domain-a/page-1",
+    );
+    // The wire shape still carries the recorded title and ordinal as logged.
+    expect(second?.selections).toEqual([
+      {
+        slug: "domain-a/page-1",
+        source: "needle",
+        sectionOrdinal: 1,
+        sectionHeading: "Notes",
+      },
+    ]);
+  });
+
+  test("a keyed row whose key is no longer on the page renders the lead rather than another section of that title", async () => {
+    // The page kept a single "Notes"; the row names the repeat that was
+    // removed. The surviving occurrence is not what was injected.
+    pageBodies.set(
+      "domain-a/page-1",
+      ["Lead.", "", "## Notes", "", "Only."].join("\n"),
+    );
+    seed(
+      "conv-k",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      "msg-k-3",
+    );
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-k-3"]);
+    expect(log?.injectedText).toContain("body for domain-a/page-1");
+    expect(log?.injectedText).not.toContain("section[");
+  });
+
+  test("a selections table created without section_key (as migration 338 leaves it) gains the column on the first read", async () => {
+    memorySqlite = new Database(":memory:");
+    ensureMemoryV3SelectionsSchema(memorySqlite);
+    ensureMemoryV3PoolsSchema(memorySqlite);
+    memorySqlite
+      .query(
+        `INSERT INTO memory_v3_selections
+           (conversation_id, turn, slug, source, created_at, message_id,
+            section_ordinal, section_title)
+         VALUES ('conv-l', 0, 'domain-a/page-1', 'needle', 1000, 'msg-l', 1,
+                 'Heading A')`,
+      )
+      .run();
+    pageBodies.set("domain-a/page-1", page);
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-l"]);
+    expect(log?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
+    expect(
+      (
+        memorySqlite
+          .query(`PRAGMA table_info(memory_v3_selections)`)
+          .all() as Array<{ name: string }>
+      ).map((column) => column.name),
+    ).toContain("section_key");
+  });
+
+  test("a row recorded without a key resolves by its title first, so a page re-chunked since the turn still renders the section that was injected", async () => {
+    // At the turn, "Heading A" sat at ordinal 2; the page has since been
+    // edited and "Heading B" holds that ordinal.
+    pageBodies.set("domain-a/page-1", page);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Heading A",
+        },
+      ],
+      "msg-r-1",
+    );
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-r-1"]);
+    expect(log?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
+    expect(log?.injectedText).not.toContain("Heading B");
+  });
+
+  test("for a row recorded without a key, the ordinal picks among repeats of the title while it still points at one; otherwise the first occurrence", async () => {
+    pageBodies.set("domain-a/page-1", repeated);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+        },
+      ],
+      "msg-r-2",
+    );
+    seed(
+      "conv-r",
+      1,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 7,
+          sectionTitle: "Notes",
+        },
+      ],
+      "msg-r-3",
+    );
+
+    const pointed = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-2",
+    ]);
+    expect(pointed?.injectedText).toContain(
+      "section[Notes#1] for domain-a/page-1",
+    );
+    const drifted = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-3",
+    ]);
+    expect(drifted?.injectedText).toContain(
+      "section[Notes] for domain-a/page-1",
+    );
+    expect(drifted?.injectedText).not.toContain("Notes#1");
+  });
+
+  test("a title no longer on the page renders the lead; a row recorded without a title falls back to its ordinal", async () => {
+    pageBodies.set("domain-a/page-1", page);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 1,
+          sectionTitle: "Gone",
+        },
+      ],
+      "msg-r-4",
+    );
+    seed(
+      "conv-r",
+      1,
+      [{ slug: "domain-a/page-1", source: "needle", sectionOrdinal: 1 }],
+      "msg-r-5",
+    );
+
+    const gone = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-4",
+    ]);
+    expect(gone?.injectedText).toContain("body for domain-a/page-1");
+    expect(gone?.injectedText).not.toContain("section[");
+    const untitled = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-5",
+    ]);
+    expect(untitled?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
   });
 });

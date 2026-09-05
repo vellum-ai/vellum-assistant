@@ -820,7 +820,7 @@ interface RenderInjectionBlockResult {
  * the agent into wasted reads.
  *
  * Exported for the v2-suppression regression tests: memory-v3's
- * `V3_CARDS_INJECTION_HEADER` is deliberately byte-identical to this header,
+ * `V3_INJECTION_HEADER` is deliberately byte-identical to this header,
  * which is exactly why the v3-era tail strip must discriminate the two
  * `<memory>` layers by block identity rather than by this shared prefix.
  */

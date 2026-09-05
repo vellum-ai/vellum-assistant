@@ -389,7 +389,7 @@ export function frontDoorDecisionRule(opts?: {
         ];
   // Name the words being judged. The caller's utterance is the only untagged
   // text in the assembled message — it sits between tagged injections
-  // (<memory_spotlight>, <channel_capabilities>, <turn_context>) and this
+  // (<memory_pointer>, <channel_capabilities>, <turn_context>) and this
   // rule, so an undelimited five-word question can read as a fragment of the
   // block above it. Quoting it verbatim is the same move
   // escalatedContinuationRule makes with the spoken bridge, for the same

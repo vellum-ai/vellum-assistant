@@ -52,8 +52,7 @@ import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
-import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
-import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../v3/types.js";
+import { injectionMetadataUpdates } from "./injection-metadata.js";
 
 /**
  * Whether to run legacy graph-memory retrieval this turn. It gates BOTH
@@ -203,97 +202,26 @@ async function recordRecallSideEffects(
 
 /**
  * Persist the assembled runtime-injection blocks onto the user message's
- * metadata so they survive conversation reloads (eviction, restart, fork) —
+ * metadata so they survive conversation reloads (eviction, restart, fork):
  * loadFromDb re-injects from metadata. Only this first-call site persists: the
  * mid-loop re-entry sites send identical bytes and their tail row may not
- * correspond to `userMessageId`. All present blocks are written in a single
- * update to avoid doubling SQLite SELECT+UPDATE work each turn. Best-effort — a
- * persistence failure must not abort the turn.
- *
- * The two `<memory>` layers end the turn mutually exclusive per row:
- *  - v2's block (`memoryInjectedBlock`) was already persisted right after
- *    retrieval (see {@link recordRecallSideEffects} — no loss window). When
- *    memory-v3 superseded it this turn (`blocks.memoryV3Active`), assembly
- *    stripped the v2 block from the tail, so this combined update REMOVES the
- *    key again (persisting it would rehydrate a block that is not in the live
- *    history — a reload cache-bust and duplicated memory). `v2BlockPersisted`
- *    tells this function whether there is anything to remove.
- *  - `blocks.memoryV3InjectedBlock` (the frozen net-new card block, unwrapped)
- *    persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`; `loadFromDb`
- *    re-wraps and splices it on load, freezing the cards into history.
- *  - `blocks.memoryV3SpotlightBlock` (the wrapped `<memory_spotlight>` that
- *    was sent) persists under `MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`;
- *    `loadFromDb` splices it back onto the same row so historical turns
- *    keep the spotlight they were sent with.
+ * correspond to `userMessageId`. The update is {@link injectionMetadataUpdates}
+ * (which states the turn's per-turn memory layout, deletions included, so a
+ * retry re-running onto its original anchor row leaves no stale pointer or
+ * legacy spotlight behind), written in a single update to avoid doubling
+ * SQLite SELECT+UPDATE work each turn. Best-effort: a persistence failure
+ * must not abort the turn.
  */
 async function persistInjectionBlocks(
   blocks: RuntimeInjectionResult["blocks"],
   ctx: UserPromptSubmitContext,
   v2BlockPersisted: boolean,
 ): Promise<void> {
-  const removeV2Block = Boolean(blocks.memoryV3Active) && v2BlockPersisted;
-  if (
-    !blocks.unifiedTurnContext &&
-    !blocks.pkbSystemReminder &&
-    !blocks.workspaceBlock &&
-    !blocks.nowScratchpadBlock &&
-    !blocks.pkbContextBlock &&
-    !blocks.memoryV2StaticBlock &&
-    !blocks.memoryV3InjectedBlock &&
-    !blocks.memoryV3SpotlightBlock &&
-    !blocks.backgroundTurnBlock &&
-    !blocks.channelCapabilitiesBlock &&
-    !blocks.nonInteractiveContextBlock &&
-    !removeV2Block
-  ) {
+  const metadataUpdates = injectionMetadataUpdates(blocks, v2BlockPersisted);
+  if (metadataUpdates === null) {
     return;
   }
   try {
-    const metadataUpdates: Record<string, unknown> = {};
-    if (removeV2Block) {
-      // An explicit `undefined` overrides the value persisted after retrieval
-      // and is dropped by `updateMessageMetadata`'s JSON.stringify, deleting
-      // the key — the metadata schema types the field `string | absent`, so
-      // removal must drop the key rather than write null.
-      metadataUpdates.memoryInjectedBlock = undefined;
-    }
-    if (blocks.memoryV3InjectedBlock) {
-      metadataUpdates[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] =
-        blocks.memoryV3InjectedBlock;
-    }
-    if (blocks.memoryV3SpotlightBlock) {
-      metadataUpdates[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] =
-        blocks.memoryV3SpotlightBlock;
-    }
-    if (blocks.unifiedTurnContext) {
-      metadataUpdates.turnContextBlock = blocks.unifiedTurnContext;
-    }
-    if (blocks.pkbSystemReminder) {
-      metadataUpdates.pkbSystemReminderBlock = blocks.pkbSystemReminder;
-    }
-    if (blocks.workspaceBlock) {
-      metadataUpdates.workspaceBlock = blocks.workspaceBlock;
-    }
-    if (blocks.nowScratchpadBlock) {
-      metadataUpdates.nowScratchpadBlock = blocks.nowScratchpadBlock;
-    }
-    if (blocks.pkbContextBlock) {
-      metadataUpdates.pkbContextBlock = blocks.pkbContextBlock;
-    }
-    if (blocks.memoryV2StaticBlock) {
-      metadataUpdates.memoryV2StaticBlock = blocks.memoryV2StaticBlock;
-    }
-    if (blocks.backgroundTurnBlock) {
-      metadataUpdates.backgroundTurnBlock = blocks.backgroundTurnBlock;
-    }
-    if (blocks.channelCapabilitiesBlock) {
-      metadataUpdates.channelCapabilitiesBlock =
-        blocks.channelCapabilitiesBlock;
-    }
-    if (blocks.nonInteractiveContextBlock) {
-      metadataUpdates.nonInteractiveContextBlock =
-        blocks.nonInteractiveContextBlock;
-    }
     await updateMessageMetadata(ctx.userMessageId, metadataUpdates);
   } catch (err) {
     ctx.logger.warn(
@@ -338,7 +266,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // untrusted actors. The `conversation && abortSignal` presence checks stay
   // inline so the block below narrows. NOTE: under v3-live there is no legacy
   // fallback — a v3 empty/failed selection yields no NEW injected memory that
-  // turn (prior turns' frozen v3 cards still ride history).
+  // turn (prior turns' frozen v3 sections still ride history).
   const memoryV3Live = isMemoryV3Live(config);
   const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
   if (isVoiceFrontDoor && conversation) {

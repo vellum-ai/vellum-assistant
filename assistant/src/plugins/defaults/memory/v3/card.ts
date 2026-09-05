@@ -1,5 +1,8 @@
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
+import {
+  injectedConceptHeader,
+  renderedBytes,
+} from "../substrate/injected-block-slugs.js";
 import { LINK_SEPARATOR, parseLinkEntry } from "../substrate/page-links.js";
 import type { Slug } from "./types.js";
 
@@ -72,7 +75,9 @@ function renderTocLine(
   if (headings.length === 0) {
     return null;
   }
-  return `[sections: ${headings.map((h) => `§${h}`).join(" · ")}]`;
+  // A heading that already opens with the section sigil keeps it as-is
+  // rather than doubling up.
+  return `[sections: ${headings.map((h) => (h.startsWith("§") ? h : `§${h}`)).join(" · ")}]`;
 }
 
 /** Max characters of a `current:` line carried onto the card. A `current:` is
@@ -81,11 +86,16 @@ function renderTocLine(
 const CURRENT_MAX_CHARS = 280;
 
 /**
- * Render a page's `current:` frontmatter (one-line live state) as a card
- * annotation, or `null` when the page has none. Whitespace-collapsed and
- * capped at {@link CURRENT_MAX_CHARS}.
+ * Render a page's `current:` frontmatter (one-line live state) as the
+ * `[current: …]` annotation line, or `null` when the page has none.
+ * Whitespace-collapsed and capped at {@link CURRENT_MAX_CHARS}. Rendered
+ * directly under the header on the selector card and on the page's lead
+ * injection (`page-content.ts`), so the state that makes the selector pick
+ * a page reaches the model with it.
  */
-function renderCurrentLine(fields: Record<string, unknown>): string | null {
+export function renderCurrentLine(
+  fields: Record<string, unknown>,
+): string | null {
   const current = fields.current;
   if (typeof current !== "string") {
     return null;
@@ -166,8 +176,7 @@ export function renderCard(
   return card;
 }
 
-/** UTF-8 byte length of a rendered card (prune-valve and footprint
- * accounting both budget in bytes, not characters). */
-export function cardBytes(card: string): number {
-  return Buffer.byteLength(card, "utf8");
-}
+/** Byte measure of rendered injection text, shared with the block grammar so
+ *  the parser's legacy-card span check uses the same measure the injectors
+ *  record. */
+export { renderedBytes };

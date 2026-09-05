@@ -51,6 +51,7 @@ import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
 import {
   capabilityOrDiskBody,
+  injectionSectionKey,
   renderCapabilityContent,
 } from "./capabilities.js";
 import { renderCard } from "./card.js";
@@ -59,13 +60,14 @@ import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
-import { getActiveSlugs } from "./ever-injected-store.js";
+import { getActiveSections, sectionRefSetHas } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
+import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
 import {
   buildPoolRecord,
   type PoolRecord,
@@ -83,6 +85,7 @@ import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
   type SectionIndex,
+  sectionKey,
   type SelectionSource,
   type Slug,
 } from "./types.js";
@@ -582,6 +585,10 @@ interface SelectionRow {
   sectionOrdinal: number | null;
   /** Heading of the matched section; null when there is no matched section. */
   sectionTitle: string | null;
+  /** The matched section's `sectionKey` (`types.ts`), the identity the
+   *  inspector resolves the section by; null when there is no matched
+   *  section. */
+  sectionKey: string | null;
 }
 
 /**
@@ -617,6 +624,7 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
             : (finderLane.get(sel.slug) ?? "needle"),
       sectionOrdinal: section?.ordinal ?? null,
       sectionTitle: section?.title ?? null,
+      sectionKey: section ? sectionKey(section) : null,
     };
   });
 }
@@ -650,8 +658,8 @@ function replaceSelections(
   const stmt = raw.query(/*sql*/ `
     INSERT INTO memory_v3_selections (
       conversation_id, turn, slug, source, created_at,
-      message_id, section_ordinal, section_title
-    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      message_id, section_ordinal, section_title, section_key
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
   `);
   const now = Date.now();
   for (const row of rows) {
@@ -663,7 +671,20 @@ function replaceSelections(
       now,
       row.sectionOrdinal,
       row.sectionTitle,
+      row.sectionKey,
     );
+  }
+}
+
+/**
+ * Ensure the selection log's `section_key` column on the memory connection
+ * of this process, for the memory plugin's `init` hook. No-op when the
+ * connection is unavailable (the log degrades to no-ops as on any turn).
+ */
+export function ensureMemoryV3SelectionsStore(): void {
+  const raw = memorySqliteOrNull("ensureMemoryV3SelectionsStore");
+  if (raw) {
+    ensureMemoryV3SelectionsSectionKeyOnce(raw);
   }
 }
 
@@ -676,7 +697,8 @@ function replaceSelections(
  * observation. Best-effort: an unavailable memory database or a failed
  * statement drops this observation's log rather than affecting the turn, and
  * the transaction leaves the earlier observation's rows in place in both
- * tables.
+ * tables. The selection table's plugin-owned `section_key` column is ensured
+ * on the first use of a connection in this process (`plugin-schema.ts`).
  */
 export function writeTurnLog(
   conversationId: string,
@@ -689,6 +711,7 @@ export function writeTurnLog(
     if (!raw) {
       return;
     }
+    ensureMemoryV3SelectionsSectionKeyOnce(raw);
     raw.transaction(() => {
       replaceSelections(raw, conversationId, turn, rows);
       writePool(raw, conversationId, turn, pool);
@@ -780,6 +803,11 @@ export async function observeTurn(
     // lane-build params (hot/fresh K, learned-edge graph) stay frozen on the
     // lanes for stable-prefix cache reuse.
     const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
+    // Read-only: lets orchestrate compute the `net_new_count` telemetry field
+    // against the same store, and the same per-page injection key, the
+    // injector renders from. This turn has not committed yet, so the set
+    // matches what the injector will see.
+    const activeSections = getActiveSections(conversationId);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -794,10 +822,12 @@ export async function observeTurn(
       needleK: tuning.needleK,
       denseK: tuning.denseK,
       realConceptPageCount: lanes.realConceptPageCount,
-      // Read-only: lets orchestrate compute the `net_new_count` telemetry field
-      // against the same store the injector renders from. This turn has not
-      // committed yet, so the set matches what the injector will see.
-      activeSlugs: getActiveSlugs(conversationId),
+      isResident: (slug, section) =>
+        sectionRefSetHas(
+          activeSections,
+          slug,
+          injectionSectionKey(slug, section),
+        ),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
       spanQueryK: tuning.spanQueryK,
@@ -820,7 +850,8 @@ export async function observeTurn(
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be
     // worth a breadcrumb (observed on meta-prompt-shaped system turns): the
-    // turn itself proceeds normally — cards already in context still serve it.
+    // turn itself proceeds normally, sections already in context still serve
+    // it.
     if (result.selections.length === 0) {
       log.info(
         {

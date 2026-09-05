@@ -37,11 +37,13 @@ import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ESCALATION_CONTINUATION_CONTENT } from "../../../../../calls/voice-triage-escalate.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
-import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import {
+  ensureMemoryV3InjectedSectionsSchema,
+  ensureMemoryV3PoolsSchema,
+} from "../plugin-schema.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
@@ -194,7 +196,7 @@ let hotSetOpts: HotSetOptions | null = null;
 let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
 // Shared in-memory DBs so writes are observable from the test. The selection
-// and everInjected rows live on the dedicated memory connection (`memorySqlite`,
+// and injected-section rows live on the dedicated memory connection (`memorySqlite`,
 // resolved through the stubbed `getMemorySqlite`).
 let testSqlite: Database;
 let memorySqlite: Database;
@@ -209,7 +211,7 @@ function makeDb() {
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
   // The live injector's net-new dedup reads/writes the everInjected store.
-  ensureMemoryV3EverInjectedSchema(memorySqlite);
+  ensureMemoryV3InjectedSectionsSchema(memorySqlite);
   // `observeTurn` records each turn's candidate pool next to its selections.
   ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
@@ -246,7 +248,6 @@ function seedMemoryConfig(): void {
       live: liveEnabled,
       hotSet: { k: 8, halfLifeDays: 14 },
       freshSet: { k: 8 },
-      spotlight: { n: 6, windowTurns: 2 },
       needleK: 12,
       denseK: 0,
       replyQueryK: 0,
@@ -638,7 +639,7 @@ async function produce(conversationId: string, turnIndex: number) {
     requestId: "r1",
     conversationId,
     turnIndex,
-    // v3 cards are personal memory, so the injector only produces for an actor
+    // v3 sections are personal memory, so the injector only produces for an actor
     // allowed to see them. These cases are about the commit hook, not the gate.
     trust: { trustClass: "guardian", sourceChannel: "vellum" } as never,
   });
@@ -679,6 +680,42 @@ describe("memory-v3 engine", () => {
     memoryDbAvailable = true;
     expect(readRows()).toHaveLength(0);
     expect(readPools()).toHaveLength(0);
+  });
+
+  test("the turn log persists each row's section key, adding the column to a selections table created without it", () => {
+    // `makeDb` stands the table up as migration 338 leaves it, without
+    // `section_key`; the writer's first use of the connection adds it.
+    const result = poolOf(["page-1"]);
+    writeTurnLog(
+      "conv-1",
+      1,
+      [
+        {
+          slug: "page-1",
+          source: "needle",
+          sectionOrdinal: 3,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      buildPoolRecord(result),
+    );
+
+    expect(
+      memorySqlite
+        .query(
+          `SELECT slug, section_ordinal, section_title, section_key
+           FROM memory_v3_selections`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        slug: "page-1",
+        section_ordinal: 3,
+        section_title: "Notes",
+        section_key: "Notes#1",
+      },
+    ]);
   });
 
   test("observeTurn runs orchestration and writes rows with per-lane sources", async () => {
@@ -959,6 +996,42 @@ describe("memory-v3 engine", () => {
         source: "core",
         sectionOrdinal: null,
         sectionTitle: null,
+        sectionKey: null,
+      },
+    ]);
+  });
+
+  test("a finder hit records the matched section's key beside its title and ordinal, so a repeat of a heading keeps its occurrence", () => {
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1" }],
+      matchedSections: new Map([
+        [
+          "page-1",
+          {
+            article: "page-1",
+            title: "Notes",
+            text: "page-1 - Notes\nsecond notes",
+            ordinal: 3,
+            occurrence: 1,
+          },
+        ],
+      ]),
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [{ slug: "page-1", descriptor: "", lane: "needle" }],
+      },
+      selectorRan: true,
+    });
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "needle",
+        sectionOrdinal: 3,
+        sectionTitle: "Notes",
+        sectionKey: "Notes#1",
       },
     ]);
   });
@@ -1160,21 +1233,24 @@ describe("memory-v3 engine", () => {
     expect(readRows()).toHaveLength(0);
   });
 
-  test("live on → produce returns the net-new CARD block and logs", async () => {
+  test("live on → produce returns the net-new SECTION block and logs", async () => {
     liveEnabled = true;
     const block = await produce("conv-1", 0);
     expect(block).not.toBeNull();
     expect(block!.placement).toBe("after-memory-prefix");
     expect(block!.text.startsWith("<memory>\n")).toBe(true);
     expect(block!.text.endsWith("\n</memory>")).toBe(true);
-    // Turn 1: every selection is net-new and renders as a compact card —
-    // the page header plus the page's head section (the fixture body has no
-    // `## ` headings, so the whole body is the head and no TOC line renders).
-    for (const slug of ["page-core", "page-hot", "page-1", "page-2"]) {
+    // Turn 1: every selection is net-new. A page selected without a matched
+    // section renders its lead (the fixture body has no `## ` headings, so
+    // the whole body is the lead); a page with a matched section renders
+    // that section's text under its header.
+    for (const slug of ["page-core", "page-hot", "page-fresh", "page-3"]) {
       expect(block!.text).toContain(
         `# memory/concepts/${slug}.md\nbody for ${slug}`,
       );
     }
+    expect(block!.text).toContain("# memory/concepts/page-1.md\nx");
+    expect(block!.text).toContain("# memory/concepts/page-2.md\ny");
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);
   });
@@ -1183,7 +1259,7 @@ describe("memory-v3 engine", () => {
     liveEnabled = true;
     const first = await produce("conv-1", 0);
     expect(first!.text.length).toBeGreaterThan(0);
-    // Same orchestrate fixture on the next turn → zero net-new cards. The
+    // Same orchestrate fixture on the next turn → zero net-new sections. The
     // block is still produced (its presence keys v2 suppression downstream).
     const repeat = await produce("conv-1", 1);
     expect(repeat).not.toBeNull();

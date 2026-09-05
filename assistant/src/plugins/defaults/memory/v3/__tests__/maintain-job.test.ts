@@ -107,6 +107,7 @@ describe("maintainJob", () => {
       commitEmbedHighWater: () => {
         calls.commit += 1;
       },
+      ensureChunkerVersion: () => false,
       // Prune stage off by default: no stored articles ⇒ nothing to prune. The
       // dedicated prune tests below override both collaborators.
       listSectionArticles: async () => [],
@@ -146,6 +147,26 @@ describe("maintainJob", () => {
     await maintainJob(JOB, CONFIG, d);
 
     expect(order).toEqual(["ensure", "select"]);
+  });
+
+  test("runs the chunker version guard after ensuring the collection and before selecting deltas", async () => {
+    memoryV3LiveSlot = true;
+    const order: string[] = [];
+    const { deps: d } = deps({
+      ensureSectionCollection: async () => {
+        order.push("ensure");
+      },
+      ensureChunkerVersion: () => {
+        order.push("version");
+        return false;
+      },
+      selectChangedPages: async () => {
+        order.push("select");
+        return [];
+      },
+    });
+    await maintainJob(JOB, CONFIG, d);
+    expect(order).toEqual(["ensure", "version", "select"]);
   });
 
   test("no-op when v3 is disabled", async () => {
@@ -549,6 +570,7 @@ describe("backfillAllSections", () => {
       commitEmbedHighWater: (ms) => {
         calls.committed.push(ms);
       },
+      ensureChunkerVersion: () => false,
       nowMs: () => 4242,
       embedProbe: async () => {
         calls.probed += 1;
@@ -847,6 +869,7 @@ describe("maintainJob skill usage-prune", () => {
       },
       upsertSections: async () => {},
       commitEmbedHighWater: () => {},
+      ensureChunkerVersion: () => false,
       listSectionArticles: async () => [],
       listIndexedSlugs: async () => [],
       loadCoreSet: () => [],

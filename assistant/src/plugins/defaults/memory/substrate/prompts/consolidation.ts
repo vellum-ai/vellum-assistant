@@ -604,10 +604,12 @@ This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgme
  * injection model and must keep producing `summary:`-bearing fragment pages).
  *
  * The differences are structural, not philosophical: v3 retrieval works at
- * section grain and injects a compact CARD per article (the lead — everything
- * before the first `## ` — plus the section-name TOC), so the article shape
- * this prompt teaches is lead-paragraph + `## ` sections with annotated
- * `links:` frontmatter, and there is no `summary:` field. The judgment layer
+ * section grain, the selector judges each candidate by a compact card (the
+ * lead, everything before the first `## `, plus the section-name TOC), and
+ * what reaches context is the matched `## ` section (the lead as the
+ * fallback), chunked at `SECTION_CHUNK_CHARS`, so the article shape this
+ * prompt teaches is lead-paragraph + `## ` sections kept under the chunk
+ * window, with annotated `links:` frontmatter and no `summary:` field. The judgment layer
  * (spawn triggers, one-fact-one-home, route-don't-restate, voice registers,
  * the emotional-weight trap) carries over from the v2 prompt deliberately.
  *
@@ -640,13 +642,13 @@ Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. Anything in \`memory/b
 
 # How retrieval works — and why the lead is everything
 
-Retrieval is **section-grain**. Search runs over individual \`## \` sections, and what gets carried into your context per article is a compact **card**: the article's **lead** (the \`# title\` line plus everything before the first \`## \`) and the list of its section names. Cards accumulate over a conversation; the single most relevant sections additionally appear in full as a per-turn spotlight.
+Retrieval is **section-grain**. Search runs over individual \`## \` sections, and what gets carried into your context is the **matched section** of each selected article, or the article's **lead** (the \`# title\` line plus everything before the first \`## \`) when the article was selected without a matching section. A section longer than the chunk window (6000 characters, \`SECTION_CHUNK_CHARS\`) is indexed, keyed, and injected as independent chunks, and only the chunk that matched reaches context, so keep any section that must travel as one unit under the window. Injected sections accumulate over a conversation; a section already in context is pointed at again rather than repeated. The selector that picks articles each turn sees a compact **card** per candidate: the lead plus the list of section names.
 
 Three consequences:
 
-1. **The lead IS the card.** Write every lead as a standalone orientation: what this article is, the one or two facts that identify it, where it sits. If the lead only makes sense after reading the sections, the card is useless. One to three short paragraphs.
-2. **Section names are navigation.** They appear on the card as the table of contents. Name sections so future-you can tell from the name alone whether the answer lives there.
-3. **Sections are the unit of growth and retrieval.** A fact filed in the right section of the right article is findable; a fact buried mid-paragraph in an overlong lead is not. The immutable archive retains the entire buffer forever, so don't worry about losing information.
+1. **The lead IS the card, and the fallback.** Write every lead as a standalone orientation: what this article is, the one or two facts that identify it, where it sits. If the lead only makes sense after reading the sections, the card is useless and so is the fallback. One to three short paragraphs.
+2. **Section names are navigation.** They appear on the selector's card as the table of contents and head every injected section. Name sections so future-you can tell from the name alone whether the answer lives there.
+3. **Sections are the unit of growth and retrieval.** A fact filed in the right section of the right article is findable and arrives in context with its section (kept under the 6000-character chunk window, so the section travels whole); a fact buried mid-paragraph in an overlong lead is not. The immutable archive retains the entire buffer forever, so don't worry about losing information.
 
 ---
 

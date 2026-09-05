@@ -26,26 +26,39 @@ export const memoryV2InjectionEvents = sqliteTable(
   ],
 );
 
-// Per-conversation record of every memory-v3 card ever injected, with a
-// pruned_at tombstone so re-injection can be suppressed after pruning. Lives in
-// the dedicated memory database (`assistant-memory.db`), not main — access it
-// via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
-export const memoryV3EverInjected = sqliteTable(
-  "memory_v3_ever_injected",
+// Per-conversation record of every memory-v3 section ever injected, keyed by
+// (page slug, section key: `""` for the page lead or capability content), with
+// a pruned_at tombstone so re-injection can be suppressed after pruning. Lives
+// in the dedicated memory database (`assistant-memory.db`), not main, access
+// it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`). The
+// legacy card-grain `memory_v3_ever_injected` table stays on disk (migrations
+// are append-only) but nothing reads or writes it.
+export const memoryV3InjectedSections = sqliteTable(
+  "memory_v3_injected_sections",
   {
     conversationId: text("conversation_id").notNull(),
     slug: text("slug").notNull(),
+    sectionKey: text("section_key").notNull(),
     injectedAt: integer("injected_at").notNull(),
     bytes: integer("bytes").notNull().default(0),
     prunedAt: integer("pruned_at"),
+    /** For a lead entry, the exact length of the frozen entry in history:
+     *  the card length the section store's schema ensure copies in from `memory_v3_ever_injected` for pre-escaping cards, or the
+     *  span the truncated-fork seeder measured. Never refreshed by a
+     *  re-injection, so it stays the block parser's boundary evidence for
+     *  the persisted copy. `null` for entries recorded by this build's
+     *  injector. */
+    frozenCardBytes: integer("frozen_card_bytes"),
   },
   (table) => [
-    primaryKey({ columns: [table.conversationId, table.slug] }),
-    index("idx_memory_v3_ever_injected_conv").on(table.conversationId),
+    primaryKey({
+      columns: [table.conversationId, table.slug, table.sectionKey],
+    }),
+    index("idx_memory_v3_injected_sections_conv").on(table.conversationId),
   ],
 );
 
-// Per-turn log of which memory-v3 cards were selected, with lane attribution.
+// Per-turn log of which memory-v3 pages were selected, with lane attribution.
 // Lives in the dedicated memory database (`assistant-memory.db`), not main —
 // access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV3Selections = sqliteTable(
@@ -60,6 +73,12 @@ export const memoryV3Selections = sqliteTable(
     messageId: text("message_id"),
     sectionOrdinal: integer("section_ordinal"),
     sectionTitle: text("section_title"),
+    /** The matched section's `sectionKey` (`v3/types.ts`), the identity the
+     *  inspector resolves the section by. Plugin-owned: added by the memory
+     *  plugin's schema ensure (`v3/plugin-schema.ts`), not by the migration
+     *  chain. `null` for rows written before the column existed and for
+     *  selections with no matched section. */
+    sectionKey: text("section_key"),
   },
   (table) => [
     primaryKey({ columns: [table.conversationId, table.turn, table.slug] }),

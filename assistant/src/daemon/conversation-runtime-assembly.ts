@@ -27,7 +27,8 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
-  MEMORY_SPOTLIGHT_MATCHER,
+  LEGACY_MEMORY_SPOTLIGHT_MATCHER,
+  MEMORY_POINTER_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripTailUserTextBlocksByPrefix,
   stripUserTextBlocksByPrefix,
@@ -60,9 +61,18 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  getKnownCardBytes,
+  getPrunedSections,
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import {
+  mergeIntoAnchorBlock,
+  stripPrunedSectionsFromMessages,
+} from "../plugins/defaults/memory/v3/prune.js";
+import {
+  markV3LiveBlock,
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
-  MEMORY_V3_SPOTLIGHT_BLOCK_ID,
+  MEMORY_V3_POINTER_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -1860,21 +1870,21 @@ export interface RuntimeInjectionBlocks {
    */
   nonInteractiveContextBlock?: string;
   /**
-   * UNWRAPPED inner text of the memory-v3 frozen net-new card block the v3
+   * UNWRAPPED inner text of the memory-v3 frozen net-new section block the v3
    * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
    * contract (rehydration re-wraps on use). Undefined when v3 attached no new
-   * cards (all-repeat turn, v3 off, or v3 failure). Persisted by the
+   * sections (all-repeat turn, v3 off, or v3 failure). Persisted by the
    * user-prompt-submit hook under `metadata.memoryV3InjectedBlock`
    * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
    */
   memoryV3InjectedBlock?: string;
   /**
-   * Rendered `<memory_spotlight>` body spliced onto this turn's user
-   * message. Persisted by the user-prompt-submit hook under
-   * `metadata.memoryV3SpotlightBlock`. Historical turns keep the block they
-   * were sent with; a new spotlight is added only on the new tail.
+   * Rendered `<memory_pointer>` block spliced onto this turn's user message.
+   * Persisted by the user-prompt-submit hook under
+   * `metadata.memoryV3PointerBlock`. Historical turns keep the block they
+   * were sent with; a new pointer is added only on the new tail.
    */
-  memoryV3SpotlightBlock?: string;
+  memoryV3PointerBlock?: string;
   /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
@@ -1911,10 +1921,7 @@ export interface RuntimeInjectionResult {
  * non-overlapping so the inspector's "Other" remainder is honest. The
  * names are pinned by `injector-registry-order-guard.test.ts`.
  */
-const SELF_INSTRUMENTED_INJECTORS = new Set([
-  "memory-v3-shadow",
-  "memory-v3-spotlight",
-]);
+const SELF_INSTRUMENTED_INJECTORS = new Set(["memory-v3-shadow"]);
 
 /**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
@@ -2035,6 +2042,10 @@ function applyInjectionBlock(
   }
 
   const textBlock = { type: "text" as const, text: block.text };
+  if (block.id === MEMORY_V3_BLOCK_ID) {
+    // The prune valve's live strip owns v3 blocks by object identity.
+    markV3LiveBlock(textBlock);
+  }
 
   switch (placement) {
     case "prepend-user-tail":
@@ -2237,6 +2248,19 @@ export interface RuntimeInjectionOptions {
    * site when omitted.
    */
   callSite?: LLMCallSite;
+  /**
+   * True when this assembly re-applies injections onto a continuation
+   * history mid-turn (the post-compaction hook, which also serves overflow
+   * re-entry). Such an assembly's blocks live in memory only: no caller
+   * persists them, and every message they attach to predates the
+   * compaction, whose `historyStrippedAt` marker keeps `loadFromDb` from
+   * rehydrating metadata on it. The memory-v3 sections injector's residency
+   * commit (`MEMORY_V3_COMMIT_META_KEY`) is therefore not invoked: a section
+   * the store claimed here would have no persisted body after a restart, so
+   * the injector would emit only a pointer for it. The injector attaches the
+   * commit to the turn's first produce alone, so the two sites agree.
+   */
+  reinjection?: boolean;
 }
 
 /**
@@ -2511,7 +2535,7 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
-  let memoryV3SpotlightCaptured: string | undefined;
+  let memoryV3PointerCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2541,29 +2565,14 @@ export async function applyRuntimeInjections(
         case "background-turn":
           backgroundTurnCaptured = block.text;
           break;
-        case MEMORY_V3_BLOCK_ID: {
-          // The v3 frozen card block is persisted UNWRAPPED (the v2
-          // `memoryInjectedBlock` contract — rehydration re-wraps on use).
-          // An empty-text block (all-repeat turn) attaches no content, so
-          // nothing is captured for persistence either.
-          if (block.text.length > 0) {
-            memoryV3Captured = unwrapMemoryBlock(block.text);
-          }
-          // Attachment is guaranteed from here (user tail — the gate this
-          // capture loop runs under), so commit the injector's deferred
-          // everInjected-store write. On a non-user tail the block silently
-          // no-ops in `applyInjectionBlock`, and skipping the commit keeps
-          // the store from claiming cards that never attached (which would
-          // suppress them until compaction).
-          const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
-          if (typeof commit === "function") {
-            (commit as () => void)();
-          }
+        case MEMORY_V3_BLOCK_ID:
+          // Captured and committed at its Step 2 splice, where the block's
+          // place on the tail (merged into a retried anchor's frozen block
+          // or spliced as its own) is decided.
           break;
-        }
-        case MEMORY_V3_SPOTLIGHT_BLOCK_ID:
+        case MEMORY_V3_POINTER_BLOCK_ID:
           if (block.text.length > 0) {
-            memoryV3SpotlightCaptured = block.text;
+            memoryV3PointerCaptured = block.text;
           }
           break;
       }
@@ -2584,18 +2593,43 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: tail spotlight strip + v2 tail suppression ──
+  // ── Step 0: tail pointer strip + tombstone strip + v2 tail suppression ──
   //
-  // Spotlight strip (tail only): mid-turn re-entry and post-compact can
-  // hand back a tail that already carries this turn's `<memory_spotlight>`.
-  // Strip that leftover from the tail so Step 2 splices a single fresh
-  // copy. Historical user messages keep the spotlight they were sent with,
-  // so the provider prefix through those messages stays byte-identical.
-  // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
-  // spotlight blocks exist and this is a content no-op.
+  // Pointer strip (tail only): mid-turn re-entry and post-compact can hand
+  // back a tail that already carries this turn's `<memory_pointer>`. Strip
+  // that leftover from the tail so Step 2 splices a single fresh copy.
+  // Historical user messages keep the pointer they were sent with, so the
+  // provider prefix through those messages stays byte-identical. Frozen
+  // `<memory>` section blocks are untouched. A legacy `<memory_spotlight>`
+  // that a row persisted by an earlier build rehydrated onto the tail is
+  // stripped the same way (that build tail-stripped it too). With the v3
+  // flag off no pointer blocks exist and this is a content no-op.
   let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(runMessages, [
-    MEMORY_SPOTLIGHT_MATCHER,
+    MEMORY_POINTER_MATCHER,
+    LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   ]);
+
+  // Tombstone strip (v3-owned blocks, every turn): the prune valve strips
+  // the sections it tombstones from the live history it is handed, but it
+  // runs on a timer while the turn that scheduled it may still be in
+  // flight, against a history that turn's block has not folded back into.
+  // A section pruned on the turn that injected it therefore rides back in
+  // untouched, and the valve does not run again while the footprint stays
+  // under the cap. Applying the store's full tombstone set (with the
+  // newest-copy rule) to the owned blocks here, the filter rehydration
+  // applies on load, converges the live history to the store by the next
+  // assembly whenever the valve ran. In place on the shared message
+  // objects, so the fold-back keeps it; idempotent and a no-op below the
+  // cap. Ownership is by identity (`isV3LiveBlock`), so v2 blocks and
+  // pre-cutover blocks are never touched.
+  const memoryV3Live = isMemoryV3Live(getConfig());
+  if (memoryV3Live) {
+    stripPrunedSectionsFromMessages(
+      runMessagesForAssembly,
+      getPrunedSections(conversationId),
+      getKnownCardBytes(conversationId),
+    );
+  }
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2603,22 +2637,21 @@ export async function applyRuntimeInjections(
   // fresh `<memory>` block to the tail user message — strip the TAIL's v2
   // dynamic prefix only, so the v3 `after-memory-prefix` block (Step 2) lands
   // at the top of the tail with no v2 prefix ahead of it. Historical user
-  // messages keep their memory blocks byte-identical: frozen v3 card blocks
-  // from prior turns AND pre-cutover v2 blocks both ride the cached prefix
-  // (the old whole-layer `stripAllMemoryInjections` replace is gone). The
-  // strip discriminates v2's dynamic block by IDENTITY ({@link
+  // messages keep their memory blocks byte-identical: frozen v3 section
+  // blocks from prior turns AND pre-cutover v2 blocks both ride the cached
+  // prefix (the old whole-layer `stripAllMemoryInjections` replace is gone).
+  // The strip discriminates v2's dynamic block by IDENTITY ({@link
   // stripTailV2DynamicMemoryPrefix}): the live graph handle holds the exact
   // text the wiring layer prepended this turn, so a re-entry tail's
-  // just-frozen v3 card block (and the `<info>` static block) survive even
+  // just-frozen v3 section block (and the `<info>` static block) survive even
   // though v2 and v3 blocks share identical wrapper + header bytes — the v2
   // prefix this strip exists to remove was already stripped on first entry.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
   // see no change. Flag off → bit-for-bit identical to the v2 path.
-  const suppressV2MemoryForV3 = isMemoryV3Live(getConfig());
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
-  const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
+  const memoryV3Active = memoryV3Live && v3ProducedBlock;
   if (memoryV3Active) {
     const v2DynamicText =
       getLiveGraphMemory(conversationId)?.lastInjectedBlockText ?? null;
@@ -2666,8 +2699,54 @@ export async function applyRuntimeInjections(
   // Ascending `order`: each splice lands at the memory-prefix boundary,
   // pushing any previously-spliced block one slot further from memory.
   // So higher-`order` blocks end up closer to the memory prefix.
+  //
+  // The v3 frozen section block is captured here, UNWRAPPED (the v2
+  // `memoryInjectedBlock` contract; rehydration re-wraps on use), and its
+  // deferred section-store commit runs here, once attachment is certain (a
+  // user tail; on any other tail `applyInjectionBlock` no-ops the block and
+  // a commit would claim sections that never attached, suppressing them
+  // until compaction). A turn re-run onto its original anchor row
+  // (`/conversations/:id/retry`) assembles onto a tail that already carries
+  // the first run's frozen block, rehydrated from the anchor's metadata:
+  // a current-format one takes the rerun's net-new entries
+  // (`mergeIntoAnchorBlock`), so the tail carries one merged block and the
+  // persisted block gives every section the store claims a body that
+  // rehydrates; a legacy-format one (a pre-stamp row) cannot take
+  // current-format entries under one metadata key, so the rerun's block
+  // rides the tail in memory only, uncaptured and uncommitted, the
+  // post-compaction no-claim shape: the next turn injects those sections
+  // net-new onto its own message and the newest-copy rule retires this
+  // copy. A re-injection assembly (`options.reinjection`) never commits:
+  // its block is never persisted, so the store must not claim sections
+  // whose only copy vanishes on restart. An empty-text block (all-repeat
+  // turn) attaches nothing and captures nothing.
   for (const block of afterMemory) {
-    result = applyInjectionBlock(result, block);
+    if (block.id !== MEMORY_V3_BLOCK_ID) {
+      result = applyInjectionBlock(result, block);
+      continue;
+    }
+    const tail = result[result.length - 1];
+    if (!tail || tail.role !== "user") {
+      continue;
+    }
+    if (block.text.length > 0) {
+      const merge = mergeIntoAnchorBlock(result, unwrapMemoryBlock(block.text));
+      if (merge.kind === "legacy") {
+        result = applyInjectionBlock(result, block);
+        continue;
+      }
+      if (merge.kind === "merged") {
+        result = merge.messages;
+        memoryV3Captured = merge.inner;
+      } else {
+        result = applyInjectionBlock(result, block);
+        memoryV3Captured = unwrapMemoryBlock(block.text);
+      }
+    }
+    const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
+    if (typeof commit === "function" && !options.reinjection) {
+      (commit as () => void)();
+    }
   }
 
   // ── Step 3: hardcoded branches that stayed outside the injector chain ──
@@ -2802,7 +2881,7 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
-      memoryV3SpotlightBlock: memoryV3SpotlightCaptured,
+      memoryV3PointerBlock: memoryV3PointerCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

@@ -129,6 +129,123 @@ including the v3 pair defined in `v3/injector.ts` — so `plugins/defaults/index
 imports the array and nothing else. A new tier injector is added to that array,
 never registered from the host.
 
+**v3 injection layers.** The v3 injection unit is the SECTION. Each turn the
+`memory-v3` injector renders every selected page's matched section (its lead
+when the page was selected without a match; a capability slug renders its
+whole capability content) into one frozen `<memory>` block, net-new only:
+`memory_v3_injected_sections` records one row per `(conversation, slug,
+section key)` ever injected, where the key is `v3/types.ts`'s `sectionKey()`
+(`""` for the lead, the trimmed heading title otherwise, `title#<n>` for the
+n-th repeat of a heading and `~<n>` appended for the n-th chunk of an over-long
+section, with literal `#` and `~` in titles doubled so the encoding is a
+bijection), and a resident pair is never re-rendered. The
+block's inner grammar is one `# memory/concepts/<slug>.md § <key>` header per
+section (the bare page header for a lead), owned by
+`substrate/injected-block-slugs.ts`. A chunk boundary is a producer header on
+a `\n\n` seam, and every renderer passes each chunk body through the module's
+`escapeInjectedBody` (one leading backslash on any line that would otherwise
+read as a boundary; `unescapeInjectedBody` is the exact inverse), so page or
+skill text can never forge one. The prune valve (`v3/prune.ts`), the
+`loadFromDb` rehydration filter, the truncated-fork seed (which measures each
+inherited section's bytes from its span, seeds inherited capability chunks at
+zero bytes as the injector records them, and takes frozen evidence from
+inherited legacy-format copies alone, so a later current re-injection of a
+lead never overwrites the length its legacy card parses by), and the inspector all read
+blocks through the module's `parseInjectedSections`, and every call states the
+block's rendering format (`InjectedBlockFormat`, `"legacy" | "current"`),
+which is explicit provenance and never inferred from content: the persisting
+build stamps `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT`, 2) beside `memoryV3InjectedBlock`, a row carrying the block without the stamp
+is legacy (exactly the pre-stamp rows; fork copies carry the stamp with the
+metadata), `persistedV3Block` reads both for rehydration and the fork seeder,
+and the identity registry records the format of every block in live history
+(the injector's own blocks are current; a spliced block keeps its row's). Under
+`"legacy"` the parser also recognises the compact-card shape earlier builds
+froze without escaping (header, page head, blank line, `[sections: …]` TOC
+line) so a header-shaped line inside such a card's lead stays card text unless
+the span from it to a later header is, byte for byte, the frozen card length
+the conversation recorded for that slug, and an open card whose own slug has a
+recorded length ends exactly that many bytes after its header (so a
+sectionless card, with no TOC line, still holds its lead together and the next
+boundary is the first header at that extent); under `"current"` only producer
+headers on seams split, whatever the frozen lengths say, so a lead plus a
+following chunk that happen to measure a migrated slug's old card length stay
+separate (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length the
+store's schema ensure copied in from `memory_v3_ever_injected` or the fork
+seeder took from an inherited legacy copy, which `recordInjected` never
+refreshes, so the evidence survives a prune and re-injection of the lead);
+page slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
+line inside such a lead likewise stays card text unless the capability slug it
+names is a recorded key (capability entries are recorded at zero bytes, so
+membership is the whole signal), and a `# Skills` line always does, since the
+hint chunk was never recorded. A page's lead injection carries its
+`[current: …]` annotation under the header, as the selector card does. The valve strips a pruned section
+by exactly its header span, in live history and at rehydration, drops the
+section's line from any `<memory_pointer>` that named it (a pointer left empty
+is dropped whole), and evicts by last selection recency with no lane
+exemptions. The live strip is idempotent over the conversation's full tombstone
+set and runs both in the valve and at runtime assembly Step 0 on every turn:
+the valve fires on a timer while the turn that scheduled it may still be in
+flight, so a section pruned on the turn that injected it folds back in
+afterwards, and the assembly strip removes it on the next turn. A pruned section that is re-selected re-injects as a fresh entry on
+the current message and its tombstone clears; the older copies still sit in
+earlier messages' metadata, so both filter points keep only each section's
+newest persisted copy (`newestCopyIndexes` / `filterResidentSections`), the one
+the live conversation holds, and a pointer line naming a section whose newest
+copy sits on a later message is dropped the same way
+(`filterResidentPointerEntries`). The live strip owns a `<memory>` block by object
+identity (`markV3LiveBlock` / `isV3LiveBlock` in `v3/types.ts`: the blocks
+assembly attaches, `loadFromDb` splices, and the strip rewrites), never by
+text, so a pre-cutover v2 block byte-identical to a v3 entry is left alone. Re-selected sections that are already resident are listed, paths
+only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block.
+Each turn's pointer stays on the user message that was sent with it (persisted
+under `memoryV3PointerBlock` and rehydrated on load, like the frozen sections);
+a fresh one is spliced only onto the new tail, and assembly tail-strips a
+leftover copy on mid-turn re-entry so nothing double-stacks and no historical
+message is ever rewritten. The user-prompt-submit hook's combined metadata
+update (`hooks/injection-metadata.ts`) states the turn's per-turn layout,
+deletions included: `memoryV3PointerBlock` is deleted when the turn produced
+no pointer and the legacy `memoryV3SpotlightBlock` always, while the frozen
+block key is written only when the turn rendered net-new sections. A retry
+re-runs a turn onto its original anchor row after a reload, and assembly
+strips the anchor's old pointer and spotlight from the tail before
+re-injecting, so the deletions keep a reload from restoring what the rerun
+discarded. The anchor's rehydrated frozen block stays on the tail: a
+current-format one takes the rerun's net-new entries (`mergeIntoAnchorBlock`
+in `v3/prune.ts`, at assembly's Step 2), so the tail carries one merged block
+(the first run's entries, then the rerun's) and the persisted block gives every
+section the store claims a body that rehydrates; a legacy-format one (a
+pre-stamp row) cannot take current-format entries under one key, so the
+rerun's block rides the tail in memory only, uncaptured and uncommitted, the
+post-compaction no-claim shape. A re-injection assembly (the post-compaction hook,
+which also serves the overflow ladder's rungs) attaches its blocks in memory
+only and never persists them. The injector's turn memo remembers what the
+turn's first produce rendered, and a re-entry re-emits those entries byte for
+byte (the hook's tail strip cleared their only copy while the store still
+counts them active), points at the pairs still active, renders anew the pairs
+a compaction's store reset left unclaimed, and skips pairs tombstoned since;
+its block carries no commit, and assembly withholds the commit on a
+`reinjection` assembly besides, so a turn's sections are recorded once, at the
+first-call site that persists them. The memo is an LRU over conversations
+(cap 256, counted over idle ones): an entry whose conversation is still
+processing (the loop's busy flag, the window every re-entry runs in) is never
+evicted, so a turn in flight keeps its re-entry bytes however many other
+conversations touch the process, and only idle conversations' memos leave; a
+burst of turns in flight can carry the map past the cap, and every touch
+after it, an insert or a refresh of a tracked conversation's entry, evicts
+idle entries until it fits again. After a compaction the re-rendered
+sections stay unclaimed: the next turn injects them net-new onto its own
+persisted user message, and the re-entry copy is superseded by the newest-copy
+rule at the following assembly; that rule reaches capability chunks too, under
+the identity the store records them by (the capability slug, empty key), so a
+re-entry copy of a skill or CLI command retires once a later turn persists the
+capability again. `memory_v3_ever_injected` is the superseded
+card-grain record: the section store's schema ensure (`v3/plugin-schema.ts`)
+copies its rows in as lead entries, and nothing reads or writes it. Rows written by builds that shipped the per-turn
+`<memory_spotlight>` layer carry `memoryV3SpotlightBlock`
+(`LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`): nothing writes it, and
+`loadFromDb` rehydrates it verbatim as inert history so those turns' prompts
+stay byte-identical across the upgrade.
+
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
 import disappears fails loudly instead of lingering. Related guards:
@@ -246,27 +363,46 @@ which outlives the v2 engine.
 
 Persisted rows; a rename orphans every existing install.
 
-| Table                             | Owner                               |
-| --------------------------------- | ----------------------------------- |
-| `memory_graph_nodes`              | all-tier (`graph/store.ts`)         |
-| `memory_graph_edges`              | all-tier                            |
-| `memory_graph_triggers`           | all-tier                            |
-| `memory_graph_node_edits`         | all-tier                            |
-| `memory_segments`                 | v1 indexing                         |
-| `memory_summaries`                | v1 indexing                         |
-| `memory_embeddings`               | shared embedding cache              |
-| `memory_checkpoints`              | shared (all durable checkpoints)    |
-| `memory_jobs`                     | shared job queue                    |
-| `memory_recall_logs`              | shared recall audit                 |
-| `conversation_graph_memory_state` | `graph/graph-memory-state-store.ts` |
-| `activation_state`                | v2 per-conversation activation      |
-| `memory_v2_activation_logs`       | v2 inspector/harness                |
-| `memory_v2_injection_events`      | v2 scoring feedback                 |
-| `memory_v3_selections`            | v3 selection log                    |
-| `memory_v3_pools`                 | v3 selector pool audit              |
-| `memory_v3_ever_injected`         | v3 card dedup                       |
-| `memory_retrospective_state`      | retrospective (tier-agnostic)       |
-| `activation_sessions`             | onboarding activation rail          |
+| Table                             | Owner                                                           |
+| --------------------------------- | --------------------------------------------------------------- |
+| `memory_graph_nodes`              | all-tier (`graph/store.ts`)                                     |
+| `memory_graph_edges`              | all-tier                                                        |
+| `memory_graph_triggers`           | all-tier                                                        |
+| `memory_graph_node_edits`         | all-tier                                                        |
+| `memory_segments`                 | v1 indexing                                                     |
+| `memory_summaries`                | v1 indexing                                                     |
+| `memory_embeddings`               | shared embedding cache                                          |
+| `memory_checkpoints`              | shared (all durable checkpoints)                                |
+| `memory_jobs`                     | shared job queue                                                |
+| `memory_recall_logs`              | shared recall audit                                             |
+| `conversation_graph_memory_state` | `graph/graph-memory-state-store.ts`                             |
+| `activation_state`                | v2 per-conversation activation                                  |
+| `memory_v2_activation_logs`       | v2 inspector/harness                                            |
+| `memory_v2_injection_events`      | v2 scoring feedback                                             |
+| `memory_v3_selections`            | v3 selection log (`section_key` column plugin-added, see below) |
+| `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
+| `memory_v3_injected_sections`     | v3 section dedup + prune accounting (plugin-created, see below) |
+| `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
+| `memory_retrospective_state`      | retrospective (tier-agnostic)                                   |
+| `activation_sessions`             | onboarding activation rail                                      |
+
+`memory_v3_pools` and `memory_v3_injected_sections` are the plugin's own
+tables, created by the plugin rather than by the global migration chain
+(`v3/plugin-schema.ts`): the memory plugin's `init` hook ensures both on every
+boot, and each store ensures again on the first use of a connection in its
+process (the memory worker is a separate process), idempotently and fail-open,
+so a memory database that cannot be opened degrades the stores to no-ops
+instead of failing database readiness. The sections ensure also copies the
+legacy `memory_v3_ever_injected` rows in as lead entries (`INSERT OR IGNORE`,
+plus the `frozen_card_bytes` column and backfill for a table created without
+it). `memory_v3_selections` itself is created by migration 338, but its
+`section_key` column is plugin-owned the same way: the selection log's writer
+(`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
+it on the first use of a connection, and the `init` hook at boot. Every
+selection row records its matched section's `sectionKey` beside the title and
+ordinal, and the inspector resolves a row by that key first (exactly, so a
+repeated heading's other occurrence is never substituted), falling back to
+title-then-ordinal only for rows written before the column existed.
 
 `memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
 selector's full candidate pool (every stable-prefix card and finder line, in
@@ -333,6 +469,13 @@ failure record and the section re-embed high-water:
   absent the maintain job re-embeds EVERY page, so losing or renaming it forces
   a full rebuild. Distinct from the `memory_v3_maintain_last_run` cadence key
   despite the shared prefix
+- `memory_v3_maintain:section_chunker_version`
+  (`v3/section-dense-store.ts`'s `SECTION_CHUNKER_VERSION_KEY`, current value
+  `SECTION_CHUNKER_VERSION`): the chunker version the stored section vectors
+  were built with. `ensureSectionChunkerVersion` (run by the maintain job and
+  the backfill before an embed pass) clears the high-water above on a
+  mismatch so the collection is rebuilt from every page, since point ids and
+  dense hits key on `(article, ordinal)`
 - v1: `graph_maintenance:{decay,consolidate,pattern_scan,narrative}:last_run`,
   `pkb_filing_last_run`, `pkb_compaction_last_run`,
   `graph_bootstrap:*`, `memory:backfill:*`
@@ -349,16 +492,16 @@ failure record and the section re-embed high-water:
 
 ### Wire-visible strings
 
-| Name                                                                                    | Kind                                  | Why frozen                                                          |
-| --------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
-| `memory_v2_consolidation`                                                               | `conversations.source` value          | persisted on every consolidation run                                |
-| `memory_retrospective`                                                                  | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
-| `skill-authored-card`                                                                   | message kind                          | persisted on skill-card messages                                    |
-| `memoryV2Consolidation`, `memoryRetrospective`                                          | LLM call-site ids                     | logging/attribution buckets                                         |
-| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
-| `memory-v2-static`                                                                      | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
-| `MEMORY_V2_DISABLED`                                                                    | error code                            | clients branch on it                                                |
-| `memory.v2.sweep`                                                                       | notification job identifier           | surfaced in `activity.failed`                                       |
+| Name                                                                                                                                                                                         | Kind                                  | Why frozen                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
+| `memory_v2_consolidation`                                                                                                                                                                    | `conversations.source` value          | persisted on every consolidation run                                |
+| `memory_retrospective`                                                                                                                                                                       | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
+| `skill-authored-card`                                                                                                                                                                        | message kind                          | persisted on skill-card messages                                    |
+| `memoryV2Consolidation`, `memoryRetrospective`                                                                                                                                               | LLM call-site ids                     | logging/attribution buckets                                         |
+| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3InjectedBlockFormat`, `memoryV3PointerBlock`, `memoryV3SpotlightBlock` (legacy, read-only), `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
+| `memory-v2-static`                                                                                                                                                                           | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
+| `MEMORY_V2_DISABLED`                                                                                                                                                                         | error code                            | clients branch on it                                                |
+| `memory.v2.sweep`                                                                                                                                                                            | notification job identifier           | surfaced in `activity.failed`                                       |
 
 ### HTTP surface
 

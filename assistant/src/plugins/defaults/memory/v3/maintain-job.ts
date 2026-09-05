@@ -83,6 +83,7 @@ import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
 import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
+  ensureSectionChunkerVersion as realEnsureSectionChunkerVersion,
   ensureSectionCollection as realEnsureSectionCollection,
   listSectionArticles as realListSectionArticles,
   MAINTAIN_EMBED_HIGH_WATER_KEY,
@@ -148,6 +149,13 @@ export interface MaintainJobDeps {
    * caller skips this when any page failed so failed pages retry next pass.
    */
   commitEmbedHighWater: (highWaterMs: number) => void;
+  /**
+   * Force a full re-embed when the section chunker version on record differs
+   * from the current one (see `ensureSectionChunkerVersion`). Runs after the
+   * collection is ensured and before deltas are selected, so the cleared
+   * high-water is what the selector reads.
+   */
+  ensureChunkerVersion: () => boolean;
   /**
    * Every distinct `article` slug that currently has section points in the
    * dense store. The prune stage diffs this against the live page-index slugs
@@ -216,6 +224,13 @@ export interface BackfillJobDeps {
    * failures. Skipped when any page failed so failed pages retry next pass.
    */
   commitEmbedHighWater: (highWaterMs: number) => void;
+  /**
+   * Force a full re-embed when the section chunker version on record differs
+   * from the current one (see `ensureSectionChunkerVersion`). Runs after the
+   * collection is ensured and before deltas are selected, so the cleared
+   * high-water is what the selector reads.
+   */
+  ensureChunkerVersion: () => boolean;
   /** Epoch-ms stamped as the new high-water mark; injectable for tests. */
   nowMs: () => number;
   /** Active assistant config (for the dense-store/embedding calls). */
@@ -386,6 +401,7 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     deleteSectionsForArticle: realDeleteSectionsForArticle,
     upsertSections: realUpsertSections,
     commitEmbedHighWater,
+    ensureChunkerVersion: realEnsureSectionChunkerVersion,
     listSectionArticles: () => realListSectionArticles(config),
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
     loadCoreSet: () => realLoadCoreSet(workspaceDir),
@@ -420,6 +436,7 @@ function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
     deleteSectionsForArticle: realDeleteSectionsForArticle,
     upsertSections: realUpsertSections,
     commitEmbedHighWater,
+    ensureChunkerVersion: realEnsureSectionChunkerVersion,
     nowMs: () => Date.now(),
     config,
     embedProbe: async () => {
@@ -698,6 +715,9 @@ export async function backfillAllSections(
 
   const slugs = await deps.selectAllPages();
   await deps.ensureSectionCollection(deps.config);
+  // The backfill re-embeds every page regardless; recording the chunker
+  // version here keeps the maintain job from forcing a second full pass.
+  deps.ensureChunkerVersion();
 
   // Pre-flight: smoke-test the embedding backend BEFORE any delete. Each article
   // is processed delete-then-upsert, so starting a full backfill against a down
@@ -845,6 +865,9 @@ export async function maintainJob(
     // cleared mark visible to `selectChangedPages`, turning this pass into the
     // full-corpus re-embed the recreate requires.
     await deps.ensureSectionCollection(deps.config);
+    // A chunker version change clears the high-water the same way, and for
+    // the same reason: the stored points no longer line up with the index.
+    deps.ensureChunkerVersion();
     const changed = await deps.selectChangedPages();
     const { reembedded, reembedFailures } = await reembedChangedPages(
       changed,

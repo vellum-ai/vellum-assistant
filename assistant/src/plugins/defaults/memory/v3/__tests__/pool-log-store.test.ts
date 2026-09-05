@@ -27,8 +27,8 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import { ensureMemoryV3PoolsSchema } from "../plugin-schema.js";
 import type {
   PoolCandidateRecord,
   PoolLane,

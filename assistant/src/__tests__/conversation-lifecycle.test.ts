@@ -66,7 +66,7 @@ mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-// `loadFromDb` reads the conversation's pruned v3 card slugs (prune valve)
+// `loadFromDb` reads the conversation's pruned v3 sections (prune valve)
 // when a row carries a `memoryV3InjectedBlock`. Stub the store read so these
 // tests never touch a real DB; the stub DELEGATES to the real implementation
 // unless this file is actively running (`mock.module` is process-global and
@@ -75,23 +75,31 @@ const realEverInjectedStore = {
   ...(await import("../plugins/defaults/memory/v3/ever-injected-store.js")),
 };
 let lifecycleStoreMockActive = false;
-let mockPrunedSlugs = new Set<string>();
+let mockPrunedSections = new Map<string, Set<string>>();
+let mockKnownCardBytes = new Map<string, number>();
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
-  getPrunedSlugs: (conversationId: string) =>
+  getPrunedSections: (conversationId: string) =>
     lifecycleStoreMockActive
-      ? mockPrunedSlugs
-      : realEverInjectedStore.getPrunedSlugs(conversationId),
+      ? mockPrunedSections
+      : realEverInjectedStore.getPrunedSections(conversationId),
+  getKnownCardBytes: (conversationId: string) =>
+    lifecycleStoreMockActive
+      ? mockKnownCardBytes
+      : realEverInjectedStore.getKnownCardBytes(conversationId),
 }));
 
 import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
+import { mergeMessageMetadata } from "../persistence/message-metadata.js";
+import { injectionMetadataUpdates } from "../plugins/defaults/memory/hooks/injection-metadata.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
-  mockPrunedSlugs = new Set();
+  mockPrunedSections = new Map();
+  mockKnownCardBytes = new Map();
 });
 
 afterAll(() => {
@@ -406,12 +414,213 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("pruned slugs' card sections are skipped at v3 rehydration (prune valve persistence)", async () => {
-    // The prune valve marks cards pruned in the everInjected store instead of
+  test("memoryV3PointerBlock rehydrates wrapped on ALL rows, after the v3 section block", async () => {
+    // Each turn's pointer persists as the wrapped block that was sent and
+    // comes back on the same row, tail included, so the provider prefix
+    // through historical turns stays byte-identical across a reload. Live
+    // assembly splices it immediately after the frozen sections.
+    mockConversation = defaultConv();
+    const pointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-a.md § Alpha\n</memory_pointer>";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          memoryV3PointerBlock: pointer,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail turn" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointer }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: pointer },
+      { type: "text", text: "First turn" },
+    ]);
+    // Tail row rehydrates too, with or without a section block beside it.
+    expect(messages[2].content).toEqual([
+      { type: "text", text: pointer },
+      { type: "text", text: "Tail turn" },
+    ]);
+  });
+
+  test("untrusted-actor view does not rehydrate memoryV3PointerBlock", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3PointerBlock:
+            "<memory_pointer>\nmemory/concepts/page-a.md\n</memory_pointer>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: "First" },
+    ]);
+  });
+
+  test("a pruned section's line is filtered out of a historical memoryV3PointerBlock; an all-pruned pointer is skipped", async () => {
+    // The pointer claims its sections are in context; once the valve removes
+    // one, the rehydrated pointer must stop naming it, the same way the
+    // frozen block below stops carrying it.
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map([["page-a", new Set(["Alpha"])]]);
+    const leadLine = "Already in context above, relevant again this turn:";
+    const pointerAB = `<memory_pointer>\n${leadLine}\nmemory/concepts/page-a.md § Alpha\nmemory/concepts/page-b.md\n</memory_pointer>`;
+    const pointerA = `<memory_pointer>\n${leadLine}\nmemory/concepts/page-a.md § Alpha\n</memory_pointer>`;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointerAB }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Second turn" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointerA }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: `<memory_pointer>\n${leadLine}\nmemory/concepts/page-b.md\n</memory_pointer>`,
+      },
+      { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: "Second turn" },
+    ]);
+  });
+
+  test("a legacy memoryV3SpotlightBlock from an earlier build rehydrates verbatim, in the pointer's slot, on ALL rows", async () => {
+    // Builds that shipped the per-turn spotlight persisted each turn's
+    // wrapped block under this key and rehydrated it on load. Keeping that
+    // exact behavior means the prompts those turns were sent with do not
+    // change after the upgrade, and neither does the cached prefix through
+    // them.
+    mockConversation = defaultConv();
+    const spotlight =
+      "<memory_spotlight>\n# memory/concepts/page-a.md § Alpha\nmatched section text\n</memory_spotlight>";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          memoryV3SpotlightBlock: spotlight,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail turn" }],
+        metadata: JSON.stringify({ memoryV3SpotlightBlock: spotlight }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: spotlight },
+      { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: spotlight },
+      { type: "text", text: "Tail turn" },
+    ]);
+  });
+
+  test("untrusted-actor view does not rehydrate a legacy memoryV3SpotlightBlock", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3SpotlightBlock:
+            "<memory_spotlight>\nmatched section text\n</memory_spotlight>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: "First" },
+    ]);
+  });
+
+  test("pruned sections are skipped at v3 rehydration (prune valve persistence)", async () => {
+    // The prune valve marks sections pruned in the section store instead of
     // rewriting the persisted metadata; the rehydration splice re-filters on
     // every load, which is what makes a prune survive restarts.
     mockConversation = defaultConv();
-    mockPrunedSlugs = new Set(["page-a"]);
+    mockPrunedSections = new Map([["page-a", new Set([""])]]);
     mockDbMessages = [
       {
         id: "m1",
@@ -442,9 +651,471 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("rehydration parses legacy cards with the conversation's recorded card bytes (a headless card after a sectionless one prunes alone)", async () => {
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map([["headless", new Set([""])]]);
+    const stub = "# memory/concepts/stub.md\n# Stub\njust a lead, no sections";
+    const headless =
+      "# memory/concepts/headless.md\nprose only, no title line\n\n[sections: §One]";
+    mockKnownCardBytes = new Map([
+      ["stub", Buffer.byteLength(stub, "utf8")],
+      ["headless", Buffer.byteLength(headless, "utf8")],
+    ]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${stub}\n\n${headless}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${stub}\n</memory>` },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("a memoryV3InjectedBlock stamped with the current format parses at its headers whatever the conversation's frozen card lengths say", async () => {
+    mockConversation = defaultConv();
+    const leadA = "# memory/concepts/page-a.md\nlead a";
+    const leadB = "# memory/concepts/page-b.md\nlead b";
+    // page-a was migrated from a card exactly as long as this lead-only
+    // block, and page-b's lead is pruned.
+    mockKnownCardBytes = new Map([
+      ["page-a", Buffer.byteLength(`${leadA}\n\n${leadB}`, "utf8")],
+    ]);
+    mockPrunedSections = new Map([["page-b", new Set([""])]]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${leadA}\n\n${leadB}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${leadA}\n</memory>` },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("the same block persisted without the format stamp is a legacy block: the frozen length holds the card together", async () => {
+    mockConversation = defaultConv();
+    const leadA = "# memory/concepts/page-a.md\nlead a";
+    const leadB = "# memory/concepts/page-b.md\nlead b";
+    mockKnownCardBytes = new Map([
+      ["page-a", Buffer.byteLength(`${leadA}\n\n${leadB}`, "utf8")],
+    ]);
+    mockPrunedSections = new Map([["page-b", new Set([""])]]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${leadA}\n\n${leadB}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // One card, page-a's, holding both leads: nothing named page-b to prune.
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: `<memory>\nheader line\n\n${leadA}\n\n${leadB}\n</memory>`,
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  // `/conversations/:id/retry` re-runs a turn onto its original anchor row
+  // after a reload; the user-prompt-submit hook then merges the rerun's
+  // `injectionMetadataUpdates` into the row through `mergeMessageMetadata`.
+  // These build the row the same way and reload it.
+  test("retry: a rerun that injects a section body without a pointer leaves no stale pointer for the reload to restore", async () => {
+    mockConversation = defaultConv();
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock:
+        "header line\n\n# memory/concepts/page-a.md\nhead a",
+      memoryV3InjectedBlockFormat: 2,
+      memoryV3PointerBlock:
+        "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-b.md\n</memory_pointer>",
+    });
+    // page-b's lead was pruned since, so the rerun injected its body and
+    // pointed at nothing.
+    const rerun = injectionMetadataUpdates(
+      {
+        memoryV3Active: true,
+        memoryV3InjectedBlock:
+          "header line\n\n# memory/concepts/page-b.md\nhead b",
+      },
+      false,
+    )!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("retry: a rerun with net-new sections persists the anchor's block merged with them, so a reload rehydrates both runs' sections once", async () => {
+    mockConversation = defaultConv();
+    const firstBlock = "header line\n\n# memory/concepts/page-a.md\nhead a";
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock: firstBlock,
+      memoryV3InjectedBlockFormat: 2,
+    });
+    // Assembly merged the rerun's net-new entry into the anchor's block and
+    // captured the merged block for persistence.
+    const rerun = injectionMetadataUpdates(
+      {
+        memoryV3Active: true,
+        memoryV3InjectedBlock: `${firstBlock}\n\n# memory/concepts/page-b.md\nhead b`,
+      },
+      false,
+    )!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: `<memory>\n${firstBlock}\n\n# memory/concepts/page-b.md\nhead b\n</memory>`,
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("retry on a spotlight-era anchor: an all-repeat rerun keeps the frozen block and drops the discarded spotlight", async () => {
+    mockConversation = defaultConv();
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock:
+        "header line\n\n# memory/concepts/page-a.md\nhead a",
+      memoryV3SpotlightBlock:
+        "<memory_spotlight>\n# memory/concepts/page-a.md § Alpha\nmatched section text\n</memory_spotlight>",
+    });
+    const rerun = injectionMetadataUpdates({ memoryV3Active: true }, false)!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("retry: a rerun that points again replaces the anchor's old pointer", async () => {
+    mockConversation = defaultConv();
+    const block = "header line\n\n# memory/concepts/page-a.md\nhead a";
+    const oldPointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-b.md\n</memory_pointer>";
+    const newPointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-c.md\n</memory_pointer>";
+    const firstRun = JSON.stringify({
+      memoryV3InjectedBlock: block,
+      memoryV3InjectedBlockFormat: 2,
+      memoryV3PointerBlock: oldPointer,
+    });
+    const rerun = injectionMetadataUpdates(
+      { memoryV3Active: true, memoryV3PointerBlock: newPointer },
+      false,
+    )!;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: mergeMessageMetadata(firstRun, rerun),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\n${block}\n</memory>` },
+      { type: "text", text: newPointer },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("a capability chunk persisted again on a later row supersedes the earlier row's copy at rehydration; the earlier row's section stays", async () => {
+    mockConversation = defaultConv();
+    const cli = "# CLI command: export\nExport a conversation.";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n# memory/concepts/page-a.md\nhead a\n\n${cli}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Second turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${cli}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${cli}\n</memory>` },
+      { type: "text", text: "Second turn" },
+    ]);
+  });
+
+  test("a section re-injected after a prune rehydrates once, on the re-injecting message; the older copy is superseded", async () => {
+    // Turn 1 injected page-a's lead, the valve pruned it, turn 8 re-injected
+    // it (tombstone cleared, so the pruned set is empty). Turn 1's metadata
+    // still carries the old copy; only turn 8's copy is the live one.
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map();
+    const oldCopy = "# memory/concepts/page-a.md\n# Page A\nold lead text";
+    const newCopy = "# memory/concepts/page-a.md\n# Page A\nnew lead text";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Turn 1" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${oldCopy}\n\n# memory/concepts/page-b.md\nhead b`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m8",
+        role: "user",
+        content: [{ type: "text", text: "Turn 8" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${newCopy}`,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "Turn 1" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${newCopy}\n</memory>` },
+      { type: "text", text: "Turn 8" },
+    ]);
+  });
+
+  test("a pre-cutover v2 block byte-identical to a later v3 lead is rehydrated untouched and the v3 copy stays resident", async () => {
+    // The newest-copy pre-pass keys on v3 metadata rows only, so a v2
+    // `memoryInjectedBlock` whose text equals a later v3 lead entry is never
+    // counted as an older copy of it.
+    mockConversation = defaultConv();
+    const entry = "# memory/concepts/page-a.md\n# Page A\nthe same lead text";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Before cutover" }],
+        metadata: JSON.stringify({
+          memoryInjectedBlock: `header line\n\n${entry}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "After cutover" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${entry}`,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${entry}\n</memory>` },
+      { type: "text", text: "Before cutover" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${entry}\n</memory>` },
+      { type: "text", text: "After cutover" },
+    ]);
+  });
+
+  test("a pointer written before its section's re-injection loses that line at rehydration; a later pointer keeps it", async () => {
+    // Turn 1 injected page-a's lead, turn 3 pointed at it, the valve pruned
+    // it (stripping turn 3's line live), turn 8 re-injected it (tombstone
+    // cleared), turn 10 pointed at it again. After a restart, turn 3's
+    // pointer must not claim a section whose only copy is further down.
+    mockConversation = defaultConv();
+    mockPrunedSections = new Map();
+    const leadLine = "Already in context above, relevant again this turn:";
+    const pointer = `<memory_pointer>\n${leadLine}\nmemory/concepts/page-a.md\n</memory_pointer>`;
+    const block = (text: string) =>
+      `header line\n\n# memory/concepts/page-a.md\n# Page A\n${text}`;
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Turn 1" }],
+        metadata: JSON.stringify({ memoryV3InjectedBlock: block("old lead") }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Turn 3" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointer }),
+      },
+      {
+        id: "m4",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m8",
+        role: "user",
+        content: [{ type: "text", text: "Turn 8" }],
+        metadata: JSON.stringify({ memoryV3InjectedBlock: block("new lead") }),
+      },
+      {
+        id: "m9",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m10",
+        role: "user",
+        content: [{ type: "text", text: "Turn 10" }],
+        metadata: JSON.stringify({ memoryV3PointerBlock: pointer }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([{ type: "text", text: "Turn 1" }]);
+    expect(messages[2].content).toEqual([{ type: "text", text: "Turn 3" }]);
+    expect(messages[4].content).toEqual([
+      { type: "text", text: `<memory>\n${block("new lead")}\n</memory>` },
+      { type: "text", text: "Turn 8" },
+    ]);
+    expect(messages[6].content).toEqual([
+      { type: "text", text: pointer },
+      { type: "text", text: "Turn 10" },
+    ]);
+  });
+
   test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
     mockConversation = defaultConv();
-    mockPrunedSlugs = new Set(["page-a"]);
+    mockPrunedSections = new Map([["page-a", new Set([""])]]);
     mockDbMessages = [
       {
         id: "m1",

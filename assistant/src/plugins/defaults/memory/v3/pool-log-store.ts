@@ -31,6 +31,10 @@
 import { getLogger } from "../logging.js";
 import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
+import {
+  ensureMemoryV3PoolsSchema,
+  ensureOncePerConnection,
+} from "./plugin-schema.js";
 import type { FinderLane, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-pool-log");
@@ -132,6 +136,27 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
 }
 
 /**
+ * Ensure the store's table on `raw` once per connection in this process
+ * (see `plugin-schema.ts`): idempotent DDL, fail-open.
+ */
+const ensurePoolsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3PoolsSchema,
+  "failed to ensure memory_v3_pools; pool logging degraded",
+);
+
+/**
+ * Ensure the store's table on the memory connection of this process, for the
+ * memory plugin's `init` hook. No-op when the connection is unavailable (the
+ * store degrades to no-ops as on any turn).
+ */
+export function ensureMemoryV3PoolsStore(): void {
+  const raw = memorySqliteOrNull("ensureMemoryV3PoolsStore");
+  if (raw) {
+    ensurePoolsSchemaOnce(raw);
+  }
+}
+
+/**
  * Write the turn's pool row on `raw`. The PK is `(conversation_id, turn)`,
  * so a re-observed turn overwrites its row, with `message_id` reset to NULL
  * for the turn-end backfill. Throws on a failed statement: `writeTurnLog` in
@@ -144,6 +169,7 @@ export function writePool(
   turn: number,
   record: PoolRecord,
 ): void {
+  ensurePoolsSchemaOnce(raw);
   raw
     .query(
       /*sql*/ `
@@ -205,6 +231,7 @@ function readPool(
   if (!raw) {
     return null;
   }
+  ensurePoolsSchemaOnce(raw);
   try {
     const row = select(raw);
     return row ? toStoredPool(row) : null;

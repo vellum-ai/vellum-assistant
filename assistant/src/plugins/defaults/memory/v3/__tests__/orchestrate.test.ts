@@ -604,7 +604,7 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
       ["topic-b", "reply"],
       ["topic-d", "edge"],
     ]);
-    // The reply-matched section is recorded for injection/spotlight.
+    // The reply-matched section is recorded for injection.
     expect(result.matchedSections.has("topic-b")).toBe(true);
   });
 
@@ -1583,7 +1583,7 @@ describe("orchestrate — injection gate", () => {
       makeTurn(1, "apple"),
       depsOf(lanes, {
         denseK: 100,
-        activeSlugs: new Set<Slug>(["topic-a"]),
+        isResident: (slug) => slug === "topic-a",
         gateConfig: gateConfigOf(),
       }),
     );
@@ -1594,7 +1594,7 @@ describe("orchestrate — injection gate", () => {
     });
   });
 
-  test("net_new_count is omitted when activeSlugs is not threaded", async () => {
+  test("net_new_count is omitted when isResident is not threaded", async () => {
     const lanes = await buildLanes();
     denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
     providerStub = selectProvider(["topic-a"]);
@@ -1860,7 +1860,7 @@ describe("orchestrate — span-query pass", () => {
     expect(result.lanes.finder.filter((c) => c.slug === "topic-a").length).toBe(
       1,
     );
-    // The span hit's matched section is recorded for injection/spotlight.
+    // The span hit's matched section is recorded for injection.
     expect(result.matchedSections.get("topic-d")?.article).toBe("topic-d");
     expect(result.matchedSections.get("topic-d")?.text).toContain(
       "lead for topic d",

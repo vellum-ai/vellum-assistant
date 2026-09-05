@@ -86,6 +86,15 @@ export function seedRelocatedMemoryRow(
         )
         .run(conversationId, now);
       return;
+    case "memory_v3_injected_sections":
+      raw
+        .query(
+          `INSERT INTO memory_v3_injected_sections
+             (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
+           VALUES (?, 'domain/page', '', ?, 0, NULL)`,
+        )
+        .run(conversationId, now);
+      return;
     case "memory_retrospective_state":
       raw
         .query(

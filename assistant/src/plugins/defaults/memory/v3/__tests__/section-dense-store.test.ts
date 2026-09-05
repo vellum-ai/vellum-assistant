@@ -219,12 +219,18 @@ mock.module("@qdrant/js-client-rest", () => ({
 // Records the checkpoint clears `ensureSectionCollection` performs when it
 // (re)creates an empty collection, so tests can assert the embed high-water is
 // reset (which sends the next maintain pass down its full-corpus re-embed path).
-const checkpointState = { deletes: [] as string[] };
+const checkpointState = {
+  deletes: [] as string[],
+  values: new Map<string, string>(),
+};
 mock.module("../../../../../persistence/checkpoints.js", () => ({
-  getMemoryCheckpoint: () => null,
-  setMemoryCheckpoint: () => undefined,
+  getMemoryCheckpoint: (key: string) => checkpointState.values.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string) => {
+    checkpointState.values.set(key, value);
+  },
   deleteMemoryCheckpoint: (key: string) => {
     checkpointState.deletes.push(key);
+    checkpointState.values.delete(key);
   },
 }));
 
@@ -234,7 +240,10 @@ const {
   deleteSectionsForArticle,
   listSectionArticles,
   SECTION_COLLECTION,
+  ensureSectionChunkerVersion,
   MAINTAIN_EMBED_HIGH_WATER_KEY,
+  SECTION_CHUNKER_VERSION,
+  SECTION_CHUNKER_VERSION_KEY,
   _resetSectionDenseStoreForTests,
 } = await import("../section-dense-store.js");
 
@@ -757,5 +766,61 @@ describe("memory v3 section-dense-store — listSectionArticles", () => {
     const articles = await listSectionArticles(CONFIG);
 
     expect(articles).toEqual([]);
+  });
+});
+
+describe("memory v3 section-dense-store: chunker version guard", () => {
+  const reset = () => {
+    checkpointState.deletes.length = 0;
+    checkpointState.values.clear();
+  };
+
+  test("a recorded older version clears the embed high-water exactly once and records the current version", () => {
+    reset();
+    checkpointState.values.set(SECTION_CHUNKER_VERSION_KEY, "1");
+    checkpointState.values.set(MAINTAIN_EMBED_HIGH_WATER_KEY, "1700000000000");
+
+    expect(ensureSectionChunkerVersion()).toBe(true);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+    expect(checkpointState.values.get(SECTION_CHUNKER_VERSION_KEY)).toBe(
+      String(SECTION_CHUNKER_VERSION),
+    );
+    // The next pass sees the recorded version and leaves everything alone.
+    checkpointState.values.set(MAINTAIN_EMBED_HIGH_WATER_KEY, "1700000001000");
+    expect(ensureSectionChunkerVersion()).toBe(false);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+    expect(checkpointState.values.get(MAINTAIN_EMBED_HIGH_WATER_KEY)).toBe(
+      "1700000001000",
+    );
+  });
+
+  test("an install that predates the version key (high-water present, no version) rebuilds once", () => {
+    reset();
+    checkpointState.values.set(MAINTAIN_EMBED_HIGH_WATER_KEY, "1700000000000");
+
+    expect(ensureSectionChunkerVersion()).toBe(true);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+    expect(checkpointState.values.has(MAINTAIN_EMBED_HIGH_WATER_KEY)).toBe(
+      false,
+    );
+    expect(ensureSectionChunkerVersion()).toBe(false);
+  });
+
+  test("a matching version does nothing; a fresh install records the version without a rebuild", () => {
+    reset();
+    checkpointState.values.set(
+      SECTION_CHUNKER_VERSION_KEY,
+      String(SECTION_CHUNKER_VERSION),
+    );
+    checkpointState.values.set(MAINTAIN_EMBED_HIGH_WATER_KEY, "1700000000000");
+    expect(ensureSectionChunkerVersion()).toBe(false);
+    expect(checkpointState.deletes).toEqual([]);
+
+    reset();
+    expect(ensureSectionChunkerVersion()).toBe(false);
+    expect(checkpointState.deletes).toEqual([]);
+    expect(checkpointState.values.get(SECTION_CHUNKER_VERSION_KEY)).toBe(
+      String(SECTION_CHUNKER_VERSION),
+    );
   });
 });

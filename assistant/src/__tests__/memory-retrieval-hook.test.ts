@@ -459,7 +459,9 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
-    expect(updateMessageMetadataMock.mock.calls).toEqual([
+    // Strict: an `undefined` value is a deletion the merge must carry, and
+    // `toEqual` would ignore it.
+    expect(updateMessageMetadataMock.mock.calls).toStrictEqual([
       ["msg-43", { memoryInjectedBlock: "v2-block-superseded" }],
       [
         "msg-43",
@@ -468,6 +470,44 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
           // ends with the two memory layers mutually exclusive per row.
           memoryInjectedBlock: undefined,
           memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+          memoryV3InjectedBlockFormat: 2,
+          // No pointer this turn, so a retry re-running onto this row
+          // (which still carries its first run's pointer) leaves none; the
+          // legacy spotlight key is always dropped.
+          memoryV3PointerBlock: undefined,
+          memoryV3SpotlightBlock: undefined,
+        },
+      ],
+    ]);
+  });
+
+  test("memory-v3 active with a pointer → the pointer is persisted and replaces a retried row's old one", async () => {
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: null,
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    const pointer =
+      "<memory_pointer>\nAlready in context above, relevant again this turn:\nmemory/concepts/page-c.md\n</memory_pointer>";
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: { memoryV3Active: true, memoryV3PointerBlock: pointer },
+      }),
+    );
+    const ctx = makeHookCtx({ userMessageId: "msg-46" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    // An all-repeat turn: the row's frozen block key is untouched (no
+    // `memoryV3InjectedBlock` in the update), the pointer is written over
+    // whatever the row held, the legacy spotlight key is dropped.
+    expect(updateMessageMetadataMock.mock.calls).toStrictEqual([
+      [
+        "msg-46",
+        {
+          memoryV3PointerBlock: pointer,
+          memoryV3SpotlightBlock: undefined,
         },
       ],
     ]);
@@ -491,9 +531,19 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
-    expect(updateMessageMetadataMock.mock.calls).toEqual([
+    expect(updateMessageMetadataMock.mock.calls).toStrictEqual([
       ["msg-44", { memoryInjectedBlock: "v2-block-superseded" }],
-      ["msg-44", { memoryInjectedBlock: undefined }],
+      [
+        "msg-44",
+        {
+          memoryInjectedBlock: undefined,
+          // The frozen block key is absent from the update (a retried row
+          // keeps its first run's block); the per-turn keys the rerun did
+          // not produce are deleted.
+          memoryV3PointerBlock: undefined,
+          memoryV3SpotlightBlock: undefined,
+        },
+      ],
     ]);
   });
 
