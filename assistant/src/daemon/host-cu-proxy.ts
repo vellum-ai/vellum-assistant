@@ -29,6 +29,7 @@ import {
   pickSameUserAutoResolve,
 } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -247,7 +248,13 @@ export class HostCuProxy {
       });
     }
 
-    if (this._stepCount > this._maxSteps) {
+    // Pointing at the screen is outside this budget in both directions: it
+    // does not advance the count, and it is not stopped by it. The budget
+    // bounds an agent driving the machine, and pointing drives nothing. The
+    // clearing case is the one that makes this necessary rather than tidy: a
+    // conversation that had spent its steps could otherwise be left unable to
+    // take down a mark it had already put on the user's screen.
+    if (toolName !== POINT_AT_PROXY_TOOL && this._stepCount > this._maxSteps) {
       return Promise.resolve({
         content: `Step limit (${this._maxSteps}) exceeded. Call computer_use_done to finish.`,
         isError: true,
