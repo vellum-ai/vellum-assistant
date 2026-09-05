@@ -168,11 +168,11 @@ export interface DisplayMessage {
    *  Mirrors `ConversationMessage["noResponse"]`; renders as a quiet marker
    *  and counts as the turn's reply. */
   isNoResponse?: boolean;
-  /** What this row's plain text was to the user who saw the turn. Mirrors
+  /** Whether this row's plain text is something the user reads. Mirrors
    *  `ConversationMessage["assistantTextVisibility"]` and the same field on
    *  `message_complete`; `"private"` marks a row whose prose is a scratchpad
-   *  the daemon already projected into thinking blocks. A property of the row,
-   *  not of any current setting, so history renders the way it was written. */
+   *  the daemon projects into thinking blocks. A property of the row, so each
+   *  row renders by its own marker rather than by any current setting. */
   assistantTextVisibility?: AssistantTextVisibility;
   /** Reaction row, either direction. Mirrors `ConversationMessage["reaction"]`;
    *  renders as a reaction line, never the stored sentinel text. */

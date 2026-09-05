@@ -185,10 +185,9 @@ describe("mapRuntimeToDisplayMessage", () => {
   });
 
   test("carries the assistant-text visibility marker onto the display message", () => {
-    // The marker is the row's own, so every row in a conversation renders the
-    // way the turn that wrote it was run. An unmarked row (written before the
-    // gate, or by a daemon that predates the marker) stays unmarked, and an
-    // unrecognized value is read as no marker rather than guessed at.
+    // The marker is the row's own, so each row in a conversation renders by
+    // its own value. An unmarked row stays unmarked, and an unrecognized value
+    // reads as no marker rather than being guessed at.
     const plain = makeMessage({ id: "m-plain", role: "assistant" });
     expect(
       mapRuntimeToDisplayMessage(plain).assistantTextVisibility,

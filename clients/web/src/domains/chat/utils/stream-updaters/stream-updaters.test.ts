@@ -398,7 +398,7 @@ describe("finalizeMessageComplete", () => {
   });
 
   it("stamps the assistant-text visibility marker onto the live row", () => {
-    // The live row carries the same marker its persisted twin will, so the
+    // The live row carries the same marker its persisted twin does, so the
     // transcript renders it the same way with no refetch in between.
     const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
 

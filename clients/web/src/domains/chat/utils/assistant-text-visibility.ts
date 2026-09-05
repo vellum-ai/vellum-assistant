@@ -1,29 +1,27 @@
 /**
- * What an assistant row's plain text was to the user who saw the turn.
+ * Whether an assistant row's plain text is something the user reads.
  *
- * - `"private"`: the turn routed its reply through `send_user_message`, so the
- *   prose is a working scratchpad the user never read. The daemon projects such
- *   a row before it ships it: raw text arrives as `thinking` blocks and each
+ * - `"private"`: the row's reply travels through `send_user_message`, so its
+ *   prose is a working scratchpad. The daemon projects such a row before it
+ *   ships it: the prose arrives as `thinking` blocks and each
  *   `send_user_message` call as the `text` block carrying its message.
- * - `"visible"`: the turn ran under the tool gate but ended without ever
- *   calling the tool, so its raw text was surfaced as the fallback reply.
+ * - `"visible"`: the row's own plain text is its reply.
  *
- * Absent on every other row, which is every row today: a call, a subagent leg,
- * a turn written before the gate, or a turn from a daemon that predates the
- * marker. Absent means "shipped behavior", so nothing has to know why.
+ * No marker means the standard transcript rendering, which is what a row
+ * without one gets.
  */
 export type AssistantTextVisibility = "private" | "visible";
 
 /**
- * Read the marker off a wire payload that may carry it: a history
+ * Read the marker off a wire payload that carries one: a history
  * `ConversationMessage` or a `message_complete` event. Anything but the two
- * known values answers `undefined`, so an unmarked row, an older daemon, and a
- * value this client does not recognize all degrade to the shipped rendering
- * rather than hiding or restyling a reply.
+ * known values answers `undefined`, so an unmarked row and a value this client
+ * does not recognize both render the standard way rather than hiding or
+ * restyling a reply.
  *
  * The read goes through the payload's runtime shape because the field is the
- * daemon's to declare, and this client must render correctly against daemons
- * on either side of it.
+ * daemon's to declare, and this client renders correctly whether or not a
+ * given daemon sends it.
  */
 export function readAssistantTextVisibility(
   payload: unknown,

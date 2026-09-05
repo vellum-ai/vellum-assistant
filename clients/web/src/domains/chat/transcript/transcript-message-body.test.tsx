@@ -797,8 +797,8 @@ describe("TranscriptMessageBody", () => {
   });
 
   test("renders all activity inline for a row marked private", () => {
-    // The row's prose is a scratchpad and its reply was a deliberate
-    // `send_user_message`, so there is no "earlier" prose to fold.
+    // The row's prose is a scratchpad and its reply is a deliberate
+    // `send_user_message` call, so there is no "earlier" prose to fold.
     const { queryByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
@@ -826,10 +826,9 @@ describe("TranscriptMessageBody", () => {
   });
 
   test("still collapses a row carrying no visibility marker", () => {
-    // A row written before the gate, or by a daemon that predates the marker,
-    // sits beside private rows in the same conversation and keeps the shipped
-    // rendering. The decision is the row's, so nothing about the assistant's
-    // current settings reaches it.
+    // An unmarked row sits beside private rows in the same conversation and
+    // keeps the standard rendering. The decision is the row's, so nothing
+    // about the assistant's current settings reaches it.
     const { getByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
@@ -855,9 +854,8 @@ describe("TranscriptMessageBody", () => {
   });
 
   test("still collapses a fallback row marked visible", () => {
-    // A tool-gated turn that ended without ever calling the tool surfaced its
-    // raw text as the reply, so that text is prose the user read and the
-    // shipped folding applies to it unchanged.
+    // A row marked visible carries its own plain text as the reply, so that
+    // text is prose the user reads and the standard folding applies to it.
     const { getByRole } = render(
       <TranscriptMessageBody
         message={{

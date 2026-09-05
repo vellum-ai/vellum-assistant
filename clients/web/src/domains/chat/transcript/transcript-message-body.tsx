@@ -1180,11 +1180,10 @@ export function TranscriptMessageBody({
   );
   // Two reasons no group is collapsible, after which the whole response
   // renders inline at full size and none of the collapsed styling applies: the
-  // per-user opt-out, and a row whose prose the daemon marked private, which
-  // reaches here already projected into thinking blocks with the reply as its
-  // own text, leaving no "earlier" prose to fold away. Read off the row rather
-  // than off a current setting, so every row in a conversation renders the way
-  // the turn that wrote it was run.
+  // per-user opt-out, and a row the daemon marks private, whose prose arrives
+  // projected into thinking blocks with the reply as its own text, leaving no
+  // "earlier" prose to fold away. The second reason is the row's own marker,
+  // so each row in a conversation stands on its own.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
     if (
       inlineAssistantIntermediates ||

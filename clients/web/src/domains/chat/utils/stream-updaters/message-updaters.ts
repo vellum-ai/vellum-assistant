@@ -376,9 +376,9 @@ export function finalizeMessageComplete(
 ): DisplayMessage[] {
   const last = prev[prev.length - 1];
   const attachments = toDisplayAttachments(event.attachments);
-  // What the turn did with its plain text, stamped on the live row from the
-  // same event so it renders the way its persisted twin will, with no refetch
-  // in between.
+  // Whether the row's plain text is something the user reads, stamped on the
+  // live row from the same event that finalizes it, so it renders the way its
+  // persisted twin does with no refetch in between.
   const assistantTextVisibility = readAssistantTextVisibility(event);
   const visibility = assistantTextVisibility ? { assistantTextVisibility } : {};
 
