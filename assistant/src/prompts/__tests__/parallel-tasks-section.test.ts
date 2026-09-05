@@ -48,27 +48,30 @@ describe("parallel-tasks system prompt section", () => {
     expect(sortedIds[index + 1]).toBe("01-parallel-tool-calls");
   });
 
-  test("renders by default, with no options required", () => {
-    expect(buildSystemPrompt()).toContain(HEADING);
-    expect(buildSystemPrompt({ hasNoClient: true })).toContain(HEADING);
+  test("renders for a turn that can spawn subagents", () => {
     expect(buildSystemPrompt({ canSpawnSubagents: true })).toContain(HEADING);
+    expect(
+      buildSystemPrompt({ canSpawnSubagents: true, hasNoClient: true }),
+    ).toContain(HEADING);
   });
 
-  test("renders off for a turn that cannot spawn subagents", () => {
-    // The shape a tool-disabled `/v1/btw` side-chain and a restricted-tool
-    // workflow leaf build: telling them to delegate would make them defer work
-    // they can only do inline.
-    expect(buildSystemPrompt({ canSpawnSubagents: false })).not.toContain(
-      HEADING,
-    );
-    // The rest of the prompt is untouched by the opt-out.
-    expect(buildSystemPrompt({ canSpawnSubagents: false })).toContain(
-      "<use_parallel_tool_calls>",
-    );
+  test("renders off unless the turn states it can spawn", () => {
+    // Absent means no: a prompt built outside a turn (a tool-disabled
+    // side-chain, a one-shot generator) never carries guidance it cannot act
+    // on. The live turn answers from its resolved tool surface.
+    for (const options of [
+      undefined,
+      { hasNoClient: true },
+      { canSpawnSubagents: false },
+    ]) {
+      expect(buildSystemPrompt(options)).not.toContain(HEADING);
+      // The rest of the prompt is untouched either way.
+      expect(buildSystemPrompt(options)).toContain("<use_parallel_tool_calls>");
+    }
   });
 
   test("delegates only independent tasks and keeps small requests inline", () => {
-    const prompt = buildSystemPrompt();
+    const prompt = buildSystemPrompt({ canSpawnSubagents: true });
     expect(prompt).toContain("several independent things at once");
     expect(prompt).toContain("subagent");
     expect(prompt).toContain("Keep small, quick requests inline");
@@ -77,7 +80,7 @@ describe("parallel-tasks system prompt section", () => {
   test("keeps approval-gated work on the assistant's own turn", () => {
     // A subagent runs non-interactive, so an operation that needs the user's
     // approval is denied there rather than prompting.
-    const prompt = buildSystemPrompt();
+    const prompt = buildSystemPrompt({ canSpawnSubagents: true });
     expect(prompt).toContain("may need the user's approval on your own turn");
   });
 });

@@ -924,6 +924,41 @@ export function isToolActiveForContext(
   return true;
 }
 
+/** The spawn tool, carried by the bundled `subagent` skill. */
+const SUBAGENT_SPAWN_TOOL_NAME = "subagent_spawn";
+/** The tool that activates a skill, and so the route to the spawn tool. */
+const SKILL_LOAD_TOOL_NAME = "skill_load";
+
+/**
+ * Whether this turn could actually spawn a subagent, read off the resolved
+ * tool surface rather than assumed.
+ *
+ * The spawn tool ships inside the bundled `subagent` skill, so on an ordinary
+ * turn it is reachable rather than already present: the answer is yes when the
+ * spawn tool is not excluded and the turn can still reach it, either because it
+ * is on the surface already or because `skill_load` is. Both names run through
+ * {@link isToolActiveForContext}, so a turn with tools disabled, a read-only
+ * subagent pass, or a wire-scoped background run whose `allowedTools` omits
+ * them all answer no, as does a workspace `tools.exclude` entry.
+ *
+ * The system prompt's delegation guidance gates on this: telling a turn to hand
+ * work to subagents it cannot spawn invites it to defer work it must do inline.
+ */
+export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
+  let excluded: ReadonlySet<string>;
+  try {
+    excluded = new Set(getConfig().tools.exclude);
+  } catch {
+    excluded = new Set<string>();
+  }
+  if (excluded.has(SUBAGENT_SPAWN_TOOL_NAME)) {
+    return false;
+  }
+  const canReach = (name: string): boolean =>
+    !excluded.has(name) && isToolActiveForContext(name, ctx);
+  return canReach(SUBAGENT_SPAWN_TOOL_NAME) || canReach(SKILL_LOAD_TOOL_NAME);
+}
+
 /**
  * Build a resolveTools callback that merges base tool definitions with
  * dynamically projected skill tools on each agent turn. Also updates

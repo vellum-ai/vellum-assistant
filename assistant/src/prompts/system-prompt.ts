@@ -420,13 +420,15 @@ export interface BuildSystemPromptOptions {
    */
   conversationId?: string;
   /**
-   * Whether the turn this prompt serves can actually spawn subagents. Defaults
-   * to true, which is every ordinary turn. A caller that disables or restricts
-   * tools passes `false` so the parallel-delegation section renders off:
-   * telling a model to hand work to subagents it cannot spawn makes it defer
-   * or refuse work it should have done inline. Current opt-outs are the
-   * tool-disabled `/v1/btw` side-chain, the home-content generators, and a
-   * persona workflow leaf running its caller's restricted tool set.
+   * Whether the turn this prompt serves can actually spawn subagents, which
+   * gates the parallel-delegation section. Absent means no, so a prompt built
+   * outside a turn (a side-chain, a one-shot generator) never carries guidance
+   * it cannot act on.
+   *
+   * The live turn answers it from its resolved tool surface via
+   * `canSpawnSubagentsForTurn` (workspace `tools.exclude`, a wire-scoped
+   * background run's `allowedTools`, tools disabled, a read-only subagent
+   * pass), rather than from a caller's assumption.
    */
   canSpawnSubagents?: boolean;
 }
@@ -497,10 +499,12 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const ctx = {
     ...options,
     hasNoClient,
-    // Defaults true: an ordinary turn carries the full tool surface. A caller
-    // whose turn cannot spawn (a tool-disabled side-chain, a restricted-tool
-    // workflow leaf) passes `false` and the delegation section renders off.
-    canSpawnSubagents: options?.canSpawnSubagents !== false,
+    // Off unless a caller states otherwise, and the caller that states it
+    // derives the answer from the turn's resolved tool surface rather than
+    // assuming (`canSpawnSubagentsForTurn`). Guidance about handing work to
+    // subagents is worth nothing to a turn that cannot spawn, and worse than
+    // nothing when it makes that turn defer work it has to do inline.
+    canSpawnSubagents: options?.canSpawnSubagents === true,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,
