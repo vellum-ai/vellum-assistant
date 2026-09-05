@@ -1675,6 +1675,23 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * Draw, from the keyboard: the same mode, flipped rather than set.
+   *
+   * A key has to be its own way back, and the side pressing it is not the
+   * side that knows which way that is. `annotating` is main's, and a renderer
+   * reading it off the pushed state would be answering with what the mode was
+   * when the last push left, which for a press made in the gap between a
+   * share starting and the state arriving is the wrong way round.
+   *
+   * Refused with nothing shared for the reason the press from the pill is
+   * ({@link canAnnotate}), and refused the same way: nothing changes, and the
+   * next push says the mode is off, which is what the desktop is doing.
+   */
+  on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
+    setAnnotating(!annotating);
+  });
+
+  /**
    * A mark drawn on the frame, delivered to the renderer holding the session
    * the way Share's press is.
    *

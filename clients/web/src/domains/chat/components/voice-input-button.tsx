@@ -249,6 +249,12 @@ export interface VoiceInputButtonHandle {
    */
   start: () => boolean;
   stop: () => void;
+  /**
+   * End it and throw away what was heard. What a hold interrupted by a
+   * gesture of its own is owed: the words were the run-up to a second key,
+   * and nothing about them was meant for the composer or the app in front.
+   */
+  cancel: () => void;
 }
 
 interface VoiceInputButtonProps {
@@ -1140,8 +1146,16 @@ export const VoiceInputButton = forwardRef<
         return true;
       },
       stop: stopRecording,
+      cancel: cancelRecording,
     }),
-    [assistantId, disabled, startRecording, stopRecording, supported],
+    [
+      assistantId,
+      cancelRecording,
+      disabled,
+      startRecording,
+      stopRecording,
+      supported,
+    ],
   );
 
   const isNative = useIsNativePlatform();

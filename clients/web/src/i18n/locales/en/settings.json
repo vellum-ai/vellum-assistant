@@ -2250,7 +2250,7 @@
     "offLabel": "Off",
     "recordingPrompt": "Hold modifier keys…",
     "refusedNote": "The key could not be watched. Restart the app to try again.",
-    "subtitle": "Hold it to dictate at your cursor or ask about a selection. Double-tap it to start or end a call.",
+    "subtitle": "Hold it to dictate at your cursor or ask about a selection. Double-tap it to start or end a call. Hold it and press S to show your screen, or D to draw on it.",
     "title": "Voice Key",
     "voiceOverNote": "Control and Option is VoiceOver's modifier key. If you use VoiceOver, its commands will take these keys first."
   },

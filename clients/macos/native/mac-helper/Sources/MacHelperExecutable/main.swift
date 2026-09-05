@@ -7,11 +7,15 @@ import IOKit.hid
 import MacHelperCore
 import Speech
 
-/// The keyboard tap's callback. Listen-only, so the event is always handed
-/// back untouched; what is read off it is the modifier flags and the fact of a
-/// key going down. A tap the system has switched off for taking too long is
-/// switched back on here, since a dead tap is a dead key with nothing to say
-/// so.
+/// The keyboard tap's callback. What is read off an event is the modifier
+/// flags and the fact of a key going down. A tap the system has switched off
+/// for taking too long is switched back on here, since a dead tap is a dead
+/// key with nothing to say so.
+///
+/// Every event is handed back as it came except one: a key the binding named
+/// as a chord, pressed inside a hold, is taken. That press is a gesture the
+/// user made at this app, and letting it through would type a letter into
+/// whatever they are working in on its way past.
 private func keyboardTapCallback(
     _ proxy: CGEventTapProxy,
     _ type: CGEventType,
@@ -26,7 +30,9 @@ private func keyboardTapCallback(
     case .flagsChanged:
         helper.handleFlagsChanged(event.flags)
     case .keyDown:
-        helper.handleRawKeyDown()
+        if helper.handleRawKeyDown(event) {
+            return nil
+        }
     case .leftMouseDown, .rightMouseDown, .otherMouseDown:
         helper.handleMouseDown()
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -48,7 +54,9 @@ final class MacHelper: @unchecked Sendable {
     /// key with an active session-level tap that swallows it, and a monitor
     /// downstream of that never hears the press at all. The HID point is
     /// upstream of every session tap, so the key is seen before anyone can
-    /// take it. Listen-only, since the helper only ever reads.
+    /// take it. Active, so the one press that is a gesture at this app can be
+    /// taken rather than passed on; every other event is handed back as it
+    /// came.
     private var keyboardTap: CFMachPort?
     private var keyboardTapSource: CFRunLoopSource?
     private var modifierHoldDetector = ModifierHoldDetector()
@@ -57,6 +65,10 @@ final class MacHelper: @unchecked Sendable {
     /// of masks on this keyboard (left and right Control are different bits),
     /// so "held" is per modifier rather than per bit.
     private var modifierHoldMasks: [UInt32] = []
+    /// The keys a chord on the set is allowed to name, as the binding gave
+    /// them. Empty unless the caller asked for some, which is what keeps a
+    /// hold's chords anonymous by default.
+    private var modifierHoldChordKeys = ChordKeySet()
     private var isModifierHoldDown = false
     /// Whether presses are reported as activity, and when the last was, so a
     /// burst of typing is one notification every so often rather than one per
@@ -124,7 +136,12 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             let modifiers = object["modifiers"] as? [String] ?? []
-            return try self.setModifierHold(enable: enable, modifiers: modifiers)
+            let chordKeys = object["chordKeys"] as? [String] ?? []
+            return try self.setModifierHold(
+                enable: enable,
+                modifiers: modifiers,
+                chordKeys: chordKeys
+            )
         }
         // What is highlighted in the application in front, read when the app
         // asks rather than on every press: a hold that has outlasted the
@@ -279,7 +296,12 @@ final class MacHelper: @unchecked Sendable {
         NSApplication.shared.run()
     }
 
-    func emitModifierHold(edge: ModifierHoldDetector.Edge) {
+    /// `chord` is the key that closed the hold, when it is one the binding
+    /// named. It rides on the closing edge rather than an event of its own
+    /// because that is what it is: the same press, described well enough for
+    /// the app to tell one of its own gestures from a shortcut on its way to
+    /// somewhere else.
+    func emitModifierHold(edge: ModifierHoldDetector.Edge, chord: String? = nil) {
         var params: [String: Any] = ["kind": "modifierHold"]
         switch edge {
         case .down:
@@ -291,6 +313,9 @@ final class MacHelper: @unchecked Sendable {
             isModifierHoldDown = false
             params["state"] = "up"
             params["reason"] = reason.rawValue
+            if let chord {
+                params["chord"] = chord
+            }
         }
 
         writeNotification(method: "hotkey.event", params: params)
@@ -410,14 +435,46 @@ final class MacHelper: @unchecked Sendable {
         return false
     }
 
-    /// A key went down somewhere while the tap is watching. Only its
-    /// existence is consumed, never its identity: the one fact needed is
-    /// that the current hold is a chord (Fn+Delete, Fn+arrow), not a hold.
-    func handleRawKeyDown() {
-        for edge in modifierHoldDetector.keyDown() {
-            emitModifierHold(edge: edge)
+    /// A key went down somewhere while the tap is watching. The one fact
+    /// needed of it is that the current hold is a chord (Fn+Delete, Fn+arrow)
+    /// and not a hold.
+    ///
+    /// Its identity is read only against the keys the binding named, and only
+    /// where naming one changes the answer: a press that closes no hold is a
+    /// press in some other app, and is never looked at. So the tap learns
+    /// which key went down exactly when the app is owed the answer, and
+    /// otherwise no more than that one did.
+    ///
+    /// Returns whether the press belongs to this app and should go no further.
+    func handleRawKeyDown(_ event: CGEvent) -> Bool {
+        let edges = modifierHoldDetector.keyDown()
+        let chord = edges.isEmpty ? nil : namedChordKey(event)
+        for edge in edges {
+            emitModifierHold(edge: edge, chord: chord)
         }
         reportInputActivity()
+        return chord != nil
+    }
+
+    /// Which of the binding's keys `event` is, by the character it produces on
+    /// the keyboard the user actually has, or nil when it is none of them.
+    private func namedChordKey(_ event: CGEvent) -> String? {
+        guard !modifierHoldChordKeys.isEmpty else {
+            return nil
+        }
+        var length = 0
+        var characters = [UniChar](repeating: 0, count: 4)
+        event.keyboardGetUnicodeString(
+            maxStringLength: characters.count,
+            actualStringLength: &length,
+            unicodeString: &characters
+        )
+        guard length > 0 else {
+            return nil
+        }
+        return modifierHoldChordKeys.match(
+            String(utf16CodeUnits: characters, count: min(length, characters.count))
+        )
     }
 
     /// A mouse button went down somewhere. Only the fact is consumed, never
@@ -969,11 +1026,13 @@ final class MacHelper: @unchecked Sendable {
 
     private func setModifierHold(
         enable: Bool,
-        modifiers: [String]
+        modifiers: [String],
+        chordKeys: [String]
     ) throws -> [String: Any] {
         guard enable else {
             cancelModifierHold()
             modifierHoldMasks = []
+            modifierHoldChordKeys = ChordKeySet()
             releaseMonitorIfUnused()
             return ["enabled": false]
         }
@@ -994,11 +1053,13 @@ final class MacHelper: @unchecked Sendable {
 
         cancelModifierHold()
         modifierHoldMasks = masks
+        modifierHoldChordKeys = ChordKeySet(chordKeys)
         modifierHoldDetector = ModifierHoldDetector()
         do {
             try ensureMonitorInstalled()
         } catch {
             modifierHoldMasks = []
+            modifierHoldChordKeys = ChordKeySet()
             releaseMonitorIfUnused()
             throw error
         }
@@ -1099,9 +1160,10 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func installEventHandlers() throws {
-        // Modifier changes carry the hold; key presses are observed only to
-        // disqualify a chord (`handleRawKeyDown`), and their contents are
-        // never read.
+        // Modifier changes carry the hold; key presses are observed to
+        // disqualify a chord (`handleRawKeyDown`). Which key one was is read
+        // only against the keys the binding named, and only for a press that
+        // closes a hold.
         // Mouse presses ride along only to report activity: a click moves the
         // cursor, and an offer to replace the last edit is void once it has
         // moved. Where the click landed is never read.
@@ -1113,15 +1175,31 @@ final class MacHelper: @unchecked Sendable {
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         // Creation fails without Input Monitoring, which is the one way the
         // grant shows itself here: the tap is silent rather than refused.
-        guard let tap = CGEvent.tapCreate(
+        //
+        // Active, because one press has to be taken rather than watched: a
+        // key the binding named, pressed inside a hold, is a gesture at this
+        // app and would otherwise also type itself into the app the user is
+        // working in. Everything else the callback sees is handed straight
+        // back. A tap that cannot be active is still worth having, since the
+        // hold itself only ever reads, so the fallback keeps the key working
+        // and lets a named chord through to the front app as well.
+        let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: keyboardTapCallback,
+            userInfo: userInfo
+        ) ?? CGEvent.tapCreate(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: CGEventMask(mask),
             callback: keyboardTapCallback,
             userInfo: userInfo
-        ) else {
-            throw HelperError.eventTap("CGEvent.tapCreate(HID, listenOnly)")
+        )
+        guard let tap else {
+            throw HelperError.eventTap("CGEvent.tapCreate(HID)")
         }
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

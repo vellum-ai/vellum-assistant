@@ -31,6 +31,7 @@ import {
   publishConfigNotice,
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
+import { forgetPendingScreenShare } from "@/domains/chat/voice/live-voice/pending-screen-share";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
@@ -210,6 +211,10 @@ export function cancelPendingVoiceStart(): void {
   usePendingDeepLinkStore
     .getState()
     .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
+  // A share waiting on this call goes with it. The two are one gesture, and
+  // half of it applied to whatever session comes next would show the
+  // assistant a screen on a call the user never connected this one to.
+  forgetPendingScreenShare();
 }
 
 /**

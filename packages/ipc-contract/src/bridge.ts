@@ -647,6 +647,16 @@ export interface VellumBridge {
      */
     setAnnotating?(annotating: boolean): void;
     /**
+     * The same mode, flipped rather than set, for a press that has to be its
+     * own way back and no view of which way that is.
+     *
+     * The keyboard's version of the control above: the mode is main's, so
+     * main is the side that can say what turning it over means. A renderer
+     * deciding from the last pushed state would answer with the mode as it
+     * was when that push left.
+     */
+    toggleAnnotating?(): void;
+    /**
      * A mark the user is drawing over the shared surface, from the frame's
      * own window: `drawing` while the hand is still on it, `released` when it
      * comes off, carrying every stroke still on the overlay.

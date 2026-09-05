@@ -20,6 +20,7 @@ import {
   setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { parkScreenShare } from "@/domains/chat/voice/live-voice/pending-screen-share";
 import {
   cancelPendingVoiceStart,
   startVoiceFromSurface,
@@ -418,9 +419,15 @@ export function RootLayout() {
     // the session's store: the frames are taken by a hook mounted beside the
     // session, and a target with no session to show it to is dropped there.
     setScreenShare: (command) => {
-      setLiveVoiceScreenShare(
-        command.kind === "setScreenShare" ? (command.target ?? null) : null,
-      );
+      const target =
+        command.kind === "setScreenShare" ? (command.target ?? null) : null;
+      // A share the keyboard asked for before there was a call to show it to
+      // waits for the one it started. Every other target belongs to a session
+      // already running, and the store drops one that finds none.
+      if (target !== null && parkScreenShare(target)) {
+        return;
+      }
+      setLiveVoiceScreenShare(target);
     },
     // A mark the user is drawing on what the call is being shown. Straight to
     // the session's store, the way the share itself is: the frame that

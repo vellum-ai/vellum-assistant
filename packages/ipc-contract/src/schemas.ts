@@ -123,6 +123,9 @@ export const companionCapturePickSchema = z.discriminatedUnion("kind", [
     displayId: z.number().int().nonnegative(),
   }),
   z.object({
+    kind: z.literal("pointerDisplay"),
+  }),
+  z.object({
     kind: z.literal("window"),
     windowId: z.number().int().nonnegative(),
   }),

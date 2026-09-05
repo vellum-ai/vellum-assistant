@@ -41,8 +41,24 @@ export interface VoiceKeyHandlers {
    * hold that never armed never reaches this.
    */
   onHoldEnd: () => void;
+  /**
+   * Close it and throw away what was heard. The other way an open hold ends:
+   * a chord on one of `chordKeys` landed on it, so the press was a gesture
+   * the user was part way through making rather than something to type.
+   *
+   * Required rather than optional for the reason `onHoldEnd` is called
+   * exactly once: a hold has to close, and a caller that left this out would
+   * close this one by keeping the half second of silence before the second
+   * key.
+   */
+  onHoldCancel: () => void;
   /** Start a call, or end the one that is running. */
   onDoubleTap: () => void;
+  /**
+   * A chord on one of `chordKeys`, by the character of the key that made it.
+   * Only ever a key the caller named.
+   */
+  onChord?: (key: string) => void;
   /**
    * Whether the host took the key. `false` when it refused (no helper, or
    * Input Monitoring ungranted), which is the settings card's cue to say so.
@@ -87,26 +103,55 @@ async function askForInputMonitoringOnce(): Promise<void> {
  */
 export function useVoiceKey({
   key,
+  chordKeys,
   onHoldStart,
   onHoldEnd,
+  onHoldCancel,
   onDoubleTap,
+  onChord,
   onRegistered,
-}: VoiceKeyHandlers & { key: VoiceKey }): void {
+}: VoiceKeyHandlers & {
+  key: VoiceKey;
+  /**
+   * The keys whose presses inside a hold are this app's own gestures, by the
+   * character they produce. The host names those and takes them; every other
+   * key stays a shortcut on its way to the app in front, unnamed.
+   */
+  chordKeys?: readonly string[];
+}): void {
   // Read through a ref so a caller that re-renders does not re-register the
   // binding with the host, which would drop an open hold on the way through.
   const handlers = useRef({
     onHoldStart,
     onHoldEnd,
+    onHoldCancel,
     onDoubleTap,
+    onChord,
     onRegistered,
   });
   useEffect(() => {
-    handlers.current = { onHoldStart, onHoldEnd, onDoubleTap, onRegistered };
-  }, [onHoldStart, onHoldEnd, onDoubleTap, onRegistered]);
+    handlers.current = {
+      onHoldStart,
+      onHoldEnd,
+      onHoldCancel,
+      onDoubleTap,
+      onChord,
+      onRegistered,
+    };
+  }, [
+    onHoldStart,
+    onHoldEnd,
+    onHoldCancel,
+    onDoubleTap,
+    onChord,
+    onRegistered,
+  ]);
 
   // The binding as a string, so the effect re-runs on a real change of key and
   // not on every render that hands over an equal array.
   const modifiers = key.kind === "off" ? null : key.modifiers.join("+");
+  // The named keys as a string, for the same reason the modifiers are one.
+  const named = chordKeys?.join(",") ?? "";
 
   useEffect(() => {
     if (modifiers === null || !supportsModifierHold()) {
@@ -123,8 +168,14 @@ export function useVoiceKey({
           case "holdEnd":
             handlers.current.onHoldEnd();
             return;
+          case "holdCancel":
+            handlers.current.onHoldCancel();
+            return;
           case "doubleTap":
             handlers.current.onDoubleTap();
+            return;
+          case "chord":
+            handlers.current.onChord?.(gesture.key);
             return;
         }
       },
@@ -134,13 +185,18 @@ export function useVoiceKey({
       if (event.kind !== "modifierHold") {
         return;
       }
-      classifier.feed({ state: event.state, reason: event.reason });
+      classifier.feed({
+        state: event.state,
+        reason: event.reason,
+        chord: event.chord,
+      });
     });
 
     let disposed = false;
     void setModifierHold({
       kind: "modifierOnly",
       modifiers: modifiers.split("+") as KeyboardModifier[],
+      chordKeys: named === "" ? [] : named.split(","),
     }).then(
       (result) => {
         if (!disposed) {
@@ -161,5 +217,5 @@ export function useVoiceKey({
       classifier.cancel();
       void setModifierHold({ kind: "off" });
     };
-  }, [modifiers]);
+  }, [modifiers, named]);
 }

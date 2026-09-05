@@ -301,6 +301,17 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
   /** Only on a `modifierHold` `up`. */
   reason?: ModifierHoldUpReason;
+  /**
+   * Which key made a `chord`, when it is one the binding named in
+   * `ModifierHold.chordKeys`, as the character it produces.
+   *
+   * Absent from every other chord, which is the point: a hold is watched by a
+   * tap that sees the whole keyboard, and the only presses it describes are
+   * the ones this app asked to be able to recognise. Absent too from a host
+   * whose helper predates the field, where the chord reads as what it has
+   * always been, a shortcut on its way past.
+   */
+  chord?: string;
 }
 
 /** Whether a helper took a binding, or why it did not. */
@@ -313,10 +324,22 @@ export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 /**
  * The binding a hold is watched on: every modifier of the set down together,
  * with nothing else. `off` is a binding the user has cleared.
+ *
+ * `chordKeys` are the keys the binding wants named when one of them is what
+ * ends a hold, given as the characters they produce so the letter on the
+ * keycap is the letter that answers on every layout. A press of one inside a
+ * hold belongs to this app, so the host takes it rather than letting it type
+ * itself into whatever is in front. Naming none is the binding every hold had
+ * before the gestures existed: a key going down closes it, and which key it
+ * was is never read.
  */
 export type ModifierHold =
   | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  | {
+      kind: "modifierOnly";
+      modifiers: KeyboardModifier[];
+      chordKeys?: readonly string[];
+    };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
@@ -1478,13 +1501,21 @@ export interface CompanionCaptureSources {
 }
 
 /**
- * The press on one row of the picker: the source with its decoration removed.
+ * What to capture, as the side asking for it can say it.
  *
- * What the surface hands back to main. A tab is still a tab here, since only
- * main can turn one into a window; the other two are already targets.
+ * Three of these are a press on one row of the picker: the source with its
+ * decoration removed. A tab is still a tab here, since only main can turn one
+ * into a window; the other two are already targets.
+ *
+ * `pointerDisplay` is the fourth and comes from no row at all. It is what a
+ * keyboard gesture means by "this screen", named as the question rather than
+ * as an answer because the answer is the pointer's, and the pointer is main's
+ * to read at the moment the press lands. A renderer that resolved it first
+ * would be handing over where the mouse was a round trip ago.
  */
 export type CompanionCapturePick =
   | { kind: "display"; displayId: number }
+  | { kind: "pointerDisplay" }
   | { kind: "window"; windowId: number }
   | { kind: "tab"; chromeWindowId: number; tabIndex: number };
 
