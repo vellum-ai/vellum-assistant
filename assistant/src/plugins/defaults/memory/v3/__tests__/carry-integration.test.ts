@@ -402,6 +402,8 @@ const FORK_CONV = "conv-carry-fork";
 /** Conversations for the compaction contract (restart and live paths). */
 const COMPACT_CONV = "conv-carry-compact";
 const COMPACT_LIVE_CONV = "conv-carry-compact-live";
+/** Conversation for the re-entry contract (an overflow rung, no compaction). */
+const REENTRY_CONV = "conv-carry-reentry";
 /** Fixed epoch base for all timestamps (determinism). */
 const BASE = 1_700_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -793,17 +795,17 @@ function compactMidTurn(convId: string): void {
   clearConversation(convId);
 }
 
-/** The post-compaction hook's re-injection of a turn already produced: the
- *  memoized selections re-render against the reset store and splice onto
- *  the tail, and, as runtime assembly does for a `reinjection` assembly, the
- *  block's commit is not invoked and nothing is persisted. Returns the refs
- *  the block carries. */
+/** The post-compaction hook's re-injection of a turn already produced (the
+ *  hook also serves the overflow ladder's rungs): both injectors run again
+ *  for the turn and splice onto `tail` in the assembly's layout, and, as
+ *  runtime assembly does for a `reinjection` assembly, the block's commit is
+ *  not invoked and nothing is persisted. */
 async function reinjectTurn(
   convId: string,
   turnIndex: number,
-): Promise<Set<string>> {
-  const history = histories.get(convId)!;
-  const sections = await memoryV3Injector.produce({
+  tail: Message = histories.get(convId)!.at(-1)!,
+): Promise<{ sectionsText: string; pointerText: string; refs: Set<string> }> {
+  const ctx = {
     requestId: `req-${turnIndex}`,
     conversationId: convId,
     turnIndex,
@@ -811,22 +813,39 @@ async function reinjectTurn(
       sourceChannel: "vellum" as const,
       trustClass: "guardian" as const,
     },
-  });
+  };
+  const sections = await memoryV3Injector.produce(ctx);
   if (!sections) {
     throw new Error(
       `re-injection ${turnIndex}: sections injector returned null`,
     );
   }
   if (sections.text.length > 0) {
-    const tail = history[history.length - 1]!;
     tail.content = [
       markV3LiveBlock({ type: "text", text: sections.text }),
       ...tail.content,
     ];
   }
-  return new Set(
-    parseInjectedSections(unwrapMemoryBlock(sections.text)).sections.map(refId),
-  );
+  const pointer = await memoryV3PointerInjector.produce(ctx);
+  if (pointer && pointer.text.length > 0) {
+    const prefixCount = sections.text.length > 0 ? 1 : 0;
+    tail.content = [
+      ...tail.content.slice(0, prefixCount),
+      { type: "text", text: pointer.text },
+      ...tail.content.slice(prefixCount),
+    ];
+  }
+  return {
+    sectionsText: sections.text,
+    pointerText: pointer?.text ?? "",
+    refs: new Set(
+      sections.text.length > 0
+        ? parseInjectedSections(unwrapMemoryBlock(sections.text)).sections.map(
+            refId,
+          )
+        : [],
+    ),
+  };
 }
 
 /** Rebuild a conversation's history from the temp DB — mirrors the
@@ -1473,8 +1492,9 @@ describe("memory-v3 carry integration: compaction contract", () => {
     compactMidTurn(convId);
 
     // The post-compaction hook re-injects every selection of the turn onto
-    // the tool-result tail; the store claims none of them.
-    expect(await reinjectTurn(convId, 1)).toEqual(REFS);
+    // the tool-result tail (the first produce's entries, re-emitted from the
+    // turn memo); the store claims none of them.
+    expect((await reinjectTurn(convId, 1)).refs).toEqual(REFS);
     expect(refIds(getActiveSections(convId)).size).toBe(0);
     return compactedAt;
   }
@@ -1538,5 +1558,55 @@ describe("memory-v3 carry integration: compaction contract", () => {
     expect(
       JSON.stringify(rehydrateFromDb(COMPACT_LIVE_CONV, compactedAt)),
     ).toBe(persistentView(history));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Re-entry contract: an overflow rung that does not compact re-applies the
+// injections onto a tail the hook stripped, with the store untouched.
+// ---------------------------------------------------------------------------
+
+describe("memory-v3 carry integration: re-entry contract", () => {
+  test("an overflow re-entry re-emits the turn's <memory> and <memory_pointer> bytes and leaves the store unchanged", async () => {
+    histories.set(REENTRY_CONV, []);
+    await runTurn(REENTRY_CONV, 1, "apple", [
+      "core-alpha",
+      "core-beta",
+      "hot-one",
+      "page-a",
+    ]);
+    // Turn 2 mixes both kinds: page-b's section is net-new, page-a's section
+    // and core-alpha's lead are resident and pointed at.
+    const second = await runTurn(REENTRY_CONV, 2, "apple banana", [
+      "page-a",
+      "core-alpha",
+      "page-b",
+    ]);
+    expect(second.netNew).toEqual(new Set(["page-b§Detail"]));
+    expect(second.pointerText).toContain("memory/concepts/page-a.md");
+    const history = histories.get(REENTRY_CONV)!;
+    // Turn 2's user message: the tail while the turn is in flight.
+    const tail = history[history.length - 2]!;
+    const sent = JSON.stringify(tail.content);
+    const storeBefore = getInjected(REENTRY_CONV);
+
+    // The rung: no compaction, the store untouched, and the hook's tail strip
+    // clears this turn's block and pointer before re-injecting. The store
+    // counts page-b's section active, so a partition against it alone would
+    // read it as resident and re-inject nothing.
+    tail.content = tail.content.filter(
+      (block) =>
+        !(
+          block.type === "text" &&
+          (isV3LiveBlock(block) || isPointerText(block.text))
+        ),
+    );
+    expect(JSON.stringify(tail.content)).not.toBe(sent);
+
+    const reentry = await reinjectTurn(REENTRY_CONV, 2, tail);
+    expect(reentry.sectionsText).toBe(second.blockText);
+    expect(reentry.pointerText).toBe(second.pointerText);
+    expect(JSON.stringify(tail.content)).toBe(sent);
+    expect(getInjected(REENTRY_CONV)).toEqual(storeBefore);
   });
 });

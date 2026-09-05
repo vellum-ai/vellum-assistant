@@ -59,18 +59,25 @@
  * are persisted to message metadata and rehydrated forever, the gate must
  * also keep an untrusted turn from recording or persisting anything.
  *
- * Re-entry assemblies (post-compaction re-injection, overflow convergence)
- * attach their blocks in memory only: metadata is persisted at the
- * first-call site alone, and every message a re-entry attaches to predates
- * the compaction whose `historyStrippedAt` marker keeps `loadFromDb` from
- * rehydrating it. Runtime assembly therefore withholds the commit on a
- * re-injection assembly (`reinjection` in `RuntimeInjectionOptions`, set by
- * the post-compaction hook), so the store never claims a section whose only
- * copy vanishes on restart. Compaction clears the store, and the sections
- * the post-compaction assembly re-renders stay unclaimed: the next turn
- * injects them net-new onto its own persisted user message, and the
- * re-entry copy still in the live history is superseded by the newest-copy
- * rule at the assembly after that (`stripPrunedSectionsFromMessages`).
+ * Re-entry assemblies (the post-compaction hook, which also serves the
+ * overflow ladder's rungs) attach their blocks in memory only: metadata is
+ * persisted at the first-call site alone, and every message a re-entry
+ * attaches to predates a compaction's `historyStrippedAt` marker, which
+ * keeps `loadFromDb` from rehydrating it. The turn memo remembers what the
+ * first produce rendered, and a re-entry re-emits those entries byte for
+ * byte: the hook's tail strip cleared their only copy while the store still
+ * counts them active, so partitioning against the store alone would read
+ * them as resident and drop them for the rest of the turn. Around them it
+ * points at the pairs still active, renders anew any pair a compaction's
+ * store reset left unclaimed, and skips any pair tombstoned since (the
+ * Step-0 strip's verdict stands). A re-entry block carries no commit, and
+ * runtime assembly withholds the commit on a `reinjection` assembly
+ * besides, so a turn's sections are recorded exactly once, at the
+ * first-call site that persists them. After a compaction the re-rendered
+ * sections stay unclaimed: the next turn injects them net-new onto its own
+ * persisted user message, and the re-entry copy still in the live history
+ * is superseded by the newest-copy rule at the assembly after that
+ * (`stripPrunedSectionsFromMessages`).
  */
 
 import { getConfig } from "../../../../config/loader.js";
@@ -94,6 +101,7 @@ import { injectionSectionKey, isCapabilitySlug } from "./capabilities.js";
 import { renderedBytes } from "./card.js";
 import {
   getActiveSections,
+  getPrunedSections,
   recordInjected,
   sectionRefSetHas,
 } from "./ever-injected-store.js";
@@ -183,12 +191,16 @@ function turnIsEligible(ctx: TurnContext): boolean {
 interface ObservedTurn {
   turnIndex: number;
   result: Promise<OrchestrateResult | null>;
-  /** This turn's re-selected resident sections, recorded by the sections
-   *  injector's FIRST produce of the turn and rendered by the pointer
-   *  injector. Fixed once set: a re-entry assembly runs after the turn's
-   *  commit, when every selection reads as resident, so recomputing there
-   *  would point at the sections this very turn froze onto the tail. */
+  /** The resident sections this turn's latest sections-produce pointed at,
+   *  rendered by the pointer injector (which runs after it). */
   pointer?: SectionRef[];
+  /** The entries the turn's FIRST produce rendered net-new (the ones its
+   *  commit recorded), by slug and section key. A re-entry assembly within
+   *  the turn re-emits them byte for byte instead of partitioning them
+   *  against the store, which counts them active although their only copy
+   *  rode the tail the re-injection strip cleared. Set even when empty, so
+   *  a re-entry is recognised as one. */
+  rendered?: ReadonlyMap<Slug, ReadonlyMap<string, string>>;
 }
 
 /** Latest observed turn per conversation (both injectors + re-entry sites
@@ -216,19 +228,44 @@ function observeTurnOnce(
   return result;
 }
 
+function observedTurn(
+  conversationId: string,
+  turnIndex: number,
+): ObservedTurn | undefined {
+  const cached = observedTurns.get(conversationId);
+  return cached && cached.turnIndex === turnIndex ? cached : undefined;
+}
+
 function rememberPointerEntries(
   conversationId: string,
   turnIndex: number,
   entries: SectionRef[],
 ): void {
-  const cached = observedTurns.get(conversationId);
-  if (
-    cached &&
-    cached.turnIndex === turnIndex &&
-    cached.pointer === undefined
-  ) {
+  const cached = observedTurn(conversationId, turnIndex);
+  if (cached) {
     cached.pointer = entries;
   }
+}
+
+function rememberRendered(
+  conversationId: string,
+  turnIndex: number,
+  entries: ReadonlyArray<SectionRef & { text: string }>,
+): void {
+  const cached = observedTurn(conversationId, turnIndex);
+  if (!cached) {
+    return;
+  }
+  const rendered = new Map<Slug, Map<string, string>>();
+  for (const { slug, key, text } of entries) {
+    let keys = rendered.get(slug);
+    if (!keys) {
+      keys = new Map();
+      rendered.set(slug, keys);
+    }
+    keys.set(key, text);
+  }
+  cached.rendered = rendered;
 }
 
 /** Test-only reset for the per-turn memo. */
@@ -238,10 +275,14 @@ export function resetMemoryV3InjectorStateForTests(): void {
 
 // ─── injectors ───────────────────────────────────────────────────────────────
 
-interface NetNewSelection {
+/** One selection this assembly's block carries, in selection order: `text`
+ *  is the first produce's entry when re-emitted by a re-entry, and is
+ *  rendered here otherwise. */
+interface BlockSlot {
   slug: Slug;
   key: string;
   matched: Section | undefined;
+  text: string | undefined;
 }
 
 export const memoryV3Injector: Injector = {
@@ -284,24 +325,50 @@ export const memoryV3Injector: Injector = {
     const result = observed;
 
     try {
-      // Partition this turn's selections by residency. Each page injects
-      // under ONE key this turn: its matched section's key, or `""` for the
-      // lead (and for capability content, which injects whole). Resident
-      // pairs are the pointer's entries; capability slugs are left out of
-      // the pointer because they have no `memory/concepts/` path to point at.
+      // Partition this turn's selections. Each page injects under ONE key
+      // this turn: its matched section's key, or `""` for the lead (and for
+      // capability content, which injects whole). A resident pair (active in
+      // the section store) is a pointer entry; capability slugs are left out
+      // of the pointer because they have no `memory/concepts/` path to point
+      // at. On a re-entry assembly (`rendered` set by the turn's first
+      // produce) an entry the first produce rendered is re-emitted from the
+      // memo byte for byte: the store counts it active, but its only copy
+      // rode the tail the re-injection strip cleared, so the store alone
+      // would read it as resident and drop it for the rest of the turn. A
+      // pair tombstoned since the first produce is skipped outright (a
+      // re-entry never revives what the valve pruned), and a pair the first
+      // produce saw resident whose copy a compaction's store reset has since
+      // unclaimed (neither active nor tombstoned) renders anew, in memory
+      // only.
+      const rendered = observedTurn(
+        ctx.conversationId,
+        ctx.turnIndex,
+      )?.rendered;
+      const firstProduce = rendered === undefined;
       const active = getActiveSections(ctx.conversationId);
+      const pruned = firstProduce
+        ? undefined
+        : getPrunedSections(ctx.conversationId);
       const resident: SectionRef[] = [];
-      const netNew: NetNewSelection[] = [];
+      const slots: BlockSlot[] = [];
       for (const { slug } of result.selections) {
         const matched = result.matchedSections.get(slug);
         const key = injectionSectionKey(slug, matched);
+        if (pruned && sectionRefSetHas(pruned, slug, key)) {
+          continue;
+        }
+        const reemitted = rendered?.get(slug)?.get(key);
+        if (reemitted !== undefined) {
+          slots.push({ slug, key, matched, text: reemitted });
+          continue;
+        }
         if (sectionRefSetHas(active, slug, key)) {
           if (!isCapabilitySlug(slug)) {
             resident.push({ slug, key });
           }
           continue;
         }
-        netNew.push({ slug, key, matched });
+        slots.push({ slug, key, matched, text: undefined });
       }
       rememberPointerEntries(ctx.conversationId, ctx.turnIndex, resident);
 
@@ -309,26 +376,19 @@ export const memoryV3Injector: Injector = {
       // parallel), skipping pairs that resolve to no content (deleted pages,
       // unresolvable capabilities, empty sections): nothing is attached for
       // them, so nothing is recorded either.
-      const rendered = await Promise.all(
+      const netNew = slots.filter((slot) => slot.text === undefined);
+      const renderedNow = await Promise.all(
         netNew.map(({ slug, matched }) =>
           renderV3InjectionEntry(slug, matched),
         ),
       );
-      const entries: Array<SectionRef & { text: string; bytes: number }> = [];
-      for (const [i, { slug, key }] of netNew.entries()) {
-        const text = rendered[i]!;
-        if (text.trim().length > 0) {
-          entries.push({
-            slug,
-            key,
-            text,
-            // Capability content (skills / CLI commands) renders with its own
-            // `# Skill:` / `# CLI command:` header, which the prune valve's
-            // section grammar can never locate to free. Record it at zero
-            // bytes so it never inflates the freeable resident accounting
-            // (the valve would otherwise loop-fire on bytes it cannot free).
-            bytes: isCapabilitySlug(slug) ? 0 : renderedBytes(text),
-          });
+      for (const [i, slot] of netNew.entries()) {
+        slot.text = renderedNow[i]!;
+      }
+      const entries: Array<SectionRef & { text: string }> = [];
+      for (const { slug, key, text } of slots) {
+        if (text !== undefined && text.trim().length > 0) {
+          entries.push({ slug, key, text });
         }
       }
       // Every net-new section rendered empty: return null rather than an
@@ -340,37 +400,52 @@ export const memoryV3Injector: Injector = {
         return null;
       }
 
+      // Empty net-new → empty-text block: assembly attaches no content
+      // (`applyInjectionBlock` no-ops empty text) but the block's presence
+      // still marks v3 as this turn's `<memory>` source for v2 suppression.
+      const inner = renderInjectionBlockInner(entries.map((e) => e.text));
+      const block: InjectionBlock = {
+        id: MEMORY_V3_BLOCK_ID,
+        text: inner.length === 0 ? "" : wrapMemoryBlock(inner),
+        // Mirror v2's dynamic `<memory>` block placement.
+        placement: "after-memory-prefix",
+      };
+      if (!firstProduce) {
+        return block;
+      }
+
+      rememberRendered(ctx.conversationId, ctx.turnIndex, entries);
       // The section-store write and the prune-valve schedule are DEFERRED to
       // this commit callback, invoked by runtime assembly at the point where
       // attachment is guaranteed (the turn's tail is a user message, the
       // same gate as metadata capture). Recording here in `produce()` would
       // let a never-attached turn (non-user tail) claim sections in the
-      // store, suppressing them until compaction. The valve is scheduled
-      // after `recordInjected` so the resident accounting includes this
-      // turn's sections; it evicts by recency with no lane exemptions. It
-      // runs on a timer, so this turn's block may not have folded back into
-      // the live history when it strips; a section it prunes from this very
-      // turn is stripped by assembly Step 0 on the next turn, which applies
-      // the store's full tombstone set every turn.
+      // store, suppressing them until compaction. Only the turn's first
+      // produce carries it: a re-entry block re-emits what this one
+      // rendered and is never persisted, so it must not record anything.
+      // The valve is scheduled after `recordInjected` so the resident
+      // accounting includes this turn's sections; it evicts by recency with
+      // no lane exemptions. It runs on a timer, so this turn's block may not
+      // have folded back into the live history when it strips; a section it
+      // prunes from this very turn is stripped by assembly Step 0 on the
+      // next turn, which applies the store's full tombstone set every turn.
       const commit = (): void => {
         recordInjected(
           ctx.conversationId,
-          entries.map(({ slug, key, bytes }) => ({ slug, key, bytes })),
+          entries.map(({ slug, key, text }) => ({
+            slug,
+            key,
+            // Capability content (skills / CLI commands) renders with its own
+            // `# Skill:` / `# CLI command:` header, which the prune valve's
+            // section grammar can never locate to free. Record it at zero
+            // bytes so it never inflates the freeable resident accounting
+            // (the valve would otherwise loop-fire on bytes it cannot free).
+            bytes: isCapabilitySlug(slug) ? 0 : renderedBytes(text),
+          })),
         );
         schedulePruneValve(ctx.conversationId);
       };
-
-      // Empty net-new → empty-text block: assembly attaches no content
-      // (`applyInjectionBlock` no-ops empty text) but the block's presence
-      // still marks v3 as this turn's `<memory>` source for v2 suppression.
-      const inner = renderInjectionBlockInner(entries.map((e) => e.text));
-      return {
-        id: MEMORY_V3_BLOCK_ID,
-        text: inner.length === 0 ? "" : wrapMemoryBlock(inner),
-        // Mirror v2's dynamic `<memory>` block placement.
-        placement: "after-memory-prefix",
-        meta: { [MEMORY_V3_COMMIT_META_KEY]: commit },
-      };
+      return { ...block, meta: { [MEMORY_V3_COMMIT_META_KEY]: commit } };
     } catch (err) {
       log.warn(
         {
@@ -386,16 +461,15 @@ export const memoryV3Injector: Injector = {
 
 export const memoryV3PointerInjector: Injector = {
   name: "memory-v3-pointer",
-  // After the sections injector, whose produce records this turn's resident
-  // selections on the shared memo.
+  // After the sections injector, whose produce records the resident
+  // selections of this assembly on the shared memo (a re-entry recomputes
+  // them, so the pointer follows what its own block re-emitted or rendered).
   order: 1001,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     if (!turnIsEligible(ctx)) {
       return null;
     }
-    const cached = observedTurns.get(ctx.conversationId);
-    const entries =
-      cached && cached.turnIndex === ctx.turnIndex ? cached.pointer : undefined;
+    const entries = observedTurn(ctx.conversationId, ctx.turnIndex)?.pointer;
     if (!entries || entries.length === 0) {
       return null;
     }

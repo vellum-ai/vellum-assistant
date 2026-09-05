@@ -225,6 +225,7 @@ const {
   resetMemoryV3InjectorStateForTests,
 } = await import("../injector.js");
 const {
+  clearConversation,
   getActiveSections,
   getInjected,
   getPrunedSections,
@@ -800,23 +801,69 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
     expect(pointer!.text).not.toContain("test-skill");
   });
 
-  test("re-entry within the same turn keeps the first produce's pointer and renders no duplicate sections", async () => {
+  test("re-entry within the same turn re-emits the first produce's sections and pointer byte for byte, carries no commit, and leaves the store unchanged", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a"]));
     turnResults.set(1, result(["page-a", "page-c"], [["page-c", gamma]]));
 
     await produceSections("conv-1", 0);
     const first = await produceSections("conv-1", 1);
+    const firstPointer = await producePointer("conv-1", 1);
     expect(first!.text).toContain("§ Gamma");
+    expect(firstPointer!.text).toContain("memory/concepts/page-a.md");
+    expect(firstPointer!.text).not.toContain("page-c");
+    const storeBefore = getInjected("conv-1");
 
-    // Re-entry: everything is now resident, so the sections block is empty,
-    // and the pointer must not start pointing at the section this very turn
-    // froze onto the tail.
-    const again = await produceSections("conv-1", 1);
-    expect(again!.text).toBe("");
-    const pointer = await producePointer("conv-1", 1);
-    expect(pointer!.text).toContain("memory/concepts/page-a.md");
-    expect(pointer!.text).not.toContain("page-c");
+    // Re-entry (the re-injection strip cleared the tail's block and pointer):
+    // the same bytes come back. The store counts page-c's section active, so
+    // partitioning against it alone would have read it as resident.
+    const again = await produceSectionsWithoutCommit("conv-1", 1);
+    expect(again!.text).toBe(first!.text);
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect((await producePointer("conv-1", 1))!.text).toBe(firstPointer!.text);
+    expect(getInjected("conv-1")).toEqual(storeBefore);
+  });
+
+  test("a re-entry after a compaction's store reset re-emits the first produce's entries, renders the formerly resident pairs anew, and points at nothing", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-a", "page-c"], [["page-c", gamma]]));
+
+    await produceSections("conv-1", 0);
+    const first = await produceSections("conv-1", 1);
+    expect(first!.text).not.toContain("memory/concepts/page-a.md");
+    clearConversation("conv-1");
+
+    const again = await produceSectionsWithoutCommit("conv-1", 1);
+    expect(again!.text).toContain("§ Gamma");
+    expect(again!.text).toContain("memory/concepts/page-a.md");
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(await producePointer("conv-1", 1)).toBeNull();
+    expect(activeIds("conv-1").size).toBe(0);
+  });
+
+  test("a re-entry never revives a section the valve tombstoned since the first produce", async () => {
+    liveEnabled = true;
+    turnResults.set(
+      0,
+      result(
+        ["page-a", "page-c"],
+        [
+          ["page-a", alpha],
+          ["page-c", gamma],
+        ],
+      ),
+    );
+
+    const first = await produceSections("conv-1", 0);
+    expect(first!.text).toContain("§ Alpha");
+    markPruned("conv-1", [{ slug: "page-a", key: "Alpha" }], Date.now());
+
+    const again = await produceSectionsWithoutCommit("conv-1", 0);
+    expect(again!.text).toContain("§ Gamma");
+    expect(again!.text).not.toContain("§ Alpha");
+    expect(await producePointer("conv-1", 0)).toBeNull();
+    expect(prunedIds("conv-1")).toEqual(new Set(["page-a§Alpha"]));
   });
 
   test("live off → null even with resident re-selections", async () => {

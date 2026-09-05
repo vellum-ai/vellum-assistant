@@ -192,12 +192,18 @@ under `memoryV3PointerBlock` and rehydrated on load, like the frozen sections);
 a fresh one is spliced only onto the new tail, and assembly tail-strips a
 leftover copy on mid-turn re-entry so nothing double-stacks and no historical
 message is ever rewritten. A re-injection assembly (the post-compaction hook,
-which also serves overflow re-entry) attaches its blocks in memory only and
-never persists them, so assembly withholds the sections injector's residency
-commit there (`reinjection` on `applyRuntimeInjections`): compaction clears
-the section store, the re-injected sections stay unclaimed, the next turn
-injects them net-new onto its own persisted user message, and the re-entry
-copy is superseded by the newest-copy rule at the following assembly. `memory_v3_ever_injected` is the superseded
+which also serves the overflow ladder's rungs) attaches its blocks in memory
+only and never persists them. The injector's turn memo remembers what the
+turn's first produce rendered, and a re-entry re-emits those entries byte for
+byte (the hook's tail strip cleared their only copy while the store still
+counts them active), points at the pairs still active, renders anew the pairs
+a compaction's store reset left unclaimed, and skips pairs tombstoned since;
+its block carries no commit, and assembly withholds the commit on a
+`reinjection` assembly besides, so a turn's sections are recorded once, at the
+first-call site that persists them. After a compaction the re-rendered
+sections stay unclaimed: the next turn injects them net-new onto its own
+persisted user message, and the re-entry copy is superseded by the newest-copy
+rule at the following assembly. `memory_v3_ever_injected` is the superseded
 card-grain record: migration 378 copied its rows in as lead entries, and
 nothing reads or writes it. Rows written by builds that shipped the per-turn
 `<memory_spotlight>` layer carry `memoryV3SpotlightBlock`

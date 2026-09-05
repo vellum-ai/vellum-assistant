@@ -2254,7 +2254,8 @@ export interface RuntimeInjectionOptions {
    * rehydrating metadata on it. The memory-v3 sections injector's residency
    * commit (`MEMORY_V3_COMMIT_META_KEY`) is therefore not invoked: a section
    * the store claimed here would have no persisted body after a restart, so
-   * the injector would emit only a pointer for it.
+   * the injector would emit only a pointer for it. The injector attaches the
+   * commit to the turn's first produce alone, so the two sites agree.
    */
   reinjection?: boolean;
 }
