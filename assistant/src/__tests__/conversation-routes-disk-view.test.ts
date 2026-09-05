@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { persistUserMessage } from "../daemon/conversation-messaging.js";
+import { HOST_PROXY_SKILL_PREACTIVATIONS } from "../daemon/host-proxy-preactivation.js";
 import {
   addMessage,
   getConversation,
@@ -24,6 +25,7 @@ import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -93,9 +95,24 @@ function createFakeConversation(conversationId: string): Conversation {
     } | null,
     messages: [] as Array<unknown>,
     hostCuProxy: undefined as unknown,
+    currentTurnSourceActorPrincipalId: undefined as string | undefined,
+    pendingSteerRepair: false,
+    pendingInterruptRepair: false,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
+    },
+    /** Polls the flag rather than modelling waiters; the fakes here release
+     *  synchronously from their own abort listener. */
+    async waitForIdle(
+      this: { processing: boolean },
+      { timeoutMs }: { timeoutMs: number },
+    ) {
+      const deadline = Date.now() + Math.min(timeoutMs, 250);
+      while (this.processing && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      return !this.processing;
     },
     setProcessing(
       this: { processing: boolean; owner: number },
@@ -188,7 +205,16 @@ function createFakeConversation(conversationId: string): Conversation {
       this.hostAppControlProxy = proxy;
     },
     restoreBrowserProxyAvailability: () => {},
-    addPreactivatedSkillId: () => {},
+    preactivatedSkillIds: undefined as string[] | undefined,
+    addPreactivatedSkillId(
+      this: { preactivatedSkillIds: string[] | undefined },
+      skillId: string,
+    ) {
+      this.preactivatedSkillIds = [
+        ...(this.preactivatedSkillIds ?? []),
+        skillId,
+      ];
+    },
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -655,5 +681,109 @@ describe("conversationKey send path disk-view regression", () => {
     expect(lines[0]?.content).toBe(content);
     expect(lines[1]?.role).toBe("assistant");
     expect(lines[1]?.content).toBe("Synthetic assistant reply");
+  });
+});
+
+// A turn clears `preactivatedSkillIds` when it ends, so the per-turn host-proxy
+// setup has to run for whichever turn this send actually drives. Under
+// `interrupt-on-send` that is a replacement turn on a conversation that was busy
+// when the request arrived, and a setup keyed on "was idle on arrival" would
+// hand a host-capable macOS client a turn with no `computer-use` or
+// `app-control` tools.
+describe("host-proxy preactivation across an interrupt", () => {
+  afterEach(() => {
+    setOverridesForTesting({});
+  });
+
+  /** A conversation mid-turn whose abort releases the lock, as a loop does. */
+  function busyConversation(conversationId: string): Conversation {
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      processing: boolean;
+      owner: number;
+      abortController: AbortController | null;
+    };
+    conv.processing = true;
+    conv.owner = 1;
+    const controller = new AbortController();
+    controller.signal.addEventListener("abort", () => {
+      conv.processing = false;
+      conv.owner = 0;
+    });
+    conv.abortController = controller;
+    return conv;
+  }
+
+  async function sendMacosMessage(conversationKey: string, content: string) {
+    return callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async (conversationId: string) =>
+              getOrCreateFakeConversation(conversationId),
+            assistantEventHub: new AssistantEventHub(),
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
+        body: JSON.stringify({
+          conversationKey,
+          content,
+          sourceChannel: "vellum",
+          interface: "macos",
+        }),
+      }),
+      undefined,
+      202,
+    );
+  }
+
+  test("the replacement turn gets the proxies and the skill preactivation", async () => {
+    // `macos` natively supports `host_cu` and `host_app_control`, so the real
+    // attachment gate says yes without a connected client to stand in for.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-interrupt-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = busyConversation(conversationId) as Conversation & {
+      hostCuProxy?: unknown;
+      hostAppControlProxy?: unknown;
+      preactivatedSkillIds?: string[];
+    };
+
+    const response = await sendMacosMessage(
+      conversationKey,
+      "stop and tell me the time",
+    );
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { queued?: boolean };
+    expect(body.queued).toBeUndefined();
+    expect(conv.preactivatedSkillIds ?? []).toEqual(
+      HOST_PROXY_SKILL_PREACTIVATIONS.map((p) => p.skillId),
+    );
+    expect(conv.hostCuProxy).toBeDefined();
+    expect(conv.hostAppControlProxy).toBeDefined();
+  });
+
+  test("a send that queues instead leaves the running turn's preactivation alone", async () => {
+    // Flag off, so the busy conversation queues. Preactivation belongs to the
+    // drain at dequeue time, not to this request.
+    setOverridesForTesting({ "interrupt-on-send": false });
+    const conversationKey = `macos-queued-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = busyConversation(conversationId) as Conversation & {
+      preactivatedSkillIds?: string[];
+    };
+
+    const response = await sendMacosMessage(conversationKey, "queued instead");
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { queued?: boolean };
+    expect(body.queued).toBe(true);
+    expect(conv.preactivatedSkillIds).toBeUndefined();
   });
 });

@@ -1977,53 +1977,6 @@ export async function handleSendMessage(
   const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
     actorPrincipalId ?? undefined,
   );
-  // Bash/File/Transfer singletons are globally available via isAvailable() —
-  // no per-conversation gating needed. CU is per-conversation (owns step
-  // count, AX tree history, loop detection).
-  if (
-    shouldAttachHostProxyForCapability(
-      "host_cu",
-      sourceInterface,
-      sourceActorPrincipalId,
-    )
-  ) {
-    if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      conversation.setHostCuProxy(new HostCuProxy());
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostCuProxy(undefined);
-  }
-  // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
-  // singleton lock plus per-session loop tracking. Instantiation is
-  // unconditional when the capability is reachable — feature-flag gating
-  // lives in the skill-projection layer (which reads the `feature-flag:
-  // app-control` declaration in SKILL.md frontmatter), so an attached proxy
-  // is harmless when the flag resolves to off.
-  if (
-    shouldAttachHostProxyForCapability(
-      "host_app_control",
-      sourceInterface,
-      sourceActorPrincipalId,
-    )
-  ) {
-    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
-      conversation.setHostAppControlProxy(
-        new HostAppControlProxy(mapping.conversationId),
-      );
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostAppControlProxy(undefined);
-  }
-  // Only preactivate when the conversation is idle — if it's processing,
-  // this message will be queued and preactivation is deferred to dequeue
-  // time in drainQueueImpl to avoid mutating in-flight turn state.
-  if (!conversation.isProcessing()) {
-    preactivateHostProxySkills(
-      conversation,
-      sourceInterface,
-      sourceActorPrincipalId,
-    );
-  }
   // Delivery needs no wiring: the conversation's sink is the SSE hub for its
   // whole life. Presence travels with the turn (`isInteractive` below), which
   // is what keeps host_bash/host_file/host_cu gated for non-desktop
@@ -2406,6 +2359,65 @@ export async function handleSendMessage(
     if (outcome !== "released") {
       return queueSend(contentAfterScan);
     }
+  }
+
+  // Per-turn host-proxy setup, after the interrupt decision so the replacement
+  // turn an interrupt starts gets what an idle send gets. A send that queues
+  // has returned above, and the turn it queued behind clears
+  // `preactivatedSkillIds` when it ends, so running this before the decision
+  // would leave a released send without the `computer-use` and `app-control`
+  // tools its client can service.
+  //
+  // `isProcessing()` reads false on every path that reaches here, bar the race
+  // where another claim takes the lock in between. The guards below keep that
+  // case on the queue path's behaviour.
+  // Bash/File/Transfer singletons are globally available via isAvailable(), so
+  // they need no per-conversation gating. CU is per-conversation (owns step
+  // count, AX tree history, loop detection).
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_cu",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
+    if (!conversation.isProcessing() || !conversation.hostCuProxy) {
+      conversation.setHostCuProxy(new HostCuProxy());
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostCuProxy(undefined);
+  }
+  // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
+  // singleton lock plus per-session loop tracking. Instantiation is
+  // unconditional when the capability is reachable, because feature-flag
+  // gating lives in the skill-projection layer (which reads the `feature-flag:
+  // app-control` declaration in SKILL.md frontmatter), so an attached proxy
+  // is harmless when the flag resolves to off.
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_app_control",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
+    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+      conversation.setHostAppControlProxy(
+        new HostAppControlProxy(mapping.conversationId),
+      );
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(undefined);
+  }
+  // Preactivate only while the conversation is idle. A lock that changed hands
+  // since the interrupt decision sends this message to the queue instead, and
+  // the drain preactivates at dequeue time rather than mutating another turn's
+  // in-flight state.
+  if (!conversation.isProcessing()) {
+    preactivateHostProxySkills(
+      conversation,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
   }
 
   // Auto-deny pending confirmations for idle conversations. The legacy
