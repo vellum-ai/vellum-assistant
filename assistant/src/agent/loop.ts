@@ -2182,18 +2182,21 @@ export class AgentLoop {
                 block.type !== "web_search_tool_result",
             ),
           };
-          // A truncated turn keeps no tool calls (they were stripped above), so
-          // it is the turn's end and its text is the tool-gated fallback when
-          // nothing reached the user.
+          // Whether this truncated response ends the turn has to be settled
+          // BEFORE the fallback runs: a continued run picks up where the
+          // truncation cut off, so its half-finished text is still working
+          // notes, and surfacing it would deliver a fragment the model was
+          // about to rewrite. Only a truncation the run does not continue is
+          // terminal, and only then is its raw text the tool-gated fallback.
+          const willContinueTruncatedTurn =
+            maxTokensDecision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES;
           const truncatedVisibility = textVisibilityOf(
             emitFinalAssistantText(safeAssistantMessage.content, {
-              turnEnding: true,
+              turnEnding: !willContinueTruncatedTurn,
             }),
           );
-          if (
-            maxTokensDecision === "continue" &&
-            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
-          ) {
+          if (willContinueTruncatedTurn) {
             postModelCallContinues++;
             rlog.warn(
               { turn: toolUseTurns, retry: postModelCallContinues },

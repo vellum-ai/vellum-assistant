@@ -203,8 +203,8 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // the user, so the turn is only answered when a `send_user_message` call
   // reported the OUTCOME. This response holds no tool call at all (the guard
   // above), so it is the terminal one: if the last tool-bearing response was
-  // work rather than a report — a progress update sent alongside that work
-  // counts as work — the turn is ending in silence. Nudge once for a real
+  // work rather than a report (a progress update sent alongside that work
+  // counts as work), the turn is ending in silence. Nudge once for a real
   // reply, and after that let the turn end; the loop then surfaces this
   // response's raw text as the fallback rather than delivering nothing.
   //
@@ -224,13 +224,13 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
       ctx.decision = "continue";
       ctx.logger.warn(
         { plugin: "empty-response", conversationId: ctx.conversationId },
-        "Turn ended without a send_user_message call — nudging for a reply",
+        "Turn ended without a send_user_message call, nudging for a reply",
       );
       return;
     }
     ctx.logger.warn(
       { plugin: "empty-response", conversationId: ctx.conversationId },
-      "Turn ended without a send_user_message call after a nudge — surfacing the raw reply",
+      "Turn ended without a send_user_message call after a nudge, surfacing the raw reply",
     );
     return;
   }

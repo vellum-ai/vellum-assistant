@@ -107,15 +107,18 @@ function insertMessage(opts: {
   conversationId: string;
   content: string;
   createdAt: number;
+  role?: string;
+  metadata?: string;
 }): void {
   getDb()
     .insert(messages)
     .values({
       id: opts.id,
       conversationId: opts.conversationId,
-      role: "user",
+      role: opts.role ?? "user",
       content: opts.content,
       createdAt: opts.createdAt,
+      ...(opts.metadata !== undefined ? { metadata: opts.metadata } : {}),
     })
     .run();
 }
@@ -159,6 +162,48 @@ describe("indexMessageLexicalJob", () => {
       conversationId: "conv-1",
       createdAt,
     });
+  });
+
+  test("indexes the delivered message, not the scratchpad, on a private row", async () => {
+    // This index answers user-facing message search, so a row a
+    // `send_user_message` turn marked private must be findable by what the
+    // user read and not by the model's working notes.
+    const createdAt = 1_700_000_000_002;
+    const raw = JSON.stringify([
+      { type: "text", text: "zzscratchpadonly reasoning nobody sees" },
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "send_user_message",
+        input: { message: "You have two meetings today." },
+      },
+    ]);
+    insertConversation("conv-private");
+    insertMessage({
+      id: "msg-private",
+      conversationId: "conv-private",
+      role: "assistant",
+      content: raw,
+      metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+      createdAt,
+    });
+
+    await indexMessageLexicalJob(
+      makeJob("index_message_lexical", { messageId: "msg-private" }),
+      TEST_CONFIG,
+    );
+
+    expect(upsertCalls).toHaveLength(1);
+    const projected = JSON.stringify([
+      {
+        type: "thinking",
+        thinking: "zzscratchpadonly reasoning nobody sees",
+        signature: "",
+      },
+      { type: "text", text: "You have two meetings today." },
+    ]);
+    expect(upsertCalls[0].sparse).toEqual(generateSparseEmbedding(projected));
+    expect(upsertCalls[0].sparse).not.toEqual(generateSparseEmbedding(raw));
   });
 
   test("no-ops when messageId is missing from the payload", async () => {

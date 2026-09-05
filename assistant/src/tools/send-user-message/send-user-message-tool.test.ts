@@ -43,6 +43,15 @@ describe("send_user_message tool", () => {
     expect(result.isError).toBe(true);
   });
 
+  test("rejects a whitespace-only message rather than reporting delivery", async () => {
+    // The delivery path drops a blank message, so the schema must too: a
+    // success result on a message nobody receives is the worst answer.
+    for (const message of ["   ", "\n\t", " \n "]) {
+      const result = await sendUserMessageTool.execute({ message });
+      expect(result.isError).toBe(true);
+    }
+  });
+
   test("rejects a missing message", async () => {
     const result = await sendUserMessageTool.execute({});
     expect(result.isError).toBe(true);
