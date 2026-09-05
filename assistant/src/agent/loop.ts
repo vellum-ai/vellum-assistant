@@ -52,6 +52,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
+import { abortedToolResultText } from "../util/abort-reasons.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
@@ -2182,11 +2183,12 @@ export class AgentLoop {
 
         // If already cancelled, synthesize cancelled results and stop
         if (signal?.aborted) {
+          const cancelledText = abortedToolResultText(signal.reason);
           const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
             (toolUse) => ({
               type: "tool_result" as const,
               tool_use_id: toolUse.id,
-              content: "Cancelled by user",
+              content: cancelledText,
               is_error: true,
             }),
           );
@@ -2195,7 +2197,7 @@ export class AgentLoop {
             await onEvent({
               type: "tool_result",
               toolUseId: toolUse.id,
-              content: "Cancelled by user",
+              content: cancelledText,
               isError: true,
               cancelled: true,
             });
@@ -2489,11 +2491,12 @@ export class AgentLoop {
         // Anthropic API (every tool_use must have a matching tool_result).
         if (signal?.aborted) {
           if (toolUseBlocks.length > 0) {
+            const cancelledText = abortedToolResultText(signal.reason);
             const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
               (toolUse) => ({
                 type: "tool_result" as const,
                 tool_use_id: toolUse.id,
-                content: "Cancelled by user",
+                content: cancelledText,
                 is_error: true,
               }),
             );
@@ -2502,7 +2505,7 @@ export class AgentLoop {
               await onEvent({
                 type: "tool_result",
                 toolUseId: toolUse.id,
-                content: "Cancelled by user",
+                content: cancelledText,
                 isError: true,
                 cancelled: true,
               });

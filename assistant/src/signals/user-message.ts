@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { v7 as uuidv7 } from "uuid";
 
+import { interruptRunningTurn } from "../daemon/conversation-interrupt.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -108,7 +109,23 @@ async function dispatchUserMessage(params: {
     }
   }
 
-  if (conversation.isProcessing()) {
+  // Under `interrupt-on-send` this message stops the turn in flight and takes
+  // its place, so a busy conversation is made idle here and the same
+  // background dispatch an idle conversation uses runs it. The CLI carries no
+  // actor principal, so it is the guardian by the routes layer's convention
+  // and always allowed to interrupt.
+  const interruptOutcome = conversation.isProcessing()
+    ? await interruptRunningTurn(conversation, {
+        origin: "signals/user-message",
+      })
+    : "released";
+
+  // Every outcome but `released` queues, whatever the flag now reads. A `busy`
+  // that comes back after the interrupted turn has already ended is the case
+  // this must not treat as idle: its history carries a durable `tool_use` the
+  // repair could not answer, and running the message here would persist a user
+  // row after it. The idle kick below is what gets the queued message drained.
+  if (interruptOutcome !== "released") {
     for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
       const att = resolvedAttachments[i];
       if (att.filePath && !att.data) {
@@ -150,6 +167,12 @@ async function dispatchUserMessage(params: {
           { err, conversationId },
           "Post-enqueue supersession failed — queued message unaffected",
         );
+      }
+      // Same reason the HTTP send path kicks one: a message that lands on a
+      // conversation which is already idle has no running turn whose `finally`
+      // would drain it.
+      if (!conversation.isProcessing()) {
+        void conversation.kickDrainQueue("loop_complete", "signal_send_idle");
       }
     }
     return { accepted: !result.rejected };

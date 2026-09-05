@@ -13,6 +13,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 /** The steer button is version-gated, so hydrate an assistant that has it. */
@@ -47,9 +48,14 @@ function queued(id: string, text: string): DisplayMessage {
   } as DisplayMessage;
 }
 
-const MESSAGES = [queued("m-1", "first queued"), queued("m-2", "second queued")];
+const MESSAGES = [
+  queued("m-1", "first queued"),
+  queued("m-2", "second queued"),
+];
 
-function renderDrawer(overrides: Partial<Parameters<typeof QueuedMessagesDrawer>[0]> = {}) {
+function renderDrawer(
+  overrides: Partial<Parameters<typeof QueuedMessagesDrawer>[0]> = {},
+) {
   const onCancelMessage = mock((_id: string) => {});
   const onSteer = mock((_id: string) => {});
   const onEditTail = mock(() => {});
@@ -121,9 +127,9 @@ describe("QueuedMessagesDrawer: coarse pointer", () => {
     expect(screen.queryAllByLabelText("Cancel queued message")).toEqual([]);
     expect(screen.queryAllByLabelText("Push to agent")).toEqual([]);
     expect(screen.queryAllByLabelText("Edit queued message")).toEqual([]);
-    expect(
-      screen.getAllByLabelText("Show queued message actions").length,
-    ).toBe(2);
+    expect(screen.getAllByLabelText("Show queued message actions").length).toBe(
+      2,
+    );
   });
 
   test("first tap reveals only that row; a second tap activates a control", () => {
@@ -135,9 +141,9 @@ describe("QueuedMessagesDrawer: coarse pointer", () => {
     const cancels = screen.getAllByLabelText("Cancel queued message");
     expect(cancels.length).toBe(1);
     // The untapped row keeps its controls hidden.
-    expect(
-      screen.getAllByLabelText("Show queued message actions").length,
-    ).toBe(1);
+    expect(screen.getAllByLabelText("Show queued message actions").length).toBe(
+      1,
+    );
 
     fireEvent.click(cancels[0]!);
     expect(onCancelMessage).toHaveBeenCalledWith("m-1");
@@ -163,8 +169,44 @@ describe("QueuedMessagesDrawer: coarse pointer", () => {
     fireEvent.pointerDown(document.body);
 
     expect(screen.queryAllByLabelText("Cancel queued message")).toEqual([]);
-    expect(
-      screen.getAllByLabelText("Show queued message actions").length,
-    ).toBe(2);
+    expect(screen.getAllByLabelText("Show queued message actions").length).toBe(
+      2,
+    );
+  });
+});
+
+/**
+ * A send can still be queued while `interrupt-on-send` is on: another actor
+ * owns the running turn, the interrupt times out, or the lock belongs to a
+ * `/compact` rather than an abortable turn. Those rows are excluded from the
+ * transcript because this drawer owns their rendering, so the drawer keeps
+ * showing them and their controls whatever the flag says.
+ */
+describe("QueuedMessagesDrawer: interrupt-on-send", () => {
+  beforeEach(() => {
+    setPointer(false);
+    useAssistantFeatureFlagStore.getState().setFlags({ interruptOnSend: true });
+  });
+
+  afterEach(() => {
+    useAssistantFeatureFlagStore
+      .getState()
+      .setFlags({ interruptOnSend: false });
+  });
+
+  test("renders fallback-queued rows and their controls", () => {
+    renderDrawer();
+
+    expect(screen.getByText("first queued")).toBeDefined();
+    expect(screen.getByText("second queued")).toBeDefined();
+    expect(screen.getAllByLabelText("Cancel queued message").length).toBe(2);
+    expect(screen.getAllByLabelText("Push to agent").length).toBe(2);
+  });
+
+  test("renders nothing only when the queue is actually empty", () => {
+    renderDrawer({ queuedMessages: [] });
+
+    expect(screen.queryByText("first queued")).toBeNull();
+    expect(screen.queryAllByLabelText("Cancel queued message")).toEqual([]);
   });
 });
