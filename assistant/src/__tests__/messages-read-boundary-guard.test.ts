@@ -61,7 +61,6 @@ const BASELINE: Readonly<Record<string, number>> = {
   "src/plugins/defaults/memory/v2/harness/oracle.ts": 1,
   "src/plugins/defaults/memory/v2/harness/replay-input.ts": 1,
   "src/plugins/defaults/memory/v3-eval/eval-packets.ts": 2,
-  "src/plugins/defaults/memory/v3/prune.ts": 1,
   "src/plugins/defaults/memory/v3/selection-log-store.ts": 1,
   "src/runtime/pre-first-message-gate.ts": 1,
   "src/runtime/routes/log-export-routes.ts": 1,
