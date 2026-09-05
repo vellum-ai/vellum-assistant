@@ -21,7 +21,7 @@ on:
       - 'packages/environments/**'
       - 'packages/avatar-catalog/**'
       - 'packages/avatar-manifest/**'
-      - 'packages/billing/**'
+      - 'packages/service-contracts/**'
       # The web LLM catalog parity test reads this file, so daemon-side catalog
       # regenerations must run the web tests too.
       - 'meta/llm-provider-catalog.json'

@@ -13,7 +13,7 @@
  */
 
 import { parseUsd } from "@/lib/billing/parse-usd";
-import { extraCreditUsd } from "@vellumai/billing";
+import { extraCreditUsd } from "@vellumai/service-contracts/plan-credit";
 
 /**
  * The balance to display: the effective balance less whatever is still unused

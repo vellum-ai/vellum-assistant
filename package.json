@@ -14,7 +14,6 @@
     "gateway",
     "packages/assistant-client",
     "packages/avatar-catalog",
-    "packages/billing",
     "packages/avatar-manifest",
     "packages/ces-client",
     "packages/credential-storage",

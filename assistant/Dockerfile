@@ -110,7 +110,6 @@ COPY --link --from=builder /app /app
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog
 COPY packages/avatar-manifest /app/packages/avatar-manifest
-COPY packages/billing /app/packages/billing
 COPY packages/ces-client /app/packages/ces-client
 COPY packages/service-contracts /app/packages/service-contracts
 COPY packages/credential-storage /app/packages/credential-storage

@@ -23,7 +23,10 @@
 
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { parseUsd } from "@/lib/billing/parse-usd";
-import { planCreditUsedFraction, usageGrantRatio } from "@vellumai/billing";
+import {
+  planCreditUsedFraction,
+  usageGrantRatio,
+} from "@vellumai/service-contracts/plan-credit";
 
 export { usageGrantRatio };
 

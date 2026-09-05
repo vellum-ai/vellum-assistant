@@ -17,7 +17,6 @@
     "@microsoft/api-extractor",
     "@vellumai/avatar-catalog",
     "@vellumai/avatar-manifest",
-    "@vellumai/billing",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/egress-proxy",

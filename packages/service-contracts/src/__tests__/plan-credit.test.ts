@@ -4,7 +4,7 @@ import {
   extraCreditUsd,
   planCreditUsedFraction,
   usageGrantRatio,
-} from "../index.js";
+} from "../plan-credit.js";
 
 describe("usageGrantRatio", () => {
   test("reads the used share and clamps to 0..1", () => {

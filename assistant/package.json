@@ -45,7 +45,6 @@
     "@slack/types": "2.22.0",
     "@vellumai/avatar-catalog": "workspace:*",
     "@vellumai/avatar-manifest": "workspace:*",
-    "@vellumai/billing": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/credential-storage": "workspace:*",
     "@vellumai/egress-proxy": "workspace:*",
@@ -91,7 +90,6 @@
   "bundledDependencies": [
     "@vellumai/avatar-catalog",
     "@vellumai/avatar-manifest",
-    "@vellumai/billing",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/service-contracts",

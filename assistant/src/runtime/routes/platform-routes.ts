@@ -31,7 +31,7 @@ import {
   type BillingPlanId,
   extraCreditUsd,
   planCreditUsedFraction,
-} from "@vellumai/billing";
+} from "@vellumai/service-contracts/plan-credit";
 import {
   type PlatformCredentialVerificationStatus,
   type PlatformVerifyCredentialResponse,
