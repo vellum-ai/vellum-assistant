@@ -356,6 +356,26 @@ export function WebSearchContent() {
               below.
             </li>
           </ol>
+          <div className="mb-4 border-t border-stone-200 pt-4 dark:border-moss-600">
+            <h3 className="mb-2 font-sans text-lg font-semibold text-stone-900 dark:text-stone-100">
+              Optional Parallel Search MCP server
+            </h3>
+            <p className="mb-4 text-stone-600 dark:text-stone-400">
+              To explicitly enable anonymous web search and URL-fetching MCP
+              tools without an account or API key, add the server from your
+              terminal:
+            </p>
+            <div className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4">
+              <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-100">
+                {`assistant mcp add parallel-search -t streamable-http -u https://search.parallel.ai/mcp`}
+              </pre>
+            </div>
+            <p className="mb-0 text-stone-600 dark:text-stone-400">
+              Search queries and requested URLs are sent to Parallel only when
+              you use those tools. Adding this MCP server does not change your
+              selected web-search provider or its fallback chain.
+            </p>
+          </div>
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             Changing the provider takes effect immediately for the next
             search; in-flight searches finish on the previously configured
