@@ -174,6 +174,10 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 
 mock.module("@/domains/onboarding/prechat-names", () => ({
   DEFAULT_GROUP_ID: "default",
+  RESEARCH_NAMING_VARIANTS: {
+    randomized: "random_initial",
+    custom: "custom_name",
+  },
 }));
 
 mock.module("@/domains/onboarding/prechat", () => ({

@@ -42,7 +42,10 @@ import {
 } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
+import {
+  DEFAULT_GROUP_ID,
+  RESEARCH_NAMING_VARIANTS,
+} from "@/domains/onboarding/prechat-names";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
@@ -69,6 +72,7 @@ import { stampAssistantOnboarded } from "@/domains/onboarding/stamp-assistant-on
 import {
   emitResearchOnboardingStepCompleted,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
+  type OnboardingFunnelAbVariant,
   type OnboardingFunnelStepOutcome,
 } from "@/domains/onboarding/funnel-events";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
@@ -182,12 +186,15 @@ export function ResearchOnboardingRoute() {
   function goForwardTo(
     next: ResearchStep,
     outcome: OnboardingFunnelStepOutcome = "completed",
+    extras?: { screen?: string; variant?: OnboardingFunnelAbVariant },
   ) {
     emitResearchOnboardingStepCompleted(
       RESEARCH_ONBOARDING_FUNNEL_STEPS[step],
       {
         userId,
         outcome,
+        screen: extras?.screen,
+        variant: extras?.variant,
       },
     );
     setForwardStack([]);
@@ -1363,9 +1370,19 @@ export function ResearchOnboardingRoute() {
   if (step === "face" && formValues) {
     return withHatchError(
       <GiveMeAFaceScreen
+        initialName={faceValues?.name}
         onContinue={(face) => {
           setFaceValues(face);
-          goForwardTo("intro");
+          goForwardTo(
+            "intro",
+            "completed",
+            face.naming
+              ? {
+                  screen: face.naming.source,
+                  variant: RESEARCH_NAMING_VARIANTS[face.naming.source],
+                }
+              : undefined,
+          );
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}
