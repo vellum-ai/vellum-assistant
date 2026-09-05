@@ -510,7 +510,13 @@ describe("orchestrate — candidate pool composition", () => {
 
     expect(selectCalls).toBe(0);
     expect(result.selections).toEqual([]);
-    expect(result.lanes).toEqual({ core: [], hot: [], fresh: [], finder: [] });
+    expect(result.lanes).toEqual({
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [],
+    });
   });
 
   test("matchedSections is populated from matched lane sections", async () => {

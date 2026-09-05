@@ -26,7 +26,9 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import type { PoolCandidateRecord, PoolLane } from "../pool-log-store.js";
 
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
@@ -57,7 +59,24 @@ function makeDb() {
   testSqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
+}
+
+/** One pooled candidate in the persisted shape `writePool` stores. */
+function candidate(
+  slug: string,
+  lane: PoolLane,
+  chosen: boolean,
+  section?: { title: string; ordinal: number },
+): PoolCandidateRecord {
+  return {
+    slug,
+    lane,
+    section_title: section?.title ?? null,
+    section_ordinal: section?.ordinal ?? null,
+    chosen,
+  };
 }
 
 function seed(
@@ -149,6 +168,9 @@ const {
   getMemoryV3SelectionForInspectorByMessageIds,
   summarizeSelections,
 } = await import("../selection-log-store.js");
+// The pool writer resolves the same stubbed memory connection, so tests seed
+// pool rows through it and read them back through the inspector store.
+const { writePool } = await import("../pool-log-store.js");
 
 beforeEach(() => {
   storeMockActive = true;
@@ -280,6 +302,104 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       },
     ]);
     expect(log?.injectedText).toContain("<memory>");
+  });
+
+  test("includes the turn's candidate pool when one was persisted", async () => {
+    seed(
+      "conv-m",
+      3,
+      [
+        { slug: "domain-a/page-1", source: "core" },
+        {
+          slug: "domain-b/page-2",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Heading B",
+        },
+      ],
+      "msg-pool",
+    );
+    // The pool the selector saw: the core card, an unchosen hot card, and the
+    // needle line with its matched section. The join is by the selection rows'
+    // (conversation, turn), so the pool row needs no message id of its own.
+    writePool("conv-m", 3, {
+      candidates: [
+        candidate("domain-a/page-1", "core", true),
+        candidate("domain-c/page-9", "hot", false),
+        candidate("domain-b/page-2", "needle", true, {
+          title: "Heading B",
+          ordinal: 2,
+        }),
+      ],
+      pool_size: 3,
+      selected_count: 2,
+    });
+    // A pool for a neighbouring turn must not bleed in.
+    writePool("conv-m", 4, {
+      candidates: [candidate("other/page", "core", true)],
+      pool_size: 1,
+      selected_count: 1,
+    });
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-pool",
+    ]);
+    expect(log?.pool).toEqual({
+      poolSize: 3,
+      selectedCount: 2,
+      candidates: [
+        {
+          slug: "domain-a/page-1",
+          lane: "core",
+          sectionHeading: null,
+          chosen: true,
+        },
+        {
+          slug: "domain-c/page-9",
+          lane: "hot",
+          sectionHeading: null,
+          chosen: false,
+        },
+        {
+          slug: "domain-b/page-2",
+          lane: "needle",
+          sectionHeading: "Heading B",
+          chosen: true,
+        },
+      ],
+    });
+    // The turn-keyed variant resolves the same pool.
+    const byTurn = await getMemoryV3SelectionForInspector("conv-m", 3);
+    expect(byTurn?.pool).toEqual(log?.pool);
+  });
+
+  test("pool is null for a turn logged before pools were persisted", async () => {
+    seed("conv-m", 0, [{ slug: "domain-a/page-1", source: "needle" }], "msg-1");
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-1"]);
+    expect(log?.selections).toHaveLength(1);
+    expect(log?.pool).toBeNull();
+  });
+
+  test("resolves the parent's pool for a forked (inherited) turn", async () => {
+    seed(
+      "conv-parent",
+      4,
+      [{ slug: "domain-a/page-1", source: "needle" }],
+      "parent-msg",
+    );
+    writePool("conv-parent", 4, {
+      candidates: [candidate("domain-a/page-1", "needle", true)],
+      pool_size: 1,
+      selected_count: 1,
+    });
+    seedMessage("fork-msg", "parent-msg");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "fork-msg",
+    ]);
+    expect(log?.pool?.candidates.map((c) => c.slug)).toEqual([
+      "domain-a/page-1",
+    ]);
   });
 
   test("returns null for empty message ids and for an unmatched id", async () => {

@@ -244,6 +244,7 @@ function result(
       core: [],
       hot: [],
       fresh: [],
+      always: [],
       finder: matched.map(([slug]) => ({
         slug,
         descriptor: "",

@@ -263,9 +263,17 @@ Persisted rows; a rename orphans every existing install.
 | `memory_v2_activation_logs`       | v2 inspector/harness                |
 | `memory_v2_injection_events`      | v2 scoring feedback                 |
 | `memory_v3_selections`            | v3 selection log                    |
+| `memory_v3_pools`                 | v3 selector pool audit              |
 | `memory_v3_ever_injected`         | v3 card dedup                       |
 | `memory_retrospective_state`      | retrospective (tier-agnostic)       |
 | `activation_sessions`             | onboarding activation rail          |
+
+`memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
+selector's full candidate pool (every stable-prefix card and finder line, in
+pool order, with lane, matched section, and verdict) for the inspector's
+Memory tab. Rows are per-turn diagnostics, roughly 10KB each, with no
+retention job; a conversation delete purges them with the other
+conversation-keyed tables (`conversation-memory-purge.ts`).
 
 ### Job types (`memory_jobs.type`)
 

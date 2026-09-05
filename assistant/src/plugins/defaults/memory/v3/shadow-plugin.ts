@@ -2,9 +2,10 @@
  * Memory v3 — config-gated live orchestration engine.
  *
  * When `memory.v3.live` is set, runs the v3 orchestrator each turn and records
- * its selection set to `memory_v3_selections`. The injector (`memoryV3Injector`
- * in `./injector.ts`) renders this turn's selections into a `<memory>` block
- * and returns it at v2's dynamic-memory placement (`after-memory-prefix`).
+ * its selection set to `memory_v3_selections` and its candidate pool to
+ * `memory_v3_pools`. The injector (`memoryV3Injector` in `./injector.ts`)
+ * renders this turn's selections into a `<memory>` block and returns it at
+ * v2's dynamic-memory placement (`after-memory-prefix`).
  *
  * On each live turn:
  *   1. Lazy-init the v3 lanes (section index, section-grain BM25 needle,
@@ -16,7 +17,8 @@
  *      and rebuilds.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
- *      `memory_v3_selections` with a best-effort lane attribution.
+ *      `memory_v3_selections` with a best-effort lane attribution, plus the
+ *      full candidate pool and verdict to `memory_v3_pools` for the inspector.
  *
  * {@link observeTurn} wraps everything in try/catch — any failure is logged and
  * swallowed so it can never affect the live turn. The injector treats a
@@ -63,6 +65,7 @@ import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
+import { buildPoolRecord, writePool } from "./pool-log-store.js";
 import {
   MemoryV3RetrievalUnavailableError,
   resolveSelectorPrompt,
@@ -660,13 +663,15 @@ export function writeSelections(
 }
 
 /**
- * Stamp the turn's assistant message id onto the selection rows just written
- * for it. Mirrors the v2 activation-log backfill: `writeSelections` writes
- * `message_id = NULL` at injection time, and this runs at turn end once the
- * assistant message exists. Relies on the single-threaded-per-conversation turn
- * invariant — every NULL-`message_id` row for the conversation belongs to the
- * turn that just finished. Lets the inspector look v3 selections up by the
- * turn's message ids (robust against v2/v3 turn-counter drift).
+ * Stamp the turn's assistant message id onto the selection rows and the pool
+ * row just written for it. Mirrors the v2 activation-log backfill:
+ * `writeSelections` and `writePool` write `message_id = NULL` at injection
+ * time, and this runs at turn end once the assistant message exists. Relies on
+ * the single-threaded-per-conversation turn invariant: every NULL-`message_id`
+ * row for the conversation belongs to the turn that just finished. Lets the
+ * inspector look v3 selections up by the turn's message ids (robust against
+ * v2/v3 turn-counter drift). The selection rows are stamped first so a failing
+ * pool stamp degrades the inspector to selections-only rather than blanking it.
  */
 export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
@@ -680,6 +685,12 @@ export function backfillMemoryV3SelectionMessageId(
     raw
       .query(
         /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
+                 WHERE conversation_id = ? AND message_id IS NULL`,
+      )
+      .run(assistantMessageId, conversationId);
+    raw
+      .query(
+        /*sql*/ `UPDATE memory_v3_pools SET message_id = ?
                  WHERE conversation_id = ? AND message_id IS NULL`,
       )
       .run(assistantMessageId, conversationId);
@@ -784,6 +795,7 @@ export async function observeTurn(
     const persistStartedAt = Date.now();
     const rows = attributeSelections(result);
     writeSelections(conversationId, turnIndex, rows);
+    writePool(conversationId, turnIndex, buildPoolRecord(result));
     recordLatencySubSpan(
       "v3_persist",
       "Selection persistence",

@@ -3,7 +3,9 @@
  *
  * These tests assert the v3 orchestration engine and the live injector:
  *   - {@link observeTurn} runs orchestration and selection rows land in
- *     `memory_v3_selections` with the new lane source tags;
+ *     `memory_v3_selections` with the new lane source tags, while the turn's
+ *     full candidate pool and verdict land in one `memory_v3_pools` row that
+ *     the turn-end backfill stamps alongside the selections;
  *   - {@link observeTurn} is skipped when global memory is disabled;
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
@@ -32,6 +34,7 @@ import { ESCALATION_CONTINUATION_CONTENT } from "../../../../../calls/voice-tria
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
+import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -126,8 +129,9 @@ const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
 // The orchestrate result the spy returns. `lanes` records where each pooled
 // slug lived: page-core in the core lane, page-hot in the hot lane, page-fresh
-// in the fresh lane, and the finder entries page-1 → "needle", page-2 → "dense",
-// page-3 → "edge";
+// in the fresh lane, the always-candidate skill in the always lane (pooled but
+// NOT selected, so the pool record carries an unchosen entry), and the finder
+// entries page-1 → "needle", page-2 → "dense", page-3 → "edge";
 // `attributeSelections` reads it directly. `matchedSections` carries the
 // matched section for the slugs that had one (page-1/page-2) — consumed by the
 // live injector's progressive disclosure, independent of source attribution.
@@ -151,6 +155,7 @@ const orchestrateSpy = mock(
       core: ["page-core"],
       hot: ["page-hot"],
       fresh: ["page-fresh"],
+      always: [CAPABILITY_SLUG],
       finder: [
         { slug: "page-1", descriptor: "", lane: "needle" },
         { slug: "page-2", descriptor: "", lane: "dense" },
@@ -200,6 +205,8 @@ function makeDb() {
   ensureMemoryV3SelectionsSchema(memorySqlite);
   // The live injector's net-new dedup reads/writes the everInjected store.
   ensureMemoryV3EverInjectedSchema(memorySqlite);
+  // `observeTurn` records each turn's candidate pool next to its selections.
+  ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
 }
 
@@ -527,6 +534,23 @@ function readRows() {
     .all() as Array<{ slug: string; source: SelectionSource }>;
 }
 
+function readPools() {
+  return memorySqlite
+    .query(
+      `SELECT conversation_id, turn, message_id, pool_size, selected_count,
+              candidates_json
+       FROM memory_v3_pools ORDER BY turn`,
+    )
+    .all() as Array<{
+    conversation_id: string;
+    turn: number;
+    message_id: string | null;
+    pool_size: number;
+    selected_count: number;
+    candidates_json: string;
+  }>;
+}
+
 beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
@@ -642,6 +666,63 @@ describe("memory-v3 engine", () => {
       { slug: "page-fresh", source: "fresh" },
       { slug: "page-hot", source: "hot" },
     ]);
+
+    // The same turn leaves exactly one pool row: every stable-prefix card
+    // (core, hot, fresh, always) and every finder line in pool order, each
+    // `chosen` iff the slug has a selection row above. The always-candidate
+    // skill was pooled but not selected, so it is the one unchosen entry.
+    const pools = readPools();
+    expect(pools).toHaveLength(1);
+    expect(pools[0]).toMatchObject({
+      conversation_id: "conv-1",
+      turn: 2,
+      message_id: null,
+      pool_size: 9,
+      selected_count: 8,
+    });
+    const card = (slug: string, lane: string, chosen: boolean) => ({
+      slug,
+      lane,
+      section_title: null,
+      section_ordinal: null,
+      chosen,
+    });
+    expect(JSON.parse(pools[0]!.candidates_json)).toEqual([
+      card("page-core", "core", true),
+      card("page-hot", "hot", true),
+      card("page-fresh", "fresh", true),
+      card(CAPABILITY_SLUG, "always", false),
+      // Finder lines carry the slug's matched section when one was recorded.
+      {
+        slug: "page-1",
+        lane: "needle",
+        section_title: "",
+        section_ordinal: 0,
+        chosen: true,
+      },
+      {
+        slug: "page-2",
+        lane: "dense",
+        section_title: "",
+        section_ordinal: 0,
+        chosen: true,
+      },
+      card("page-3", "edge", true),
+      card("page-4", "reply", true),
+      card("page-5", "learned", true),
+    ]);
+  });
+
+  test("the turn-end backfill stamps the message id onto the turn's selections and pool", async () => {
+    await observeTurn("conv-1", 2);
+
+    backfillMemoryV3SelectionMessageId("conv-1", "m-assistant");
+
+    const stamped = memorySqlite
+      .query(`SELECT DISTINCT message_id FROM memory_v3_selections`)
+      .all();
+    expect(stamped).toEqual([{ message_id: "m-assistant" }]);
+    expect(readPools().map((pool) => pool.message_id)).toEqual(["m-assistant"]);
   });
 
   test("the turn carries the tail of the previous assistant reply for the reply-query pass", async () => {
@@ -689,6 +770,7 @@ describe("memory-v3 engine", () => {
         core: ["page-core"],
         hot: [],
         fresh: [],
+        always: [],
         // The needle also hit the core page this turn — the row still logs
         // "core" because that is where the candidate lived in the pool.
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
@@ -936,7 +1018,7 @@ describe("memory-v3 engine", () => {
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
       matchedSections: new Map(),
-      lanes: { core: [], hot: [], fresh: [], finder: [] },
+      lanes: { core: [], hot: [], fresh: [], always: [], finder: [] },
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();

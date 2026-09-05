@@ -260,8 +260,8 @@ export interface FinderCandidate {
 }
 
 /**
- * The candidate lanes in cache order. `core`, `hot`, and `fresh` are the
- * stable prefix (byte-identical across turns while lanes are unchanged);
+ * The candidate lanes in cache order. `core`, `hot`, `fresh`, and `always` are
+ * the stable prefix (byte-identical across turns while lanes are unchanged);
  * `finder` is the dynamic tail and MAY repeat a stable-prefix slug (a finder
  * hit on a stable-prefix page is kept so its current relevance stays visible
  * downstream).
@@ -273,6 +273,8 @@ export interface OrchestrateLanes {
   hot: Slug[];
   /** Modification-recency fresh set, recency order (never overlaps core/hot). */
   fresh: Slug[];
+  /** Always-candidate skills, install order (never overlaps core/hot/fresh). */
+  always: Slug[];
   /** Finder candidates in surfacing order, deduped among themselves only. */
   finder: FinderCandidate[];
 }
@@ -288,8 +290,8 @@ export interface OrchestrateResult {
    *  section (progressive disclosure). */
   matchedSections: Map<Slug, Section>;
   /** The candidate lanes in cache order; see {@link OrchestrateLanes}. Consumed
-   *  by the selection telemetry (lane attribution) and the downstream selector
-   *  rendering/spotlight. */
+   *  by the selection telemetry (lane attribution), the per-turn pool record
+   *  (`pool-log-store.ts`), and the downstream selector rendering/spotlight. */
   lanes: OrchestrateLanes;
 }
 
@@ -744,7 +746,7 @@ export async function orchestrate(
           const closed = (selections: SelectedPage[]): OrchestrateResult => ({
             selections,
             matchedSections: new Map(),
-            lanes: { core, hot, fresh, finder: [] },
+            lanes: { core, hot, fresh, always, finder: [] },
           });
           if (deps.gateConfig.bypassForCore) {
             // Select over the stable prefix only. `runSelection` mirrors the
@@ -871,7 +873,7 @@ export async function orchestrate(
   return {
     selections,
     matchedSections,
-    lanes: { core, hot, fresh, finder },
+    lanes: { core, hot, fresh, always, finder },
   };
 }
 

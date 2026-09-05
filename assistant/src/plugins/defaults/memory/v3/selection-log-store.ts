@@ -14,6 +14,10 @@
  * full/lead page otherwise. Section text is re-derived from the current page,
  * so it reflects bounded page-drift if the page changed since the turn (the
  * same approximation the v2 inspector accepts).
+ *
+ * The log also carries the turn's candidate `pool` (`memory_v3_pools`, read by
+ * the resolved rows' `(conversation, turn)` so it is always the same turn as
+ * the selections), or `null` for turns that predate pool logging.
  */
 
 import type { MemoryV3SelectionLog } from "../../../../api/responses/memory-v3-selection-log.js";
@@ -26,6 +30,7 @@ import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3SectionContent } from "./page-content.js";
+import { type PoolRecord, readPoolForTurn } from "./pool-log-store.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
 import {
@@ -36,6 +41,7 @@ import {
 } from "./types.js";
 
 interface SelectionRow {
+  conversation_id: string;
   turn: number;
   slug: string;
   source: string;
@@ -43,7 +49,7 @@ interface SelectionRow {
   section_title: string | null;
 }
 
-const SELECTION_COLUMNS = `turn, slug, source, section_ordinal, section_title`;
+const SELECTION_COLUMNS = `conversation_id, turn, slug, source, section_ordinal, section_title`;
 
 function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
   const raw = memorySqliteOrNull("rowsForTurn");
@@ -179,10 +185,34 @@ async function reconstructMatchedSections(
   return sectionBySlug;
 }
 
+/**
+ * Map a persisted pool record onto the inspector wire shape. `null` when the
+ * turn has no pool row (it predates pool logging) or the memory connection is
+ * unavailable.
+ */
+function toInspectorPool(
+  record: PoolRecord | null,
+): MemoryV3SelectionLog["pool"] {
+  if (!record) {
+    return null;
+  }
+  return {
+    poolSize: record.pool_size,
+    selectedCount: record.selected_count,
+    candidates: record.candidates.map((candidate) => ({
+      slug: candidate.slug,
+      lane: candidate.lane,
+      sectionHeading: candidate.section_title,
+      chosen: candidate.chosen,
+    })),
+  };
+}
+
 async function buildSelectionLog(
   rows: SelectionRow[],
 ): Promise<MemoryV3SelectionLog | null> {
-  if (rows.length === 0) {
+  const first = rows[0];
+  if (!first) {
     return null;
   }
 
@@ -202,10 +232,11 @@ async function buildSelectionLog(
   );
 
   return {
-    turn: rows[0]!.turn,
+    turn: first.turn,
     live: isMemoryV3Live(config),
     selections,
     injectedText,
+    pool: toInspectorPool(readPoolForTurn(first.conversation_id, first.turn)),
   };
 }
 

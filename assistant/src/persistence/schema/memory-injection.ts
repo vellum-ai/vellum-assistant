@@ -66,3 +66,28 @@ export const memoryV3Selections = sqliteTable(
     index("idx_memory_v3_selections_conv").on(table.conversationId, table.turn),
   ],
 );
+
+// Per-turn audit record of the memory-v3 selector's candidate pool: every
+// stable-prefix card and finder line the selector saw, in pool order, with its
+// lane, matched section, and verdict (`candidates_json`). One row per
+// (conversation, turn); `message_id` is stamped by the turn-end backfill so the
+// inspector can join it to the turn. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main. Access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`).
+export const memoryV3Pools = sqliteTable(
+  "memory_v3_pools",
+  {
+    conversationId: text("conversation_id").notNull(),
+    turn: integer("turn").notNull(),
+    messageId: text("message_id"),
+    createdAt: integer("created_at").notNull(),
+    poolSize: integer("pool_size").notNull(),
+    selectedCount: integer("selected_count").notNull(),
+    candidatesJson: text("candidates_json").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationId, table.turn] }),
+    index("idx_memory_v3_pools_message").on(table.messageId),
+    index("idx_memory_v3_pools_conv").on(table.conversationId, table.turn),
+  ],
+);
