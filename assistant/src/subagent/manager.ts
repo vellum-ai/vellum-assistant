@@ -408,6 +408,12 @@ interface ManagedSubagent {
   toolCalls?: number;
   /** Cleared when the run settles; fires the `maxRuntimeMs` stop. */
   runtimeTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * Which budget stopped this child, set when the ceiling is hit and consumed
+   * by the run's teardown, which is the first moment the child's output is on
+   * disk for the parent the notification sends to read it.
+   */
+  budgetStopReason?: string;
 }
 
 export interface SubagentNotificationInfo {
@@ -1077,6 +1083,10 @@ export class SubagentManager {
       // may have been nulled by an external dispose() before catch runs.
       managed.state.usage = { ...conversation.usageStats };
       managed.state.stats = snapshotToolStats(conversation);
+      // A run cut short still wrote whatever it had streamed. Capture it in the
+      // same window as the usage and stats above, so a teardown that reports
+      // partial output has it whichever way the loop ended.
+      finalText = extractFinalAssistantText(conversation.messages);
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -1099,6 +1109,11 @@ export class SubagentManager {
       }
     } finally {
       this.clearRuntimeBudget(managed);
+      // A budget stop aborts the child from a timer or an event tap, with
+      // `runAgentLoop` still awaited above. Its notification waits until here,
+      // where the loop has unwound and the final flush is on disk, so the
+      // guidance it inlines is the guidance a `subagent_read` would find.
+      this.notifyParentBudgetStop(managed, finalText);
       // Release the heavyweight Conversation — output is already persisted in DB.
       // drainQueue is async: it awaits buildPassthroughBatch (which awaits
       // resolveSlash) before shifting anything, and runAgentLoop fires it
@@ -1184,25 +1199,73 @@ export class SubagentManager {
   }
 
   /**
-   * Stop a child that ran past a budget its spawner set, and tell the parent
-   * which budget it was.
+   * Stop a child that ran past a budget its spawner set, recording which budget
+   * it was so the run's own teardown can tell the parent.
+   *
+   * The abort is raised here but the notification is NOT: this fires from a
+   * timer or an event tap while `runAgentLoop` is still awaited, so the child's
+   * final partial flush has not landed and its stats are not snapshotted. A
+   * parent told to read at this moment reads a transcript that is missing the
+   * very output the message points it at, and nothing corrects it afterwards.
+   * {@link notifyParentBudgetStop} sends it from the run's `finally`, once the
+   * loop has unwound.
+   */
+  private stopForBudget(managed: ManagedSubagent, reason: string): void {
+    const { id } = managed.state.config;
+    const stopped = this.abort(id, managed.parentSendToClient, undefined, {
+      suppressNotification: true,
+    });
+    if (!stopped) {
+      // Already terminal: the run settled on its own between the ceiling being
+      // hit and this firing, so there is nothing to stop and nothing to report.
+      return;
+    }
+    managed.budgetStopReason = reason;
+    log.warn({ subagentId: id, reason }, "Subagent stopped at its budget");
+  }
+
+  /**
+   * Tell the parent about a budget stop, called from the run's teardown so the
+   * child's output is on disk before the parent is sent to read it.
    *
    * Not the plain abort message: that one says the run was cancelled on purpose
    * and must not be retried, which would be wrong here twice over. Nobody
    * cancelled this, and the child may well have produced usable output before
-   * it was stopped, so the parent is pointed at what it wrote instead.
+   * it was stopped, so the guidance it did write is inlined and the read
+   * pointer is kept for the run that wrote nothing.
    */
-  private stopForBudget(managed: ManagedSubagent, reason: string): void {
+  private notifyParentBudgetStop(
+    managed: ManagedSubagent,
+    finalText: string,
+  ): void {
+    const reason = managed.budgetStopReason;
+    if (!reason) {
+      return;
+    }
+    // One notification per run, whichever teardown path reaches here.
+    managed.budgetStopReason = undefined;
     const { id, label } = managed.state.config;
-    log.warn({ subagentId: id, reason }, "Subagent stopped at its budget");
     const prefix = subagentTerminalPrefix(managed.state);
-    this.abort(id, managed.parentSendToClient, undefined, {
-      notificationMessage:
-        `[${prefix} "${label}" stopped at its budget]\n\n` +
-        `It ${reason} and was stopped. Read what it produced with subagent_read ` +
-        `using subagent_id "${id}". Do NOT re-spawn the same request: narrow it, ` +
-        `or point it at the specific file, decision, or question you want covered.`,
-    });
+    const trimmed = finalText.trim();
+    const body = trimmed
+      ? `It ${reason} and was stopped. What it had written by then:\n\n${trimmed}`
+      : `It ${reason} and was stopped before writing anything. ` +
+        `Check with subagent_read using subagent_id "${id}".`;
+    injectMessageIntoParent(
+      managed.state.config.parentConversationId,
+      `[${prefix} "${label}" stopped at its budget]\n\n` +
+        `${body}\n\n` +
+        `Do NOT re-spawn the same request: narrow it, or point it at the ` +
+        `specific file, decision, or question you want covered.`,
+      {
+        subagentNotification: {
+          subagentId: id,
+          label,
+          status: "aborted" as const,
+          conversationId: managed.state.conversationId,
+        },
+      },
+    );
   }
 
   // ── Abort ─────────────────────────────────────────────────────────────

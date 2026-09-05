@@ -45,7 +45,18 @@ interface FakeConversationConfig {
    * captures partial trailing text.
    */
   onLoopStart?: () => void;
+  /**
+   * Text the run flushes as its trailing assistant message when it is aborted,
+   * modelling the real loop's final partial flush. Written when `abort()` is
+   * called, which is AFTER a budget stop raises the abort and before
+   * `runAgentLoop` finishes unwinding, so a notification sent from the stop
+   * itself cannot see it and one sent from the run's teardown can.
+   */
+  flushOnAbort?: string;
 }
+
+/** Ordered record of the flush and the parent injection, for the budget tests. */
+let teardownOrder: string[] = [];
 
 let nextConversationConfig: FakeConversationConfig = {};
 /** Set true when any FakeConversation's runAgentLoop is invoked. */
@@ -159,6 +170,15 @@ class FakeConversation {
 
   abort() {
     this.aborted = true;
+    if (this.cfg.flushOnAbort !== undefined) {
+      this.messages = [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: this.cfg.flushOnAbort }],
+        },
+      ];
+      teardownOrder.push("flush");
+    }
     this.resolveAbort?.();
   }
   dispose() {}
@@ -259,6 +279,7 @@ function registerFakeParent(parentConversationId: string): {
       assistantId: undefined,
       enqueueMessage: (options: { content: string }) => {
         enqueued.push(options.content);
+        teardownOrder.push("notify");
         return { rejected: false, queued: true, requestId: "req-fake" };
       },
     }),
@@ -774,6 +795,7 @@ describe("SubagentManager run budgets", () => {
   beforeEach(() => {
     clearConversations();
     bootstrapGate = undefined;
+    teardownOrder = [];
   });
 
   test("a child that outlives maxRuntimeMs is stopped and the parent told", async () => {
@@ -820,6 +842,71 @@ describe("SubagentManager run budgets", () => {
     expect(injected).toContain("stopped at its budget");
     expect(injected).toContain("full budget of 2 tool calls");
     expect(injected).not.toContain("cancelled on purpose");
+    clearConversations();
+  });
+
+  test("the budget notification waits for the run's final flush", async () => {
+    // The stop is raised from a timer while `runAgentLoop` is still awaited, so
+    // sending the notification there would point the parent at a transcript
+    // that does not yet contain the guidance. The flush lands during teardown;
+    // the notification must come after it, and must carry what it wrote.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      flushOnAbort: "Lead with the data model.",
+    };
+
+    const manager = new SubagentManager();
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(teardownOrder).toEqual(["flush", "notify"]);
+    // The inlined guidance is the proof the notification read the settled run:
+    // sent from the stop itself, this text does not exist yet.
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("Lead with the data model.");
+    expect(injected).toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("a tool-cap stop reports the guidance the child had written", async () => {
+    // Same ordering on the other ceiling, which fires from the event tap rather
+    // than a timer.
+    const cfg = makeConfig({ maxToolCalls: 1 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      flushOnAbort: "Check the migration ordering first.",
+      emitDeltas: [toolCallEvent("tool-1"), toolCallEvent("tool-2")],
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(teardownOrder).toEqual(["flush", "notify"]);
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("Check the migration ordering first.");
+    expect(injected).toContain("full budget of 1 tool calls");
+    // What a read after the notification would find is the same text, because
+    // the run had settled before the parent was told anything.
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    clearConversations();
+  });
+
+  test("a stop with nothing written points at the read instead", async () => {
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("before writing anything");
+    expect(injected).toContain("subagent_read");
     clearConversations();
   });
 
