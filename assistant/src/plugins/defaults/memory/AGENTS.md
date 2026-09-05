@@ -147,8 +147,10 @@ a `\n\n` seam, and every renderer passes each chunk body through the module's
 read as a boundary; `unescapeInjectedBody` is the exact inverse), so page or
 skill text can never forge one. The prune valve (`v3/prune.ts`), the
 `loadFromDb` rehydration filter, the truncated-fork seed (which measures each
-inherited section's bytes from its span and seeds inherited capability chunks
-at zero bytes, as the injector records them), and the inspector all read
+inherited section's bytes from its span, seeds inherited capability chunks at
+zero bytes as the injector records them, and takes frozen evidence from
+inherited legacy-format copies alone, so a later current re-injection of a
+lead never overwrites the length its legacy card parses by), and the inspector all read
 blocks through the module's `parseInjectedSections`, and every call states the
 block's rendering format (`InjectedBlockFormat`, `"legacy" | "current"`),
 which is explicit provenance and never inferred from content: the persisting
@@ -167,10 +169,10 @@ sectionless card, with no TOC line, still holds its lead together and the next
 boundary is the first header at that extent); under `"current"` only producer
 headers on seams split, whatever the frozen lengths say, so a lead plus a
 following chunk that happen to measure a migrated slug's old card length stay
-separate (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length
-migration 378 carried over or the fork seeder measured, which `recordInjected`
-never refreshes, so the evidence survives a prune and re-injection of the
-lead);
+separate (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length the
+store's schema ensure copied in from `memory_v3_ever_injected` or the fork
+seeder took from an inherited legacy copy, which `recordInjected` never
+refreshes, so the evidence survives a prune and re-injection of the lead);
 page slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
 line inside such a lead likewise stays card text unless the capability slug it
 names is a recorded key (capability entries are recorded at zero bytes, so
@@ -234,8 +236,8 @@ rule at the following assembly; that rule reaches capability chunks too, under
 the identity the store records them by (the capability slug, empty key), so a
 re-entry copy of a skill or CLI command retires once a later turn persists the
 capability again. `memory_v3_ever_injected` is the superseded
-card-grain record: migration 378 copied its rows in as lead entries, and
-nothing reads or writes it. Rows written by builds that shipped the per-turn
+card-grain record: the section store's schema ensure (`v3/plugin-schema.ts`)
+copies its rows in as lead entries, and nothing reads or writes it. Rows written by builds that shipped the per-turn
 `<memory_spotlight>` layer carry `memoryV3SpotlightBlock`
 (`LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`): nothing writes it, and
 `loadFromDb` rehydrates it verbatim as inert history so those turns' prompts
@@ -358,28 +360,39 @@ which outlives the v2 engine.
 
 Persisted rows; a rename orphans every existing install.
 
-| Table                             | Owner                               |
-| --------------------------------- | ----------------------------------- |
-| `memory_graph_nodes`              | all-tier (`graph/store.ts`)         |
-| `memory_graph_edges`              | all-tier                            |
-| `memory_graph_triggers`           | all-tier                            |
-| `memory_graph_node_edits`         | all-tier                            |
-| `memory_segments`                 | v1 indexing                         |
-| `memory_summaries`                | v1 indexing                         |
-| `memory_embeddings`               | shared embedding cache              |
-| `memory_checkpoints`              | shared (all durable checkpoints)    |
-| `memory_jobs`                     | shared job queue                    |
-| `memory_recall_logs`              | shared recall audit                 |
-| `conversation_graph_memory_state` | `graph/graph-memory-state-store.ts` |
-| `activation_state`                | v2 per-conversation activation      |
-| `memory_v2_activation_logs`       | v2 inspector/harness                |
-| `memory_v2_injection_events`      | v2 scoring feedback                 |
-| `memory_v3_selections`            | v3 selection log                    |
-| `memory_v3_pools`                 | v3 selector pool audit              |
-| `memory_v3_injected_sections`     | v3 section dedup + prune accounting |
-| `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)  |
-| `memory_retrospective_state`      | retrospective (tier-agnostic)       |
-| `activation_sessions`             | onboarding activation rail          |
+| Table                             | Owner                                                           |
+| --------------------------------- | --------------------------------------------------------------- |
+| `memory_graph_nodes`              | all-tier (`graph/store.ts`)                                     |
+| `memory_graph_edges`              | all-tier                                                        |
+| `memory_graph_triggers`           | all-tier                                                        |
+| `memory_graph_node_edits`         | all-tier                                                        |
+| `memory_segments`                 | v1 indexing                                                     |
+| `memory_summaries`                | v1 indexing                                                     |
+| `memory_embeddings`               | shared embedding cache                                          |
+| `memory_checkpoints`              | shared (all durable checkpoints)                                |
+| `memory_jobs`                     | shared job queue                                                |
+| `memory_recall_logs`              | shared recall audit                                             |
+| `conversation_graph_memory_state` | `graph/graph-memory-state-store.ts`                             |
+| `activation_state`                | v2 per-conversation activation                                  |
+| `memory_v2_activation_logs`       | v2 inspector/harness                                            |
+| `memory_v2_injection_events`      | v2 scoring feedback                                             |
+| `memory_v3_selections`            | v3 selection log                                                |
+| `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
+| `memory_v3_injected_sections`     | v3 section dedup + prune accounting (plugin-created, see below) |
+| `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
+| `memory_retrospective_state`      | retrospective (tier-agnostic)                                   |
+| `activation_sessions`             | onboarding activation rail                                      |
+
+`memory_v3_pools` and `memory_v3_injected_sections` are the plugin's own
+tables, created by the plugin rather than by the global migration chain
+(`v3/plugin-schema.ts`): the memory plugin's `init` hook ensures both on every
+boot, and each store ensures again on the first use of a connection in its
+process (the memory worker is a separate process), idempotently and fail-open,
+so a memory database that cannot be opened degrades the stores to no-ops
+instead of failing database readiness. The sections ensure also copies the
+legacy `memory_v3_ever_injected` rows in as lead entries (`INSERT OR IGNORE`,
+plus the `frozen_card_bytes` column and backfill for a table created without
+it).
 
 `memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
 selector's full candidate pool (every stable-prefix card and finder line, in

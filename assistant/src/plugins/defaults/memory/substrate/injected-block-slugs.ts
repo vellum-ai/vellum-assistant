@@ -421,8 +421,8 @@ export interface ParseInjectedSectionsOptions {
    *  resident or pruned, keyed by slug (`getKnownCardBytes`); capability
    *  entries (`skills/<id>`, `cli-commands/<name>`) are recorded at zero. For
    *  a card frozen before body escaping the length is the exact UTF-8 length
-   *  that build's injector measured for the whole card, which migration 378
-   *  carried over. Consulted under `format: "legacy"` only. Inside such a
+   *  that build's injector measured for the whole card, which the section store's schema ensure carries over from
+   *  `memory_v3_ever_injected`. Consulted under `format: "legacy"` only. Inside such a
    *  card, a concept header on a seam that the card shape reads as text is
    *  a boundary after all when the span from it to a later candidate header
    *  (block joiner excluded) has exactly its slug's recorded bytes, and a

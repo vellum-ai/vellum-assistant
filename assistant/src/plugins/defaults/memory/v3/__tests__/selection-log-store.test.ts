@@ -30,8 +30,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import { ensureMemoryV3PoolsSchema } from "../plugin-schema.js";
 import type { PoolCandidateRecord, PoolLane } from "../pool-log-store.js";
 import { type Section, sectionKey } from "../types.js";
 

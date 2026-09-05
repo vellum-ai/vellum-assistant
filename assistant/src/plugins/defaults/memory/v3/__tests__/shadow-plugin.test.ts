@@ -37,11 +37,13 @@ import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ESCALATION_CONTINUATION_CONTENT } from "../../../../../calls/voice-triage-escalate.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "../../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import {
+  ensureMemoryV3InjectedSectionsSchema,
+  ensureMemoryV3PoolsSchema,
+} from "../plugin-schema.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,

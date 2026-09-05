@@ -41,7 +41,6 @@ import type { ContentBlock, Message } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
 import type {
@@ -54,6 +53,7 @@ import {
   unescapeInjectedBody,
 } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
 
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),

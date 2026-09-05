@@ -34,7 +34,6 @@ import type {
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "../../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../../memory-marker.js";
 import type { PageIndexEntry } from "../../substrate/page-index.js";
@@ -42,6 +41,7 @@ import { renderedBytes } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { renderV3SectionInjection } from "../page-content.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "../plugin-schema.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import {

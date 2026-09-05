@@ -35,12 +35,12 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import type { Conversation } from "../../../../../daemon/conversation.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "../../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { InjectionBlock } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
 import { isCapabilitySlug } from "../capabilities.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "../plugin-schema.js";
 import { sectionHeadLine } from "../sections.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
@@ -229,6 +229,7 @@ mock.module("../shadow-plugin.js", () => ({
 const {
   memoryV3Injector,
   memoryV3PointerInjector,
+  memoryV3TurnMemoSizeForTests,
   resetMemoryV3InjectorStateForTests,
   setMemoryV3TurnMemoCapacityForTests,
 } = await import("../injector.js");
@@ -882,6 +883,27 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
     expect(
       observeTurnSpy.mock.calls.filter(([id]) => id === "conv-idle-1"),
     ).toHaveLength(2);
+  });
+
+  test("after a burst of turns in flight past the cap, the next insert shrinks the memo back to capacity", async () => {
+    liveEnabled = true;
+    setMemoryV3TurnMemoCapacityForTests(2);
+    turnResults.set(0, result(["page-a"]));
+    const burst = ["conv-b1", "conv-b2", "conv-b3", "conv-b4"];
+    for (const id of burst) {
+      processingConversations.add(id);
+    }
+    for (const id of burst) {
+      await produceSections(id, 0);
+    }
+    // Every entry was pinned, so the map grew past the cap.
+    expect(memoryV3TurnMemoSizeForTests()).toBe(burst.length);
+
+    // The burst finishes; one more conversation's turn evicts idle entries
+    // until the insert fits.
+    processingConversations.clear();
+    await produceSections("conv-after", 0);
+    expect(memoryV3TurnMemoSizeForTests()).toBe(2);
   });
 
   test("a re-entry never revives a section the valve tombstoned since the first produce", async () => {

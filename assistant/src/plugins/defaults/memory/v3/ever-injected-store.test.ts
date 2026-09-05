@@ -26,12 +26,15 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { ensureMemoryV3InjectedSectionsSchema } from "../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import type { InjectedBlock } from "../substrate/injected-block-slugs.js";
-import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
+import {
+  injectedSectionHeader,
+  parseInjectedSections,
+} from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
 
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
@@ -65,6 +68,7 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 
 const {
   clearConversation,
+  ensureMemoryV3InjectedSectionsStore,
   forkEverInjected,
   getActiveEntries,
   getActiveSections,
@@ -512,12 +516,12 @@ describe("seedEverInjectedFromBlocks", () => {
       ]),
     );
     expect(residentBytes("conv-child")).toBe(renderedBytes(leadA));
-    // Capability entries are recorded at zero, frozen included (membership
-    // is the parser's evidence for them); the lead records its span.
+    // Copies from a current-format block record no frozen evidence: the
+    // frozen lengths and capability memberships describe legacy cards alone.
     expect(frozenOf("conv-child")).toEqual({
-      "cli-commands/export ": 0,
-      "skills/meet-join ": 0,
-      "topics/page-a ": renderedBytes(leadA),
+      "cli-commands/export ": null,
+      "skills/meet-join ": null,
+      "topics/page-a ": null,
     });
   });
 
@@ -721,6 +725,67 @@ describe("seedEverInjectedFromBlocks", () => {
     ]);
   });
 
+  test("a fork inheriting a legacy card and a later current re-injection of the same lead keeps the parent's legacy length, and its legacy block parses by it on reload", () => {
+    const stub = [
+      injectedSectionHeader("topics/stub", ""),
+      "# Stub",
+      "just a lead, no sections",
+    ].join("\n");
+    const headless = [
+      injectedSectionHeader("topics/headless", ""),
+      "prose only, no title line",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const legacyInner = `preamble\n\n${stub}\n\n${headless}`;
+    const reinjected = `${injectedSectionHeader("topics/headless", "")}\nthe lead, re-injected after a prune`;
+    recordInjected(
+      "conv-parent",
+      [
+        { slug: "topics/stub", key: "", bytes: renderedBytes(stub) },
+        { slug: "topics/headless", key: "", bytes: renderedBytes(reinjected) },
+      ],
+      1_000,
+    );
+    freeze("conv-parent", "topics/stub", renderedBytes(stub));
+    freeze("conv-parent", "topics/headless", renderedBytes(headless));
+
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [legacy(legacyInner), current(`preamble\n\n${reinjected}`)],
+      5_000,
+    );
+
+    // The span follows the latest copy; the frozen length is the legacy
+    // card's, not the current copy's.
+    expect(summary("conv-child")).toEqual([
+      {
+        slug: "topics/headless",
+        key: "",
+        bytes: renderedBytes(reinjected),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/stub",
+        key: "",
+        bytes: renderedBytes(stub),
+        prunedAt: null,
+      },
+    ]);
+    expect(frozenOf("conv-child")).toEqual({
+      "topics/headless ": renderedBytes(headless),
+      "topics/stub ": renderedBytes(stub),
+    });
+    // The child's evidence splits the inherited legacy block at the cards.
+    expect(
+      parseInjectedSections(legacyInner, {
+        format: "legacy",
+        knownCardBytes: getKnownCardBytes("conv-child"),
+      }).sections.map((section) => section.text),
+    ).toEqual([stub, headless]);
+  });
+
   test("carries the parent's pruned_at tombstones for inherited sections", () => {
     // Parent injected both sections of page-a, then pruned Notes: the
     // metadata block the child inherits still contains the Notes section,
@@ -808,6 +873,35 @@ describe("seedEverInjectedFromBlocks", () => {
 });
 
 describe("memory-side schema", () => {
+  test("a store call on a fresh memory connection creates the table itself (the lazy per-connection ensure)", () => {
+    memorySqlite = new Database(":memory:");
+
+    recordInjected(
+      "conv-1",
+      [{ slug: "topics/page-a", key: "", bytes: 100 }],
+      1_000,
+    );
+
+    expect(getActiveSections("conv-1")).toEqual(
+      new Map([["topics/page-a", new Set([""])]]),
+    );
+  });
+
+  test("the plugin-init ensure creates the table and no-ops when the memory database is unavailable", () => {
+    memorySqlite = new Database(":memory:");
+    ensureMemoryV3InjectedSectionsStore();
+    expect(
+      memorySqlite
+        .query(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_v3_injected_sections'`,
+        )
+        .get(),
+    ).not.toBeNull();
+
+    memoryDbAvailable = false;
+    expect(() => ensureMemoryV3InjectedSectionsStore()).not.toThrow();
+  });
+
   test("ensure is idempotent — running twice leaves a usable table", () => {
     // makeDb() already ensured the schema once; run it again.
     ensureMemoryV3InjectedSectionsSchema(memorySqlite);

@@ -31,6 +31,7 @@
 import { getLogger } from "../logging.js";
 import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
+import { ensureMemoryV3PoolsSchema } from "./plugin-schema.js";
 import type { FinderLane, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-pool-log");
@@ -138,12 +139,53 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
  * `shadow-plugin.ts` runs this inside the transaction that also replaces the
  * turn's selection rows, and owns the best-effort boundary around it.
  */
+/** Connections whose `memory_v3_pools` schema this process has ensured. */
+const ensuredConnections = new WeakSet<MemorySqlite>();
+let ensureWarned = false;
+
+/**
+ * Ensure the store's table on `raw` once per connection in this process
+ * (see `plugin-schema.ts`): idempotent DDL, fail-open. A failed ensure warns
+ * once and leaves the statement that follows to fail soft like any other; a
+ * reopened connection is ensured again.
+ */
+function ensurePoolsSchemaOnce(raw: MemorySqlite): void {
+  if (ensuredConnections.has(raw)) {
+    return;
+  }
+  try {
+    ensureMemoryV3PoolsSchema(raw);
+    ensuredConnections.add(raw);
+  } catch (err) {
+    if (!ensureWarned) {
+      ensureWarned = true;
+      log.warn(
+        { err },
+        "failed to ensure memory_v3_pools; pool logging degraded",
+      );
+    }
+  }
+}
+
+/**
+ * Ensure the store's table on the memory connection of this process, for the
+ * memory plugin's `init` hook. No-op when the connection is unavailable (the
+ * store degrades to no-ops as on any turn).
+ */
+export function ensureMemoryV3PoolsStore(): void {
+  const raw = memorySqliteOrNull("ensureMemoryV3PoolsStore");
+  if (raw) {
+    ensurePoolsSchemaOnce(raw);
+  }
+}
+
 export function writePool(
   raw: MemorySqlite,
   conversationId: string,
   turn: number,
   record: PoolRecord,
 ): void {
+  ensurePoolsSchemaOnce(raw);
   raw
     .query(
       /*sql*/ `
@@ -205,6 +247,7 @@ function readPool(
   if (!raw) {
     return null;
   }
+  ensurePoolsSchemaOnce(raw);
   try {
     const row = select(raw);
     return row ? toStoredPool(row) : null;

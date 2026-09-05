@@ -1,32 +1,19 @@
 /**
- * Migration 378 creates memory-v3's section-grain injection record
- * (`memory_v3_injected_sections`) on the memory connection and seeds it from
- * the card-grain `memory_v3_ever_injected`, one lead entry per legacy row.
- *
- * `mock.module` is process-global, so the db-connection stub delegates to the
- * real implementation unless this file's tests are running.
+ * The memory-v3 plugin's own schema on the memory connection
+ * (`v3/plugin-schema.ts`): `memory_v3_injected_sections` is created
+ * idempotently and seeded from the card-grain `memory_v3_ever_injected`, one
+ * lead entry per legacy row; `memory_v3_pools` is created idempotently. Both
+ * ensures take the raw handle, so these tests run on in-memory databases with
+ * no connection stub.
  */
 
 import { Database } from "bun:sqlite";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { ensureMemoryV3EverInjectedSchema } from "../345-move-memory-v3-ever-injected-to-memory-db.js";
-
-const realDb = { ...(await import("../../db-connection.js")) };
-
-let migrationMockActive = false;
-let memorySqlite: Database | null = null;
-
-mock.module("../../db-connection.js", () => ({
-  ...realDb,
-  getMemorySqlite: () =>
-    migrationMockActive ? memorySqlite : realDb.getMemorySqlite(),
-}));
-
-const {
+import {
   ensureMemoryV3InjectedSectionsSchema,
-  migrateAddMemoryV3InjectedSections,
-} = await import("../378-add-memory-v3-injected-sections.js");
+  ensureMemoryV3PoolsSchema,
+} from "../plugin-schema.js";
 
 interface Row {
   conversation_id: string;
@@ -56,31 +43,43 @@ function objectNames(db: Database, type: "table" | "index"): string[] {
   ).map((row) => row.name);
 }
 
+let memorySqlite: Database;
+
+/** The superseded card-grain table exactly as migration 345 left it on the
+ *  memory connection (frozen; nothing writes it), the copy's source. */
+function createLegacyCardsTable(db: Database): void {
+  db.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_v3_ever_injected (
+      conversation_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      injected_at INTEGER NOT NULL,
+      bytes INTEGER NOT NULL DEFAULT 0,
+      pruned_at INTEGER,
+      PRIMARY KEY (conversation_id, slug)
+    )
+  `);
+}
+
 beforeEach(() => {
-  migrationMockActive = true;
   memorySqlite = new Database(":memory:");
 });
 
-afterAll(() => {
-  migrationMockActive = false;
-});
-
-describe("migrateAddMemoryV3InjectedSections", () => {
+describe("ensureMemoryV3InjectedSectionsSchema", () => {
   test("creates the table and its conversation index when no legacy table exists", () => {
-    migrateAddMemoryV3InjectedSections({} as never);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
 
-    expect(objectNames(memorySqlite!, "table")).toContain(
+    expect(objectNames(memorySqlite, "table")).toContain(
       "memory_v3_injected_sections",
     );
-    expect(objectNames(memorySqlite!, "index")).toContain(
+    expect(objectNames(memorySqlite, "index")).toContain(
       "idx_memory_v3_injected_sections_conv",
     );
-    expect(rows(memorySqlite!)).toEqual([]);
+    expect(rows(memorySqlite)).toEqual([]);
   });
 
   test("copies every legacy card row as that page's lead entry, fields preserved", () => {
-    ensureMemoryV3EverInjectedSchema(memorySqlite!);
-    memorySqlite!.exec(/*sql*/ `
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
         (conversation_id, slug, injected_at, bytes, pruned_at)
       VALUES
@@ -89,9 +88,9 @@ describe("migrateAddMemoryV3InjectedSections", () => {
         ('conv-2', 'topics/page-a', 4000, 0, NULL)
     `);
 
-    migrateAddMemoryV3InjectedSections({} as never);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
 
-    expect(rows(memorySqlite!)).toEqual([
+    expect(rows(memorySqlite)).toEqual([
       {
         conversation_id: "conv-1",
         slug: "topics/page-a",
@@ -121,29 +120,29 @@ describe("migrateAddMemoryV3InjectedSections", () => {
       },
     ]);
     // The legacy table is left in place, untouched.
-    expect(objectNames(memorySqlite!, "table")).toContain(
+    expect(objectNames(memorySqlite, "table")).toContain(
       "memory_v3_ever_injected",
     );
   });
 
   test("re-running neither duplicates rows nor overwrites entries refreshed since", () => {
-    ensureMemoryV3EverInjectedSchema(memorySqlite!);
-    memorySqlite!.exec(/*sql*/ `
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
         (conversation_id, slug, injected_at, bytes, pruned_at)
       VALUES ('conv-1', 'topics/page-a', 1000, 120, 5000)
     `);
-    migrateAddMemoryV3InjectedSections({} as never);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
     // The section store re-injects the lead after the copy: pruned_at clears.
-    memorySqlite!.exec(/*sql*/ `
+    memorySqlite.exec(/*sql*/ `
       UPDATE memory_v3_injected_sections
       SET injected_at = 9000, bytes = 150, pruned_at = NULL
       WHERE conversation_id = 'conv-1' AND slug = 'topics/page-a'
     `);
 
-    migrateAddMemoryV3InjectedSections({} as never);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
 
-    expect(rows(memorySqlite!)).toEqual([
+    expect(rows(memorySqlite)).toEqual([
       {
         conversation_id: "conv-1",
         slug: "topics/page-a",
@@ -158,7 +157,7 @@ describe("migrateAddMemoryV3InjectedSections", () => {
   });
 
   test("adds frozen_card_bytes to a table created without it and backfills copied rows from the legacy table", () => {
-    memorySqlite!.exec(/*sql*/ `
+    memorySqlite.exec(/*sql*/ `
       CREATE TABLE memory_v3_injected_sections (
         conversation_id TEXT NOT NULL,
         slug TEXT NOT NULL,
@@ -175,20 +174,20 @@ describe("migrateAddMemoryV3InjectedSections", () => {
         ('conv-1', 'topics/page-a', 'Notes', 9100, 60, NULL),
         ('conv-1', 'fresh-page', '', 9200, 80, NULL)
     `);
-    ensureMemoryV3EverInjectedSchema(memorySqlite!);
-    memorySqlite!.exec(/*sql*/ `
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
         (conversation_id, slug, injected_at, bytes, pruned_at)
       VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
     `);
 
-    migrateAddMemoryV3InjectedSections({} as never);
-    migrateAddMemoryV3InjectedSections({} as never);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
 
     // The copied lead keeps the row the store refreshed but gains the card's
     // length; a section row and a page the legacy table never had stay null.
     expect(
-      rows(memorySqlite!).map((row) => [
+      rows(memorySqlite).map((row) => [
         `${row.slug} ${row.section_key}`,
         row.bytes,
         row.frozen_card_bytes,
@@ -200,18 +199,35 @@ describe("migrateAddMemoryV3InjectedSections", () => {
     ]);
   });
 
-  test("ensure is idempotent on its own", () => {
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite!);
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite!);
-    expect(objectNames(memorySqlite!, "table")).toContain(
-      "memory_v3_injected_sections",
-    );
-  });
+  test("a legacy table that appears after the first ensure is copied by the next one", () => {
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    expect(rows(memorySqlite)).toEqual([]);
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
+    `);
 
-  test("throws when the memory database is unavailable so the step is retried", () => {
-    memorySqlite = null;
-    expect(() => migrateAddMemoryV3InjectedSections({} as never)).toThrow(
-      /memory database unavailable/,
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+
+    expect(
+      rows(memorySqlite).map((row) => [row.slug, row.frozen_card_bytes]),
+    ).toEqual([["topics/page-a", 120]]);
+  });
+});
+
+describe("ensureMemoryV3PoolsSchema", () => {
+  test("creates the table and its indexes, idempotently", () => {
+    ensureMemoryV3PoolsSchema(memorySqlite);
+    ensureMemoryV3PoolsSchema(memorySqlite);
+
+    expect(objectNames(memorySqlite, "table")).toContain("memory_v3_pools");
+    expect(objectNames(memorySqlite, "index")).toEqual(
+      expect.arrayContaining([
+        "idx_memory_v3_pools_message",
+        "idx_memory_v3_pools_conv",
+      ]),
     );
   });
 });

@@ -135,7 +135,8 @@ const log = getLogger("memory-v3-shadow");
  * of that turn re-emits the memo's rendered entries, and without them it
  * would read the turn's committed sections as resident and emit pointers
  * for bodies the re-injection strip cleared. The map can therefore exceed
- * the cap by the number of turns in flight, never by idle entries.
+ * the cap by the number of turns in flight, never by idle entries, and the
+ * inserts that follow such a burst evict idle entries until it fits again.
  */
 const MAX_TRACKED_CONVERSATIONS = 256;
 let trackedConversationsCap = MAX_TRACKED_CONVERSATIONS;
@@ -174,15 +175,25 @@ function turnInFlight(conversationId: string): boolean {
 function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
   if (map.has(key)) {
     map.delete(key);
-  } else if (map.size >= trackedConversationsCap) {
+  } else {
+    // Evict idle entries, least recently touched first, until the insert
+    // fits the cap: a burst of turns in flight can carry the map past it,
+    // and the next inserts bring it back once they finish.
     for (const candidate of map.keys()) {
+      if (map.size < trackedConversationsCap) {
+        break;
+      }
       if (!turnInFlight(candidate)) {
         map.delete(candidate);
-        break;
       }
     }
   }
   map.set(key, value);
+}
+
+/** Test-only: the memo's current size. */
+export function memoryV3TurnMemoSizeForTests(): number {
+  return observedTurns.size;
 }
 
 function queueMemoryV3ConversationNotice(

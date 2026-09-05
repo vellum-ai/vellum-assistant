@@ -60,6 +60,7 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected as recordV3Injected,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "../plugins/defaults/memory/v3/plugin-schema.js";
 
 await initializeDb();
 
@@ -77,6 +78,9 @@ function resetTables(): void {
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   getMemoryDb()!.delete(memoryJobs).run();
+  // The plugin creates this table itself (init hook, or a store's first use);
+  // the reset runs before either, so stand it up here.
+  ensureMemoryV3InjectedSectionsSchema(getMemorySqlite()!);
   getMemorySqlite()!.exec("DELETE FROM memory_v3_injected_sections");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");

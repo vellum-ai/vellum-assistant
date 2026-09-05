@@ -187,7 +187,7 @@ const { ensureActivationStateSchema } =
 const { ensureConversationGraphMemoryStateSchema } =
   await import("../../../../../persistence/migrations/344-move-conversation-graph-memory-state-to-memory-db.js");
 const { ensureMemoryV3InjectedSectionsSchema } =
-  await import("../../../../../persistence/migrations/378-add-memory-v3-injected-sections.js");
+  await import("../../v3/plugin-schema.js");
 const {
   getActiveSections: getV3ActiveSections,
   recordInjected: recordV3Injected,

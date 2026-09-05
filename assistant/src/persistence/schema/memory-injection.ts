@@ -43,7 +43,7 @@ export const memoryV3InjectedSections = sqliteTable(
     bytes: integer("bytes").notNull().default(0),
     prunedAt: integer("pruned_at"),
     /** For a lead entry, the exact length of the frozen entry in history:
-     *  the card length migration 378 copied for pre-escaping cards, or the
+     *  the card length the section store's schema ensure copies in from `memory_v3_ever_injected` for pre-escaping cards, or the
      *  span the truncated-fork seeder measured. Never refreshed by a
      *  re-injection, so it stays the block parser's boundary evidence for
      *  the persisted copy. `null` for entries recorded by this build's

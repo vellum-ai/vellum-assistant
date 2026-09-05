@@ -14,7 +14,7 @@ A plugin owns its state end-to-end. Everything a plugin persists lives in its ow
 
 Canonical example: `defaults/image-fallback` — `hooks/init.ts` opens `caption-cache.sqlite` in the storage dir and ensures its schema, `hooks/shutdown.ts` closes it, `hooks/conversation-deleted.ts` purges the conversation's rows (`src/caption-cache.ts`).
 
-**Grandfathered exception**: `defaults/memory` predates this rule and uses main-database tables via `persistence/schema` / `db-connection`. Do not extend that pattern to other plugins or grow memory's main-DB surface. Enforced by `__tests__/plugin-state-boundary-guard.test.ts`.
+**Grandfathered exception**: `defaults/memory` predates this rule and uses main-database tables via `persistence/schema` / `db-connection`. Do not extend that pattern to other plugins or grow memory's main-DB surface. Memory-v3's own tables on the memory connection (`memory_v3_pools`, `memory_v3_injected_sections`) follow this rule: the plugin creates them in its `init` hook and lazily on first store use (`defaults/memory/v3/plugin-schema.ts`), not the global migration chain. Enforced by `__tests__/plugin-state-boundary-guard.test.ts`.
 
 The memory plugin's own internal structure — its tier/directory map, gate predicates, frozen durable names, and the v1/v2 deletion runbooks — lives in `defaults/memory/AGENTS.md`; the architecture narrative is in `assistant/docs/architecture/memory.md`. Read both before touching anything under `defaults/memory/`.
 

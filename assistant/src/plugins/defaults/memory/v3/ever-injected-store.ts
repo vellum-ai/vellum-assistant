@@ -32,7 +32,11 @@ import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { memoryV3InjectedSections } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
-import { memoryDbOrNull } from "../memory-db.js";
+import {
+  memoryDbOrNull,
+  type MemorySqlite,
+  memorySqliteOrNull,
+} from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
@@ -41,9 +45,64 @@ import {
   parseInjectedSections,
   renderedBytes,
 } from "../substrate/injected-block-slugs.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
 import type { SectionRef } from "./types.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
+
+/** Connections whose `memory_v3_injected_sections` schema this process has
+ *  ensured. */
+const ensuredConnections = new WeakSet<MemorySqlite>();
+let ensureWarned = false;
+
+/**
+ * Ensure the store's table on `raw` once per connection in this process
+ * (see `plugin-schema.ts`, which also copies the legacy card rows in):
+ * idempotent DDL, fail-open. A failed ensure warns once and leaves the
+ * statement that follows to fail soft like any other; a reopened connection
+ * is ensured again.
+ */
+function ensureSectionsSchemaOnce(raw: MemorySqlite): void {
+  if (ensuredConnections.has(raw)) {
+    return;
+  }
+  try {
+    ensureMemoryV3InjectedSectionsSchema(raw);
+    ensuredConnections.add(raw);
+  } catch (err) {
+    if (!ensureWarned) {
+      ensureWarned = true;
+      log.warn(
+        { err },
+        "failed to ensure memory_v3_injected_sections; section record degraded",
+      );
+    }
+  }
+}
+
+/**
+ * Ensure the store's table on the memory connection of this process, for the
+ * memory plugin's `init` hook. No-op when the connection is unavailable (the
+ * store degrades to no-ops as on any turn).
+ */
+export function ensureMemoryV3InjectedSectionsStore(): void {
+  const raw = memorySqliteOrNull("ensureMemoryV3InjectedSectionsStore");
+  if (raw) {
+    ensureSectionsSchemaOnce(raw);
+  }
+}
+
+/** The memory connection every read and write resolves, its table ensured
+ *  first ({@link ensureSectionsSchemaOnce}); `null`, with the degraded-mode
+ *  warning, when the connection is unavailable. */
+function memoryDb(context: string): ReturnType<typeof memoryDbOrNull> {
+  const raw = memorySqliteOrNull(context);
+  if (!raw) {
+    return null;
+  }
+  ensureSectionsSchemaOnce(raw);
+  return memoryDbOrNull(context);
+}
 
 /**
  * Message-metadata key the v3 injector persists each turn's section block
@@ -133,7 +192,7 @@ function readOr<T>(
   read: (mdb: NonNullable<ReturnType<typeof memoryDbOrNull>>) => T,
 ): T {
   try {
-    const mdb = memoryDbOrNull(context);
+    const mdb = memoryDb(context);
     return mdb ? read(mdb) : fallback;
   } catch (err) {
     log.warn({ err, context }, "injected-section read failed; continuing");
@@ -247,7 +306,7 @@ export function getPrunedSections(conversationId: string): SectionRefSet {
  * carries one for the conversation, resident or pruned: the block parser's
  * `knownCardBytes` for the conversation's persisted blocks. For a card frozen
  * before body escaping it is the exact length that build's injector measured
- * for the whole card (migration 378 carried it over; capability entries at
+ * for the whole card (the store's schema ensure carries it over from `memory_v3_ever_injected`; capability entries at
  * zero), which is what lets the parser tell a real card header from a
  * header-shaped line inside a lead. `recordInjected` never refreshes it, so a
  * card's evidence survives its lead being pruned and injected again. Empty
@@ -303,7 +362,7 @@ export function recordInjected(
   // agent turn, so a degraded memory connection or a failed statement only
   // logs a warning.
   try {
-    const mdb = memoryDbOrNull("recordInjected");
+    const mdb = memoryDb("recordInjected");
     if (!mdb) {
       return;
     }
@@ -354,7 +413,7 @@ export function markPruned(
     return;
   }
   try {
-    const mdb = memoryDbOrNull("markPruned");
+    const mdb = memoryDb("markPruned");
     if (!mdb) {
       return;
     }
@@ -390,7 +449,7 @@ export function markPruned(
  */
 export function clearConversation(conversationId: string): void {
   try {
-    const mdb = memoryDbOrNull("clearConversation");
+    const mdb = memoryDb("clearConversation");
     if (!mdb) {
       return;
     }
@@ -441,7 +500,7 @@ export function forkEverInjected(
   newConversationId: string,
 ): void {
   try {
-    const mdb = memoryDbOrNull("forkEverInjected");
+    const mdb = memoryDb("forkEverInjected");
     if (!mdb) {
       return;
     }
@@ -514,10 +573,13 @@ export function forkEverInjected(
  *
  * A legacy inherited block is parsed with the parent's frozen card lengths as
  * the parser's `knownCardBytes`, so a card frozen before body escaping splits
- * only at headers whose span is a card the parent actually froze. Each seeded
- * lead entry records its inherited span as its own `frozen_card_bytes`, and
- * each seeded capability entry zero, so the child's persisted copies parse
- * the same way after its own re-injections.
+ * only at headers whose span is a card the parent actually froze. A lead
+ * inherited from a legacy block records the parent's recorded legacy length
+ * (its own span when the parent has none) as its `frozen_card_bytes`, and a
+ * capability chunk from one zero, so the child's legacy copies parse the same
+ * way after its own re-injections; a copy from a current-format block records
+ * none, so inheriting a legacy card and a later current re-injection of the
+ * same lead keeps the legacy length.
  *
  * No-op when the child inherited no blocks. The rows live on the memory
  * connection, so this writes there rather than on the main fork transaction's
@@ -534,27 +596,41 @@ export function seedEverInjectedFromBlocks(
     string,
     SectionRef & { bytes: number; frozenCardBytes: number | null }
   >();
+  // A copy's frozen evidence comes from legacy-format blocks alone: a lead
+  // inherited from one records the parent's recorded legacy length (its own
+  // span when the parent has none), a capability chunk from one records
+  // zero, and a copy from a current-format block records nothing, so a later
+  // current re-injection of a lead never overwrites the evidence the legacy
+  // block parses by. The span (`bytes`) still follows the latest copy.
+  const seed = (
+    id: string,
+    entry: SectionRef & { bytes: number },
+    frozenCardBytes: number | null,
+  ): void => {
+    inherited.set(id, {
+      ...entry,
+      frozenCardBytes:
+        frozenCardBytes ?? inherited.get(id)?.frozenCardBytes ?? null,
+    });
+  };
   for (const block of blocks) {
+    const legacy = block.format === "legacy";
     for (const piece of parseInjectedSections(unwrapMemoryBlock(block.inner), {
       format: block.format,
       knownCardBytes,
     }).pieces) {
       if (piece.kind === "section") {
         const bytes = renderedBytes(piece.text);
-        inherited.set(`${piece.slug} ${piece.key}`, {
-          slug: piece.slug,
-          key: piece.key,
-          bytes,
-          frozenCardBytes: piece.key.length === 0 ? bytes : null,
-        });
+        seed(
+          `${piece.slug} ${piece.key}`,
+          { slug: piece.slug, key: piece.key, bytes },
+          legacy && piece.key.length === 0
+            ? (knownCardBytes.get(piece.slug) ?? bytes)
+            : null,
+        );
       } else if (piece.kind === "capability") {
         const slug = capabilitySlugOf(piece);
-        inherited.set(`${slug} `, {
-          slug,
-          key: "",
-          bytes: 0,
-          frozenCardBytes: 0,
-        });
+        seed(`${slug} `, { slug, key: "", bytes: 0 }, legacy ? 0 : null);
       }
     }
   }
@@ -562,7 +638,7 @@ export function seedEverInjectedFromBlocks(
     return;
   }
   try {
-    const mdb = memoryDbOrNull("seedEverInjectedFromBlocks");
+    const mdb = memoryDb("seedEverInjectedFromBlocks");
     if (!mdb) {
       return;
     }
