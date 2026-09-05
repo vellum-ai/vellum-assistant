@@ -329,6 +329,9 @@ describe("POST /v1/btw", () => {
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
       excludeBootstrap: true,
       excludeCustomPrefix: true,
+      // The side-chain forces `tool_choice: none`, so the prompt must not
+      // carry guidance about handing work to subagents it cannot spawn.
+      canSpawnSubagents: false,
     });
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
     expect(options!.config!.callSite).toBe("identityIntro");

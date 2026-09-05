@@ -419,6 +419,18 @@ export interface BuildSystemPromptOptions {
    * is selected, the conversation is marked as an activation session.
    */
   conversationId?: string;
+  /**
+   * Whether the turn this prompt serves can actually spawn subagents, which
+   * gates the parallel-delegation section. Absent means no, so a prompt built
+   * outside a turn (a side-chain, a one-shot generator) never carries guidance
+   * it cannot act on.
+   *
+   * The live turn answers it from its resolved tool surface via
+   * `canSpawnSubagentsForTurn` (workspace `tools.exclude`, a wire-scoped
+   * background run's `allowedTools`, tools disabled, a read-only subagent
+   * pass), rather than from a caller's assumption.
+   */
+  canSpawnSubagents?: boolean;
 }
 
 /**
@@ -487,6 +499,12 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const ctx = {
     ...options,
     hasNoClient,
+    // Off unless a caller states otherwise, and the caller that states it
+    // derives the answer from the turn's resolved tool surface rather than
+    // assuming (`canSpawnSubagentsForTurn`). Guidance about handing work to
+    // subagents is worth nothing to a turn that cannot spawn, and worse than
+    // nothing when it makes that turn defer work it has to do inline.
+    canSpawnSubagents: options?.canSpawnSubagents === true,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,

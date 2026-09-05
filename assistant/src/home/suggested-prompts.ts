@@ -94,6 +94,8 @@ async function generateAssistantPrompts(): Promise<SuggestedPrompt[]> {
   const systemPrompt = buildSystemPrompt({
     excludeBootstrap: true,
     excludeCustomPrefix: true,
+    // One-shot generation through the tool-disabled side-chain.
+    canSpawnSubagents: false,
   });
 
   let integrationContext = "";

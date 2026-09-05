@@ -277,6 +277,27 @@ Before emitting a single tool call, ask whether your next turn would be another 
 `,
   },
   {
+    // Sorts immediately before `01-parallel-tool-calls`, which makes the same
+    // point one level down: batch independent tool calls within a response.
+    //
+    // Deliberately about the SHAPE of your user's request, not about the
+    // subagent capability. The subagent skill's `activation-hints` cover the
+    // routing decision once a turn already looks like subagent work, but they
+    // reach the model only when the memory-v3 selector picks that card (a
+    // semantic match on topic) or after `skill_load`. "Several independent
+    // asks arrived at once" is not a topic, so nothing surfaces it, and an
+    // install with memory off never sees the hints at all.
+    id: "01-parallel-tasks",
+    body: `## Run Independent Tasks in Parallel
+
+When your user asks for several independent things at once, or adds new tasks while you are still working on earlier ones, hand each independent task to a subagent so they run in parallel rather than one after another. Keep small, quick requests inline, and keep anything that may need the user's approval on your own turn: a subagent runs unattended, so approval-gated work is denied there rather than prompted.
+`,
+    // Off for a turn that cannot spawn: a tool-disabled side-chain or a
+    // restricted-tool workflow leaf would otherwise be told to delegate work
+    // it can only do inline, and defer or refuse it instead.
+    enabled: "canSpawnSubagents",
+  },
+  {
     id: "01-progress-surface",
     body: `## Show Progress on Long Turns
 
