@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "screen_point_at",
+      "description": "Point at something on the screen the user is sharing with the call: draws a ring around it, with a short caption beside it. Replaces whatever is currently drawn.\n\nCoordinates are fractions of the shared surface, 0 to 1, measured against the picture of that surface you were last shown. Give the bounds of the thing itself; the ring is drawn around them.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
+      "category": "screen-annotation",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marks": {
+            "type": "array",
+            "description": "What to point at now, replacing whatever is on screen. Point at one thing at a time unless a step genuinely needs more.",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Left edge, as a fraction of the shared surface's width (0 to 1)."
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Top edge, as a fraction of the shared surface's height (0 to 1)."
+                },
+                "width": {
+                  "type": "number",
+                  "description": "Width, as a fraction of the surface's width."
+                },
+                "height": {
+                  "type": "number",
+                  "description": "Height, as a fraction of the surface's height."
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "description": "A short imperative for what to do with it, e.g. \"Click Share\". Say the rest out loud."
+                }
+              },
+              "required": ["x", "y", "width", "height"]
+            }
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected."
+          }
+        },
+        "required": ["marks"]
+      },
+      "executor": "tools/screen-point-at.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "screen_clear_marks",
+      "description": "Take down whatever is drawn on the user's shared screen. Use it when the step is done, when the user has moved on, or when the conversation has left the screen behind. Marks come down on their own when the share ends or moves to another surface.",
+      "category": "screen-annotation",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/screen-clear-marks.ts",
+      "execution_target": "host"
+    }
+  ]
+}

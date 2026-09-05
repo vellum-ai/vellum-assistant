@@ -370,6 +370,7 @@ describe("preactivateHostProxySkills logging", () => {
     });
     expect(fields.preactivatedSkillIds).toEqual([
       "computer-use",
+      "screen-annotation",
       "app-control",
     ]);
   });
@@ -411,6 +412,7 @@ describe("preactivateHostProxySkills logging", () => {
     });
     expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([
       "computer-use",
+      "screen-annotation",
     ]);
   });
 
