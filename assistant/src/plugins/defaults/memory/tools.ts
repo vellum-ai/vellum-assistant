@@ -51,6 +51,10 @@ export const rememberTool = {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const typedInput = input as unknown as RememberInput;
+    // The append below writes the memory buffer, so a cancelled turn stops
+    // here. Inlined rather than imported: the plugin does not reach into
+    // `tools/` for a one-line guard.
+    context.signal?.throwIfAborted();
     const result = handleRemember(
       typedInput,
       context.conversationId,
@@ -163,6 +167,8 @@ export const deleteMemoryPageTool = {
         isError: true,
       };
     }
+
+    context.signal?.throwIfAborted();
 
     try {
       await deletePage(getWorkspaceDir(), slug);

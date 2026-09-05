@@ -9,6 +9,7 @@ import {
 } from "../../../../persistence/jobs-store.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import { clampUnitInterval } from "../../../../plugins/defaults/memory/validation.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -95,7 +96,7 @@ function upsertMemoryItem(opts: {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const maxMessages = Math.min(
@@ -103,6 +104,8 @@ export async function run(
     100,
   );
   const queryFilter = input.query_filter as string | undefined;
+
+  throwIfCancelled(context);
 
   try {
     const provider = await resolveProvider(platform);

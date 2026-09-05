@@ -5,6 +5,7 @@ import {
   resolveFollowUp,
 } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -38,7 +39,7 @@ function formatFollowUp(f: FollowUp): string {
 
 export async function executeFollowupResolve(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedInput = followupResolveInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -53,6 +54,8 @@ export async function executeFollowupResolve(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   try {
     if (id) {

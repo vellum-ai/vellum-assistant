@@ -9,6 +9,7 @@ import {
   listProviderModelFamilies,
 } from "../../../../providers/speech-to-text/provider-catalog.js";
 import type { SttProviderId } from "../../../../stt/types.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -426,6 +427,7 @@ export async function run(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   // A tts_voice_id change targets the *active* TTS provider's voice field, so
   // validation and the write below both need to know which provider is live.

@@ -6,6 +6,7 @@ import {
   getDisplayMetaForConversations,
 } from "../../persistence/conversation-crud.js";
 import { publishConversationListAndMetadataChanged } from "../../runtime/sync/resource-sync-events.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -42,6 +43,7 @@ export async function executeConversationMoveToGroup(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   const resolved = resolveGroupReference(groupRef);
   if ("error" in resolved) {

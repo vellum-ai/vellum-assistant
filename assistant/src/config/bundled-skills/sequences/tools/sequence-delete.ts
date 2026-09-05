@@ -1,4 +1,5 @@
 import { deleteSequence, getSequence } from "../../../../sequence/store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -7,12 +8,14 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const id = input.id as string;
   if (!id) {
     return err("id is required.");
   }
+
+  throwIfCancelled(context);
 
   try {
     const seq = getSequence(id);

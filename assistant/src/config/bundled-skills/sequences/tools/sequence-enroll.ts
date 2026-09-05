@@ -1,4 +1,5 @@
 import { enrollContact, getSequence } from "../../../../sequence/store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -7,7 +8,7 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  toolContext: ToolContext,
 ): Promise<ToolExecutionResult> {
   const sequenceId = input.sequence_id as string;
   const emails = input.emails as string | string[];
@@ -19,6 +20,7 @@ export async function run(
   if (!emails) {
     return err("emails is required (string or array).");
   }
+  throwIfCancelled(toolContext);
 
   try {
     const seq = getSequence(sequenceId);

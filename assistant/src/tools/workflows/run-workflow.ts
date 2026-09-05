@@ -22,6 +22,7 @@ import { FALLBACK_TURN_TRUST } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -80,6 +81,8 @@ export async function executeRunWorkflow(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   const args = (input.args as Record<string, unknown> | undefined) ?? {};
   const trustContext = resolveTrustContext(context);

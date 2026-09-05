@@ -7,6 +7,7 @@ import {
   filterSkillsByPlatform,
   type SkillPlatform,
 } from "../../skills/platform-compatibility.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -102,6 +103,8 @@ export async function executeFindSimilarSkills(
       ? catalog
       : catalog.filter((skill) => !outOfScope(skill)),
   );
+
+  throwIfCancelled(context);
 
   const hits = await findNearest(goal, {
     limit,

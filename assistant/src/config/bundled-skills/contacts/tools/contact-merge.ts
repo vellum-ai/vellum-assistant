@@ -2,6 +2,7 @@ import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts
 
 import { cliIpcCall } from "../../../../ipc/cli-client.js";
 import { resolveGuardianName } from "../../../../prompts/user-reference.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -15,7 +16,7 @@ function guardianAwareName(contact: Pick<ContactRead, "role" | "displayName">) {
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const keepId = input.keep_id as string | undefined;
   const mergeId = input.merge_id as string | undefined;
@@ -26,15 +27,20 @@ export async function executeContactMerge(
   if (!mergeId || typeof mergeId !== "string") {
     return { content: "Error: merge_id is required", isError: true };
   }
+  throwIfCancelled(context);
 
   // Validate both contacts exist before merging
   const [keepRes, mergeRes] = await Promise.all([
-    cliIpcCall<{ contact: ContactRead }>("getContact", {
-      pathParams: { id: keepId },
-    }),
-    cliIpcCall<{ contact: ContactRead }>("getContact", {
-      pathParams: { id: mergeId },
-    }),
+    cliIpcCall<{ contact: ContactRead }>(
+      "getContact",
+      { pathParams: { id: keepId } },
+      { signal: context.signal },
+    ),
+    cliIpcCall<{ contact: ContactRead }>(
+      "getContact",
+      { pathParams: { id: mergeId } },
+      { signal: context.signal },
+    ),
   ]);
 
   if (!keepRes.ok) {
@@ -50,9 +56,11 @@ export async function executeContactMerge(
   const mergeResult = await cliIpcCall<{
     ok: boolean;
     contact?: ContactRead;
-  }>("merge_contacts", {
-    body: { keepId, mergeId },
-  });
+  }>(
+    "merge_contacts",
+    { body: { keepId, mergeId } },
+    { signal: context.signal },
+  );
 
   if (!mergeResult.ok) {
     return { content: `Error: ${mergeResult.error}`, isError: true };
@@ -64,9 +72,11 @@ export async function executeContactMerge(
 
   // Re-read the surviving contact through the gateway-relayed read so role and
   // interactionCount come from the gateway ContactRead.
-  const mergedRes = await cliIpcCall<{ contact: ContactRead }>("getContact", {
-    pathParams: { id: mergedId },
-  });
+  const mergedRes = await cliIpcCall<{ contact: ContactRead }>(
+    "getContact",
+    { pathParams: { id: mergedId } },
+    { signal: context.signal },
+  );
 
   if (!mergedRes.ok) {
     return { content: `Error: ${mergedRes.error}`, isError: true };

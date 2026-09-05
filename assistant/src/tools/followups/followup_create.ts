@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getContact } from "../../contacts/contact-store.js";
 import { createFollowUp } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -49,7 +50,7 @@ function formatFollowUp(f: FollowUp): string {
 
 export async function executeFollowupCreate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedInput = followupCreateInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -102,6 +103,8 @@ export async function executeFollowupCreate(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   try {
     const now = Date.now();

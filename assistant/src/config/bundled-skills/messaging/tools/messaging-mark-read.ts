@@ -1,3 +1,4 @@
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -6,7 +7,7 @@ import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;
@@ -15,6 +16,7 @@ export async function run(
   if (!conversationId) {
     return err("conversation_id is required.");
   }
+  throwIfCancelled(context);
 
   try {
     const provider = await resolveProvider(platform);

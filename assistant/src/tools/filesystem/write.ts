@@ -7,6 +7,7 @@ import { RiskLevel } from "../../permissions/types.js";
 import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/v1/jobs/embed-pkb-file.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
@@ -128,6 +129,8 @@ export const fileWriteTool = {
     const ops = new FileSystemOps((path, opts) =>
       sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
+
+    throwIfCancelled(context);
 
     const result = await ops.writeFileSafe({
       path: rawPath,

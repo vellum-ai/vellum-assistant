@@ -2,6 +2,7 @@ import {
   missingAppIdError,
   resolveAppId,
 } from "../../../../tools/apps/resolve-app-id.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -28,5 +29,6 @@ export async function run(
       isError: true,
     };
   }
+  throwIfCancelled(context);
   return context.proxyToolResolver("app_open", { ...input, app_id: appId });
 }

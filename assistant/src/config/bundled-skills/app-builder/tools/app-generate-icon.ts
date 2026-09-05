@@ -5,6 +5,7 @@ import {
   missingAppIdError,
   resolveAppId,
 } from "../../../../tools/apps/resolve-app-id.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -18,6 +19,7 @@ export async function run(
   if (!appId) {
     return missingAppIdError();
   }
+  throwIfCancelled(context);
   return executeAppGenerateIcon(
     { ...input, app_id: appId } as unknown as AppGenerateIconInput,
     appStore,

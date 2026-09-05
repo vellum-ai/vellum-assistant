@@ -13,6 +13,10 @@ import { dirname, join } from "node:path";
 
 import { uploadFileBackedAttachment } from "../../../../persistence/attachments-store.js";
 import { getMediaAssetById } from "../../../../persistence/media-store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -121,6 +125,8 @@ export async function run(
   }
   const title = input.title as string | undefined;
 
+  throwIfCancelled(context);
+
   const asset = getMediaAssetById(assetId);
   if (!asset) {
     return { content: `Media asset not found: ${assetId}`, isError: true };
@@ -173,6 +179,8 @@ export async function run(
     ? `${sanitizeFilename(title)}-${timestampSuffix}-${uniqueSuffix}.${outputFormat}`
     : `clip-${timestampSuffix}-${uniqueSuffix}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
+
+  throwIfCancelled(context);
 
   try {
     context.onOutput?.(
@@ -243,6 +251,7 @@ export async function run(
         "make_zero",
         clipPath,
       ];
+      throwIfCancelled(context);
       const reencodeResult = await spawnWithTimeout(
         reencodeArgs,
         FFMPEG_CLIP_TIMEOUT_MS,
@@ -307,6 +316,11 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a clip failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     return {
       content: `Clip generation failed: ${(err as Error).message}`,
       isError: true,
