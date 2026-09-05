@@ -605,8 +605,6 @@
     "pillMemoryV2": "Memory V2",
     "pillMemoryV3": "Memory V3",
     "pillRecallV1": "Recall (v1)",
-    "pinnedChip": "закреплено",
-    "pinnedPill": "Закреплено: {count}",
     "providerLabel": "Провайдер",
     "queryContextSubtitle": "Текст, который встроили как поисковый вектор для семантического поиска.",
     "queryContextTitle": "Контекст запроса",

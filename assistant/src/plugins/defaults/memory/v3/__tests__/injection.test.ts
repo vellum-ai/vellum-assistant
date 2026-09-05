@@ -238,7 +238,7 @@ function result(
   matched: Array<[Slug, Section]> = [],
 ): OrchestrateResult {
   return {
-    selections: slugs.map((slug) => ({ slug, pinned: false })),
+    selections: slugs.map((slug) => ({ slug })),
     matchedSections: new Map(matched),
     lanes: {
       core: [],

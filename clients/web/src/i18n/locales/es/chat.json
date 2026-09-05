@@ -1037,8 +1037,6 @@
     "pillMemoryV2": "Memoria V2",
     "pillMemoryV3": "Memoria V3",
     "pillRecallV1": "Recuperación (v1)",
-    "pinnedChip": "fijada",
-    "pinnedPill": "Fijadas: {count}",
     "providerLabel": "Proveedor",
     "queryContextSubtitle": "El texto incrustado como vector de búsqueda para la recuperación semántica.",
     "queryContextTitle": "Contexto de consulta",

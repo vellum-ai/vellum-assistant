@@ -119,7 +119,7 @@ export interface ShadowLanes {
   /** Modification-recency fresh set in recency order: core and hot excluded,
    *  filtered to pages in the section index. */
   freshSlugs: string[];
-  /** Skills pinned into the stable prefix every turn (`always-candidate: true`
+  /** Skills placed in the stable prefix every turn (`always-candidate: true`
    *  in SKILL.md), existence-filtered and core/hot/fresh-excluded. */
   alwaysCandidateSlugs: string[];
   /** Learned-edge graph: co-selection NPMI associations over the selection
@@ -297,7 +297,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
   }).filter((slug) => sectionIndex.byArticle.has(slug));
 
-  // Always-candidate skills are pinned into the stable prefix every turn so the
+  // Always-candidate skills are placed in the stable prefix every turn so the
   // selector can choose a cross-cutting capability (e.g. workflows) even when no
   // retrieval lane surfaces it — its relevance is a judgment the model makes,
   // not something embedding similarity finds. Filtered to skills present in the
@@ -569,7 +569,6 @@ async function buildShadowTurn(
 interface SelectionRow {
   slug: Slug;
   source: SelectionSource;
-  pinned: number;
   /** Ordinal of the matched section a finder lane surfaced; null for
    *  core/hot/fresh/edge selections with no matched section. */
   sectionOrdinal: number | null;
@@ -608,7 +607,6 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
           : fresh.has(sel.slug)
             ? ("fresh" as const)
             : (finderLane.get(sel.slug) ?? "needle"),
-      pinned: sel.pinned ? 1 : 0,
       sectionOrdinal: section?.ordinal ?? null,
       sectionTitle: section?.title ?? null,
     };
@@ -640,9 +638,9 @@ export function writeSelections(
     // `backfillMemoryV3SelectionMessageId`.
     const stmt = raw.query(/*sql*/ `
       INSERT OR REPLACE INTO memory_v3_selections (
-        conversation_id, turn, slug, source, pinned, created_at,
+        conversation_id, turn, slug, source, created_at,
         message_id, section_ordinal, section_title
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
     `);
     const now = Date.now();
     for (const row of rows) {
@@ -651,7 +649,6 @@ export function writeSelections(
         turn,
         row.slug,
         row.source,
-        row.pinned,
         now,
         row.sectionOrdinal,
         row.sectionTitle,

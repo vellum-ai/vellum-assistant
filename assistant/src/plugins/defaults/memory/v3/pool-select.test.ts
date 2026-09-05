@@ -127,7 +127,7 @@ describe("selectPool", () => {
         },
       ]);
     expect(await selectPool(pool, turn)).toEqual({
-      pages: [{ slug: "page-a", pinned: false }],
+      pages: [{ slug: "page-a" }],
       keptAll: false,
     });
   });
@@ -138,7 +138,7 @@ describe("selectPool", () => {
         { type: "tool_use", id: "call-1", name: "select_pages", input: {} },
       ]);
     expect(await selectPool(pool, turn)).toEqual({
-      pages: [{ slug: "page-a", pinned: false }],
+      pages: [{ slug: "page-a" }],
       keptAll: true,
     });
   });

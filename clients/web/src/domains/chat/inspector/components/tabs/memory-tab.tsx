@@ -548,7 +548,6 @@ function MemoryV3Section({
   const carryCount = selection.selections.filter(
     (s) => s.source === "carry-forward",
   ).length;
-  const pinnedCount = selection.selections.filter((s) => s.pinned).length;
 
   // `selection.live` reflects whether v3 is the assistant's CURRENT live memory
   // source, not per-turn history. Persisted `memory_v3_selections` rows can be
@@ -581,9 +580,6 @@ function MemoryV3Section({
         <CountPill label={t("memoryTab.corePill", { count: fmt(coreCount) })} />
         <CountPill
           label={t("memoryTab.carriedPill", { count: fmt(carryCount) })}
-        />
-        <CountPill
-          label={t("memoryTab.pinnedPill", { count: fmt(pinnedCount) })}
         />
       </div>
 
@@ -664,8 +660,7 @@ function V3SelectionRow({
           </span>
         ) : null}
       </code>
-      <div className="flex shrink-0 items-center gap-1.5">
-        {row.pinned && <TypeChip label={t("memoryTab.pinnedChip")} />}
+      <div className="shrink-0">
         <TypeChip label={formatV3Source(row.source, t)} />
       </div>
     </div>

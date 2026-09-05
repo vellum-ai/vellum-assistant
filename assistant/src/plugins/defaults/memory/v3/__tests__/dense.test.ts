@@ -4,7 +4,7 @@ import type { AssistantConfig } from "../../../../../config/types.js";
 
 // Keep the real exports (e.g. getQdrantClient) so this partial mock is harmless
 // when section-dense-store's transitive imports pull them in; only
-// resolveQdrantUrl is pinned to a fixed URL.
+// resolveQdrantUrl is stubbed to a fixed URL.
 const realQdrantClient =
   await import("../../../../../persistence/embeddings/qdrant-client.js");
 mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({

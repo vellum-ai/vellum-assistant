@@ -30,14 +30,13 @@ import { z } from "zod";
  * the daemon emits `core`, `hot`, `needle`, `dense`, or `edge` (historical
  * rows may carry retired labels) — but the schema stays a permissive string
  * so a new lane label (or a historical pre-lane row) doesn't break parsing on
- * the FE. `pinned` marks a page the turn was centrally about.
- * `sectionOrdinal`/`sectionHeading` identify the matched section a finder lane
- * surfaced (null for core/hot/fresh/edge selections and pre-migration rows).
+ * the FE. `sectionOrdinal`/`sectionHeading` identify the matched section a
+ * finder lane surfaced (null for core/hot/fresh/edge selections and
+ * pre-migration rows).
  */
 export const MemoryV3SelectionRowSchema = z.object({
   slug: z.string(),
   source: z.string(),
-  pinned: z.boolean(),
   // The matched section a finder lane surfaced for this selection. Null for
   // core/hot/fresh/edge selections with no matched section, and for rows
   // written before the section columns existed. Optional + nullable so older

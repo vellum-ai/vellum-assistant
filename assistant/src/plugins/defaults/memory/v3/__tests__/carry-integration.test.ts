@@ -416,8 +416,8 @@ async function buildFixtureLanes(): Promise<FixtureLanes> {
   // with distinct frecency so the hot order is deterministic.
   const seed = memorySqlite.query(/*sql*/ `
     INSERT INTO memory_v3_selections
-      (conversation_id, turn, slug, source, pinned, created_at)
-    VALUES (?, ?, ?, 'needle', 0, ?)
+      (conversation_id, turn, slug, source, created_at)
+    VALUES (?, ?, ?, 'needle', ?)
   `);
   const seedCounts: Array<[Slug, number]> = [
     ["hot-one", 3],

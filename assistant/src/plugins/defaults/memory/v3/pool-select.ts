@@ -191,7 +191,6 @@ const SelectPagesSchema = z.object({
   // Optional: an omitted `ids` field is the recall-safe "keep everything"
   // signal, distinct from an explicit empty array (deliberate abstention).
   ids: z.array(z.number().int()).optional(),
-  pinned_ids: z.array(z.number().int()).optional(),
 });
 
 const SELECT_PAGES_TOOL: ToolDefinition = {
@@ -199,19 +198,14 @@ const SELECT_PAGES_TOOL: ToolDefinition = {
   description:
     "Select the candidate pages whose content the reply would draw on. Lean " +
     "inclusive — when in doubt, keep a candidate; for a list or " +
-    '"all of X" request keep every candidate that belongs. Pass `pinned_ids` ' +
-    "for pages the conversation is centrally about. Omit `ids` only as a " +
-    "recall-safe fallback when you cannot judge the pool (keeps every " +
+    '"all of X" request keep every candidate that belongs. Omit `ids` only ' +
+    "as a recall-safe fallback when you cannot judge the pool (keeps every " +
     "candidate); return `[]` when candidates are present but none are " +
     "relevant.",
   input_schema: {
     type: "object",
     properties: {
       ids: {
-        type: "array",
-        items: { type: "integer" },
-      },
-      pinned_ids: {
         type: "array",
         items: { type: "integer" },
       },
@@ -227,7 +221,7 @@ Pages you select persist in the conversation automatically, and re-selecting a p
 
 A page can be relevant because of the current situation — the date or the live scratchpad — not only the message: keep a page the situation makes pertinent (e.g. a person whose anniversary is today). When the message asks about status, plans, schedule, or what's pending, treat pages carrying current task/event state — especially recently-updated (fresh) ones — as first-class candidates.
 
-If the conversation is centrally ABOUT a page (rather than only peripherally relevant to it), mark that page as pinned. Call \`select_pages\` with the chosen IDs. Omit \`ids\` only as a recall-safe fallback when you cannot judge the pool (keeps every candidate); return \`[]\` when candidates are present but none are relevant.`;
+Call \`select_pages\` with the chosen IDs. Omit \`ids\` only as a recall-safe fallback when you cannot judge the pool (keeps every candidate); return \`[]\` when candidates are present but none are relevant.`;
 
 /**
  * Resolve the selector system prompt: the file at `overridePath` when it is set
@@ -346,25 +340,21 @@ function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
   return `<candidates>\n${lines.join("\n")}\n</candidates>`;
 }
 
-/** Dedupe selections by slug, preserving first-seen order and ORing pinned
- *  flags (a page can be selected as both a card and a finder line). */
-function dedupeBySlug(
-  entries: Array<{ slug: Slug; pinned: boolean }>,
-): SelectedPage[] {
-  const bySlug = new Map<Slug, boolean>();
-  for (const entry of entries) {
-    bySlug.set(entry.slug, (bySlug.get(entry.slug) ?? false) || entry.pinned);
-  }
-  return [...bySlug].map(([slug, pinned]) => ({ slug, pinned }));
+/** Dedupe selections by slug, preserving first-seen order (a page can be
+ *  selected as both a card and a finder line). */
+function dedupeBySlug(slugs: Slug[]): SelectedPage[] {
+  return [...new Set(slugs)].map((slug) => ({ slug }));
+}
+
+/** Every candidate slug in the pool's concatenated numbering: ids 1…m are the
+ *  stable-prefix cards, ids m+1… are the finder lines. */
+function orderedSlugs(pool: SelectorPool): Slug[] {
+  return [...pool.stable.map((c) => c.slug), ...pool.finder.map((c) => c.slug)];
 }
 
 /** Return every candidate in pool order, deduped by slug. */
 export function selectAllPoolCandidates(pool: SelectorPool): SelectedPage[] {
-  const ordered: Slug[] = [
-    ...pool.stable.map((c) => c.slug),
-    ...pool.finder.map((c) => c.slug),
-  ];
-  return dedupeBySlug(ordered.map((slug) => ({ slug, pinned: false })));
+  return dedupeBySlug(orderedSlugs(pool));
 }
 
 /** A selection plus whether it came from the recall-safe keep-all fallback. */
@@ -380,8 +370,8 @@ export interface PoolSelection {
 /**
  * Run the single forced-tool selector over the unified candidate pool. Returns
  * the pages to inject, deduped by slug (a page that appeared as both a card
- * and a finder line yields one entry, pinned flags ORed), plus a `keptAll` flag
- * marking the recall-safe fallback.
+ * and a finder line yields one entry), plus a `keptAll` flag marking the
+ * recall-safe fallback.
  *
  * An omitted `ids` keeps ALL candidates (the recall-safe "all of these are
  * relevant" signal, `keptAll: true`); an explicit `[]` keeps none; an
@@ -397,17 +387,10 @@ export async function selectPool(
   turn: MemoryRoutingTurn,
   systemPrompt: string = SYSTEM_PROMPT,
 ): Promise<PoolSelection> {
-  // The concatenated numbering: ids 1…m are the stable-prefix cards, ids
-  // m+1… are the finder lines.
-  const ordered: Slug[] = [
-    ...pool.stable.map((c) => c.slug),
-    ...pool.finder.map((c) => c.slug),
-  ];
+  const ordered = orderedSlugs(pool);
   if (ordered.length === 0) {
     return { pages: [], keptAll: false };
   }
-
-  const keepAll = (): SelectedPage[] => selectAllPoolCandidates(pool);
 
   const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE);
   if (!provider) {
@@ -589,19 +572,13 @@ export async function selectPool(
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.
   if (parsed.ids === undefined) {
-    return { pages: keepAll(), keptAll: true };
+    return { pages: dedupeBySlug(ordered), keptAll: true };
   }
-
-  const pinned = new Set(parsed.pinned_ids ?? []);
 
   // Map 1-based IDs over the concatenated numbering, dropping out-of-range
-  // IDs without throwing, then dedupe by slug (pinned flags ORed).
-  const selected: Array<{ slug: Slug; pinned: boolean }> = [];
-  for (const id of parsed.ids) {
-    if (id < 1 || id > ordered.length) {
-      continue;
-    }
-    selected.push({ slug: ordered[id - 1]!, pinned: pinned.has(id) });
-  }
+  // IDs without throwing, then dedupe by slug.
+  const selected = parsed.ids
+    .filter((id) => id >= 1 && id <= ordered.length)
+    .map((id) => ordered[id - 1]!);
   return { pages: dedupeBySlug(selected), keptAll: false };
 }

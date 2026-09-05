@@ -9,9 +9,9 @@
  *     un-cached block.
  *   - Numbering stability: for identical stable lanes the rendered prefix
  *     block is byte-identical across renders; only the tail varies.
- *   - Returned IDs map over the CONCATENATED numbering, with `pinned` driven
- *     by `pinned_ids`; out-of-range IDs dropped; selections deduped by slug
- *     (a page can appear as both a card and a finder line; pinned flags OR).
+ *   - Returned IDs map over the CONCATENATED numbering; out-of-range IDs and
+ *     unknown input keys are ignored; selections deduped by slug (a page can
+ *     appear as both a card and a finder line).
  *   - Omitted `ids` → keep ALL candidates (recall-safe, slug-deduped).
  *   - Explicit `ids: []` → keep none (deliberate abstention) — a normal result.
  *   - Empty candidate pool → keep none (nothing to select).
@@ -214,26 +214,28 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("selectPool — id mapping", () => {
-  test("IDs map over cards then finder lines, pinned driven by pinned_ids", async () => {
-    providerStub = makeProvider(
-      toolUseResponse({ ids: [3, 1], pinned_ids: [1] }),
-    );
+  test("IDs map over cards then finder lines in selection order", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [3, 1] }));
     const result = await selectPool(makePool(), makeTurn("how's the rollout?"));
-    expect(result.pages).toEqual([
-      { slug: "topic-x", pinned: false },
-      { slug: "page-a", pinned: true },
-    ]);
+    expect(result.pages).toEqual([{ slug: "topic-x" }, { slug: "page-a" }]);
     expect(result.keptAll).toBe(false);
   });
 
-  test("a page selected as both card and finder line dedupes to one slug, pinned ORed", async () => {
-    // page-a is id 1 (card) AND id 4 (finder line); pinned only via the
-    // finder-line id.
-    providerStub = makeProvider(
-      toolUseResponse({ ids: [1, 4], pinned_ids: [4] }),
-    );
+  test("a page selected as both card and finder line dedupes to one slug", async () => {
+    // page-a is id 1 (card) AND id 4 (finder line).
+    providerStub = makeProvider(toolUseResponse({ ids: [1, 4] }));
     const result = await selectPool(makePool(), makeTurn("the alpha plan"));
-    expect(result.pages).toEqual([{ slug: "page-a", pinned: true }]);
+    expect(result.pages).toEqual([{ slug: "page-a" }]);
+    expect(result.keptAll).toBe(false);
+  });
+
+  test("unknown input keys are ignored and ids still selects", async () => {
+    // The input schema is non-strict: a stray key alongside `ids` (e.g. one a
+    // prompt override still asks the model for) neither fails parsing nor
+    // changes the selection.
+    providerStub = makeProvider(toolUseResponse({ ids: [2], extra_ids: [1] }));
+    const result = await selectPool(makePool(), makeTurn("the metrics"));
+    expect(result.pages).toEqual([{ slug: "page-b" }]);
     expect(result.keptAll).toBe(false);
   });
 
@@ -241,9 +243,9 @@ describe("selectPool — id mapping", () => {
     providerStub = makeProvider(toolUseResponse({}));
     const result = await selectPool(makePool(), makeTurn("anything"));
     expect(result.pages).toEqual([
-      { slug: "page-a", pinned: false },
-      { slug: "page-b", pinned: false },
-      { slug: "topic-x", pinned: false },
+      { slug: "page-a" },
+      { slug: "page-b" },
+      { slug: "topic-x" },
     ]);
     // The fallback fired — the model gave up judging, not "selected everything".
     expect(result.keptAll).toBe(true);
@@ -260,7 +262,7 @@ describe("selectPool — id mapping", () => {
   test("out-of-range and duplicate IDs are ignored without throwing", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [2, 99, 0, -1, 2] }));
     const result = await selectPool(makePool(), makeTurn("the metrics"));
-    expect(result.pages).toEqual([{ slug: "page-b", pinned: false }]);
+    expect(result.pages).toEqual([{ slug: "page-b" }]);
     expect(result.keptAll).toBe(false);
   });
 
@@ -455,7 +457,7 @@ describe("selectPool — infrastructure failures throw", () => {
       toolUseResponse({ ids: [2] }),
     ]);
     const result = await selectPool(makePool(), makeTurn("the metrics"));
-    expect(result.pages).toEqual([{ slug: "page-b", pinned: false }]);
+    expect(result.pages).toEqual([{ slug: "page-b" }]);
     expect(result.keptAll).toBe(false);
     expect(providerCalls).toHaveLength(2);
   });
@@ -477,7 +479,12 @@ describe("selectPool — request shape", () => {
     expect(cfg?.callSite).toBe("memoryV3SelectL2");
     expect(cfg?.tool_choice).toEqual({ type: "tool", name: "select_pages" });
     expect(cfg?.disableTurnStartCache).toBe(true);
-    expect(call.options?.tools?.[0]?.name).toBe("select_pages");
+    const tool = call.options?.tools?.[0];
+    expect(tool?.name).toBe("select_pages");
+    const inputSchema = tool?.input_schema as {
+      properties?: Record<string, unknown>;
+    };
+    expect(Object.keys(inputSchema.properties ?? {})).toEqual(["ids"]);
   });
 
   test("stable prefix renders full cards in its own block carrying cache_control", async () => {
@@ -593,7 +600,7 @@ describe("selectPool — request shape", () => {
     );
   });
 
-  test("system prompt is carry-aware and generous (persistence + pinned + no limit)", async () => {
+  test("system prompt is carry-aware and generous (persistence + no limit)", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(makePool(), makeTurn("x"));
     const prompt = providerCalls[0].options?.systemPrompt ?? "";
@@ -601,7 +608,5 @@ describe("selectPool — request shape", () => {
     expect(prompt).toMatch(/persist/);
     // Generous: explicitly no selection limit.
     expect(prompt).toMatch(/no limit/i);
-    // Pinning commitment.
-    expect(prompt).toMatch(/pinned/);
   });
 });

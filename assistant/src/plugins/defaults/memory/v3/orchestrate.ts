@@ -31,7 +31,7 @@
  *      throw inside it logs a warning and falls through to normal selection.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
  *      `[...core (file order), ...hot (score order), ...fresh (recency order),
- *      ...always-candidate (skills pinned every turn)]`, all computed at lane
+ *      ...always-candidate (skills listed every turn)]`, all computed at lane
  *      init — followed by the finder candidates (needle → dense → edge
  *      surfacing order). The stable prefix
  *      is identical across consecutive turns while the lanes are unchanged
@@ -180,7 +180,7 @@ export interface OrchestrateDeps {
   /** The modification-recency fresh set in recency order (computed at lane
    *  init with core and hot excluded). Follows hot in the stable prefix. */
   freshSlugs: Slug[];
-  /** Skills pinned into the candidate pool every turn regardless of retrieval
+  /** Skills placed in the candidate pool every turn regardless of retrieval
    *  (existence-filtered and core/hot/fresh-excluded at lane init). Follow fresh
    *  in the stable prefix so the selector always sees them. */
   alwaysCandidateSlugs?: Slug[];
@@ -278,9 +278,9 @@ export interface OrchestrateLanes {
 }
 
 export interface OrchestrateResult {
-  /** This turn's selections, deduped by slug (pinned flags ORed; the dedup is
-   *  `selectPool`'s contract). Current turn only — there is no
-   *  carried-forward set unioned in. */
+  /** This turn's selections, deduped by slug (the dedup is `selectPool`'s
+   *  contract). Current turn only: there is no carried-forward set unioned
+   *  in. */
   selections: SelectedPage[];
   /** The matched `Section` for each candidate slug that had one, keyed by slug.
    *  Populated from the finder-lane hits — including hits on core/hot pages —
@@ -856,9 +856,9 @@ export async function orchestrate(
   }));
 
   // Step 3: a SINGLE forced-tool select over the cache-ordered pool. The
-  // selections come back slug-deduped (pinned flags ORed) — `selectPool`'s
-  // contract. `selectorPrompt` is the (optionally overridden) instruction
-  // scaffold; `undefined` falls through to the bundled default.
+  // selections come back slug-deduped (`selectPool`'s contract).
+  // `selectorPrompt` is the (optionally overridden) instruction scaffold;
+  // `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
   recordLatencySubSpan(
     "v3_expand",
