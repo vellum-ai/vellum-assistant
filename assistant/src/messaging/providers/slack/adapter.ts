@@ -843,10 +843,13 @@ export const slackProvider: MessagingProvider = {
       text,
       options?.threadId,
     );
+    // The thread reported is the one the post landed in, which is the one
+    // requested, since chat.postMessage threads exactly where it is told.
     return {
       id: resp.ts,
       timestamp: parseFloat(resp.ts) * 1000,
       conversationId: resp.channel,
+      ...(options?.threadId ? { threadId: options.threadId } : {}),
     };
   },
 

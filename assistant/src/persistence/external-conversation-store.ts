@@ -39,7 +39,12 @@ export interface UpsertBindingInput {
   username?: string | null;
 }
 
-function normalizeExternalThreadId(
+/**
+ * The form a thread id takes in a binding: trimmed, and `null` for absent or
+ * blank. Every lookup keyed by thread compares in this form, and so must any
+ * caller comparing a target thread against a binding's.
+ */
+export function normalizeExternalThreadId(
   externalThreadId?: string | null,
 ): string | null {
   const trimmed = externalThreadId?.trim();

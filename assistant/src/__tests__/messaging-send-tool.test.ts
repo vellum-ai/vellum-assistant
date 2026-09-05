@@ -42,6 +42,17 @@ function makeProvider(id: string, displayName: string): MessagingProvider {
 const phoneProvider = makeProvider("phone", "Phone");
 const telegramProvider = makeProvider("telegram", "Telegram");
 const outlookProvider = makeProvider("outlook", "Outlook");
+// Slack's provider threads exactly where it is told and reports that thread
+// on the result; Telegram's ignores a requested thread and reports none.
+const slackProvider: MessagingProvider = {
+  ...makeProvider("slack", "Slack"),
+  sendMessage: async (_connection, conversationId, _text, options) => ({
+    id: "1700000000.000100",
+    timestamp: 123,
+    conversationId,
+    ...(options?.threadId ? { threadId: options.threadId } : {}),
+  }),
+};
 let provider: MessagingProvider = phoneProvider;
 
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
@@ -88,6 +99,13 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
 
 mock.module("../notifications/conversation-pairing.js", () => ({
   resolveProactiveHomeConversation: resolveProactiveHomeConversationMock,
+}));
+
+mock.module("../persistence/external-conversation-store.js", () => ({
+  normalizeExternalThreadId: (value: string | null | undefined) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  },
 }));
 
 mock.module("../notifications/delivered-post-record.js", () => ({
@@ -300,6 +318,136 @@ describe("messaging-send tool", () => {
       },
     );
 
+    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
+  });
+
+  test("records nothing when the post landed in the turn's own thread, even though the home is elsewhere", async () => {
+    // A Slack agent-style DM keys one conversation per thread. Its home
+    // resolves to the chat's notification conversation, so the home test
+    // alone would record this send as a cross-post away from the thread it
+    // was made in. The turn's own snapshot (channel, chat, thread) decides
+    // instead, against the thread the provider says it delivered into.
+    provider = slackProvider;
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        thread_id: "1700000000.000001",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "slack",
+        requesterChatId: "D0123456789",
+        sourceThreadId: "1700000000.000001",
+      },
+    );
+
+    expect(resolveProactiveHomeConversationMock).not.toHaveBeenCalled();
+    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
+  });
+
+  test("records a send into the turn's chat but a different thread as a cross-post", async () => {
+    provider = slackProvider;
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        thread_id: "1700000000.000002",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "slack",
+        requesterChatId: "D0123456789",
+        sourceThreadId: "1700000000.000001",
+      },
+    );
+
+    expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
+    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a thread-less delivery never matches a turn that arrived in a thread", async () => {
+    provider = slackProvider;
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "slack",
+        requesterChatId: "D0123456789",
+        sourceThreadId: "1700000000.000001",
+      },
+    );
+
+    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("decides by where the provider delivered, not by the thread requested", async () => {
+    // Telegram's provider ignores a requested thread and reports none, so a
+    // turn that arrived in a topic and asked for that topic still gets a
+    // post in the thread-less chat; that post is recorded, not suppressed.
+    provider = telegramProvider;
+
+    await run(
+      {
+        platform: "telegram",
+        conversation_id: "123456789",
+        thread_id: "777",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+        executionChannel: "telegram",
+        requesterChatId: "123456789",
+        sourceThreadId: "777",
+      },
+    );
+
+    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a turn that arrived through no channel falls back to the home comparison", async () => {
+    provider = slackProvider;
+    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
+      conversationId: "conv-A",
+      createdNewConversation: false,
+    }));
+
+    await run(
+      {
+        platform: "slack",
+        conversation_id: "D0123456789",
+        text: "hello",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+      },
+    );
+
+    expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
     expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
   });
 
