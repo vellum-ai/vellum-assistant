@@ -348,8 +348,9 @@ async function buildWorkspaceSection(
 /**
  * Per-section deadline. A source that stalls (e.g. a workspace scan on a slow
  * volume) must cost the consult at most this long and drop only its own
- * section: the advisor is blocking, so context assembly can never be allowed
- * to hang the turn.
+ * section: the pack is assembled inside the `subagent_spawn` call, so an
+ * unbounded source would hold up the spawn itself rather than just arriving
+ * late to a child that is already running.
  */
 const SECTION_TIMEOUT_MS = 2_000;
 
