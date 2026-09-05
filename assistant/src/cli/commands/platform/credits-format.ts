@@ -13,6 +13,13 @@ export interface PlatformCreditsResult {
   daily_limit_snoozed: boolean;
   low_balance_threshold: number | null;
   low_balance_warning: boolean;
+  plan_credit_remaining: number | null;
+  plan_credit_total: number | null;
+  plan_credit_used_fraction: number | null;
+  plan_credits_spent: boolean | null;
+  extra_credit_remaining: number | null;
+  credits_expiring_soon: number | null;
+  next_credit_expiry_at: string | null;
 }
 
 /** Human-readable lines for `assistant platform credits`. */
@@ -22,6 +29,56 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
     `Remaining: ${formatCostUsd(result.remaining)} ${result.unit} (as of ${result.as_of})${staleNote}`,
     `Settled:   ${formatCostUsd(result.settled)}   Pending: ${formatCostUsd(result.pending)}`,
   ];
+  if (result.plan_credits_spent === true) {
+    // Mirrors the web usage panel: extra credit is only said to fund usage
+    // once the wallet provably holds some, and an unreported wallet is not
+    // an empty one.
+    const extra = result.extra_credit_remaining;
+    lines.push(
+      extra === null
+        ? "Plan:      plan credit used up or expired; whether extra credit remains was not reported"
+        : extra > 0
+          ? "Plan:      plan credit used up or expired; managed usage now draws on extra credit"
+          : "Plan:      plan credit used up or expired, and no extra credit remains",
+    );
+  } else if (
+    result.plan_credit_remaining !== null &&
+    result.plan_credit_total !== null
+  ) {
+    const pct =
+      result.plan_credit_used_fraction === null
+        ? ""
+        : ` (${Math.round(result.plan_credit_used_fraction * 100)}% used)`;
+    lines.push(
+      `Plan:      ${formatCostUsd(result.plan_credit_remaining)} of ${formatCostUsd(result.plan_credit_total)} plan credit left${pct}`,
+    );
+  }
+  if (result.extra_credit_remaining !== null) {
+    lines.push(
+      `Extra:     ${formatCostUsd(result.extra_credit_remaining)} bought or earned on top of plan credit`,
+    );
+  }
+  if (
+    result.credits_expiring_soon !== null &&
+    result.credits_expiring_soon > 0
+  ) {
+    const when = result.next_credit_expiry_at
+      ? ` (next expiry ${result.next_credit_expiry_at})`
+      : "";
+    lines.push(
+      `Expiring:  ${formatCostUsd(result.credits_expiring_soon)} within 30 days${when}`,
+    );
+  } else if (result.next_credit_expiry_at) {
+    // A null 30-day figure means the platform did not report it, so only an
+    // actual zero earns the "nothing expires within 30 days" claim.
+    const window =
+      result.credits_expiring_soon === null
+        ? ""
+        : " (nothing expires within 30 days)";
+    lines.push(
+      `Expiry:    next credit expiry ${result.next_credit_expiry_at}${window}`,
+    );
+  }
   if (result.daily_spend !== null) {
     const limit =
       result.daily_limit === null

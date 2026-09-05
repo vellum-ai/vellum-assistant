@@ -15,8 +15,9 @@
  *   - platform_callback_routes_list (GET platform/callback-routes): lists
  *     registered callback routes for this assistant.
  *   - platform_credits (GET platform/credits): fetches the org's remaining
- *     credit balance, today's spend, and daily-limit / low-balance state from
- *     the platform billing summary.
+ *     credit balance, plan-included credit usage, extra credit, upcoming
+ *     expiry, today's spend, and daily-limit / low-balance state from the
+ *     platform billing summary.
  *   - platform_subscription (GET platform/subscription): fetches the org's
  *     current plan, subscription status, and entitlements.
  *   - platform_plans (GET platform/plans): fetches the plan catalog with pricing.
@@ -26,6 +27,11 @@
  *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
+import {
+  type BillingPlanId,
+  extraCreditUsd,
+  planCreditUsedFraction,
+} from "@vellumai/service-contracts/plan-credit";
 import {
   type PlatformCredentialVerificationStatus,
   type PlatformVerifyCredentialResponse,
@@ -171,6 +177,48 @@ const PlatformCreditsResponseSchema = z.object({
     .boolean()
     .describe(
       "True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.",
+    ),
+  plan_credit_remaining: z
+    .number()
+    .nullable()
+    .describe(
+      "Unused credit (USD) remaining on the unexpired plan-included grants (initial credit, Pro credit bundle). Null when the platform did not report grant figures.",
+    ),
+  plan_credit_total: z
+    .number()
+    .nullable()
+    .describe(
+      "Total credit (USD) those plan-included grants were worth, net of refunds. Null when the platform did not report grant figures.",
+    ),
+  plan_credit_used_fraction: z
+    .number()
+    .nullable()
+    .describe(
+      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter. A Pro subscription whose unexpired grants total nothing reads as 1 (everything granted is used or expired). Null when there is no usable reading: grant figures missing, or a zero total on a base or unknown plan.",
+    ),
+  plan_credits_spent: z
+    .boolean()
+    .nullable()
+    .describe(
+      "True when the plan-included credit is used up or expired. Whether further managed usage is funded is extra_credit_remaining (zero means the organization is out of credit). Null when there is no plan-credit reading.",
+    ),
+  extra_credit_remaining: z
+    .number()
+    .nullable()
+    .describe(
+      "Credit (USD) bought or earned on top of the plan-included grants: remaining minus plan_credit_remaining, floored at zero. Null when grant figures are missing.",
+    ),
+  credits_expiring_soon: z
+    .number()
+    .nullable()
+    .describe(
+      "Unexpired credit (USD) on grants that expire within the next 30 days. Null when the platform did not report it.",
+    ),
+  next_credit_expiry_at: z
+    .string()
+    .nullable()
+    .describe(
+      "Earliest upcoming expiry (ISO 8601) across grants that still hold credit, or null when none is scheduled.",
     ),
 });
 type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
@@ -513,10 +561,40 @@ async function handlePlatformCredits(
     daily_limit_snoozed?: boolean;
     low_balance_threshold_usd?: string;
     low_balance_warning?: boolean;
+    available_usage_balance?: string;
+    total_usage_balance?: string;
+    credits_expiring_soon_usd?: string;
+    next_credit_expiry_at?: string | null;
   };
 
+  const remaining = Number(summary.effective_balance_usd);
+  const planCreditRemaining = parseUsd(summary.available_usage_balance);
+  const planCreditTotal = parseUsd(summary.total_usage_balance);
+  let usedFraction = planCreditUsedFraction(
+    planCreditTotal,
+    planCreditRemaining,
+    null,
+  );
+  if (
+    usedFraction === null &&
+    planCreditTotal !== null &&
+    planCreditTotal <= 0
+  ) {
+    // Only the zero-grant reading depends on the plan, so the subscription is
+    // read lazily and best-effort: a slow or failed read degrades that one
+    // reading to null instead of delaying or failing the balance.
+    const planId = await fetchBillingSubscription()
+      .then((subscription) => subscription.plan_id)
+      .catch((): BillingPlanId | null => null);
+    usedFraction = planCreditUsedFraction(
+      planCreditTotal,
+      planCreditRemaining,
+      planId,
+    );
+  }
+
   return {
-    remaining: Number(summary.effective_balance_usd),
+    remaining,
     settled: Number(summary.settled_balance_usd),
     pending: Number(summary.pending_compute_usd),
     unit: "USD",
@@ -530,6 +608,19 @@ async function handlePlatformCredits(
     daily_limit_snoozed: summary.daily_limit_snoozed === true,
     low_balance_threshold: parseUsd(summary.low_balance_threshold_usd),
     low_balance_warning: summary.low_balance_warning === true,
+    plan_credit_remaining: planCreditRemaining,
+    plan_credit_total: planCreditTotal,
+    plan_credit_used_fraction: usedFraction,
+    plan_credits_spent: usedFraction === null ? null : usedFraction >= 1,
+    extra_credit_remaining:
+      planCreditRemaining === null
+        ? null
+        : extraCreditUsd(remaining, planCreditRemaining),
+    credits_expiring_soon: parseUsd(summary.credits_expiring_soon_usd),
+    next_credit_expiry_at:
+      typeof summary.next_credit_expiry_at === "string"
+        ? summary.next_credit_expiry_at
+        : null,
   };
 }
 
@@ -624,28 +715,34 @@ async function fetchPlatformJson(
   return response.json();
 }
 
+interface BillingSubscriptionData {
+  plan_id: BillingPlanId;
+  status: string | null;
+  renewal_date: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  cancel_at: string | null;
+  selected_credit_tier: string | null;
+  package: {
+    key: string;
+    name: string;
+    version: number;
+    customized: boolean;
+  } | null;
+  entitlements: { managed_email: boolean; phone_number: boolean };
+}
+
+function fetchBillingSubscription(): Promise<BillingSubscriptionData> {
+  return fetchPlatformJson(
+    "/v1/organizations/billing/subscription/",
+    "subscription",
+  ) as Promise<BillingSubscriptionData>;
+}
+
 async function handlePlatformSubscription(
   _args: RouteHandlerArgs,
 ): Promise<PlatformSubscriptionResponse> {
-  const data = (await fetchPlatformJson(
-    "/v1/organizations/billing/subscription/",
-    "subscription",
-  )) as {
-    plan_id: "base" | "pro";
-    status: string | null;
-    renewal_date: string | null;
-    current_period_end: string | null;
-    cancel_at_period_end: boolean;
-    cancel_at: string | null;
-    selected_credit_tier: string | null;
-    package: {
-      key: string;
-      name: string;
-      version: number;
-      customized: boolean;
-    } | null;
-    entitlements: { managed_email: boolean; phone_number: boolean };
-  };
+  const data = await fetchBillingSubscription();
 
   return {
     planId: data.plan_id,
@@ -914,9 +1011,9 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary:
-      "Get the organization's remaining credit balance and daily-limit state",
+      "Get the organization's credit balance, plan-credit usage, and daily-limit state",
     description:
-      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the low-balance warning state.",
+      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary, plus plan-included credit usage (remaining, total, and the used fraction shown by the in-app usage meter), extra credit bought or earned on top, credit expiring within 30 days, and the daily-limit state: today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the low-balance warning state.",
     tags: ["platform"],
     handler: handlePlatformCredits,
     responseBody: PlatformCreditsResponseSchema,

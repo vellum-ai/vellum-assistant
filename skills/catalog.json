@@ -1179,7 +1179,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-04T16:14:06.000Z"
+      "updatedAt": "2026-09-04T16:57:56.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1196,7 +1196,7 @@
             "its current config or settings",
             "what it can do or which skills/tools exist",
             "whether a service is connected, and in which sense",
-            "its credit balance, plan, spend, or daily limit",
+            "its credits, plan allowance, spend, or daily limit",
             "how to self-host or use your own model API key"
           ],
           "avoid-when": [
@@ -1205,7 +1205,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T18:19:51.000Z"
+      "updatedAt": "2026-09-03T14:44:21.000Z"
     },
     {
       "id": "vellum-skills-catalog",
