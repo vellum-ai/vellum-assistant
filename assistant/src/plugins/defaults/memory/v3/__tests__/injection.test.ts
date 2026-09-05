@@ -553,13 +553,16 @@ describe("memoryV3Injector: frozen net-new sections", () => {
       "conv-parent",
       "conv-fork",
       [
-        [
-          V3_INJECTION_HEADER,
-          "# Skills\nhint",
-          "# Skill: test-skill\nskill body",
-          "# CLI command: export\nExport a conversation.",
-          leadRender("page-a"),
-        ].join("\n\n"),
+        {
+          inner: [
+            V3_INJECTION_HEADER,
+            "# Skills\nhint",
+            "# Skill: test-skill\nskill body",
+            "# CLI command: export\nExport a conversation.",
+            leadRender("page-a"),
+          ].join("\n\n"),
+          format: "current",
+        },
       ],
       1_000,
     );

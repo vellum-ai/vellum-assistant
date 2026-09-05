@@ -348,14 +348,6 @@ function recordedInStore(
   return false;
 }
 
-/** Whether any line of the block carries the escape {@link escapeInjectedBody}
- *  adds: evidence the block was rendered by this build. */
-function hasEscapedGrammarLine(inner: string): boolean {
-  return inner
-    .split("\n")
-    .some((line) => line.startsWith(BODY_ESCAPE) && isEscapableLine(line));
-}
-
 /** The end (a later candidate's index, or the block's end) at which the span
  *  from candidate `i`'s header, block joiner excluded, is exactly `recorded`
  *  bytes long: the frozen card's own extent, so the header is a real card
@@ -398,15 +390,40 @@ function classifyNonSectionHeader(line: string): BoundaryRef {
   return { kind: "other" };
 }
 
+/**
+ * How an injection block was rendered, which decides the grammar the parser
+ * applies. `"current"`: rendered by a build with section headers and body
+ * escaping, so only producer headers on seams are boundaries. `"legacy"`: a
+ * compact-card block frozen by a build before either existed, read by the
+ * card shape and the conversation's recorded frozen card lengths. Provenance
+ * is explicit, never inferred from a block's content: the build that
+ * persists a current block stamps `memoryV3InjectedBlockFormat` beside it in
+ * the message metadata (`MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY` in
+ * `v3/ever-injected-store.ts`), a persisted block without the stamp is
+ * legacy, and a block memory-v3 places in live history carries its format in
+ * the identity registry (`markV3LiveBlock` in `v3/types.ts`).
+ */
+export type InjectedBlockFormat = "legacy" | "current";
+
+/** An injection block's unwrapped body with its rendering format: what every
+ *  consumer hands the parser. */
+export interface InjectedBlock {
+  inner: string;
+  format: InjectedBlockFormat;
+}
+
 export interface ParseInjectedSectionsOptions {
+  /** The block's rendering format ({@link InjectedBlockFormat}). Under
+   *  `"current"` only producer headers on seams split the block; the legacy
+   *  card shape and `knownCardBytes` are not consulted. */
+  format: InjectedBlockFormat;
   /** Recorded byte length of each frozen lead entry for the conversation,
    *  resident or pruned, keyed by slug (`getKnownCardBytes`); capability
    *  entries (`skills/<id>`, `cli-commands/<name>`) are recorded at zero. For
    *  a card frozen before body escaping the length is the exact UTF-8 length
    *  that build's injector measured for the whole card, which migration 378
-   *  carried over. Consulted only for a block with no current-format
-   *  evidence (no `§` section header, no escaped grammar line). Inside such
-   *  a card, a concept header on a seam that the card shape reads as text is
+   *  carried over. Consulted under `format: "legacy"` only. Inside such a
+   *  card, a concept header on a seam that the card shape reads as text is
    *  a boundary after all when the span from it to a later candidate header
    *  (block joiner excluded) has exactly its slug's recorded bytes, and a
    *  `# Skill: ` / `# CLI command: ` line the shape reads as text is a chunk
@@ -436,16 +453,18 @@ export interface ParseInjectedSectionsOptions {
  * block rendered by this build only producer-written headers can split.
  * Splitting only on seams keeps re-joins byte-identical.
  *
- * Blocks frozen by builds before body escaping hold compact cards (concept
- * header, the page head, a blank line, a `[sections: …]` / `[linked: …]` TOC
- * line) whose leads may contain a header-shaped line. Inside such a card, a
- * bare concept header (a lead's; heading-section headers never occur in
- * those blocks) or a non-section chunk header on a seam is read as card text
- * when the card shape says it does not open a card: its next line is neither
- * the page's `# Title` nor a `[current: …]` annotation, the previous content
- * line is not a TOC line (the preceding card is still open), and a TOC line
- * follows before the next header the shape reads as opening a chunk on its
- * own (the open card has yet to close).
+ * Blocks frozen by builds before body escaping (`options.format:
+ * "legacy"`, the provenance the persisting build stamps beside each block,
+ * see {@link InjectedBlockFormat}) hold compact cards (concept header, the
+ * page head, a blank line, a `[sections: …]` / `[linked: …]` TOC line) whose
+ * leads may contain a header-shaped line. Inside such a card, a bare concept
+ * header (a lead's; heading-section headers never occur in those blocks) or
+ * a non-section chunk header on a seam is read as card text when the card
+ * shape says it does not open a card: its next line is neither the page's
+ * `# Title` nor a `[current: …]` annotation, the previous content line is
+ * not a TOC line (the preceding card is still open), and a TOC line follows
+ * before the next header the shape reads as opening a chunk on its own (the
+ * open card has yet to close).
  * That verdict is overturned only by the store's evidence in
  * `options.knownCardBytes`: a concept header whose span to some later
  * candidate matches its slug's recorded frozen length byte for byte, or a
@@ -457,15 +476,14 @@ export interface ParseInjectedSectionsOptions {
  * the next boundary, so a sectionless card (which has no TOC line for the
  * shape to close on) still holds its lead together; the shape rule is the
  * fallback for an open card with no recorded length, and a capability chunk
- * (recorded at zero) has no derivable extent and keeps it. Frozen lengths
- * are consulted only in a block with no current-format evidence (no `§`
- * section header, no escaped grammar line), since they describe cards frozen
- * before either existed. Current blocks escape every grammar-shaped line, so
- * none of this applies to them.
+ * (recorded at zero) has no derivable extent and keeps it. Under
+ * `options.format: "current"` none of this applies: such a block escapes
+ * every grammar-shaped line and is split at producer headers alone, whatever
+ * the conversation's frozen lengths say.
  */
 export function parseInjectedSections(
   inner: string,
-  options: ParseInjectedSectionsOptions = {},
+  options: ParseInjectedSectionsOptions,
 ): {
   preamble: string;
   sections: ParsedInjectedSection[];
@@ -492,18 +510,12 @@ export function parseInjectedSections(
   }
   candidates.sort((a, b) => a.index - b.index);
 
-  // Frozen card lengths describe cards frozen before sections and escaping
-  // existed, so they apply only to a block carrying no current-format
-  // evidence: no `§` section header and no escaped grammar line. A current
-  // block whose re-injected lead plus following chunks happened to measure
-  // the old card length would otherwise fold those chunks into the lead.
-  const cardBytes =
-    candidates.some(
-      (candidate) =>
-        candidate.ref.kind === "section" && candidate.ref.key.length > 0,
-    ) || hasEscapedGrammarLine(inner)
-      ? undefined
-      : options.knownCardBytes;
+  // The card shape and the frozen card lengths describe cards frozen before
+  // sections and escaping existed; a current block is split at its headers
+  // alone, so a lead plus a following chunk that happen to measure a
+  // migrated slug's old card length are never folded together.
+  const legacy = options.format === "legacy";
+  const cardBytes = legacy ? options.knownCardBytes : undefined;
   const boundaries: Boundary[] = [];
   // The exact end of the open card when its slug's frozen length is on
   // record: the header through that many bytes, measured as the injector
@@ -523,6 +535,7 @@ export function parseInjectedSections(
       // the shape reads as opening a chunk on its own; other grammar-shaped
       // lines in between are that card's text too.
       const shapeReadsAsCardText =
+        legacy &&
         (ref.kind !== "section" || ref.key.length === 0) &&
         open !== undefined &&
         open.ref.kind === "section" &&
@@ -585,19 +598,25 @@ export function readInjectedBlock(
   metadata: string | null | undefined,
   key: string,
 ): string | null {
+  const block = readInjectedMetadata(metadata)?.[key];
+  return typeof block === "string" ? block : null;
+}
+
+/** A message's metadata JSON as a record, or `null` when absent or
+ *  malformed (anything but a JSON object). */
+export function readInjectedMetadata(
+  metadata: string | null | undefined,
+): Record<string, unknown> | null {
   if (!metadata) {
     return null;
   }
   try {
     const parsed: unknown = JSON.parse(metadata);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const block = (parsed as Record<string, unknown>)[key];
-      if (typeof block === "string") {
-        return block;
-      }
+      return parsed as Record<string, unknown>;
     }
   } catch {
-    // Malformed metadata: treat as no block.
+    // Malformed metadata: treat as no metadata.
   }
   return null;
 }

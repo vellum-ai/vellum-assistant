@@ -8,6 +8,7 @@ import {
   injectedSectionPath,
   parseInjectedSectionPath,
   parseInjectedSections,
+  type ParseInjectedSectionsOptions,
   readInjectedBlock,
   renderedBytes,
   unescapeInjectedBody,
@@ -113,6 +114,19 @@ describe("injectedSectionHeader / parseInjectedSectionPath", () => {
 
 const refOf = ({ slug, key }: { slug: string; key: string }) => ({ slug, key });
 
+/** Parse as a block rendered by this build (section headers, escaped
+ *  bodies): the provenance every persisted current block carries. */
+const parseCurrent = (
+  inner: string,
+  options: Omit<ParseInjectedSectionsOptions, "format"> = {},
+) => parseInjectedSections(inner, { format: "current", ...options });
+/** Parse as a block frozen before body escaping (a row without the format
+ *  stamp). */
+const parseLegacy = (
+  inner: string,
+  options: Omit<ParseInjectedSectionsOptions, "format"> = {},
+) => parseInjectedSections(inner, { format: "legacy", ...options });
+
 describe("parseInjectedSections", () => {
   test('recovers (slug, key) sections in order, with the lead as key ""', () => {
     const block = [
@@ -126,7 +140,7 @@ describe("parseInjectedSections", () => {
       "Second Notes chunk of B",
     ].join("\n");
 
-    expect(parseInjectedSections(block).sections.map(refOf)).toEqual([
+    expect(parseCurrent(block).sections.map(refOf)).toEqual([
       { slug: "topics/page-a", key: "" },
       { slug: "topics/page-a", key: "Notes" },
       { slug: "topics/page-b", key: "Notes#1" },
@@ -143,11 +157,11 @@ describe("parseInjectedSections", () => {
     // as-is and the parser hands it back unchanged for `sectionKeyTitle`.
     const header = injectedSectionHeader("topics/page-a", "Topic##1");
     expect(header).toBe("# memory/concepts/topics/page-a.md § Topic##1");
+    expect(parseCurrent(`${header}\nBody.`).sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "Topic##1" },
+    ]);
     expect(
-      parseInjectedSections(`${header}\nBody.`).sections.map(refOf),
-    ).toEqual([{ slug: "topics/page-a", key: "Topic##1" }]);
-    expect(
-      parseInjectedSections(
+      parseCurrent(
         injectedSectionHeader("topics/page-a", "Topic#1"),
       ).sections.map(refOf),
     ).toEqual([{ slug: "topics/page-a", key: "Topic#1" }]);
@@ -158,14 +172,12 @@ describe("parseInjectedSections", () => {
       "topics/page-a",
       "Reading notes.md § x",
     );
-    expect(parseInjectedSections(header).sections.map(refOf)).toEqual([
+    expect(parseCurrent(header).sections.map(refOf)).toEqual([
       { slug: "topics/page-a", key: "Reading notes.md § x" },
     ]);
     // Dotted slugs still round-trip.
     expect(
-      parseInjectedSections(injectedSectionHeader("a.b", "Notes")).sections.map(
-        refOf,
-      ),
+      parseCurrent(injectedSectionHeader("a.b", "Notes")).sections.map(refOf),
     ).toEqual([{ slug: "a.b", key: "Notes" }]);
   });
 
@@ -176,7 +188,7 @@ describe("parseInjectedSections", () => {
       injectedSectionHeader("b", ""),
       "not a boundary: no blank line above",
     ].join("\n");
-    const parsed = parseInjectedSections(inner);
+    const parsed = parseCurrent(inner);
     expect(parsed.sections.map(refOf)).toEqual([{ slug: "a", key: "" }]);
     expect(parsed.sections[0]!.text).toBe(inner);
   });
@@ -199,7 +211,7 @@ describe("parseInjectedSections: capability pieces", () => {
       injectedSectionHeader("topics/page-a", ""),
       "Lead A",
     ].join("\n");
-    const parsed = parseInjectedSections(inner);
+    const parsed = parseCurrent(inner);
     expect(parsed.preamble).toBe("preamble");
     expect(parsed.pieces).toEqual([
       { kind: "other", text: "# Skills\nhint text" },
@@ -228,7 +240,7 @@ describe("parseInjectedSections: capability pieces", () => {
   });
 
   test("a capability-only block still yields its pieces", () => {
-    const parsed = parseInjectedSections(
+    const parsed = parseCurrent(
       "preamble\n\n# Skill: meet-join\nJoin a meeting.",
     );
     expect(parsed.sections).toEqual([]);
@@ -272,7 +284,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
   ].join("\n");
 
   test("a header-shaped line inside a card's lead never splits the card", () => {
-    const parsed = parseInjectedSections([preamble, cardA, cardB].join("\n\n"));
+    const parsed = parseLegacy([preamble, cardA, cardB].join("\n\n"));
     expect(parsed.preamble).toBe(preamble);
     expect(parsed.sections.map(refOf)).toEqual([
       { slug: "topics/page-a", key: "" },
@@ -285,7 +297,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
   });
 
   test("a sectionless card followed by a card that opens with its title stays two cards", () => {
-    const parsed = parseInjectedSections([preamble, stub, cardB].join("\n\n"));
+    const parsed = parseLegacy([preamble, stub, cardB].join("\n\n"));
     expect(parsed.sections.map((section) => section.text)).toEqual([
       stub,
       cardB,
@@ -293,14 +305,12 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
   });
 
   test("a headless card is still a card when the previous card closed with its TOC line, or when it follows a non-card chunk", () => {
-    const afterCard = parseInjectedSections(
-      [preamble, cardB, headless].join("\n\n"),
-    );
+    const afterCard = parseLegacy([preamble, cardB, headless].join("\n\n"));
     expect(afterCard.sections.map((section) => section.text)).toEqual([
       cardB,
       headless,
     ]);
-    const afterHint = parseInjectedSections(
+    const afterHint = parseLegacy(
       [preamble, "# Skills\nhint", headless].join("\n\n"),
     );
     expect(afterHint.pieces.map((piece) => piece.text)).toEqual([
@@ -314,7 +324,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     // The old injector recorded each card's UTF-8 length (header through TOC
     // line, joiner excluded); a span that matches it byte for byte is that
     // card, which the shape alone cannot tell.
-    const known = parseInjectedSections(inner, {
+    const known = parseLegacy(inner, {
       knownCardBytes: new Map([
         ["topics/stub", renderedBytes(stub)],
         ["topics/headless", renderedBytes(headless)],
@@ -328,16 +338,16 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     // second header reads as the open card's text (the two shapes are
     // identical on the page).
     const merged = [`${stub}\n\n${headless}`];
+    expect(parseLegacy(inner).sections.map((section) => section.text)).toEqual(
+      merged,
+    );
     expect(
-      parseInjectedSections(inner).sections.map((section) => section.text),
-    ).toEqual(merged);
-    expect(
-      parseInjectedSections(inner, {
+      parseLegacy(inner, {
         knownCardBytes: new Map([["topics/headless", 0]]),
       }).sections.map((section) => section.text),
     ).toEqual(merged);
     expect(
-      parseInjectedSections(inner, {
+      parseLegacy(inner, {
         knownCardBytes: new Map([
           ["topics/headless", renderedBytes(headless) + 1],
         ]),
@@ -360,7 +370,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
       "[sections: §Notes · §Design]",
     ].join("\n");
     const inner = [preamble, citingA, cardB].join("\n\n");
-    const parsed = parseInjectedSections(inner, {
+    const parsed = parseLegacy(inner, {
       knownCardBytes: new Map([
         ["topics/page-a", renderedBytes(citingA)],
         ["topics/page-b", renderedBytes(cardB)],
@@ -391,11 +401,11 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     ].join("\n");
     const inner = [preamble, cardC, cardB].join("\n\n");
     const oneCard = [cardC, cardB];
+    expect(parseLegacy(inner).sections.map((section) => section.text)).toEqual(
+      oneCard,
+    );
     expect(
-      parseInjectedSections(inner).sections.map((section) => section.text),
-    ).toEqual(oneCard);
-    expect(
-      parseInjectedSections(inner, {
+      parseLegacy(inner, {
         knownCardBytes: new Map([
           ["topics/page-c", renderedBytes(cardC)],
           ["topics/page-b", renderedBytes(cardB)],
@@ -407,7 +417,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     // A recorded capability slug is the store's evidence that the line is a
     // real chunk: the old injector recorded every injected capability under
     // its slug at zero bytes.
-    const recorded = parseInjectedSections(inner, {
+    const recorded = parseLegacy(inner, {
       knownCardBytes: new Map([["skills/example-skill", 0]]),
     });
     expect(recorded.pieces[1]).toMatchObject({
@@ -428,7 +438,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
       "[sections: §One]",
     ].join("\n");
     expect(
-      parseInjectedSections([preamble, hintOnly, cardB].join("\n\n"), {
+      parseLegacy([preamble, hintOnly, cardB].join("\n\n"), {
         knownCardBytes: new Map([["skills/example-skill", 0]]),
       }).pieces.map((piece) => piece.text),
     ).toEqual([hintOnly, cardB]);
@@ -449,7 +459,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
       "[sections: §One]",
     ].join("\n");
     expect(
-      parseInjectedSections([preamble, twice, cardB].join("\n\n"), {
+      parseLegacy([preamble, twice, cardB].join("\n\n"), {
         knownCardBytes: new Map([
           ["topics/page-e", renderedBytes(twice)],
           ["topics/page-b", renderedBytes(cardB)],
@@ -480,7 +490,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     ].join("\n");
     const inner = [preamble, stubWithLines, cardB].join("\n\n");
 
-    const known = parseInjectedSections(inner, {
+    const known = parseLegacy(inner, {
       knownCardBytes: new Map([
         ["topics/stub", renderedBytes(stubWithLines)],
         ["topics/page-b", renderedBytes(cardB)],
@@ -491,7 +501,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
       cardB,
     ]);
 
-    const fallback = parseInjectedSections(inner);
+    const fallback = parseLegacy(inner);
     expect(fallback.pieces.map((piece) => piece.kind)).toEqual([
       "section",
       "section",
@@ -506,7 +516,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     // The headless card has no recorded length and no title line; the open
     // card's extent alone makes its header a boundary.
     const inner = [preamble, stub, headless].join("\n\n");
-    const parsed = parseInjectedSections(inner, {
+    const parsed = parseLegacy(inner, {
       knownCardBytes: new Map([["topics/stub", renderedBytes(stub)]]),
     });
     expect(parsed.sections.map((section) => section.text)).toEqual([
@@ -522,7 +532,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
       undefined,
       new Map([["skills/meet-join", 0]]),
     ]) {
-      const parsed = parseInjectedSections(inner, { knownCardBytes });
+      const parsed = parseLegacy(inner, { knownCardBytes });
       expect(parsed.pieces.map((piece) => piece.kind)).toEqual([
         "section",
         "capability",
@@ -536,48 +546,28 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     }
   });
 
-  test("a frozen length never applies inside a block carrying a § section header: a re-injected lead and its chunks measuring the old card length stay separate", () => {
+  test("the format is provenance, not content: a current block for a migrated slug whose frozen length equals its lead plus the next entry parses at its headers, while the same bytes as a legacy block are one card", () => {
+    // The lead-only case: no `§` header and nothing to escape, so nothing in
+    // the content tells the two formats apart.
     const lead = `${injectedSectionHeader("topics/page-a", "")}\nlead prose`;
-    const chunkOne = `${injectedSectionHeader("topics/page-a", "Notes")}\nfirst chunk`;
-    const chunkTwo = `${injectedSectionHeader("topics/page-a", "Notes~1")}\nsecond chunk`;
-    const inner = [preamble, lead, chunkOne, chunkTwo].join("\n\n");
-    // The conversation recorded page-a's whole pre-sections card at exactly
-    // the length the lead plus its two chunks now measure.
-    const parsed = parseInjectedSections(inner, {
-      knownCardBytes: new Map([
-        [
-          "topics/page-a",
-          renderedBytes([lead, chunkOne, chunkTwo].join("\n\n")),
-        ],
-      ]),
-    });
-    expect(parsed.sections.map((section) => section.text)).toEqual([
-      lead,
-      chunkOne,
-      chunkTwo,
-    ]);
-    expect(parsed.sections.map(refOf)).toEqual([
-      { slug: "topics/page-a", key: "" },
-      { slug: "topics/page-a", key: "Notes" },
-      { slug: "topics/page-a", key: "Notes~1" },
-    ]);
-  });
-
-  test("an escaped grammar line is current-format evidence too: a frozen length never folds the entry after a re-injected lead into it", () => {
-    const leadA = `${injectedSectionHeader("topics/page-a", "")}\n${escapeInjectedBody(
-      "lead a\n\n# memory/concepts/example.md\nstill lead a",
-    )}`;
-    const leadB = `${injectedSectionHeader("topics/page-b", "")}\nlead b`;
-    const inner = [preamble, leadA, leadB].join("\n\n");
-    const parsed = parseInjectedSections(inner, {
-      knownCardBytes: new Map([
-        ["topics/page-a", renderedBytes([leadA, leadB].join("\n\n"))],
-      ]),
-    });
-    expect(parsed.sections.map((section) => section.text)).toEqual([
-      leadA,
-      leadB,
-    ]);
+    const next = `${injectedSectionHeader("topics/page-b", "")}\nlead of the next page`;
+    const skill = "# Skill: meet-join\nJoin a video meeting on request.";
+    for (const following of [next, skill]) {
+      const inner = [preamble, lead, following].join("\n\n");
+      const knownCardBytes = new Map([
+        ["topics/page-a", renderedBytes([lead, following].join("\n\n"))],
+      ]);
+      expect(
+        parseCurrent(inner, { knownCardBytes }).pieces.map(
+          (piece) => piece.text,
+        ),
+      ).toEqual([lead, following]);
+      expect(
+        parseLegacy(inner, { knownCardBytes }).pieces.map(
+          (piece) => piece.text,
+        ),
+      ).toEqual([[lead, following].join("\n\n")]);
+    }
   });
 
   test("a block rendered by this build escapes TOC-shaped lines, so the card rule never applies to it", () => {
@@ -590,7 +580,7 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
       `${injectedSectionHeader("topics/page-a", "Notes")}\n${escaped}`,
       headlessLead,
     ].join("\n\n");
-    expect(parseInjectedSections(inner).sections.map(refOf)).toEqual([
+    expect(parseCurrent(inner).sections.map(refOf)).toEqual([
       { slug: "topics/page-a", key: "Notes" },
       { slug: "topics/page-b", key: "" },
     ]);
@@ -656,7 +646,7 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
         ["skills/forged", 0],
       ]),
     ]) {
-      const parsed = parseInjectedSections(entry, { knownCardBytes });
+      const parsed = parseCurrent(entry, { knownCardBytes });
       expect(parsed.sections.map(refOf)).toEqual([
         { slug: "topics/page-a", key: "" },
       ]);

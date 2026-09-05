@@ -36,6 +36,8 @@ import { memoryDbOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
+  type InjectedBlock,
+  type InjectedBlockFormat,
   parseInjectedSections,
   renderedBytes,
 } from "../substrate/injected-block-slugs.js";
@@ -50,6 +52,34 @@ const log = getLogger("memory-v3-ever-injected-store");
  * seed scan so all three agree on the key.
  */
 export const MEMORY_V3_INJECTED_BLOCK_METADATA_KEY = "memoryV3InjectedBlock";
+
+/**
+ * Message-metadata key the persisting build stamps beside
+ * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`: the block's rendering format
+ * ({@link MEMORY_V3_INJECTED_BLOCK_FORMAT}). A row carrying the section block
+ * without it was persisted before the stamp existed and holds a legacy
+ * compact-card block, which the parser reads by the card shape and the
+ * conversation's frozen card lengths (`InjectedBlockFormat` in
+ * `substrate/injected-block-slugs.ts`).
+ */
+export const MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY =
+  "memoryV3InjectedBlockFormat";
+
+/** The format this build renders and stamps: section headers plus body
+ *  escaping. */
+export const MEMORY_V3_INJECTED_BLOCK_FORMAT = 2;
+
+/** The rendering format a message row's metadata records for its v3 section
+ *  block: current when the persisting build stamped the format key, legacy
+ *  otherwise. */
+export function v3BlockFormatOf(
+  metadata: Readonly<Record<string, unknown>>,
+): InjectedBlockFormat {
+  return typeof metadata[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] ===
+    "number"
+    ? "current"
+    : "legacy";
+}
 
 /**
  * A set of section refs keyed by slug, the shape the dedup and prune filters
@@ -455,8 +485,9 @@ export function forkEverInjected(
  * Seed a truncated fork's record from the sections whose blocks the child
  * actually inherited: the `# memory/concepts/<slug>.md § <key>` and lead
  * headers scanned out of the copied messages' persisted
- * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY` blocks (`blocks`, unwrapped or
- * wrapped; the header grammar is the same either way). Mirrors
+ * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY` blocks (`blocks`, each with the
+ * format its row's metadata records, see `persistedV3Block` in `prune.ts`;
+ * a wrapped body is unwrapped). Mirrors
  * `seedForkActivationState`: a wholesale copy would over-claim, while seeding
  * nothing would re-attach every inherited section as a duplicate.
  *
@@ -481,7 +512,7 @@ export function forkEverInjected(
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
- * The inherited blocks are parsed with the parent's frozen card lengths as
+ * A legacy inherited block is parsed with the parent's frozen card lengths as
  * the parser's `knownCardBytes`, so a card frozen before body escaping splits
  * only at headers whose span is a card the parent actually froze. Each seeded
  * lead entry records its inherited span as its own `frozen_card_bytes`, and
@@ -495,7 +526,7 @@ export function forkEverInjected(
 export function seedEverInjectedFromBlocks(
   parentConversationId: string,
   newConversationId: string,
-  blocks: string[],
+  blocks: ReadonlyArray<InjectedBlock>,
   at: number,
 ): void {
   const knownCardBytes = getKnownCardBytes(parentConversationId);
@@ -504,7 +535,8 @@ export function seedEverInjectedFromBlocks(
     SectionRef & { bytes: number; frozenCardBytes: number | null }
   >();
   for (const block of blocks) {
-    for (const piece of parseInjectedSections(unwrapMemoryBlock(block), {
+    for (const piece of parseInjectedSections(unwrapMemoryBlock(block.inner), {
+      format: block.format,
       knownCardBytes,
     }).pieces) {
       if (piece.kind === "section") {

@@ -29,6 +29,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { ensureMemoryV3InjectedSectionsSchema } from "../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
+import type { InjectedBlock } from "../substrate/injected-block-slugs.js";
 import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
 
@@ -398,6 +399,13 @@ describe("forkEverInjected", () => {
   });
 });
 
+/** An inherited block with the format its row's metadata recorded. */
+const current = (inner: string): InjectedBlock => ({
+  inner,
+  format: "current",
+});
+const legacy = (inner: string): InjectedBlock => ({ inner, format: "legacy" });
+
 describe("seedEverInjectedFromBlocks", () => {
   const leadA = `${injectedSectionHeader("topics/page-a", "")}\nLead A`;
   const notesA = `${injectedSectionHeader("topics/page-a", "Notes")}\nNotes A`;
@@ -408,7 +416,7 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [blockA, wrapMemoryBlock(designB)],
+      [current(blockA), current(wrapMemoryBlock(designB))],
       5_000,
     );
 
@@ -446,7 +454,7 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [blockA, notesAgain],
+      [current(blockA), current(notesAgain)],
       5_000,
     );
 
@@ -479,7 +487,12 @@ describe("seedEverInjectedFromBlocks", () => {
       "# CLI command: export",
       "Export a conversation.",
     ].join("\n");
-    seedEverInjectedFromBlocks("conv-parent", "conv-child", [block], 5_000);
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [current(block)],
+      5_000,
+    );
 
     expect(summary("conv-child")).toEqual([
       { slug: "cli-commands/export", key: "", bytes: 0, prunedAt: null },
@@ -522,7 +535,7 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [`preamble\n\n${card}`],
+      [legacy(`preamble\n\n${card}`)],
       5_000,
     );
 
@@ -561,7 +574,12 @@ describe("seedEverInjectedFromBlocks", () => {
     freeze("conv-parent", "topics/stub", renderedBytes(stub));
     freeze("conv-parent", "topics/headless", renderedBytes(headless));
 
-    seedEverInjectedFromBlocks("conv-parent", "conv-child", [block], 5_000);
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [legacy(block)],
+      5_000,
+    );
 
     expect(summary("conv-child")).toEqual([
       {
@@ -605,7 +623,7 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [`preamble\n\n${card}`],
+      [legacy(`preamble\n\n${card}`)],
       5_000,
     );
 
@@ -641,7 +659,7 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [`preamble\n\n${card}`],
+      [legacy(`preamble\n\n${card}`)],
       5_000,
     );
 
@@ -650,6 +668,54 @@ describe("seedEverInjectedFromBlocks", () => {
         slug: "topics/stub",
         key: "",
         bytes: renderedBytes(card),
+        prunedAt: null,
+      },
+    ]);
+  });
+
+  test("each inherited block is parsed by its own format: a current lead-only block for a migrated slug seeds an entry per lead where the same bytes as a legacy block seed one card", () => {
+    const leadB = `${injectedSectionHeader("topics/page-b", "")}\nLead B`;
+    const block = `${leadA}\n\n${leadB}`;
+    // The parent froze page-a as a card exactly as long as this block.
+    recordInjected(
+      "conv-parent",
+      [{ slug: "topics/page-a", key: "", bytes: renderedBytes(block) }],
+      1_000,
+    );
+    freeze("conv-parent", "topics/page-a", renderedBytes(block));
+
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [current(block)],
+      5_000,
+    );
+    expect(summary("conv-child")).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: renderedBytes(leadA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-b",
+        key: "",
+        bytes: renderedBytes(leadB),
+        prunedAt: null,
+      },
+    ]);
+
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child-legacy",
+      [legacy(block)],
+      5_000,
+    );
+    expect(summary("conv-child-legacy")).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: renderedBytes(block),
         prunedAt: null,
       },
     ]);
@@ -671,7 +737,12 @@ describe("seedEverInjectedFromBlocks", () => {
     );
     markPruned("conv-parent", [{ slug: "topics/page-a", key: "Notes" }], 2_000);
 
-    seedEverInjectedFromBlocks("conv-parent", "conv-child", [blockA], 5_000);
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [current(blockA)],
+      5_000,
+    );
 
     expect(summary("conv-child")).toEqual([
       {
@@ -708,7 +779,7 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      ["no headers"],
+      [current("no headers")],
       5_000,
     );
     expect(getInjected("conv-child")).toEqual([]);
@@ -718,7 +789,12 @@ describe("seedEverInjectedFromBlocks", () => {
       [{ slug: "topics/page-a", key: "", bytes: 100 }],
       1_000,
     );
-    seedEverInjectedFromBlocks("conv-parent", "conv-child", [blockA], 5_000);
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [current(blockA)],
+      5_000,
+    );
     expect(summary("conv-child")).toEqual([
       { slug: "topics/page-a", key: "", bytes: 100, prunedAt: null },
       {
@@ -799,7 +875,7 @@ describe("fail-soft when the underlying statement fails", () => {
       seedEverInjectedFromBlocks(
         "conv-parent",
         "conv-child",
-        [injectedSectionHeader("topics/page-a", "")],
+        [current(injectedSectionHeader("topics/page-a", ""))],
         5_000,
       ),
     ).not.toThrow();

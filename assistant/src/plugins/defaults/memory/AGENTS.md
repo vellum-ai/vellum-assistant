@@ -149,20 +149,28 @@ skill text can never forge one. The prune valve (`v3/prune.ts`), the
 `loadFromDb` rehydration filter, the truncated-fork seed (which measures each
 inherited section's bytes from its span and seeds inherited capability chunks
 at zero bytes, as the injector records them), and the inspector all read
-blocks through the module's `parseInjectedSections`, which also recognises the
-compact-card shape earlier builds froze without escaping (header, page head,
-blank line, `[sections: …]` TOC line) so a header-shaped line inside such a
-card's lead stays card text unless the span from it to a later header is, byte
-for byte, the frozen card length the conversation recorded for that slug, and
-an open card whose own slug has a recorded length ends exactly that many bytes
-after its header (so a sectionless card, with no TOC line, still holds its lead
-together and the next boundary is the first header at that extent); frozen
-lengths are consulted only in a block with no current-format evidence, no `§`
-section header and no escaped grammar line, since a re-injected lead plus its
-chunks can measure the old card length
-(`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length migration 378
-carried over or the fork seeder measured, which `recordInjected` never
-refreshes, so the evidence survives a prune and re-injection of the lead);
+blocks through the module's `parseInjectedSections`, and every call states the
+block's rendering format (`InjectedBlockFormat`, `"legacy" | "current"`),
+which is explicit provenance and never inferred from content: the persisting
+build stamps `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT`, 2) beside `memoryV3InjectedBlock`, a row carrying the block without the stamp
+is legacy (exactly the pre-stamp rows; fork copies carry the stamp with the
+metadata), `persistedV3Block` reads both for rehydration and the fork seeder,
+and the identity registry records the format of every block in live history
+(the injector's own blocks are current; a spliced block keeps its row's). Under
+`"legacy"` the parser also recognises the compact-card shape earlier builds
+froze without escaping (header, page head, blank line, `[sections: …]` TOC
+line) so a header-shaped line inside such a card's lead stays card text unless
+the span from it to a later header is, byte for byte, the frozen card length
+the conversation recorded for that slug, and an open card whose own slug has a
+recorded length ends exactly that many bytes after its header (so a
+sectionless card, with no TOC line, still holds its lead together and the next
+boundary is the first header at that extent); under `"current"` only producer
+headers on seams split, whatever the frozen lengths say, so a lead plus a
+following chunk that happen to measure a migrated slug's old card length stay
+separate (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length
+migration 378 carried over or the fork seeder measured, which `recordInjected`
+never refreshes, so the evidence survives a prune and re-injection of the
+lead);
 page slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
 line inside such a lead likewise stays card text unless the capability slug it
 names is a recorded key (capability entries are recorded at zero bytes, so
@@ -439,16 +447,16 @@ failure record and the section re-embed high-water:
 
 ### Wire-visible strings
 
-| Name                                                                                                                                                          | Kind                                  | Why frozen                                                          |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
-| `memory_v2_consolidation`                                                                                                                                     | `conversations.source` value          | persisted on every consolidation run                                |
-| `memory_retrospective`                                                                                                                                        | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
-| `skill-authored-card`                                                                                                                                         | message kind                          | persisted on skill-card messages                                    |
-| `memoryV2Consolidation`, `memoryRetrospective`                                                                                                                | LLM call-site ids                     | logging/attribution buckets                                         |
-| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3PointerBlock`, `memoryV3SpotlightBlock` (legacy, read-only), `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
-| `memory-v2-static`                                                                                                                                            | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
-| `MEMORY_V2_DISABLED`                                                                                                                                          | error code                            | clients branch on it                                                |
-| `memory.v2.sweep`                                                                                                                                             | notification job identifier           | surfaced in `activity.failed`                                       |
+| Name                                                                                                                                                                                         | Kind                                  | Why frozen                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
+| `memory_v2_consolidation`                                                                                                                                                                    | `conversations.source` value          | persisted on every consolidation run                                |
+| `memory_retrospective`                                                                                                                                                                       | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
+| `skill-authored-card`                                                                                                                                                                        | message kind                          | persisted on skill-card messages                                    |
+| `memoryV2Consolidation`, `memoryRetrospective`                                                                                                                                               | LLM call-site ids                     | logging/attribution buckets                                         |
+| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3InjectedBlockFormat`, `memoryV3PointerBlock`, `memoryV3SpotlightBlock` (legacy, read-only), `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
+| `memory-v2-static`                                                                                                                                                                           | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
+| `MEMORY_V2_DISABLED`                                                                                                                                                                         | error code                            | clients branch on it                                                |
+| `memory.v2.sweep`                                                                                                                                                                            | notification job identifier           | surfaced in `activity.failed`                                       |
 
 ### HTTP surface
 

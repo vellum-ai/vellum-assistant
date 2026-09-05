@@ -424,6 +424,13 @@ export const messageMetadataSchema = z
      *  `memoryInjectedBlock`) so the storage schema does not import the memory
      *  feature. */
     memoryV3InjectedBlock: z.string().optional(),
+    /** Rendering format of `memoryV3InjectedBlock`, stamped by the build
+     *  that persisted it (the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT`); a row carrying the block without
+     *  it holds a legacy compact-card block. The key matches the plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY`, kept as a literal here
+     *  so the storage schema does not import the memory feature. */
+    memoryV3InjectedBlockFormat: z.number().optional(),
     /** Memory-v3 per-turn `<memory_pointer>` block (wrapped). Rehydrated by
      *  `loadFromDb` so historical turns keep the pointer they were sent with.
      *  The key matches the memory plugin's

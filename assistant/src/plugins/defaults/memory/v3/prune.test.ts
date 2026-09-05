@@ -44,6 +44,10 @@ import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migratio
 import { ensureMemoryV3InjectedSectionsSchema } from "../../../../persistence/migrations/378-add-memory-v3-injected-sections.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
+import type {
+  InjectedBlock,
+  InjectedBlockFormat,
+} from "../substrate/injected-block-slugs.js";
 import {
   injectedSectionHeader,
   parseInjectedSections,
@@ -169,10 +173,21 @@ function refSet(
   return set;
 }
 
+/** A block as the parser must be told to read it: current (this build's
+ *  render) or legacy (frozen before body escaping, no format stamp). */
+const current = (inner: string): InjectedBlock => ({
+  inner,
+  format: "current",
+});
+const legacy = (inner: string): InjectedBlock => ({ inner, format: "legacy" });
+
 /** A `<memory>` text block as memory-v3 places it in live history: owned by
- *  the strip through object identity. */
-function v3Block(text: string): ContentBlock {
-  return markV3LiveBlock({ type: "text" as const, text });
+ *  the strip through object identity, which records its format. */
+function v3Block(
+  text: string,
+  format: InjectedBlockFormat = "current",
+): ContentBlock {
+  return markV3LiveBlock({ type: "text" as const, text }, format);
 }
 
 /** Give a lead entry the frozen length migration 378 (or the fork seeder)
@@ -210,7 +225,10 @@ function insertUserRowWithV3Block(
   conversationId: string,
   id: string,
   blockInner: string,
+  format: InjectedBlockFormat = "current",
 ): void {
+  // The persisting build stamps the block's format beside it; a legacy row
+  // (persisted before the stamp existed) carries the block alone.
   testSqlite
     .query(
       /*sql*/ `
@@ -221,7 +239,10 @@ function insertUserRowWithV3Block(
     .run(
       id,
       conversationId,
-      JSON.stringify({ memoryV3InjectedBlock: blockInner }),
+      JSON.stringify({
+        memoryV3InjectedBlock: blockInner,
+        ...(format === "current" ? { memoryV3InjectedBlockFormat: 2 } : {}),
+      }),
     );
 }
 
@@ -246,7 +267,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
   ]);
 
   test("parses preamble and per-section pieces at the path headers, keyed by (slug, key)", () => {
-    const parsed = parseInjectedSections(inner);
+    const parsed = parseInjectedSections(inner, { format: "current" });
     expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
     expect(parsed.sections.map((s) => [s.slug, s.key])).toEqual([
       ["page-a", ""],
@@ -261,7 +282,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       "# Skill: telegram-setup\nSet up Telegram.",
       lead("page-a"),
     ]);
-    const parsed = parseInjectedSections(mixed);
+    const parsed = parseInjectedSections(mixed, { format: "current" });
     expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
     expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a"]);
     expect(parsed.pieces.map((piece) => piece.kind)).toEqual([
@@ -273,22 +294,26 @@ describe("parseInjectedSections / filterPrunedSections", () => {
   });
 
   test("no pruned section present → returns the SAME reference (no-op)", () => {
-    expect(filterPrunedSections(inner, refSet(["page-z", ""]))).toBe(inner);
-    // A pruned key of a present page that is NOT in the block is a no-op too.
-    expect(filterPrunedSections(inner, refSet(["page-a", "Design"]))).toBe(
+    expect(filterPrunedSections(inner, "current", refSet(["page-z", ""]))).toBe(
       inner,
     );
-    expect(filterPrunedSections(inner, new Map())).toBe(inner);
+    // A pruned key of a present page that is NOT in the block is a no-op too.
+    expect(
+      filterPrunedSections(inner, "current", refSet(["page-a", "Design"])),
+    ).toBe(inner);
+    expect(filterPrunedSections(inner, "current", new Map())).toBe(inner);
   });
 
   test("strips exactly the pruned section by header span, leaving siblings and the remainder byte-identical", () => {
-    expect(filterPrunedSections(inner, refSet(["page-a", "Notes"]))).toBe(
+    expect(
+      filterPrunedSections(inner, "current", refSet(["page-a", "Notes"])),
+    ).toBe(
       renderInjectionBlockInner([
         lead("page-a"),
         section("page-b", "Design#1"),
       ]),
     );
-    expect(filterPrunedSections(inner, refSet(["page-a", ""]))).toBe(
+    expect(filterPrunedSections(inner, "current", refSet(["page-a", ""]))).toBe(
       renderInjectionBlockInner([
         section("page-a", "Notes"),
         section("page-b", "Design#1"),
@@ -303,21 +328,22 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     // section: only concept headers and capability chunks do.
     const bodyWithHeadings = `${injectedSectionHeader("page-a", "Setup")}\nrun this:\n\n# not a boundary\n\n# also inside`;
     const block = renderInjectionBlockInner([bodyWithHeadings, lead("page-b")]);
-    const parsed = parseInjectedSections(block);
+    const parsed = parseInjectedSections(block, { format: "current" });
     expect(parsed.sections.map((s) => [s.slug, s.key])).toEqual([
       ["page-a", "Setup"],
       ["page-b", ""],
     ]);
     expect(parsed.sections[0]!.text).toBe(bodyWithHeadings);
-    expect(filterPrunedSections(block, refSet(["page-a", "Setup"]))).toBe(
-      renderInjectionBlockInner([lead("page-b")]),
-    );
+    expect(
+      filterPrunedSections(block, "current", refSet(["page-a", "Setup"])),
+    ).toBe(renderInjectionBlockInner([lead("page-b")]));
   });
 
   test("all sections pruned → empty string (caller drops the block)", () => {
     expect(
       filterPrunedSections(
         inner,
+        "current",
         refSet(["page-a", ""], ["page-a", "Notes"], ["page-b", "Design#1"]),
       ),
     ).toBe("");
@@ -325,7 +351,9 @@ describe("parseInjectedSections / filterPrunedSections", () => {
 
   test("text with no section headers passes through unchanged", () => {
     const plain = "remember: user prefers tea";
-    expect(filterPrunedSections(plain, refSet(["page-a", ""]))).toBe(plain);
+    expect(filterPrunedSections(plain, "current", refSet(["page-a", ""]))).toBe(
+      plain,
+    );
   });
 
   test("a capability chunk terminates the preceding section", () => {
@@ -334,7 +362,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       CAPABILITY_CHUNK,
       section("page-b", "Notes"),
     ]);
-    const parsed = parseInjectedSections(mixed);
+    const parsed = parseInjectedSections(mixed, { format: "current" });
     expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a", "page-b"]);
     // page-a's section stops AT the capability header — it must not absorb it.
     expect(parsed.sections[0]!.text).toBe(lead("page-a"));
@@ -359,7 +387,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       CAPABILITY_CHUNK,
       section("page-b", "Notes"),
     ]);
-    expect(filterPrunedSections(mixed, refSet(["page-a", ""]))).toBe(
+    expect(filterPrunedSections(mixed, "current", refSet(["page-a", ""]))).toBe(
       renderInjectionBlockInner([CAPABILITY_CHUNK, section("page-b", "Notes")]),
     );
     // Capability chunk at the block END survives the prune of the last section.
@@ -367,9 +395,9 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       lead("page-a"),
       CAPABILITY_CHUNK,
     ]);
-    expect(filterPrunedSections(trailing, refSet(["page-a", ""]))).toBe(
-      renderInjectionBlockInner([CAPABILITY_CHUNK]),
-    );
+    expect(
+      filterPrunedSections(trailing, "current", refSet(["page-a", ""])),
+    ).toBe(renderInjectionBlockInner([CAPABILITY_CHUNK]));
   });
 
   test("a body line that would read as a section header is escaped at render time and never splits the section", () => {
@@ -391,7 +419,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
 
     const inner = renderInjectionBlockInner([entry, lead("page-b")]);
-    const parsed = parseInjectedSections(inner);
+    const parsed = parseInjectedSections(inner, { format: "current" });
     expect(parsed.sections.map(({ slug, key }) => ({ slug, key }))).toEqual([
       { slug: "page-a", key: "Notes" },
       { slug: "page-b", key: "" },
@@ -399,9 +427,9 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     expect(parsed.sections[0]!.text).toBe(entry);
     // Pruning removes the whole section, forged lines included, and the
     // grammar's inverse recovers the body the page carries.
-    expect(filterPrunedSections(inner, refSet(["page-a", "Notes"]))).toBe(
-      renderInjectionBlockInner([lead("page-b")]),
-    );
+    expect(
+      filterPrunedSections(inner, "current", refSet(["page-a", "Notes"])),
+    ).toBe(renderInjectionBlockInner([lead("page-b")]));
     expect(unescapeInjectedBody(entry.slice(entry.indexOf("\n") + 1))).toBe(
       body,
     );
@@ -427,13 +455,13 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     ].join("\n");
     const legacyInner = [V3_INJECTION_HEADER, cardA, cardB].join("\n\n");
 
-    expect(filterPrunedSections(legacyInner, refSet(["page-a", ""]))).toBe(
-      [V3_INJECTION_HEADER, cardB].join("\n\n"),
-    );
+    expect(
+      filterPrunedSections(legacyInner, "legacy", refSet(["page-a", ""])),
+    ).toBe([V3_INJECTION_HEADER, cardB].join("\n\n"));
     // The header-shaped line names no section, so nothing keyed on it exists.
-    expect(filterPrunedSections(legacyInner, refSet(["example", ""]))).toBe(
-      legacyInner,
-    );
+    expect(
+      filterPrunedSections(legacyInner, "legacy", refSet(["example", ""])),
+    ).toBe(legacyInner);
   });
 
   test("a legacy card whose lead carries a capability-shaped line prunes whole (no phantom capability chunk survives)", () => {
@@ -453,6 +481,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     expect(
       filterPrunedSections(
         legacyInner,
+        "legacy",
         refSet(["page-a", ""]),
         new Map([["page-a", renderedBytes(card)]]),
       ),
@@ -476,10 +505,20 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
     const knownCardBytes = new Map([["stub", renderedBytes(card)]]);
     expect(
-      filterPrunedSections(legacyInner, refSet(["stub", ""]), knownCardBytes),
+      filterPrunedSections(
+        legacyInner,
+        "legacy",
+        refSet(["stub", ""]),
+        knownCardBytes,
+      ),
     ).toBe([V3_INJECTION_HEADER, lead("page-b")].join("\n\n"));
     expect(
-      filterPrunedSections(legacyInner, refSet(["page-b", ""]), knownCardBytes),
+      filterPrunedSections(
+        legacyInner,
+        "legacy",
+        refSet(["page-b", ""]),
+        knownCardBytes,
+      ),
     ).toBe([V3_INJECTION_HEADER, card].join("\n\n"));
   });
 
@@ -504,19 +543,29 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     expect(
       filterPrunedSections(
         legacyInner,
+        "legacy",
         refSet(["headless", ""]),
         knownCardBytes,
       ),
     ).toBe([V3_INJECTION_HEADER, stub].join("\n\n"));
     expect(
-      filterPrunedSections(legacyInner, refSet(["stub", ""]), knownCardBytes),
+      filterPrunedSections(
+        legacyInner,
+        "legacy",
+        refSet(["stub", ""]),
+        knownCardBytes,
+      ),
     ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
   });
 
   test("all sections pruned keeps the preamble + capability chunks", () => {
     const mixed = renderInjectionBlockInner([lead("page-a"), CAPABILITY_CHUNK]);
     expect(
-      filterPrunedSections(mixed, refSet(["page-a", ""], ["page-b", ""])),
+      filterPrunedSections(
+        mixed,
+        "current",
+        refSet(["page-a", ""], ["page-b", ""]),
+      ),
     ).toBe(renderInjectionBlockInner([CAPABILITY_CHUNK]));
   });
 });
@@ -528,23 +577,33 @@ describe("newestCopyIndexes / filterResidentSections", () => {
   const newA = renderInjectionBlockInner([lead("page-a")]);
 
   test("a section injected on two blocks is current on the later one only; the earlier copy is superseded", () => {
-    const newest = newestCopyIndexes([oldA, null, newA]);
+    const newest = newestCopyIndexes([current(oldA), null, current(newA)]);
     expect(newest.get("page-a\n")).toBe(2);
     expect(newest.get("page-b\n")).toBe(0);
 
-    expect(filterResidentSections(oldA, 0, refSet(), newest)).toBe(
+    expect(filterResidentSections(oldA, "current", 0, refSet(), newest)).toBe(
       renderInjectionBlockInner([lead("page-b")]),
     );
-    expect(filterResidentSections(newA, 2, refSet(), newest)).toBe(newA);
+    expect(filterResidentSections(newA, "current", 2, refSet(), newest)).toBe(
+      newA,
+    );
     // Pruned still wins over currency.
     expect(
-      filterResidentSections(newA, 2, refSet(["page-a", ""]), newest),
+      filterResidentSections(
+        newA,
+        "current",
+        2,
+        refSet(["page-a", ""]),
+        newest,
+      ),
     ).toBe("");
   });
 
   test("a section on one block only is current there (the never-pruned case is unchanged)", () => {
-    const newest = newestCopyIndexes([oldA]);
-    expect(filterResidentSections(oldA, 0, refSet(), newest)).toBe(oldA);
+    const newest = newestCopyIndexes([current(oldA)]);
+    expect(filterResidentSections(oldA, "current", 0, refSet(), newest)).toBe(
+      oldA,
+    );
   });
 });
 
@@ -805,7 +864,7 @@ describe("planPrune", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-1",
-      [wrapMemoryBlock(renderInjectionBlockInner(entries))],
+      [current(wrapMemoryBlock(renderInjectionBlockInner(entries)))],
       1_000,
     );
     const bytes = entries.map(renderedBytes);
@@ -1244,8 +1303,10 @@ describe("runPruneValve", () => {
     // Rehydration converges: the same filter over the persisted metadata
     // produces exactly what the live strip left in place.
     const pruned = getPrunedSections("conv-1");
-    expect(filterPrunedSections(innerTurn1, pruned)).toBe("");
-    expect(filterPrunedSections(innerTurn2, pruned)).toBe(innerTurn2);
+    expect(filterPrunedSections(innerTurn1, "current", pruned)).toBe("");
+    expect(filterPrunedSections(innerTurn2, "current", pruned)).toBe(
+      innerTurn2,
+    );
 
     // Idempotent: resident is at 100 ≤ target → next pass is a no-op.
     expect(await runPruneValve("conv-1")).toBeNull();
@@ -1264,7 +1325,7 @@ describe("runPruneValve", () => {
       "[sections: §One]",
     ].join("\n");
     const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
-    insertUserRowWithV3Block("conv-1", "m1", legacyInner);
+    insertUserRowWithV3Block("conv-1", "m1", legacyInner, "legacy");
     // Both cards are recorded with the length the old injector measured (the
     // migration copies legacy card rows in as lead entries); the stub is the
     // older injection.
@@ -1285,7 +1346,7 @@ describe("runPruneValve", () => {
       {
         role: "user",
         content: [
-          v3Block(wrapMemoryBlock(legacyInner)),
+          v3Block(wrapMemoryBlock(legacyInner), "legacy"),
           { type: "text", text: "turn 1" },
         ],
       },
@@ -1315,6 +1376,7 @@ describe("runPruneValve", () => {
     expect(
       filterPrunedSections(
         legacyInner,
+        "legacy",
         getPrunedSections("conv-1"),
         getKnownCardBytes("conv-1"),
       ),
@@ -1358,13 +1420,16 @@ describe("runPruneValve", () => {
     expect(known.get("headless")).toBe(renderedBytes(headless));
 
     const pruned = getPrunedSections("conv-1");
-    const newest = newestCopyIndexes([legacyInner, reinjected], known);
-    expect(filterResidentSections(legacyInner, 0, pruned, newest, known)).toBe(
-      [V3_INJECTION_HEADER, stub].join("\n\n"),
+    const newest = newestCopyIndexes(
+      [legacy(legacyInner), current(reinjected)],
+      known,
     );
-    expect(filterResidentSections(reinjected, 1, pruned, newest, known)).toBe(
-      reinjected,
-    );
+    expect(
+      filterResidentSections(legacyInner, "legacy", 0, pruned, newest, known),
+    ).toBe([V3_INJECTION_HEADER, stub].join("\n\n"));
+    expect(
+      filterResidentSections(reinjected, "current", 1, pruned, newest, known),
+    ).toBe(reinjected);
   });
 
   test("a pruned section later re-selected re-injects and is kept by the filter again", async () => {
@@ -1382,7 +1447,9 @@ describe("runPruneValve", () => {
       now: 2_000,
     });
     expect(plan!.sections).toEqual([{ slug: "page-a", key: "Notes" }]);
-    expect(filterPrunedSections(inner, getPrunedSections("conv-1"))).toBe("");
+    expect(
+      filterPrunedSections(inner, "current", getPrunedSections("conv-1")),
+    ).toBe("");
 
     // Re-selection re-injects (recordInjected clears pruned_at), the section
     // is active again and the filter keeps it.
@@ -1392,9 +1459,9 @@ describe("runPruneValve", () => {
       3_000,
     );
     expect(getActiveSections("conv-1")).toEqual(refSet(["page-a", "Notes"]));
-    expect(filterPrunedSections(inner, getPrunedSections("conv-1"))).toBe(
-      inner,
-    );
+    expect(
+      filterPrunedSections(inner, "current", getPrunedSections("conv-1")),
+    ).toBe(inner);
   });
 });
 

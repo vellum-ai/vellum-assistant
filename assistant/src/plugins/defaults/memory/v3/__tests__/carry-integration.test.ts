@@ -72,6 +72,7 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../../memory-marker.js";
+import type { InjectedBlock } from "../../substrate/injected-block-slugs.js";
 import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { parsePageContent } from "../../substrate/page-store.js";
 import { renderCard, renderedBytes } from "../card.js";
@@ -320,6 +321,8 @@ const {
   getInjected,
   getKnownCardBytes,
   getPrunedSections,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   residentBytes,
 } = await import("../ever-injected-store.js");
@@ -328,7 +331,7 @@ const {
   filterResidentSections,
   flushPruneValveForTests,
   newestCopyIndexes,
-  persistedV3BlockInner,
+  persistedV3Block,
   stripPrunedSectionsFromMessages,
 } = await import("../prune.js");
 const { parseInjectedSections } =
@@ -736,11 +739,13 @@ async function runTurn(
 
   // The user-prompt-submit hook persists the section block unwrapped and
   // the pointer wrapped, each under its own metadata key.
-  const metadata: Record<string, string> = {};
+  const metadata: Record<string, string | number> = {};
   if (sections.text.length > 0) {
     metadata[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] = unwrapMemoryBlock(
       sections.text,
     );
+    metadata[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] =
+      MEMORY_V3_INJECTED_BLOCK_FORMAT;
   }
   if (pointer?.text) {
     metadata[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] = pointer.text;
@@ -840,9 +845,9 @@ async function reinjectTurn(
     pointerText: pointer?.text ?? "",
     refs: new Set(
       sections.text.length > 0
-        ? parseInjectedSections(unwrapMemoryBlock(sections.text)).sections.map(
-            refId,
-          )
+        ? parseInjectedSections(unwrapMemoryBlock(sections.text), {
+            format: "current",
+          }).sections.map(refId)
         : [],
     ),
   };
@@ -877,9 +882,9 @@ function rehydrateFromDb(
   const knownCardBytes = getKnownCardBytes(convId);
   const preStripped = (row: (typeof rows)[number]): boolean =>
     historyStrippedAt !== null && row.created_at < historyStrippedAt;
-  const blockOf = (row: (typeof rows)[number]): string | null =>
+  const blockOf = (row: (typeof rows)[number]): InjectedBlock | null =>
     row.role === "user" && !preStripped(row)
-      ? persistedV3BlockInner(row.metadata)
+      ? persistedV3Block(row.metadata)
       : null;
   const newest = newestCopyIndexes(rows.map(blockOf), knownCardBytes);
   return rows.map((row, index) => {
@@ -898,10 +903,11 @@ function rehydrateFromDb(
           content = [{ type: "text", text: resident }, ...content];
         }
       }
-      const inner = blockOf(row);
-      if (inner !== null) {
+      const block = blockOf(row);
+      if (block !== null) {
         const resident = filterResidentSections(
-          inner,
+          block.inner,
+          block.format,
           index,
           pruned,
           newest,
@@ -909,7 +915,10 @@ function rehydrateFromDb(
         );
         if (resident.length > 0) {
           content = [
-            markV3LiveBlock({ type: "text", text: wrapMemoryBlock(resident) }),
+            markV3LiveBlock(
+              { type: "text", text: wrapMemoryBlock(resident) },
+              block.format,
+            ),
             ...content,
           ];
         }
@@ -1134,7 +1143,7 @@ describe("memory-v3 carry integration — cache contract", () => {
       // The block contains exactly the net-new sections, each byte-identical
       // to a fresh render, behind the shared read-affordance header.
       const inner = unwrapMemoryBlock(record.blockText);
-      const parsed = parseInjectedSections(inner);
+      const parsed = parseInjectedSections(inner, { format: "current" });
       expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
       expect(new Set(parsed.sections.map(refId))).toEqual(new Set(expected));
       for (const section of parsed.sections) {
@@ -1379,6 +1388,29 @@ describe("memory-v3 carry integration — restart contract", () => {
 });
 
 describe("memory-v3 carry integration — fork contract", () => {
+  test("fork copies carry each block's format stamp with the metadata", () => {
+    const rows = testSqlite
+      .query(
+        /*sql*/ `
+        SELECT metadata FROM messages
+        WHERE conversation_id = ? AND metadata IS NOT NULL
+      `,
+      )
+      .all(FORK_CONV) as Array<{ metadata: string }>;
+    const stamped = rows
+      .map((row) => JSON.parse(row.metadata) as Record<string, unknown>)
+      .filter(
+        (meta) =>
+          typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string",
+      );
+    expect(stamped.length).toBeGreaterThan(0);
+    for (const meta of stamped) {
+      expect(meta[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]).toBe(
+        MEMORY_V3_INJECTED_BLOCK_FORMAT,
+      );
+    }
+  });
+
   test("a fork inherits the dedup record: inherited sections are pointed at, only new ones render", () => {
     // page-g's Detail was injected on the parent before the fork; hot-three's
     // Detail (a finder hit on a hot page) never was.

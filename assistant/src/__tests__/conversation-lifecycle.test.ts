@@ -684,6 +684,79 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("a memoryV3InjectedBlock stamped with the current format parses at its headers whatever the conversation's frozen card lengths say", async () => {
+    mockConversation = defaultConv();
+    const leadA = "# memory/concepts/page-a.md\nlead a";
+    const leadB = "# memory/concepts/page-b.md\nlead b";
+    // page-a was migrated from a card exactly as long as this lead-only
+    // block, and page-b's lead is pruned.
+    mockKnownCardBytes = new Map([
+      ["page-a", Buffer.byteLength(`${leadA}\n\n${leadB}`, "utf8")],
+    ]);
+    mockPrunedSections = new Map([["page-b", new Set([""])]]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${leadA}\n\n${leadB}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${leadA}\n</memory>` },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("the same block persisted without the format stamp is a legacy block: the frozen length holds the card together", async () => {
+    mockConversation = defaultConv();
+    const leadA = "# memory/concepts/page-a.md\nlead a";
+    const leadB = "# memory/concepts/page-b.md\nlead b";
+    mockKnownCardBytes = new Map([
+      ["page-a", Buffer.byteLength(`${leadA}\n\n${leadB}`, "utf8")],
+    ]);
+    mockPrunedSections = new Map([["page-b", new Set([""])]]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${leadA}\n\n${leadB}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // One card, page-a's, holding both leads: nothing named page-b to prune.
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: `<memory>\nheader line\n\n${leadA}\n\n${leadB}\n</memory>`,
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
   test("a section re-injected after a prune rehydrates once, on the re-injecting message; the older copy is superseded", async () => {
     // Turn 1 injected page-a's lead, the valve pruned it, turn 8 re-injected
     // it (tombstone cleared, so the pruned set is empty). Turn 1's metadata

@@ -52,7 +52,11 @@ import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
-import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
+import {
+  MEMORY_V3_INJECTED_BLOCK_FORMAT,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+} from "../v3/ever-injected-store.js";
 import { MEMORY_V3_POINTER_BLOCK_METADATA_KEY } from "../v3/types.js";
 
 /**
@@ -219,7 +223,10 @@ async function recordRecallSideEffects(
  *    history — a reload cache-bust and duplicated memory). `v2BlockPersisted`
  *    tells this function whether there is anything to remove.
  *  - `blocks.memoryV3InjectedBlock` (the frozen net-new section block,
- *    unwrapped) persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`;
+ *    unwrapped) persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, with
+ *    the block's rendering format stamped beside it under
+ *    `MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY` (a row without the stamp
+ *    holds a legacy block; the parser never infers the format from content);
  *    `loadFromDb` re-wraps and splices it on load, freezing the sections into
  *    history.
  *  - `blocks.memoryV3PointerBlock` (the wrapped `<memory_pointer>` that was
@@ -261,6 +268,8 @@ async function persistInjectionBlocks(
     if (blocks.memoryV3InjectedBlock) {
       metadataUpdates[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] =
         blocks.memoryV3InjectedBlock;
+      metadataUpdates[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] =
+        MEMORY_V3_INJECTED_BLOCK_FORMAT;
     }
     if (blocks.memoryV3PointerBlock) {
       metadataUpdates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] =

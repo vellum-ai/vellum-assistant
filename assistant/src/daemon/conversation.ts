@@ -78,12 +78,13 @@ import {
   getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   type SectionRefSet,
+  v3BlockFormatOf,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import {
   filterResidentPointerEntries,
   filterResidentSections,
   newestCopyIndexes,
-  persistedV3BlockInner,
+  persistedV3Block,
 } from "../plugins/defaults/memory/v3/prune.js";
 import {
   LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY,
@@ -1274,7 +1275,7 @@ export class Conversation {
         v3NewestCopyMemo = newestCopyIndexes(
           slicedDbMessages.map((row, rowIndex) =>
             row.role === "user" && rowIndex >= preStrippedCount
-              ? persistedV3BlockInner(row.metadata)
+              ? persistedV3Block(row.metadata)
               : null,
           ),
           v3KnownCardBytes(),
@@ -1479,8 +1480,13 @@ export class Conversation {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
+            // The block's rendering format is the row's own provenance (the
+            // persisting build's stamp, absent on pre-stamp rows), never
+            // read off the block's content.
+            const v3Format = v3BlockFormatOf(meta);
             const v3Resident = filterResidentSections(
               unwrapMemoryBlock(v3Block),
+              v3Format,
               index,
               v3PrunedSections(),
               v3NewestCopy(),
@@ -1488,10 +1494,13 @@ export class Conversation {
             );
             if (v3Resident.length > 0) {
               content = [
-                markV3LiveBlock({
-                  type: "text" as const,
-                  text: wrapMemoryBlock(v3Resident),
-                }),
+                markV3LiveBlock(
+                  {
+                    type: "text" as const,
+                    text: wrapMemoryBlock(v3Resident),
+                  },
+                  v3Format,
+                ),
                 ...content,
               ];
             }

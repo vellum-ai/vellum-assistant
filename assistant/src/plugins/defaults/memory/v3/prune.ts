@@ -96,9 +96,11 @@ import {
   wrapMemoryPointerBlock,
 } from "../memory-marker.js";
 import {
+  type InjectedBlock,
+  type InjectedBlockFormat,
   parseInjectedSectionPath,
   parseInjectedSections,
-  readInjectedBlock,
+  readInjectedMetadata,
 } from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
@@ -109,12 +111,13 @@ import {
   residentBytes,
   type SectionRefSet,
   sectionRefSetHas,
+  v3BlockFormatOf,
 } from "./ever-injected-store.js";
 import {
-  isV3LiveBlock,
   markV3LiveBlock,
   sectionKeyTitle,
   type SectionRef,
+  v3LiveBlockFormat,
 } from "./types.js";
 
 const log = getLogger("memory-v3-shadow");
@@ -139,11 +142,13 @@ const log = getLogger("memory-v3-shadow");
  */
 export function filterPrunedSections(
   inner: string,
+  format: InjectedBlockFormat,
   pruned: SectionRefSet,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
   return filterSections(
     inner,
+    format,
     (slug, key) => sectionRefSetHas(pruned, slug, key),
     knownCardBytes,
   );
@@ -154,19 +159,23 @@ function refId(slug: string, key: string): string {
 }
 
 /**
- * A message row's persisted v3 section block, unwrapped, or `null` when the
- * row carries none (or its metadata is malformed): the per-row input of
- * {@link newestCopyIndexes} for the host's rehydration splice, which reaches
- * the block grammar only through this module.
+ * A message row's persisted v3 section block, unwrapped and with the
+ * rendering format the row's metadata records for it (current when the
+ * persisting build stamped `MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY`,
+ * legacy otherwise), or `null` when the row carries none (or its metadata
+ * is malformed): the per-row input of {@link newestCopyIndexes} and the
+ * fork seeder, for hosts that reach the block grammar only through this
+ * module.
  */
-export function persistedV3BlockInner(
+export function persistedV3Block(
   metadata: string | null | undefined,
-): string | null {
-  const block = readInjectedBlock(
-    metadata,
-    MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-  );
-  return block === null ? null : unwrapMemoryBlock(block);
+): InjectedBlock | null {
+  const parsed = readInjectedMetadata(metadata);
+  const block = parsed?.[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
+  if (parsed === null || typeof block !== "string") {
+    return null;
+  }
+  return { inner: unwrapMemoryBlock(block), format: v3BlockFormatOf(parsed) };
 }
 
 /**
@@ -178,16 +187,18 @@ export function persistedV3BlockInner(
  * that copy and treat every earlier one as superseded.
  */
 export function newestCopyIndexes(
-  inners: ReadonlyArray<string | null>,
+  blocks: ReadonlyArray<InjectedBlock | null>,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): ReadonlyMap<string, number> {
   const newest = new Map<string, number>();
-  inners.forEach((inner, index) => {
-    if (inner === null) {
+  blocks.forEach((block, index) => {
+    if (block === null) {
       return;
     }
-    for (const section of parseInjectedSections(inner, { knownCardBytes })
-      .sections) {
+    for (const section of parseInjectedSections(block.inner, {
+      format: block.format,
+      knownCardBytes,
+    }).sections) {
       newest.set(refId(section.slug, section.key), index);
     }
   });
@@ -201,6 +212,7 @@ export function newestCopyIndexes(
  */
 export function filterResidentSections(
   inner: string,
+  format: InjectedBlockFormat,
   index: number,
   pruned: SectionRefSet,
   newest: ReadonlyMap<string, number>,
@@ -208,6 +220,7 @@ export function filterResidentSections(
 ): string {
   return filterSections(
     inner,
+    format,
     (slug, key) =>
       sectionRefSetHas(pruned, slug, key) ||
       (newest.get(refId(slug, key)) ?? index) !== index,
@@ -217,10 +230,12 @@ export function filterResidentSections(
 
 function filterSections(
   inner: string,
+  format: InjectedBlockFormat,
   drop: (slug: string, key: string) => boolean,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
   const { preamble, sections, pieces } = parseInjectedSections(inner, {
+    format,
     knownCardBytes,
   });
   if (sections.length === 0) {
@@ -423,18 +438,24 @@ export function stripPrunedSectionsFromMessages(
   pruned: SectionRefSet,
   knownCardBytes?: ReadonlyMap<string, number>,
 ): number {
-  // A v3-owned `<memory>` block's inner text, or `null` for any other block.
-  const ownedInner = (block: ContentBlock): string | null =>
-    block.type === "text" && isV3LiveBlock(block)
-      ? unwrapMemoryBlock(block.text)
-      : null;
+  // A v3-owned `<memory>` block's inner text with the format the registry
+  // recorded for it, or `null` for any other block.
+  const ownedBlock = (block: ContentBlock): InjectedBlock | null => {
+    if (block.type !== "text") {
+      return null;
+    }
+    const format = v3LiveBlockFormat(block);
+    return format === undefined
+      ? null
+      : { inner: unwrapMemoryBlock(block.text), format };
+  };
   // Owned blocks in history order, so each section's newest live copy is
   // known before any block is filtered.
-  const owned: Array<string | null> = [];
+  const owned: Array<InjectedBlock | null> = [];
   for (const message of messages) {
     if (message.role === "user") {
       for (const block of message.content) {
-        owned.push(ownedInner(block));
+        owned.push(ownedBlock(block));
       }
     }
   }
@@ -450,12 +471,12 @@ export function stripPrunedSectionsFromMessages(
     const nextContent: ContentBlock[] = [];
     for (const block of message.content) {
       const index = ownedIndex++;
-      const inner = owned[index] ?? null;
+      const ownedHere = owned[index] ?? null;
       if (block.type !== "text") {
         nextContent.push(block);
         continue;
       }
-      if (inner === null) {
+      if (ownedHere === null) {
         const pointer = filterResidentPointerEntries(
           block.text,
           index,
@@ -474,13 +495,14 @@ export function stripPrunedSectionsFromMessages(
         continue;
       }
       const filtered = filterResidentSections(
-        inner,
+        ownedHere.inner,
+        ownedHere.format,
         index,
         pruned,
         newest,
         knownCardBytes,
       );
-      if (filtered === inner) {
+      if (filtered === ownedHere.inner) {
         nextContent.push(block);
         continue;
       }
@@ -488,7 +510,10 @@ export function stripPrunedSectionsFromMessages(
       changed = true;
       if (filtered.length > 0) {
         nextContent.push(
-          markV3LiveBlock({ type: "text", text: wrapMemoryBlock(filtered) }),
+          markV3LiveBlock(
+            { type: "text", text: wrapMemoryBlock(filtered) },
+            ownedHere.format,
+          ),
         );
       }
     }

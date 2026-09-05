@@ -3,6 +3,7 @@ import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import {
   extractInjectedConceptSlugs,
+  type InjectedBlock,
   readInjectedBlock,
 } from "./substrate/injected-block-slugs.js";
 import {
@@ -11,9 +12,9 @@ import {
 } from "./v2/activation-store.js";
 import {
   forkEverInjected,
-  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromBlocks,
 } from "./v3/ever-injected-store.js";
+import { persistedV3Block } from "./v3/prune.js";
 
 /** Inputs to {@link forkConversationMemory}. */
 export interface ForkConversationMemoryInput {
@@ -99,7 +100,7 @@ export function forkConversationMemory(
       messagesToCopy.length,
     );
     const inheritedSlugs = new Set<string>();
-    const inheritedV3Blocks: string[] = [];
+    const inheritedV3Blocks: InjectedBlock[] = [];
     for (const message of messagesToCopy.slice(visibleStartIndex)) {
       const block = readInjectedBlock(message.metadata, "memoryInjectedBlock");
       if (block) {
@@ -107,10 +108,10 @@ export function forkConversationMemory(
           inheritedSlugs.add(slug);
         }
       }
-      const v3Block = readInjectedBlock(
-        message.metadata,
-        MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-      );
+      // Each inherited block carries the format its row's metadata records
+      // (the copied metadata keeps the persisting build's stamp), so the
+      // seeder parses it by provenance.
+      const v3Block = persistedV3Block(message.metadata);
       if (v3Block) {
         inheritedV3Blocks.push(v3Block);
       }

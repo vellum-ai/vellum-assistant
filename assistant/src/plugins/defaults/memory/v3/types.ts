@@ -1,3 +1,5 @@
+import type { InjectedBlockFormat } from "../substrate/injected-block-slugs.js";
+
 export type Slug = string;
 
 /**
@@ -62,15 +64,32 @@ export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
  * full-page fallback on a headingless page), and v2 blocks must never be
  * touched. A block that lost its identity (a cloned history) is simply left
  * alone by the strip; the next `loadFromDb` rebuilds it from metadata, where
- * the pruned and superseded filters are authoritative. A `WeakSet`, so
+ * the pruned and superseded filters are authoritative. Each entry carries
+ * the block's rendering format (`InjectedBlockFormat`): current for the
+ * blocks the injector renders in this process, and whatever the row's
+ * metadata recorded for a block `loadFromDb` spliced, so the strip parses an
+ * owned block by its provenance rather than its content. A `WeakMap`, so
  * entries leave with the histories they belonged to.
  */
-const v3LiveBlocks = new WeakSet<object>();
+const v3LiveBlocks = new WeakMap<object, InjectedBlockFormat>();
 
-/** Register a block memory-v3 placed in live history; returns it. */
-export function markV3LiveBlock<T extends object>(block: T): T {
-  v3LiveBlocks.add(block);
+/** Register a block memory-v3 placed in live history, with the format it was
+ *  rendered in (current unless stated: the injector's own blocks); returns
+ *  it. */
+export function markV3LiveBlock<T extends object>(
+  block: T,
+  format: InjectedBlockFormat = "current",
+): T {
+  v3LiveBlocks.set(block, format);
   return block;
+}
+
+/** The rendering format of a block memory-v3 placed in live history, or
+ *  `undefined` for any other block. */
+export function v3LiveBlockFormat(
+  block: object,
+): InjectedBlockFormat | undefined {
+  return v3LiveBlocks.get(block);
 }
 
 /** Whether memory-v3 placed this block in live history. */
