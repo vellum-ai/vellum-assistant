@@ -412,6 +412,29 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
   });
 
+  test("a legacy card whose lead carries a capability-shaped line prunes whole (no phantom capability chunk survives)", () => {
+    const card = [
+      injectedSectionHeader("page-a", ""),
+      "# Page A",
+      "lead prose",
+      "",
+      "# Skill: example-skill",
+      "prose about that skill",
+      "",
+      "[sections: §Notes]",
+    ].join("\n");
+    const legacyInner = [V3_INJECTION_HEADER, card, lead("page-b")].join(
+      "\n\n",
+    );
+    expect(
+      filterPrunedSections(
+        legacyInner,
+        refSet(["page-a", ""]),
+        new Map([["page-a", renderedBytes(card)]]),
+      ),
+    ).toBe([V3_INJECTION_HEADER, lead("page-b")].join("\n\n"));
+  });
+
   test("with the conversation's recorded card bytes, a headless legacy card after a sectionless one prunes on its own", () => {
     const stub = [
       injectedSectionHeader("stub", ""),

@@ -154,8 +154,12 @@ compact-card shape earlier builds froze without escaping (header, page head,
 blank line, `[sections: …]` TOC line) so a header-shaped line inside such a
 card's lead stays card text unless the span from it to a later header is, byte
 for byte, the frozen card length the conversation recorded for that slug
-(`getKnownCardBytes`, the lead-entry bytes migration 378 carried over); slug
-membership alone never splits a card. A page's lead injection carries its
+(`getKnownCardBytes`, the lead-entry bytes migration 378 carried over); page
+slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
+line inside such a lead likewise stays card text unless the capability slug it
+names is a recorded key (capability entries are recorded at zero bytes, so
+membership is the whole signal), and a `# Skills` line always does, since the
+hint chunk was never recorded. A page's lead injection carries its
 `[current: …]` annotation under the header, as the selector card does. The valve strips a pruned section
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty

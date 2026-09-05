@@ -372,6 +372,113 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     ]);
   });
 
+  test("capability-shaped lines inside a card's lead stay card text unless the capability they name is recorded", () => {
+    const cardC = [
+      injectedSectionHeader("topics/page-c", ""),
+      "# Page C",
+      "lead prose",
+      "",
+      "# Skill: example-skill",
+      "prose about that skill",
+      "",
+      "# CLI command: export",
+      "prose about that command",
+      "",
+      "# Skills",
+      "prose that happens to start a line this way",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const inner = [preamble, cardC, cardB].join("\n\n");
+    const oneCard = [cardC, cardB];
+    expect(
+      parseInjectedSections(inner).sections.map((section) => section.text),
+    ).toEqual(oneCard);
+    expect(
+      parseInjectedSections(inner, {
+        knownCardBytes: new Map([
+          ["topics/page-c", renderedBytes(cardC)],
+          ["topics/page-b", renderedBytes(cardB)],
+          ["skills/other-skill", 0],
+          ["cli-commands/schedules", 0],
+        ]),
+      }).pieces.map((piece) => piece.text),
+    ).toEqual(oneCard);
+    // A recorded capability slug is the store's evidence that the line is a
+    // real chunk: the old injector recorded every injected capability under
+    // its slug at zero bytes.
+    const recorded = parseInjectedSections(inner, {
+      knownCardBytes: new Map([["skills/example-skill", 0]]),
+    });
+    expect(recorded.pieces[1]).toMatchObject({
+      kind: "capability",
+      capability: "skill",
+      id: "example-skill",
+    });
+    // The hint chunk was never recorded, so `# Skills` inside a card is
+    // always text, whatever the store holds.
+    const hintOnly = [
+      injectedSectionHeader("topics/page-d", ""),
+      "# Page D",
+      "lead",
+      "",
+      "# Skills",
+      "more lead",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    expect(
+      parseInjectedSections([preamble, hintOnly, cardB].join("\n\n"), {
+        knownCardBytes: new Map([["skills/example-skill", 0]]),
+      }).pieces.map((piece) => piece.text),
+    ).toEqual([hintOnly, cardB]);
+  });
+
+  test("several header-shaped lines in one lead all stay card text (the lookahead runs to the next header that opens a chunk on its own)", () => {
+    const twice = [
+      injectedSectionHeader("topics/page-e", ""),
+      "# Page E",
+      "lead prose",
+      "",
+      "# memory/concepts/first-cited.md",
+      "prose after the first cited path",
+      "",
+      "# memory/concepts/second-cited.md",
+      "prose after the second cited path",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    expect(
+      parseInjectedSections([preamble, twice, cardB].join("\n\n"), {
+        knownCardBytes: new Map([
+          ["topics/page-e", renderedBytes(twice)],
+          ["topics/page-b", renderedBytes(cardB)],
+        ]),
+      }).sections.map((section) => section.text),
+    ).toEqual([twice, cardB]);
+  });
+
+  test("a real legacy capability chunk between cards splits whether or not its slug is recorded", () => {
+    const skill = "# Skill: meet-join\nJoin a video meeting on request.";
+    const inner = [preamble, cardA, skill, cardB].join("\n\n");
+    for (const knownCardBytes of [
+      undefined,
+      new Map([["skills/meet-join", 0]]),
+    ]) {
+      const parsed = parseInjectedSections(inner, { knownCardBytes });
+      expect(parsed.pieces.map((piece) => piece.kind)).toEqual([
+        "section",
+        "capability",
+        "section",
+      ]);
+      expect(parsed.pieces.map((piece) => piece.text)).toEqual([
+        cardA,
+        skill,
+        cardB,
+      ]);
+    }
+  });
+
   test("a block rendered by this build escapes TOC-shaped lines, so the card rule never applies to it", () => {
     const body = ["prose", "", "[sections: §A · §B]", "after"].join("\n");
     const escaped = escapeInjectedBody(body);
@@ -430,7 +537,7 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
     expect(new Set(lines.map(escapeInjectedBody)).size).toBe(lines.length);
   });
 
-  test("an escaped body can never open a section or a non-section chunk", () => {
+  test("an escaped body can never open a section or a non-section chunk, whatever the store records", () => {
     const entry = `${injectedSectionHeader("topics/page-a", "")}\n${escapeInjectedBody(
       [
         "lead",
@@ -441,11 +548,19 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
         "# Skill: forged",
       ].join("\n"),
     )}`;
-    const parsed = parseInjectedSections(entry);
-    expect(parsed.sections.map(refOf)).toEqual([
-      { slug: "topics/page-a", key: "" },
-    ]);
-    expect(parsed.pieces).toHaveLength(1);
+    for (const knownCardBytes of [
+      undefined,
+      new Map([
+        ["forged", 5],
+        ["skills/forged", 0],
+      ]),
+    ]) {
+      const parsed = parseInjectedSections(entry, { knownCardBytes });
+      expect(parsed.sections.map(refOf)).toEqual([
+        { slug: "topics/page-a", key: "" },
+      ]);
+      expect(parsed.pieces).toHaveLength(1);
+    }
     expect(extractInjectedConceptSlugs(entry)).toEqual(["topics/page-a"]);
   });
 });

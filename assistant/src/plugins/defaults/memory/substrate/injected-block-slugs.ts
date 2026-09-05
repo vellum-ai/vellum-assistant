@@ -30,10 +30,12 @@
  * Skill and CLI-command chunks carry no recoverable slug, so the slug
  * extractor intentionally skips them.
  *
- * Kept as a dependency-free leaf (like `memory-marker.ts`) so the
- * conversation-fork path can import it without pulling in the heavyweight
- * injection module.
+ * Kept as a leaf (like `memory-marker.ts`, importing only the capability
+ * slug leaf) so the conversation-fork path can import it without pulling in
+ * the heavyweight injection module.
  */
+
+import { capabilitySlugOf } from "./capability-slugs.js";
 
 /** Separator between a concept path and its section key in a v3 section
  *  header or pointer line. */
@@ -313,6 +315,41 @@ function opensLegacyCard(line: string | null): boolean {
   );
 }
 
+/** Whether the card shape reads the header at `index` as opening a chunk on
+ *  its own: it opens a card, or the card before it just closed (the previous
+ *  content line is a TOC line). */
+function shapeOpensChunk(inner: string, index: number): boolean {
+  return (
+    opensLegacyCard(lineAfter(inner, index)) ||
+    LEGACY_CARD_TOC_LINE_REGEX.test(nonBlankLineBefore(inner, index) ?? "")
+  );
+}
+
+/** The store's evidence that a candidate the card shape reads as card text
+ *  is a real boundary after all: a concept header whose span is its slug's
+ *  recorded frozen length, or a capability header naming a recorded
+ *  capability slug. The skills hint was never recorded, so it never is. */
+function recordedInStore(
+  inner: string,
+  candidates: Boundary[],
+  i: number,
+  options: ParseInjectedSectionsOptions,
+): boolean {
+  const ref = candidates[i]!.ref;
+  if (ref.kind === "section") {
+    return spanHasRecordedBytes(
+      inner,
+      candidates,
+      i,
+      options.knownCardBytes?.get(ref.slug) ?? 0,
+    );
+  }
+  if (ref.kind === "capability") {
+    return options.knownCardBytes?.has(capabilitySlugOf(ref)) ?? false;
+  }
+  return false;
+}
+
 /** Whether the span from candidate `i`'s header to some later candidate
  *  header (or the end of the block), block joiner excluded, is exactly
  *  `recorded` bytes long: the frozen card's own length, so the header is a
@@ -355,14 +392,18 @@ function classifyNonSectionHeader(line: string): BoundaryRef {
 }
 
 export interface ParseInjectedSectionsOptions {
-  /** Recorded byte length of each page's frozen lead entry for the
-   *  conversation, resident or pruned (`getKnownCardBytes`). For a card
-   *  frozen before body escaping it is the exact UTF-8 length that build's
-   *  injector measured for the whole card, which migration 378 carried over.
-   *  Inside such a card, a concept header on a seam that the card shape reads
-   *  as text is a boundary after all when the span from it to a later
-   *  candidate header (block joiner excluded) has exactly its slug's recorded
-   *  bytes; an unrecorded or zero entry leaves the shape's verdict, never a
+  /** Recorded byte length of each frozen lead entry for the conversation,
+   *  resident or pruned, keyed by slug (`getKnownCardBytes`); capability
+   *  entries (`skills/<id>`, `cli-commands/<name>`) are recorded at zero. For
+   *  a card frozen before body escaping the length is the exact UTF-8 length
+   *  that build's injector measured for the whole card, which migration 378
+   *  carried over. Inside such a card, a concept header on a seam that the
+   *  card shape reads as text is a boundary after all when the span from it
+   *  to a later candidate header (block joiner excluded) has exactly its
+   *  slug's recorded bytes, and a `# Skill: ` / `# CLI command: ` line the
+   *  shape reads as text is a chunk boundary after all when the capability
+   *  slug it names is a recorded key (membership, their bytes being zero).
+   *  An unrecorded or zero page entry leaves the shape's verdict, never a
    *  bare slug-membership one. Omitted (no conversation at hand): the card
    *  shape alone decides. */
   knownCardBytes?: ReadonlyMap<string, number>;
@@ -391,15 +432,18 @@ export interface ParseInjectedSectionsOptions {
  * header, the page head, a blank line, a `[sections: …]` / `[linked: …]` TOC
  * line) whose leads may contain a header-shaped line. Inside such a card, a
  * bare concept header (a lead's; heading-section headers never occur in
- * those blocks) on a seam is read as card text when the card shape says it
- * does not open a card: its next line is neither the page's `# Title` nor a
- * `[current: …]` annotation, the previous content line is not a TOC line
- * (the preceding card is still open), and a TOC line follows before the next
- * candidate header (the open card has yet to close). That verdict is
- * overturned only by exact evidence: when `options.knownCardBytes` records
- * the slug's frozen card length and the span from the header to some later
- * candidate matches it byte for byte, the header is a boundary. Current
- * blocks escape TOC-shaped lines, so neither rule can apply to them.
+ * those blocks) or a non-section chunk header on a seam is read as card text
+ * when the card shape says it does not open a card: its next line is neither
+ * the page's `# Title` nor a `[current: …]` annotation, the previous content
+ * line is not a TOC line (the preceding card is still open), and a TOC line
+ * follows before the next header the shape reads as opening a chunk on its
+ * own (the open card has yet to close).
+ * That verdict is overturned only by the store's evidence in
+ * `options.knownCardBytes`: a concept header whose span to some later
+ * candidate matches its slug's recorded frozen length byte for byte, or a
+ * capability header naming a recorded capability slug (the hint's `# Skills`
+ * was never recorded, so inside a card it is always text). Current blocks
+ * escape every grammar-shaped line, so none of this applies to them.
  */
 export function parseInjectedSections(
   inner: string,
@@ -434,32 +478,29 @@ export function parseInjectedSections(
   for (const [i, candidate] of candidates.entries()) {
     const open = boundaries[boundaries.length - 1];
     const ref = candidate.ref;
+    // The open card has yet to close when a TOC line lies between this
+    // header and the next header the shape reads as opening a chunk on its
+    // own; other grammar-shaped lines in between are that card's text too.
     const shapeReadsAsCardText =
-      ref.kind === "section" &&
-      ref.key.length === 0 &&
+      (ref.kind !== "section" || ref.key.length === 0) &&
       open !== undefined &&
       open.ref.kind === "section" &&
-      !opensLegacyCard(lineAfter(inner, candidate.index)) &&
-      !LEGACY_CARD_TOC_LINE_REGEX.test(
-        nonBlankLineBefore(inner, candidate.index) ?? "",
-      ) &&
+      !shapeOpensChunk(inner, candidate.index) &&
       hasLegacyTocLine(
         inner,
         lineEndAt(inner, candidate.index) + 1,
-        candidates[i + 1]?.index ?? inner.length,
+        candidates
+          .slice(i + 1)
+          .find((later) => shapeOpensChunk(inner, later.index))?.index ??
+          inner.length,
       );
-    const legacyCardText =
+    if (
       shapeReadsAsCardText &&
-      ref.kind === "section" &&
-      !spanHasRecordedBytes(
-        inner,
-        candidates,
-        i,
-        options.knownCardBytes?.get(ref.slug) ?? 0,
-      );
-    if (!legacyCardText) {
-      boundaries.push(candidate);
+      !recordedInStore(inner, candidates, i, options)
+    ) {
+      continue;
     }
+    boundaries.push(candidate);
   }
   if (boundaries.length === 0) {
     return { preamble: inner, sections: [], pieces: [] };
