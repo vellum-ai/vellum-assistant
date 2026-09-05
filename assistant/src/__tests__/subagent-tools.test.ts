@@ -3086,6 +3086,66 @@ describe("Subagent advisor-role consult", () => {
     }
   });
 
+  test("the advisor runs under a wall-clock and tool-call budget", async () => {
+    // The advisor is the only spawn the agent issues unprompted and the only
+    // one on the premium profile, so it is the only one whose cost no user has
+    // implicitly signed off on. The manager holds it to both ceilings.
+    const { captured, restore } = stubSpawn();
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-budget", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.maxRuntimeMs).toBe(300_000);
+      expect(captured.current!.maxToolCalls).toBe(8);
+    } finally {
+      restore();
+    }
+  });
+
+  test("delegated work carries no budget of its own", async () => {
+    // A researcher or builder is bounded by the task the user asked for, so it
+    // must not inherit the consult's ceilings.
+    const { captured, restore } = stubSpawn();
+    try {
+      await executeSubagentSpawn(
+        {
+          label: "Dig",
+          objective: "investigate the failure",
+          role: "researcher",
+        },
+        makeContext("advisor-sess-no-budget", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.maxRuntimeMs).toBeUndefined();
+      expect(captured.current!.maxToolCalls).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test("a spawn whose turn was stopped never reaches the manager", async () => {
+    // The stop can land while the advisor's context pack is being assembled, so
+    // the tool checks before paying for that as well as after.
+    const controller = new AbortController();
+    controller.abort();
+    const { captured, restore } = stubSpawn();
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-cancelled", {
+          sendToClient: () => {},
+          signal: controller.signal,
+        }),
+      );
+      // Not an error: the user cancelled, and no child was started.
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("this turn was stopped");
+      expect(captured.current).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
   test("the advisor's guidance is internal, never relayed to the user", async () => {
     // The consult answers the agent. Even an explicit send_result_to_user
     // cannot turn a piece of internal reasoning into a user-facing reply.

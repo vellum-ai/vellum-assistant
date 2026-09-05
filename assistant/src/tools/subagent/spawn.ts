@@ -16,7 +16,10 @@ import {
   advisorRequestText,
   buildAdvisorSystem,
 } from "../../subagent/consult-prompt.js";
-import { getSubagentManager } from "../../subagent/index.js";
+import {
+  getSubagentManager,
+  SubagentSpawnCancelledError,
+} from "../../subagent/index.js";
 import {
   type ResolvedSubagentRole,
   resolveSubagentRole,
@@ -34,6 +37,28 @@ import {
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("subagent-spawn");
+
+/**
+ * Wall-clock ceiling on one advisor consult.
+ *
+ * The advisor is the only spawn the agent may issue unprompted, and it is the
+ * only one that runs on the premium `llm.advisorProfile`, so it is also the
+ * only one whose cost is not implicitly bounded by a user having asked for the
+ * work. A consult is meant to answer one question, not to keep going: past
+ * this the guidance written so far is worth more than whatever it was still
+ * reasoning towards.
+ */
+const ADVISOR_MAX_RUNTIME_MS = 300_000;
+
+/**
+ * Tool calls one advisor consult may make.
+ *
+ * A consult is meant to check a decisive fact or two, not to survey a codebase,
+ * so a handful of reads is the whole budget. Without it the wall-clock ceiling
+ * is the only bound, and five minutes of premium-profile reading is a long way
+ * past the point where the brief should have carried the evidence instead.
+ */
+const ADVISOR_MAX_TOOL_CALLS = 8;
 
 /** How far back the repeat-spawn guard looks for near-identical runs. */
 const LOOP_GUARD_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -273,6 +298,11 @@ export async function executeSubagentSpawn(
   }
 
   const roleNote = resolvedRoleNote(resolvedRole);
+  // Assembling the advisor's context pack is itself awaited work the user can
+  // stop, so check before paying for it as well as after.
+  if (context.signal?.aborted) {
+    return spawnCancelledResult(label);
+  }
   const advisorFields = isAdvisor
     ? await buildAdvisorFields(context, objective)
     : undefined;
@@ -314,6 +344,12 @@ export async function executeSubagentSpawn(
         ...forkFields,
       },
       sendToClient as (msg: unknown) => void,
+      // The turn's cancellation signal guards the manager's own async setup:
+      // a user who stops the turn while the child conversation is being
+      // bootstrapped runs the parent's abort sweep before this child is in the
+      // manager to be swept, so the signal has to reach the one place that can
+      // still catch it.
+      context.signal ? { signal: context.signal } : undefined,
     );
 
     return {
@@ -334,16 +370,34 @@ export async function executeSubagentSpawn(
       isError: false,
     };
   } catch (err) {
+    // A spawn the user stopped is not a failure to report as one: nothing went
+    // wrong, and the turn this result would have reached is already over.
+    if (err instanceof SubagentSpawnCancelledError) {
+      return spawnCancelledResult(label);
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+/**
+ * The result for a spawn abandoned because the requesting turn was stopped.
+ * Not an error: the user cancelled, no child was started, and there is nothing
+ * for the model to recover from.
+ */
+function spawnCancelledResult(label: string): ToolExecutionResult {
+  return {
+    content: `Subagent "${label}" was not spawned: this turn was stopped before it started.`,
+    isError: false,
+  };
 }
 
 // ── Advisor consult ──────────────────────────────────────────────────
 
 /**
  * The spawn-config fields that turn a background child into an advisor
- * consult: the advice framing, and the brief it advises off.
+ * consult: the advice framing, the brief it advises off, and the budget it
+ * runs under.
  *
  * The consult sees only what it is handed. The spawning agent's own
  * `objective` IS the brief, so it carries into the request verbatim inside
@@ -360,6 +414,11 @@ export async function executeSubagentSpawn(
  * The context pack is best effort: the parent conversation is looked up only
  * for its warm skill catalog, so an unresolvable one (e.g. evicted) costs the
  * skills section of the pack and nothing else.
+ *
+ * The budget is the advisor's alone. It is the only spawn the agent may issue
+ * unprompted and the only one that runs on the premium profile, so it is the
+ * only one whose cost no user has implicitly signed off on; the manager holds
+ * it to both ceilings and tells the parent which one stopped it.
  */
 async function buildAdvisorFields(
   context: ToolContext,
@@ -367,6 +426,8 @@ async function buildAdvisorFields(
 ): Promise<{
   requestText: string;
   systemPromptOverride: string;
+  maxRuntimeMs: number;
+  maxToolCalls: number;
 }> {
   const parentConversation = findConversation(context.conversationId);
   // Situational awareness for the advisor: the parent's live tool set, the
@@ -387,6 +448,8 @@ async function buildAdvisorFields(
   return {
     requestText: advisorRequestText(objective, situationalContext),
     systemPromptOverride: buildAdvisorSystem(),
+    maxRuntimeMs: ADVISOR_MAX_RUNTIME_MS,
+    maxToolCalls: ADVISOR_MAX_TOOL_CALLS,
   };
 }
 
