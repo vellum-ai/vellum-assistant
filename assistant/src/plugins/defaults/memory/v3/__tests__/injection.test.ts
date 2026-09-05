@@ -230,6 +230,7 @@ const {
   getPrunedSections,
   markPruned,
   recordInjected,
+  seedEverInjectedFromBlocks,
 } = await import("../ever-injected-store.js");
 const { V3_INJECTION_HEADER } = await import("../render-injection.js");
 const { flushPruneValveForTests } = await import("../prune.js");
@@ -540,6 +541,39 @@ describe("memoryV3Injector: frozen net-new sections", () => {
 
     const block = await produceSections("conv-fork", 0);
     expect(block!.text).toContain("# memory/concepts/page-b.md");
+    expect(block!.text).not.toContain("# memory/concepts/page-a.md");
+  });
+
+  test("fork-seeded capability rows suppress re-injecting inherited skill and CLI-command chunks", async () => {
+    liveEnabled = true;
+    // The fork hooks seed the child's record from the inherited block, which
+    // carries capability chunks beside the sections.
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-fork",
+      [
+        [
+          V3_INJECTION_HEADER,
+          "# Skills\nhint",
+          "# Skill: test-skill\nskill body",
+          "# CLI command: export\nExport a conversation.",
+          leadRender("page-a"),
+        ].join("\n\n"),
+      ],
+      1_000,
+    );
+    expect(activeIds("conv-fork")).toEqual(
+      new Set(["skills/test-skill§", "cli-commands/export§", "page-a§"]),
+    );
+    turnResults.set(
+      0,
+      result(["skills/test-skill", "cli-commands/export", "page-a", "page-b"]),
+    );
+
+    const block = await produceSections("conv-fork", 0);
+    expect(block!.text).toContain("# memory/concepts/page-b.md");
+    expect(block!.text).not.toContain("# Skill:");
+    expect(block!.text).not.toContain("# CLI command:");
     expect(block!.text).not.toContain("# memory/concepts/page-a.md");
   });
 

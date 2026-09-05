@@ -377,6 +377,69 @@ describe("seedEverInjectedFromBlocks", () => {
     ]);
   });
 
+  test("seeds inherited capability chunks at zero bytes under the empty key, as the injector records them", () => {
+    const block = [
+      leadA,
+      "",
+      "# Skills",
+      "hint",
+      "",
+      "# Skill: meet-join",
+      "Join a meeting.",
+      "",
+      "# CLI command: export",
+      "Export a conversation.",
+    ].join("\n");
+    seedEverInjectedFromBlocks("conv-parent", "conv-child", [block], 5_000);
+
+    expect(summary("conv-child")).toEqual([
+      { slug: "cli-commands/export", key: "", bytes: 0, prunedAt: null },
+      { slug: "skills/meet-join", key: "", bytes: 0, prunedAt: null },
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: renderedBytes(leadA),
+        prunedAt: null,
+      },
+    ]);
+    expect(getActiveSections("conv-child")).toEqual(
+      new Map([
+        ["cli-commands/export", new Set([""])],
+        ["skills/meet-join", new Set([""])],
+        ["topics/page-a", new Set([""])],
+      ]),
+    );
+    expect(residentBytes("conv-child")).toBe(renderedBytes(leadA));
+  });
+
+  test("a card frozen before body escaping seeds one lead entry spanning the whole card", () => {
+    const card = [
+      injectedSectionHeader("topics/page-a", ""),
+      "# Page A",
+      "lead prose",
+      "",
+      "# memory/concepts/example.md",
+      "more lead prose",
+      "",
+      "[sections: §Notes · §Design]",
+    ].join("\n");
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-child",
+      [`preamble\n\n${card}`],
+      5_000,
+    );
+
+    expect(summary("conv-child")).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: renderedBytes(card),
+        prunedAt: null,
+      },
+    ]);
+  });
+
   test("carries the parent's pruned_at tombstones for inherited sections", () => {
     // Parent injected both sections of page-a, then pruned Notes: the
     // metadata block the child inherits still contains the Notes section,

@@ -239,9 +239,11 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     const parsed = parseInjectedSections(mixed);
     expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
     expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a"]);
-    expect(
-      parsed.pieces.filter((piece) => piece.kind === "other"),
-    ).toHaveLength(2);
+    expect(parsed.pieces.map((piece) => piece.kind)).toEqual([
+      "other",
+      "capability",
+      "section",
+    ]);
     expect(mixed).toContain("assistant plugins search <name>");
   });
 
@@ -314,11 +316,16 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     expect(parsed.pieces.map((p) => p.kind)).toEqual([
       "other",
       "section",
-      "other",
+      "capability",
       "section",
     ]);
     expect(parsed.pieces[0]!.text).toContain("assistant plugins search <name>");
-    expect(parsed.pieces[2]!.text).toBe(CAPABILITY_CHUNK);
+    expect(parsed.pieces[2]).toEqual({
+      kind: "capability",
+      capability: "skill",
+      id: "meet-join",
+      text: CAPABILITY_CHUNK,
+    });
   });
 
   test("pruning a section never swallows a trailing capability chunk", () => {
@@ -372,6 +379,35 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
     expect(unescapeInjectedBody(entry.slice(entry.indexOf("\n") + 1))).toBe(
       body,
+    );
+  });
+
+  test("a card frozen before body escaping prunes whole even when its lead carries a header-shaped line", () => {
+    const cardA = [
+      injectedSectionHeader("page-a", ""),
+      "# Page A",
+      "lead prose",
+      "",
+      "# memory/concepts/example.md",
+      "more lead prose",
+      "",
+      "[sections: §Notes · §Design]",
+    ].join("\n");
+    const cardB = [
+      injectedSectionHeader("page-b", ""),
+      "# Page B",
+      "lead b",
+      "",
+      "[sections: §X]",
+    ].join("\n");
+    const legacyInner = [V3_INJECTION_HEADER, cardA, cardB].join("\n\n");
+
+    expect(filterPrunedSections(legacyInner, refSet(["page-a", ""]))).toBe(
+      [V3_INJECTION_HEADER, cardB].join("\n\n"),
+    );
+    // The header-shaped line names no section, so nothing keyed on it exists.
+    expect(filterPrunedSections(legacyInner, refSet(["example", ""]))).toBe(
+      legacyInner,
     );
   });
 

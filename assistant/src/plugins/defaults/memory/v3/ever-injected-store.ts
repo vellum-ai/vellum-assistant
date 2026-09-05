@@ -34,6 +34,7 @@ import { memoryV3InjectedSections } from "../../../../persistence/schema/index.j
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
+import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import { parseInjectedSections } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
 import type { SectionRef } from "./types.js";
@@ -417,8 +418,10 @@ export function forkEverInjected(
  * accounting starts at what it actually inherited and the valve can evict an
  * inherited section like any other. A section present in several inherited
  * blocks (re-injected after a prune) takes its latest span, mirroring the
- * upsert. Capability chunks carry no concept header and are not seeded,
- * matching the injector's zero-byte treatment of them.
+ * upsert. An inherited capability chunk (`# Skill: ` / `# CLI command: `)
+ * seeds its capability slug exactly as the injector records one: under the
+ * empty key at zero bytes, dedup-only, so the child never re-injects
+ * capability content that already rides its inherited history.
  *
  * The parent's `pruned_at` tombstones are carried over: pruning leaves the
  * persisted metadata block intact and relies on the tombstone to filter the
@@ -442,13 +445,18 @@ export function seedEverInjectedFromBlocks(
 ): void {
   const inherited = new Map<string, SectionRef & { bytes: number }>();
   for (const block of blocks) {
-    for (const section of parseInjectedSections(unwrapMemoryBlock(block))
-      .sections) {
-      inherited.set(`${section.slug} ${section.key}`, {
-        slug: section.slug,
-        key: section.key,
-        bytes: renderedBytes(section.text),
-      });
+    for (const piece of parseInjectedSections(unwrapMemoryBlock(block))
+      .pieces) {
+      if (piece.kind === "section") {
+        inherited.set(`${piece.slug} ${piece.key}`, {
+          slug: piece.slug,
+          key: piece.key,
+          bytes: renderedBytes(piece.text),
+        });
+      } else if (piece.kind === "capability") {
+        const slug = capabilitySlugOf(piece);
+        inherited.set(`${slug} `, { slug, key: "", bytes: 0 });
+      }
     }
   }
   if (inherited.size === 0) {

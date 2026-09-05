@@ -1247,9 +1247,10 @@ describe("forkConversation", () => {
     const leadA = "# memory/concepts/topics/page-a.md\nLead A";
     const notesA = "# memory/concepts/topics/page-a.md § Notes\nNotes A";
     const leadB = "# memory/concepts/topics/page-b.md\nLead B";
+    const skill = "# Skill: meet-join\nJoin a meeting.";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
-        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesA}\n\n${leadB}`,
+        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesA}\n\n${leadB}\n\n${skill}`,
         // A v2 block on the same message must seed only the v2 record.
         memoryInjectedBlock: "# memory/concepts/topics/page-v2.md\nSummary",
       },
@@ -1291,7 +1292,8 @@ describe("forkConversation", () => {
 
     // Exactly the sections whose blocks live in the copied history, each
     // carrying the bytes of its inherited span (the child's resident
-    // accounting starts at what it inherited).
+    // accounting starts at what it inherited), plus the inherited skill chunk
+    // as a zero-byte capability row.
     expect(
       getV3Injected(fork.id).map(({ slug, key, bytes, prunedAt }) => ({
         slug,
@@ -1300,6 +1302,7 @@ describe("forkConversation", () => {
         prunedAt,
       })),
     ).toEqual([
+      { slug: "skills/meet-join", key: "", bytes: 0, prunedAt: null },
       {
         slug: "topics/page-a",
         key: "",

@@ -147,8 +147,12 @@ a `\n\n` seam, and every renderer passes each chunk body through the module's
 read as a boundary; `unescapeInjectedBody` is the exact inverse), so page or
 skill text can never forge one. The prune valve (`v3/prune.ts`), the
 `loadFromDb` rehydration filter, the truncated-fork seed (which measures each
-inherited section's bytes from its span), and the inspector all read blocks
-through the module's `parseInjectedSections`. The valve strips a pruned section
+inherited section's bytes from its span and seeds inherited capability chunks
+at zero bytes, as the injector records them), and the inspector all read
+blocks through the module's `parseInjectedSections`, which also recognises the
+compact-card shape earlier builds froze without escaping (header, page head,
+blank line, `[sections: …]` TOC line) so a header-shaped line inside such a
+card's lead stays card text. The valve strips a pruned section
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane

@@ -19,6 +19,13 @@
  * blocks through {@link parseInjectedSections}, so the grammar has one
  * writer-side and one reader-side definition and the two cannot drift.
  *
+ * Blocks frozen by builds before body escaping (compact cards: concept
+ * header, the page head, a blank line, then a `[sections: …]` or
+ * `[linked: …]` TOC line) carry no escaping, so the parser recognises that
+ * card shape and never splits such a card at a header-shaped line inside its
+ * lead; see {@link parseInjectedSections}. Current blocks escape TOC-shaped
+ * lines as well, so the card rule can never fire on them.
+ *
  * Skill and CLI-command chunks carry no recoverable slug, so the slug
  * extractor intentionally skips them.
  *
@@ -93,6 +100,9 @@ export const INJECTED_CONCEPT_HEADER_REGEX = new RegExp(
   "gm",
 );
 
+/** Whole-line matcher of a concept header. */
+const CONCEPT_HEADER_LINE_REGEX = new RegExp(`^# ${SECTION_PATH_SOURCE}$`);
+
 /** Whole-line matcher of a pointer entry ({@link injectedSectionPath}). */
 const INJECTED_SECTION_PATH_LINE_REGEX = new RegExp(`^${SECTION_PATH_SOURCE}$`);
 
@@ -105,10 +115,23 @@ const NON_SECTION_CHUNK_HEADER_REGEX = new RegExp(
   "gm",
 );
 
-/** Whole-line test: would this line open a chunk (a section header or a
- *  non-section chunk header) if it sat on a chunk seam? */
-const CHUNK_BOUNDARY_LINE_REGEX = new RegExp(
-  `^(?:# ${SECTION_PATH_SOURCE}$|${NON_SECTION_CHUNK_HEADER_SOURCE})`,
+/**
+ * The closing TOC line of a compact card as builds before body escaping
+ * froze it (`[sections: §A · §B]` or `[linked: …]`), preceded in the card by
+ * a blank line. Frozen to that output on purpose: it is a read-side
+ * compatibility pattern for persisted blocks, not the selector card
+ * renderer's format.
+ */
+const LEGACY_CARD_TOC_LINE_SOURCE = String.raw`\[(?:sections|linked): .*\]`;
+const LEGACY_CARD_TOC_LINE_REGEX = new RegExp(
+  `^${LEGACY_CARD_TOC_LINE_SOURCE}$`,
+);
+
+/** Whole-line test: would this line carry grammar meaning if it sat on a
+ *  chunk seam (a section header, a non-section chunk header, or a legacy
+ *  card TOC line)? */
+const GRAMMAR_LINE_REGEX = new RegExp(
+  `^(?:# ${SECTION_PATH_SOURCE}$|${NON_SECTION_CHUNK_HEADER_SOURCE}|${LEGACY_CARD_TOC_LINE_SOURCE}$)`,
 );
 
 /** Recover the (deduplicated, in-order) concept slugs a persisted injection
@@ -146,25 +169,25 @@ export function parseInjectedSectionPath(
 
 // ─── body escaping ───────────────────────────────────────────────────────────
 
-/** Prefix that marks a body line as literal text rather than a chunk header.
- *  Markdown reads `\#` as a literal `#`, so the model sees the heading text
- *  the line is. */
+/** Prefix that marks a body line as literal text rather than a grammar line.
+ *  Markdown reads `\#` and `\[` as the literal characters, so the model sees
+ *  the line as the text it is. */
 const BODY_ESCAPE = "\\";
 
-/** Whether the line, with its leading backslashes removed, is a chunk
- *  boundary line: the class the escaper prefixes and the unescaper strips one
+/** Whether the line, with its leading backslashes removed, is a grammar
+ *  line: the class the escaper prefixes and the unescaper strips one
  *  backslash from. Including already-backslashed variants keeps the pair an
  *  exact bijection. */
 function isEscapableLine(line: string): boolean {
-  return CHUNK_BOUNDARY_LINE_REGEX.test(line.replace(/^\\+/, ""));
+  return GRAMMAR_LINE_REGEX.test(line.replace(/^\\+/, ""));
 }
 
 /**
- * Escape a rendered body so none of its lines can be read as a chunk
- * boundary by {@link parseInjectedSections}: a line that is a section header
- * or a non-section chunk header, or such a line behind a run of backslashes,
- * gets one leading backslash. Every other line is untouched.
- * {@link unescapeInjectedBody} is the exact inverse.
+ * Escape a rendered body so none of its lines can be read as grammar by
+ * {@link parseInjectedSections}: a line that is a section header, a
+ * non-section chunk header, or a legacy card TOC line, or such a line behind
+ * a run of backslashes, gets one leading backslash. Every other line is
+ * untouched. {@link unescapeInjectedBody} is the exact inverse.
  */
 export function escapeInjectedBody(body: string): string {
   return body
@@ -174,7 +197,7 @@ export function escapeInjectedBody(body: string): string {
 }
 
 /** The exact inverse of {@link escapeInjectedBody}: strips the one backslash
- *  the escaper added to each boundary-shaped line. */
+ *  the escaper added to each grammar-shaped line. */
 export function unescapeInjectedBody(text: string): string {
   return text
     .split("\n")
@@ -196,12 +219,32 @@ export interface ParsedInjectedSection extends InjectedSectionRef {
   text: string;
 }
 
-/** One ordered chunk of a parsed injection block: an injected section
- *  (prunable, owned by `(slug, key)`) or any other `\n\n`-joined chunk (the
- *  skills hint, capability content under its own header): never prunable. */
+/**
+ * One ordered chunk of a parsed injection block, each `\n\n`-joined by the
+ * renderer: an injected section (prunable, owned by `(slug, key)`), a
+ * capability render (a skill or CLI command under its own header, naming the
+ * id that header carries; never prunable), or any other chunk (the skills
+ * hint; never prunable).
+ */
 export type InjectionBlockPiece =
   | { kind: "section"; slug: string; key: string; text: string }
+  | {
+      kind: "capability";
+      capability: "skill" | "cli-command";
+      id: string;
+      text: string;
+    }
   | { kind: "other"; text: string };
+
+type BoundaryRef =
+  | { kind: "section"; slug: string; key: string }
+  | { kind: "capability"; capability: "skill" | "cli-command"; id: string }
+  | { kind: "other" };
+
+interface Boundary {
+  index: number;
+  ref: BoundaryRef;
+}
 
 /** Whether a header match at `index` opens its own `\n\n`-joined chunk: it
  *  starts the text or follows a blank line. */
@@ -212,63 +255,160 @@ function onChunkSeam(inner: string, index: number): boolean {
   );
 }
 
+function lineEndAt(text: string, index: number): number {
+  const newline = text.indexOf("\n", index);
+  return newline === -1 ? text.length : newline;
+}
+
+/** The line after the one starting at `index`, or `null` at the end. */
+function lineAfter(text: string, index: number): string | null {
+  const end = lineEndAt(text, index);
+  return end === text.length
+    ? null
+    : text.slice(end + 1, lineEndAt(text, end + 1));
+}
+
+/** The nearest non-blank line before the line starting at `index`, or
+ *  `null` when none precedes it. */
+function nonBlankLineBefore(text: string, index: number): string | null {
+  let end = index - 1;
+  while (end >= 0) {
+    const start = text.lastIndexOf("\n", end - 1) + 1;
+    const line = text.slice(start, end);
+    if (line.trim().length > 0) {
+      return line;
+    }
+    end = start - 1;
+  }
+  return null;
+}
+
+/** Whether `text[from, to)` contains a legacy card TOC line on a seam (a
+ *  blank line before it). */
+function hasLegacyTocLine(text: string, from: number, to: number): boolean {
+  let previousBlank = false;
+  for (const line of text.slice(from, to).split("\n")) {
+    if (previousBlank && LEGACY_CARD_TOC_LINE_REGEX.test(line)) {
+      return true;
+    }
+    previousBlank = line.trim().length === 0;
+  }
+  return false;
+}
+
+/** Whether a header line's following line is what opens a legacy card's
+ *  body: the page's own `# Title` line or a `[current: …]` annotation. */
+function opensLegacyCard(line: string | null): boolean {
+  return (
+    line !== null &&
+    (line.startsWith("[current: ") ||
+      (line.startsWith("# ") && !CONCEPT_HEADER_LINE_REGEX.test(line)))
+  );
+}
+
+function classifyNonSectionHeader(line: string): BoundaryRef {
+  if (line.startsWith(SKILL_HEADER_PREFIX)) {
+    return {
+      kind: "capability",
+      capability: "skill",
+      id: line.slice(SKILL_HEADER_PREFIX.length),
+    };
+  }
+  if (line.startsWith(CLI_COMMAND_HEADER_PREFIX)) {
+    return {
+      kind: "capability",
+      capability: "cli-command",
+      id: line.slice(CLI_COMMAND_HEADER_PREFIX.length),
+    };
+  }
+  return { kind: "other" };
+}
+
 /**
  * Split an UNWRAPPED injection-block body into its preamble (the instruction
  * header: everything before the first boundary), the ordered chunk pieces,
  * and the injected sections (the `kind: "section"` pieces, kept as a
  * convenience view). Returns zero sections/pieces when the text carries no
- * section headers.
+ * chunk headers.
  *
  * A chunk boundary is a section header or a non-section chunk header (the
  * skills hint, `# Skill:`, `# CLI command:`) that opens the text or follows
  * a blank line, the seams `renderInjectionBlockInner` joins entries on. A
  * section therefore ends at the next section header or at a trailing
- * capability chunk, which is parsed as a separate non-section piece instead
- * of being absorbed, so pruning the section never deletes it. Any other `# `
- * line, including a lead's own `# Title` line and any heading a section body
- * carries, stays inside its section; a body line that would itself read as a
- * boundary arrives backslash-escaped from {@link escapeInjectedBody}, so only
- * producer-written headers can split. Splitting only on seams keeps re-joins
- * byte-identical.
+ * capability chunk, which is parsed as a separate piece instead of being
+ * absorbed, so pruning the section never deletes it. Any other `# ` line,
+ * including a lead's own `# Title` line and any heading a section body
+ * carries, stays inside its section; a body line that would itself read as
+ * grammar arrives backslash-escaped from {@link escapeInjectedBody}, so in a
+ * block rendered by this build only producer-written headers can split.
+ * Splitting only on seams keeps re-joins byte-identical.
+ *
+ * Blocks frozen by builds before body escaping hold compact cards (concept
+ * header, the page head, a blank line, a `[sections: …]` / `[linked: …]` TOC
+ * line) whose leads may contain a header-shaped line. Inside such a card, a
+ * concept header on a seam is demoted to card text when it does not open a
+ * card (its next line is neither the page's `# Title` nor a `[current: …]`
+ * annotation), the previous content line is not a TOC line (the preceding
+ * card is still open), and a TOC line follows before the next candidate
+ * header (the open card has yet to close). Current blocks escape TOC-shaped
+ * lines, so the demotion can never apply to them.
  */
 export function parseInjectedSections(inner: string): {
   preamble: string;
   sections: ParsedInjectedSection[];
   pieces: InjectionBlockPiece[];
 } {
-  const boundaries: Array<{ index: number; ref: InjectedSectionRef | null }> =
-    [];
+  const candidates: Boundary[] = [];
   for (const match of inner.matchAll(INJECTED_CONCEPT_HEADER_REGEX)) {
     if (onChunkSeam(inner, match.index!)) {
-      boundaries.push({
+      candidates.push({
         index: match.index!,
-        ref: { slug: match[1]!, key: match[2] ?? "" },
+        ref: { kind: "section", slug: match[1]!, key: match[2] ?? "" },
       });
+    }
+  }
+  for (const match of inner.matchAll(NON_SECTION_CHUNK_HEADER_REGEX)) {
+    if (onChunkSeam(inner, match.index!)) {
+      candidates.push({
+        index: match.index!,
+        ref: classifyNonSectionHeader(
+          inner.slice(match.index!, lineEndAt(inner, match.index!)),
+        ),
+      });
+    }
+  }
+  candidates.sort((a, b) => a.index - b.index);
+
+  const boundaries: Boundary[] = [];
+  for (const [i, candidate] of candidates.entries()) {
+    const open = boundaries[boundaries.length - 1];
+    const legacyCardText =
+      candidate.ref.kind === "section" &&
+      open !== undefined &&
+      open.ref.kind === "section" &&
+      !opensLegacyCard(lineAfter(inner, candidate.index)) &&
+      !LEGACY_CARD_TOC_LINE_REGEX.test(
+        nonBlankLineBefore(inner, candidate.index) ?? "",
+      ) &&
+      hasLegacyTocLine(
+        inner,
+        lineEndAt(inner, candidate.index) + 1,
+        candidates[i + 1]?.index ?? inner.length,
+      );
+    if (!legacyCardText) {
+      boundaries.push(candidate);
     }
   }
   if (boundaries.length === 0) {
     return { preamble: inner, sections: [], pieces: [] };
   }
-  for (const match of inner.matchAll(NON_SECTION_CHUNK_HEADER_REGEX)) {
-    if (onChunkSeam(inner, match.index!)) {
-      boundaries.push({ index: match.index!, ref: null });
-    }
-  }
-  boundaries.sort((a, b) => a.index - b.index);
 
   const preamble = inner.slice(0, boundaries[0]!.index).trimEnd();
   const pieces = boundaries.map((boundary, i): InjectionBlockPiece => {
     const end =
       i + 1 < boundaries.length ? boundaries[i + 1]!.index : undefined;
     const text = inner.slice(boundary.index, end).trimEnd();
-    return boundary.ref === null
-      ? { kind: "other", text }
-      : {
-          kind: "section",
-          slug: boundary.ref.slug,
-          key: boundary.ref.key,
-          text,
-        };
+    return { ...boundary.ref, text };
   });
   const sections = pieces.filter(
     (piece): piece is Extract<InjectionBlockPiece, { kind: "section" }> =>

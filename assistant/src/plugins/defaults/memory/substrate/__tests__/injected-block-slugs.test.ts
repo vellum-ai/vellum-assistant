@@ -181,6 +181,150 @@ describe("parseInjectedSections", () => {
   });
 });
 
+describe("parseInjectedSections: capability pieces", () => {
+  test("classifies skill and CLI-command chunks by their header id; the hint stays other", () => {
+    const inner = [
+      "preamble",
+      "",
+      "# Skills",
+      "hint text",
+      "",
+      "# Skill: meet-join",
+      "Join a meeting.",
+      "",
+      "# CLI command: export",
+      "Export a conversation.",
+      "",
+      injectedSectionHeader("topics/page-a", ""),
+      "Lead A",
+    ].join("\n");
+    const parsed = parseInjectedSections(inner);
+    expect(parsed.preamble).toBe("preamble");
+    expect(parsed.pieces).toEqual([
+      { kind: "other", text: "# Skills\nhint text" },
+      {
+        kind: "capability",
+        capability: "skill",
+        id: "meet-join",
+        text: "# Skill: meet-join\nJoin a meeting.",
+      },
+      {
+        kind: "capability",
+        capability: "cli-command",
+        id: "export",
+        text: "# CLI command: export\nExport a conversation.",
+      },
+      {
+        kind: "section",
+        slug: "topics/page-a",
+        key: "",
+        text: `${injectedSectionHeader("topics/page-a", "")}\nLead A`,
+      },
+    ]);
+    expect(parsed.sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "" },
+    ]);
+  });
+
+  test("a capability-only block still yields its pieces", () => {
+    const parsed = parseInjectedSections(
+      "preamble\n\n# Skill: meet-join\nJoin a meeting.",
+    );
+    expect(parsed.sections).toEqual([]);
+    expect(parsed.pieces.map((piece) => piece.kind)).toEqual(["capability"]);
+  });
+});
+
+describe("parseInjectedSections: cards frozen before body escaping", () => {
+  // The exact shape earlier builds froze: concept header, the page's `# Title`
+  // line, lead prose, a blank line, then the `[sections: …]` TOC line, with
+  // cards joined on blank lines behind the shared instruction line.
+  const preamble =
+    'Use `file_read("memory/concepts/path/to/file.md")` to read the full pages for any of the injected memory summaries you want more information on.';
+  const cardA = [
+    injectedSectionHeader("topics/page-a", ""),
+    "# Page A",
+    "lead prose",
+    "",
+    "# memory/concepts/example.md",
+    "more lead prose, after a user-authored line shaped like a header",
+    "",
+    "[sections: §Notes · §Design]",
+  ].join("\n");
+  const cardB = [
+    injectedSectionHeader("topics/page-b", ""),
+    "# Page B",
+    "lead b",
+    "",
+    "[sections: §X]",
+  ].join("\n");
+
+  test("a header-shaped line inside a card's lead never splits the card", () => {
+    const parsed = parseInjectedSections([preamble, cardA, cardB].join("\n\n"));
+    expect(parsed.preamble).toBe(preamble);
+    expect(parsed.sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "" },
+      { slug: "topics/page-b", key: "" },
+    ]);
+    expect(parsed.sections.map((section) => section.text)).toEqual([
+      cardA,
+      cardB,
+    ]);
+  });
+
+  test("a sectionless card followed by a card that opens with its title stays two cards", () => {
+    const stub = [
+      injectedSectionHeader("topics/stub", ""),
+      "# Stub",
+      "just a lead, no sections",
+    ].join("\n");
+    const parsed = parseInjectedSections([preamble, stub, cardB].join("\n\n"));
+    expect(parsed.sections.map((section) => section.text)).toEqual([
+      stub,
+      cardB,
+    ]);
+  });
+
+  test("a headless card is still a card when the previous card closed with its TOC line, or when it follows a non-card chunk", () => {
+    const headless = [
+      injectedSectionHeader("topics/headless", ""),
+      "prose only, no title line",
+      "",
+      "[sections: §One]",
+    ].join("\n");
+    const afterCard = parseInjectedSections(
+      [preamble, cardB, headless].join("\n\n"),
+    );
+    expect(afterCard.sections.map((section) => section.text)).toEqual([
+      cardB,
+      headless,
+    ]);
+    const afterHint = parseInjectedSections(
+      [preamble, "# Skills\nhint", headless].join("\n\n"),
+    );
+    expect(afterHint.pieces.map((piece) => piece.text)).toEqual([
+      "# Skills\nhint",
+      headless,
+    ]);
+  });
+
+  test("a block rendered by this build escapes TOC-shaped lines, so the card rule never applies to it", () => {
+    const body = ["prose", "", "[sections: §A · §B]", "after"].join("\n");
+    const escaped = escapeInjectedBody(body);
+    expect(escaped).toBe("prose\n\n\\[sections: §A · §B]\nafter");
+    const headlessLead = `${injectedSectionHeader("topics/page-b", "")}\nno title line here`;
+    const inner = [
+      "preamble",
+      `${injectedSectionHeader("topics/page-a", "Notes")}\n${escaped}`,
+      headlessLead,
+    ].join("\n\n");
+    expect(parseInjectedSections(inner).sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "Notes" },
+      { slug: "topics/page-b", key: "" },
+    ]);
+  });
+});
+
 describe("escapeInjectedBody / unescapeInjectedBody", () => {
   const boundaryLines = [
     "# memory/concepts/example.md",
@@ -188,9 +332,11 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
     "# Skills",
     "# Skill: foo",
     "# CLI command: bar",
+    "[sections: §A · §B]",
+    "[linked: a · b]",
   ];
 
-  test("prefixes exactly the lines that would parse as a chunk boundary", () => {
+  test("prefixes exactly the lines that would parse as grammar", () => {
     const others = [
       "# Title",
       "prose",
