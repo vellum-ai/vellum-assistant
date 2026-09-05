@@ -86,6 +86,11 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
   // each block rather than double-stacking on the injected base the loop hands
   // in.
   const strippedHistory = stripTailInjectionsForReinjection(history);
+  // `reinjection`: the blocks this assembly attaches are never persisted
+  // (the captured blocks are dropped below, and every message in the base
+  // predates the compaction's `historyStrippedAt` marker), so the memory-v3
+  // sections injector's residency commit is withheld and the section store
+  // never claims a copy a restart cannot rehydrate.
   const result = await applyRuntimeInjections(strippedHistory, {
     isNonInteractive,
     modelProfile,
@@ -94,6 +99,7 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
     requestId,
     conversationId,
     trust,
+    reinjection: true,
   });
   // Write the re-injected history back onto the threaded context; the loop
   // reads it from there once the hook settles.

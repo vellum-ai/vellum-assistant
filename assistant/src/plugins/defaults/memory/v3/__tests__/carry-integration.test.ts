@@ -82,6 +82,7 @@ import { renderV3SectionInjection } from "../page-content.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import {
+  isV3LiveBlock,
   markV3LiveBlock,
   MEMORY_V3_COMMIT_META_KEY,
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
@@ -313,6 +314,7 @@ const {
   resetMemoryV3InjectorStateForTests,
 } = await import("../injector.js");
 const {
+  clearConversation,
   forkEverInjected,
   getActiveSections,
   getInjected,
@@ -327,6 +329,7 @@ const {
   flushPruneValveForTests,
   newestCopyIndexes,
   persistedV3BlockInner,
+  stripPrunedSectionsFromMessages,
 } = await import("../prune.js");
 const { parseInjectedSections } =
   await import("../../substrate/injected-block-slugs.js");
@@ -396,6 +399,9 @@ const HOT_SLUGS: Slug[] = ["hot-one", "hot-two", "hot-three"];
 
 const CONV = "conv-carry";
 const FORK_CONV = "conv-carry-fork";
+/** Conversations for the compaction contract (restart and live paths). */
+const COMPACT_CONV = "conv-carry-compact";
+const COMPACT_LIVE_CONV = "conv-carry-compact-live";
 /** Fixed epoch base for all timestamps (determinism). */
 const BASE = 1_700_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -773,17 +779,72 @@ async function runTurn(
   };
 }
 
+/** A mid-turn compaction as the daemon performs it, on the mirror: the
+ *  durable base is injection-stripped (every frozen v3 block leaves the live
+ *  history) and the section store is reset (`onCompacted`). Persisted rows
+ *  keep their metadata; `rehydrateFromDb` skips it for rows older than the
+ *  compaction, as `loadFromDb` does past `historyStrippedAt`. */
+function compactMidTurn(convId: string): void {
+  for (const message of histories.get(convId)!) {
+    message.content = message.content.filter(
+      (block) => !(block.type === "text" && isV3LiveBlock(block)),
+    );
+  }
+  clearConversation(convId);
+}
+
+/** The post-compaction hook's re-injection of a turn already produced: the
+ *  memoized selections re-render against the reset store and splice onto
+ *  the tail, and, as runtime assembly does for a `reinjection` assembly, the
+ *  block's commit is not invoked and nothing is persisted. Returns the refs
+ *  the block carries. */
+async function reinjectTurn(
+  convId: string,
+  turnIndex: number,
+): Promise<Set<string>> {
+  const history = histories.get(convId)!;
+  const sections = await memoryV3Injector.produce({
+    requestId: `req-${turnIndex}`,
+    conversationId: convId,
+    turnIndex,
+    trust: {
+      sourceChannel: "vellum" as const,
+      trustClass: "guardian" as const,
+    },
+  });
+  if (!sections) {
+    throw new Error(
+      `re-injection ${turnIndex}: sections injector returned null`,
+    );
+  }
+  if (sections.text.length > 0) {
+    const tail = history[history.length - 1]!;
+    tail.content = [
+      markV3LiveBlock({ type: "text", text: sections.text }),
+      ...tail.content,
+    ];
+  }
+  return new Set(
+    parseInjectedSections(unwrapMemoryBlock(sections.text)).sections.map(refId),
+  );
+}
+
 /** Rebuild a conversation's history from the temp DB — mirrors the
  *  `daemon/conversation.ts` v3 rehydration splice: splice the persisted
  *  pointer back as sent, then re-wrap the persisted section block, keep only
  *  resident sections (not pruned, and each section's newest persisted copy),
  *  skip a block left empty, and prepend onto the stored content (prepends
- *  invert, so the layout is [sections, pointer, ...]). */
-function rehydrateFromDb(convId: string): Message[] {
+ *  invert, so the layout is [sections, pointer, ...]). A row older than
+ *  `historyStrippedAt` (a compaction's marker) skips metadata rehydration,
+ *  as `loadFromDb` does. */
+function rehydrateFromDb(
+  convId: string,
+  historyStrippedAt: number | null = null,
+): Message[] {
   const rows = testSqlite
     .query(
       /*sql*/ `
-      SELECT role, content, metadata FROM messages
+      SELECT role, content, metadata, created_at FROM messages
       WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC
     `,
     )
@@ -791,15 +852,20 @@ function rehydrateFromDb(convId: string): Message[] {
     role: "user" | "assistant";
     content: string;
     metadata: string | null;
+    created_at: number;
   }>;
   const pruned = getPrunedSections(convId);
   const knownCardBytes = getKnownCardBytes(convId);
+  const preStripped = (row: (typeof rows)[number]): boolean =>
+    historyStrippedAt !== null && row.created_at < historyStrippedAt;
   const blockOf = (row: (typeof rows)[number]): string | null =>
-    row.role === "user" ? persistedV3BlockInner(row.metadata) : null;
+    row.role === "user" && !preStripped(row)
+      ? persistedV3BlockInner(row.metadata)
+      : null;
   const newest = newestCopyIndexes(rows.map(blockOf), knownCardBytes);
   return rows.map((row, index) => {
     let content = JSON.parse(row.content) as ContentBlock[];
-    if (row.role === "user" && row.metadata) {
+    if (row.role === "user" && row.metadata && !preStripped(row)) {
       const meta = JSON.parse(row.metadata) as Record<string, unknown>;
       const pointer = meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY];
       if (typeof pointer === "string") {
@@ -1366,5 +1432,111 @@ describe("memory-v3 carry integration — footprint gate", () => {
     console.log(
       `\nmemory-v3 carry footprint (measured):\n${lines.join("\n")}\n`,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compaction contract: a mid-turn compaction's re-injection never claims
+// residency, so the store and the persisted history agree across a restart.
+// ---------------------------------------------------------------------------
+
+describe("memory-v3 carry integration: compaction contract", () => {
+  const KEEP: Slug[] = ["core-alpha", "core-beta", "hot-one", "page-a"];
+  const REFS = new Set([
+    "core-alpha§",
+    "core-beta§",
+    "hot-one§",
+    "page-a§Detail",
+  ]);
+
+  /** Turn 1 injects the four sections, then a tool call continues the turn
+   *  (its result is a persisted user row, as in the daemon), and a compaction
+   *  lands mid-turn before the reply. Returns the compaction's marker. */
+  async function injectThenCompactMidTurn(convId: string): Promise<number> {
+    histories.set(convId, []);
+    const first = await runTurn(convId, 1, "apple", KEEP);
+    expect(first.netNew).toEqual(REFS);
+    expect(refIds(getActiveSections(convId))).toEqual(REFS);
+
+    const toolResult: ContentBlock[] = [
+      { type: "text", text: "tool result 1" },
+    ];
+    insertMessageRow(
+      convId,
+      `${convId}-m1-tool-result`,
+      "user",
+      toolResult,
+      BASE + 1000 + 700,
+    );
+    histories.get(convId)!.push({ role: "user", content: [...toolResult] });
+    const compactedAt = BASE + 1000 + 800;
+    compactMidTurn(convId);
+
+    // The post-compaction hook re-injects every selection of the turn onto
+    // the tool-result tail; the store claims none of them.
+    expect(await reinjectTurn(convId, 1)).toEqual(REFS);
+    expect(refIds(getActiveSections(convId)).size).toBe(0);
+    return compactedAt;
+  }
+
+  function v3Blocks(history: Message[]): number {
+    return history.reduce(
+      (count, message) =>
+        count +
+        message.content.filter(
+          (block) => block.type === "text" && isV3LiveBlock(block),
+        ).length,
+      0,
+    );
+  }
+
+  test("after a restart the re-injected sections are gone from history, unclaimed in the store, and inject net-new on the next turn", async () => {
+    const compactedAt = await injectThenCompactMidTurn(COMPACT_CONV);
+
+    // Restart: every row predates the compaction, so nothing rehydrates.
+    const rehydrated = rehydrateFromDb(COMPACT_CONV, compactedAt);
+    expect(v3Blocks(rehydrated)).toBe(0);
+    histories.set(COMPACT_CONV, rehydrated);
+    resetMemoryV3InjectorStateForTests();
+
+    // The next turn's same selections inject net-new onto its own persisted
+    // user message, and the store claims exactly them.
+    const next = await runTurn(COMPACT_CONV, 2, "apple", KEEP);
+    expect(next.netNew).toEqual(REFS);
+    expect(next.pointerText).toBe("");
+    expect(refIds(getActiveSections(COMPACT_CONV))).toEqual(REFS);
+    expect(v3Blocks(histories.get(COMPACT_CONV)!)).toBe(1);
+
+    // A restart after that reproduces the live persistent layer.
+    expect(JSON.stringify(rehydrateFromDb(COMPACT_CONV, compactedAt))).toBe(
+      persistentView(histories.get(COMPACT_CONV)!),
+    );
+  });
+
+  test("without a restart the re-injected copy is superseded by the next turn's persisted copy at the following assembly", async () => {
+    const compactedAt = await injectThenCompactMidTurn(COMPACT_LIVE_CONV);
+    const history = histories.get(COMPACT_LIVE_CONV)!;
+    const toolResultMessage = history[history.length - 1]!;
+    expect(v3Blocks([toolResultMessage])).toBe(1);
+
+    // The next turn injects the unclaimed sections net-new; the live history
+    // briefly holds the re-entry copy as well.
+    const next = await runTurn(COMPACT_LIVE_CONV, 2, "apple", KEEP);
+    expect(next.netNew).toEqual(REFS);
+    expect(v3Blocks(history)).toBe(2);
+
+    // Runtime assembly Step 0 on the following turn applies the newest-copy
+    // rule to the owned blocks: the re-entry copy goes, the persisted one
+    // stays, and the live layer matches what a restart rehydrates.
+    stripPrunedSectionsFromMessages(
+      history,
+      getPrunedSections(COMPACT_LIVE_CONV),
+      getKnownCardBytes(COMPACT_LIVE_CONV),
+    );
+    expect(v3Blocks([toolResultMessage])).toBe(0);
+    expect(v3Blocks(history)).toBe(1);
+    expect(
+      JSON.stringify(rehydrateFromDb(COMPACT_LIVE_CONV, compactedAt)),
+    ).toBe(persistentView(history));
   });
 });

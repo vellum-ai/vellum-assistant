@@ -2245,6 +2245,18 @@ export interface RuntimeInjectionOptions {
    * site when omitted.
    */
   callSite?: LLMCallSite;
+  /**
+   * True when this assembly re-applies injections onto a continuation
+   * history mid-turn (the post-compaction hook, which also serves overflow
+   * re-entry). Such an assembly's blocks live in memory only: no caller
+   * persists them, and every message they attach to predates the
+   * compaction, whose `historyStrippedAt` marker keeps `loadFromDb` from
+   * rehydrating metadata on it. The memory-v3 sections injector's residency
+   * commit (`MEMORY_V3_COMMIT_META_KEY`) is therefore not invoked: a section
+   * the store claimed here would have no persisted body after a restart, so
+   * the injector would emit only a pointer for it.
+   */
+  reinjection?: boolean;
 }
 
 /**
@@ -2562,9 +2574,12 @@ export async function applyRuntimeInjections(
           // section-store write. On a non-user tail the block silently
           // no-ops in `applyInjectionBlock`, and skipping the commit keeps
           // the store from claiming sections that never attached (which
-          // would suppress them until compaction).
+          // would suppress them until compaction). A re-injection assembly
+          // (`options.reinjection`) skips it too: its block is never
+          // persisted, so the store must not claim sections whose only copy
+          // vanishes on restart.
           const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
-          if (typeof commit === "function") {
+          if (typeof commit === "function" && !options.reinjection) {
             (commit as () => void)();
           }
           break;

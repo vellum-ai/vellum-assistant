@@ -59,11 +59,18 @@
  * are persisted to message metadata and rehydrated forever, the gate must
  * also keep an untrusted turn from recording or persisting anything.
  *
- * Known mirror-of-v2 limitation: sections attached by mid-turn re-entry
- * assemblies (post-compaction re-injection) live only in memory — metadata is
- * persisted at the first-call site only — so a restart drops them while the
- * store still claims them, exactly as v2's `lastInjectedBlock` reinject does.
- * The next compaction clears the store and resets both layers.
+ * Re-entry assemblies (post-compaction re-injection, overflow convergence)
+ * attach their blocks in memory only: metadata is persisted at the
+ * first-call site alone, and every message a re-entry attaches to predates
+ * the compaction whose `historyStrippedAt` marker keeps `loadFromDb` from
+ * rehydrating it. Runtime assembly therefore withholds the commit on a
+ * re-injection assembly (`reinjection` in `RuntimeInjectionOptions`, set by
+ * the post-compaction hook), so the store never claims a section whose only
+ * copy vanishes on restart. Compaction clears the store, and the sections
+ * the post-compaction assembly re-renders stay unclaimed: the next turn
+ * injects them net-new onto its own persisted user message, and the
+ * re-entry copy still in the live history is superseded by the newest-copy
+ * rule at the assembly after that (`stripPrunedSectionsFromMessages`).
  */
 
 import { getConfig } from "../../../../config/loader.js";

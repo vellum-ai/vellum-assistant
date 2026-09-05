@@ -742,6 +742,34 @@ describe("memory-v3-live v2 suppression", () => {
     expect(result.messages[0].content).toEqual(historicalUser.content);
   });
 
+  test("a re-injection assembly (post-compaction) attaches the v3 block but withholds its commit", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    injectorChainSlot.push(
+      v3Injector("re-injected sections", () => {
+        commits += 1;
+      }),
+    );
+    seedV2Identity(null);
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "tool result" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+      reinjection: true,
+    });
+
+    // The block rides the continuation history and is captured as usual;
+    // only the residency commit is withheld, since nothing persists it.
+    expect(tailTexts(result.messages)).toEqual([
+      "<memory>\nre-injected sections\n</memory>",
+      "tool result",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBe("re-injected sections");
+    expect(commits).toBe(0);
+  });
+
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {
     // No injector named memory-v3 at all (e.g. plugin not loaded): the
     // suppression branch keys off the produced block, so nothing is stripped.
