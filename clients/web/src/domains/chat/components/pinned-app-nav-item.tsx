@@ -1,6 +1,8 @@
 import { PinOff, Rocket } from "lucide-react";
+import { useMemo } from "react";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
+
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
@@ -40,16 +42,16 @@ export interface PinnedAppNavItemProps {
  * most: it has no hover button and nothing to swipe, so the menu is its only
  * route to an unpin, reached by right click or by long press.
  *
- * On touch, the expanded row additionally reveals an Unpin button on a left
- * swipe. The tile omits that: it has nowhere to swipe to, and the actions a
- * swipe reveals are sized for a full-width row.
+ * The expanded row carries an unpin button on its trailing edge, revealed with
+ * the row where the device can hover and standing there where it cannot. The
+ * row has one command, so hiding it would leave a screen reader and a switch
+ * control nothing to announce, and a long press is not a control anything can
+ * name.
  *
- * A third path on the expanded row: an unpin button on its trailing edge,
- * revealed with the row where the device can hover and standing there where it
- * cannot. The row has one command, so hiding it would leave a screen reader and
- * a switch control nothing to announce: a swipe's buttons are outside the
- * accessibility tree until the swipe reveals them, and neither a swipe nor a
- * long press is a control anything can name.
+ * On touch the expanded pill also swipes: a swipe left slides it aside and
+ * reveals the unpin behind it, in the pill's own size and shape, the way a
+ * list cell reveals its actions. The wrapper takes the pill's `w-fit
+ * rounded-full`, so nothing wider than the pill is ever painted.
  */
 export function PinnedAppNavItem({
   app,
@@ -71,6 +73,21 @@ export function PinnedAppNavItem({
      property resolves on the element that declares it, so one mechanism
      covers both shapes. */
   const tintStyle = pinTintStyle(app.pinColor);
+
+  /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
+     array each render would re-mint them each render. */
+  const trailingActions = useMemo<SwipeAction[]>(
+    () => [
+      {
+        id: "unpin",
+        label: t("pinnedAppNavItem.unpin"),
+        icon: PinOff,
+        variant: "destructive",
+        onSelect: () => onUnpin(app.id),
+      },
+    ],
+    [app.id, onUnpin, t],
+  );
 
   const sideMenuItem = (
     <SideMenu.Item
@@ -164,22 +181,13 @@ export function PinnedAppNavItem({
     />
   );
 
-  /* Ungated: `SwipeActionReveal` arms the gesture only where a swipe is the
-     input, and passes through untouched everywhere else. */
-  const trailingActions: SwipeAction[] = [
-    {
-      id: "unpin",
-      label: t("pinnedAppNavItem.unpin"),
-      icon: PinOff,
-      variant: "destructive",
-      onSelect: () => onUnpin(app.id),
-    },
-  ];
-
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger>
-        <SwipeActionReveal trailingActions={trailingActions}>
+        <SwipeActionReveal
+          className="w-fit rounded-full"
+          trailingActions={trailingActions}
+        >
           {item}
         </SwipeActionReveal>
       </ContextMenu.Trigger>

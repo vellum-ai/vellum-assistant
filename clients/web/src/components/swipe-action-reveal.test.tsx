@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fireEvent, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ACTION_WIDTH_PX } from "@/hooks/use-swipe-to-reveal";
@@ -49,40 +50,139 @@ describe("SwipeActionReveal", () => {
     expect(html).toContain("Test");
   });
 
-  test("the content layer takes its opaque fill from the surface it sits on", () => {
+  test("each action layer is the item's whole box, in the item's shape", () => {
     const html = renderToStaticMarkup(
-      <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
+      <SwipeActionReveal
+        enabled={true}
+        leadingActions={[{ ...noopAction, id: "pin", label: "Pin" }]}
+        trailingActions={[{ ...noopAction, id: "archive", label: "Archive" }]}
+      >
         <div>Row content</div>
       </SwipeActionReveal>,
     );
-    // The layer hides the actions until a swipe reveals them, so it can never
-    // be transparent. Reading `--swipe-reveal-bg` is what lets a host that
-    // rests its rows on something other than the panel surface (the sidebar's
-    // section card) hand down its own fill instead of banding every row.
-    expect(html).toContain(
-      "bg-[var(--swipe-reveal-bg,var(--surface-overlay))]",
-    );
+
+    // A layer is the same size as the item it sits behind, so what the item
+    // uncovers as it slides is the layer's own end. Found by the action each
+    // one holds.
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    for (const label of ["Pin", "Archive"]) {
+      const layer = host.querySelector(
+        `button[aria-label="${label}"]`,
+      )!.parentElement!;
+      expect(layer.className).toContain("inset-0");
+      // Hidden at rest: painted under the item it would show at the item's
+      // edge, as a hairline around a pill and as corners past a rounded row.
+      expect(layer.style.visibility).toBe("hidden");
+    }
   });
 
-  test("the row a list lays out is not the element that clips", () => {
+  test("the revealed layer stays painted until the item has slid back", () => {
+    const { container, unmount } = render(
+      <SwipeActionReveal
+        enabled={true}
+        trailingActions={[{ ...noopAction, label: "Archive" }]}
+      >
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+    const row = container.querySelector<HTMLElement>(
+      "[data-swipe-action-row]",
+    )!;
+    const layer = container.querySelector(
+      'button[aria-label="Archive"]',
+    )!.parentElement!;
+    // The item is the last box in the clip box the layer sits in.
+    const item = layer.parentElement!.lastElementChild as HTMLElement;
+    const touch = (clientX: number) => [
+      { identifier: 1, clientX, clientY: 10 },
+    ];
+
+    expect(layer.style.visibility).toBe("hidden");
+
+    fireEvent.touchStart(row, { touches: touch(100) });
+    fireEvent.touchMove(row, { touches: touch(80) });
+    expect(layer.style.visibility).toBe("visible");
+
+    // Released short of the commit threshold, so the item slides back. The
+    // offset is zero at once; the layer holds until the slide has ended, or
+    // the box behind it would show for the length of the transition.
+    fireEvent.touchEnd(row, { touches: [], changedTouches: touch(80) });
+    expect(item.style.transform).toBe("translateX(0px)");
+    expect(layer.style.visibility).toBe("visible");
+
+    fireEvent.transitionEnd(item);
+    expect(layer.style.visibility).toBe("hidden");
+    unmount();
+  });
+
+  test("the content layer paints no fill of its own", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
         <div>Row content</div>
       </SwipeActionReveal>,
     );
 
-    // A flex or grid item whose overflow is not `visible` has its automatic
-    // minimum size resolved to zero rather than to its content, so a container
-    // that is out of room squashes it away entirely: to a border in a capped
-    // column, to nothing at all in a row. The root is what a list lays out, so
-    // the clip that hides the action layers has to sit inside it.
+    // A fill here is the row's full width whatever shape the row is, so it
+    // reads as a band behind any content that does not fill its box, such as
+    // a `w-fit` pill. The clip hides the actions, so there is nothing for a
+    // fill to cover and no surface for a host to name.
+    expect(html).not.toContain("--swipe-reveal-bg");
+    expect(html).not.toContain("--surface-overlay");
+  });
+
+  test("clips in its own shape, one box inside the root, and paints nothing", () => {
+    const html = renderToStaticMarkup(
+      <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
+        <div data-testid="content">Row content</div>
+      </SwipeActionReveal>,
+    );
+
+    // What slides past the item's edge is cut there, in the root's shape. The
+    // clip is not on the root itself: the root is the box a list lays out, and
+    // one that clips gives up its content-sized minimum. Nothing between the
+    // root and the item paints a fill, which would band a `w-fit` item.
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const root = host.firstElementChild!;
+    const clips: Element[] = [];
+    let node = host.querySelector('[data-testid="content"]')!.parentElement;
+    while (node && node !== root.parentElement) {
+      if (node.className.includes("overflow-hidden")) {
+        clips.push(node);
+      }
+      expect(node.className).not.toMatch(/(^|\s)bg-/);
+      expect(node.style.background).toBe("");
+      node = node.parentElement;
+    }
+    expect(clips).toHaveLength(1);
+    expect(clips[0]).not.toBe(root);
+    expect(clips[0]!.className).toContain("rounded-[inherit]");
+  });
+
+  test("keeps its mark when a parent hands the row a slot name", () => {
+    // What `ContextMenu.Trigger` does with `asChild`, which is how the
+    // pinned-app pill mounts: it clones the row and passes its own props down.
+    // A mark sharing the `data-slot` channel loses it to that name, and a row
+    // the drawer's swipe-to-close cannot see is one it fights for every
+    // horizontal drag.
+    const html = renderToStaticMarkup(
+      <SwipeActionReveal
+        enabled={true}
+        trailingActions={[noopAction]}
+        data-slot="context-menu-trigger"
+      >
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+
     const host = document.createElement("div");
     host.innerHTML = html;
     const root = host.firstElementChild;
 
-    expect(root?.getAttribute("data-slot")).toBe("swipe-action-row");
-    expect(root?.className).not.toContain("overflow-hidden");
-    expect(root?.firstElementChild?.className).toContain("overflow-hidden");
+    expect(root?.hasAttribute("data-swipe-action-row")).toBe(true);
+    // The parent keeps its own name too: nothing has to lose here.
+    expect(root?.getAttribute("data-slot")).toBe("context-menu-trigger");
   });
 
   test("renders leading and trailing action buttons", () => {
