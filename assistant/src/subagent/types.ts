@@ -121,6 +121,30 @@ export interface SubagentConfig {
    */
   spawnMode?: SubagentSpawnMode;
   /**
+   * Wall-clock ceiling on this child's run, measured from the moment its agent
+   * loop starts. On expiry the manager aborts the child and tells the parent it
+   * was stopped at its ceiling, so whatever it produced stays readable.
+   *
+   * Omitted for an ordinary spawn, which is bounded by the work it was asked to
+   * do and by the user's own stop. Set it for a child the caller wants held to
+   * a budget it cannot be trusted to keep itself: an open-ended objective on an
+   * expensive profile can otherwise run as long as the model keeps calling
+   * tools, with nothing in the loop to say when enough is enough.
+   */
+  maxRuntimeMs?: number;
+  /**
+   * Ceiling on the tool calls this child may start, counted off its own event
+   * stream. The budget is spent in full before the abort fires: the call that
+   * trips it is the one PAST the ceiling, so the child keeps every result
+   * inside the budget and loses only the call it was starting.
+   *
+   * Separate from {@link maxRuntimeMs} because they bound different failure
+   * shapes, and the parent is told which one stopped the child: a run that is
+   * slow and a run that is reading the whole codebase call for different
+   * follow-ups.
+   */
+  maxToolCalls?: number;
+  /**
    * When true, this subagent may run only the runtime's own read-only built-ins:
    * anything else, including a workspace/plugin/skill/MCP tool registered UNDER
    * a built-in's name, is kept off the model's tool surface and refused by the

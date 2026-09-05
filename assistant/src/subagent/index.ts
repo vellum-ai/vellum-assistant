@@ -1,6 +1,7 @@
 export {
   mergeSkillIds,
   SubagentAbortedError,
+  SubagentSpawnCancelledError,
   subagentStateFromRecord,
 } from "./manager.js";
 export type { SubagentRole } from "./types.js";

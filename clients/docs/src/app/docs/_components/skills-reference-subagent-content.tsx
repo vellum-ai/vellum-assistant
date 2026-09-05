@@ -225,7 +225,10 @@ export function SkillsReferenceSubagentContent() {
               back focused guidance. Your assistant keeps working while the
               advisor thinks and weighs the guidance in when it arrives, so a
               consult never stalls your conversation. It never changes anything,
-              and it cannot see your conversations.
+              and it cannot see your conversations. Because it runs on a more
+              capable model, it also runs to a fixed budget of a few lookups and
+              a few minutes, so a consult cannot quietly become an expensive
+              open-ended job.
             </li>
           </ul>
         </section>
