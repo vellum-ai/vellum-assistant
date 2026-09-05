@@ -2228,7 +2228,7 @@
     "offLabel": "关闭",
     "recordingPrompt": "按住修饰键…",
     "refusedNote": "无法监听该键。请重启应用后重试。",
-    "subtitle": "按住可在光标处听写或询问所选内容。连按两次可开始或结束通话。",
+    "subtitle": "按住可在光标处听写或询问所选内容。连按两次可开始或结束通话。按住并按 S 可共享屏幕，按 D 可在上面绘制。",
     "title": "语音键",
     "voiceOverNote": "Control 和 Option 是 VoiceOver 的修饰键。如果你使用 VoiceOver，其命令会优先占用这些键。"
   },

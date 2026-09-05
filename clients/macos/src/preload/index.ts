@@ -567,6 +567,9 @@ const bridge: VellumBridge = {
     setAnnotating: (annotating: boolean): void => {
       ipcRenderer.send("vellum:companion:setAnnotating", annotating);
     },
+    toggleAnnotating: (): void => {
+      ipcRenderer.send("vellum:companion:toggleAnnotating");
+    },
     annotateShare: (
       phase: CompanionAnnotationPhase,
       strokes: readonly CompanionAnnotationStroke[],

@@ -58,6 +58,18 @@ const release = (reason: "released" | "chord" = "released") => {
   });
 };
 
+/** A key the binding named, pressed inside the hold. */
+const chordOn = (key: string) => {
+  act(() => {
+    emitHotkeyEvent?.({
+      kind: "modifierHold",
+      state: "up",
+      reason: "chord",
+      chord: key,
+    });
+  });
+};
+
 const settle = async (ms: number) => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,23 +93,36 @@ const startedOver = async (
   return start.selection;
 };
 
-const renderKey = (key: VoiceKey = FN) => {
+const renderKey = (key: VoiceKey = FN, chordKeys?: readonly string[]) => {
   const onHoldStart = mock((_start: HoldStart) => {});
   const onHoldEnd = mock(() => {});
+  const onHoldCancel = mock(() => {});
   const onDoubleTap = mock(() => {});
+  const onChord = mock((_key: string) => {});
   const onRegistered = mock((_registered: boolean) => {});
   const view = renderHook(
     (props: { key: VoiceKey }) =>
       useVoiceKey({
         key: props.key,
+        ...(chordKeys === undefined ? {} : { chordKeys }),
         onHoldStart,
         onHoldEnd,
+        onHoldCancel,
         onDoubleTap,
+        onChord,
         onRegistered,
       }),
     { initialProps: { key } },
   );
-  return { onHoldStart, onHoldEnd, onDoubleTap, onRegistered, view };
+  return {
+    onHoldStart,
+    onHoldEnd,
+    onHoldCancel,
+    onDoubleTap,
+    onChord,
+    onRegistered,
+    view,
+  };
 };
 
 describe("the voice key", () => {
@@ -233,6 +258,7 @@ describe("the voice key", () => {
     expect(setModifierHold).toHaveBeenCalledWith({
       kind: "modifierOnly",
       modifiers: ["function"],
+      chordKeys: [],
     });
 
     act(() => {
@@ -250,6 +276,7 @@ describe("the voice key", () => {
     expect(setModifierHold).toHaveBeenLastCalledWith({
       kind: "modifierOnly",
       modifiers: ["control", "option"],
+      chordKeys: [],
     });
 
     view.rerender({ key: { kind: "off" } });
@@ -294,6 +321,93 @@ describe("the voice key", () => {
     });
     await settle(0);
     expect(requestSystemPermission).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The keys are named at registration, so the host knows which presses to
+   * report and, more to the point, which to take: it swallows one on the
+   * strength of the binding naming it.
+   */
+  test("registers the keys a chord may be made on", async () => {
+    renderKey(FN, ["s", "d"]);
+    await settle(0);
+
+    expect(setModifierHold).toHaveBeenLastCalledWith({
+      kind: "modifierOnly",
+      modifiers: ["function"],
+      chordKeys: ["s", "d"],
+    });
+  });
+
+  test("names no keys when the caller asked for none", async () => {
+    renderKey();
+    await settle(0);
+
+    expect(setModifierHold).toHaveBeenLastCalledWith({
+      kind: "modifierOnly",
+      modifiers: ["function"],
+      chordKeys: [],
+    });
+  });
+
+  test("reports a chord on a named key", async () => {
+    const { onChord, onHoldEnd } = renderKey(FN, ["s"]);
+
+    press();
+    await settle(HOLD_ARMING_MS / 4);
+    chordOn("s");
+
+    expect(onChord).toHaveBeenCalledWith("s");
+    expect(onHoldEnd).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A chord is often typed slowly enough to arm the hold first. The gesture
+   * still answers, and the microphone it opened on the way is closed with
+   * what it heard thrown away: the user was reaching for the second key.
+   */
+  test("a named chord after the hold arms cancels the dictation", async () => {
+    const { onChord, onHoldStart, onHoldEnd, onHoldCancel } = renderKey(FN, [
+      "s",
+    ]);
+
+    press();
+    await settle(HOLD_ARMING_MS + 30);
+    expect(onHoldStart).toHaveBeenCalledTimes(1);
+
+    chordOn("s");
+
+    expect(onHoldCancel).toHaveBeenCalledTimes(1);
+    expect(onHoldEnd).not.toHaveBeenCalled();
+    expect(onChord).toHaveBeenCalledWith("s");
+  });
+
+  /** Every other chord is a shortcut on its way to the app in front. */
+  test("says nothing about an unnamed chord", async () => {
+    const { onChord, onHoldCancel } = renderKey(FN, ["s"]);
+
+    press();
+    await settle(HOLD_ARMING_MS / 4);
+    release("chord");
+
+    expect(onChord).not.toHaveBeenCalled();
+    expect(onHoldCancel).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A chord is not a tap, so it cannot be half of a double one: the press
+   * before it was spent on the gesture.
+   */
+  test("a named chord does not pair with a tap into a call", async () => {
+    const { onChord, onDoubleTap } = renderKey(FN, ["s"]);
+
+    await tap();
+    press();
+    await settle(HOLD_ARMING_MS / 4);
+    chordOn("s");
+
+    expect(onChord).toHaveBeenCalledTimes(1);
+    expect(onDoubleTap).not.toHaveBeenCalled();
   });
 
   /** Edges from the other bindings are other features' business. */

@@ -406,6 +406,7 @@ declare global {
         listCaptureSources?(): Promise<CompanionCaptureSources>;
         setScreenShare?(pick?: CompanionCapturePick): void;
         setAnnotating?(annotating: boolean): void;
+        toggleAnnotating?(): void;
         annotateShare?(
           phase: CompanionAnnotationPhase,
           strokes: readonly CompanionAnnotationStroke[],

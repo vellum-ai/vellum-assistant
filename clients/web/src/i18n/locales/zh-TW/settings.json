@@ -2228,7 +2228,7 @@
     "offLabel": "關閉",
     "recordingPrompt": "按住修飾鍵…",
     "refusedNote": "無法監聽此鍵。請重新啟動 App 後再試一次。",
-    "subtitle": "按住可在游標處聽寫或詢問所選內容。連按兩次可開始或結束通話。",
+    "subtitle": "按住可在游標處聽寫或詢問所選內容。連按兩次可開始或結束通話。按住並按 S 可分享螢幕，按 D 可在上面繪製。",
     "title": "語音鍵",
     "voiceOverNote": "Control 和 Option 是 VoiceOver 的修飾鍵。如果你使用 VoiceOver，其指令會優先佔用這些鍵。"
   },

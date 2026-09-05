@@ -30,6 +30,10 @@ import {
   findRunningFnClaimant,
   type FnClaimant,
 } from "@/domains/chat/voice/fn-claimants";
+import {
+  handleVoiceKeyChord,
+  VOICE_KEY_CHORD_KEYS,
+} from "@/domains/chat/voice/voice-key-chords";
 import { useVoiceKey } from "@/domains/chat/voice/use-voice-key";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import {
@@ -382,10 +386,29 @@ export function GlobalPushToTalkBridge({
         armDictationOfferWatch();
       }
     },
+    onHoldCancel: () => {
+      markHoldDictation(false);
+      if (useVoiceRecordingStore.getState().phase !== "recording") {
+        return;
+      }
+      // Everything the hold set up goes with the words: the selection it was
+      // made over describes a transcript there will not be, and no offer can
+      // stand on an edit that was never made.
+      holdSelectionRef.current = null;
+      holdClaimantRef.current = null;
+      holdFrontAppRef.current = null;
+      holdTarget()?.cancel();
+    },
     onDoubleTap: () => {
       toggleVoiceFromSurface(
         (to, options) => navigateRef.current(to, options),
         "voice_key",
+      );
+    },
+    chordKeys: VOICE_KEY_CHORD_KEYS,
+    onChord: (key) => {
+      handleVoiceKeyChord(key, (to, options) =>
+        navigateRef.current(to, options),
       );
     },
   });

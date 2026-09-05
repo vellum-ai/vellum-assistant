@@ -517,6 +517,68 @@ describe("installHotkeyHelper", () => {
     );
   });
 
+  /**
+   * The keys the binding wants named travel with it. The helper takes a press
+   * of one rather than passing it on, so a registration that dropped them
+   * would leave the gesture typing a letter into the app in front.
+   */
+  test("carries the keys a chord may be named on", async () => {
+    installHotkeyHelper();
+    const pending = invokeSetModifierHold({
+      kind: "modifierOnly",
+      modifiers: ["function"],
+      chordKeys: ["s", "d"],
+    });
+    await wait(5);
+
+    expect(lastChild?.stdin.writes[0]).toContain('"chordKeys":["s","d"]');
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
+    );
+    expect(await pending).toEqual({ ok: true, enabled: true });
+  });
+
+  /**
+   * A binding that names no keys is every hold before these gestures: a key
+   * going down closes it, and which one is never asked.
+   */
+  test("names no keys when the binding asked for none", async () => {
+    installHotkeyHelper();
+    const pending = invokeSetModifierHold();
+    await wait(5);
+
+    expect(lastChild?.stdin.writes[0]).toContain('"chordKeys":[]');
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
+    );
+    expect(await pending).toEqual({ ok: true, enabled: true });
+  });
+
+  /**
+   * Which key made the chord, for the two the binding named. Every other
+   * chord arrives as it always has, saying only that one happened.
+   */
+  test("carries the key a named chord was made on", async () => {
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"up","reason":"chord","chord":"s"}}\n',
+      ),
+    );
+
+    expect(defaultSender.send).toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      { kind: "modifierHold", state: "up", reason: "chord", chord: "s" },
+    );
+  });
+
   test("carries the reason a hold closed through to the owner", async () => {
     installHotkeyHelper();
     expect(await registerHold()).toEqual({ ok: true, enabled: true });

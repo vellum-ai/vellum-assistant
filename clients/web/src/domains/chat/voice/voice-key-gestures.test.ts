@@ -58,12 +58,23 @@ function setup() {
   const press = () => classifier.feed({ state: "down" });
   const release = () => classifier.feed({ state: "up", reason: "released" });
   const chord = () => classifier.feed({ state: "up", reason: "chord" });
+  const namedChord = (key: string) =>
+    classifier.feed({ state: "up", reason: "chord", chord: key });
   const tap = () => {
     press();
     clock.advance(HOLD_ARMING_MS / 4);
     release();
   };
-  return { clock, gestures, classifier, press, release, chord, tap };
+  return {
+    clock,
+    gestures,
+    classifier,
+    press,
+    release,
+    chord,
+    namedChord,
+    tap,
+  };
 }
 
 describe("voice key gestures", () => {
@@ -231,5 +242,95 @@ describe("voice key gestures", () => {
     release();
 
     expect(gestures).toEqual(["holdStart", "holdEnd"]);
+  });
+
+  /**
+   * The keys this app asked the host to name, and which the host takes on
+   * that understanding: the gesture has to answer, or the press vanishes
+   * having done nothing at all.
+   */
+  test("a chord on a named key is a gesture of its own", () => {
+    const { clock, gestures, press, namedChord } = setup();
+
+    press();
+    clock.advance(HOLD_ARMING_MS / 4);
+    namedChord("s");
+
+    expect(gestures).toEqual(["chord"]);
+  });
+
+  /**
+   * A chord is often typed slowly enough to arm a hold on the way. The
+   * gesture answers anyway, and the microphone it opened is closed with what
+   * it heard thrown away rather than typed somewhere.
+   */
+  test("a named chord after the hold arms cancels it rather than ending it", () => {
+    const { clock, gestures, press, namedChord } = setup();
+
+    press();
+    clock.advance(HOLD_ARMING_MS);
+    expect(gestures).toEqual(["holdStart"]);
+
+    namedChord("s");
+
+    expect(gestures).toEqual(["holdStart", "holdCancel", "chord"]);
+  });
+
+  test("carries which key the chord was made on", () => {
+    const clock = makeClock();
+    const seen: VoiceKeyGesture[] = [];
+    const classifier = createVoiceKeyGestureClassifier({
+      onGesture: (gesture) => seen.push(gesture),
+      now: clock.now,
+      setTimeout: clock.setTimeout,
+      clearTimeout: clock.clearTimeout,
+    });
+
+    classifier.feed({ state: "down" });
+    clock.advance(HOLD_ARMING_MS / 4);
+    classifier.feed({ state: "up", reason: "chord", chord: "d" });
+
+    expect(seen).toEqual([{ kind: "chord", key: "d" }]);
+  });
+
+  /** Every unnamed chord is still a shortcut on its way to the front app. */
+  test("an unnamed chord is still nothing", () => {
+    const { clock, gestures, press, chord } = setup();
+
+    press();
+    clock.advance(HOLD_ARMING_MS / 4);
+    chord();
+
+    expect(gestures).toEqual([]);
+  });
+
+  /**
+   * The press before a chord was spent on the gesture, so it cannot also be
+   * half of a double tap: a call would open on the way past.
+   */
+  test("a named chord cannot be half of a double tap", () => {
+    const { clock, gestures, press, namedChord, tap } = setup();
+
+    tap();
+    clock.advance(DOUBLE_TAP_GAP_MS / 2);
+    press();
+    clock.advance(HOLD_ARMING_MS / 4);
+    namedChord("s");
+
+    expect(gestures).toEqual(["chord"]);
+  });
+
+  test("a tap after a named chord starts a fresh pair", () => {
+    const { clock, gestures, press, namedChord, tap } = setup();
+
+    press();
+    clock.advance(HOLD_ARMING_MS / 4);
+    namedChord("s");
+    clock.advance(DOUBLE_TAP_GAP_MS / 2);
+    tap();
+    clock.advance(DOUBLE_TAP_GAP_MS / 2);
+    tap();
+
+    expect(gestures).toEqual(["chord", "doubleTap"]);
   });
 });

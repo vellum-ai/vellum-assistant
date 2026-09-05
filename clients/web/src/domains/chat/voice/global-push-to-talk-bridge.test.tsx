@@ -34,6 +34,7 @@ type DictationCall = {
 const dictationCalls: DictationCall[] = [];
 let overlayStopCallback: (() => void) | null = null;
 const voiceStopMock = mock(() => undefined);
+const voiceCancelMock = mock(() => undefined);
 const voiceStartMock = mock(() => true);
 type ToastErrorOptions = { id?: string };
 const toastErrorMock = mock(
@@ -46,6 +47,7 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
     useImperativeHandle(ref, () => ({
       start: voiceStartMock,
       stop: voiceStopMock,
+      cancel: voiceCancelMock,
     }));
     return null;
   }),
@@ -57,7 +59,10 @@ type HoldStart = {
 let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
   onHoldEnd: () => void;
+  onHoldCancel: () => void;
   onDoubleTap: () => void;
+  onChord: (key: string) => void;
+  chordKeys: readonly string[];
 } | null = null;
 mock.module("@/domains/chat/voice/use-voice-key", () => ({
   useVoiceKey: (options: {
@@ -65,7 +70,10 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
       selection: Promise<HoldStart["selection"]>;
     }) => void;
     onHoldEnd: () => void;
+    onHoldCancel: () => void;
     onDoubleTap: () => void;
+    onChord?: (key: string) => void;
+    chordKeys?: readonly string[];
   }) => {
     // The hook hands the bridge a selection still being read; the tests
     // describe what it will resolve to.
@@ -73,8 +81,19 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
       onHoldStart: (start) =>
         options.onHoldStart({ selection: Promise.resolve(start.selection) }),
       onHoldEnd: options.onHoldEnd,
+      onHoldCancel: options.onHoldCancel,
       onDoubleTap: options.onDoubleTap,
+      onChord: (key) => options.onChord?.(key),
+      chordKeys: options.chordKeys ?? [],
     };
+  },
+}));
+
+const handledChords: string[] = [];
+mock.module("@/domains/chat/voice/voice-key-chords", () => ({
+  VOICE_KEY_CHORD_KEYS: ["s", "d"],
+  handleVoiceKeyChord: (key: string) => {
+    handledChords.push(key);
   },
 }));
 
@@ -209,7 +228,9 @@ afterEach(() => {
   latestVoiceInputProps = null;
   overlayStopCallback = null;
   voiceStopMock.mockClear();
+  voiceCancelMock.mockClear();
   voiceStartMock.mockClear();
+  handledChords.length = 0;
   voiceStartMock.mockReturnValue(true);
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
@@ -234,6 +255,58 @@ afterEach(() => {
 });
 
 describe("GlobalPushToTalkBridge", () => {
+  /**
+   * The keys the host is asked to name are the ones it takes, so the two
+   * lists cannot drift: a key named here and acted on nowhere is a press
+   * swallowed for nothing.
+   */
+  test("names the keys its chords are made on", () => {
+    renderBridge();
+
+    expect(holdHandlers?.chordKeys).toEqual(["s", "d"]);
+  });
+
+  test("acts on a chord the host named", () => {
+    renderBridge();
+
+    act(() => {
+      holdHandlers?.onChord("s");
+    });
+
+    expect(handledChords).toEqual(["s"]);
+  });
+
+  /**
+   * A chord typed slowly enough to arm the hold takes the microphone down
+   * with it, and what those few hundred milliseconds heard goes nowhere: the
+   * user was reaching for the second key, not dictating into their document.
+   */
+  test("a chord that interrupts a hold throws the words away", () => {
+    renderBridge();
+    useVoiceRecordingStore.getState().startRecording({ hold: true });
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    act(() => {
+      holdHandlers?.onHoldCancel();
+    });
+
+    expect(voiceCancelMock).toHaveBeenCalledTimes(1);
+    expect(voiceStopMock).not.toHaveBeenCalled();
+  });
+
+  /** Nothing to cancel is nothing to do, rather than a stray teardown. */
+  test("a chord with no recording running cancels nothing", () => {
+    renderBridge();
+
+    act(() => {
+      holdHandlers?.onHoldCancel();
+    });
+
+    expect(voiceCancelMock).not.toHaveBeenCalled();
+  });
+
   test("inserts the cleaned final transcript into the front app", async () => {
     nextTextInsertionStatus = "inserted";
     nextDictationResult = { mode: "dictation", text: "cleaned global text" };

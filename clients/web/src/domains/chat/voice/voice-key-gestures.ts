@@ -22,7 +22,9 @@ export const DOUBLE_TAP_GAP_MS = 300;
 export type VoiceKeyGesture =
   | { kind: "holdStart" }
   | { kind: "holdEnd" }
-  | { kind: "doubleTap" };
+  | { kind: "holdCancel" }
+  | { kind: "doubleTap" }
+  | { kind: "chord"; key: string };
 
 /** One edge of the key, as the host's hold detector reports it. */
 export interface VoiceKeyEdge {
@@ -33,6 +35,11 @@ export interface VoiceKeyEdge {
    * toward a double tap, which such a host cannot tell apart anyway.
    */
   reason?: ModifierHoldUpReason;
+  /**
+   * Which key made the chord, when it is one this app asked the host to name.
+   * Absent from every other chord, and from every host that cannot name one.
+   */
+  chord?: string;
 }
 
 export interface VoiceKeyGestureClassifierOptions {
@@ -55,7 +62,8 @@ export interface VoiceKeyGestureClassifier {
 }
 
 /**
- * Reads the key's edges as gestures: a hold, or a double tap.
+ * Reads the key's edges as gestures: a hold, a double tap, or a chord on one
+ * of the keys this app asked the host to name.
  *
  * A hold starts once the key has been down for {@link HOLD_ARMING_MS} and ends
  * when it comes up. A press released before that is a tap, provided the key
@@ -64,6 +72,11 @@ export interface VoiceKeyGestureClassifier {
  * with the second press inside {@link DOUBLE_TAP_GAP_MS} of the first release
  * are a double tap, reported on the second release so that a second press that
  * turns into a hold or a chord is read as that instead.
+ *
+ * A chord on a *named* key is the exception to that: the host reports which
+ * key it was precisely because this app asked it to, and takes the press so
+ * it lands nowhere else. It is a gesture of its own, and it takes the hold it
+ * interrupted down with it rather than ending it.
  *
  * A single tap is deliberately nothing. The key is the user's before it is
  * ours, and macOS runs its own answer to a tap of Fn; leaving that alone is
@@ -120,6 +133,24 @@ export function createVoiceKeyGestureClassifier({
     }
     pressed = false;
     cancelArming();
+    // A named key is one of this app's own gestures, and the host has already
+    // taken the press on that understanding. So it is answered whether or not
+    // the hold had armed by the time it landed: a chord is often typed slowly
+    // enough to arm one, and a gesture that only worked from a fast hand
+    // would be a gesture that sometimes dictated instead.
+    //
+    // What the hold it interrupts is owed is a *cancel* rather than an end.
+    // The user was reaching for the second key, not dictating, and what those
+    // few hundred milliseconds heard belongs nowhere.
+    if (edge.chord !== undefined) {
+      secondOfPair = false;
+      if (holding) {
+        holding = false;
+        onGesture({ kind: "holdCancel" });
+      }
+      onGesture({ kind: "chord", key: edge.chord });
+      return;
+    }
     if (holding) {
       holding = false;
       onGesture({ kind: "holdEnd" });

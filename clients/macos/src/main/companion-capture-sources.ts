@@ -226,6 +226,13 @@ export interface CaptureSourceDeps {
    */
   listWindows: (includeOffscreen?: boolean) => Promise<HelperWindow[]>;
   listDisplays: () => CaptureDisplay[];
+  /**
+   * The display the pointer is on, which is what a gesture made from the
+   * keyboard means by "this screen". Never null in practice: every point on
+   * the desktop is on some display, and a pointer between two arrangements is
+   * nearest one of them.
+   */
+  pointerDisplayId: () => number;
   listChromeTabs: () => Promise<ChromeTab[]>;
   /**
    * Show the tab and bring its window forward; resolves to where Chrome says
@@ -282,6 +289,8 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
       primary: display.id === primaryId,
     }));
   },
+  pointerDisplayId: () =>
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
   listChromeTabs: async () =>
     parseChromeTabs(await runAppleScript(LIST_CHROME_TABS_SCRIPT)),
   activateChromeTab: async (chromeWindowId, tabIndex) =>
@@ -532,6 +541,9 @@ export async function resolveCapturePick(
 ): Promise<WatchCaptureTarget | null> {
   if (pick.kind === "display") {
     return { kind: "display", displayId: pick.displayId };
+  }
+  if (pick.kind === "pointerDisplay") {
+    return { kind: "display", displayId: deps.pointerDisplayId() };
   }
   if (pick.kind === "window") {
     await bringForward(pick.windowId, deps);

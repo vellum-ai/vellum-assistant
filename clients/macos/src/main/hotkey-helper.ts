@@ -76,6 +76,9 @@ const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.literal("modifierHold"),
   state: z.enum(["down", "up"]),
   reason: z.enum(["released", "chord", "cancelled"]).optional(),
+  // Only the keys the binding named come back named; everything else the
+  // helper sees stays a chord and nothing more.
+  chord: z.string().optional(),
 });
 
 const FRONT_SELECTION_SCHEMA = z.object({
@@ -224,7 +227,11 @@ const sendModifierHold = async (
       "hotkey.modifierHold",
       hold.kind === "off"
         ? { enable: false }
-        : { enable: true, modifiers: hold.modifiers },
+        : {
+            enable: true,
+            modifiers: hold.modifiers,
+            chordKeys: hold.chordKeys ?? [],
+          },
     );
     const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
     if (!parsed.success) {
@@ -490,6 +497,11 @@ const MODIFIER_HOLD_SCHEMA = z.discriminatedUnion("kind", [
     modifiers: z
       .array(z.enum(["function", "control", "shift", "option", "command"]))
       .min(1),
+    // Single characters, since a key is named by what it produces and the
+    // helper matches one against the key event's own string. Bounded so a
+    // binding cannot ask the helper to take an arbitrary share of the
+    // keyboard.
+    chordKeys: z.array(z.string().length(1)).max(8).optional(),
   }),
 ]);
 
