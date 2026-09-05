@@ -13,7 +13,6 @@ import {
 } from "../plugins/defaults/memory/tools.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { reactToMessageTool } from "./channel/react-to-message.js";
-import { computerUsePointAtTool } from "./computer-use/point-at.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
@@ -78,5 +77,4 @@ export const explicitTools: ToolDefinition[] = [
   uiUpdateTool,
   uiDismissTool,
   watchRetroReportTool,
-  computerUsePointAtTool,
 ];
