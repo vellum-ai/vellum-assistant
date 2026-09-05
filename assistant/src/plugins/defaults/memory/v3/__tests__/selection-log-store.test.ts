@@ -33,6 +33,7 @@ import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migra
 import { ensureMemoryV3PoolsSchema } from "../../../../../persistence/migrations/377-add-memory-v3-pools.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { PoolCandidateRecord, PoolLane } from "../pool-log-store.js";
+import { type Section, sectionKey } from "../types.js";
 
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
@@ -41,6 +42,7 @@ const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
 const realPageContent = { ...(await import("../page-content.js")) };
+const realPageStore = { ...(await import("../../substrate/page-store.js")) };
 
 let storeMockActive = false;
 let liveEnabled = false;
@@ -168,16 +170,29 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDb.getMemorySqlite(),
 }));
 
+// Bodies of the pages the inspector reconstructs matched sections from; a
+// slug with no entry reads from disk, where this unit's pages do not exist.
+const pageBodies = new Map<string, string>();
+mock.module("../../substrate/page-store.js", () => ({
+  ...realPageStore,
+  readPage: async (workspaceDir: string, slug: string) =>
+    storeMockActive && pageBodies.has(slug)
+      ? ({ body: pageBodies.get(slug)! } as unknown as Awaited<
+          ReturnType<typeof realPageStore.readPage>
+        >)
+      : realPageStore.readPage(workspaceDir, slug),
+}));
+
 mock.module("../page-content.js", () => ({
   ...realPageContent,
-  // The inspector store reconstructs each selection's matched section from the
-  // current page; in this unit the test pages don't exist on disk, so the
-  // section map is empty and the renderer falls back to the lead. The mock
-  // stands in for that render and reflects whether a section was supplied.
-  renderV3InjectionEntry: async (slug: string, section?: { title: string }) =>
+  // The inspector store reconstructs each selection's matched section from
+  // the current page and renders that section, or the lead when the row
+  // resolved to none. The mock stands in for that render and names the
+  // section it was handed by key, so a repeat or chunk is told apart.
+  renderV3InjectionEntry: async (slug: string, section?: Section) =>
     storeMockActive
       ? section
-        ? `# memory/concepts/${slug}.md § ${section.title}\nsection[${section.title}] for ${slug}`
+        ? `# memory/concepts/${slug}.md § ${sectionKey(section)}\nsection[${sectionKey(section)}] for ${slug}`
         : `# memory/concepts/${slug}.md\nbody for ${slug}`
       : realPageContent.renderV3InjectionEntry(slug, undefined),
 }));
@@ -198,6 +213,7 @@ beforeEach(() => {
   // The inspector's `live` flag comes from `isMemoryV3Live(getConfig())`,
   // which reads `memory.v3.live` — seed it for real.
   setConfig("memory", { v3: { live: false } });
+  pageBodies.clear();
   testDb = makeDb();
 });
 
@@ -713,5 +729,136 @@ describe("summarizeSelections", () => {
     // But the turn and both distinct slugs are still reflected.
     expect(summary.turns).toBe(1);
     expect(summary.distinctSlugs).toBe(2);
+  });
+});
+
+describe("matched-section reconstruction", () => {
+  const page = [
+    "Lead.",
+    "",
+    "## Heading A",
+    "",
+    "Body A.",
+    "",
+    "## Heading B",
+    "",
+    "Body B.",
+  ].join("\n");
+
+  test("a recorded section resolves by its title first, so a page re-chunked since the turn still renders the section that was injected", async () => {
+    // At the turn, "Heading A" sat at ordinal 2; the page has since been
+    // edited and "Heading B" holds that ordinal.
+    pageBodies.set("domain-a/page-1", page);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Heading A",
+        },
+      ],
+      "msg-r-1",
+    );
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-r-1"]);
+    expect(log?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
+    expect(log?.injectedText).not.toContain("Heading B");
+  });
+
+  test("the ordinal picks among repeats of the title while it still points at one; otherwise the first occurrence", async () => {
+    pageBodies.set(
+      "domain-a/page-1",
+      [
+        "Lead.",
+        "",
+        "## Notes",
+        "",
+        "First.",
+        "",
+        "## Notes",
+        "",
+        "Second.",
+      ].join("\n"),
+    );
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+        },
+      ],
+      "msg-r-2",
+    );
+    seed(
+      "conv-r",
+      1,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 7,
+          sectionTitle: "Notes",
+        },
+      ],
+      "msg-r-3",
+    );
+
+    const pointed = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-2",
+    ]);
+    expect(pointed?.injectedText).toContain(
+      "section[Notes#1] for domain-a/page-1",
+    );
+    const drifted = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-3",
+    ]);
+    expect(drifted?.injectedText).toContain(
+      "section[Notes] for domain-a/page-1",
+    );
+    expect(drifted?.injectedText).not.toContain("Notes#1");
+  });
+
+  test("a title no longer on the page renders the lead; a row recorded without a title falls back to its ordinal", async () => {
+    pageBodies.set("domain-a/page-1", page);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 1,
+          sectionTitle: "Gone",
+        },
+      ],
+      "msg-r-4",
+    );
+    seed(
+      "conv-r",
+      1,
+      [{ slug: "domain-a/page-1", source: "needle", sectionOrdinal: 1 }],
+      "msg-r-5",
+    );
+
+    const gone = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-4",
+    ]);
+    expect(gone?.injectedText).toContain("body for domain-a/page-1");
+    expect(gone?.injectedText).not.toContain("section[");
+    const untitled = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-5",
+    ]);
+    expect(untitled?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
   });
 });

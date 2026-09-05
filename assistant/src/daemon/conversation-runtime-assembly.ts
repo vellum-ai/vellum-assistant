@@ -61,6 +61,11 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  getKnownCardBytes,
+  getPrunedSections,
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { stripPrunedSectionsFromMessages } from "../plugins/defaults/memory/v3/prune.js";
+import {
   markV3LiveBlock,
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
@@ -2587,7 +2592,7 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: tail pointer strip + v2 tail suppression ──
+  // ── Step 0: tail pointer strip + tombstone strip + v2 tail suppression ──
   //
   // Pointer strip (tail only): mid-turn re-entry and post-compact can hand
   // back a tail that already carries this turn's `<memory_pointer>`. Strip
@@ -2602,6 +2607,28 @@ export async function applyRuntimeInjections(
     MEMORY_POINTER_MATCHER,
     LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   ]);
+
+  // Tombstone strip (v3-owned blocks, every turn): the prune valve strips
+  // the sections it tombstones from the live history it is handed, but it
+  // runs on a timer while the turn that scheduled it may still be in
+  // flight, against a history that turn's block has not folded back into.
+  // A section pruned on the turn that injected it therefore rides back in
+  // untouched, and the valve does not run again while the footprint stays
+  // under the cap. Applying the store's full tombstone set (with the
+  // newest-copy rule) to the owned blocks here, the filter rehydration
+  // applies on load, converges the live history to the store by the next
+  // assembly whenever the valve ran. In place on the shared message
+  // objects, so the fold-back keeps it; idempotent and a no-op below the
+  // cap. Ownership is by identity (`isV3LiveBlock`), so v2 blocks and
+  // pre-cutover blocks are never touched.
+  const memoryV3Live = isMemoryV3Live(getConfig());
+  if (memoryV3Live) {
+    stripPrunedSectionsFromMessages(
+      runMessagesForAssembly,
+      getPrunedSections(conversationId),
+      getKnownCardBytes(conversationId),
+    );
+  }
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2622,9 +2649,8 @@ export async function applyRuntimeInjections(
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
   // see no change. Flag off → bit-for-bit identical to the v2 path.
-  const suppressV2MemoryForV3 = isMemoryV3Live(getConfig());
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
-  const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
+  const memoryV3Active = memoryV3Live && v3ProducedBlock;
   if (memoryV3Active) {
     const v2DynamicText =
       getLiveGraphMemory(conversationId)?.lastInjectedBlockText ?? null;

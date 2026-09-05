@@ -333,23 +333,27 @@ function recordedInStore(
   inner: string,
   candidates: Boundary[],
   i: number,
-  options: ParseInjectedSectionsOptions,
+  cardBytes: ReadonlyMap<string, number> | undefined,
 ): boolean {
   const ref = candidates[i]!.ref;
   if (ref.kind === "section") {
     return (
-      recordedSpanEnd(
-        inner,
-        candidates,
-        i,
-        options.knownCardBytes?.get(ref.slug) ?? 0,
-      ) !== undefined
+      recordedSpanEnd(inner, candidates, i, cardBytes?.get(ref.slug) ?? 0) !==
+      undefined
     );
   }
   if (ref.kind === "capability") {
-    return options.knownCardBytes?.has(capabilitySlugOf(ref)) ?? false;
+    return cardBytes?.has(capabilitySlugOf(ref)) ?? false;
   }
   return false;
+}
+
+/** Whether any line of the block carries the escape {@link escapeInjectedBody}
+ *  adds: evidence the block was rendered by this build. */
+function hasEscapedGrammarLine(inner: string): boolean {
+  return inner
+    .split("\n")
+    .some((line) => line.startsWith(BODY_ESCAPE) && isEscapableLine(line));
 }
 
 /** The end (a later candidate's index, or the block's end) at which the span
@@ -400,15 +404,16 @@ export interface ParseInjectedSectionsOptions {
    *  entries (`skills/<id>`, `cli-commands/<name>`) are recorded at zero. For
    *  a card frozen before body escaping the length is the exact UTF-8 length
    *  that build's injector measured for the whole card, which migration 378
-   *  carried over. Inside such a card, a concept header on a seam that the
-   *  card shape reads as text is a boundary after all when the span from it
-   *  to a later candidate header (block joiner excluded) has exactly its
-   *  slug's recorded bytes, and a `# Skill: ` / `# CLI command: ` line the
-   *  shape reads as text is a chunk boundary after all when the capability
-   *  slug it names is a recorded key (membership, their bytes being zero).
-   *  An unrecorded or zero page entry leaves the shape's verdict, never a
-   *  bare slug-membership one. Omitted (no conversation at hand): the card
-   *  shape alone decides. */
+   *  carried over. Consulted only for a block with no current-format
+   *  evidence (no `§` section header, no escaped grammar line). Inside such
+   *  a card, a concept header on a seam that the card shape reads as text is
+   *  a boundary after all when the span from it to a later candidate header
+   *  (block joiner excluded) has exactly its slug's recorded bytes, and a
+   *  `# Skill: ` / `# CLI command: ` line the shape reads as text is a chunk
+   *  boundary after all when the capability slug it names is a recorded key
+   *  (membership, their bytes being zero). An unrecorded or zero page entry
+   *  leaves the shape's verdict, never a bare slug-membership one. Omitted
+   *  (no conversation at hand): the card shape alone decides. */
   knownCardBytes?: ReadonlyMap<string, number>;
 }
 
@@ -452,8 +457,11 @@ export interface ParseInjectedSectionsOptions {
  * the next boundary, so a sectionless card (which has no TOC line for the
  * shape to close on) still holds its lead together; the shape rule is the
  * fallback for an open card with no recorded length, and a capability chunk
- * (recorded at zero) has no derivable extent and keeps it. Current blocks
- * escape every grammar-shaped line, so none of this applies to them.
+ * (recorded at zero) has no derivable extent and keeps it. Frozen lengths
+ * are consulted only in a block with no current-format evidence (no `§`
+ * section header, no escaped grammar line), since they describe cards frozen
+ * before either existed. Current blocks escape every grammar-shaped line, so
+ * none of this applies to them.
  */
 export function parseInjectedSections(
   inner: string,
@@ -484,6 +492,18 @@ export function parseInjectedSections(
   }
   candidates.sort((a, b) => a.index - b.index);
 
+  // Frozen card lengths describe cards frozen before sections and escaping
+  // existed, so they apply only to a block carrying no current-format
+  // evidence: no `§` section header and no escaped grammar line. A current
+  // block whose re-injected lead plus following chunks happened to measure
+  // the old card length would otherwise fold those chunks into the lead.
+  const cardBytes =
+    candidates.some(
+      (candidate) =>
+        candidate.ref.kind === "section" && candidate.ref.key.length > 0,
+    ) || hasEscapedGrammarLine(inner)
+      ? undefined
+      : options.knownCardBytes;
   const boundaries: Boundary[] = [];
   // The exact end of the open card when its slug's frozen length is on
   // record: the header through that many bytes, measured as the injector
@@ -517,7 +537,7 @@ export function parseInjectedSections(
         );
       if (
         shapeReadsAsCardText &&
-        !recordedInStore(inner, candidates, i, options)
+        !recordedInStore(inner, candidates, i, cardBytes)
       ) {
         continue;
       }
@@ -529,7 +549,7 @@ export function parseInjectedSections(
             inner,
             candidates,
             i,
-            options.knownCardBytes?.get(ref.slug) ?? 0,
+            cardBytes?.get(ref.slug) ?? 0,
           ) ?? null)
         : null;
   }

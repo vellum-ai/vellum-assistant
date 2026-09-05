@@ -536,6 +536,50 @@ describe("parseInjectedSections: cards frozen before body escaping", () => {
     }
   });
 
+  test("a frozen length never applies inside a block carrying a § section header: a re-injected lead and its chunks measuring the old card length stay separate", () => {
+    const lead = `${injectedSectionHeader("topics/page-a", "")}\nlead prose`;
+    const chunkOne = `${injectedSectionHeader("topics/page-a", "Notes")}\nfirst chunk`;
+    const chunkTwo = `${injectedSectionHeader("topics/page-a", "Notes~1")}\nsecond chunk`;
+    const inner = [preamble, lead, chunkOne, chunkTwo].join("\n\n");
+    // The conversation recorded page-a's whole pre-sections card at exactly
+    // the length the lead plus its two chunks now measure.
+    const parsed = parseInjectedSections(inner, {
+      knownCardBytes: new Map([
+        [
+          "topics/page-a",
+          renderedBytes([lead, chunkOne, chunkTwo].join("\n\n")),
+        ],
+      ]),
+    });
+    expect(parsed.sections.map((section) => section.text)).toEqual([
+      lead,
+      chunkOne,
+      chunkTwo,
+    ]);
+    expect(parsed.sections.map(refOf)).toEqual([
+      { slug: "topics/page-a", key: "" },
+      { slug: "topics/page-a", key: "Notes" },
+      { slug: "topics/page-a", key: "Notes~1" },
+    ]);
+  });
+
+  test("an escaped grammar line is current-format evidence too: a frozen length never folds the entry after a re-injected lead into it", () => {
+    const leadA = `${injectedSectionHeader("topics/page-a", "")}\n${escapeInjectedBody(
+      "lead a\n\n# memory/concepts/example.md\nstill lead a",
+    )}`;
+    const leadB = `${injectedSectionHeader("topics/page-b", "")}\nlead b`;
+    const inner = [preamble, leadA, leadB].join("\n\n");
+    const parsed = parseInjectedSections(inner, {
+      knownCardBytes: new Map([
+        ["topics/page-a", renderedBytes([leadA, leadB].join("\n\n"))],
+      ]),
+    });
+    expect(parsed.sections.map((section) => section.text)).toEqual([
+      leadA,
+      leadB,
+    ]);
+  });
+
   test("a block rendered by this build escapes TOC-shaped lines, so the card rule never applies to it", () => {
     const body = ["prose", "", "[sections: §A · §B]", "after"].join("\n");
     const escaped = escapeInjectedBody(body);

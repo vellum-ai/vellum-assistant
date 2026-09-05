@@ -340,7 +340,11 @@ export const memoryV3Injector: Injector = {
       // let a never-attached turn (non-user tail) claim sections in the
       // store, suppressing them until compaction. The valve is scheduled
       // after `recordInjected` so the resident accounting includes this
-      // turn's sections; it evicts by recency with no lane exemptions.
+      // turn's sections; it evicts by recency with no lane exemptions. It
+      // runs on a timer, so this turn's block may not have folded back into
+      // the live history when it strips; a section it prunes from this very
+      // turn is stripped by assembly Step 0 on the next turn, which applies
+      // the store's full tombstone set every turn.
       const commit = (): void => {
         recordInjected(
           ctx.conversationId,

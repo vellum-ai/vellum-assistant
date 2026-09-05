@@ -159,18 +159,45 @@ function viaForkSource<T>(
 }
 
 /**
- * Resolve each selection's persisted matched section `(slug, ordinal)` to the
- * concrete `Section` in the CURRENT page, so the injected block renders the
- * matched section rather than the lead. Only slugs with a recorded ordinal
- * are resolved (core/hot/fresh/edge selections have none and render the lead).
- * A page edited since the turn re-derives the current section at that ordinal,
- * or falls back to the lead when the ordinal no longer exists.
+ * The current section a persisted selection row names. The recorded title
+ * is the identity: chunk counts and ordinals shift whenever a page is edited
+ * or the chunker changes, so a row resolves to the current section carrying
+ * its `section_title`, the recorded ordinal only choosing among repeated
+ * headings or chunks of that title when it still points at one of them and
+ * the first occurrence otherwise. A title no longer on the page resolves to
+ * nothing (the lead renders instead). Rows recorded without a title (older
+ * rows) fall back to the ordinal alone.
+ */
+function resolveRecordedSection(
+  index: Awaited<ReturnType<typeof buildSectionIndex>>,
+  row: SelectionRow,
+): Section | undefined {
+  if (row.section_title === null) {
+    return row.section_ordinal === null
+      ? undefined
+      : sectionByOrdinal(index, row.slug, row.section_ordinal);
+  }
+  const titled = (index.byArticle.get(row.slug) ?? [])
+    .map((i) => index.sections[i]!)
+    .filter((section) => section.title === row.section_title);
+  return (
+    titled.find((section) => section.ordinal === row.section_ordinal) ??
+    titled[0]
+  );
+}
+
+/**
+ * Resolve each selection's persisted matched section to the concrete
+ * `Section` in the CURRENT page (see {@link resolveRecordedSection}), so the
+ * injected block renders the matched section rather than the lead. Only rows
+ * that recorded a section (a title or an ordinal) are resolved; core, hot,
+ * fresh, and edge selections record none and render the lead.
  */
 async function reconstructMatchedSections(
   rows: SelectionRow[],
 ): Promise<Map<Slug, Section>> {
   const sectionSlugs = rows
-    .filter((r) => r.section_ordinal != null)
+    .filter((r) => r.section_ordinal != null || r.section_title != null)
     .map((r) => r.slug);
   if (sectionSlugs.length === 0) {
     return new Map();
@@ -189,10 +216,7 @@ async function reconstructMatchedSections(
 
   const sectionBySlug = new Map<Slug, Section>();
   for (const row of rows) {
-    if (row.section_ordinal == null) {
-      continue;
-    }
-    const section = sectionByOrdinal(index, row.slug, row.section_ordinal);
+    const section = resolveRecordedSection(index, row);
     if (section) {
       sectionBySlug.set(row.slug, section);
     }

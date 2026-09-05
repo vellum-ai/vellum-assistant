@@ -16,8 +16,8 @@
  * (auditable, and a re-selected section re-injects as a fresh entry because
  * `recordInjected` clears `pruned_at`):
  *
- *   (a) a one-time strip of the pruned sections from the `<memory>` blocks
- *       riding the LIVE in-memory history, and of their lines from the
+ *   (a) a strip of the pruned sections from the `<memory>` blocks riding
+ *       the LIVE in-memory history, and of their lines from the
  *       `<memory_pointer>` blocks that named them
  *       ({@link stripPrunedSectionsFromMessages}; per-section boundaries are
  *       the `# memory/concepts/<slug>.md` / `# memory/concepts/<slug>.md § <key>`
@@ -25,7 +25,15 @@
  *       non-section chunk such as capability content; see
  *       `parseInjectedSections` in `substrate/injected-block-slugs.ts`). The
  *       strip mutates the shared message objects in place so the agent
- *       loop's end-of-turn history fold-back keeps the stripped content;
+ *       loop's end-of-turn history fold-back keeps the stripped content. It
+ *       runs with the conversation's full tombstone set at two points: in
+ *       the valve itself, and at runtime assembly Step 0 on every turn
+ *       (`applyRuntimeInjections`). The valve fires on a timer while the
+ *       turn that scheduled it may still be in flight, against a history
+ *       that turn's block has not folded back into, so a section pruned on
+ *       the turn that injected it can ride back in; the assembly strip
+ *       catches it on the next turn, and the live history converges to the
+ *       store no matter when the valve ran;
  *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`
  *       re-applies {@link filterResidentSections} and
  *       {@link filterResidentPointerEntries} on every load, so prunes persist
@@ -393,19 +401,22 @@ export function planPrune(
 // ─── live-history strip ──────────────────────────────────────────────────────
 
 /**
- * One-time strip of pruned sections from the live in-memory history: for
- * every `<memory>` text block memory-v3 owns (by object identity, see the
- * module doc), drop the pruned sections and any copy superseded by a newer
- * one later in the history, and for every `<memory_pointer>` block drop the
+ * Strip pruned sections from the live in-memory history: for every
+ * `<memory>` text block memory-v3 owns (by object identity, see the module
+ * doc), drop the pruned sections and any copy superseded by a newer one
+ * later in the history, and for every `<memory_pointer>` block drop the
  * lines naming pruned sections; a block left with no sections (or no pointer
  * entries) is removed outright (matching the rehydration splice, which skips
  * such a block). A rewritten block is registered in the owner's place.
  *
- * Mutates the affected `Message` objects IN PLACE (`message.content`
- * reassignment): the agent loop's working arrays share these object
- * references, so its end-of-turn history fold-back keeps the strip. Returns
- * the number of blocks changed. `knownCardBytes` is the conversation's
- * recorded frozen card lengths (`getKnownCardBytes`).
+ * Idempotent over the full tombstone set, so the valve and runtime assembly
+ * Step 0 (every turn) both call it with `getPrunedSections`; a history the
+ * valve already stripped is walked and left as is. Mutates the affected
+ * `Message` objects IN PLACE (`message.content` reassignment): the agent
+ * loop's working arrays share these object references, so its end-of-turn
+ * history fold-back keeps the strip. Returns the number of blocks changed.
+ * `knownCardBytes` is the conversation's recorded frozen card lengths
+ * (`getKnownCardBytes`).
  */
 export function stripPrunedSectionsFromMessages(
   messages: Message[],
@@ -516,9 +527,10 @@ async function defaultLiveMessages(
  * (the common case, repeated invocations below the cap are no-ops).
  *
  * The live strip filters with the conversation's FULL pruned set (not just
- * this plan's sections), so a section an earlier strip could not reach,
- * e.g. a block not yet folded back into the live history when that prune
- * ran, self-heals on the next prune.
+ * this plan's sections). A block not yet folded back into the live history
+ * when the valve runs (the turn that scheduled it still in flight) keeps
+ * its pruned sections until the next runtime assembly, whose Step 0 applies
+ * the same full-set strip.
  */
 export async function runPruneValve(
   conversationId: string,

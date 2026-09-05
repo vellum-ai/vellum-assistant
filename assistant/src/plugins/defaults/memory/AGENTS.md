@@ -156,7 +156,10 @@ card's lead stays card text unless the span from it to a later header is, byte
 for byte, the frozen card length the conversation recorded for that slug, and
 an open card whose own slug has a recorded length ends exactly that many bytes
 after its header (so a sectionless card, with no TOC line, still holds its lead
-together and the next boundary is the first header at that extent)
+together and the next boundary is the first header at that extent); frozen
+lengths are consulted only in a block with no current-format evidence, no `§`
+section header and no escaped grammar line, since a re-injected lead plus its
+chunks can measure the old card length
 (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length migration 378
 carried over or the fork seeder measured, which `recordInjected` never
 refreshes, so the evidence survives a prune and re-injection of the lead);
@@ -169,7 +172,11 @@ hint chunk was never recorded. A page's lead injection carries its
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane
-exemptions. A pruned section that is re-selected re-injects as a fresh entry on
+exemptions. The live strip is idempotent over the conversation's full tombstone
+set and runs both in the valve and at runtime assembly Step 0 on every turn:
+the valve fires on a timer while the turn that scheduled it may still be in
+flight, so a section pruned on the turn that injected it folds back in
+afterwards, and the assembly strip removes it on the next turn. A pruned section that is re-selected re-injects as a fresh entry on
 the current message and its tombstone clears; the older copies still sit in
 earlier messages' metadata, so both filter points keep only each section's
 newest persisted copy (`newestCopyIndexes` / `filterResidentSections`), the one

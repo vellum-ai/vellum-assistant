@@ -37,7 +37,10 @@ import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conver
 import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import { INJECTION_HEADER } from "../plugins/defaults/memory/v2/injection.js";
 import { V3_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
-import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
+import {
+  markV3LiveBlock,
+  MEMORY_V3_COMMIT_META_KEY,
+} from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
   Injector,
@@ -73,6 +76,18 @@ mock.module("../config/memory-v3-gate.js", () => ({
   }) =>
     memory?.enabled !== false &&
     (memory?.v3?.live === true || memory?.v2?.enabled === true),
+}));
+
+// Step 0 applies the section store's tombstones to the v3-owned blocks of
+// the folded-back history. The real store reads the memory DB; this slot
+// stands in for the conversation's pruned set (empty for every other test).
+let prunedSectionsSlot: ReadonlyMap<string, ReadonlySet<string>> = new Map();
+const realEverInjectedStore =
+  await import("../plugins/defaults/memory/v3/ever-injected-store.js");
+mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSections: () => prunedSectionsSlot,
+  getKnownCardBytes: () => new Map<string, number>(),
 }));
 
 const { applyRuntimeInjections } =
@@ -169,6 +184,7 @@ describe("memory-v3-live v2 suppression", () => {
     // Clean baseline: v3-live off (registry/config default). Each test seeds
     // the gate value it needs.
     memoryV3LiveSlot = false;
+    prunedSectionsSlot = new Map();
   });
 
   afterEach(() => {
@@ -645,6 +661,85 @@ describe("memory-v3-live v2 suppression", () => {
       .map((b) => b.text);
     expect(firstUserTexts[0]).toBe("<memory>\nold recalled fact\n</memory>");
     expect(offResult.blocks.memoryV3Active).toBe(false);
+  });
+
+  /**
+   * Turn 1 froze page-a's and page-b's leads in one block, and the valve
+   * tombstoned page-b's lead on that same turn, before the block folded back
+   * into the live history, so the copy rode back in with the tombstone
+   * already in the store.
+   */
+  function foldedBackHistoryWithTombstonedSection(): {
+    frozenBlock: { type: "text"; text: string };
+    historicalUser: Message;
+    runMessages: Message[];
+  } {
+    const frozenBlock = {
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b\n</memory>`,
+    };
+    markV3LiveBlock(frozenBlock);
+    const historicalUser: Message = {
+      role: "user",
+      content: [frozenBlock, { type: "text", text: "earlier question" }],
+    };
+    prunedSectionsSlot = new Map([["page-b", new Set([""])]]);
+    return {
+      frozenBlock,
+      historicalUser,
+      runMessages: [
+        historicalUser,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "earlier answer" }],
+        },
+        { role: "user", content: [{ type: "text", text: "current question" }] },
+      ],
+    };
+  }
+
+  test("Step 0 strips the store's tombstoned sections from the v3-owned blocks of the folded-back history, every turn", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""));
+    seedV2Identity(null);
+    const { historicalUser, runMessages } =
+      foldedBackHistoryWithTombstonedSection();
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // In place on the shared message object, so the loop's fold-back keeps
+    // it, and the provider-bound history carries no copy of the section.
+    const strippedContent: Message["content"] = [
+      {
+        type: "text",
+        text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+      },
+      { type: "text", text: "earlier question" },
+    ];
+    expect(historicalUser.content).toEqual(strippedContent);
+    expect(result.messages[0].content).toEqual(strippedContent);
+    expect(tailTexts(result.messages)).toEqual(["current question"]);
+
+    // Idempotent: the next turn's assembly walks the same history and leaves
+    // it as is.
+    const again = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+    expect(again.messages[0].content).toEqual(strippedContent);
+  });
+
+  test("flag OFF → the store's tombstones are never consulted and an owned block keeps every section", async () => {
+    const { frozenBlock, historicalUser, runMessages } =
+      foldedBackHistoryWithTombstonedSection();
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(historicalUser.content[0]).toBe(frozenBlock);
+    expect(result.messages[0].content).toEqual(historicalUser.content);
   });
 
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {
