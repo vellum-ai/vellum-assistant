@@ -31,15 +31,21 @@ const telegram = {
   sendTelegramReaction: mock((..._args: unknown[]) =>
     Promise.resolve({ ok: true }),
   ),
-  sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
-  sendTelegramRichReply: mock((..._args: unknown[]) => Promise.resolve()),
+  sendTelegramReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ lastMessageId: "tg-2", messageIds: ["tg-1", "tg-2"] }),
+  ),
+  sendTelegramRichReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ lastMessageId: "tg-rich", messageIds: ["tg-rich"] }),
+  ),
   sendTelegramTypingIndicator: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
   ),
 };
 const whatsapp = {
-  sendWhatsAppReply: mock((..._args: unknown[]) => Promise.resolve()),
+  sendWhatsAppReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ messageIds: ["wamid.1", "wamid.2"] }),
+  ),
   sendWhatsAppAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
   ),
@@ -49,7 +55,10 @@ const a2a = {
 };
 const discord = {
   sendDiscordReply: mock((..._args: unknown[]) =>
-    Promise.resolve({ lastMessageId: "discord-id" }),
+    Promise.resolve({
+      lastMessageId: "discord-id",
+      messageIds: ["discord-id-0", "discord-id"],
+    }),
   ),
   sendDiscordTypingIndicator: mock((..._args: unknown[]) =>
     Promise.resolve(true),
@@ -490,6 +499,78 @@ describe("capability gating across channels", () => {
 
     expect(result).toEqual({ ok: true });
     expect(discord.sendDiscordReply).not.toHaveBeenCalled();
+  });
+});
+
+describe("acknowledged provider posts", () => {
+  // Every text post a delivery creates comes back in `messageIds`, in send
+  // order, so a recorder can name each one. `ts` keeps its meaning where a
+  // channel had one; it is not widened to stand in for the list.
+  test("Slack acknowledges its single text post as ts and as the one id", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/slack`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      ts: "slack-ts",
+      messageIds: ["slack-ts"],
+    });
+  });
+
+  test("Telegram acknowledges every chunk of a plain send", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/telegram`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: ["tg-1", "tg-2"] });
+  });
+
+  test("Telegram acknowledges a rich send's message", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/telegram`,
+      payload({ text: "hi", renderRichly: true }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: ["tg-rich"] });
+  });
+
+  test("Discord acknowledges every chunk, with the last one as ts", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/discord`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      ts: "discord-id",
+      messageIds: ["discord-id-0", "discord-id"],
+    });
+  });
+
+  test("WhatsApp acknowledges every message the text became", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/whatsapp`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: ["wamid.1", "wamid.2"] });
+  });
+
+  test("a delivery with no text acknowledges no post", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/telegram`,
+      payload({
+        attachments: [
+          {
+            id: "att-1",
+            filename: "a.txt",
+            mimeType: "text/plain",
+            sizeBytes: 1,
+            kind: "file",
+          },
+        ],
+      } as Partial<ChannelReplyPayload>),
+    );
+    expect(result).toEqual({ ok: true, messageIds: [] });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 });
 

@@ -66,7 +66,13 @@ export const slackTransport: ChannelTransport = {
     }
 
     log.info({ chatId, hasText: !!text }, "Slack reply delivered (direct)");
-    return { ok: true, ts: sentTs };
+    // Slack posts the text as one message, so the acknowledged ids are that
+    // one `ts`; file posts are not acknowledged here.
+    return {
+      ok: true,
+      ts: sentTs,
+      messageIds: sentTs !== undefined ? [sentTs] : [],
+    };
   },
 
   async edit(_ctx, target) {

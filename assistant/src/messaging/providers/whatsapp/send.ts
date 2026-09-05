@@ -10,12 +10,14 @@ import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
+import { type AcknowledgedSend, acknowledgedSend } from "../send-result.js";
 import {
   sendWhatsAppInteractiveMessage,
   sendWhatsAppMediaMessage,
   sendWhatsAppTextMessage,
   uploadWhatsAppMedia,
   type WhatsAppMediaType,
+  type WhatsAppSendMessageResult,
 } from "./api.js";
 
 const log = getLogger("whatsapp-send");
@@ -102,11 +104,26 @@ function selectButtons(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** The id the Cloud API assigned to a sent message, when its response has one. */
+function sentMessageId(result: WhatsAppSendMessageResult): string | undefined {
+  return result.messages?.[0]?.id;
+}
+
+/**
+ * Send a reply as one message per text chunk, plus the interactive message an
+ * approval adds; that one rides last, so `lastMessageId` addresses the
+ * buttons.
+ */
 export async function sendWhatsAppReply(
   to: string,
   text: string,
   approval?: ApprovalUIMetadata,
-): Promise<void> {
+): Promise<AcknowledgedSend> {
+  const ids: Array<string | undefined> = [];
+  const record = (result: WhatsAppSendMessageResult): void => {
+    ids.push(sentMessageId(result));
+  };
+
   if (approval) {
     const selectedActions = selectButtons(approval.actions);
     const buttons = selectedActions.map((action) => ({
@@ -115,33 +132,36 @@ export async function sendWhatsAppReply(
     }));
 
     if (text.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(to, text, buttons);
+      record(await sendWhatsAppInteractiveMessage(to, text, buttons));
       log.debug({ to }, "WhatsApp interactive approval reply sent");
-      return;
+      return acknowledgedSend(ids);
     }
 
     const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
     for (let i = 0; i < chunks.length - 1; i++) {
-      await sendWhatsAppTextMessage(to, chunks[i]);
+      record(await sendWhatsAppTextMessage(to, chunks[i]));
     }
 
     const lastChunk = chunks[chunks.length - 1];
     if (lastChunk.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(to, lastChunk, buttons);
+      record(await sendWhatsAppInteractiveMessage(to, lastChunk, buttons));
     } else {
-      await sendWhatsAppTextMessage(to, lastChunk);
-      await sendWhatsAppInteractiveMessage(to, "Choose an action:", buttons);
+      record(await sendWhatsAppTextMessage(to, lastChunk));
+      record(
+        await sendWhatsAppInteractiveMessage(to, "Choose an action:", buttons),
+      );
     }
 
     log.debug({ to, chunks: chunks.length }, "WhatsApp approval reply sent");
-    return;
+    return acknowledgedSend(ids);
   }
 
   const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
   for (const chunk of chunks) {
-    await sendWhatsAppTextMessage(to, chunk);
+    record(await sendWhatsAppTextMessage(to, chunk));
   }
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
+  return acknowledgedSend(ids);
 }
 
 export type AttachmentResult = {

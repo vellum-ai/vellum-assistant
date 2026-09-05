@@ -175,12 +175,56 @@ describe("sendTelegramReply message id capture", () => {
 
     expect(callsTo("sendMessage")).toHaveLength(2);
     expect(result.lastMessageId).toBe("2");
+    // Every chunk is acknowledged, in send order, not only the last.
+    expect(result.messageIds).toEqual(["1", "2"]);
   });
 
   test("omits the message id when the API response lacks one", async () => {
     const result = await sendTelegramReply("123", "Hello");
 
     expect(result.lastMessageId).toBeUndefined();
+    expect(result.messageIds).toEqual([]);
+  });
+
+  test("a final chunk without an id leaves lastMessageId absent rather than naming an earlier chunk", async () => {
+    // The final chunk carries the approval keyboard, so it is the one a later
+    // edit or withdrawal addresses; an earlier chunk's id must never stand in
+    // for it. Every acknowledged id is still reported for recording.
+    let call = 0;
+    callTelegramBotApiMock.mockImplementation(
+      async () => (call++ === 0 ? { message_id: 1 } : {}) as never,
+    );
+
+    const result = await sendTelegramReply("123", "x".repeat(4500), approval);
+
+    expect(callsTo("sendMessage")).toHaveLength(2);
+    expect(result).toEqual({ messageIds: ["1"] });
+  });
+
+  test("a rich send acknowledges the message Telegram returned", async () => {
+    callTelegramBotApiMock.mockImplementation(
+      async () => ({ message_id: 7 }) as never,
+    );
+
+    const result = await sendTelegramRichReply("123", "**hello**");
+
+    expect(callsTo("sendRichMessage")).toHaveLength(1);
+    expect(result).toEqual({ lastMessageId: "7", messageIds: ["7"] });
+  });
+
+  test("a rich send that falls back acknowledges the plain chunks instead", async () => {
+    let nextId = 10;
+    callTelegramBotApiMock.mockImplementation(async (method: string) => {
+      if (method === "sendRichMessage") {
+        throw new TelegramNonRetryableError("rejected", "rejected");
+      }
+      return { message_id: nextId++ } as never;
+    });
+
+    const result = await sendTelegramRichReply("123", "**hello**");
+
+    expect(callsTo("sendMessage")).toHaveLength(1);
+    expect(result).toEqual({ lastMessageId: "10", messageIds: ["10"] });
   });
 });
 
@@ -209,6 +253,29 @@ describe("telegramTransport.deliver routing", () => {
 
     expect(callsTo("sendRichMessage")).toHaveLength(0);
     expect(callsTo("sendMessage")).toHaveLength(1);
+  });
+
+  test("deliver acknowledges every chunk the text became", async () => {
+    let nextId = 1;
+    callTelegramBotApiMock.mockImplementation(
+      async () => ({ message_id: nextId++ }) as never,
+    );
+
+    const result = await telegramTransport.deliver(
+      ctx,
+      payload({ text: "x".repeat(4500), renderRichly: false }),
+    );
+
+    expect(result).toEqual({ ok: true, messageIds: ["1", "2"] });
+  });
+
+  test("deliver acknowledges nothing when Telegram returned no message id", async () => {
+    const result = await telegramTransport.deliver(
+      ctx,
+      payload({ renderRichly: false }),
+    );
+
+    expect(result).toEqual({ ok: true, messageIds: [] });
   });
 
   test("forwards approval metadata through the rich path", async () => {
