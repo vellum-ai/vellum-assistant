@@ -40,7 +40,6 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
-import { isSubagentProgressEvent } from "./progress-events.js";
 import {
   DEFAULT_SUBAGENT_ROLE,
   formatSubagentToolStats,
@@ -209,21 +208,6 @@ function snapshotToolStats(
   return { calls, succeeded, filesWritten: filesWritten.size };
 }
 
-/**
- * Pull the user-visible text out of a streaming delta event, or null for any
- * other event type. Used by the synchronous `onText` tap to forward
- * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
- */
-function extractDeltaText(msg: AssistantEvent): string | null {
-  if (msg.type === "assistant_text_delta") {
-    return msg.text;
-  }
-  if (msg.type === "assistant_thinking_delta") {
-    return msg.thinking;
-  }
-  return null;
-}
-
 // ── Default subagent system prompt ──────────────────────────────────────
 
 export function buildSubagentSystemPrompt(
@@ -256,6 +240,30 @@ export function buildSubagentSystemPrompt(
 }
 
 /**
+ * What the parent calls this child in a message about it. The parent asked a
+ * different question of each, so every injection names which one is answering:
+ * a consult is guidance to weigh, a fork or a plain subagent is delegated work
+ * that came back.
+ */
+function terminalPrefix(opts: {
+  isAdvisor?: boolean;
+  isFork: boolean;
+}): string {
+  if (opts.isAdvisor) {
+    return "Advisor";
+  }
+  return opts.isFork ? "Fork" : "Subagent";
+}
+
+/** {@link terminalPrefix} for a live child, read off its own state. */
+function subagentTerminalPrefix(state: SubagentState): string {
+  return terminalPrefix({
+    isAdvisor: state.config.role === "advisor",
+    isFork: state.isFork,
+  });
+}
+
+/**
  * Build the message injected into the parent conversation when a subagent
  * reaches a terminal state.
  *
@@ -280,6 +288,8 @@ export function buildSubagentTerminalMessage(opts: {
   deniedTools?: string[];
   /** What the subagent actually ran, harvested when the run ended. */
   stats?: SubagentToolStatsSummary;
+  /** An advisor consult, whose result the parent reads as guidance. */
+  isAdvisor?: boolean;
 }): string {
   const {
     label,
@@ -292,8 +302,9 @@ export function buildSubagentTerminalMessage(opts: {
     deferred,
     deniedTools,
     stats,
+    isAdvisor,
   } = opts;
-  const prefix = isFork ? "Fork" : "Subagent";
+  const prefix = terminalPrefix({ isAdvisor, isFork });
 
   // When the subagent reached for tools its role does not permit, tell the
   // parent so it re-spawns with a capable role instead of blindly retrying (a
@@ -322,9 +333,11 @@ export function buildSubagentTerminalMessage(opts: {
     return (
       `[${prefix} "${label}" completed — result below]\n\n` +
       `${trimmed}\n\n` +
-      (silent
-        ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
-        : `(Incorporate this into your reply to the user as appropriate.)`) +
+      (isAdvisor
+        ? `(This is the guidance you asked for. Weigh it into how you proceed; do not relay it to the user verbatim.)`
+        : silent
+          ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
+          : `(Incorporate this into your reply to the user as appropriate.)`) +
       deniedNote +
       statsNote
     );
@@ -388,20 +401,19 @@ interface ManagedSubagent {
    */
   synchronous?: boolean;
   /**
-   * Optional text tap for the synchronous path. When set, `wrappedSendToClient`
-   * forwards each `assistant_text_delta` / `assistant_thinking_delta` chunk to
-   * this callback IN ADDITION to the normal `subagent_event` envelope.
+   * Tool calls this child has started, counted off its own event stream when
+   * `config.maxToolCalls` is set. Lives here rather than on the state because
+   * it is run bookkeeping, not something a client or a durable row reads.
    */
-  onText?: (chunk: string) => void;
+  toolCalls?: number;
+  /** Cleared when the run settles; fires the `maxRuntimeMs` stop. */
+  runtimeTimer?: ReturnType<typeof setTimeout>;
   /**
-   * Optional liveness tap for the synchronous path. When set,
-   * `wrappedSendToClient` fires it once per event that shows the child is still
-   * moving (see {@link isSubagentProgressEvent}), which is a superset of the
-   * `onText` chunks: a subagent executing a tool streams no token but is not
-   * stalled. Callers that bound a synchronous run by an idle window re-arm it
-   * here.
+   * Which budget stopped this child, set when the ceiling is hit and consumed
+   * by the run's teardown, which is the first moment the child's output is on
+   * disk for the parent the notification sends to read it.
    */
-  onProgress?: () => void;
+  budgetStopReason?: string;
 }
 
 export interface SubagentNotificationInfo {
@@ -425,6 +437,20 @@ export class SubagentAbortedError extends Error {
   constructor(readonly partialText: string) {
     super("Subagent run aborted before completion.");
     this.name = "SubagentAbortedError";
+  }
+}
+
+/**
+ * Thrown by `spawn` when the spawning turn's signal is already aborted, so no
+ * child is created at all. Distinct from a spawn that failed: nothing went
+ * wrong, the caller simply asked for work the user has already stopped, and the
+ * tool layer reports it as a benign non-error rather than an error the model
+ * should try to recover from.
+ */
+export class SubagentSpawnCancelledError extends Error {
+  constructor() {
+    super("Spawn cancelled: the requesting turn was stopped.");
+    this.name = "SubagentSpawnCancelledError";
   }
 }
 
@@ -455,12 +481,43 @@ export class SubagentManager {
   /**
    * Spawn a new subagent.  Returns the subagent ID immediately.
    * The subagent's agent loop is started asynchronously (fire-and-forget).
+   *
+   * `opts.signal` is the spawning turn's cancellation signal, and it guards the
+   * window this method's own `await` opens. Setup is asynchronous (conversation
+   * bootstrap, provider and connection resolution), and a user who stops the
+   * turn during it runs `abortAllForParent` over a manager that does not hold
+   * this child yet, so the sweep misses it and the abandoned tool promise then
+   * launches a run nobody is watching. Re-checking the signal on both sides of
+   * setup is what closes that window: a cancelled spawn either never starts or
+   * is marked terminal before its loop can begin.
    */
   async spawn(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
+    opts?: { signal?: AbortSignal },
   ): Promise<string> {
-    const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
+    if (opts?.signal?.aborted) {
+      throw new SubagentSpawnCancelledError();
+    }
+    const { subagentId, managed } = await this.setUpSubagent(
+      config,
+      parentSendToClient,
+    );
+
+    // Cancellation that landed while setup was in flight. The child exists in
+    // the manager now, so marking it terminal here is what `runSubagent`'s
+    // early-terminal guard reads: it releases the conversation without ever
+    // starting the agent loop. Notification is suppressed because the parent
+    // turn the caller was serving is the thing that stopped.
+    if (opts?.signal?.aborted) {
+      this.abort(subagentId, managed.parentSendToClient, undefined, {
+        suppressNotification: true,
+      });
+      log.info(
+        { subagentId },
+        "Spawn cancelled during setup; subagent will not run",
+      );
+    }
 
     // ── Kick off the agent loop (fire-and-forget) ───────────────────
     this.runSubagent(subagentId, config.requestText ?? config.objective).catch(
@@ -484,11 +541,7 @@ export class SubagentManager {
   private async setUpSubagent(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: {
-      synchronous?: boolean;
-      onText?: (chunk: string) => void;
-      onProgress?: () => void;
-    },
+    opts?: { synchronous?: boolean },
   ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
 
@@ -635,33 +688,20 @@ export class SubagentManager {
       state,
       parentSendToClient,
       ...(opts?.synchronous ? { synchronous: true } : {}),
-      ...(opts?.onText ? { onText: opts.onText } : {}),
-      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     };
 
     // Wrap sendToClient to envelope all events with the subagent ID.
     // Reads from managed.parentSendToClient so reconnects are picked up.
     const wrappedSendToClient = (msg: AssistantEvent): void => {
-      // Tap streaming text/thinking deltas for the synchronous caller (if any),
-      // in addition to the normal envelope below. Reads from managed.onText so
-      // the synchronous path can forward chunks without altering event routing.
-      if (managed.onText) {
-        const text = extractDeltaText(msg);
-        if (text) {
-          managed.onText(text);
-        }
-      }
-      // Liveness tap, separate from the text tap because tool activity is
-      // progress the caller must see and is not a chunk it can forward.
-      if (managed.onProgress && isSubagentProgressEvent(msg)) {
-        managed.onProgress();
-      }
       managed.parentSendToClient({
         type: "subagent_event",
         subagentId,
         conversationId: config.parentConversationId,
         event: msg,
       } as AssistantEvent);
+      // Tool-call budget, counted after the event is forwarded so the ceiling
+      // never swallows a child event on its way to the client.
+      this.countToolCallAgainstBudget(managed, msg);
     };
 
     const conversation = new Conversation(
@@ -832,26 +872,23 @@ export class SubagentManager {
    * terminal parent-injection (`notifyParentTerminal`) is skipped on this path.
    *
    * `opts.signal` aborts the underlying run when triggered (e.g. an external
-   * timeout). `opts.onText` receives each streaming text/thinking chunk in
-   * addition to the normal `subagent_event` envelope.
+   * timeout).
+   *
+   * No tool spawns this way: a tool call that parks on a child cannot answer
+   * the user, and an interrupt that aborts the parent's tool batch would take
+   * the child down with it. The one caller is the live-voice background
+   * continuation, which spawns after its turn has already torn down and speaks
+   * the result on the session's own terms.
    */
   async spawnAndAwait(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: {
-      signal?: AbortSignal;
-      onText?: (chunk: string) => void;
-      onProgress?: () => void;
-    },
+    opts?: { signal?: AbortSignal },
   ): Promise<string> {
     const { subagentId, managed } = await this.setUpSubagent(
       config,
       parentSendToClient,
-      {
-        synchronous: true,
-        ...(opts?.onText ? { onText: opts.onText } : {}),
-        ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
-      },
+      { synchronous: true },
     );
 
     // Wire the external signal to abort the child conversation. If the signal
@@ -916,16 +953,21 @@ export class SubagentManager {
     // ignores it.
     let finalText = "";
 
-    // Aborted before the run started (e.g. an already-aborted signal on the
-    // synchronous spawnAndAwait path): the subagent is already terminal. Do not
-    // start the agent loop or reset status back to "running" — but still release
-    // the conversation, exactly as the post-run `finally` does for a terminal
-    // run. The loop never started, so no messages were enqueued; this matches
-    // the finally's non-deferred release branch.
+    // Aborted before the run started (an already-aborted signal on the
+    // synchronous spawnAndAwait path, or a spawn the user stopped mid-setup):
+    // the subagent is already terminal. Do not start the agent loop or reset
+    // status back to "running", but still release the conversation, exactly as
+    // the post-run `finally` does for a terminal run. The loop never started, so
+    // no messages were enqueued; this matches the finally's non-deferred release
+    // branch.
     if (TERMINAL_STATUSES.has(managed.state.status)) {
       this.releaseConversation(managed);
       return finalText;
     }
+
+    // Wall-clock budget, armed here so it measures the run rather than the
+    // spawn setup that preceded it. Cleared in the `finally` below.
+    this.armRuntimeBudget(managed);
 
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
@@ -1041,6 +1083,10 @@ export class SubagentManager {
       // may have been nulled by an external dispose() before catch runs.
       managed.state.usage = { ...conversation.usageStats };
       managed.state.stats = snapshotToolStats(conversation);
+      // A run cut short still wrote whatever it had streamed. Capture it in the
+      // same window as the usage and stats above, so a teardown that reports
+      // partial output has it whichever way the loop ended.
+      finalText = extractFinalAssistantText(conversation.messages);
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -1062,6 +1108,12 @@ export class SubagentManager {
         throw err;
       }
     } finally {
+      this.clearRuntimeBudget(managed);
+      // A budget stop aborts the child from a timer or an event tap, with
+      // `runAgentLoop` still awaited above. Its notification waits until here,
+      // where the loop has unwound and the final flush is on disk, so the
+      // guidance it inlines is the guidance a `subagent_read` would find.
+      this.notifyParentBudgetStop(managed, finalText);
       // Release the heavyweight Conversation — output is already persisted in DB.
       // drainQueue is async: it awaits buildPassthroughBatch (which awaits
       // resolveSlash) before shifting anything, and runAgentLoop fires it
@@ -1088,13 +1140,148 @@ export class SubagentManager {
     return finalText;
   }
 
+  // ── Run budgets ───────────────────────────────────────────────────────
+
+  /**
+   * Start the wall-clock budget for a child whose config declares one. A child
+   * without `maxRuntimeMs` is unbounded in time, which is right for delegated
+   * work whose length is the point.
+   */
+  private armRuntimeBudget(managed: ManagedSubagent): void {
+    const maxRuntimeMs = managed.state.config.maxRuntimeMs;
+    if (maxRuntimeMs === undefined || maxRuntimeMs <= 0) {
+      return;
+    }
+    managed.runtimeTimer = setTimeout(() => {
+      this.stopForBudget(
+        managed,
+        `reached its ${Math.round(maxRuntimeMs / 1000)}-second time limit`,
+      );
+    }, maxRuntimeMs);
+  }
+
+  private clearRuntimeBudget(managed: ManagedSubagent): void {
+    if (managed.runtimeTimer) {
+      clearTimeout(managed.runtimeTimer);
+      managed.runtimeTimer = undefined;
+    }
+  }
+
+  /**
+   * Charge one of the child's `tool_use_start` events against its tool budget,
+   * stopping it on the call PAST the ceiling so every result inside the budget
+   * is kept. A no-op for a child whose config declares no `maxToolCalls`.
+   *
+   * The child's own event stream is the counter because it is the one place
+   * every executed call is observable from here: the manager envelopes each
+   * child event on its way to the parent, so counting at the envelope needs no
+   * hook inside the agent loop.
+   */
+  private countToolCallAgainstBudget(
+    managed: ManagedSubagent,
+    msg: AssistantEvent,
+  ): void {
+    const maxToolCalls = managed.state.config.maxToolCalls;
+    if (maxToolCalls === undefined || msg.type !== "tool_use_start") {
+      return;
+    }
+    if (TERMINAL_STATUSES.has(managed.state.status)) {
+      return;
+    }
+    const used = (managed.toolCalls ?? 0) + 1;
+    managed.toolCalls = used;
+    if (used > maxToolCalls) {
+      this.stopForBudget(
+        managed,
+        `used its full budget of ${maxToolCalls} tool calls`,
+      );
+    }
+  }
+
+  /**
+   * Stop a child that ran past a budget its spawner set, recording which budget
+   * it was so the run's own teardown can tell the parent.
+   *
+   * The abort is raised here but the notification is NOT: this fires from a
+   * timer or an event tap while `runAgentLoop` is still awaited, so the child's
+   * final partial flush has not landed and its stats are not snapshotted. A
+   * parent told to read at this moment reads a transcript that is missing the
+   * very output the message points it at, and nothing corrects it afterwards.
+   * {@link notifyParentBudgetStop} sends it from the run's `finally`, once the
+   * loop has unwound.
+   */
+  private stopForBudget(managed: ManagedSubagent, reason: string): void {
+    const { id } = managed.state.config;
+    const stopped = this.abort(id, managed.parentSendToClient, undefined, {
+      suppressNotification: true,
+    });
+    if (!stopped) {
+      // Already terminal: the run settled on its own between the ceiling being
+      // hit and this firing, so there is nothing to stop and nothing to report.
+      return;
+    }
+    managed.budgetStopReason = reason;
+    log.warn({ subagentId: id, reason }, "Subagent stopped at its budget");
+  }
+
+  /**
+   * Tell the parent about a budget stop, called from the run's teardown so the
+   * child's output is on disk before the parent is sent to read it.
+   *
+   * Not the plain abort message: that one says the run was cancelled on purpose
+   * and must not be retried, which would be wrong here twice over. Nobody
+   * cancelled this, and the child may well have produced usable output before
+   * it was stopped, so the guidance it did write is inlined and the read
+   * pointer is kept for the run that wrote nothing.
+   */
+  private notifyParentBudgetStop(
+    managed: ManagedSubagent,
+    finalText: string,
+  ): void {
+    const reason = managed.budgetStopReason;
+    if (!reason) {
+      return;
+    }
+    // One notification per run, whichever teardown path reaches here.
+    managed.budgetStopReason = undefined;
+    const { id, label } = managed.state.config;
+    const prefix = subagentTerminalPrefix(managed.state);
+    const trimmed = finalText.trim();
+    const body = trimmed
+      ? `It ${reason} and was stopped. What it had written by then:\n\n${trimmed}`
+      : `It ${reason} and was stopped before writing anything. ` +
+        `Check with subagent_read using subagent_id "${id}".`;
+    injectMessageIntoParent(
+      managed.state.config.parentConversationId,
+      `[${prefix} "${label}" stopped at its budget]\n\n` +
+        `${body}\n\n` +
+        `Do NOT re-spawn the same request: narrow it, or point it at the ` +
+        `specific file, decision, or question you want covered.`,
+      {
+        subagentNotification: {
+          subagentId: id,
+          label,
+          status: "aborted" as const,
+          conversationId: managed.state.conversationId,
+        },
+      },
+    );
+  }
+
   // ── Abort ─────────────────────────────────────────────────────────────
 
   abort(
     subagentId: string,
     parentSendToClient?: (msg: AssistantEvent) => void,
     callerConversationId?: string,
-    options?: { suppressNotification?: boolean },
+    options?: {
+      suppressNotification?: boolean;
+      /**
+       * Replaces the default "explicitly aborted, do not retry" injection for
+       * an abort the parent did not ask for, whose right follow-up differs.
+       */
+      notificationMessage?: string;
+    },
   ): boolean {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
@@ -1147,10 +1334,11 @@ export class SubagentManager {
       // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (!options?.suppressNotification) {
         const label = managed.state.config.label;
-        const prefix = managed.state.isFork ? "Fork" : "Subagent";
+        const prefix = subagentTerminalPrefix(managed.state);
         const message =
+          options?.notificationMessage ??
           `[${prefix} "${label}" was explicitly aborted]\n\n` +
-          `This ${prefix.toLowerCase()} was cancelled on purpose. Do NOT re-spawn or retry it.`;
+            `This ${prefix.toLowerCase()} was cancelled on purpose. Do NOT re-spawn or retry it.`;
         injectMessageIntoParent(
           managed.state.config.parentConversationId,
           message,
@@ -1291,12 +1479,19 @@ export class SubagentManager {
    * firing that asked for it. Only the immediately-processed turn carries it,
    * since a queued message drains through the conversation's own queue, which
    * holds no per-message run options.
+   *
+   * An advisor takes no follow-up (`one_shot`). A consult answers one question
+   * once, and a follow-up would escape the budget its spawn set: the drained
+   * turn starts after `runSubagent` has already settled the run and cleared the
+   * runtime timer, so it would run on the premium profile under no ceiling at
+   * all. Asking the advisor something else is a new consult, which gets its own
+   * budget and passes the repeat guard on the way in.
    */
   async sendMessage(
     subagentId: string,
     content: string,
     opts?: { cronRunId?: string | null },
-  ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
+  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "one_shot"> {
     const trimmed = content?.trim();
     if (!trimmed) {
       return "empty";
@@ -1305,6 +1500,9 @@ export class SubagentManager {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
       return "not_found";
+    }
+    if (managed.state.config.role === "advisor") {
+      return "one_shot";
     }
     if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation) {
       return "terminal";
@@ -1868,6 +2066,7 @@ export class SubagentManager {
       error: managed.state.error,
       deferred,
       deniedTools,
+      ...(config.role === "advisor" ? { isAdvisor: true } : {}),
       // Same staleness applies to the counters, and worse: the queued turn has
       // not run yet at this point, so any number quoted here would under-report
       // it, permanently, in a message that is never rewritten. The deferred

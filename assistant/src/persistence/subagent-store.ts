@@ -381,17 +381,19 @@ export interface RecentSimilarSpawns {
  * split by whether each run finished with an answer or is still under way.
  *
  * Runs that ended without an answer are left out entirely: spawning their
- * objective again is recovery rather than repetition. Advisor rows are left out
- * too: an advisor consult blocks its caller and is not rate-limited, so its
- * history must not count against a background spawn.
+ * objective again is recovery rather than repetition. Every role counts,
+ * advisor included: a consult is a background child on a premium profile, so a
+ * standing re-ask of one brief is exactly the spend the guard exists to
+ * surface.
  *
  * Both scopes come from one bounded scan because the assistant-wide set
  * contains the conversation's, so a second query would read the same rows
  * twice.
  *
- * Rows hold the raw objective, so the fold has to happen on the column too.
- * It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and has no
- * whitespace-collapsing function, so a SQL predicate would disagree with
+ * Rows hold the raw objective as the caller wrote it, every role alike, which
+ * is what lets one fold compare them, so the fold has to happen on the column
+ * too. It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and
+ * has no whitespace-collapsing function, so a SQL predicate would disagree with
  * {@link normalizeSpawnObjective} on exactly the objectives (accented, oddly
  * spaced) a re-run is most likely to differ by.
  */
@@ -408,7 +410,7 @@ export function countRecentSimilarSpawns(args: {
   }>(
     "subagent:countRecentSimilar",
     `SELECT parent_conversation_id, objective, status, estimated_cost FROM subagents
-       WHERE created_at >= ? AND role <> 'advisor'
+       WHERE created_at >= ?
          AND status NOT IN (${DEAD_END_SPAWN_STATUSES.map(() => "?").join(", ")})
        ORDER BY created_at DESC
        LIMIT ?`,

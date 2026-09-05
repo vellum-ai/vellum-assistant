@@ -118,7 +118,7 @@ export function SkillsReferenceSubagentContent() {
                     it&rdquo;
                   </td>
                   <td className="px-3 py-2">
-                    Consults the advisor and waits for its guidance
+                    Consults the advisor, which reports its guidance back
                   </td>
                 </tr>
                 <tr>
@@ -192,11 +192,11 @@ export function SkillsReferenceSubagentContent() {
                     <strong>Advisor</strong>
                   </td>
                   <td className="px-3 py-2">
-                    Synchronously (your assistant waits for its answer)
+                    In the background, in parallel with your conversation
                   </td>
                   <td className="px-3 py-2">
                     A written brief from your assistant; runs on a more capable
-                    model and returns guidance
+                    model and reports back guidance
                   </td>
                 </tr>
               </tbody>
@@ -221,9 +221,15 @@ export function SkillsReferenceSubagentContent() {
               you&apos;re not paying for sign-off on the obvious. It reasons
               from a brief your assistant writes it (the task, the plan, the
               evidence gathered so far, and the question) and can read and
-              search the files in your workspace to check a fact, then replies
-              with focused guidance. It never changes anything, and it cannot
-              see your conversations.
+              search the files in your workspace to check a fact, then reports
+              back focused guidance. Your assistant keeps working while the
+              advisor thinks and weighs the guidance in when it arrives, so a
+              consult never stalls your conversation. It never changes anything,
+              and it cannot see your conversations. Because it runs on a more
+              capable model, it also runs to a fixed budget of a few lookups and
+              a few minutes, so a consult cannot quietly become an expensive
+              open-ended job, and it answers once rather than being sent
+              follow-ups: a further question is a fresh consult.
             </li>
           </ul>
         </section>
@@ -235,10 +241,12 @@ export function SkillsReferenceSubagentContent() {
           <p className="mb-4 text-zinc-600">
             Every subagent runs with a role that determines which tools it can
             touch. There are three, and your assistant picks between them with
-            two questions: does the task need to change anything, and does your
-            assistant need the answer before it can carry on? It picks the most
-            restrictive role that can still do the job, which keeps each
-            worker&apos;s blast radius small.
+            two questions: does the task need to change anything, and what does
+            it want back, findings, work done, or guidance? All three run in the
+            background and report back, so the choice is about the result rather
+            than about waiting. Your assistant picks the most restrictive role
+            that can still do the job, which keeps each worker&apos;s blast
+            radius small.
           </p>
           <div className="mb-4 overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -291,7 +299,8 @@ export function SkillsReferenceSubagentContent() {
                     your workspace
                   </td>
                   <td className="px-3 py-2">
-                    A one-shot strategic review that your assistant waits on
+                    A one-shot strategic review, reported back while your
+                    assistant keeps working
                   </td>
                 </tr>
               </tbody>

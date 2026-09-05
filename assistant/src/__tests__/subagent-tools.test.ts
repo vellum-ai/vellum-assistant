@@ -94,7 +94,6 @@ import {
 import { getSubagentManager } from "../subagent/index.js";
 import {
   buildSubagentSystemPrompt,
-  SubagentAbortedError,
   SubagentManager,
 } from "../subagent/manager.js";
 import {
@@ -1069,28 +1068,136 @@ describe("Subagent spawn repeat-loop guard", () => {
     expect(JSON.parse(result.content).status).toBe("pending");
   });
 
-  test("advisor consults are never guarded", async () => {
+  test("completed advisor consults trip the guard for the next one", async () => {
+    // A consult is a background child on a premium profile, so asking the same
+    // question a fourth time in a day is the repetition the guard is for.
+    // Seeded as actual advisor rows: the tally counts every role, and a consult
+    // records the caller's raw brief as its objective the way every other spawn
+    // records its own, which is what lets one fold compare the two.
     const objective = "Audit the advisor pipeline for drift";
-    seedSpawns("guard-advisor", objective, 6);
-
-    const manager = getSubagentManager();
-    const originalAwait = manager.spawnAndAwait.bind(manager);
-    manager.spawnAndAwait = (async () =>
-      "guidance") as unknown as typeof manager.spawnAndAwait;
-    try {
-      const { result } = await spawnWithGuard({
-        label: "Consult",
-        objective,
-        role: "advisor",
-      });
-
-      // The advisor branch runs and returns its guidance, so the guard never
-      // saw the repetition.
-      expect(result.content).toBe("guidance");
-      expect(result.content).not.toContain("confirm_repeat");
-    } finally {
-      manager.spawnAndAwait = originalAwait;
+    for (let i = 0; i < 4; i++) {
+      seedSpawn(`guard-advisor-done-${i}`, objective, { role: "advisor" });
     }
+
+    const { result, spawned } = await spawnWithGuard({
+      label: "Consult",
+      objective,
+      role: "advisor",
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "near-identical subagents already completed",
+    );
+    expect(result.content).toContain("confirm_repeat");
+  });
+
+  test("advisor consults still in flight trip the guard", async () => {
+    // The runaway shape: a burst of identical consults fired before any of them
+    // answers, which the completed counts cannot see for the whole burst.
+    const objective = "Audit the in-flight advisor pipeline for drift";
+    for (let i = 0; i < 2; i++) {
+      seedSpawn(`guard-advisor-flight-${i}`, objective, {
+        role: "advisor",
+        status: "running",
+        completedAt: null,
+      });
+    }
+
+    const { result, spawned } = await spawnWithGuard({
+      label: "Consult",
+      objective,
+      role: "advisor",
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "are already running in this conversation",
+    );
+    expect(result.content).toContain("confirm_repeat");
+  });
+
+  test("a burst of identical spawns in one response is held after the limit", async () => {
+    // The three guards all run before any of them reaches the row write, so the
+    // durable in-flight count reads the whole burst as zero. Only an in-flight
+    // reservation taken with no await between the check and the claim can see a
+    // sibling that has passed the guard but not yet persisted.
+    const objective = "Audit the burst pipeline for drift";
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawned = 0;
+    let releaseSpawns: () => void = () => {};
+    const spawnsHeld = new Promise<void>((resolve) => {
+      releaseSpawns = resolve;
+    });
+    // Hold every spawn open so all three tool calls are in flight at once, the
+    // way one model response issuing three of them behaves.
+    manager.spawn = async () => {
+      spawned += 1;
+      await spawnsHeld;
+      return `burst-subagent-${spawned}`;
+    };
+    try {
+      const results = Promise.all([
+        executeSubagentSpawn(
+          { label: "Burst", objective },
+          makeContext("guard-burst", { sendToClient: () => {} }),
+        ),
+        executeSubagentSpawn(
+          { label: "Burst", objective },
+          makeContext("guard-burst", { sendToClient: () => {} }),
+        ),
+        executeSubagentSpawn(
+          { label: "Burst", objective },
+          makeContext("guard-burst", { sendToClient: () => {} }),
+        ),
+      ]);
+      releaseSpawns();
+      const settled = await results;
+
+      // Two get through, the third is held: the in-flight ceiling for one
+      // conversation is 2.
+      expect(spawned).toBe(2);
+      const held = settled.filter((r) =>
+        r.content.includes("already running in this conversation"),
+      );
+      expect(held).toHaveLength(1);
+      expect(held[0]!.content).toContain("confirm_repeat");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("a reservation is released once its spawn settles", async () => {
+    // A held slot that outlived its spawn would wedge the objective for the
+    // rest of the process, so the release has to cover the success path too.
+    const objective = "Audit the released pipeline for drift";
+
+    const first = await spawnWithGuard({ label: "Once", objective });
+    expect(first.spawned).toBe(true);
+
+    // The stub above never persisted a row, so nothing durable is in flight.
+    // A leaked reservation is the only thing that could hold this one back.
+    const second = await spawnWithGuard({ label: "Twice", objective });
+    expect(second.spawned).toBe(true);
+    expect(second.result.content).not.toContain("already running");
+  });
+
+  test("confirm_repeat spawns a held consult anyway", async () => {
+    const objective = "Audit the confirmed advisor pipeline for drift";
+    for (let i = 0; i < 4; i++) {
+      seedSpawn(`guard-advisor-confirm-${i}`, objective, { role: "advisor" });
+    }
+
+    const { result, spawned } = await spawnWithGuard({
+      label: "Consult",
+      objective,
+      role: "advisor",
+      confirm_repeat: true,
+    });
+
+    expect(spawned).toBe(true);
+    expect(JSON.parse(result.content).status).toBe("pending");
   });
 
   test("copies still running trip the guard before any of them completes", async () => {
@@ -2783,83 +2890,42 @@ describe("Subagent output contract", () => {
     expect(config).toBeUndefined();
   });
 
-  test("the advisor takes no output contract and never consults", async () => {
-    const manager = getSubagentManager();
-    const originalAwait = manager.spawnAndAwait.bind(manager);
-    let consulted = false;
-    manager.spawnAndAwait = async () => {
-      consulted = true;
-      return "advice";
-    };
-    try {
-      const result = await executeSubagentSpawn(
-        {
-          label: "Consult",
-          objective: "Check the plan",
-          role: "advisor",
-          output_contract: "verdict",
-        },
-        makeContext("sess-contract-advisor", { sendToClient: () => {} }),
-      );
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("does not apply to the advisor");
-      expect(consulted).toBe(false);
-    } finally {
-      manager.spawnAndAwait = originalAwait;
-    }
+  test("the advisor takes no output contract and never spawns", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Consult",
+      objective: "Check the plan",
+      role: "advisor",
+      output_contract: "verdict",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("does not apply to the advisor");
+    expect(config).toBeUndefined();
   });
 
   test("an explicit report is rejected for the advisor too", async () => {
-    const manager = getSubagentManager();
-    const originalAwait = manager.spawnAndAwait.bind(manager);
-    let consulted = false;
-    manager.spawnAndAwait = async () => {
-      consulted = true;
-      return "advice";
-    };
-    try {
-      const result = await executeSubagentSpawn(
-        {
-          label: "Consult",
-          objective: "Check the plan",
-          role: "advisor",
-          output_contract: "report",
-        },
-        makeContext("sess-contract-advisor-report", {
-          sendToClient: () => {},
-        }),
-      );
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("does not apply to the advisor");
-      expect(result.content).toContain('"report"');
-      expect(consulted).toBe(false);
-    } finally {
-      manager.spawnAndAwait = originalAwait;
-    }
+    const { result, config } = await spawnCapturing({
+      label: "Consult",
+      objective: "Check the plan",
+      role: "advisor",
+      output_contract: "report",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("does not apply to the advisor");
+    expect(result.content).toContain('"report"');
+    expect(config).toBeUndefined();
   });
 
-  test("a null contract reads as omitted and reaches the advisor branch", async () => {
-    const manager = getSubagentManager();
-    const originalAwait = manager.spawnAndAwait.bind(manager);
-    manager.spawnAndAwait = (async () =>
-      "guidance") as unknown as typeof manager.spawnAndAwait;
-    try {
-      const result = await executeSubagentSpawn(
-        {
-          label: "Consult",
-          objective: "Check the plan",
-          role: "advisor",
-          output_contract: null,
-        },
-        makeContext("sess-contract-advisor-none", { sendToClient: () => {} }),
-      );
-      // The advisor branch runs and returns its guidance, so the contract check
-      // waved this spawn through.
-      expect(result.content).toBe("guidance");
-      expect(result.content).not.toContain("does not apply to the advisor");
-    } finally {
-      manager.spawnAndAwait = originalAwait;
-    }
+  test("a null contract reads as omitted and reaches the advisor", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Consult",
+      objective: "Check the plan",
+      role: "advisor",
+      output_contract: null,
+    });
+    // The contract check waved this spawn through, so the advisor ran.
+    expect(result.isError).toBe(false);
+    expect(config!.spawnMode).toBe("advisor_consult");
+    expect(config!.outputContract).toBeUndefined();
   });
 
   test("verdict defaults the child to the cost-optimized tier", async () => {
@@ -3014,56 +3080,37 @@ describe("Subagent output contract", () => {
 // ── Advisor-role consult ────────────────────────────────────────────
 
 describe("Subagent advisor-role consult", () => {
-  type CapturedAwait = {
-    config: Record<string, unknown>;
-    opts?: {
-      signal?: AbortSignal;
-      onText?: (chunk: string) => void;
-      onProgress?: () => void;
-    };
-  };
-
   /**
-   * Stub `manager.spawnAndAwait` to capture the config + opts and resolve to
-   * `advice`. Restores the original on cleanup. Returns the captured-call ref.
-   *
-   * A function `advice` receives the sender the consult passed in, so a test
-   * can drive the child's event stream (the tool activity the consult counts)
-   * before deciding what the run returns.
+   * Stub `manager.spawn` to capture the config the tool hands it, the way
+   * every other spawn variety is exercised. The advisor takes the same
+   * fire-and-forget path: the tool returns an id and the guidance arrives
+   * later as a terminal notification.
    */
-  function stubAwait(
-    advice:
-      | string
-      | ((send: (msg: Record<string, unknown>) => void) => Promise<string>),
-  ): {
-    captured: { current?: CapturedAwait };
+  function stubSpawn(): {
+    captured: { current?: Record<string, unknown> };
     restore: () => void;
   } {
     const manager = getSubagentManager();
-    const original = manager.spawnAndAwait.bind(manager);
-    const captured: { current?: CapturedAwait } = {};
-    manager.spawnAndAwait = (async (
-      config: Record<string, unknown>,
-      send: (msg: Record<string, unknown>) => void,
-      opts?: CapturedAwait["opts"],
-    ) => {
-      captured.current = { config, opts };
-      return typeof advice === "function" ? await advice(send) : advice;
-    }) as unknown as typeof manager.spawnAndAwait;
+    const originalSpawn = manager.spawn.bind(manager);
+    const captured: { current?: Record<string, unknown> } = {};
+    manager.spawn = async (config: Record<string, unknown>) => {
+      captured.current = config;
+      return "advisor-subagent-id";
+    };
     return {
       captured,
       restore: () => {
-        manager.spawnAndAwait = original;
+        manager.spawn = originalSpawn;
       },
     };
   }
 
-  test("advisor role returns guidance synchronously as the tool result", async () => {
+  test("an advisor spawn returns immediately with the child id", async () => {
     mockFindConversation = () => ({
       messages: [{ role: "user", content: [{ type: "text", text: "Help" }] }],
       getCurrentSystemPrompt: () => "PARENT SYSTEM PROMPT",
     });
-    const { captured, restore } = stubAwait("Here is my advice.");
+    const { captured, restore } = stubSpawn();
     try {
       const result = await executeSubagentSpawn(
         {
@@ -3074,34 +3121,163 @@ describe("Subagent advisor-role consult", () => {
         makeContext("advisor-sess-1", { sendToClient: () => {} }),
       );
       expect(result.isError).toBe(false);
-      expect(result.content).toBe("Here is my advice.");
-      // Ran synchronously through spawnAndAwait, not fire-and-forget spawn.
+      const payload = JSON.parse(result.content);
+      expect(payload.subagentId).toBe("advisor-subagent-id");
+      expect(payload.status).toBe("pending");
+      expect(payload.role).toBe("advisor");
+      // The whole point of the change: the tool call does not park on the run,
+      // and the model is told where the guidance will show up.
+      expect(payload.message).toContain("background");
+      expect(payload.message).toContain("notification");
       expect(captured.current).toBeDefined();
-      expect(captured.current!.config.role).toBe("advisor");
+      expect(captured.current!.role).toBe("advisor");
       // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
       // lands under `subagentSpawn` like any other subagent. The declared
       // spawn mode is what separates it from a plain spawn in cost telemetry.
-      expect(captured.current!.config.spawnMode).toBe("advisor_consult");
+      expect(captured.current!.spawnMode).toBe("advisor_consult");
       // The situational context pack must never ride display surfaces: the
-      // system prompt stays minimal and `objective` (rendered verbatim by the
-      // subagent detail panel) stays the concise advice request. Only the
-      // non-display `requestText` may carry the pack.
-      expect(captured.current!.config.systemPromptOverride).not.toContain(
+      // system prompt stays minimal, and `objective` stays the caller's raw
+      // brief, which is what the durable row and the detail panel show and what
+      // the repeat-spawn guard folds. Only `requestText` carries the framing
+      // and the pack.
+      expect(captured.current!.systemPromptOverride).not.toContain(
         "<agent_environment>",
       );
-      expect(captured.current!.config.objective).not.toContain(
-        "<agent_environment>",
-      );
-      expect(captured.current!.config.requestText).toContain("advise me");
+      expect(captured.current!.objective).toBe("advise me");
+      expect(captured.current!.requestText).toContain("advise me");
+      expect(captured.current!.requestText).toContain("<agent_request>");
     } finally {
       restore();
       mockFindConversation = () => undefined;
     }
   });
 
+  test("the advisor runs under a wall-clock and tool-call budget", async () => {
+    // The advisor is the only spawn the agent issues unprompted and the only
+    // one on the premium profile, so it is the only one whose cost no user has
+    // implicitly signed off on. The manager holds it to both ceilings.
+    const { captured, restore } = stubSpawn();
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-budget", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.maxRuntimeMs).toBe(300_000);
+      expect(captured.current!.maxToolCalls).toBe(8);
+    } finally {
+      restore();
+    }
+  });
+
+  test("delegated work carries no budget of its own", async () => {
+    // A researcher or builder is bounded by the task the user asked for, so it
+    // must not inherit the consult's ceilings.
+    const { captured, restore } = stubSpawn();
+    try {
+      await executeSubagentSpawn(
+        {
+          label: "Dig",
+          objective: "investigate the failure",
+          role: "researcher",
+        },
+        makeContext("advisor-sess-no-budget", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.maxRuntimeMs).toBeUndefined();
+      expect(captured.current!.maxToolCalls).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test("a spawn whose turn was stopped never reaches the manager", async () => {
+    // The stop can land while the advisor's context pack is being assembled, so
+    // the tool checks before paying for that as well as after.
+    const controller = new AbortController();
+    controller.abort();
+    const { captured, restore } = stubSpawn();
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-cancelled", {
+          sendToClient: () => {},
+          signal: controller.signal,
+        }),
+      );
+      // Not an error: the user cancelled, and no child was started.
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("this turn was stopped");
+      expect(captured.current).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test("the advisor takes no follow-up message", async () => {
+    // A consult answers one question once. A follow-up would also escape the
+    // budget its spawn set: the drained turn starts after the run has settled
+    // and the runtime timer is cleared, so it would run on the premium profile
+    // under no ceiling at all.
+    const manager = getSubagentManager();
+    const subagentId = "advisor-one-shot";
+    const originalGetState = manager.getState.bind(manager);
+    manager.getState = ((id: string) =>
+      id === subagentId
+        ? {
+            config: {
+              id: subagentId,
+              parentConversationId: "advisor-sess-one-shot",
+              label: "Consult",
+              objective: "x",
+              role: "advisor",
+            },
+            status: "running",
+          }
+        : originalGetState(id)) as unknown as typeof manager.getState;
+    // The refusal itself is the manager's, so every caller gets it, not just
+    // this tool (see the manager-level test in subagent-spawn-and-await). What
+    // is asserted here is that the tool turns it into something the model can
+    // act on rather than a bare failure.
+    const originalSend = manager.sendMessage.bind(manager);
+    manager.sendMessage = (async () =>
+      "one_shot") as unknown as typeof manager.sendMessage;
+    try {
+      const result = await executeSubagentMessage(
+        { subagent_id: subagentId, content: "also consider the queue" },
+        makeContext("advisor-sess-one-shot", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("takes no follow-up");
+      // The model is told what to do instead, or it will just retry.
+      expect(result.content).toContain("subagent_spawn");
+    } finally {
+      manager.getState = originalGetState;
+      manager.sendMessage = originalSend;
+    }
+  });
+
+  test("the advisor's guidance is internal, never relayed to the user", async () => {
+    // The consult answers the agent. Even an explicit send_result_to_user
+    // cannot turn a piece of internal reasoning into a user-facing reply.
+    const { captured, restore } = stubSpawn();
+    try {
+      await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "x",
+          role: "advisor",
+          send_result_to_user: true,
+        },
+        makeContext("advisor-sess-internal", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.sendResultToUser).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
   test("advisor carries no parent transcript or system prompt", async () => {
-    // The consult is a regular blocking spawn: the brief is its whole input, so
-    // nothing of the parent conversation is snapshotted into it.
+    // The brief is the consult's whole input, so nothing of the parent
+    // conversation is snapshotted into it.
     mockFindConversation = () => ({
       messages: [
         { role: "user", content: [{ type: "text", text: "Do the task" }] },
@@ -3112,18 +3288,40 @@ describe("Subagent advisor-role consult", () => {
       ],
       getCurrentSystemPrompt: () => "PARENT SYSTEM PROMPT",
     });
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-2", { sendToClient: () => {} }),
       );
-      expect(captured.current!.config.fork).toBeUndefined();
-      expect(captured.current!.config.parentMessages).toBeUndefined();
-      expect(captured.current!.config.parentSystemPrompt).toBeUndefined();
-      expect(captured.current!.config.systemPromptOverride).not.toContain(
+      expect(captured.current!.fork).toBeUndefined();
+      expect(captured.current!.parentMessages).toBeUndefined();
+      expect(captured.current!.parentSystemPrompt).toBeUndefined();
+      expect(captured.current!.systemPromptOverride).not.toContain(
         "PARENT SYSTEM PROMPT",
       );
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("an advisor asked to fork advises off the brief anyway", async () => {
+    // Inheriting the transcript would both defeat the advice framing and
+    // re-prefill the whole chat at advisor rates.
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "PARENT SYSTEM PROMPT",
+    });
+    const { captured, restore } = stubSpawn();
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor", fork: true },
+        makeContext("advisor-sess-fork", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.fork).toBeUndefined();
+      expect(captured.current!.parentMessages).toBeUndefined();
+      expect(JSON.parse(result.content).isFork).toBeUndefined();
     } finally {
       restore();
       mockFindConversation = () => undefined;
@@ -3139,13 +3337,13 @@ describe("Subagent advisor-role consult", () => {
       "Evidence: src/queue/store.ts already exports both writers.",
       "Question: is dual-write the right shape here?",
     ].join("\n");
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       await executeSubagentSpawn(
         { label: "Consult", objective: brief, role: "advisor" },
         makeContext("advisor-sess-brief", { sendToClient: () => {} }),
       );
-      expect(captured.current!.config.requestText).toContain(
+      expect(captured.current!.requestText).toContain(
         `<agent_request>\n${brief}\n</agent_request>`,
       );
     } finally {
@@ -3157,14 +3355,14 @@ describe("Subagent advisor-role consult", () => {
     // The parent is looked up only for its warm skill catalog, so an evicted
     // conversation costs a section of the context pack, not the consult.
     mockFindConversation = () => undefined;
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       const result = await executeSubagentSpawn(
         { label: "Consult", objective: "advise me", role: "advisor" },
         makeContext("advisor-sess-no-parent", { sendToClient: () => {} }),
       );
-      expect(result.content).toBe("advice");
-      expect(captured.current!.config.role).toBe("advisor");
+      expect(result.isError).toBe(false);
+      expect(captured.current!.role).toBe("advisor");
     } finally {
       restore();
     }
@@ -3175,14 +3373,14 @@ describe("Subagent advisor-role consult", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-4", { sendToClient: () => {} }),
       );
-      expect(captured.current!.config.overrideProfile).toBe("frontier");
-      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+      expect(captured.current!.overrideProfile).toBe("frontier");
+      expect(captured.current!.forceOverrideProfile).toBe(true);
     } finally {
       restore();
       mockFindConversation = () => undefined;
@@ -3195,14 +3393,14 @@ describe("Subagent advisor-role consult", () => {
       getCurrentSystemPrompt: () => "SYS",
     });
     mockConversationOverrideProfile = "quality-optimized";
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-isolation", { sendToClient: () => {} }),
       );
-      expect(captured.current!.config.overrideProfile).toBe("frontier");
-      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+      expect(captured.current!.overrideProfile).toBe("frontier");
+      expect(captured.current!.forceOverrideProfile).toBe(true);
     } finally {
       restore();
       mockConversationOverrideProfile = undefined;
@@ -3215,7 +3413,7 @@ describe("Subagent advisor-role consult", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       await executeSubagentSpawn(
         {
@@ -3226,10 +3424,8 @@ describe("Subagent advisor-role consult", () => {
         },
         makeContext("advisor-sess-5", { sendToClient: () => {} }),
       );
-      expect(captured.current!.config.overrideProfile).toBe(
-        "quality-optimized",
-      );
-      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+      expect(captured.current!.overrideProfile).toBe("quality-optimized");
+      expect(captured.current!.forceOverrideProfile).toBe(true);
     } finally {
       restore();
       mockFindConversation = () => undefined;
@@ -3237,14 +3433,14 @@ describe("Subagent advisor-role consult", () => {
   });
 
   test("an advisorProfile the catalog denies tools falls back with a note", async () => {
-    // The advisor carries read tools now, so a profile that cannot call them
-    // would answer from the transcript alone with nothing saying why.
+    // The advisor carries read tools, so a profile that cannot call them
+    // would answer from the brief alone with nothing saying why.
     mockFindConversation = () => ({
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
     setConfig("llm", { ...BASE_LLM_CONFIG, advisorProfile: "no-tool-model" });
-    const { captured, restore } = stubAwait("Ship the data model first.");
+    const { captured, restore } = stubSpawn();
     try {
       const result = await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
@@ -3253,10 +3449,9 @@ describe("Subagent advisor-role consult", () => {
       // No override travels with the consult, which is what lands it on the
       // subagentSpawn call site's own profile while leaving usage attribution
       // on call_site instead of reporting a pin nobody set.
-      expect(captured.current!.config.overrideProfile).toBeUndefined();
-      expect(captured.current!.config.forceOverrideProfile).toBeUndefined();
-      expect(result.content).toContain("Ship the data model first.");
-      expect(result.content).toContain(
+      expect(captured.current!.overrideProfile).toBeUndefined();
+      expect(captured.current!.forceOverrideProfile).toBeUndefined();
+      expect(JSON.parse(result.content).note).toContain(
         'profile "no-tool-model" is not verified for tool calling',
       );
     } finally {
@@ -3271,7 +3466,7 @@ describe("Subagent advisor-role consult", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       const result = await executeSubagentSpawn(
         {
@@ -3284,8 +3479,10 @@ describe("Subagent advisor-role consult", () => {
           sendToClient: () => {},
         }),
       );
-      expect(captured.current!.config.overrideProfile).toBeUndefined();
-      expect(result.content).toContain("is not verified for tool calling");
+      expect(captured.current!.overrideProfile).toBeUndefined();
+      expect(JSON.parse(result.content).note).toContain(
+        "is not verified for tool calling",
+      );
     } finally {
       restore();
       mockFindConversation = () => undefined;
@@ -3299,7 +3496,7 @@ describe("Subagent advisor-role consult", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       const result = await executeSubagentSpawn(
         {
@@ -3310,216 +3507,10 @@ describe("Subagent advisor-role consult", () => {
         },
         makeContext("advisor-sess-byok", { sendToClient: () => {} }),
       );
-      expect(captured.current!.config.overrideProfile).toBe(
-        "byok-unknown-model",
-      );
-      expect(result.content).toBe("advice");
+      expect(captured.current!.overrideProfile).toBe("byok-unknown-model");
+      expect(JSON.parse(result.content).note).toBeUndefined();
     } finally {
       restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("advisor forwards streamed chunks to the tool's onOutput sink", async () => {
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    const { captured, restore } = stubAwait("advice");
-    const chunks: string[] = [];
-    const onOutput = (c: string) => chunks.push(c);
-    try {
-      await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-6", { sendToClient: () => {}, onOutput }),
-      );
-      // onText is a forwarding wrapper rather than onOutput itself, but
-      // invoking it must still forward to onOutput.
-      expect(captured.current!.opts?.onText).toBeInstanceOf(Function);
-      captured.current!.opts?.onText?.("hello");
-      expect(chunks).toEqual(["hello"]);
-      expect(captured.current!.opts?.signal).toBeInstanceOf(AbortSignal);
-    } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("advisor taps tool activity as deadline progress, separately from onText", async () => {
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    const { captured, restore } = stubAwait("advice");
-    const chunks: string[] = [];
-    const onOutput = (c: string) => chunks.push(c);
-    try {
-      await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-progress", {
-          sendToClient: () => {},
-          onOutput,
-        }),
-      );
-      // The idle deadline is re-armed from onProgress, which the manager fires
-      // for tool events as well as tokens. An advisor reading a file emits no
-      // token, so without this tap the consult would be killed mid-read.
-      expect(captured.current!.opts?.onProgress).toBeInstanceOf(Function);
-      captured.current!.opts?.onProgress?.();
-      // Progress is a liveness signal, not content: it must not reach the
-      // caller's stream sink.
-      expect(chunks).toEqual([]);
-      expect(captured.current!.opts?.signal?.aborted).toBe(false);
-    } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  /** One child tool call, enveloped the way the manager sends it to a parent. */
-  function toolCallEvent(toolUseId: string): Record<string, unknown> {
-    return {
-      type: "subagent_event",
-      subagentId: "advisor-child",
-      conversationId: "advisor-parent",
-      event: {
-        type: "tool_use_start",
-        toolName: "file_read",
-        toolUseId,
-        conversationId: "advisor-child-conv",
-      },
-    };
-  }
-
-  test("a consult that keeps reading is stopped and answers with what it has", async () => {
-    // Tool events re-arm the idle window, so without a ceiling on tool rounds
-    // a reading advisor blocks the user's turn until the absolute backstop.
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    let sawAbort = false;
-    const { captured, restore } = stubAwait(async (send) => {
-      for (let i = 0; i < 12; i++) {
-        send(toolCallEvent(`tool-${i}`));
-      }
-      sawAbort = captured.current!.opts!.signal!.aborted;
-      throw new SubagentAbortedError("Check the migration ordering first.");
-    });
-    const forwarded: unknown[] = [];
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-tool-cap", {
-          sendToClient: (msg: unknown) => forwarded.push(msg),
-        }),
-      );
-
-      expect(sawAbort).toBe(true);
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("Check the migration ordering first.");
-      expect(result.content).toContain("used its full budget of 8 tool calls");
-      // Counting must not swallow the child's events on their way to the client.
-      expect(forwarded).toHaveLength(12);
-    } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("tool calls under the ceiling leave the consult running", async () => {
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    let sawAbort = true;
-    const { captured, restore } = stubAwait(async (send) => {
-      for (let i = 0; i < 8; i++) {
-        send(toolCallEvent(`tool-${i}`));
-      }
-      // Non-tool traffic must not count against the ceiling.
-      for (let i = 0; i < 20; i++) {
-        send({
-          type: "subagent_event",
-          subagentId: "advisor-child",
-          event: { type: "assistant_text_delta", text: "thinking" },
-        });
-      }
-      sawAbort = captured.current!.opts!.signal!.aborted;
-      return "Read enough. Ship the data model first.";
-    });
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-tool-cap-under", { sendToClient: () => {} }),
-      );
-
-      expect(sawAbort).toBe(false);
-      expect(result.content).toBe("Read enough. Ship the data model first.");
-    } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("a consult stopped at the ceiling with nothing written says so", async () => {
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    const { restore } = stubAwait(async (send) => {
-      for (let i = 0; i < 9; i++) {
-        send(toolCallEvent(`tool-${i}`));
-      }
-      throw new SubagentAbortedError("  ");
-    });
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-tool-cap-empty", { sendToClient: () => {} }),
-      );
-
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain(
-        "advisor used its full budget of 8 tool calls without writing any guidance",
-      );
-      // The generic degrade would say nothing about why it stopped.
-      expect(result.content).not.toContain("advisor unavailable");
-    } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("a consult that both fell back on profile and hit the cap says both", async () => {
-    // The profile note explains guidance that reads oddly, so the branch with
-    // no guidance at all is exactly where it is most needed.
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    setConfig("llm", { ...BASE_LLM_CONFIG, advisorProfile: "no-tool-model" });
-    const { restore } = stubAwait(async (send) => {
-      for (let i = 0; i < 9; i++) {
-        send(toolCallEvent(`tool-${i}`));
-      }
-      throw new SubagentAbortedError("  ");
-    });
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-tool-cap-note", { sendToClient: () => {} }),
-      );
-
-      expect(result.content).toContain(
-        "advisor used its full budget of 8 tool calls without writing any guidance",
-      );
-      expect(result.content).toContain(
-        'profile "no-tool-model" is not verified for tool calling',
-      );
-    } finally {
-      restore();
-      setConfig("llm", BASE_LLM_CONFIG);
       mockFindConversation = () => undefined;
     }
   });
@@ -3529,7 +3520,7 @@ describe("Subagent advisor-role consult", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
-    const { captured, restore } = stubAwait("advice");
+    const { captured, restore } = stubSpawn();
     try {
       await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
@@ -3540,7 +3531,7 @@ describe("Subagent advisor-role consult", () => {
       // execute. The owner check that names cannot express rides on the role,
       // so it reaches every path that projects the role rather than only the
       // spawn site that remembered to ask for it.
-      expect(captured.current!.config.role).toBe("advisor");
+      expect(captured.current!.role).toBe("advisor");
       expect(SUBAGENT_ROLE_REGISTRY.advisor.denySideEffects).toBe(true);
     } finally {
       restore();
@@ -3548,86 +3539,36 @@ describe("Subagent advisor-role consult", () => {
     }
   });
 
-  test("advisor degrades benignly when the consult throws (incl. depth limit)", async () => {
+  test("a rejected advisor spawn reports the reason (incl. depth limit)", async () => {
     mockFindConversation = () => ({
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
-    const { restore } = stubAwait(async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    manager.spawn = async () => {
       throw new Error(
         "Cannot spawn subagent: parent is itself a subagent (max depth 1).",
       );
-    });
+    };
     try {
       const result = await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-7", { sendToClient: () => {} }),
       );
-      // Never fail the turn — benign non-error notice.
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("advisor unavailable");
+      // The same reporting every other rejected spawn gets: the caller asked
+      // for a child it cannot have and needs to know why.
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Failed to spawn subagent");
       expect(result.content).toContain("parent is itself a subagent");
     } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("advisor returns partial guidance (with a cut-off note) when the consult times out", async () => {
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    // A timeout surfaces as SubagentAbortedError carrying the partial text the
-    // advisor streamed before being cut off; that text must be salvaged.
-    const { restore } = stubAwait(async () => {
-      throw new SubagentAbortedError(
-        "Lead with the data model, then wire reminders last.",
-      );
-    });
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-timeout", { sendToClient: () => {} }),
-      );
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain(
-        "Lead with the data model, then wire reminders last.",
-      );
-      expect(result.content).toContain("may be cut off");
-      // Not the generic unavailable degrade — real guidance was preserved.
-      expect(result.content).not.toContain("advisor unavailable");
-    } finally {
-      restore();
-      mockFindConversation = () => undefined;
-    }
-  });
-
-  test("advisor still degrades when a timeout yields no partial text", async () => {
-    mockFindConversation = () => ({
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      getCurrentSystemPrompt: () => "SYS",
-    });
-    // Aborted before producing any text → empty partial → fall through to the
-    // benign "advisor unavailable" notice.
-    const { restore } = stubAwait(async () => {
-      throw new SubagentAbortedError("   ");
-    });
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-timeout-empty", { sendToClient: () => {} }),
-      );
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("advisor unavailable");
-    } finally {
-      restore();
+      manager.spawn = originalSpawn;
       mockFindConversation = () => undefined;
     }
   });
 
   test("advisor degrades benignly when no client is connected", async () => {
-    // No sendToClient → the shared client guard fires before the advisor branch.
+    // No sendToClient → the shared client guard fires before any spawn.
     const result = await executeSubagentSpawn(
       { label: "Consult", objective: "x", role: "advisor" },
       makeContext("advisor-sess-8"),

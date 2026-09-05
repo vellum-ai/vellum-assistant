@@ -121,6 +121,30 @@ export interface SubagentConfig {
    */
   spawnMode?: SubagentSpawnMode;
   /**
+   * Wall-clock ceiling on this child's run, measured from the moment its agent
+   * loop starts. On expiry the manager aborts the child and tells the parent it
+   * was stopped at its ceiling, so whatever it produced stays readable.
+   *
+   * Omitted for an ordinary spawn, which is bounded by the work it was asked to
+   * do and by the user's own stop. Set it for a child the caller wants held to
+   * a budget it cannot be trusted to keep itself: an open-ended objective on an
+   * expensive profile can otherwise run as long as the model keeps calling
+   * tools, with nothing in the loop to say when enough is enough.
+   */
+  maxRuntimeMs?: number;
+  /**
+   * Ceiling on the tool calls this child may start, counted off its own event
+   * stream. The budget is spent in full before the abort fires: the call that
+   * trips it is the one PAST the ceiling, so the child keeps every result
+   * inside the budget and loses only the call it was starting.
+   *
+   * Separate from {@link maxRuntimeMs} because they bound different failure
+   * shapes, and the parent is told which one stopped the child: a run that is
+   * slow and a run that is reading the whole codebase call for different
+   * follow-ups.
+   */
+  maxToolCalls?: number;
+  /**
    * When true, this subagent may run only the runtime's own read-only built-ins:
    * anything else, including a workspace/plugin/skill/MCP tool registered UNDER
    * a built-in's name, is kept off the model's tool surface and refused by the
@@ -332,18 +356,17 @@ export const SUBAGENT_LIMITS = {
 
 /**
  * What a subagent is, derived from two questions: can it change things, and
- * does the parent wait for it.
+ * what does it owe the parent back. Every type runs in the background, so the
+ * spawn returns an id and the answer arrives as a terminal notification.
  *
- * - `researcher`: read-only, runs in the background, scoped to a fixed
- *   allowlist.
- * - `builder`: write-capable, runs in the background, on the parent's whole
- *   tool surface.
- * - `advisor`: read-only, the parent turn blocks on its guidance.
+ * - `researcher`: read-only, scoped to a fixed allowlist, owes findings.
+ * - `builder`: write-capable, on the parent's whole tool surface, owes the
+ *   work done.
+ * - `advisor`: read-only, runs on the advisor profile, owes guidance on the
+ *   brief it was given rather than an answer it went and produced.
  *
- * Write-plus-blocking is deliberately absent: a parent that waits on a change
- * has no reason to delegate it. Model tier is a separate knob
- * (`inference_profile`), and a persona is free text
- * (`SubagentConfig.persona`), so neither is a type.
+ * Model tier is a separate knob (`inference_profile`), and a persona is free
+ * text (`SubagentConfig.persona`), so neither is a type.
  *
  * The legacy names (`general`, `coder`, `planner`, `investigator`) remain
  * accepted at the tool boundary as aliases; see ./role-resolution.ts.
@@ -412,18 +435,19 @@ export function subagentOutputContractText(
 /**
  * How a subagent was spawned. Orthogonal to {@link SubagentRole}: the role
  * selects the tool allowlist and system-prompt preamble (what the child may
- * do), the spawn mode selects context inheritance and lifecycle (how many
- * input tokens the child starts with, and whether the parent blocks on it).
- * A fork's inherited parent transcript is the dominant input-token driver and
- * is independent of which role ran, which is why neither field subsumes the
- * other.
+ * do), the spawn mode selects context inheritance (how many input tokens the
+ * child starts with). A fork's inherited parent transcript is the dominant
+ * input-token driver and is independent of which role ran, which is why
+ * neither field subsumes the other.
  *
- * - `regular`: fire-and-forget `subagent_spawn`, fresh objective-only context.
+ * Every mode is fire-and-forget except `voice_continuation`, whose session
+ * awaits the run so it can speak the answer itself.
+ *
+ * - `regular`: `subagent_spawn`, fresh objective-only context.
  * - `fork`: `subagent_spawn` with `fork: true`, inherits the parent transcript.
- * - `advisor_consult`: synchronous, read-only advisor consult on the advisor
- *   profile, running on the spawning agent's written brief plus a snapshot of
- *   its environment; the parent turn blocks on it and returns its guidance
- *   inline.
+ * - `advisor_consult`: read-only advisor consult on the advisor profile,
+ *   running on the spawning agent's written brief plus a snapshot of its
+ *   environment, and on neither the parent transcript nor its system prompt.
  * - `voice_continuation`: live-voice background continuation of an interrupted
  *   turn, spawned as a fork with no role and therefore WRITE-CAPABLE: it runs
  *   as {@link DEFAULT_SUBAGENT_ROLE} on the parent's full tool surface, with

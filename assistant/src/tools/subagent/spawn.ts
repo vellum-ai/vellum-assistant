@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import type { AssistantEvent } from "../../api/index.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { getConfig } from "../../config/loader.js";
 import { profileSupportsTools } from "../../config/profile-tool-support.js";
@@ -19,7 +18,7 @@ import {
 } from "../../subagent/consult-prompt.js";
 import {
   getSubagentManager,
-  SubagentAbortedError,
+  SubagentSpawnCancelledError,
 } from "../../subagent/index.js";
 import {
   type ResolvedSubagentRole,
@@ -36,39 +35,28 @@ import {
   nullAsOmitted,
 } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { createConsultDeadline } from "./consult-deadline.js";
 
 const log = getLogger("subagent-spawn");
 
 /**
- * Idle ceiling on a single advisor consult: abort only after this much time
- * passes with NO sign of forward progress, meaning neither a streamed token
- * (thinking or text) nor tool activity. A reasoning advisor profile streams its
- * reasoning while it works, so a fixed wall-clock ceiling would kill it
- * mid-thought; an idle window instead fires only when the consult is genuinely
- * stalled (or never starts). Generous enough to also span time-to-first-token
- * on a slow reasoning profile.
- */
-const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
-
-/**
- * Absolute backstop on a single advisor consult regardless of streaming
- * progress, so a runaway or looping stream can't block the parent forever.
- * Either ceiling still yields the partial guidance (recovered in the
- * `SubagentAbortedError` branch below), not a discard.
- */
-const ADVISOR_MAX_TIMEOUT_MS = 300_000;
-
-/**
- * Tool calls a single advisor consult may make before it is stopped and asked
- * to answer with what it has.
+ * Wall-clock ceiling on one advisor consult.
  *
- * The consult BLOCKS the user-facing turn, and every tool call it makes
- * re-arms the idle window, so a reading advisor is otherwise bounded only by
- * the absolute backstop: five minutes of silence in the chat. A consult is
- * meant to check a decisive fact or two, not to survey a codebase, so a handful
- * of reads is the whole budget; past it the guidance written so far is worth
- * more to the caller than the reads it was still queuing.
+ * The advisor is the only spawn the agent may issue unprompted, and it is the
+ * only one that runs on the premium `llm.advisorProfile`, so it is also the
+ * only one whose cost is not implicitly bounded by a user having asked for the
+ * work. A consult is meant to answer one question, not to keep going: past
+ * this the guidance written so far is worth more than whatever it was still
+ * reasoning towards.
+ */
+const ADVISOR_MAX_RUNTIME_MS = 300_000;
+
+/**
+ * Tool calls one advisor consult may make.
+ *
+ * A consult is meant to check a decisive fact or two, not to survey a codebase,
+ * so a handful of reads is the whole budget. Without it the wall-clock ceiling
+ * is the only bound, and five minutes of premium-profile reading is a long way
+ * past the point where the brief should have carried the evidence instead.
  */
 const ADVISOR_MAX_TOOL_CALLS = 8;
 
@@ -156,11 +144,15 @@ export async function executeSubagentSpawn(
   const inferenceProfile = parsed.inference_profile;
   const outputContract = parsed.output_contract;
 
-  // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
-  // For regular mode, sendResultToUser defaults to true (existing behavior).
-  const sendResultToUser = fork
-    ? input.send_result_to_user === true
-    : input.send_result_to_user !== false;
+  // The advisor answers the agent, not the user, so its guidance is always
+  // internal. For fork mode, sendResultToUser defaults to false unless
+  // explicitly set to true. For regular mode it defaults to true.
+  const isAdvisor = resolvedRole.role === "advisor";
+  const sendResultToUser =
+    !isAdvisor &&
+    (fork
+      ? input.send_result_to_user === true
+      : input.send_result_to_user !== false);
 
   if (!label || !objective) {
     return {
@@ -199,24 +191,17 @@ export async function executeSubagentSpawn(
     };
   }
 
-  // ── Advisor role: synchronous, read-only, stronger-model consult ──
-  // Branch before the fire-and-forget path: the advisor blocks on the run and
-  // returns its guidance as the tool result in the same turn.
-  if (resolvedRole.role === "advisor") {
-    return runAdvisorConsult({
-      context,
-      label,
-      objective,
-      sendToClient: sendToClient as (msg: AssistantEvent) => void,
-      requestedOverrideProfile,
-    });
-  }
-
   // ── Repeat-spawn guard ───────────────────────────────────────────
   // Re-running an objective that already completed several times in the last
   // day buys the same answer twice, so the guard hands the repetition back to
   // the caller with what it has already cost. It never blocks: `confirm_repeat`
-  // always spawns, and the advisor consult returned above is never guarded.
+  // always spawns.
+  //
+  // Checking and reserving happen together, with no `await` between them, so a
+  // burst of identical spawns issued in one model response cannot all read the
+  // same pre-burst tally and all pass. The reservation covers the window from
+  // here until `manager.spawn` persists the row the durable in-flight count
+  // reads, and is released either way.
   if (parsed.confirm_repeat !== true) {
     const guardResult = repeatSpawnGuardResult(
       context.conversationId,
@@ -226,6 +211,66 @@ export async function executeSubagentSpawn(
       return guardResult;
     }
   }
+  const releaseReservation = reserveSpawn(context.conversationId, objective);
+  try {
+    return await spawnReservedSubagent({
+      context,
+      manager,
+      sendToClient,
+      label,
+      objective,
+      extraContext,
+      fork,
+      isAdvisor,
+      resolvedRole,
+      outputContract,
+      sendResultToUser,
+      requestedOverrideProfile,
+      forceOverrideProfile,
+    });
+  } finally {
+    // Released at every exit: on success `manager.spawn` has already persisted
+    // the row the durable in-flight count reads, and on any failure or early
+    // return no child was started, so nothing is left holding a slot.
+    releaseReservation();
+  }
+}
+
+/**
+ * The spawn itself, run with this objective's in-flight reservation held.
+ * Split out so the reservation has one release point covering every way this
+ * can return, rather than a release per exit that a later branch could miss.
+ */
+async function spawnReservedSubagent(args: {
+  context: ToolContext;
+  manager: ReturnType<typeof getSubagentManager>;
+  sendToClient: (msg: { type: string; [key: string]: unknown }) => void;
+  label: string;
+  objective: string;
+  extraContext: string | undefined;
+  fork: boolean;
+  isAdvisor: boolean;
+  resolvedRole: ResolvedSubagentRole;
+  outputContract: SubagentOutputContract | undefined;
+  sendResultToUser: boolean;
+  requestedOverrideProfile: string | undefined;
+  forceOverrideProfile: boolean;
+}): Promise<ToolExecutionResult> {
+  const {
+    context,
+    manager,
+    sendToClient,
+    label,
+    objective,
+    extraContext,
+    fork,
+    isAdvisor,
+    resolvedRole,
+    outputContract,
+    sendResultToUser,
+    requestedOverrideProfile,
+  } = args;
+  let { forceOverrideProfile } = args;
 
   // ── Fork mode: resolve parent context ────────────────────────────
   let forkFields:
@@ -236,7 +281,10 @@ export async function executeSubagentSpawn(
       }
     | undefined;
 
-  if (fork) {
+  // An advisor never forks: it advises off the brief alone, so inheriting the
+  // parent transcript would both defeat the framing and re-prefill the whole
+  // chat at advisor rates. `fork` is ignored for it, the way `context` is.
+  if (fork && !isAdvisor) {
     const parentConversation = findConversation(context.conversationId);
     if (!parentConversation) {
       return {
@@ -279,6 +327,13 @@ export async function executeSubagentSpawn(
 
   let profileNote: string | undefined;
   let inheritedOverrideProfile = requestedOverrideProfile;
+  if (inheritedOverrideProfile === undefined && isAdvisor) {
+    // A consult is worth having only when it brings a stronger read than the
+    // agent's own, so the advisor runs on `llm.advisorProfile` unless the
+    // caller pinned a profile itself.
+    inheritedOverrideProfile = llm.advisorProfile;
+    forceOverrideProfile = inheritedOverrideProfile !== undefined;
+  }
   if (inheritedOverrideProfile === undefined) {
     if (outputContract === "verdict") {
       // A verdict is a check rather than an investigation, so it takes the
@@ -296,12 +351,27 @@ export async function executeSubagentSpawn(
     // Every other spawn leaves this unset, which is what lands it on the
     // subagentSpawn default rather than anything the parent turn was pinned to.
   } else if (profileSupportsTools(inheritedOverrideProfile, config) === false) {
-    profileNote = `requested profile "${inheritedOverrideProfile}" is not verified for tool calling; ran on the default profile instead.`;
+    // Every type carries read tools, so a profile the catalog states cannot
+    // call them is handed a surface it can never use. Fall back to the call
+    // site's own default and say so on the result. Only a catalog `false`
+    // redirects, so a model the catalog has never heard of is left alone.
+    const requested = requestedOverrideProfile !== undefined;
+    profileNote =
+      `${requested ? "requested profile" : "profile"} "${inheritedOverrideProfile}" ` +
+      "is not verified for tool calling; ran on the default profile instead.";
     inheritedOverrideProfile = undefined;
     forceOverrideProfile = false;
   }
 
   const roleNote = resolvedRoleNote(resolvedRole);
+  // Assembling the advisor's context pack is itself awaited work the user can
+  // stop, so check before paying for it as well as after.
+  if (context.signal?.aborted) {
+    return spawnCancelledResult(label);
+  }
+  const advisorFields = isAdvisor
+    ? await buildAdvisorFields(context, objective)
+    : undefined;
 
   try {
     const subagentId = await manager.spawn(
@@ -309,13 +379,13 @@ export async function executeSubagentSpawn(
         parentConversationId: context.conversationId,
         label,
         objective,
-        context: extraContext,
+        ...(isAdvisor ? {} : { context: extraContext }),
         sendResultToUser,
-        // The resolved type is passed for every spawn, fork included: a fork
-        // that named no role resolves to `builder`, which imposes no
-        // allowlist, so it keeps the parent's tool surface, which is what the
-        // system prompt it inherits describes. The advisor is special-cased
-        // earlier via runAdvisorConsult, not here.
+        // The resolved type is passed for every spawn, fork and advisor
+        // included: a fork that named no role resolves to `builder`, which
+        // imposes no allowlist, so it keeps the parent's tool surface, which is
+        // what the system prompt it inherits describes. The advisor's role is
+        // what carries its allowlist and its `denySideEffects` read-only gate.
         role: resolvedRole.role,
         ...(resolvedRole.personaText
           ? { persona: resolvedRole.personaText }
@@ -324,8 +394,11 @@ export async function executeSubagentSpawn(
         // Declare the spawn mode so delegated LLM spend is separable in
         // telemetry: every variety shares `llm_call_site = "subagentSpawn"`,
         // and a fork's inherited transcript costs very differently from a
-        // fresh objective-only spawn.
-        spawnMode: fork ? "fork" : "regular",
+        // fresh objective-only spawn. The advisor is a ROLE, not an
+        // `LLMCallSiteEnum` value, so its mode is what makes consults
+        // separable from regular spawns.
+        spawnMode: isAdvisor ? "advisor_consult" : fork ? "fork" : "regular",
+        ...advisorFields,
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
@@ -337,6 +410,12 @@ export async function executeSubagentSpawn(
         ...forkFields,
       },
       sendToClient as (msg: unknown) => void,
+      // The turn's cancellation signal guards the manager's own async setup:
+      // a user who stops the turn while the child conversation is being
+      // bootstrapped runs the parent's abort sweep before this child is in the
+      // manager to be swept, so the signal has to reach the one place that can
+      // still catch it.
+      context.signal ? { signal: context.signal } : undefined,
     );
 
     return {
@@ -345,19 +424,122 @@ export async function executeSubagentSpawn(
         label,
         status: "pending",
         role: resolvedRole.role,
-        ...(fork ? { isFork: true } : {}),
+        ...(fork && !isAdvisor ? { isFork: true } : {}),
         ...(profileNote ? { note: profileNote } : {}),
         ...(roleNote ? { roleNote } : {}),
-        message: fork
-          ? `Forked subagent "${label}" spawned with full parent context. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`
-          : `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`,
+        message: spawnedMessage({
+          label,
+          isAdvisor,
+          isFork: fork && !isAdvisor,
+        }),
       }),
       isError: false,
     };
   } catch (err) {
+    // A spawn the user stopped is not a failure to report as one: nothing went
+    // wrong, and the turn this result would have reached is already over.
+    if (err instanceof SubagentSpawnCancelledError) {
+      return spawnCancelledResult(label);
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+/**
+ * The result for a spawn abandoned because the requesting turn was stopped.
+ * Not an error: the user cancelled, no child was started, and there is nothing
+ * for the model to recover from.
+ */
+function spawnCancelledResult(label: string): ToolExecutionResult {
+  return {
+    content: `Subagent "${label}" was not spawned: this turn was stopped before it started.`,
+    isError: false,
+  };
+}
+
+// ── Advisor consult ──────────────────────────────────────────────────
+
+/**
+ * The spawn-config fields that turn a background child into an advisor
+ * consult: the advice framing, the brief it advises off, and the budget it
+ * runs under.
+ *
+ * The consult sees only what it is handed. The spawning agent's own
+ * `objective` IS the brief, so it carries into the request verbatim inside
+ * `requestText`, together with the situational pack from
+ * `buildAdvisorContext`. Nothing of the parent conversation's transcript or
+ * system prompt travels with it, so a consult costs the brief rather than a
+ * re-prefill of the whole chat at premium rates.
+ *
+ * `objective` is left to the caller's raw brief, unframed: it is the field the
+ * durable row and the subagent detail panel show, and the field the
+ * repeat-spawn guard folds, so a consult has to record it the same way every
+ * other spawn does or the guard could never match one consult against another.
+ *
+ * The context pack is best effort: the parent conversation is looked up only
+ * for its warm skill catalog, so an unresolvable one (e.g. evicted) costs the
+ * skills section of the pack and nothing else.
+ *
+ * The budget is the advisor's alone. It is the only spawn the agent may issue
+ * unprompted and the only one that runs on the premium profile, so it is the
+ * only one whose cost no user has implicitly signed off on; the manager holds
+ * it to both ceilings and tells the parent which one stopped it.
+ */
+async function buildAdvisorFields(
+  context: ToolContext,
+  objective: string,
+): Promise<{
+  requestText: string;
+  systemPromptOverride: string;
+  maxRuntimeMs: number;
+  maxToolCalls: number;
+}> {
+  const parentConversation = findConversation(context.conversationId);
+  // Situational awareness for the advisor: the parent's live tool set, the
+  // full skill catalog, and its workspace. Assembled off the per-turn
+  // ToolContext snapshot (trust, channel) so the personal-memory sections are
+  // gated exactly like the runtime injectors. A null pack just means the
+  // consult runs on the brief alone.
+  const situationalContext = await buildAdvisorContext({
+    conversationId: context.conversationId,
+    workingDir: context.workingDir,
+    allowedToolNames: context.allowedToolNames,
+    trustClass: context.trustClass,
+    enabledPluginSet: context.enabledPluginSet,
+    // The parent's warm per-turn catalog keeps the synchronous on-disk catalog
+    // scan out of the spawn path.
+    skillCatalog: parentConversation?.skillProjectionCache?.catalog,
+  });
+  return {
+    requestText: advisorRequestText(objective, situationalContext),
+    systemPromptOverride: buildAdvisorSystem(),
+    maxRuntimeMs: ADVISOR_MAX_RUNTIME_MS,
+    maxToolCalls: ADVISOR_MAX_TOOL_CALLS,
+  };
+}
+
+/**
+ * What the spawn tool tells the model it just started. Every variety returns
+ * immediately and reports back through the terminal notification, so each
+ * message says the same thing in the vocabulary of the type that ran.
+ */
+function spawnedMessage(opts: {
+  label: string;
+  isAdvisor: boolean;
+  isFork: boolean;
+}): string {
+  const { label, isAdvisor, isFork } = opts;
+  if (isAdvisor) {
+    return (
+      `Advisor "${label}" is thinking in the background. Its guidance arrives as a notification when it finishes - ` +
+      "do NOT poll subagent_status. Keep working on the task; weigh the guidance in when it lands."
+    );
+  }
+  if (isFork) {
+    return `Forked subagent "${label}" spawned with full parent context. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`;
+  }
+  return `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`;
 }
 
 // ── Output contract ──────────────────────────────────────────────────
@@ -369,12 +551,12 @@ export async function executeSubagentSpawn(
  * The two non-default contracts each need a capability only one type has: a
  * verdict is a claim about what already exists, which is the read-only
  * researcher's job, and an artifact has to be written, which only a builder
- * can do. The advisor takes no contract at all: it is a blocking consult that
- * returns guidance in its own framing, and its child never sees a built system
- * prompt or fork framing to render one into. That includes an explicit
- * `report`, which is checked against the advisor before it is waved through as
- * the default everywhere else: the caller asked for a shape the consult cannot
- * produce, and only an omitted contract means it never asked.
+ * can do. The advisor takes no contract at all: it answers in its own advice
+ * framing, and its child never sees a built system prompt or fork framing to
+ * render one into. That includes an explicit `report`, which is checked against
+ * the advisor before it is waved through as the default everywhere else: the
+ * caller asked for a shape the consult cannot produce, and only an omitted
+ * contract means it never asked.
  *
  * Mismatches are rejected rather than coerced. Silently promoting a verdict
  * spawn to a builder would hand out write access the caller never asked for,
@@ -391,7 +573,7 @@ function outputContractError(
   }
   if (role === "advisor") {
     return (
-      `output_contract "${contract}" does not apply to the advisor: it is a blocking consult that returns guidance in its own shape. ` +
+      `output_contract "${contract}" does not apply to the advisor: it answers with guidance in its own shape. ` +
       'Drop output_contract, or spawn role "researcher" with output_contract "verdict" to have work checked.'
     );
   }
@@ -436,6 +618,86 @@ function resolvedRoleNote(resolved: ResolvedSubagentRole): string | undefined {
   return undefined;
 }
 
+// ── In-flight spawn reservations ─────────────────────────────────────
+
+/**
+ * Spawns that have passed the repeat guard but whose durable row does not exist
+ * yet, keyed `parentConversationId` → normalized objective → count.
+ *
+ * The guard reads the `subagents` table, and a row is written inside
+ * `manager.spawn`, several awaits after the guard runs. A model that issues
+ * three identical spawns in one response runs all three guards before any of
+ * them reaches that write, so all three read the same pre-burst tally and all
+ * three pass: exactly the burst the in-flight limit exists to catch. These
+ * reservations cover that window, and are counted into the in-flight tallies
+ * alongside the rows.
+ *
+ * In-memory and process-local, like the manager's own indexes. A restart drops
+ * them, which is correct: nothing is mid-spawn across a restart, and the rows
+ * that survive are the durable record.
+ */
+const inFlightSpawnReservations = new Map<string, Map<string, number>>();
+
+/**
+ * Claim an in-flight slot for `objective` under `parentConversationId`, and
+ * return the release. Call it with no `await` between the guard's read and this
+ * write, so the check and the claim cannot interleave with a sibling spawn.
+ */
+function reserveSpawn(
+  parentConversationId: string,
+  objective: string,
+): () => void {
+  const key = normalizeSpawnObjective(objective);
+  let byObjective = inFlightSpawnReservations.get(parentConversationId);
+  if (!byObjective) {
+    byObjective = new Map();
+    inFlightSpawnReservations.set(parentConversationId, byObjective);
+  }
+  byObjective.set(key, (byObjective.get(key) ?? 0) + 1);
+
+  let released = false;
+  return () => {
+    // Idempotent: a double release would under-count the burst still running.
+    if (released) {
+      return;
+    }
+    released = true;
+    const held = inFlightSpawnReservations.get(parentConversationId);
+    const remaining = (held?.get(key) ?? 0) - 1;
+    if (!held) {
+      return;
+    }
+    if (remaining > 0) {
+      held.set(key, remaining);
+      return;
+    }
+    held.delete(key);
+    // Drop the conversation's map once empty so a long-lived daemon does not
+    // accumulate an entry per conversation that ever spawned.
+    if (held.size === 0) {
+      inFlightSpawnReservations.delete(parentConversationId);
+    }
+  };
+}
+
+/** Reservations held for `objective`, in this conversation and assistant-wide. */
+function reservedInFlight(
+  parentConversationId: string,
+  normalizedObjective: string,
+): { conversation: number; assistant: number } {
+  let assistant = 0;
+  for (const byObjective of inFlightSpawnReservations.values()) {
+    assistant += byObjective.get(normalizedObjective) ?? 0;
+  }
+  return {
+    conversation:
+      inFlightSpawnReservations
+        .get(parentConversationId)
+        ?.get(normalizedObjective) ?? 0,
+    assistant,
+  };
+}
+
 // ── Repeat-spawn guard ───────────────────────────────────────────────
 
 /**
@@ -459,11 +721,12 @@ function repeatSpawnGuardResult(
   parentConversationId: string,
   objective: string,
 ): ToolExecutionResult | undefined {
+  const normalizedObjective = normalizeSpawnObjective(objective);
   let recent: RecentSimilarSpawns;
   try {
     recent = countRecentSimilarSpawns({
       parentConversationId,
-      normalizedObjective: normalizeSpawnObjective(objective),
+      normalizedObjective,
       sinceMs: Date.now() - LOOP_GUARD_WINDOW_MS,
     });
   } catch (err) {
@@ -473,6 +736,15 @@ function repeatSpawnGuardResult(
     );
     return undefined;
   }
+
+  // Siblings from the same burst that have passed this guard but not yet
+  // written their row. Without them the durable count alone reads a burst
+  // issued in one model response as a single spawn, since none of its rows
+  // exists while the others are still being checked.
+  const reserved = reservedInFlight(parentConversationId, normalizedObjective);
+  const conversationInFlight =
+    recent.conversation.inFlight + reserved.conversation;
+  const assistantInFlight = recent.assistant.inFlight + reserved.assistant;
 
   // The spawn being asked for is itself part of the limit, so a window whose
   // runs already fill the allowance is what trips the guard. Completed runs are
@@ -486,17 +758,10 @@ function repeatSpawnGuardResult(
   } else if (recent.assistant.count >= LOOP_GUARD_ASSISTANT_LIMIT) {
     scope = "across this assistant";
     tally = recent.assistant;
-  } else if (
-    recent.conversation.inFlight >= LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT
-  ) {
-    return inFlightGuardResult(
-      recent.conversation.inFlight,
-      "this conversation",
-    );
-  } else if (
-    recent.assistant.inFlight >= LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT
-  ) {
-    return inFlightGuardResult(recent.assistant.inFlight, "this assistant");
+  } else if (conversationInFlight >= LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT) {
+    return inFlightGuardResult(conversationInFlight, "this conversation");
+  } else if (assistantInFlight >= LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT) {
+    return inFlightGuardResult(assistantInFlight, "this assistant");
   } else {
     return undefined;
   }
@@ -533,269 +798,4 @@ function inFlightGuardResult(
       "If the repetition is intentional, call subagent_spawn again with confirm_repeat: true.",
     isError: false,
   };
-}
-
-// ── Advisor consult ──────────────────────────────────────────────────
-
-/**
- * Run the `advisor` role as a synchronous, stronger-model consult and return
- * its guidance as the tool result.
- *
- * The consult sees only what it is handed: the spawning agent's own `objective`
- * as a written brief, plus the situational context pack from
- * `buildAdvisorContext`. Nothing of the parent conversation's transcript or
- * system prompt travels with it, so a consult costs the brief rather than a
- * re-prefill of the whole chat at premium rates.
- *
- * It is framed as advice via `buildAdvisorSystem` and runs on
- * `llm.advisorProfile` (unless the caller passed an explicit
- * `inference_profile`) under both the advisor role allowlist and
- * `denySideEffectTools`, so the only tools it can reach are the first-party
- * built-in readers. It is bounded on two axes, because the consult holds up the
- * user-facing turn while it runs: a progress-aware deadline (an idle window,
- * `ADVISOR_IDLE_TIMEOUT_MS`, reset on every streamed token and every tool event
- * so a reasoning or reading model isn't killed mid-consult, plus an absolute
- * `ADVISOR_MAX_TIMEOUT_MS` backstop), and a ceiling of `ADVISOR_MAX_TOOL_CALLS`
- * tool calls, since tool activity re-arms the idle window and a reading consult
- * would otherwise be bounded only by the backstop. Whichever ceiling is hit, the
- * partial guidance produced so far is recovered and returned with a note saying
- * what cut it short, rather than discarded. Degrades to a benign non-error
- * notice on any other failure (including the depth-limit rejection when a
- * subagent itself calls the advisor).
- */
-async function runAdvisorConsult(args: {
-  context: ToolContext;
-  label: string;
-  /** The agent's own `objective`: the brief the advisor advises off. */
-  objective: string;
-  sendToClient: (msg: AssistantEvent) => void;
-  requestedOverrideProfile: string | undefined;
-}): Promise<ToolExecutionResult> {
-  const { context, label, objective, sendToClient, requestedOverrideProfile } =
-    args;
-
-  /** Set when the consult is stopped for reading past its tool ceiling. */
-  let stoppedForToolCap = false;
-  /** Appended to the guidance when the consult did not run as asked for. */
-  let profileNote: string | undefined;
-
-  try {
-    // The parent conversation is looked up only for its warm skill catalog, so
-    // an unresolvable one (e.g. evicted) costs the skills section of the pack
-    // and nothing else: the consult itself runs off the brief.
-    const parentConversation = findConversation(context.conversationId);
-
-    // Situational awareness for the advisor: the parent's live tool set, the
-    // full skill catalog, and its workspace. Assembled off the per-turn
-    // ToolContext snapshot (trust, channel) so the personal-memory sections
-    // are gated exactly like the runtime injectors. Best-effort: a null pack
-    // just means the consult runs on the brief alone.
-    const situationalContext = await buildAdvisorContext({
-      conversationId: context.conversationId,
-      workingDir: context.workingDir,
-      allowedToolNames: context.allowedToolNames,
-      trustClass: context.trustClass,
-      enabledPluginSet: context.enabledPluginSet,
-      // The parent's warm per-turn catalog keeps the synchronous on-disk
-      // catalog scan out of the consult path.
-      skillCatalog: parentConversation?.skillProjectionCache?.catalog,
-    });
-
-    // Default to the stronger advisor profile when the caller did not pin one;
-    // an explicit `inference_profile` wins (already forced upstream).
-    const config = getConfig();
-    let overrideProfile = requestedOverrideProfile ?? config.llm.advisorProfile;
-    // The advisor carries read tools, so a profile the catalog states cannot
-    // call them is handed a surface it can never use and answers from the
-    // brief alone. Fall back to the call site's own default and say so
-    // alongside the guidance, the way a regular spawn reports it. The check is
-    // unconditional, matching the tools it protects, and only a catalog `false`
-    // redirects, so a model the catalog has never heard of is left alone.
-    if (
-      overrideProfile !== undefined &&
-      profileSupportsTools(overrideProfile, config) === false
-    ) {
-      profileNote = `profile "${overrideProfile}" is not verified for tool calling; the advisor ran on the default profile instead.`;
-      // Clearing this is what lands the consult on the subagentSpawn default:
-      // the child runs under that call site, so the resolver picks it anyway.
-      // Naming it would select the same model but register as an override,
-      // which usage attribution reports as a conversation pin, filing a consult
-      // that merely fell back against a pin nobody set.
-      overrideProfile = undefined;
-    }
-    const forceOverrideProfile = overrideProfile !== undefined;
-
-    // Progress-aware deadline: reset on every sign of forward progress so the
-    // consult isn't killed mid-thought or mid-read, with an absolute backstop.
-    // Combine it with the caller's own signal.
-    const deadline = createConsultDeadline({
-      idleMs: ADVISOR_IDLE_TIMEOUT_MS,
-      maxMs: ADVISOR_MAX_TIMEOUT_MS,
-    });
-    // Tool ceiling, on its own controller so the abort is attributable: the
-    // consult is stopped for reading too much, which reads back to the caller
-    // differently from running out of time.
-    const toolCap = new AbortController();
-    const signal = AbortSignal.any(
-      context.signal
-        ? [context.signal, deadline.signal, toolCap.signal]
-        : [deadline.signal, toolCap.signal],
-    );
-    // Count the child's tool calls off its own event stream. Each executed call
-    // emits exactly one `tool_use_start`, enveloped by the manager as a
-    // `subagent_event` on its way to the parent's client. The budget is spent
-    // in full before the abort fires: the call that trips it is the one past
-    // `ADVISOR_MAX_TOOL_CALLS`, so the consult keeps every result inside the
-    // budget and loses only the call it was starting.
-    let toolCalls = 0;
-    const countingSendToClient = (msg: AssistantEvent): void => {
-      sendToClient(msg);
-      if (!isAdvisorToolCallEvent(msg) || toolCap.signal.aborted) {
-        return;
-      }
-      toolCalls += 1;
-      if (toolCalls > ADVISOR_MAX_TOOL_CALLS) {
-        stoppedForToolCap = true;
-        log.warn(
-          { conversationId: context.conversationId, toolCalls },
-          "Advisor consult exceeded its tool ceiling; returning guidance so far",
-        );
-        toolCap.abort();
-      }
-    };
-    // Streamed tokens AND tool activity both count as progress. A consult that
-    // opens a file emits no token while the read runs, so token-only progress
-    // would let the idle window lapse on a healthy advisor and abort it before
-    // the model ever sees its tool result. The absolute backstop is untouched,
-    // so a stalled tool cannot extend the consult past `ADVISOR_MAX_TIMEOUT_MS`.
-    const onProgress = (): void => {
-      deadline.recordProgress();
-    };
-    // Streamed chunks additionally forward to the caller's stream sink.
-    const onText = (chunk: string): void => {
-      context.onOutput?.(chunk);
-    };
-
-    try {
-      const advice = await getSubagentManager().spawnAndAwait(
-        {
-          parentConversationId: context.conversationId,
-          label,
-          // The agent's own objective IS the brief the consult runs on, so it
-          // carries into the request verbatim. The situational pack rides in
-          // the model request only (`requestText`), keeping the system prompt
-          // minimal and the display-facing `objective` free of bulky internal
-          // context.
-          objective: advisorRequestText(objective),
-          requestText: advisorRequestText(objective, situationalContext),
-          sendResultToUser: false,
-          role: "advisor",
-          // The advisor's read-only guarantee cannot rest on tool NAMES. A
-          // workspace tool may register under `file_read` (registerWorkspaceTools
-          // stashes the built-in and installs its own implementation), and a
-          // name-only role allowlist would hand the advisor that implementation
-          // to execute. The owner-aware read-only gate that closes this comes
-          // from `denySideEffects` on the advisor's registry entry, so every
-          // path that projects the role applies it, this spawn and the
-          // `tools list --agent advisor` preview alike.
-          //
-          // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
-          // lands under `subagentSpawn` like any other subagent. This is what
-          // makes advisor consults separable from regular spawns in telemetry.
-          spawnMode: "advisor_consult",
-          systemPromptOverride: buildAdvisorSystem(),
-          ...(overrideProfile ? { overrideProfile } : {}),
-          ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-          // A consult is delegated work of the invoking turn, so its spend
-          // attributes to the same firing.
-          ...(context.cronRunId ? { cronRunId: context.cronRunId } : {}),
-          ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
-        },
-        countingSendToClient,
-        { signal, onText, onProgress },
-      );
-
-      const trimmed = advice.trim();
-      return {
-        content: withAdvisorNote(
-          trimmed.length > 0 ? trimmed : "(advisor returned no guidance)",
-          profileNote,
-        ),
-        isError: false,
-      };
-    } finally {
-      deadline.dispose();
-    }
-  } catch (err) {
-    // Cut short mid-generation: salvage whatever guidance the advisor had
-    // written rather than throwing it away. Partial strategic advice is far
-    // more useful to the agent than an "unavailable" notice — especially on a
-    // slow reasoning profile that needs most of the window to think. The note
-    // names which ceiling stopped it, because "it ran out of time" and "it was
-    // still reading" call for different follow-ups from the caller.
-    if (err instanceof SubagentAbortedError) {
-      const partial = err.partialText.trim();
-      if (partial.length > 0) {
-        log.warn(
-          { conversationId: context.conversationId, stoppedForToolCap },
-          "Advisor consult was cut short; returning partial guidance",
-        );
-        return {
-          content: withAdvisorNote(
-            partial,
-            stoppedForToolCap
-              ? `The advisor used its full budget of ${ADVISOR_MAX_TOOL_CALLS} tool calls and answered with what it had read, so the guidance above may be incomplete.`
-              : "The advisor reached its time limit while still writing, so the guidance above may be cut off.",
-            profileNote,
-          ),
-          isError: false,
-        };
-      }
-      if (stoppedForToolCap) {
-        return {
-          content: withAdvisorNote(
-            `(advisor used its full budget of ${ADVISOR_MAX_TOOL_CALLS} tool calls without writing any guidance: narrow the question, or point it at the specific file or decision you want checked)`,
-            profileNote,
-          ),
-          isError: false,
-        };
-      }
-    }
-    const reason = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err, conversationId: context.conversationId },
-      "Advisor consult failed",
-    );
-    // Never fail the turn — the advisor is advice, not a blocker.
-    return { content: `(advisor unavailable: ${reason})`, isError: false };
-  }
-}
-
-/**
- * Whether a parent-bound event is a child tool call starting. The manager
- * envelopes every child event as `subagent_event`, so the consult reads the
- * inner event to see what the advisor is doing.
- */
-function isAdvisorToolCallEvent(msg: AssistantEvent): boolean {
-  if (msg.type !== "subagent_event") {
-    return false;
-  }
-  const inner = (msg as { event?: { type?: string } }).event;
-  return inner?.type === "tool_use_start";
-}
-
-/**
- * The guidance with any notes about how the consult actually ran appended
- * below it. Notes are italicized asides so the guidance itself stays the
- * result; nothing is appended when there is nothing to say.
- */
-function withAdvisorNote(
-  guidance: string,
-  ...notes: (string | undefined)[]
-): string {
-  const present = notes.filter((note): note is string => Boolean(note));
-  if (present.length === 0) {
-    return guidance;
-  }
-  return `${guidance}\n\n${present.map((note) => `_(${note})_`).join("\n")}`;
 }
