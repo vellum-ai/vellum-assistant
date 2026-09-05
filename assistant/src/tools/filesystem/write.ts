@@ -135,6 +135,7 @@ export const fileWriteTool = {
     const result = await ops.writeFileSafe({
       path: rawPath,
       content: fileContent,
+      ...(context.signal ? { signal: context.signal } : {}),
     });
 
     if (!result.ok) {

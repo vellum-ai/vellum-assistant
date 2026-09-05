@@ -233,6 +233,7 @@ export class FileSystemOps {
           }
         }
 
+        input.signal?.throwIfAborted();
         await writeFile(filePath, input.content);
 
         return {
@@ -315,6 +316,8 @@ export class FileSystemOps {
           error: Err.matchAmbiguous(filePath, result.matchCount),
         };
       }
+
+      input.signal?.throwIfAborted();
 
       try {
         await writeFile(filePath, result.updatedContent);

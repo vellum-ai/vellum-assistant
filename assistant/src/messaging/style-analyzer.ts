@@ -119,6 +119,7 @@ function buildCorpus(messages: ProviderMessage[]): string[] {
  */
 export async function extractStylePatterns(
   messages: ProviderMessage[],
+  callerSignal?: AbortSignal,
 ): Promise<StyleAnalysisResult> {
   const corpusEntries = buildCorpus(messages);
   if (corpusEntries.length === 0) {
@@ -145,10 +146,13 @@ export async function extractStylePatterns(
     },
   ];
 
+  // The analysis deadline, plus the caller's cancellation when it has one, so
+  // stopping the turn aborts the paid call instead of leaving it to time out.
+  const deadline = AbortSignal.timeout(30_000);
   const response = await provider.sendMessage(promptMessages, {
     tools: [storeStyleAnalysisTool],
     systemPrompt: STYLE_EXTRACTION_SYSTEM_PROMPT,
-    signal: AbortSignal.timeout(30_000),
+    signal: callerSignal ? AbortSignal.any([callerSignal, deadline]) : deadline,
     config: { callSite: "styleAnalyzer" },
   });
 

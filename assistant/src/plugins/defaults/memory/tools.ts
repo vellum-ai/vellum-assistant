@@ -174,6 +174,11 @@ export const deleteMemoryPageTool = {
       await deletePage(getWorkspaceDir(), slug);
       return { content: `Deleted memory page "${slug}".`, isError: false };
     } catch (err) {
+      // A cancelled turn is not a delete failure: let it reach the executor's
+      // abort handling instead of being rendered as a tool error.
+      if (context.signal?.aborted) {
+        throw err;
+      }
       return {
         content: `Error deleting memory page "${slug}": ${
           err instanceof Error ? err.message : String(err)

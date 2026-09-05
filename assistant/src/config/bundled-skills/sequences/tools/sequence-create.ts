@@ -1,6 +1,9 @@
 import { createSequence } from "../../../../sequence/store.js";
 import type { SequenceStep } from "../../../../sequence/types.js";
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -51,6 +54,11 @@ export async function run(
       `Sequence created (ID: ${sequence.id}).\n\nName: ${sequence.name}\nChannel: ${sequence.channel}\nSteps: ${steps.length}\nExit on reply: ${sequence.exitOnReply}\nStatus: ${sequence.status}`,
     );
   } catch (e) {
+    // A cancelled turn is not a sequence failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

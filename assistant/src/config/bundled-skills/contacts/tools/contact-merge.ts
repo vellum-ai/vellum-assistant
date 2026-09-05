@@ -53,6 +53,11 @@ export async function executeContactMerge(
   const keepContact = keepRes.result!.contact;
   const mergeContact = mergeRes.result!.contact;
 
+  // Recheck: the two existence lookups above are awaits, and their
+  // signal-driven rejection would otherwise surface as an ordinary error
+  // result rather than a cancellation.
+  throwIfCancelled(context);
+
   const mergeResult = await cliIpcCall<{
     ok: boolean;
     contact?: ContactRead;

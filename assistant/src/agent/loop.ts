@@ -1328,6 +1328,87 @@ export class AgentLoop {
       );
     }
 
+    /**
+     * Turn a batch's raw `tool_result` blocks into the ones that reach the
+     * provider-bound history and the client: oversized output is spooled to
+     * `.tool-results/` and swapped for its stub, then every block passes
+     * through the `post-tool-use` hook chain (whose default plugin tail-drops
+     * what is still too large for the context window).
+     *
+     * Spooling runs first so the file on disk holds the tool's full output
+     * rather than the truncate plugin's tail-dropped copy, and stubbing before
+     * the first send keeps the provider-bound history append-only.
+     *
+     * Both the turn's normal path and the abort path's grace-settled results
+     * run through here: a result must not reach history unbounded merely
+     * because the turn was cancelled while it was finishing.
+     */
+    const finalizeToolResultBlocks = async (
+      rawBlocks: ContentBlock[],
+      calls: readonly ToolUseBlock[],
+      messages: Message[],
+      model: string,
+      turn: number,
+    ): Promise<{
+      resultBlocks: ContentBlock[];
+      additionalContextBlocks: ContentBlock[];
+    }> => {
+      if (conversationDir) {
+        const toolCallByUseId = new Map(
+          calls.map((tu) => [tu.id, { name: tu.name, input: tu.input }]),
+        );
+        try {
+          spoolAndStubOversizedToolResults(rawBlocks, {
+            conversationDir,
+            toolCallById: (id) => toolCallByUseId.get(id),
+          });
+        } catch (err) {
+          rlog.warn(
+            { err, turn },
+            "Spooling oversized tool results to disk failed (non-fatal)",
+          );
+        }
+      }
+
+      const contextWindowTokens =
+        options.resolveContextWindow?.().maxInputTokens ??
+        this.config.maxInputTokens ??
+        180_000;
+
+      const resultBlocks: ContentBlock[] = [];
+      const additionalContextBlocks: ContentBlock[] = [];
+      for (const block of rawBlocks) {
+        if (block.type !== "tool_result") {
+          resultBlocks.push(block);
+          continue;
+        }
+        const postToolUseCtx: PostToolUseInputContext = {
+          conversationId: this.conversationId,
+          toolResponse: block as ToolResultContent,
+          messages,
+          additionalContext: null,
+          model,
+          maxInputTokens: contextWindowTokens,
+          callSite: callSite ?? null,
+          supportsDynamicUi,
+        };
+        const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
+        resultBlocks.push(finalCtx.toolResponse);
+        if (finalCtx.additionalContext !== null) {
+          additionalContextBlocks.push({
+            type: "text",
+            text: finalCtx.additionalContext,
+          });
+        }
+      }
+      return { resultBlocks, additionalContextBlocks };
+    };
+
+    // The model the most recent provider response reported. The abort path
+    // finalizes tool results outside the scope that holds the response, and
+    // the `post-tool-use` hook contract requires a model name.
+    let lastResponseModel = runModel ?? "";
+
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
     // before the next model call; absent a resolver the turn-start value holds.
@@ -1992,6 +2073,8 @@ export class AgentLoop {
         // serialized in `handleUsage` already sees it.
         latencyTracker?.mark("call_complete");
 
+        lastResponseModel = response.model;
+
         onEvent({
           type: "usage",
           inputTokens: response.usage.inputTokens,
@@ -2472,73 +2555,17 @@ export class AgentLoop {
           }),
         );
 
-        // Spool oversized results to `.tool-results/` and swap the inline
-        // copy for the post-turn pass's stub now — on the raw blocks, before
-        // the post-tool-use hooks, event emission, and history append. Running
-        // ahead of the hooks means the spooled file holds the tool's full
-        // output rather than the truncate plugin's tail-dropped copy, and the
-        // hooks then see the stub. Stubbing before the first send keeps the
-        // provider-bound history strictly append-only (rewriting an earlier
-        // message between calls would invalidate the prompt-cache prefix on
-        // every iteration).
-        if (conversationDir) {
-          const toolCallByUseId = new Map(
-            toolUseBlocks.map((tu) => [
-              tu.id,
-              { name: tu.name, input: tu.input },
-            ]),
+        // Spool oversized results and run the `post-tool-use` hook chain
+        // before the results join the provider-bound history or reach a
+        // client.
+        const { resultBlocks, additionalContextBlocks } =
+          await finalizeToolResultBlocks(
+            rawResultBlocks,
+            toolUseBlocks,
+            history,
+            response.model,
+            toolUseTurns,
           );
-          try {
-            spoolAndStubOversizedToolResults(rawResultBlocks, {
-              conversationDir,
-              toolCallById: (id) => toolCallByUseId.get(id),
-            });
-          } catch (err) {
-            rlog.warn(
-              { err, turn: toolUseTurns },
-              "Spooling oversized tool results to disk failed (non-fatal)",
-            );
-          }
-        }
-
-        // Run the `post-tool-use` hook once per tool result, after the tool
-        // returns and before the result joins the provider-bound history.
-        // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window (spool-stubbed results are already tiny;
-        // spool-exempt ones still rely on it); user hooks can swap in a
-        // smarter strategy (e.g. a summariser) or observe results for side
-        // effects.
-        const contextWindowTokens =
-          options.resolveContextWindow?.().maxInputTokens ??
-          this.config.maxInputTokens ??
-          180_000;
-
-        const resultBlocks: ContentBlock[] = [];
-        const additionalContextBlocks: ContentBlock[] = [];
-        for (const block of rawResultBlocks) {
-          if (block.type !== "tool_result") {
-            resultBlocks.push(block);
-            continue;
-          }
-          const postToolUseCtx: PostToolUseInputContext = {
-            conversationId: this.conversationId,
-            toolResponse: block as ToolResultContent,
-            messages: history,
-            additionalContext: null,
-            model: response.model,
-            maxInputTokens: contextWindowTokens,
-            callSite: callSite ?? null,
-            supportsDynamicUi,
-          };
-          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
-          resultBlocks.push(finalCtx.toolResponse);
-          if (finalCtx.additionalContext !== null) {
-            additionalContextBlocks.push({
-              type: "text",
-              text: finalCtx.additionalContext,
-            });
-          }
-        }
 
         // Emit tool_result events AFTER truncation so downstream consumers
         // (e.g. session persistence) receive the truncated content.
@@ -2628,7 +2655,7 @@ export class AgentLoop {
             const outcomes = toolUseBlocks.map((toolUse) =>
               cancelledToolOutcomeFor(toolUse, inFlightToolCalls),
             );
-            const cancelledBlocks: ContentBlock[] = outcomes.map(
+            const rawCancelledBlocks: ContentBlock[] = outcomes.map(
               ({ toolUse, content, isError, result }) => ({
                 type: "tool_result" as const,
                 tool_use_id: toolUse.id,
@@ -2639,8 +2666,37 @@ export class AgentLoop {
                   : {}),
               }),
             );
+            // A tool that finished inside the grace produced real output, which
+            // can be arbitrarily large. Spool and truncate it the same way an
+            // uninterrupted turn does, so cancelling is not a way to put an
+            // unbounded result into history and onto a client.
+            let cancelledBlocks = rawCancelledBlocks;
+            try {
+              ({ resultBlocks: cancelledBlocks } =
+                await finalizeToolResultBlocks(
+                  rawCancelledBlocks,
+                  toolUseBlocks,
+                  history,
+                  lastResponseModel,
+                  toolUseTurns,
+                ));
+            } catch (finalizeErr) {
+              // Every tool_use still needs a tool_result for the history to
+              // stay well-formed, so a failing hook falls back to raw blocks.
+              rlog.warn(
+                { err: finalizeErr, turn: toolUseTurns },
+                "Finalizing cancelled tool results failed (non-fatal)",
+              );
+            }
             history.push({ role: "user", content: cancelledBlocks });
             for (const { toolUse, content, isError, result } of outcomes) {
+              const finalized = cancelledBlocks.find(
+                (b) => b.type === "tool_result" && b.tool_use_id === toolUse.id,
+              );
+              const emitContent =
+                finalized && finalized.type === "tool_result"
+                  ? finalized.content
+                  : content;
               // A call that finished ran, so it is not a cancellation: sending
               // it with `cancelled` set would tell the daemon to skip the
               // bookkeeping its side effects need.
@@ -2650,11 +2706,12 @@ export class AgentLoop {
                       type: "tool_result",
                       toolUseId: toolUse.id,
                       ...toolResultEventFields(result),
+                      content: emitContent,
                     }
                   : {
                       type: "tool_result",
                       toolUseId: toolUse.id,
-                      content,
+                      content: emitContent,
                       isError,
                       cancelled: true,
                     },

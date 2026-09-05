@@ -23,5 +23,6 @@ export async function run(
   return executeAppGenerateIcon(
     { ...input, app_id: appId } as unknown as AppGenerateIconInput,
     appStore,
+    context.signal,
   );
 }

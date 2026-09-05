@@ -10,7 +10,10 @@ import type {
   SequenceStatus,
   SequenceStep,
 } from "../../../../sequence/types.js";
-import { throwIfCancelled } from "../../../../tools/shared/abort.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -90,6 +93,11 @@ export async function run(
           );
       }
     } catch (e) {
+      // A cancelled turn is not an enrollment failure: let it reach the executor's
+      // abort handling instead of being rendered as a tool error.
+      if (isAbortLikeError(e)) {
+        throw e;
+      }
       return err(e instanceof Error ? e.message : String(e));
     }
   }
@@ -137,6 +145,11 @@ export async function run(
 
     return ok(`Sequence updated: ${updated.name} (${updated.status})`);
   } catch (e) {
+    // A cancelled turn is not a sequence failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

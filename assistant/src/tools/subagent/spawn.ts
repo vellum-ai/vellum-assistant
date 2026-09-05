@@ -31,7 +31,7 @@ import {
   type SubagentRole,
 } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
-import { throwIfCancelled } from "../shared/abort.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -357,6 +357,11 @@ export async function executeSubagentSpawn(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a spawn failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
