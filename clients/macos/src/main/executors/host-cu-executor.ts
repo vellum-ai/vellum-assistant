@@ -20,6 +20,7 @@ export function createHostCuExecutor(
   const { helper } = deps;
   return createCuHelperProxyExecutor({
     logger: log,
+    supportsWindowCapture: true,
     resolveHelper: helper ? () => helper : getSharedCuHelper,
   });
 }

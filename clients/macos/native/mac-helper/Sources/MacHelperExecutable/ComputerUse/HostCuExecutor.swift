@@ -411,7 +411,7 @@ enum HostCuActionRunner {
             log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
 
             // Compute AX diff against previous step's elements
-            if let previousFlat = previousAXElements[conversationId] {
+            if captureTarget == nil, let previousFlat = previousAXElements[conversationId] {
                 axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
             }
 
