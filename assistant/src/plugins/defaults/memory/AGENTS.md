@@ -130,9 +130,10 @@ imports the array and nothing else. A new tier injector is added to that array,
 never registered from the host.
 
 **v3 injection layers.** The v3 injection unit is the SECTION. Each turn the
-`memory-v3` injector renders every selected page's matched section (its lead
-when the page was selected without a match; a capability slug renders its
-whole capability content) into one frozen `<memory>` block, net-new only:
+`memory-v3` injector renders every section selected for each selected page
+(its lead when the page was selected with no section; a capability slug
+renders its whole capability content) into one frozen `<memory>` block,
+net-new only:
 `memory_v3_injected_sections` records one row per `(conversation, slug,
 section key)` ever injected, where the key is `v3/types.ts`'s `sectionKey()`
 (`""` for the lead, the trimmed heading title otherwise, `title#<n>` for the
@@ -409,15 +410,20 @@ blocks compaction stripped. `memory_v3_selections` itself is created by migratio
 `section_key` column is plugin-owned the same way: the selection log's writer
 (`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
 it on the first use of a connection, and the `init` hook at boot. Every
-selection row records its matched section's `sectionKey` beside the title and
-ordinal, and the inspector resolves a row by that key first (exactly, so a
-repeated heading's other occurrence is never substituted), falling back to
-title-then-ordinal only for rows written before the column existed.
+selection row records one section per slug, the selection's first selected
+section, as its `sectionKey` beside the title and ordinal, and the inspector
+resolves a row by that key first (exactly, so a repeated heading's other
+occurrence is never substituted), falling back to title-then-ordinal only for
+rows written before the column existed.
 
 `memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
 selector's full candidate pool (every stable-prefix card and finder line, in
-pool order, with lane, matched section, and verdict) for the inspector's
-Memory tab, plus `selector_ran`. A turn whose selector never judged a pool
+pool order, with lane, matched section, and a per-line verdict) for the
+inspector's Memory tab, plus `selector_ran`. A page carries one finder line
+per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
+surfacing order (needle, dense, reply, span, entity), and selecting a line
+selects that section; the selection log keeps one row per slug, so the pool
+row is where the per-section verdicts live. A turn whose selector never judged a pool
 (the injection gate hard-skipped it, or nothing was pooled) persists an empty
 pool with `selector_ran = 0`, and a turn that logged no selections is still
 reachable by its stamped `message_id`, so the inspector shows negative

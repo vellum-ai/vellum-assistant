@@ -6,7 +6,8 @@
  * so without this record a retrieval miss can only be diagnosed by rebuilding
  * the lanes offline. `memory_v3_pools` (memory connection, one row per
  * `(conversation, turn)`) stores every candidate the selector saw, in pool
- * order, with its lane, its matched section, and whether it was chosen, plus
+ * order (a page hit on several sections has one entry per section), with its
+ * lane, its matched section, and whether it was chosen, plus
  * `selector_ran`: whether the selector judged that pool at all. A turn the
  * injection gate hard-skipped never assembles a pool, so its row is an empty
  * pool with `selector_ran = 0`; the row exists so the inspector can show the
@@ -35,7 +36,7 @@ import {
   ensureMemoryV3PoolsSchema,
   ensureOncePerConnection,
 } from "./plugin-schema.js";
-import type { FinderLane, Slug } from "./types.js";
+import { type FinderLane, sectionKey, type Slug } from "./types.js";
 
 const log = getLogger("memory-v3-pool-log");
 
@@ -47,12 +48,13 @@ export type PoolLane = "core" | "hot" | "fresh" | "always" | FinderLane;
 export interface PoolCandidateRecord {
   slug: Slug;
   lane: PoolLane;
-  /** Heading of the matched section a finder lane surfaced (`""` for the
-   *  lead); null for stable-prefix cards and finder lines with no matched
-   *  section. */
+  /** Heading of the matched section this finder line carries (`""` for the
+   *  lead); null for stable-prefix cards and section-less finder lines. */
   section_title: string | null;
   section_ordinal: number | null;
-  /** Whether the selector kept this candidate's page. */
+  /** Whether the selector kept this line: for a finder line carrying a
+   *  section, whether that section was selected; for a card or a
+   *  section-less line, whether its page was kept at all. */
   chosen: boolean;
 }
 
@@ -80,10 +82,11 @@ export interface StoredPool {
  * Build the turn's pool record from an orchestrate result. The stable prefix
  * comes first in cache order (core, hot, fresh, always-candidate) as
  * whole-page cards with no section; the finder tail follows in surfacing
- * order, each line tagged with the lane that surfaced it and the slug's
- * matched section. A finder hit on a stable-prefix page therefore appears
- * twice, exactly as the selector saw it. `chosen` is slug membership in the
- * selection set, so every entry for a selected page reads chosen.
+ * order, each line tagged with the lane that surfaced it and the section it
+ * carries. A finder hit on a stable-prefix page therefore appears twice, and
+ * a page hit on several sections once per section, exactly as the selector
+ * saw it. A card or a section-less line reads chosen when its page was kept;
+ * a line carrying a section reads chosen when that section was selected.
  *
  * When the selector did not run and nothing was selected, no pool reached it:
  * either the injection gate hard-skipped selection (the result's lanes still
@@ -102,7 +105,12 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
       selector_ran: false,
     };
   }
-  const selected = new Set<Slug>(result.selections.map((s) => s.slug));
+  const selected = new Map<Slug, Set<string>>(
+    result.selections.map((s) => [
+      s.slug,
+      new Set(s.sections.map((section) => sectionKey(section))),
+    ]),
+  );
   const card = (slug: Slug, lane: PoolLane): PoolCandidateRecord => ({
     slug,
     lane,
@@ -116,16 +124,17 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
     ...hot.map((slug) => card(slug, "hot")),
     ...fresh.map((slug) => card(slug, "fresh")),
     ...always.map((slug) => card(slug, "always")),
-    ...finder.map((candidate): PoolCandidateRecord => {
-      const section = result.matchedSections.get(candidate.slug);
-      return {
-        slug: candidate.slug,
-        lane: candidate.lane,
+    ...finder.map(
+      ({ slug, lane, section }): PoolCandidateRecord => ({
+        slug,
+        lane,
         section_title: section?.title ?? null,
         section_ordinal: section?.ordinal ?? null,
-        chosen: selected.has(candidate.slug),
-      };
-    }),
+        chosen: section
+          ? (selected.get(slug)?.has(sectionKey(section)) ?? false)
+          : selected.has(slug),
+      }),
+    ),
   ];
   return {
     candidates,

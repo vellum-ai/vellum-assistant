@@ -218,9 +218,15 @@ export interface SectionIndex {
   byArticle: Map<Slug, number[]>;
 }
 
-/** A page selected from the candidate pool. */
+/**
+ * A page selected from the candidate pool, with the matched sections whose
+ * finder lines were selected, in pool order and deduped by {@link sectionKey}.
+ * Empty when only the page's stable-prefix card, or a section-less edge or
+ * learned line, was selected: the injector then injects the page's lead.
+ */
 export interface SelectedPage {
   slug: Slug;
+  sections: Section[];
 }
 
 export interface MemoryRoutingTurn {

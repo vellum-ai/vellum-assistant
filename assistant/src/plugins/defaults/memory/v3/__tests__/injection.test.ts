@@ -271,22 +271,27 @@ function section(slug: Slug, title: string, body: string): Section {
   };
 }
 
-/** An orchestrate result selecting `slugs`, with optional finder-matched
- *  sections (slug → section). */
+/** An orchestrate result selecting `slugs`, with optional selected sections
+ *  (slug → section; a slug listed twice selects two of its sections). */
 function result(
   slugs: Slug[],
   matched: Array<[Slug, Section]> = [],
 ): OrchestrateResult {
   return {
-    selections: slugs.map((slug) => ({ slug })),
-    matchedSections: new Map(matched),
+    selections: slugs.map((slug) => ({
+      slug,
+      sections: matched
+        .filter(([matchedSlug]) => matchedSlug === slug)
+        .map(([, section]) => section),
+    })),
     lanes: {
       core: [],
       hot: [],
       fresh: [],
       always: [],
-      finder: matched.map(([slug]) => ({
+      finder: matched.map(([slug, section]) => ({
         slug,
+        section,
         descriptor: "",
         lane: "needle" as const,
       })),
@@ -527,6 +532,62 @@ describe("memoryV3Injector: frozen net-new sections", () => {
     // Re-selecting Alpha injects nothing: both sections are resident.
     const t3 = await produceSections("conv-1", 2);
     expect(t3!.text).toBe("");
+  });
+
+  test("two sections of one page selected on one turn both inject, and either is resident afterwards", async () => {
+    liveEnabled = true;
+    turnResults.set(
+      0,
+      result(
+        ["page-a"],
+        [
+          ["page-a", alpha],
+          ["page-a", beta],
+        ],
+      ),
+    );
+    turnResults.set(1, result(["page-a"], [["page-a", beta]]));
+
+    const t1 = await produceSections("conv-1", 0);
+    expect(t1!.text).toContain(
+      "# memory/concepts/page-a.md § Alpha\nalpha section text",
+    );
+    expect(t1!.text).toContain(
+      "# memory/concepts/page-a.md § Beta\nbeta section text",
+    );
+    // Both sections were selected, so the lead is not the fallback unit.
+    expect(t1!.text).not.toContain(leadRender("page-a"));
+    expect(activeIds("conv-1")).toEqual(
+      new Set(["page-a§Alpha", "page-a§Beta"]),
+    );
+
+    // Re-selecting one of them injects nothing and points at it.
+    const t2 = await produceSections("conv-1", 1);
+    expect(t2!.text).toBe("");
+    const pointer = await producePointer("conv-1", 1);
+    expect(pointer!.text).toContain("memory/concepts/page-a.md § Beta");
+    expect(pointer!.text).not.toContain("§ Alpha");
+  });
+
+  test("a capability page selected on two sections injects its content once", async () => {
+    liveEnabled = true;
+    // Capability content injects whole under the empty key, so two selected
+    // sections of a skill page are one unit.
+    const skill = "skills/test-skill";
+    turnResults.set(
+      0,
+      result(
+        [skill],
+        [
+          [skill, section(skill, "Usage", "usage text")],
+          [skill, section(skill, "Notes", "notes text")],
+        ],
+      ),
+    );
+
+    const block = await produceSections("conv-1", 0);
+    expect(block!.text.split("# Skill: test-skill")).toHaveLength(2);
+    expect(activeIds("conv-1")).toEqual(new Set([`${skill}§`]));
   });
 
   test("a page selected without a matched section after a section injection injects its lead once", async () => {

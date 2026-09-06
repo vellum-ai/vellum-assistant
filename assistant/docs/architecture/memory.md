@@ -173,8 +173,9 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 - **v3 (live)**: per-turn lane selection over concept pages (dense/sparse
   retrieval via `substrate/sim.ts` over the concept-page collection,
   learned edges, entity/hot/fresh/core sets). The injection unit is the
-  SECTION: `v3/injector.ts` renders each selected page's matched section
-  (its lead when it was selected without a match) into a `<memory>` block,
+  SECTION: the selector pool lists a page once per matched section, and
+  `v3/injector.ts` renders each selected page's selected sections (its lead
+  when it was selected with none) into a `<memory>` block,
   net-new sections only, deduped per `(page, section)` through
   `memory_v3_injected_sections` and bounded by a recency prune valve with no
   lane exemptions. Section bodies are backslash-escaped where a line would

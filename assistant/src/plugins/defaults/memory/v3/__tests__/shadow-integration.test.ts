@@ -431,7 +431,9 @@ describe("memory-v3 integration — core + hot stable prefix", () => {
       core: ["page-a"],
     });
     expect(lastPool.filter((s) => s === "page-a")).toHaveLength(2);
-    expect(result.selections).toEqual([{ slug: "page-a" }]);
+    // ...merged into one selection carrying the finder line's section.
+    expect(result.selections.map((s) => s.slug)).toEqual(["page-a"]);
+    expect(result.selections[0]!.sections).toHaveLength(1);
     expect(result.lanes.finder.map((c) => c.slug)).toContain("page-a");
     expect(loggedSources(1)).toEqual([{ slug: "page-a", source: "core" }]);
   });
@@ -446,9 +448,9 @@ describe("memory-v3 integration — core + hot stable prefix", () => {
 describe("memory-v3 integration — lane-source attribution", () => {
   test("a needle-ranked capability selection is logged with the needle source", async () => {
     const lanes = await buildLanes();
-    // "durian" matches the capability page's content section, so selecting it
-    // records a `matchedSections` entry and the lane mapping attributes it
-    // `needle` (capabilities are indexed pages now, not sectionless add-ins).
+    // "durian" matches the capability page's content section, so its finder
+    // line carries that section and the lane mapping attributes the selection
+    // `needle` (capabilities are indexed pages, not sectionless add-ins).
     const result = await runTurn(1, "durian", [CAPABILITY_SLUG], { lanes });
     expect(result.selections.map((s) => s.slug)).toEqual([CAPABILITY_SLUG]);
     expect(loggedSources(1)).toEqual([

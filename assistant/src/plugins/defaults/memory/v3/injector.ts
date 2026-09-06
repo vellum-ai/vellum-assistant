@@ -8,8 +8,8 @@
  *
  *  - {@link memoryV3Injector} (id `memory-v3`, `after-memory-prefix`): the
  *    PERSISTENT layer. The injection unit is the SECTION: each selected page
- *    contributes its finder-matched section, or its lead when it was selected
- *    without a match (a capability slug contributes its whole capability
+ *    contributes every section selected for it, or its lead when it was
+ *    selected with none (a capability slug contributes its whole capability
  *    content). Renders only this turn's NET-NEW sections, pairs
  *    `(slug, section key)` not already active in the section store, inside
  *    one `<memory>` block and returns the block. The store write
@@ -135,6 +135,7 @@ import {
   MEMORY_V3_POINTER_BLOCK_ID,
   type Section,
   type SectionRef,
+  type SelectedPage,
   type Slug,
 } from "./types.js";
 
@@ -335,14 +336,44 @@ export function resetMemoryV3InjectorStateForTests(): void {
 
 // ─── injectors ───────────────────────────────────────────────────────────────
 
-/** One selection this assembly's block carries, in selection order: `text`
- *  is the first produce's entry when re-emitted by a re-entry, and is
- *  rendered here otherwise. */
-interface BlockSlot {
+/** One injection unit of a selection: the page, the unit's section-store
+ *  key, and the matched section it renders (`undefined` for the lead and
+ *  for capability content). */
+interface InjectionUnit {
   slug: Slug;
   key: string;
   matched: Section | undefined;
+}
+
+/** One unit this assembly's block carries, in selection order: `text` is
+ *  the first produce's entry when re-emitted by a re-entry, and is rendered
+ *  here otherwise. */
+interface BlockSlot extends InjectionUnit {
   text: string | undefined;
+}
+
+/**
+ * The injection units of a turn's selections, in selection order: one per
+ * selected section, or one lead unit for a page selected with none, deduped
+ * by `(slug, key)` (a capability page's sections all inject as its whole
+ * content under the empty key).
+ */
+function injectionUnits(selections: SelectedPage[]): InjectionUnit[] {
+  const units: InjectionUnit[] = [];
+  const seen = new Map<Slug, Set<string>>();
+  for (const { slug, sections } of selections) {
+    for (const matched of sections.length > 0 ? sections : [undefined]) {
+      const key = injectionSectionKey(slug, matched);
+      const keys = seen.get(slug) ?? new Set<string>();
+      if (keys.has(key)) {
+        continue;
+      }
+      keys.add(key);
+      seen.set(slug, keys);
+      units.push({ slug, key, matched });
+    }
+  }
+  return units;
 }
 
 export const memoryV3Injector: Injector = {
@@ -385,10 +416,11 @@ export const memoryV3Injector: Injector = {
     const result = observed;
 
     try {
-      // Partition this turn's selections. Each page injects under ONE key
-      // this turn: its matched section's key, or `""` for the lead (and for
-      // capability content, which injects whole). A resident pair (active in
-      // the section store) is a pointer entry; capability slugs are left out
+      // Partition this turn's injection units. Each selected section injects
+      // under its own key, and a page selected with none under `""` (its
+      // lead; capability content injects whole under `""` too). A resident
+      // pair (active in the section store) is a pointer entry; capability
+      // slugs are left out
       // of the pointer because they have no `memory/concepts/` path to point
       // at. On a re-entry assembly (`rendered` set by the turn's first
       // produce) an entry the first produce rendered is re-emitted from the
@@ -414,9 +446,7 @@ export const memoryV3Injector: Injector = {
         : getPrunedSections(ctx.conversationId);
       const resident: SectionRef[] = [];
       const slots: BlockSlot[] = [];
-      for (const { slug } of result.selections) {
-        const matched = result.matchedSections.get(slug);
-        const key = injectionSectionKey(slug, matched);
+      for (const { slug, key, matched } of injectionUnits(result.selections)) {
         if (pruned && sectionRefSetHas(pruned, slug, key)) {
           continue;
         }

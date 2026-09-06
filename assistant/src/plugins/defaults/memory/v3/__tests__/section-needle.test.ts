@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildSectionNeedle } from "../section-needle.js";
+import { buildSectionNeedle, findTerm } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import type { SectionIndex, Slug } from "../types.js";
 
@@ -195,5 +195,68 @@ describe("queryScored", () => {
 
     expect(needle.queryScored("zzzznomatch", 5)).toEqual([]);
     expect(needle.queryScored("apple", 0)).toEqual([]);
+  });
+
+  test("topTerms ranks a section's query terms by their BM25F contribution, capped at n", async () => {
+    const idx = await index({
+      "page-a": [
+        "## Mango",
+        "the mango tree and the common word appear here",
+      ].join("\n"),
+      "page-b": "## Notes\ncommon filler about gardens and the",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, mangoDoc] = idx.byArticle.get("page-a")!;
+
+    // "mango" sits in the head line and the body, "tree" only in the body,
+    // "common" in the body of two sections (lower IDF), "missing" nowhere.
+    expect(needle.topTerms(mangoDoc!, "mango common tree missing", 3)).toEqual([
+      "mango",
+      "tree",
+      "common",
+    ]);
+    expect(needle.topTerms(mangoDoc!, "mango common tree missing", 2)).toEqual([
+      "mango",
+      "tree",
+    ]);
+    expect(needle.topTerms(mangoDoc!, "missing absent", 3)).toEqual([]);
+    expect(needle.topTerms(mangoDoc!, "mango", 0)).toEqual([]);
+    expect(needle.topTerms(-1, "mango", 3)).toEqual([]);
+    expect(needle.topTerms(idx.sections.length, "mango", 3)).toEqual([]);
+  });
+
+  test("topTerms includes adjacent-token bigrams and breaks score ties by term", async () => {
+    const idx = await index({
+      "page-a": "## Mango\nthe mango tree grows here",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, mangoDoc] = idx.byArticle.get("page-a")!;
+
+    // "mango_tree" occurs once in the body like "tree" does, so the two tie
+    // and sort by term; "mango" outranks both from its head-line weight.
+    expect(needle.topTerms(mangoDoc!, "mango tree", 3)).toEqual([
+      "mango",
+      "mango_tree",
+      "tree",
+    ]);
+  });
+
+  test("findTerm locates a term as a whole token, case-insensitively, and a bigram across punctuation", () => {
+    expect(findTerm("The Gourd sits here", "gourd")).toEqual({
+      start: 4,
+      end: 9,
+    });
+    // A substring inside a longer token is not an occurrence.
+    expect(findTerm("gourds and gourd", "gourd")).toEqual({
+      start: 11,
+      end: 16,
+    });
+    expect(findTerm("we said: little, gourd", "little_gourd")).toEqual({
+      start: 9,
+      end: 22,
+    });
+    expect(findTerm("nothing here", "gourd")).toBeUndefined();
+    // Only tokenizer-shaped terms are searched.
+    expect(findTerm("a (b) c", "(b)")).toBeUndefined();
   });
 });

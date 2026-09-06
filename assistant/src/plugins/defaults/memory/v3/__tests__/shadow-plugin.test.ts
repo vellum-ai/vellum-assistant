@@ -48,6 +48,7 @@ import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type MemoryRoutingTurn,
+  type Section,
   type SectionIndex,
   type SelectionSource,
 } from "../types.js";
@@ -141,33 +142,46 @@ const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 // in the fresh lane, the always-candidate skill in the always lane (pooled but
 // NOT selected, so the pool record carries an unchosen entry), and the finder
 // entries page-1 → "needle", page-2 → "dense", page-3 → "edge";
-// `attributeSelections` reads it directly. `matchedSections` carries the
-// matched section for the slugs that had one (page-1/page-2) — consumed by the
-// live injector's progressive disclosure, independent of source attribution.
+// `attributeSelections` reads it directly. The finder lines for page-1 and
+// page-2 carry a matched section, which their selections carry too (consumed
+// by the live injector, independent of source attribution).
+const PAGE_1_LEAD: Section = {
+  article: "page-1",
+  title: "",
+  text: "x",
+  ordinal: 0,
+};
+const PAGE_2_LEAD: Section = {
+  article: "page-2",
+  title: "",
+  text: "y",
+  ordinal: 0,
+};
 const orchestrateSpy = mock(
   async (): Promise<OrchestrateResult> => ({
     selections: [
-      { slug: "page-core" },
-      { slug: "page-hot" },
-      { slug: "page-fresh" },
-      { slug: "page-1" },
-      { slug: "page-2" },
-      { slug: "page-3" },
-      { slug: "page-4" },
-      { slug: "page-5" },
+      { slug: "page-core", sections: [] },
+      { slug: "page-hot", sections: [] },
+      { slug: "page-fresh", sections: [] },
+      { slug: "page-1", sections: [PAGE_1_LEAD] },
+      { slug: "page-2", sections: [PAGE_2_LEAD] },
+      { slug: "page-3", sections: [] },
+      { slug: "page-4", sections: [] },
+      { slug: "page-5", sections: [] },
     ],
-    matchedSections: new Map([
-      ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
-      ["page-2", { article: "page-2", title: "", text: "y", ordinal: 0 }],
-    ]),
     lanes: {
       core: ["page-core"],
       hot: ["page-hot"],
       fresh: ["page-fresh"],
       always: [CAPABILITY_SLUG],
       finder: [
-        { slug: "page-1", descriptor: "", lane: "needle" },
-        { slug: "page-2", descriptor: "", lane: "dense" },
+        {
+          slug: "page-1",
+          section: PAGE_1_LEAD,
+          descriptor: "",
+          lane: "needle",
+        },
+        { slug: "page-2", section: PAGE_2_LEAD, descriptor: "", lane: "dense" },
         { slug: "page-3", descriptor: "", lane: "edge" },
         { slug: "page-4", descriptor: "", lane: "reply" },
         { slug: "page-5", descriptor: "", lane: "learned" },
@@ -613,8 +627,7 @@ function chosenBySlug(): Record<string, boolean> {
  *  `kept`. */
 function poolOf(kept: string[]): OrchestrateResult {
   return {
-    selections: kept.map((slug) => ({ slug })),
-    matchedSections: new Map(),
+    selections: kept.map((slug) => ({ slug, sections: [] })),
     lanes: {
       core: [],
       hot: [],
@@ -876,7 +889,6 @@ describe("memory-v3 engine", () => {
     // lanes (the injector's prune exemptions) but the selector never saw them.
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
-      matchedSections: new Map(),
       lanes: {
         core: ["page-core"],
         hot: ["page-hot"],
@@ -1017,8 +1029,7 @@ describe("memory-v3 engine", () => {
 
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
     const rows = attributeSelections({
-      selections: [{ slug: "page-core" }],
-      matchedSections: new Map(),
+      selections: [{ slug: "page-core", sections: [] }],
       lanes: {
         core: ["page-core"],
         hot: [],
@@ -1042,26 +1053,28 @@ describe("memory-v3 engine", () => {
   });
 
   test("a finder hit records the matched section's key beside its title and ordinal, so a repeat of a heading keeps its occurrence", () => {
+    const repeatedNotes: Section = {
+      article: "page-1",
+      title: "Notes",
+      text: "page-1 - Notes\nsecond notes",
+      ordinal: 3,
+      occurrence: 1,
+    };
     const rows = attributeSelections({
-      selections: [{ slug: "page-1" }],
-      matchedSections: new Map([
-        [
-          "page-1",
-          {
-            article: "page-1",
-            title: "Notes",
-            text: "page-1 - Notes\nsecond notes",
-            ordinal: 3,
-            occurrence: 1,
-          },
-        ],
-      ]),
+      selections: [{ slug: "page-1", sections: [repeatedNotes] }],
       lanes: {
         core: [],
         hot: [],
         fresh: [],
         always: [],
-        finder: [{ slug: "page-1", descriptor: "", lane: "needle" }],
+        finder: [
+          {
+            slug: "page-1",
+            section: repeatedNotes,
+            descriptor: "",
+            lane: "needle",
+          },
+        ],
       },
       selectorRan: true,
     });
@@ -1072,6 +1085,44 @@ describe("memory-v3 engine", () => {
         sectionOrdinal: 3,
         sectionTitle: "Notes",
         sectionKey: "Notes#1",
+      },
+    ]);
+  });
+
+  test("a page selected on several sections logs its first selected section under the lane of its first line", () => {
+    const details: Section = {
+      article: "page-1",
+      title: "Details",
+      text: "page-1 - Details\ndetails",
+      ordinal: 1,
+    };
+    const notes: Section = {
+      article: "page-1",
+      title: "Notes",
+      text: "page-1 - Notes\nnotes",
+      ordinal: 2,
+    };
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1", sections: [notes, details] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          { slug: "page-1", section: details, descriptor: "", lane: "needle" },
+          { slug: "page-1", section: notes, descriptor: "", lane: "span" },
+        ],
+      },
+      selectorRan: true,
+    });
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "needle",
+        sectionOrdinal: 2,
+        sectionTitle: "Notes",
+        sectionKey: "Notes",
       },
     ]);
   });
@@ -1310,7 +1361,6 @@ describe("memory-v3 engine", () => {
     liveEnabled = true;
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
-      matchedSections: new Map(),
       lanes: { core: [], hot: [], fresh: [], always: [], finder: [] },
       selectorRan: false,
     }));
