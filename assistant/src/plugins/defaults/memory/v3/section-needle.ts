@@ -33,6 +33,13 @@ export interface SectionNeedleScoredHit {
   score: number;
 }
 
+/** A single-term hit: a section index (into `SectionIndex.sections`) and the
+ *  term's own BM25F contribution to that section. */
+export interface SectionTermHit {
+  doc: number;
+  score: number;
+}
+
 export interface SectionNeedle {
   /**
    * Returns up to `k` distinct articles ranked by BM25F score (descending),
@@ -66,6 +73,20 @@ export interface SectionNeedle {
    * Feeds the keyword-in-context finder snippets in `pool-select.ts`.
    */
   topTerms(doc: number, queryText: string, n: number): string[];
+  /**
+   * Document frequency of a single unigram: the number of sections it occurs
+   * in (head or body), 0 when the corpus does not hold it. A bigram term is
+   * never a single-term signal and reads 0. Feeds the rare-term lane
+   * (`rare-term-lane.ts`), which keys on terms rare enough that the sections
+   * they occur in are near-certain matches on their own.
+   */
+  df(term: string): number;
+  /**
+   * The top `k` sections for a single unigram by its own BM25F contribution,
+   * score descending with ties broken by `(article, ordinal)`. Empty for a
+   * term the corpus does not hold, for a bigram term, and for `k <= 0`.
+   */
+  scoreTerm(term: string, k: number): SectionTermHit[];
 }
 
 /** The characters of a needle token; the tokenizer splits on any other. */
@@ -75,8 +96,12 @@ const NON_TOKEN_RUN = new RegExp(`[^${TOKEN_CHARS}]+`);
  *  of two joined by `_`. */
 const TERM_SHAPE = new RegExp(`^[${TOKEN_CHARS}]+(?:_[${TOKEN_CHARS}]+)*$`);
 
-/** Lowercase, split on non-token characters, drop empties. */
-function tokenizeUnigrams(text: string): string[] {
+/**
+ * The needle's unigram tokenizer: lowercase, split on non-token characters,
+ * drop empties. Shared with the rare-term lane so a message is tokenized
+ * exactly as the corpus was indexed.
+ */
+export function tokenizeUnigrams(text: string): string[] {
   return text
     .toLowerCase()
     .split(NON_TOKEN_RUN)
@@ -182,6 +207,15 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return idfFromDf(postings.get(term)?.length ?? 0);
   }
 
+  /** A bigram term (`a_b`) is never eligible as a single-term signal. */
+  function isUnigram(term: string): boolean {
+    return !term.includes("_");
+  }
+
+  function df(term: string): number {
+    return isUnigram(term) ? (postings.get(term)?.length ?? 0) : 0;
+  }
+
   /** One term's BM25F contribution to section `doc`. */
   function termScore(doc: number, weightedTf: number, termIdf: number): number {
     const norm = weightedTf * (k1 + 1);
@@ -256,6 +290,17 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
       (a, c) => c.score - a.score || a.term.localeCompare(c.term),
     );
     return contributions.slice(0, n).map((c) => c.term);
+  }
+
+  function scoreTerm(term: string, k: number): SectionTermHit[] {
+    if (k <= 0 || !isUnigram(term)) {
+      return [];
+    }
+    const scores = scoreSections(new Set([term]));
+    return [...scores.keys()]
+      .sort((a, c) => rankSection(a, c, scores))
+      .slice(0, k)
+      .map((doc) => ({ doc, score: scores.get(doc)! }));
   }
 
   /** Deterministic order: score desc, then (article, ordinal) asc. */
@@ -337,5 +382,5 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return best;
   }
 
-  return { query, queryScored, bestSection, idf, topTerms };
+  return { query, queryScored, bestSection, idf, topTerms, df, scoreTerm };
 }

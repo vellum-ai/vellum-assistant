@@ -131,14 +131,16 @@ function providerBillingNoticeFromError(
  *  candidate that also carries its matched `section` and the query `terms`
  *  that scored it (best first) renders a keyword-in-context snippet instead:
  *  a window of the section body around the first of those terms that occurs
- *  in it. One page can appear on several lines, one per matched section;
- *  selecting a line selects that section. */
+ *  in it. A candidate keyed on one query `term` (a rare-term hit) tags as
+ *  `(lane: term)`. One page can appear on several lines, one per matched
+ *  section; selecting a line selects that section. */
 export interface PoolCandidate {
   slug: Slug;
   descriptor: string;
   lane?: string;
   section?: Section;
   terms?: string[];
+  term?: string;
 }
 
 /** A stable-prefix candidate: the slug plus its pre-rendered FULL card
@@ -232,7 +234,7 @@ const SELECT_PAGES_TOOL: ToolDefinition = {
 
 const SYSTEM_PROMPT = `You are given the candidate memory pages for an assistant's next reply, in two segments that share one numbering: full page cards first (the curated core, recently-recurring, and recently-modified pages, shown every turn), then this turn's search hits as one-line snippets. Cards carry a \`[lane: …]\` annotation — core is curated, hot recurs by selection frequency, fresh was recently modified (with its last-update time) — and search hits are tagged with the lane that surfaced them.
 
-A page can appear on several search-hit lines, one per matched section, each snippet showing the matched words in context; selecting a line selects that section, so keep every line whose section the reply would draw on.
+A page can appear on several search-hit lines, one per matched section, each snippet showing the matched words in context; selecting a line selects that section, so keep every line whose section the reply would draw on. A line tagged \`(rare: word)\` means the message used a word that occurs in only a handful of sections and this is one of them, a strong signal on its own even when the rest of the message is about something else.
 
 Select EVERY candidate whose content the upcoming reply would draw on. That includes facts the reply needs, current task and event state (open items, deadlines, schedules, recent activity), and equally register, established framing, calibration rules, and relationship/person/project texture — pages that shape HOW to reply, not only what to say. There is no limit on how many you may select; recall matters more than precision, so when a candidate could plausibly inform the reply, keep it. For a list or an "all of X" request, keep EVERY candidate that belongs to X rather than guessing a representative subset.
 
@@ -389,17 +391,31 @@ function renderCardSegment(stable: StableCandidate[]): string {
   return `<candidate_cards>\n${cards.join("\n\n")}\n</candidate_cards>`;
 }
 
+/** A finder line's lane tag: `(lane) `, or `(lane: term) ` for a candidate
+ *  keyed on one query term; empty for a candidate without a lane. */
+function laneTag(candidate: PoolCandidate): string {
+  if (candidate.lane === undefined) {
+    return "";
+  }
+  const keyed =
+    candidate.term === undefined
+      ? candidate.lane
+      : `${candidate.lane}: ${candidate.term}`;
+  return `(${keyed}) `;
+}
+
 /**
  * Render the finder tail: one `[m+i] (lane) slug — snippet` line per
  * candidate, numbered continuing after the `offset` stable-prefix cards. The
- * lane tag is omitted for a candidate without one; a candidate with an empty
- * descriptor renders without the dash.
+ * lane tag is omitted for a candidate without one and names the keyed term
+ * for a candidate that carries one (`(rare: gourd)`); a candidate with an
+ * empty descriptor renders without the dash.
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
   const lines = finder.map((c, i) => {
     const snippet = renderSnippet(c);
     const id = offset + i + 1;
-    const lane = c.lane !== undefined ? `(${c.lane}) ` : "";
+    const lane = laneTag(c);
     return snippet.length > 0
       ? `[${id}] ${lane}${c.slug} — ${snippet}`
       : `[${id}] ${lane}${c.slug}`;

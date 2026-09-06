@@ -13,7 +13,13 @@
  *        - the span-query pass — the dense lane re-run over the current
  *          message's clause chunks as separate queries at a small per-chunk
  *          budget (`spanQueryK`), rescuing motifs a long multi-topic message's
- *          single query vector averages away — and
+ *          single query vector averages away,
+ *        - the entity lane (`entityLane`) and the rare-term lane
+ *          (`rareTermLane`), which key on one strong token each (a
+ *          distinctive `## ` heading token the message names; a query word
+ *          that occurs in at most a handful of sections) so the section a
+ *          name or a rare word points at surfaces regardless of the
+ *          message's bulk theme, and
  *        - link-graph edge expansion (`edgeExpand`) over the top
  *          user-message needle+dense article seeds, and
  *        - learned-edge expansion (`edgeExpand` over the co-selection NPMI
@@ -33,7 +39,7 @@
  *      `[...core (file order), ...hot (score order), ...fresh (recency order),
  *      ...always-candidate (skills listed every turn)]`, all computed at lane
  *      init, followed by the finder candidates (needle → dense → reply →
- *      span → entity → edge → learned surfacing order), one line per
+ *      span → entity → rare → edge → learned surfacing order), one line per
  *      distinct (page, matched section) and at most `finderSectionsPerPage`
  *      lines per page, so a page whose sections match different parts of
  *      the message is shown section by section. The stable prefix
@@ -81,6 +87,11 @@ import type {
   StableCandidate,
 } from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
+import {
+  type RareTermHit,
+  rareTermLane,
+  type RareTermLaneOptions,
+} from "./rare-term-lane.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { spanChunksOf } from "./span-query.js";
 import {
@@ -207,8 +218,15 @@ export interface OrchestrateDeps {
   /** Hard cap on entity-lane articles. Defaults to {@link DEFAULT_ENTITY_CAP}.
    *  Ignored when `entityIndex` is omitted (the lane is off). */
   entityCap?: number;
+  /** Rare-term lane tuning (canonical value: `memory.v3.rareTerm`): the df
+   *  ceiling for a query word to count as rare (`maxDf`, lowered on a smaller
+   *  corpus by `maxDfFraction`), the sections surfaced per rare word, and the
+   *  per-turn cap. Omitted disables the lane, which the caller does whenever
+   *  the selector is off: rare lines are candidates for a judge, not evidence
+   *  strong enough to inject unjudged. */
+  rareTerm?: RareTermLaneOptions;
   /** Cap on finder lines one page may carry per turn, applied in surfacing
-   *  order (needle, dense, reply, span, entity); a section-less edge or
+   *  order (needle, dense, reply, span, entity, rare); a section-less edge or
    *  learned line counts as one. Defaults to
    *  {@link DEFAULT_FINDER_SECTIONS_PER_PAGE} (canonical value:
    *  `memory.v3.finderSectionsPerPage`). */
@@ -278,6 +296,9 @@ export interface FinderCandidate {
   slug: Slug;
   section?: Section;
   terms?: string[];
+  /** The one query term the lane keyed the line on (a rare-term hit);
+   *  rendered in the line's lane tag as `(lane: term)`. */
+  term?: string;
   descriptor: string;
   lane: FinderLane;
 }
@@ -438,11 +459,12 @@ export async function orchestrate(
         ),
       ]),
     );
-  // Everything from here to the step-3 selection — finder assembly, the
-  // entity lane, the injection gate, edge + learned-edge expansion, pool
-  // assembly — is synchronous in-memory work, measured as one `v3_expand`
-  // region rather than wrapped calls. Gate-closed early returns skip the
-  // record on purpose: the expansion work didn't happen on those turns.
+  // Everything from here to the step-3 selection (finder assembly, the
+  // entity and rare-term lanes, the injection gate, edge + learned-edge
+  // expansion, pool assembly) is synchronous in-memory work, measured as one
+  // `v3_expand` region rather than wrapped calls. Gate-closed early returns
+  // skip the record on purpose: the expansion work didn't happen on those
+  // turns.
   const expandStartedAt = Date.now();
 
   // Dense hits restricted to pages still in the live section index. A deleted
@@ -456,7 +478,7 @@ export async function orchestrate(
 
   // `finder` accumulates the pool's dynamic tail: one entry per distinct
   // (article, matched section), in the needle → dense → reply → span →
-  // entity call order, so a page whose sections match different parts of
+  // entity → rare call order, so a page whose sections match different parts of
   // the message carries one line per section and the selector sees each
   // section's own text. A hit that resolves to no section (an edge or
   // learned neighbour, a dense ordinal the index no longer holds) is one
@@ -509,6 +531,20 @@ export async function orchestrate(
           }
         : { slug, descriptor: "", lane },
     );
+  };
+
+  // A rare-term hit is keyed on one query word, which is the line's snippet
+  // term and its tag both.
+  const addRareHit = (hit: RareTermHit): void => {
+    const section = sections[hit.section]!;
+    poolLine({
+      slug: hit.article,
+      section,
+      terms: [hit.term],
+      term: hit.term,
+      descriptor: section.text,
+      lane: "rare",
+    });
   };
 
   // A page surfaced by association (an edge or learned neighbour): no
@@ -607,13 +643,34 @@ export async function orchestrate(
     }
   }
 
-  // Step 1b'''': opt-in injection gate. With the CURRENT-message finder lanes in
-  // hand (needle + dense — NOT reply/span/entity/edge, which only add recall), decide
-  // whether retrieval is confident enough to spend the selectPool LLM call this
-  // turn. Default-off via `?.enabled`; pass-open on any throw (a gate bug must
-  // never drop a turn's memory). A closed gate either hard-skips selection
-  // (empty selections) or, when `bypassForCore` is set, runs selectPool over the
-  // stable prefix only — never the finder tail.
+  // Step 1b'''': rare-term lane, the sections a rare query word occurs in. A
+  // word found in at most `maxDf` sections is a near-certain signal on its
+  // own: additive BM25 lets the message's bulk theme pick a page's section,
+  // and a query on the clause alone cannot rank a page whose only
+  // distinctive token is that word. Each rare word's top sections by
+  // single-term score join as their own lines, tagged with the word, which
+  // also centers the selector's snippet; a section a prior lane pooled is a
+  // no-op. Like the entity lane, rare hits feed neither the gate nor the
+  // edge seeds.
+  if (deps.rareTerm) {
+    for (const hit of rareTermLane(
+      deps.needle,
+      deps.sectionIndex,
+      turn.currentMessage,
+      deps.rareTerm,
+    )) {
+      addRareHit(hit);
+    }
+  }
+
+  // Step 1b''''': opt-in injection gate. With the CURRENT-message finder lanes
+  // in hand (needle + dense, NOT reply/span/entity/rare/edge, which only add
+  // recall), decide whether retrieval is confident enough to spend the
+  // selectPool LLM call this turn. Default-off via `?.enabled`; pass-open on
+  // any throw (a gate bug must never drop a turn's memory). A closed gate
+  // either hard-skips selection (empty selections) or, when `bypassForCore`
+  // is set, runs selectPool over the stable prefix only, never the finder
+  // tail.
   //
   // The gate is dense-gated: it only runs when the live dense lane produced hits
   // (`liveDensed.length > 0`). In healthy operation dense returns top-k hits for
@@ -884,6 +941,7 @@ export async function orchestrate(
     lane: c.lane,
     section: c.section,
     terms: c.terms,
+    term: c.term,
     descriptor:
       c.descriptor.trim().length > 0
         ? c.descriptor
