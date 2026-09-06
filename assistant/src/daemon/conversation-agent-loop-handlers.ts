@@ -163,7 +163,7 @@ function shouldPersistProviderErrorAsAssistantMessage(classified: {
  * and continue. Returns whether the marker is durable, which gates the
  * memory-injection ledger reset ({@link resetInjectionLedgersForStrip}).
  */
-export function markHistoryStrippedBestEffort(conversationId: string): boolean {
+function markHistoryStrippedBestEffort(conversationId: string): boolean {
   try {
     setConversationHistoryStrippedAt(conversationId, Date.now());
     return true;

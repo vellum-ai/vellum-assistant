@@ -95,9 +95,6 @@ describe("buildSectionIndex", () => {
           `${sectionHeadLine(section.article, section.title)}\n`,
         ),
       ).toBe(true);
-      if (section.title === "Big" || section.article === "page-lead") {
-        expect(sectionBody(section).length).toBeGreaterThan(0);
-      }
     }
     const big = index.sections.filter((s) => s.title === "Big");
     expect(big.length).toBeGreaterThan(1);
@@ -105,6 +102,10 @@ describe("buildSectionIndex", () => {
     const leadChunks = index.sections.filter((s) => s.article === "page-lead");
     expect(leadChunks.length).toBeGreaterThan(1);
     expect(leadChunks.map(sectionBody).join("")).toBe(unbroken);
+    // Every chunk of both carries body text past its head line.
+    for (const chunk of [...big, ...leadChunks]) {
+      expect(sectionBody(chunk).length).toBeGreaterThan(0);
+    }
   });
 
   test("a heading longer than the window still chunks by near-window bodies; the key keeps the full title", async () => {

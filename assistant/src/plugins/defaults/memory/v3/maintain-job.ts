@@ -93,9 +93,9 @@ import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-manag
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
+import { skillSlugFor } from "../substrate/capability-slugs.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage } from "../substrate/page-store.js";
-import { skillSlugFor } from "../substrate/skill-store.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
 import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {

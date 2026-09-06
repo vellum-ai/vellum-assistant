@@ -48,7 +48,6 @@ mock.module("../plugins/defaults/memory/substrate/skill-store.js", () => ({
   // The validate route builds the page index, which reads the seeded
   // skill catalog; an empty catalog keeps that walk inert here.
   listSkillEntries: () => [],
-  SKILL_SLUG_PREFIX: "skills/",
 }));
 
 // ---------------------------------------------------------------------------

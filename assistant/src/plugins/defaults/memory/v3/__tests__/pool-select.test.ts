@@ -716,17 +716,17 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     const deep = sectionOf(
       "page-a",
       "Rollout",
-      `${filler.repeat(6)}the Gourd milestone slipped a week ${filler.repeat(3)}`,
+      `${filler.repeat(6)}the Turnip milestone slipped a week ${filler.repeat(3)}`,
     );
     await selectPool(
       finderOnly({
         slug: "page-a",
         descriptor: deep.text,
         section: deep,
-        terms: ["absent", "gourd"],
+        terms: ["absent", "turnip"],
         lane: "needle",
       }),
-      makeTurn("gourd?"),
+      makeTurn("turnip?"),
     );
     const [block] = sentBlocks();
     const line = block.text
@@ -735,7 +735,7 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     // The first term that occurs in the body (not `absent`) centers the
     // window; the match is case-insensitive and the head line is not shown.
     expect(line).toContain("§Rollout: … ");
-    expect(line).toContain("Gourd milestone");
+    expect(line).toContain("Turnip milestone");
     expect(line).not.toContain("page-a - Rollout");
     expect(line.endsWith(" …")).toBe(true);
     // The window itself stays at the snippet cap (plus its ellipses).
@@ -793,27 +793,27 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     providerStub = makeProvider(toolUseResponse({ ids: [] }));
     const filler =
       "filler words that push the match well past the head of the section ";
-    const pumpkin = sectionOf(
-      "silly-lines",
-      "Pumpkin",
-      `${filler.repeat(6)}the pumpkin bit: my little gourd ${filler.repeat(3)}`,
+    const inventory = sectionOf(
+      "sample-notes",
+      "Inventory",
+      `${filler.repeat(6)}the weekly turnip totals ${filler.repeat(3)}`,
     );
     await selectPool(
       finderOnly({
-        slug: "silly-lines",
-        descriptor: pumpkin.text,
-        section: pumpkin,
-        terms: ["gourd"],
+        slug: "sample-notes",
+        descriptor: inventory.text,
+        section: inventory,
+        terms: ["turnip"],
         lane: "rare",
       }),
-      makeTurn("here is my little gourd"),
+      makeTurn("the weekly report lists the turnip"),
     );
     const [block] = sentBlocks();
     const line = block.text
       .split("\n")
-      .find((l) => l.startsWith("[1] (rare: gourd) silly-lines "))!;
-    expect(line).toContain("§Pumpkin: … ");
-    expect(line).toContain("my little gourd");
+      .find((l) => l.startsWith("[1] (rare: turnip) sample-notes "))!;
+    expect(line).toContain("§Inventory: … ");
+    expect(line).toContain("weekly turnip totals");
     // The selector is told what the tag means.
     expect(providerCalls[0]!.options?.systemPrompt).toContain("(rare: word)");
   });
@@ -823,14 +823,14 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     const notes = sectionOf(
       "page-a",
       "Notes",
-      "we said: little, gourd is the nickname",
+      "we said: weekly, turnip is the label",
     );
     await selectPool(
       finderOnly({
         slug: "page-a",
         descriptor: notes.text,
         section: notes,
-        terms: ["little_gourd"],
+        terms: ["weekly_turnip"],
       }),
       makeTurn("x"),
     );
@@ -838,8 +838,8 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     const line = block.text
       .split("\n")
       .find((l) => l.startsWith("[1] page-a "))!;
-    expect(
-      line.endsWith("§Notes: we said: little, gourd is the nickname"),
-    ).toBe(true);
+    expect(line.endsWith("§Notes: we said: weekly, turnip is the label")).toBe(
+      true,
+    );
   });
 });

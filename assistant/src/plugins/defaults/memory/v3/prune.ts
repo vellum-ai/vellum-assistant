@@ -3,101 +3,67 @@
  * footprint.
  *
  * Frozen sections accumulate in history with no per-turn bound (the injector
- * renders net-new only and never strips prior blocks — the cache contract).
+ * renders net-new only and never strips prior blocks, the cache contract).
  * The valve is the backstop: when the resident (non-pruned) section bytes
  * exceed `memory.v3.prune.maxResidentBytes`, the least-recently-selected
  * sections are pruned, oldest first, until the footprint is at
- * `targetResidentBytes`. Every section is a candidate: core and hot pages
- * are evicted by recency like any other.
+ * `targetResidentBytes` ({@link planPrune}). Every section is a candidate:
+ * core and hot pages are evicted by recency like any other.
  *
  * Pruning is `markPruned` (the store's audit-preserving tombstone) plus two
- * FILTER points — never a metadata rewrite, so the persisted
+ * FILTER points, never a metadata rewrite, so the persisted
  * `metadata.memoryV3InjectedBlock` / `memoryV3PointerBlock` rows stay intact
- * (auditable, and a re-selected section re-injects as a fresh entry because
- * `recordInjected` clears `pruned_at`):
+ * and a re-selected section re-injects as a fresh entry (`recordInjected`
+ * clears `pruned_at`):
  *
- *   (a) a strip of the pruned sections from the `<memory>` blocks riding
- *       the LIVE in-memory history, and of their lines from the
- *       `<memory_pointer>` blocks that named them
- *       ({@link stripPrunedSectionsFromMessages}; per-section boundaries are
- *       the `# memory/concepts/<slug>.md` / `# memory/concepts/<slug>.md § <key>`
- *       headers within a block, terminated at the next header or at a
- *       non-section chunk such as capability content; see
- *       `parseInjectedSections` in `substrate/injected-block-slugs.ts`). The
- *       strip mutates the shared message objects in place so the agent
- *       loop's end-of-turn history fold-back keeps the stripped content. It
- *       runs with the conversation's full tombstone set at two points: in
- *       the valve itself, and at runtime assembly Step 0 on every turn
- *       (`applyRuntimeInjections`). The valve fires on a timer while the
- *       turn that scheduled it may still be in flight, against a history
- *       that turn's block has not folded back into, so a section pruned on
- *       the turn that injected it can ride back in; the assembly strip
- *       catches it on the next turn, and the live history converges to the
- *       store no matter when the valve ran;
- *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`
- *       re-applies {@link filterResidentSections} and
+ *   (a) a strip of the pruned sections, and of the pointer lines naming
+ *       them, from the LIVE in-memory history
+ *       ({@link stripPrunedSectionsFromMessages}; section boundaries are
+ *       the `# memory/concepts/<slug>.md` / `... § <key>` headers read by
+ *       `parseInjectedSections` in `substrate/injected-block-slugs.ts`). It
+ *       runs with the conversation's full tombstone set in the valve itself
+ *       and at runtime assembly Step 0 on every turn, so a section the valve
+ *       pruned before its own turn's block folded back into the history is
+ *       caught on the next turn ({@link runPruneValve});
+ *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`,
+ *       which re-applies {@link filterResidentSections} and
  *       {@link filterResidentPointerEntries} on every load, so prunes persist
  *       across daemon restarts without touching the metadata.
  *
- * A pruned section that is re-selected re-injects as a fresh entry on a
- * later message, and `recordInjected` clears its tombstone. Its older copies
- * still sit in earlier messages' persisted metadata, so both filter points
- * also keep only each section's NEWEST persisted copy
- * ({@link newestCopyIndexes}): the live conversation holds exactly that one,
- * every earlier copy having been stripped when the section was pruned, and
- * rehydrating an earlier copy beside it would double the section and change
- * the cached prefix. Pointer entries follow the same rule: a line naming a
- * section whose newest copy sits further down predates its re-injection and
- * is dropped.
+ * Both points also keep only each section's NEWEST persisted copy
+ * ({@link newestCopyIndexes}), since a re-injected section's older copies
+ * still sit in earlier messages' metadata. The first post-prune request
+ * loses the provider prefix cache from the earliest affected message, ONE
+ * amortized bust per prune, logged with `prunedSections` / `bytesFreed`; a
+ * pointer always sits after the block of every section it names, so
+ * filtering it never widens that bust.
  *
- * The first post-prune request loses the provider prefix cache from the
- * earliest affected message — ONE amortized bust per prune, logged with
- * `prunedSections` / `bytesFreed`. A pointer always sits after the block of
- * every section it names, so filtering it never widens that bust.
+ * Ownership: v2's dynamic `<memory>` blocks share the exact wrapper and
+ * `# memory/concepts/<slug>.md` header convention, and a pre-cutover v2
+ * block can be byte-identical to a v3 lead entry, so the live strip never
+ * decides ownership by text. It owns a block by object identity
+ * (`isV3LiveBlock` in `types.ts`: the blocks runtime assembly attaches for
+ * the `memory-v3` injector, `loadFromDb` splices from persisted metadata,
+ * and the strip writes back in their place) and leaves every other
+ * `<memory>` block untouched. The `<memory_pointer>` wrapper is v3-only, so
+ * pointer blocks need no ownership test.
  *
- * v2-coexistence note: v2's dynamic `<memory>` blocks share the exact wrapper
- * and `# memory/concepts/<slug>.md` header convention, and a pre-cutover v2
- * block can even be byte-identical to a v3 lead entry (v2's full-page
- * fallback on a headingless page), so the live strip never decides ownership
- * by text. It owns a block by object identity (`isV3LiveBlock` in
- * `types.ts`): the blocks runtime assembly attaches for the `memory-v3`
- * injector, `loadFromDb` splices from persisted metadata, and the strip
- * writes back in their place. Every other `<memory>` block is left untouched,
- * keeping v2 blocks' unfiltered rehydration byte-identical. The
- * `<memory_pointer>` wrapper is v3-only, so pointer blocks need no ownership
- * test.
+ * Capability content (skill / CLI-command chunks under their own `# Skill:`
+ * / `# CLI command:` header) is recorded at `bytes: 0`, which keeps it out
+ * of the resident measure and out of candidacy, so it survives the prune of
+ * its neighboring sections; both filter points still supersede an older
+ * copy of it under the identity the store records it by (its capability
+ * slug, empty key). A legacy-format block (no format stamp,
+ * `InjectedBlockFormat` in `types.ts`) is filtered with that build's card
+ * grammar under each card's lead ref; see {@link filterSections} and
+ * {@link newestCopyIndexes}.
  *
- * Capability note: skill / CLI-command content renders under its own
- * `# Skill:` / `# CLI command:` header, not a section header. The injector
- * records capability slugs at `bytes: 0`, which keeps them out of the resident
- * measure AND out of candidacy (zero-byte rows are skipped — pruning them
- * frees nothing), so capability content riding a block survives the prune of
- * its neighboring sections. Both filter points still reach it under the
- * identity the store records it by (its capability slug, empty key): a copy
- * a later block renders again (a post-compaction re-entry copy, once the
- * next turn persists the capability anew) is superseded like a section's.
- *
- * Legacy-format note: a v3 block persisted without the format stamp
- * (`InjectedBlockFormat` in `types.ts`) was rendered as compact cards by a
- * build before body escaping, and both filter points read it with that
- * build's card grammar (`filterLegacyCards` in
- * `substrate/injected-block-slugs.ts`), each card under its lead ref
- * `(slug, "")`: a card whose lead is tombstoned leaves, so a prune that
- * predates the upgrade holds across restarts, and one whose lead a
- * current-format block re-injected after such a prune (clearing the
- * tombstone) is superseded by that copy. The block is never indexed by
- * {@link newestCopyIndexes} (its cards retire no current copy), the section
- * store carries its slugs at zero bytes (`plugin-schema.ts`) so nothing in
- * it is ever planned, and it leaves with the compaction that strips memory
- * blocks and clears the store.
- *
- * Accounting-drift note: a section whose recorded bytes have no locatable
- * persisted text (e.g. its metadata row was lost) can be planned and
- * tombstoned — the strip/rehydration filter simply finds nothing to remove,
- * its content (if any) stays in context, and its bytes leave the resident
- * accounting with the tombstone. That self-heals in ONE pass: the next valve
- * run measures the corrected footprint, so the valve never loop-fires against
- * bytes it cannot free.
+ * Accounting drift: a section whose recorded bytes have no locatable
+ * persisted text (its metadata row was lost) can be planned and tombstoned;
+ * the filters find nothing to remove and its bytes leave the resident
+ * accounting with the tombstone, so the next valve run measures the
+ * corrected footprint and the valve never loop-fires against bytes it
+ * cannot free.
  */
 
 import type { ContentBlock, Message } from "@vellumai/plugin-api";

@@ -419,9 +419,9 @@ mock.module("../../../../../util/platform.js", () => ({
 
 // Capability stores: `renderCapabilityBody` (reached from `initLanes`' pageBody)
 // and `renderCapabilityContent` (the live injector's short form) resolve
-// synthetic slugs through these. Spread the real module so the prefix
-// predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
-// content lookup so the capability slug resolves.
+// synthetic slugs through these. Spread the real module so its other exports
+// stay intact; override only the content lookup so the capability slug
+// resolves.
 mock.module("../../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
@@ -861,14 +861,14 @@ describe("memory-v3 engine", () => {
   });
 
   test("a rare-term selection persists source rare and its pool line's lane", async () => {
-    const pumpkin: Section = {
+    const inventory: Section = {
       article: "page-rare",
-      title: "Pumpkin",
+      title: "Inventory",
       text: "x",
       ordinal: 1,
     };
     orchestrateSpy.mockImplementationOnce(async () => ({
-      selections: [{ slug: "page-rare", sections: [pumpkin] }],
+      selections: [{ slug: "page-rare", sections: [inventory] }],
       lanes: {
         core: [],
         hot: [],
@@ -877,8 +877,8 @@ describe("memory-v3 engine", () => {
         finder: [
           {
             slug: "page-rare",
-            section: pumpkin,
-            terms: ["gourd"],
+            section: inventory,
+            terms: ["turnip"],
             descriptor: "",
             lane: "rare",
           },
@@ -894,8 +894,8 @@ describe("memory-v3 engine", () => {
       {
         slug: "page-rare",
         lane: "rare",
-        section_title: "Pumpkin",
-        section_key: "Pumpkin",
+        section_title: "Inventory",
+        section_key: "Inventory",
         chosen: true,
       },
     ]);
@@ -1090,10 +1090,10 @@ describe("memory-v3 engine", () => {
       text: "page-two - Bulk theme\nthe long part",
       ordinal: 1,
     };
-    const pumpkin: Section = {
+    const inventory: Section = {
       article: "page-two",
-      title: "Pumpkin",
-      text: "page-two - Pumpkin\ngourd",
+      title: "Inventory",
+      text: "page-two - Inventory\nturnip",
       ordinal: 4,
     };
     const lanes = {
@@ -1110,8 +1110,8 @@ describe("memory-v3 engine", () => {
         },
         {
           slug: "page-two",
-          section: pumpkin,
-          terms: ["gourd"],
+          section: inventory,
+          terms: ["turnip"],
           descriptor: "",
           lane: "rare" as const,
         },
@@ -1124,11 +1124,11 @@ describe("memory-v3 engine", () => {
         selectorRan: true,
       })[0]!.source;
     // Only the rare line was picked: the rare lane is credited.
-    expect(sourceOf([pumpkin])).toBe("rare");
+    expect(sourceOf([inventory])).toBe("rare");
     // Only the needle line was picked.
     expect(sourceOf([bulk])).toBe("needle");
     // Both picked: the first selected section's line decides.
-    expect(sourceOf([pumpkin, bulk])).toBe("rare");
+    expect(sourceOf([inventory, bulk])).toBe("rare");
     // No section (the page's card): the page's first line decides.
     expect(sourceOf([])).toBe("needle");
   });
@@ -1235,14 +1235,14 @@ describe("memory-v3 engine", () => {
   });
 
   test("a selection of a rare-term line records source rare with its section", () => {
-    const pumpkin: Section = {
+    const inventory: Section = {
       article: "page-1",
-      title: "Pumpkin",
+      title: "Inventory",
       text: "x",
       ordinal: 2,
     };
     const rows = attributeSelections({
-      selections: [{ slug: "page-1", sections: [pumpkin] }],
+      selections: [{ slug: "page-1", sections: [inventory] }],
       lanes: {
         core: [],
         hot: [],
@@ -1251,8 +1251,8 @@ describe("memory-v3 engine", () => {
         finder: [
           {
             slug: "page-1",
-            section: pumpkin,
-            terms: ["gourd"],
+            section: inventory,
+            terms: ["turnip"],
             descriptor: "",
             lane: "rare",
           },
@@ -1265,8 +1265,8 @@ describe("memory-v3 engine", () => {
         slug: "page-1",
         source: "rare",
         sectionOrdinal: 2,
-        sectionTitle: "Pumpkin",
-        sectionKey: "Pumpkin",
+        sectionTitle: "Inventory",
+        sectionKey: "Inventory",
       },
     ]);
   });

@@ -37,7 +37,6 @@ import { getLogger } from "../logging.js";
 import {
   CLI_COMMAND_SLUG_PREFIX,
   cliCommandSlugFor,
-  isCliCommandSlug,
 } from "./capability-slugs.js";
 import { buildCliCommandHelpContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
@@ -54,10 +53,6 @@ import { resolveSubstrateTuning } from "./tuning.js";
 import type { CliCommandEntry } from "./types.js";
 
 const log = getLogger("memory-v2-cli-command-store");
-
-/** Slug grammar of the CLI-command rows (defined in the dependency-free
- *  `capability-slugs.ts` leaf; re-exported here for the store's callers). */
-export { CLI_COMMAND_SLUG_PREFIX, cliCommandSlugFor, isCliCommandSlug };
 
 /**
  * Payload discriminator written on every CLI-command-seeded Qdrant point.

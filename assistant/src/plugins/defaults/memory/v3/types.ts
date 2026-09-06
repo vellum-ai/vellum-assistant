@@ -128,7 +128,9 @@ export function isV3LiveBlock(block: object): boolean {
  * ordinal 0) or a heading-delimited block. Over-long sections are split into
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each
  * fits a typical embedding window. `text` is prefixed with a
- * `${lastSlugSegment} — ${title}` head line for lexical/dense matching.
+ * `${lastSlugSegment} - ${title}` head line (`sectionHeadLine` in
+ * `sections.ts`, which caps the title at `SECTION_HEAD_TITLE_CHARS`) for
+ * lexical/dense matching.
  *
  * `occurrence` is this heading's 0-based index among the article's headings
  * that share its title (a repeated `## Topic`); `chunk` is this section's

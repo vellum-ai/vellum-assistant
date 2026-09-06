@@ -154,7 +154,9 @@ not break.
   so page or skill text can never forge one) and parses blocks
   (`parseInjectedSections`). The prune valve, the `loadFromDb` rehydration
   filter, the truncated-fork seed, and the retry anchor merge all read
-  through it; do not add a second header matcher or chunk splitter.
+  through it; do not add a second header matcher or chunk splitter. The one
+  exception is `LEGACY_CARD_HEADER_REGEX` in the same file, the pre-stamp
+  card grammar that `parseLegacyCards` alone reads for legacy blocks.
 - **A block's format is explicit provenance, never inferred from its
   content.** The persisting build stamps `memoryV3InjectedBlockFormat`
   beside `memoryV3InjectedBlock`; a row is current exactly when its stamp

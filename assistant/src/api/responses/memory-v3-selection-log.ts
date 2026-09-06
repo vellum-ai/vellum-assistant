@@ -43,8 +43,9 @@ import { z } from "zod";
  * a repeated heading's n-th occurrence and `~<n>` for the n-th chunk of an
  * over-long one), which tells two lines under one heading apart; both null
  * for cards and finder lines with no matched section, and the key null on
- * legacy pool rows that omit `section_key`. `chosen` is whether the selector
- * kept the candidate's page.
+ * legacy pool rows that omit `section_key`. `chosen` is per pool line:
+ * whether the selector kept the section the line names (the page lead, for
+ * a lead line), or the page itself for a line with no matched section.
  */
 export const MemoryV3PoolCandidateSchema = z.object({
   slug: z.string(),

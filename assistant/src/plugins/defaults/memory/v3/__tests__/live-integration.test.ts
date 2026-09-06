@@ -18,8 +18,7 @@
  * That is the behavioral contract the live path wires together: the injector
  * renders only the turn's NET-NEW sections, records them, and the resulting
  * block is FROZEN into history, prior turns' blocks are never re-rendered or
- * stripped (the cache contract; the old `stripAllMemoryInjections`
- * whole-layer replace is gone). The provider is stubbed (no network).
+ * stripped (the cache contract). The provider is stubbed (no network).
  */
 
 import { Database } from "bun:sqlite";

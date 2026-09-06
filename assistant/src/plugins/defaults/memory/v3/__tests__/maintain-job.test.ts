@@ -7,7 +7,7 @@ import { EmbeddingBackendUnavailableError } from "../../../../../persistence/emb
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 import type { SkillInstallMeta } from "../../../../../skills/install-meta.js";
-import { skillSlugFor } from "../../substrate/skill-store.js";
+import { skillSlugFor } from "../../substrate/capability-slugs.js";
 import { renderCapabilityBody } from "../capabilities.js";
 import {
   backfillAllSections,

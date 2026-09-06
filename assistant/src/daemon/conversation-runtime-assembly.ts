@@ -2674,8 +2674,7 @@ export async function applyRuntimeInjections(
   // at the top of the tail with no v2 prefix ahead of it. Historical user
   // messages keep their memory blocks byte-identical: frozen v3 section
   // blocks from prior turns AND pre-cutover v2 blocks both ride the cached
-  // prefix (the old whole-layer `stripAllMemoryInjections` replace is gone).
-  // The strip discriminates v2's dynamic block by IDENTITY ({@link
+  // prefix. The strip discriminates v2's dynamic block by IDENTITY ({@link
   // stripTailV2DynamicMemoryPrefix}): the live graph handle holds the exact
   // text the wiring layer prepended this turn, so a re-entry tail's
   // just-frozen v3 section block (and the `<info>` static block) survive even
@@ -2747,37 +2746,19 @@ export async function applyRuntimeInjections(
   //
   // The v3 frozen section block is captured here, UNWRAPPED (the v2
   // `memoryInjectedBlock` contract; rehydration re-wraps on use), and its
-  // deferred section-store commit runs here, once attachment is certain (a
-  // user tail; on any other tail `applyInjectionBlock` no-ops the block and
-  // a commit would claim sections that never attached, suppressing them
-  // until compaction). Capture and commit go together, and only a block
-  // carrying a commit gets either: the injector attaches one to a turn's
-  // first produce alone, and withholds it when the turn's history is
-  // replaced, so a block without one rides the tail in memory only,
-  // whatever history it lands on, and is never persisted or claimed (a
-  // persisted copy the store never claimed would be rendered and persisted
-  // again on every later turn). A turn re-run onto its original anchor row
-  // (`/conversations/:id/retry`) assembles onto a tail that already carries
-  // the first run's frozen block, rehydrated from the anchor's metadata:
-  // a current-format one takes the rerun's net-new entries
-  // (`mergeIntoAnchorBlock`), so the tail carries one merged block and the
-  // persisted block gives every section the store claims a body that
-  // rehydrates; a legacy-format one (a pre-stamp row) cannot take
-  // current-format entries under one metadata key, so the rerun's block
-  // rides the tail in memory only, uncaptured and uncommitted, the
-  // post-compaction no-claim shape: the next turn injects those sections
-  // net-new onto its own message and the newest-copy rule retires this
-  // copy. A re-injection assembly (`options.reinjection`) never commits:
-  // its block is never persisted, so the store must not claim sections
-  // whose only copy vanishes on restart. A replaced history (Step 1) takes
-  // the in-memory-only shape whatever the block carries: the transcript is
-  // rendered from persisted rows, so a block captured here would never
-  // reach a later prompt; the injector, told of the replacement on its turn
-  // context, rendered every selection afresh for it and attached no
-  // commit, and Step 1 left a retried anchor's frozen block off the
-  // transcript, so the block spliced here is the prompt's only copy. An
-  // empty-text block (all-repeat turn) attaches nothing and captures
-  // nothing.
+  // deferred section-store commit runs here, once attachment is certain: a
+  // user tail (on any other tail `applyInjectionBlock` no-ops the block, and
+  // a commit would claim sections that never attached), a block carrying a
+  // commit, and not a re-injection assembly (`options.reinjection`, whose
+  // block is never persisted). Capture and commit go together: a block
+  // without a commit (a re-entry, or a turn whose history Step 1 replaced)
+  // rides the tail in memory only and is never persisted or claimed. A tail
+  // that already carries a v3 block (a turn re-run onto its original anchor
+  // row, `/conversations/:id/retry`) takes the new entries by merge, or, for
+  // a legacy-format anchor block, carries the new block in memory only
+  // (`AnchorBlockMerge` in `v3/prune.ts`). An empty-text block (all-repeat
+  // turn) attaches nothing and captures nothing. The partition and commit
+  // rules live in `plugins/defaults/memory/v3/injector.ts`.
   for (const block of afterMemory) {
     if (block.id !== MEMORY_V3_BLOCK_ID) {
       result = applyInjectionBlock(result, block);

@@ -17,6 +17,22 @@ import {
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
 } from "../v3/types.js";
 
+/** The blocks persisted verbatim, each under its own metadata key, in the
+ *  order the update writes them. */
+const PASSTHROUGH_BLOCKS: ReadonlyArray<
+  readonly [block: keyof RuntimeInjectionResult["blocks"], key: string]
+> = [
+  ["unifiedTurnContext", "turnContextBlock"],
+  ["pkbSystemReminder", "pkbSystemReminderBlock"],
+  ["workspaceBlock", "workspaceBlock"],
+  ["nowScratchpadBlock", "nowScratchpadBlock"],
+  ["pkbContextBlock", "pkbContextBlock"],
+  ["memoryV2StaticBlock", "memoryV2StaticBlock"],
+  ["backgroundTurnBlock", "backgroundTurnBlock"],
+  ["channelCapabilitiesBlock", "channelCapabilitiesBlock"],
+  ["nonInteractiveContextBlock", "nonInteractiveContextBlock"],
+];
+
 /**
  * The combined metadata update for a turn's assembled blocks, or `null` when
  * the turn has nothing to persist. Every present block is written under its
@@ -55,26 +71,8 @@ export function injectionMetadataUpdates(
   blocks: RuntimeInjectionResult["blocks"],
   v2BlockPersisted: boolean,
 ): Record<string, unknown> | null {
-  const removeV2Block = Boolean(blocks.memoryV3Active) && v2BlockPersisted;
-  if (
-    !blocks.unifiedTurnContext &&
-    !blocks.pkbSystemReminder &&
-    !blocks.workspaceBlock &&
-    !blocks.nowScratchpadBlock &&
-    !blocks.pkbContextBlock &&
-    !blocks.memoryV2StaticBlock &&
-    !blocks.memoryV3InjectedBlock &&
-    !blocks.memoryV3PointerBlock &&
-    !blocks.backgroundTurnBlock &&
-    !blocks.channelCapabilitiesBlock &&
-    !blocks.nonInteractiveContextBlock &&
-    !removeV2Block &&
-    !blocks.memoryV3Active
-  ) {
-    return null;
-  }
   const updates: Record<string, unknown> = {};
-  if (removeV2Block) {
+  if (blocks.memoryV3Active && v2BlockPersisted) {
     updates.memoryInjectedBlock = undefined;
   }
   if (blocks.memoryV3InjectedBlock) {
@@ -83,35 +81,20 @@ export function injectionMetadataUpdates(
     updates[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] =
       MEMORY_V3_INJECTED_BLOCK_FORMAT;
   }
-  updates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] =
-    blocks.memoryV3PointerBlock || undefined;
+  if (blocks.memoryV3PointerBlock) {
+    updates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] = blocks.memoryV3PointerBlock;
+  }
+  for (const [block, key] of PASSTHROUGH_BLOCKS) {
+    if (blocks[block]) {
+      updates[key] = blocks[block];
+    }
+  }
+  if (Object.keys(updates).length === 0 && !blocks.memoryV3Active) {
+    return null;
+  }
+  if (!blocks.memoryV3PointerBlock) {
+    updates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] = undefined;
+  }
   updates[LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] = undefined;
-  if (blocks.unifiedTurnContext) {
-    updates.turnContextBlock = blocks.unifiedTurnContext;
-  }
-  if (blocks.pkbSystemReminder) {
-    updates.pkbSystemReminderBlock = blocks.pkbSystemReminder;
-  }
-  if (blocks.workspaceBlock) {
-    updates.workspaceBlock = blocks.workspaceBlock;
-  }
-  if (blocks.nowScratchpadBlock) {
-    updates.nowScratchpadBlock = blocks.nowScratchpadBlock;
-  }
-  if (blocks.pkbContextBlock) {
-    updates.pkbContextBlock = blocks.pkbContextBlock;
-  }
-  if (blocks.memoryV2StaticBlock) {
-    updates.memoryV2StaticBlock = blocks.memoryV2StaticBlock;
-  }
-  if (blocks.backgroundTurnBlock) {
-    updates.backgroundTurnBlock = blocks.backgroundTurnBlock;
-  }
-  if (blocks.channelCapabilitiesBlock) {
-    updates.channelCapabilitiesBlock = blocks.channelCapabilitiesBlock;
-  }
-  if (blocks.nonInteractiveContextBlock) {
-    updates.nonInteractiveContextBlock = blocks.nonInteractiveContextBlock;
-  }
   return updates;
 }

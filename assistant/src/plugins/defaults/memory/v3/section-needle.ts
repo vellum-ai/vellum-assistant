@@ -2,9 +2,10 @@ import type { SectionIndex, Slug } from "./types.js";
 
 /**
  * Section-grain "needle" lane for memory-v3 retrieval: a lexical BM25F search
- * over a {@link SectionIndex}. Each section is a tiny two-field document — a
- * weighted `head` line (`${lastSlugSegment} — ${title}`) and the remaining
- * `body` text — so a literal term in a heading outranks the same term buried in
+ * over a {@link SectionIndex}. Each section is a tiny two-field document, a
+ * weighted `head` line (`${lastSlugSegment} - ${title}`, the title capped, as
+ * `sectionHeadLine` in `sections.ts` renders it) and the remaining `body`
+ * text, so a literal term in a heading outranks the same term buried in
  * prose. Scoring happens at section grain; results are deduped to distinct
  * articles, each tagged with its best-scoring section.
  *

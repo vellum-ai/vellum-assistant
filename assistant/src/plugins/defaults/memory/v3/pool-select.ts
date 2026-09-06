@@ -408,7 +408,7 @@ function laneTag(candidate: PoolCandidate): string {
  * Render the finder tail: one `[m+i] (lane) slug — snippet` line per
  * candidate, numbered continuing after the `offset` stable-prefix cards. The
  * lane tag is omitted for a candidate without one and names the keyed word
- * for a rare-term line (`(rare: gourd)`); a candidate with an empty
+ * for a rare-term line (`(rare: turnip)`); a candidate with an empty
  * descriptor renders without the dash.
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {

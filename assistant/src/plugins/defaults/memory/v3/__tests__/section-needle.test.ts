@@ -242,20 +242,20 @@ describe("queryScored", () => {
   });
 
   test("findTerm locates a term as a whole token, case-insensitively, and a bigram across punctuation", () => {
-    expect(findTerm("The Gourd sits here", "gourd")).toEqual({
+    expect(findTerm("The Turnip sits here", "turnip")).toEqual({
       start: 4,
-      end: 9,
+      end: 10,
     });
     // A substring inside a longer token is not an occurrence.
-    expect(findTerm("gourds and gourd", "gourd")).toEqual({
-      start: 11,
-      end: 16,
+    expect(findTerm("turnips and turnip", "turnip")).toEqual({
+      start: 12,
+      end: 18,
     });
-    expect(findTerm("we said: little, gourd", "little_gourd")).toEqual({
+    expect(findTerm("we said: weekly, turnip", "weekly_turnip")).toEqual({
       start: 9,
-      end: 22,
+      end: 23,
     });
-    expect(findTerm("nothing here", "gourd")).toBeUndefined();
+    expect(findTerm("nothing here", "turnip")).toBeUndefined();
     // Only tokenizer-shaped terms are searched.
     expect(findTerm("a (b) c", "(b)")).toBeUndefined();
   });
