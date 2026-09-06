@@ -188,6 +188,28 @@ not break.
   block by object identity (`markV3LiveBlock` / `isV3LiveBlock` in
   `v3/types.ts`), never by text, so a pre-cutover v2 block byte-identical to
   a v3 entry is left alone.
+- **The store resets only behind a durable strip marker.** The reset
+  (`clearConversation`, through `ConversationGraphMemory.onCompacted`) runs
+  whenever the durable history is injection-stripped, not only when a summary
+  lands: `resetInjectionLedgersForStrip` (in
+  `daemon/conversation-agent-loop-handlers.ts`) runs it from the loop's
+  `compaction_completed` dispatch on a run that compacted nothing and from
+  `applyCompactionResult` on a real compaction, `/clean` runs it the same way,
+  and every reset precedes the re-injection. The reset is gated on the
+  `historyStrippedAt` marker being durable, since a reload with no marker
+  rehydrates the frozen blocks the reset unclaimed: the loop's
+  `history_stripped` dispatch writes the marker at the strip, a write that
+  succeeds there counts for the pair, and when no write succeeds a run that
+  compacted nothing keeps the store intact and commits the injected
+  pre-compaction history instead (the dispatcher reports the outcome to the
+  loop through its run's `injectionLedgerResets`, and the loop continues from
+  the injected history), so residency and the live history agree either way.
+  A compacted result has already lost its frozen blocks to the summary, so
+  there, once the compaction commit has landed, the store resets even without
+  the marker (a reload may rehydrate the
+  kept tail's blocks unclaimed once, until the newest-copy filter retires them
+  behind a re-injected copy), and a reset whose ledger clear fails reports
+  that the same way a missing marker does.
 - **The store is plugin-owned.** `memory_v3_injected_sections`,
   `memory_v3_pools`, and the `section_key` column of `memory_v3_selections`
   are created by `v3/plugin-schema.ts` (`ensureMemoryV3PluginSchema` from the

@@ -600,7 +600,7 @@ function makeCtx(
     modelOverride: undefined,
 
     graphMemory: {
-      onCompacted: async () => {},
+      onCompacted: async () => true,
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,

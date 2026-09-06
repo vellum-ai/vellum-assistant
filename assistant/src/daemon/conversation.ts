@@ -2986,9 +2986,13 @@ export class Conversation {
       this.messages,
     );
     const stripped = stripInjectionsForCompaction(this.messages);
+    // The marker is what keeps `loadFromDb` from rehydrating the stripped
+    // blocks, so it lands before the ledgers reset (a reset without it would
+    // let a restart rehydrate blocks the ledgers no longer claim); a failed
+    // write surfaces as the command's error with nothing changed.
+    setConversationHistoryStrippedAt(this.conversationId, Date.now());
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
-    setConversationHistoryStrippedAt(this.conversationId, Date.now());
     const estimatedInputTokens = await this.calculateTokens(this.messages);
     return {
       previousEstimatedInputTokens,

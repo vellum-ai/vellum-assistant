@@ -799,9 +799,11 @@ async function runTurn(
 
 /** A mid-turn compaction as the daemon performs it, on the mirror: the
  *  durable base is injection-stripped (every frozen v3 block leaves the live
- *  history) and the section store is reset (`onCompacted`). Persisted rows
- *  keep their metadata; `rehydrateFromDb` skips it for rows older than the
- *  compaction, as `loadFromDb` does past `historyStrippedAt`. */
+ *  history) and the section store is reset (`onCompacted`, which the daemon
+ *  runs on every strip, a pipeline run that compacted nothing and an overflow
+ *  rung included). Persisted rows keep their metadata; `rehydrateFromDb`
+ *  skips it for rows older than the compaction, as `loadFromDb` does past
+ *  `historyStrippedAt`. */
 function compactMidTurn(convId: string): void {
   for (const message of histories.get(convId)!) {
     message.content = message.content.filter(
