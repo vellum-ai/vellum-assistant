@@ -556,17 +556,47 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     expect(kinds[101]).toBe("batch");
   });
 
-  test("a transient batch failure throws so the caller's retry policy sees it", async () => {
+  test("a batch that fails with a server error is re-sent as singles, so a fault confined to the batch route never fails the embed", async () => {
     const fetchMock = routedFetch({ status: 503 });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
       interCallDelayMs: 0,
     });
 
-    await expect(backend.embed(texts(3))).rejects.toThrow(
-      "Gemini batch embeddings request failed (503)",
-    );
-    expect(fetchMock.mock.calls).toHaveLength(1);
+    const vectors = await backend.embed(texts(3));
+
+    expect(vectors.map((v) => v[0])).toEqual([0, 1, 2]);
+    expect(
+      calledUrls(fetchMock).map((url) => url.includes(":batchEmbedContents")),
+    ).toEqual([true, false, false, false]);
+  });
+
+  test("a batch request that cannot be sent is re-sent as singles, while a cancelled request rethrows", async () => {
+    let batchCalls = 0;
+    const fetchMock = mock(async (url: string, init: RequestInit) => {
+      if (url.includes(":batchEmbedContents")) {
+        batchCalls += 1;
+        throw new TypeError("fetch failed");
+      }
+      const body = JSON.parse(init.body as string) as {
+        content: { parts: Array<{ text: string }> };
+      };
+      return makeSuccessResponse([textIndex(body.content.parts[0]!.text)]);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(texts(2));
+    expect(vectors.map((v) => v[0])).toEqual([0, 1]);
+    expect(batchCalls).toBe(1);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      backend.embed(texts(2), { signal: controller.signal }),
+    ).rejects.toThrow("fetch failed");
   });
 
   test("a batch answered with a body that is not JSON is re-sent as singles", async () => {

@@ -75,12 +75,14 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
    * `batchEmbedContents`, {@link GEMINI_EMBED_BATCH_SIZE} texts per round
    * trip, so a corpus re-embed costs one request per hundred sections rather
    * than one per section; a lone text and every multimodal input take the
-   * single `embedContent` route. A batch the API rejects as a bad request, or
-   * answers with a malformed body, is re-sent as single calls, so each of its
-   * inputs succeeds or fails independently; a batch route that does not exist
-   * is remembered and skipped for the rest of the backend's life. Transient
-   * failures (rate limits, server errors, network) throw, so they reach the
-   * caller's retry policy.
+   * single `embedContent` route. A batch that fails for any reason other
+   * than a cancelled request (a rejected request, a rate limit or server
+   * error, a network failure, a malformed body) is re-sent as single calls,
+   * so each of its inputs succeeds or fails independently and a fault
+   * confined to the batch route never fails an embed the single route can
+   * serve; a batch route that does not exist is remembered and skipped for
+   * the rest of the backend's life. Single calls throw on failure, so their
+   * errors reach the caller.
    */
   async embed(
     inputs: EmbeddingInput[],
@@ -142,8 +144,9 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
   /**
    * One `batchEmbedContents` round trip for a run of text inputs. Resolves to
    * the vectors in input order, or to `null` when the run should be re-sent
-   * as single calls: the route is unavailable (remembered), the request was
-   * rejected as bad, or the body did not carry one vector per input.
+   * as single calls: the route is unavailable (remembered), the request
+   * failed with any status, the request could not be sent, or the body did
+   * not carry one vector per input. A cancelled request rethrows.
    */
   private async embedBatch(
     run: MultimodalEmbeddingInput[],
@@ -164,12 +167,27 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
       }
       return request;
     });
-    const response = await fetch(this.endpointUrl("batchEmbedContents"), {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify({ requests }),
-      signal: options?.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(this.endpointUrl("batchEmbedContents"), {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ requests }),
+        signal: options?.signal,
+      });
+    } catch (err) {
+      if (options?.signal?.aborted) {
+        throw err;
+      }
+      log.warn(
+        {
+          inputs: run.length,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "Gemini batch embeddings request could not be sent; re-sending this batch one text per call",
+      );
+      return null;
+    }
     if (!response.ok) {
       const responseBody = await response.text();
       if (BATCH_ROUTE_UNAVAILABLE_STATUSES.has(response.status)) {
@@ -180,16 +198,11 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
         );
         return null;
       }
-      if (response.status === 400) {
-        log.warn(
-          { status: response.status, inputs: run.length, responseBody },
-          "Gemini batch embeddings request rejected; re-sending this batch one text per call",
-        );
-        return null;
-      }
-      throw new Error(
-        `Gemini batch embeddings request failed (${response.status}): ${responseBody}`,
+      log.warn(
+        { status: response.status, inputs: run.length, responseBody },
+        "Gemini batch embeddings request failed; re-sending this batch one text per call",
       );
+      return null;
     }
     let payload: GeminiBatchEmbedResponse;
     try {
