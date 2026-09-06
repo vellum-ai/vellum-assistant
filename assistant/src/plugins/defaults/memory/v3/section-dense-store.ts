@@ -184,11 +184,17 @@ export async function holdSectionDenseReadsUntilRebuilt(): Promise<boolean> {
   try {
     pending = await ensureSectionChunkerVersion();
   } catch (err) {
+    // The transition may have written the pending marker before failing, and
+    // the marker is the durable statement that the stored ordinals are unsafe.
+    // Read it directly: present or unreadable means hold; only a marker that
+    // is definitely absent leaves dense reads open.
+    pending = rebuildMarkerPresentOrUnknown();
     log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "memory-v3 section chunker version check failed; dense reads stay open",
+      { err: err instanceof Error ? err.message : String(err), held: pending },
+      pending
+        ? "memory-v3 section chunker version check failed with a rebuild pending; dense reads held"
+        : "memory-v3 section chunker version check failed with no rebuild pending; dense reads stay open",
     );
-    return false;
   }
   if (!pending) {
     return false;
@@ -199,6 +205,18 @@ export async function holdSectionDenseReadsUntilRebuilt(): Promise<boolean> {
     "memory-v3 section store awaits its chunker rebuild: the dense lane serves no hits until the rebuild pass completes",
   );
   return true;
+}
+
+/**
+ * Whether the durable rebuild marker is set, treating a marker that cannot be
+ * read as set: an unknown state must hold dense reads, never open them.
+ */
+function rebuildMarkerPresentOrUnknown(): boolean {
+  try {
+    return getMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY) !== null;
+  } catch {
+    return true;
+  }
 }
 
 /**

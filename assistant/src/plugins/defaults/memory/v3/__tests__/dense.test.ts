@@ -466,11 +466,16 @@ describe("memory v3 dense lane: chunker rebuild hold", () => {
     expect(await denseLane(CONFIG, "query", 5)).toEqual(HIT);
   });
 
-  test("a checkpoint ledger that cannot be read leaves reads open", async () => {
+  test("a checkpoint ledger that cannot be read holds dense reads until it can", async () => {
     state.points = [point("page-a", 0, 0.9)];
     checkpointState.throws = new Error("no such table: memory_checkpoints");
 
-    expect(await holdSectionDenseReadsUntilRebuilt()).toBe(false);
+    // An unreadable ledger cannot prove the stored ordinals are safe, so the
+    // hold stays on; every read re-checks, so a ledger that recovers with no
+    // marker releases it.
+    expect(await holdSectionDenseReadsUntilRebuilt()).toBe(true);
+    expect(await denseLane(CONFIG, "query", 5)).toEqual([]);
+    checkpointState.throws = null;
     expect(await denseLane(CONFIG, "query", 5)).toEqual(HIT);
   });
 });

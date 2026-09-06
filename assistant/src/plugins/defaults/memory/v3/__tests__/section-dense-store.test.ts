@@ -229,10 +229,22 @@ const checkpointState = {
   deletes: [] as string[],
   ops: [] as string[],
   values: new Map<string, string>(),
+  // Keys whose read or write throws, so the chunker-version tests can fail a
+  // transition part-way through and assert what the hold does with it.
+  throwOnGet: null as string | null,
+  throwOnSet: null as string | null,
 };
 mock.module("../../../../../persistence/checkpoints.js", () => ({
-  getMemoryCheckpoint: (key: string) => checkpointState.values.get(key) ?? null,
+  getMemoryCheckpoint: (key: string) => {
+    if (checkpointState.throwOnGet === key) {
+      throw new Error(`checkpoint read failed: ${key}`);
+    }
+    return checkpointState.values.get(key) ?? null;
+  },
   setMemoryCheckpoint: (key: string, value: string) => {
+    if (checkpointState.throwOnSet === key) {
+      throw new Error(`checkpoint write failed: ${key}`);
+    }
     checkpointState.ops.push(`set:${key}`);
     checkpointState.values.set(key, value);
   },
@@ -301,6 +313,8 @@ function resetState(): void {
   cacheState.reads.length = 0;
   checkpointState.deletes.length = 0;
   checkpointState.ops.length = 0;
+  checkpointState.throwOnGet = null;
+  checkpointState.throwOnSet = null;
   _resetSectionDenseStoreForTests();
 }
 
@@ -944,6 +958,30 @@ describe("memory v3 section-dense-store: chunker version guard", () => {
     await expect(ensureSectionChunkerVersion()).rejects.toThrow(
       "qdrant unreachable",
     );
+  });
+
+  test("a version check that fails after writing the marker holds dense reads", async () => {
+    reset();
+    checkpointState.values.set(SECTION_CHUNKER_VERSION_KEY, "1");
+    checkpointState.values.set(MAINTAIN_EMBED_HIGH_WATER_KEY, HIGH_WATER);
+    checkpointState.throwOnSet = SECTION_CHUNKER_VERSION_KEY;
+
+    expect(await holdSectionDenseReadsUntilRebuilt()).toBe(true);
+    expect(sectionDenseReadsHeld()).toBe(true);
+    // The marker landed before the failure, so the durable state says stale.
+    expect(checkpointState.values.get(SECTION_REBUILD_PENDING_KEY)).toBe("1");
+    // The failed write left the old version on record, so the next process
+    // repeats the transition and finishes it.
+    expect(checkpointState.values.get(SECTION_CHUNKER_VERSION_KEY)).toBe("1");
+  });
+
+  test("a version check that fails while the marker cannot be read holds dense reads", async () => {
+    reset();
+    checkpointState.values.set(SECTION_CHUNKER_VERSION_KEY, "1");
+    checkpointState.throwOnGet = SECTION_REBUILD_PENDING_KEY;
+
+    expect(await holdSectionDenseReadsUntilRebuilt()).toBe(true);
+    expect(sectionDenseReadsHeld()).toBe(true);
   });
 
   test("a fresh install's version record marks nothing pending", async () => {
