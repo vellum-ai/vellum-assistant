@@ -227,8 +227,8 @@ not break.
   re-imports leads whose blocks are gone.
 - **Lanes and caps.** The finder lanes surface in a fixed order and only ever
   add lines; a page carries at most `memory.v3.finderSectionsPerPage` capped
-  lines plus its rare-term lines (the lane rules are under `memory_v3_pools`
-  below).
+  lines plus its entity and rare-term lines (the lane rules are under
+  `memory_v3_pools` below).
 
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
@@ -404,7 +404,7 @@ selector's full candidate pool (every stable-prefix card and finder line, in
 pool order, with lane, matched section, and a per-line verdict) for the
 inspector's Memory tab, plus `selector_ran`. A page carries one finder line
 per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
-surfacing order (needle, dense, reply, span, entity) plus its rare-term
+surfacing order (needle, dense, reply, span) plus its entity and rare-term
 lines, and selecting a line selects that section; the selection log keeps
 one row per slug, so the pool row is where the per-section verdicts live. A
 turn whose selector never judged a pool (the injection gate hard-skipped it,

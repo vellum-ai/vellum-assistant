@@ -227,12 +227,12 @@ export interface OrchestrateDeps {
    *  strong enough to inject unjudged. */
   rareTerm?: RareTermLaneOptions;
   /** Cap on finder lines one page may carry per turn, applied in surfacing
-   *  order (needle, dense, reply, span, entity); a section-less edge or
-   *  learned line counts as one. A rare-term line is outside the cap,
-   *  neither counted against it nor displaced by it (the lane's own
-   *  `rareTerm.cap` bounds those per turn), so a page carries at most this
-   *  many lines plus its rare lines (canonical value, default included:
-   *  `memory.v3.finderSectionsPerPage`). */
+   *  order (needle, dense, reply, span); a section-less edge or learned line
+   *  counts as one. An entity line and a rare-term line are outside the cap,
+   *  neither counted against it nor displaced by it (the lanes' own
+   *  `entityCap` and `rareTerm.cap` bound those per turn), so a page carries
+   *  at most this many lines plus its entity and rare lines (canonical
+   *  value, default included: `memory.v3.finderSectionsPerPage`). */
   finderSectionsPerPage: number;
   /** Per-lane article budget for the reply-query pass (needle + dense re-run
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
