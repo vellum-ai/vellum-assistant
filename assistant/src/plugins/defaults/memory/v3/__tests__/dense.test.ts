@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
 
@@ -70,6 +78,8 @@ const state = {
   // Whether the collection holds any point, as the chunker version check's
   // `scroll` probe sees it (independent of the programmed query hits).
   collectionHasPoints: false,
+  // Fails that probe, as an unreachable Qdrant does.
+  scrollThrows: null as Error | null,
 };
 
 class MockQdrantClient {
@@ -86,6 +96,9 @@ class MockQdrantClient {
     return { points: state.points };
   }
   async scroll(_name: string, _params: { limit: number }) {
+    if (state.scrollThrows) {
+      throw state.scrollThrows;
+    }
     return {
       points: state.collectionHasPoints ? [{ id: "1", payload: {} }] : [],
       next_page_offset: null,
@@ -153,6 +166,7 @@ function resetState(): void {
   state.queryThrows = null;
   state.queryCalls.length = 0;
   state.collectionHasPoints = false;
+  state.scrollThrows = null;
   _resetSectionDenseStoreForTests();
 }
 
@@ -367,7 +381,10 @@ describe("memory v3 dense lane: chunker rebuild hold", () => {
     checkpointState.values.clear();
     checkpointState.throws = null;
   });
-  afterEach(resetState);
+  afterEach(() => {
+    resetState();
+    setSystemTime();
+  });
 
   const HIT = [{ article: "page-a", section: 0 }];
 
@@ -466,16 +483,58 @@ describe("memory v3 dense lane: chunker rebuild hold", () => {
     expect(await denseLane(CONFIG, "query", 5)).toEqual(HIT);
   });
 
-  test("a checkpoint ledger that cannot be read holds dense reads until it can", async () => {
+  test("a checkpoint ledger that cannot be read holds dense reads until a retried check completes", async () => {
+    setSystemTime(new Date("2026-01-01T00:00:00Z"));
     state.points = [point("page-a", 0, 0.9)];
     checkpointState.throws = new Error("no such table: memory_checkpoints");
 
     // An unreadable ledger cannot prove the stored ordinals are safe, so the
-    // hold stays on; every read re-checks, so a ledger that recovers with no
-    // marker releases it.
+    // hold stays on. The read path retries the check once its cooldown has
+    // elapsed, and a ledger that recovers with nothing pending releases it.
     expect(await holdSectionDenseReadsUntilRebuilt()).toBe(true);
     expect(await denseLane(CONFIG, "query", 5)).toEqual([]);
     checkpointState.throws = null;
+    expect(await denseLane(CONFIG, "query", 5)).toEqual([]);
+
+    setSystemTime(new Date("2026-01-01T00:01:00Z"));
+    expect(await denseLane(CONFIG, "query", 5)).toEqual(HIT);
+    expect(checkpointState.values.get(SECTION_CHUNKER_VERSION_KEY)).toBe(
+      String(SECTION_CHUNKER_VERSION),
+    );
+  });
+
+  test("a collection probe that fails at lane init holds reads; once Qdrant recovers, the next read past the cooldown retries the check, marks the rebuild, kicks it, and the commit releases", async () => {
+    setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    state.points = [point("page-a", 0, 0.9)];
+    state.collectionHasPoints = true;
+    state.scrollThrows = new Error("qdrant unreachable");
+    const kicks: number[] = [];
+
+    // No version, no high-water, no marker: only the probe can say whether
+    // the points are stale, and it cannot run. Held, nothing written, and no
+    // rebuild kicked yet.
+    expect(
+      await holdSectionDenseReadsUntilRebuilt(() => kicks.push(kicks.length)),
+    ).toBe(true);
+    expect(await denseLane(CONFIG, "query", 5)).toEqual([]);
+    expect(checkpointState.values.size).toBe(0);
+    expect(kicks).toEqual([]);
+
+    // Qdrant is back. The next read past the cooldown completes the
+    // transition the init check could not: marker written, version
+    // recorded, rebuild kicked, and the read itself still serves nothing.
+    state.scrollThrows = null;
+    setSystemTime(new Date("2026-01-01T00:01:00Z"));
+    expect(await denseLane(CONFIG, "query", 5)).toEqual([]);
+    expect(checkpointState.values.get(SECTION_REBUILD_PENDING_KEY)).toBe("1");
+    expect(checkpointState.values.get(SECTION_CHUNKER_VERSION_KEY)).toBe(
+      String(SECTION_CHUNKER_VERSION),
+    );
+    expect(kicks).toEqual([0]);
+    expect(state.queryCalls).toHaveLength(0);
+
+    // From here the marker governs: the rebuild's commit releases the hold.
+    commitSectionEmbedHighWater(1700000002000);
     expect(await denseLane(CONFIG, "query", 5)).toEqual(HIT);
   });
 });

@@ -23,6 +23,7 @@ import {
   getSectionDenseClient,
   SECTION_COLLECTION,
   sectionDenseReadsHeld,
+  settleSectionDenseReadHold,
 } from "./section-dense-store.js";
 import type { Slug } from "./types.js";
 
@@ -62,9 +63,11 @@ export interface DenseHitScored {
  * the committed collection dimension (degraded backend or dimension mismatch) —
  * so a 3072-dim collection committed while only a 384-dim backend is reachable
  * narrows recall cleanly rather than failing the dimension assertion every turn.
- * Also `[]` while the section store awaits its chunker rebuild
- * (`sectionDenseReadsHeld`): the stored points' ordinals can name the wrong
- * section of the current index, and no hit beats a stale one.
+ * Also `[]` while the section store awaits its chunker rebuild, or while the
+ * version check that decides it has not completed (`sectionDenseReadsHeld`;
+ * a held read retries that check, `settleSectionDenseReadHold`): the stored
+ * points' ordinals can name the wrong section of the current index, and no
+ * hit beats a stale one.
  */
 export async function denseLaneScored(
   config: AssistantConfig,
@@ -74,7 +77,7 @@ export async function denseLaneScored(
   if (k <= 0) {
     return [];
   }
-  if (sectionDenseReadsHeld()) {
+  if (sectionDenseReadsHeld() && (await settleSectionDenseReadHold())) {
     return [];
   }
 

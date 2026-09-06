@@ -418,11 +418,13 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   }
   // Dense reads are held while the section store awaits the rebuild a
   // chunker version change forces (its points' ordinals can name the wrong
-  // section of this index), and the hold's first observation in this
-  // process kicks the maintain job at once instead of waiting out the
-  // six-hour backstop. Best-effort like the ensure above: a failed enqueue
-  // leaves the backstop to run the rebuild, with reads held meanwhile.
-  if (await holdSectionDenseReadsUntilRebuilt()) {
+  // section of this index), or while the check that decides it cannot
+  // complete (Qdrant unreachable; the dense read path retries it). The check
+  // that first reports the rebuild in this process, here or retried, kicks
+  // the maintain job at once instead of waiting out the six-hour backstop.
+  // Best-effort like the ensure above: a failed enqueue leaves the backstop
+  // to run the rebuild, with reads held meanwhile.
+  await holdSectionDenseReadsUntilRebuilt(() => {
     try {
       enqueueMemoryJob("memory_v3_maintain", {});
     } catch (err) {
@@ -431,7 +433,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
         "memory-v3: failed to enqueue the section rebuild; the maintenance backstop will run it",
       );
     }
-  }
+  });
 
   return {
     sectionIndex,

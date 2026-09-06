@@ -32,7 +32,9 @@ export const memoryV2InjectionEvents = sqliteTable(
 // in the dedicated memory database (`assistant-memory.db`), not main, access
 // it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`). The
 // legacy card-grain `memory_v3_ever_injected` table stays on disk (migrations
-// are append-only) but nothing reads or writes it.
+// are append-only); the memory plugin copies its rows into this table once
+// and deletes a conversation's rows from it on the compaction reset and the
+// conversation purge (`v3/plugin-schema.ts`), and nothing else touches it.
 export const memoryV3InjectedSections = sqliteTable(
   "memory_v3_injected_sections",
   {

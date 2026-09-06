@@ -1,26 +1,35 @@
 /**
  * The memory-v3 plugin's own schema on the memory connection
  * (`v3/plugin-schema.ts`): `memory_v3_injected_sections` is created
- * idempotently and seeded from the card-grain `memory_v3_ever_injected`, one
- * zero-byte lead entry per legacy row; `memory_v3_pools` is created
- * idempotently; the
- * selection log's `section_key` column is added to the `memory_v3_selections`
- * table migration 338 creates. Every ensure takes the raw handle, so these
- * tests run on in-memory databases with no connection stub, and the
- * once-per-connection wrapper the stores share is exercised on plain handles
- * the same way.
+ * idempotently and seeded once per database from the card-grain
+ * `memory_v3_ever_injected`, one zero-byte lead entry per legacy row, with
+ * the copy recorded in the checkpoint ledger; `deleteLegacyCardRows` clears
+ * a conversation's legacy rows for the compaction reset; `memory_v3_pools`
+ * is created idempotently; the selection log's `section_key` column is added
+ * to the `memory_v3_selections` table migration 338 creates. Every ensure
+ * takes the raw handle, and the sections ensure its ledger, so these tests
+ * run on in-memory databases (a file-backed one where a second connection
+ * matters) with no connection stub, and the once-per-connection wrapper the
+ * stores share is exercised on plain handles the same way.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import {
+  type CheckpointLedger,
+  deleteLegacyCardRows,
   ensureMemoryV3InjectedSectionsSchema,
   ensureMemoryV3PoolsSchema,
   ensureMemoryV3SelectionsSectionKey,
   ensureMemoryV3SelectionsSectionKeyOnce,
   ensureOncePerConnection,
+  SECTIONS_LEGACY_COPY_DONE_KEY,
 } from "../plugin-schema.js";
 
 interface Row {
@@ -41,6 +50,17 @@ function rows(db: Database): Row[] {
     .all() as Row[];
 }
 
+function legacyRows(
+  db: Database,
+): Array<{ conversation_id: string; slug: string }> {
+  return db
+    .query(
+      `SELECT conversation_id, slug FROM memory_v3_ever_injected
+       ORDER BY conversation_id, slug`,
+    )
+    .all() as Array<{ conversation_id: string; slug: string }>;
+}
+
 function objectNames(db: Database, type: "table" | "index"): string[] {
   return (
     db
@@ -49,21 +69,34 @@ function objectNames(db: Database, type: "table" | "index"): string[] {
   ).map((row) => row.name);
 }
 
+/** A map-backed checkpoint ledger whose reads or writes can be made to
+ *  fail, as a main database the process cannot reach makes the real one. */
+function ledger() {
+  const values = new Map<string, string>();
+  const fails = { reads: false, writes: false };
+  const api: CheckpointLedger = {
+    get: (key) => {
+      if (fails.reads) {
+        throw new Error("no such table: memory_checkpoints");
+      }
+      return values.get(key) ?? null;
+    },
+    set: (key, value) => {
+      if (fails.writes) {
+        throw new Error("database is locked");
+      }
+      values.set(key, value);
+    },
+  };
+  return { ...api, values, fails };
+}
+
 let memorySqlite: Database;
 
-/** The superseded card-grain table exactly as migration 345 left it on the
- *  memory connection (frozen; nothing writes it), the copy's source. */
+/** The superseded card-grain table exactly as migration 345 leaves it on
+ *  the memory connection (frozen; nothing writes it), the copy's source. */
 function createLegacyCardsTable(db: Database): void {
-  db.exec(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_v3_ever_injected (
-      conversation_id TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      injected_at INTEGER NOT NULL,
-      bytes INTEGER NOT NULL DEFAULT 0,
-      pruned_at INTEGER,
-      PRIMARY KEY (conversation_id, slug)
-    )
-  `);
+  ensureMemoryV3EverInjectedSchema(db);
 }
 
 beforeEach(() => {
@@ -71,8 +104,10 @@ beforeEach(() => {
 });
 
 describe("ensureMemoryV3InjectedSectionsSchema", () => {
-  test("creates the table and its conversation index when no legacy table exists", () => {
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+  test("creates the table and its conversation index when no legacy table exists, recording nothing", () => {
+    const checkpoints = ledger();
+
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints);
 
     expect(objectNames(memorySqlite, "table")).toContain(
       "memory_v3_injected_sections",
@@ -81,9 +116,10 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
       "idx_memory_v3_injected_sections_conv",
     );
     expect(rows(memorySqlite)).toEqual([]);
+    expect(checkpoints.values.size).toBe(0);
   });
 
-  test("copies every legacy card row as that page's lead entry at zero bytes, injected_at and pruned_at preserved", () => {
+  test("copies every legacy card row as that page's lead entry at zero bytes, injected_at and pruned_at preserved, and records the copy", () => {
     createLegacyCardsTable(memorySqlite);
     memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
@@ -93,8 +129,9 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         ('conv-1', 'topics/page-b', 2000, 340, 3000),
         ('conv-2', 'topics/page-a', 4000, 0, NULL)
     `);
+    const checkpoints = ledger();
 
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints);
 
     expect(rows(memorySqlite)).toEqual([
       {
@@ -122,20 +159,99 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         pruned_at: null,
       },
     ]);
-    // The legacy table is left in place, untouched.
-    expect(objectNames(memorySqlite, "table")).toContain(
-      "memory_v3_ever_injected",
-    );
+    expect(checkpoints.values.get(SECTIONS_LEGACY_COPY_DONE_KEY)).toBe("1");
+    // The legacy table is left in place, its rows untouched.
+    expect(legacyRows(memorySqlite)).toHaveLength(3);
   });
 
-  test("re-running neither duplicates rows nor overwrites entries refreshed since", () => {
+  test("copies once per database: a second connection's ensure finds the copy on record and re-imports nothing", () => {
+    // File-backed, so a second connection sees the first one's rows, as a
+    // later process does.
+    const dir = mkdtempSync(join(tmpdir(), "memory-v3-plugin-schema-"));
+    try {
+      const path = join(dir, "assistant-memory.db");
+      const checkpoints = ledger();
+      const first = new Database(path);
+      createLegacyCardsTable(first);
+      first.exec(/*sql*/ `
+        INSERT INTO memory_v3_ever_injected
+          (conversation_id, slug, injected_at, bytes, pruned_at)
+        VALUES
+          ('conv-1', 'topics/page-a', 1000, 120, NULL),
+          ('conv-2', 'topics/page-a', 2000, 120, NULL)
+      `);
+      ensureMemoryV3InjectedSectionsSchema(first, checkpoints);
+      expect(rows(first).map((row) => row.conversation_id)).toEqual([
+        "conv-1",
+        "conv-2",
+      ]);
+      // Compaction cleared conv-1's record. Its legacy rows stay here on
+      // purpose: the record alone must keep the copy from bringing them
+      // back.
+      first.exec(/*sql*/ `
+        DELETE FROM memory_v3_injected_sections WHERE conversation_id = 'conv-1'
+      `);
+      first.close();
+
+      const second = new Database(path);
+      ensureMemoryV3InjectedSectionsSchema(second, checkpoints);
+
+      expect(rows(second).map((row) => row.conversation_id)).toEqual([
+        "conv-2",
+      ]);
+      second.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unreadable ledger skips the copy rather than repeating it; a later ensure copies once the ledger reads", () => {
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
+    `);
+    const checkpoints = ledger();
+    checkpoints.fails.reads = true;
+
+    expect(() =>
+      ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints),
+    ).not.toThrow();
+
+    // The table is usable; the copy waits.
+    expect(objectNames(memorySqlite, "table")).toContain(
+      "memory_v3_injected_sections",
+    );
+    expect(rows(memorySqlite)).toEqual([]);
+    expect(checkpoints.values.size).toBe(0);
+
+    checkpoints.fails.reads = false;
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints);
+
+    expect(rows(memorySqlite).map((row) => row.slug)).toEqual([
+      "topics/page-a",
+    ]);
+    expect(checkpoints.values.get(SECTIONS_LEGACY_COPY_DONE_KEY)).toBe("1");
+  });
+
+  test("a copy whose record cannot be written stays in place and is repeated until the record lands, neither duplicating rows nor overwriting entries refreshed since", () => {
     createLegacyCardsTable(memorySqlite);
     memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
         (conversation_id, slug, injected_at, bytes, pruned_at)
       VALUES ('conv-1', 'topics/page-a', 1000, 120, 5000)
     `);
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    const checkpoints = ledger();
+    checkpoints.fails.writes = true;
+
+    expect(() =>
+      ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints),
+    ).not.toThrow();
+    expect(rows(memorySqlite).map((row) => row.slug)).toEqual([
+      "topics/page-a",
+    ]);
+    expect(checkpoints.values.size).toBe(0);
     // The section store re-injects the lead after the copy: pruned_at clears.
     memorySqlite.exec(/*sql*/ `
       UPDATE memory_v3_injected_sections
@@ -143,7 +259,8 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
       WHERE conversation_id = 'conv-1' AND slug = 'topics/page-a'
     `);
 
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    checkpoints.fails.writes = false;
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints);
 
     expect(rows(memorySqlite)).toEqual([
       {
@@ -155,6 +272,7 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         pruned_at: null,
       },
     ]);
+    expect(checkpoints.values.get(SECTIONS_LEGACY_COPY_DONE_KEY)).toBe("1");
   });
 
   test("a table carrying an extra nullable column is left as is and still takes the copy", () => {
@@ -177,7 +295,7 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
       VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
     `);
 
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, ledger());
 
     expect(rows(memorySqlite).map((row) => [row.slug, row.bytes])).toEqual([
       ["topics/page-a", 0],
@@ -185,8 +303,10 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
   });
 
   test("a legacy table that appears after the first ensure is copied by the next one", () => {
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    const checkpoints = ledger();
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints);
     expect(rows(memorySqlite)).toEqual([]);
+    expect(checkpoints.values.size).toBe(0);
     createLegacyCardsTable(memorySqlite);
     memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
@@ -194,10 +314,59 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
       VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
     `);
 
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, checkpoints);
 
     expect(rows(memorySqlite).map((row) => [row.slug, row.bytes])).toEqual([
       ["topics/page-a", 0],
+    ]);
+    expect(checkpoints.values.get(SECTIONS_LEGACY_COPY_DONE_KEY)).toBe("1");
+  });
+});
+
+describe("deleteLegacyCardRows", () => {
+  test("deletes only the conversation's legacy rows, and no-ops without the table", () => {
+    expect(() => deleteLegacyCardRows(memorySqlite, "conv-1")).not.toThrow();
+
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES
+        ('conv-1', 'topics/page-a', 1000, 120, NULL),
+        ('conv-1', 'topics/page-b', 2000, 340, 3000),
+        ('conv-2', 'topics/page-a', 4000, 0, NULL)
+    `);
+
+    deleteLegacyCardRows(memorySqlite, "conv-1");
+
+    expect(legacyRows(memorySqlite)).toEqual([
+      { conversation_id: "conv-2", slug: "topics/page-a" },
+    ]);
+  });
+
+  test("keeps a compacted conversation's leads out of a copy that runs after the reset", () => {
+    createLegacyCardsTable(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES
+        ('conv-1', 'topics/page-a', 1000, 120, NULL),
+        ('conv-2', 'topics/page-a', 2000, 120, NULL)
+    `);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, ledger());
+    // The compaction reset: the section record and the legacy rows go
+    // together.
+    memorySqlite.exec(/*sql*/ `
+      DELETE FROM memory_v3_injected_sections WHERE conversation_id = 'conv-1'
+    `);
+    deleteLegacyCardRows(memorySqlite, "conv-1");
+
+    // A copy with no record of the first (a fresh ledger) finds nothing of
+    // conv-1 to bring back.
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, ledger());
+
+    expect(rows(memorySqlite).map((row) => row.conversation_id)).toEqual([
+      "conv-2",
     ]);
   });
 });

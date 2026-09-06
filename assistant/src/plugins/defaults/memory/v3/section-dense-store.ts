@@ -112,7 +112,8 @@ export const SECTION_REBUILD_PENDING_KEY =
  * call forced, or one an earlier check marked that no clean pass has
  * committed since. Called at dense lane init, by the maintain job, and by the
  * one-time backfill, whichever runs first, so the version is on record before
- * any pass commits a high-water.
+ * any pass commits a high-water, and retried from the dense read path while
+ * a lane init's check has not completed ({@link settleSectionDenseReadHold}).
  */
 export async function ensureSectionChunkerVersion(): Promise<boolean> {
   const recorded = getMemoryCheckpoint(SECTION_CHUNKER_VERSION_KEY);
@@ -161,74 +162,113 @@ async function sectionStoreHoldsStaleVectors(): Promise<boolean> {
   return result.points.length > 0;
 }
 
-/** Whether this process holds dense reads for a pending chunker rebuild. */
-let _readsHeld = false;
+/**
+ * Why this process holds dense reads: `rebuild` while the durable marker
+ * says the store awaits a chunker rebuild; `indeterminate` while the version
+ * check has not completed (its last run threw: a collection probe against an
+ * unreachable Qdrant, a checkpoint the ledger could not serve), so whether
+ * the stored ordinals are safe is unknown; `open` when nothing holds them.
+ */
+type SectionDenseReadHold = "open" | "rebuild" | "indeterminate";
+
+let _hold: SectionDenseReadHold = "open";
+
+/** Epoch ms of the version check whose failure last left the hold
+ *  indeterminate; the retry waits {@link SECTION_VERSION_CHECK_RETRY_MS}
+ *  from it. */
+let _checkFailedAt = 0;
+
+/** The retried check in flight, shared by the dense reads that overlap it. */
+let _retry: Promise<boolean> | null = null;
+
+/** Registered at lane init: kicks the rebuild pass when a check first
+ *  reports a rebuild pending in this process. */
+let _onRebuildPending: (() => void) | undefined;
 
 /**
- * Hold dense reads while the section store awaits its chunker rebuild. Run
- * at dense lane init, before the lanes are handed out: compares the chunker
- * version on record ({@link ensureSectionChunkerVersion}, which marks the
- * rebuild pending and resets the high-water on a mismatch, and reports a
- * marker an earlier check left), so a restart between a reset and the
- * rebuild resumes the hold. Returns whether this call started the hold, which
- * is the caller's cue to kick the rebuild; a hold already in place, or none
- * needed, returns false. A checkpoint or collection that cannot be read
- * leaves reads open: the hold guards against stale hits and is not a
- * prerequisite of the lane.
+ * How long after a failed version check the dense read path waits before
+ * retrying it, so an outage draws one collection probe a minute rather than
+ * one per read.
  */
-export async function holdSectionDenseReadsUntilRebuilt(): Promise<boolean> {
-  if (_readsHeld) {
+export const SECTION_VERSION_CHECK_RETRY_MS = 60_000;
+
+/**
+ * Hold dense reads while the section store awaits its chunker rebuild, or
+ * while whether it does cannot be determined. Run at dense lane init, before
+ * the lanes are handed out: compares the chunker version on record
+ * ({@link ensureSectionChunkerVersion}, which marks the rebuild pending and
+ * resets the high-water on a mismatch, and reports a marker an earlier check
+ * left), so a restart between a reset and the rebuild resumes the hold. A
+ * check that reports a rebuild pending holds reads until the rebuild's
+ * commit and calls `onRebuildPending`, the caller's cue to kick the rebuild
+ * pass. A check that throws holds reads as indeterminate: nothing on record
+ * proves the stored ordinals safe (the failed probe may be the one that
+ * would have found them stale), so the dense read path retries the check
+ * ({@link settleSectionDenseReadHold}) until one completes, and a retried
+ * check that reports the rebuild calls `onRebuildPending` the same way.
+ * Returns whether this call started a hold; a hold already in place, or none
+ * needed, returns false.
+ */
+export async function holdSectionDenseReadsUntilRebuilt(
+  onRebuildPending?: () => void,
+): Promise<boolean> {
+  if (_hold !== "open") {
     return false;
   }
+  _onRebuildPending = onRebuildPending;
+  return applySectionChunkerVersionCheck();
+}
+
+/**
+ * Run the version check and move the hold to what it reports: `rebuild`
+ * (kicking the rebuild pass) when one is pending, `indeterminate` when the
+ * check throws, `open` when nothing is pending. Returns whether reads are
+ * held afterwards.
+ */
+async function applySectionChunkerVersionCheck(): Promise<boolean> {
   let pending: boolean;
   try {
     pending = await ensureSectionChunkerVersion();
   } catch (err) {
-    // The transition may have written the pending marker before failing, and
-    // the marker is the durable statement that the stored ordinals are unsafe.
-    // Read it directly: present or unreadable means hold; only a marker that
-    // is definitely absent leaves dense reads open.
-    pending = rebuildMarkerPresentOrUnknown();
+    _hold = "indeterminate";
+    _checkFailedAt = Date.now();
     log.warn(
-      { err: err instanceof Error ? err.message : String(err), held: pending },
-      pending
-        ? "memory-v3 section chunker version check failed with a rebuild pending; dense reads held"
-        : "memory-v3 section chunker version check failed with no rebuild pending; dense reads stay open",
+      {
+        err: err instanceof Error ? err.message : String(err),
+        retryAfterMs: SECTION_VERSION_CHECK_RETRY_MS,
+      },
+      "memory-v3 section chunker version check failed; dense reads held until a retried check completes",
     );
+    return true;
   }
   if (!pending) {
+    releaseSectionDenseReadHold();
     return false;
   }
-  _readsHeld = true;
+  _hold = "rebuild";
   log.warn(
     { current: SECTION_CHUNKER_VERSION },
     "memory-v3 section store awaits its chunker rebuild: the dense lane serves no hits until the rebuild pass completes",
   );
+  _onRebuildPending?.();
   return true;
 }
 
 /**
- * Whether the durable rebuild marker is set, treating a marker that cannot be
- * read as set: an unknown state must hold dense reads, never open them.
- */
-function rebuildMarkerPresentOrUnknown(): boolean {
-  try {
-    return getMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY) !== null;
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Whether the dense lane must serve no hits: the hold above is in place and
- * the rebuild it awaits has not completed. Consulted on every dense read
- * while held, so the read that finds the pending marker cleared (the rebuild
- * completed in another process) releases the hold; a marker that cannot be
- * read keeps holding.
+ * Whether the dense lane must serve no hits, the fast path of every dense
+ * read. A hold for a rebuild on record re-reads the durable marker, so the
+ * read that finds it cleared (the rebuild completed in another process)
+ * releases the hold, and a marker that cannot be read keeps holding. An
+ * indeterminate hold stays until a retried check completes
+ * ({@link settleSectionDenseReadHold}), never on the marker's absence, which
+ * is exactly what the failed check left unproven.
  */
 export function sectionDenseReadsHeld(): boolean {
-  if (!_readsHeld) {
+  if (_hold === "open") {
     return false;
+  }
+  if (_hold === "indeterminate") {
+    return true;
   }
   try {
     if (getMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY) !== null) {
@@ -241,13 +281,39 @@ export function sectionDenseReadsHeld(): boolean {
   return false;
 }
 
+/**
+ * The slow path behind {@link sectionDenseReadsHeld}, for a dense read that
+ * found reads held: an indeterminate hold whose retry cooldown has elapsed
+ * runs the version check again (one check at a time, shared by the reads
+ * that overlap it), and the check that completes moves the hold to the
+ * rebuild it reports or releases it. Resolves to whether reads are still
+ * held.
+ */
+export async function settleSectionDenseReadHold(): Promise<boolean> {
+  if (_hold !== "indeterminate") {
+    return sectionDenseReadsHeld();
+  }
+  if (Date.now() - _checkFailedAt < SECTION_VERSION_CHECK_RETRY_MS) {
+    return true;
+  }
+  if (!_retry) {
+    _retry = applySectionChunkerVersionCheck().finally(() => {
+      _retry = null;
+    });
+  }
+  return _retry;
+}
+
 function releaseSectionDenseReadHold(): void {
-  if (!_readsHeld) {
+  if (_hold === "open") {
     return;
   }
-  _readsHeld = false;
+  const released = _hold;
+  _hold = "open";
   log.info(
-    "memory-v3 section store rebuilt for the current chunker: dense reads resume",
+    released === "rebuild"
+      ? "memory-v3 section store rebuilt for the current chunker: dense reads resume"
+      : "memory-v3 section chunker version check completed with no rebuild pending: dense reads resume",
   );
 }
 
@@ -697,5 +763,8 @@ export async function listSectionArticles(
 export function _resetSectionDenseStoreForTests(): void {
   _client = null;
   _collectionReady = false;
-  _readsHeld = false;
+  _hold = "open";
+  _checkFailedAt = 0;
+  _retry = null;
+  _onRebuildPending = undefined;
 }

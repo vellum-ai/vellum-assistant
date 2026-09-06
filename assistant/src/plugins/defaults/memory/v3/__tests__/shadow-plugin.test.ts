@@ -485,10 +485,18 @@ mock.module("../section-dense-store.js", () => ({
       throw new Error("qdrant unavailable");
     }
   },
-  holdSectionDenseReadsUntilRebuilt: () =>
-    shadowMockActive
-      ? holdDenseReadsSlot
-      : realSectionDenseStore.holdSectionDenseReadsUntilRebuilt(),
+  holdSectionDenseReadsUntilRebuilt: async (onRebuildPending?: () => void) => {
+    if (!shadowMockActive) {
+      return realSectionDenseStore.holdSectionDenseReadsUntilRebuilt(
+        onRebuildPending,
+      );
+    }
+    // The store kicks the rebuild through the callback lane init registers.
+    if (holdDenseReadsSlot) {
+      onRebuildPending?.();
+    }
+    return holdDenseReadsSlot;
+  },
 }));
 
 mock.module("../../../../../persistence/jobs-store.js", () => ({

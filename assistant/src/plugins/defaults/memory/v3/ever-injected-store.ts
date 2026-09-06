@@ -14,7 +14,8 @@
  * auditable; a pruned section that is re-selected re-injects by clearing
  * `pruned_at` on upsert. `clearConversation` is the compaction reset: the
  * cached blocks those sections lived on are gone, so future turns are free to
- * re-inject them.
+ * re-inject them; it takes the conversation's legacy card rows with it
+ * (`plugin-schema.ts`), so no later copy re-imports them.
  *
  * Fork semantics mirror v2's activation-store hooks. The fork copy runs on the
  * memory connection, so it is not atomic with the main-DB `forkConversation()`
@@ -41,6 +42,7 @@ import {
   renderedBytes,
 } from "../substrate/injected-block-slugs.js";
 import {
+  deleteLegacyCardRows,
   ensureMemoryV3InjectedSectionsSchema,
   ensureOncePerConnection,
 } from "./plugin-schema.js";
@@ -384,8 +386,12 @@ export function markPruned(
 }
 
 /**
- * Delete the conversation's entire record. Compaction reset: the cached
- * blocks are gone from history, so every section must become re-injectable.
+ * Delete the conversation's entire record, its legacy card rows included
+ * ({@link deleteLegacyCardRows}: a copy that runs after the reset must not
+ * bring them back). Compaction reset: the cached blocks are gone from
+ * history, so every section must become re-injectable. Both deletes ride
+ * one transaction, so a failed reset leaves the record whole rather than
+ * half-cleared.
  */
 export function clearConversation(conversationId: string): void {
   try {
@@ -393,10 +399,14 @@ export function clearConversation(conversationId: string): void {
     if (!mdb) {
       return;
     }
-    mdb
-      .delete(memoryV3InjectedSections)
-      .where(eq(memoryV3InjectedSections.conversationId, conversationId))
-      .run();
+    mdb.transaction((tx) => {
+      tx.delete(memoryV3InjectedSections)
+        .where(eq(memoryV3InjectedSections.conversationId, conversationId))
+        .run();
+      // The legacy table has no schema object: a raw statement on the
+      // transaction's own connection, inside it.
+      deleteLegacyCardRows(mdb.$client, conversationId);
+    });
   } catch (err) {
     log.warn(
       { err },

@@ -163,9 +163,12 @@ verbatim, never parsed for sections, never pruned or stripped by the valve,
 never indexed by the newest-copy pass, and never fork-seeded (a later
 re-selection of a section it holds injects that section afresh beside it);
 its `memory_v3_ever_injected` rows are copied into the section store at zero
-bytes, dedup-only like capability rows, so nothing in it is ever planned or
-counted, and it ages out at compaction, which strips memory blocks and clears
-the store. A page's lead injection carries its
+bytes, once per database (`memory_v3_injected_sections:legacy_copy_done` in
+`memory_checkpoints`), dedup-only like capability rows, so nothing in it is
+ever planned or counted, and it ages out at compaction, which strips memory
+blocks and clears the store, the conversation's legacy rows included
+(`clearConversation`, as the conversation purge does), so no later copy
+re-imports leads whose blocks are gone. A page's lead injection carries its
 `[current: …]` annotation under the header, as the selector card does. The valve strips a pruned section
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
@@ -394,8 +397,14 @@ boot, and each store ensures again on the first use of a connection in its
 process (the memory worker is a separate process), idempotently and fail-open,
 so a memory database that cannot be opened degrades the stores to no-ops
 instead of failing database readiness. The sections ensure also copies the
-legacy `memory_v3_ever_injected` rows in as zero-byte lead entries
-(`INSERT OR IGNORE`). `memory_v3_selections` itself is created by migration
+legacy `memory_v3_ever_injected` rows in as zero-byte lead entries, once per
+database: the first ensure that finds the legacy table copies
+(`INSERT OR IGNORE`) and records `memory_v3_injected_sections:legacy_copy_done`
+in `memory_checkpoints`, later ensures skip on that record, and a ledger that
+cannot be read skips the copy rather than repeating it. The compaction reset
+(`clearConversation`) and the conversation purge delete a conversation's
+legacy rows with its section rows, so a copy can never bring back leads whose
+blocks compaction stripped. `memory_v3_selections` itself is created by migration
 338, but its
 `section_key` column is plugin-owned the same way: the selection log's writer
 (`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
@@ -489,15 +498,28 @@ failure record and the section re-embed high-water:
   `commitSectionEmbedHighWater`, the commit that ends a zero-failure re-embed
   pass (the maintain job's and the backfill's). While it is set the dense lane
   serves no hits (`holdSectionDenseReadsUntilRebuilt` at lane init,
-  `sectionDenseReadsHeld` on every dense read), the lane init that first
-  observes it enqueues `memory_v3_maintain` at once instead of waiting out the
+  `sectionDenseReadsHeld` on every dense read), the check that first reports
+  it in this process (at lane init, or retried from the dense read path)
+  enqueues `memory_v3_maintain` at once instead of waiting out the
   cadence key, and the maintain pass it names re-embeds every capability row
   the store holds (the change delta never names one, and the page index lists
   none while the process's capability caches are unseeded) before its commit
   clears the marker: a stored row whose body renders empty in that process
   holds the commit until a later pass rebuilds it or the deleted-page prune
   removes it, so the marker never clears over points built by the previous
-  chunker
+  chunker. A version check that throws (Qdrant unreachable for the collection
+  probe, an unreadable ledger) holds dense reads as indeterminate: the hold
+  ignores the marker's absence, which is what the failed check left unproven,
+  and the dense read path (`settleSectionDenseReadHold`) retries the check at
+  most once a minute (`SECTION_VERSION_CHECK_RETRY_MS`) until one completes,
+  which marks the rebuild pending and kicks it, or releases the hold
+- `memory_v3_injected_sections:legacy_copy_done`
+  (`v3/plugin-schema.ts`'s `SECTIONS_LEGACY_COPY_DONE_KEY`): the legacy
+  `memory_v3_ever_injected` rows were copied into
+  `memory_v3_injected_sections` once on this database, and every later
+  sections ensure skips the copy on it. Losing it repeats the copy, which is
+  idempotent (`INSERT OR IGNORE`) and cannot resurrect a conversation the
+  compaction reset or a purge cleared, since both delete its legacy rows too
 - v1: `graph_maintenance:{decay,consolidate,pattern_scan,narrative}:last_run`,
   `pkb_filing_last_run`, `pkb_compaction_last_run`,
   `graph_bootstrap:*`, `memory:backfill:*`

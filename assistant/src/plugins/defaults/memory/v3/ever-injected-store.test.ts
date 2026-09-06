@@ -5,15 +5,19 @@
  *     clearing `pruned_at`;
  *   - `markPruned` excluding exactly the named pair from the active set and
  *     `residentBytes`, leaving sibling sections of the page resident;
- *   - `clearConversation` (compaction reset);
+ *   - `clearConversation` (compaction reset), the conversation's legacy card
+ *     rows included so no later copy re-imports them;
  *   - fork hooks: full-row copy (pruned state included) and truncated-fork
  *     seeding from inherited block sections (bytes measured from each
  *     inherited span, tombstones carried over);
- *   - migration idempotence (run twice).
+ *   - migration idempotence (run twice), and the one-shot legacy copy the
+ *     lazy per-connection ensure records in the checkpoint ledger.
  *
  * The rows live on the dedicated memory connection, resolved via
  * `getMemorySqlite`, stubbed to an in-memory DB carrying the table's schema,
- * with `memoryDbAvailable` toggled to `null` for the fail-soft case.
+ * with `memoryDbAvailable` toggled to `null` for the fail-soft case; the
+ * checkpoint ledger the ensure records its copy in rides `getDb`, stubbed to
+ * an in-memory main DB carrying `memory_checkpoints`.
  *
  * `mock.module` is process-global and leaks into sibling files in a directory
  * run, so the db-connection stub DELEGATES to the real implementation unless
@@ -26,11 +30,15 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { ensureMemoryV3EverInjectedSchema } from "../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
+import {
+  ensureMemoryV3InjectedSectionsSchema,
+  SECTIONS_LEGACY_COPY_DONE_KEY,
+} from "./plugin-schema.js";
 import type { InjectedBlock } from "./types.js";
 
 const realDb = {
@@ -41,14 +49,27 @@ let storeMockActive = false;
 let memoryDbAvailable = true;
 
 let memorySqlite: Database;
+/** The main connection, carrying the checkpoint ledger the sections ensure
+ *  records its one-shot legacy copy in. */
+let mainSqlite: Database;
 makeDb();
 function makeDb() {
   memorySqlite = new Database(":memory:");
   ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+  mainSqlite = new Database(":memory:");
+  mainSqlite.exec(/*sql*/ `
+    CREATE TABLE memory_checkpoints (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
 }
 
 mock.module("../../../../persistence/db-connection.js", () => ({
   ...realDb,
+  getDb: () =>
+    storeMockActive ? drizzle(mainSqlite, { schema }) : realDb.getDb(),
   getMemorySqlite: () =>
     storeMockActive
       ? memoryDbAvailable
@@ -97,6 +118,27 @@ function summary(conversationId: string) {
     bytes,
     prunedAt,
   }));
+}
+
+/** The conversation's rows in the legacy card table, by slug. */
+function legacySlugs(conversationId: string): string[] {
+  return (
+    memorySqlite
+      .query(
+        `SELECT slug FROM memory_v3_ever_injected
+         WHERE conversation_id = ? ORDER BY slug`,
+      )
+      .all(conversationId) as Array<{ slug: string }>
+  ).map((row) => row.slug);
+}
+
+/** Whether the ledger on the main connection records the legacy copy. */
+function legacyCopyRecorded(): boolean {
+  return (
+    mainSqlite
+      .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
+      .get(SECTIONS_LEGACY_COPY_DONE_KEY) != null
+  );
 }
 
 describe("metadata key constant", () => {
@@ -267,6 +309,42 @@ describe("clearConversation", () => {
 
     expect(getInjected("conv-1")).toEqual([]);
     expect(getInjected("conv-2")).toHaveLength(1);
+  });
+
+  test("deletes the conversation's legacy card rows too, so a copy that runs after the reset re-imports nothing for it", () => {
+    ensureMemoryV3EverInjectedSchema(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES
+        ('conv-1', 'topics/page-a', 1000, 120, NULL),
+        ('conv-1', 'topics/page-b', 2000, 340, NULL),
+        ('conv-2', 'topics/page-a', 3000, 100, NULL)
+    `);
+    // The store's first use of this connection copies the legacy rows in.
+    expect(summary("conv-1")).toEqual([
+      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
+      { slug: "topics/page-b", key: "", bytes: 0, prunedAt: null },
+    ]);
+    expect(legacyCopyRecorded()).toBe(true);
+
+    clearConversation("conv-1");
+
+    expect(getInjected("conv-1")).toEqual([]);
+    expect(legacySlugs("conv-1")).toEqual([]);
+    expect(legacySlugs("conv-2")).toEqual(["topics/page-a"]);
+    expect(getInjected("conv-2")).toHaveLength(1);
+
+    // A copy that runs again, its record lost, as a fresh connection's
+    // ensure would: nothing of conv-1 is left to bring back.
+    mainSqlite.exec(`DELETE FROM memory_checkpoints`);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+
+    expect(getInjected("conv-1")).toEqual([]);
+    expect(summary("conv-2")).toEqual([
+      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
+    ]);
+    expect(legacyCopyRecorded()).toBe(true);
   });
 });
 
@@ -591,6 +669,31 @@ describe("memory-side schema", () => {
     expect(getActiveSections("conv-1")).toEqual(
       new Map([["topics/page-a", new Set([""])]]),
     );
+  });
+
+  test("the lazy per-connection ensure copies the legacy card rows once, recording the copy in the checkpoint ledger, and a later ensure skips it", () => {
+    ensureMemoryV3EverInjectedSchema(memorySqlite);
+    memorySqlite.exec(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES ('conv-1', 'topics/page-a', 1000, 120, NULL)
+    `);
+    expect(legacyCopyRecorded()).toBe(false);
+
+    expect(summary("conv-1")).toEqual([
+      { slug: "topics/page-a", key: "", bytes: 0, prunedAt: null },
+    ]);
+    expect(legacyCopyRecorded()).toBe(true);
+
+    // The record, not the legacy rows, is what a later ensure consults.
+    recordInjected(
+      "conv-1",
+      [{ slug: "topics/page-a", key: "", bytes: 90 }],
+      2_000,
+    );
+    memorySqlite.query("DELETE FROM memory_v3_injected_sections").run();
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    expect(getInjected("conv-1")).toEqual([]);
   });
 });
 

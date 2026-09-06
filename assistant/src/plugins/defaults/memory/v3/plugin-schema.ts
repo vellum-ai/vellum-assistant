@@ -10,11 +10,17 @@
  * memory database that cannot be opened therefore degrades the stores to
  * no-ops instead of failing the daemon's readiness.
  *
- * This module touches no connection itself (every ensure takes the raw
- * handle), so tests can stand up the memory-side schema on an in-memory
- * database before installing their connection stubs.
+ * Every ensure takes the raw handle, and the sections ensure records its
+ * one-shot legacy copy in the checkpoint ledger it is handed (the main
+ * database's `memory_checkpoints` by default), so tests can stand up the
+ * memory-side schema on an in-memory database, with a ledger of their own,
+ * before installing their connection stubs.
  */
 
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../../persistence/checkpoints.js";
 import { getLogger } from "../logging.js";
 import type { MemorySqlite } from "../memory-db.js";
 
@@ -101,6 +107,38 @@ const SECTIONS_TABLE = "memory_v3_injected_sections";
 const LEGACY_CARDS_TABLE = "memory_v3_ever_injected";
 
 /**
+ * The durable checkpoint ledger (`memory_checkpoints` on the main
+ * connection, `persistence/checkpoints.ts`) the sections ensure records its
+ * one-shot legacy copy in: the store hands it the real one, tests a map. A
+ * read that throws is an unreadable ledger.
+ */
+export interface CheckpointLedger {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+const memoryCheckpointLedger: CheckpointLedger = {
+  get: getMemoryCheckpoint,
+  set: setMemoryCheckpoint,
+};
+
+/**
+ * Checkpoint key recording that the legacy card rows were copied into
+ * `memory_v3_injected_sections` once on this database, so no later ensure
+ * copies them again (see {@link ensureMemoryV3InjectedSectionsSchema}).
+ */
+export const SECTIONS_LEGACY_COPY_DONE_KEY =
+  "memory_v3_injected_sections:legacy_copy_done";
+
+function legacyCardsTableExists(memoryRaw: MemorySqlite): boolean {
+  return (
+    memoryRaw
+      .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(LEGACY_CARDS_TABLE) != null
+  );
+}
+
+/**
  * Create `memory_v3_injected_sections` and its index, then seed it from the
  * card-grain `memory_v3_ever_injected` (the superseded record, relocated to
  * the memory connection by migration 345 and frozen there): every legacy row
@@ -113,14 +151,25 @@ const LEGACY_CARDS_TABLE = "memory_v3_ever_injected";
  * or stripped): like a capability row, the entry is dedup-only, never a
  * prune candidate, and never counted in the resident footprint.
  *
- * Idempotent: `IF NOT EXISTS` DDL and an `INSERT OR IGNORE` copy, so a rerun
+ * The copy runs once per database. The first ensure that finds the legacy
+ * table copies its rows and records {@link SECTIONS_LEGACY_COPY_DONE_KEY} in
+ * `ledger`; every later ensure (each connection of each process) skips the
+ * copy on that record, so a conversation whose record the compaction reset
+ * or the conversation purge cleared (both delete its legacy rows as well,
+ * see {@link deleteLegacyCardRows}) never gets its leads back as entries for
+ * blocks that are gone. A ledger that cannot be read skips the copy too,
+ * leaving it to a later ensure rather than repeating it, and a copy whose
+ * record could not be written is repeated by a later ensure. The DDL is
+ * `IF NOT EXISTS` and the copy `INSERT OR IGNORE`, so a repeated copy
  * neither duplicates rows nor overwrites entries the section store has since
- * refreshed. A memory database without the legacy table (a fresh install, or
- * one the relocation has not reached yet) gets the empty table; the copy
- * runs on a later ensure once the legacy rows are there.
+ * refreshed. A memory database without the legacy table (a fresh install,
+ * or one the relocation has not reached yet) gets the empty table and
+ * nothing on record; the copy runs on a later ensure once the legacy rows
+ * are there.
  */
 export function ensureMemoryV3InjectedSectionsSchema(
   memoryRaw: MemorySqlite,
+  ledger: CheckpointLedger = memoryCheckpointLedger,
 ): void {
   memoryRaw.exec(/*sql*/ `
     CREATE TABLE IF NOT EXISTS ${SECTIONS_TABLE} (
@@ -138,11 +187,20 @@ export function ensureMemoryV3InjectedSectionsSchema(
       ON ${SECTIONS_TABLE} (conversation_id)
   `);
 
-  const legacyExists =
-    memoryRaw
-      .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
-      .get(LEGACY_CARDS_TABLE) != null;
-  if (!legacyExists) {
+  if (!legacyCardsTableExists(memoryRaw)) {
+    return;
+  }
+  let copied: boolean;
+  try {
+    copied = ledger.get(SECTIONS_LEGACY_COPY_DONE_KEY) !== null;
+  } catch (err) {
+    log.warn(
+      { err },
+      "checkpoint ledger unreadable; the legacy card copy into memory_v3_injected_sections waits for a later ensure",
+    );
+    return;
+  }
+  if (copied) {
     return;
   }
   memoryRaw.exec(/*sql*/ `
@@ -151,6 +209,36 @@ export function ensureMemoryV3InjectedSectionsSchema(
     SELECT conversation_id, slug, '', injected_at, 0, pruned_at
     FROM ${LEGACY_CARDS_TABLE}
   `);
+  try {
+    ledger.set(SECTIONS_LEGACY_COPY_DONE_KEY, "1");
+  } catch (err) {
+    log.warn(
+      { err },
+      "copied the legacy card rows into memory_v3_injected_sections but could not record the copy; a later ensure repeats it",
+    );
+  }
+}
+
+/**
+ * Delete `conversationId`'s rows from the legacy card table, for the
+ * compaction reset that clears the conversation's section record (the
+ * conversation purge deletes them through its table list). Without this a
+ * copy that runs after the reset (its record lost, or a database the copy
+ * has not reached) would bring the conversation's leads back as active
+ * entries for blocks compaction stripped. No-op without the table.
+ */
+export function deleteLegacyCardRows(
+  memoryRaw: MemorySqlite,
+  conversationId: string,
+): void {
+  if (!legacyCardsTableExists(memoryRaw)) {
+    return;
+  }
+  memoryRaw
+    .query(
+      /*sql*/ `DELETE FROM ${LEGACY_CARDS_TABLE} WHERE conversation_id = ?`,
+    )
+    .run(conversationId);
 }
 
 const SELECTIONS_TABLE = "memory_v3_selections";
