@@ -1,7 +1,7 @@
 /**
  * MCP tools reach a process's tool registry only by connecting to each server
- * and listing what it offers. `initializeTools()` does not do that — it loads
- * core built-ins and workspace tools from disk — so every process that hosts
+ * and listing what it offers. `initializeTools()` does not do that: it loads
+ * core built-ins and workspace tools from disk. So every process that hosts
  * agent turns has to run this step for itself or its `mcp__*` calls fail as
  * "Unknown tool" while `assistant tools list`, which reads the daemon's
  * registry over IPC, reports the same tool as registered.

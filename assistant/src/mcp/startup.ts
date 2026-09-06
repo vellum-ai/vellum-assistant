@@ -4,7 +4,7 @@
  * MCP tools are not loaded from disk the way core and workspace tools are:
  * something has to connect to each server, list its tools, and register the
  * results into this process's registry. That registry is per-process, so every
- * process that hosts agent turns has to do it for itself — the daemon at boot
+ * process that hosts agent turns has to run it for itself: the daemon at boot
  * and the schedule worker at startup alike. A process that skips this step has
  * the tools missing entirely rather than filtered out, and every `mcp__*` call
  * made in it fails as "Unknown tool".
@@ -28,7 +28,7 @@ const log = getLogger("mcp-startup");
  * plus plugin-declared ones) and register the tools they report.
  *
  * Call after {@link initializeTools}, so core and workspace tools already own
- * their names when MCP registrations resolve — `registerMcpTools` yields to an
+ * their names when MCP registrations resolve: `registerMcpTools` yields to an
  * existing owner rather than displacing it.
  *
  * Never throws: a server that cannot be reached is logged and skipped, and a

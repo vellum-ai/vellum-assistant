@@ -3,7 +3,7 @@
  *
  * The tool registry is process-local and MCP tools reach it only by connecting
  * to each server and listing what it offers. `initializeTools()` does not do
- * that — it loads core built-ins and workspace tools from disk — so a worker
+ * that: it loads core built-ins and workspace tools from disk. So a worker
  * that stops connecting fails every `mcp__*` call an execute-mode schedule
  * makes as "Unknown tool", while `assistant tools list` reads the daemon's
  * registry over IPC and reports the same tool as registered. The mismatch is
