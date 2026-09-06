@@ -98,7 +98,7 @@ const SECTION_PATH_SOURCE = `memory\\/concepts\\/(.+?)\\.md(?:${RegExp.escape(IN
  * spec and so never mutates this shared instance's `lastIndex`. Do NOT call
  * `exec`/`test` on it directly, a `g`-flagged regex is stateful under those.
  */
-export const INJECTED_CONCEPT_HEADER_REGEX = new RegExp(
+const INJECTED_CONCEPT_HEADER_REGEX = new RegExp(
   `^# ${SECTION_PATH_SOURCE}$`,
   "gm",
 );
@@ -370,10 +370,13 @@ export function parseInjectedSections(inner: string): {
 
 /**
  * Header line of a legacy card: the bare page header, one compact card per
- * page, as the builds before the format stamp rendered a block. Greedy in
- * the slug (no section key existed to bleed into it). Flagged `gm` for
- * `matchAll` like {@link INJECTED_CONCEPT_HEADER_REGEX}: never `exec`/`test`
- * it.
+ * page, the grammar the builds before the format stamp rendered a block
+ * with. The one sanctioned second header matcher beside
+ * {@link INJECTED_CONCEPT_HEADER_REGEX}: {@link parseLegacyCards} alone
+ * reads it, it is never applied to a current-format block, and it stays
+ * byte-identical to the pre-stamp build's regex rather than being derived
+ * from the section-path source. Greedy in the slug (no section key existed
+ * to bleed into it). Flagged `gm` for `matchAll`: never `exec`/`test` it.
  */
 const LEGACY_CARD_HEADER_REGEX = /^# memory\/concepts\/(.+)\.md$/gm;
 
@@ -386,7 +389,7 @@ type LegacyCardRef = { kind: "card"; slug: string } | { kind: "other" };
 /** One ordered chunk of a parsed legacy card block: a page's card (owned by
  *  `slug`) or any other `\n\n`-joined chunk (capability content under its
  *  own header, the skills hint; never dropped). */
-export type LegacyCardPiece = LegacyCardRef & { text: string };
+type LegacyCardPiece = LegacyCardRef & { text: string };
 
 /**
  * Split an UNWRAPPED legacy card block (a `memoryV3InjectedBlock` persisted

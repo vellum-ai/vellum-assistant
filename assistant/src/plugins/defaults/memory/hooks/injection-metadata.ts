@@ -71,19 +71,8 @@ export function injectionMetadataUpdates(
   blocks: RuntimeInjectionResult["blocks"],
   v2BlockPersisted: boolean,
 ): Record<string, unknown> | null {
-  const removeV2Block = Boolean(blocks.memoryV3Active) && v2BlockPersisted;
-  const passthrough = PASSTHROUGH_BLOCKS.filter(([block]) => blocks[block]);
-  if (
-    passthrough.length === 0 &&
-    !blocks.memoryV3InjectedBlock &&
-    !blocks.memoryV3PointerBlock &&
-    !removeV2Block &&
-    !blocks.memoryV3Active
-  ) {
-    return null;
-  }
   const updates: Record<string, unknown> = {};
-  if (removeV2Block) {
+  if (blocks.memoryV3Active && v2BlockPersisted) {
     updates.memoryInjectedBlock = undefined;
   }
   if (blocks.memoryV3InjectedBlock) {
@@ -92,11 +81,20 @@ export function injectionMetadataUpdates(
     updates[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] =
       MEMORY_V3_INJECTED_BLOCK_FORMAT;
   }
-  updates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] =
-    blocks.memoryV3PointerBlock || undefined;
-  updates[LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] = undefined;
-  for (const [block, key] of passthrough) {
-    updates[key] = blocks[block];
+  if (blocks.memoryV3PointerBlock) {
+    updates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] = blocks.memoryV3PointerBlock;
   }
+  for (const [block, key] of PASSTHROUGH_BLOCKS) {
+    if (blocks[block]) {
+      updates[key] = blocks[block];
+    }
+  }
+  if (Object.keys(updates).length === 0 && !blocks.memoryV3Active) {
+    return null;
+  }
+  if (!blocks.memoryV3PointerBlock) {
+    updates[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] = undefined;
+  }
+  updates[LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] = undefined;
   return updates;
 }

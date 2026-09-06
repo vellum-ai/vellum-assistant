@@ -48,10 +48,7 @@ export function isCapabilitySlug(slug: Slug): boolean {
  * section injects that section under its {@link sectionKey}, and a page
  * selected without a match injects its lead (`""`).
  */
-export function injectionSectionKey(
-  slug: Slug,
-  section: Section | undefined,
-): string {
+function injectionSectionKey(slug: Slug, section: Section | undefined): string {
   if (isCapabilitySlug(slug) || !section) {
     return "";
   }

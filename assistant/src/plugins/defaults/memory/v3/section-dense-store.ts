@@ -190,7 +190,7 @@ let _onRebuildPending: (() => void) | undefined;
  * retrying it, so an outage draws one collection probe a minute rather than
  * one per read.
  */
-export const SECTION_VERSION_CHECK_RETRY_MS = 60_000;
+const SECTION_VERSION_CHECK_RETRY_MS = 60_000;
 
 /**
  * Hold dense reads while the section store awaits its chunker rebuild, or
