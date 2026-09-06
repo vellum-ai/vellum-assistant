@@ -1079,6 +1079,56 @@ describe("memory-v3 engine", () => {
     expect(turn.previousAssistantMessage).toBeUndefined();
   });
 
+  test("a page with lines from two lanes is attributed the lane of the line whose section was selected", () => {
+    const bulk: Section = {
+      article: "page-two",
+      title: "Bulk theme",
+      text: "page-two - Bulk theme\nthe long part",
+      ordinal: 1,
+    };
+    const pumpkin: Section = {
+      article: "page-two",
+      title: "Pumpkin",
+      text: "page-two - Pumpkin\ngourd",
+      ordinal: 4,
+    };
+    const lanes = {
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [
+        {
+          slug: "page-two",
+          section: bulk,
+          descriptor: "",
+          lane: "needle" as const,
+        },
+        {
+          slug: "page-two",
+          section: pumpkin,
+          term: "gourd",
+          descriptor: "",
+          lane: "rare" as const,
+        },
+      ],
+    };
+    const sourceOf = (sections: Section[]) =>
+      attributeSelections({
+        selections: [{ slug: "page-two", sections }],
+        lanes,
+        selectorRan: true,
+      })[0]!.source;
+    // Only the rare line was picked: the rare lane is credited.
+    expect(sourceOf([pumpkin])).toBe("rare");
+    // Only the needle line was picked.
+    expect(sourceOf([bulk])).toBe("needle");
+    // Both picked: the first selected section's line decides.
+    expect(sourceOf([pumpkin, bulk])).toBe("rare");
+    // No section (the page's card): the page's first line decides.
+    expect(sourceOf([])).toBe("needle");
+  });
+
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
     const rows = attributeSelections({
       selections: [{ slug: "page-core", sections: [] }],

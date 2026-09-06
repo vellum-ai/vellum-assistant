@@ -623,7 +623,11 @@ interface SelectionRow {
  * prefix lane — the prefix is where the candidate lived. (`"needle"` is the
  * fallback if a selected slug is somehow absent from every lane, which should
  * not happen since every pooled candidate comes from one.) A page with
- * several finder lines is attributed the lane of its first line.
+ * several finder lines is attributed the lane of the line whose section the
+ * selector chose (the selection's first section), so an additive lane such as
+ * `"rare"` is credited when its line was the one picked; a selection with no
+ * section, or whose section matches no line, takes the lane of the page's
+ * first line.
  *
  * The row holds one section per slug: the selection's FIRST selected section
  * (pool order) stands for the page; a page selected with no section (a card,
@@ -633,14 +637,24 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const core = new Set<Slug>(result.lanes.core);
   const hot = new Set<Slug>(result.lanes.hot);
   const fresh = new Set<Slug>(result.lanes.fresh);
-  const finderLane = new Map<Slug, SelectionSource>();
+  const firstLane = new Map<Slug, SelectionSource>();
+  const sectionLane = new Map<string, SelectionSource>();
   for (const candidate of result.lanes.finder) {
-    if (!finderLane.has(candidate.slug)) {
-      finderLane.set(candidate.slug, candidate.lane);
+    if (!firstLane.has(candidate.slug)) {
+      firstLane.set(candidate.slug, candidate.lane);
+    }
+    if (candidate.section) {
+      const id = `${candidate.slug}\u0000${sectionKey(candidate.section)}`;
+      if (!sectionLane.has(id)) {
+        sectionLane.set(id, candidate.lane);
+      }
     }
   }
   return result.selections.map((sel) => {
     const section = sel.sections[0];
+    const lineLane = section
+      ? sectionLane.get(`${sel.slug}\u0000${sectionKey(section)}`)
+      : undefined;
     return {
       slug: sel.slug,
       source: core.has(sel.slug)
@@ -649,7 +663,7 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
           ? ("hot" as const)
           : fresh.has(sel.slug)
             ? ("fresh" as const)
-            : (finderLane.get(sel.slug) ?? "needle"),
+            : (lineLane ?? firstLane.get(sel.slug) ?? "needle"),
       sectionOrdinal: section?.ordinal ?? null,
       sectionTitle: section?.title ?? null,
       sectionKey: section ? sectionKey(section) : null,
