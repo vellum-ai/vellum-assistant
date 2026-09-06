@@ -30,14 +30,16 @@
  * Skill and CLI-command chunks carry no recoverable slug, so the slug
  * extractor intentionally skips them.
  *
- * Kept as a dependency-free leaf (like `memory-marker.ts`) so the
- * conversation-fork path can import it without pulling in the heavyweight
- * injection module.
+ * Kept a leaf (like `memory-marker.ts`; its one import is the host's JSON
+ * helper) so the conversation-fork path can import it without pulling in
+ * the heavyweight injection module.
  */
+
+import { safeParseRecord } from "../../../../util/json.js";
 
 /** Separator between a concept path and its section key in a v3 section
  *  header or pointer line. */
-export const INJECTED_SECTION_KEY_SEPARATOR = " § ";
+const INJECTED_SECTION_KEY_SEPARATOR = " § ";
 
 /** Header line of the skills catalog hint chunk `renderInjectionBlockInner`
  *  places ahead of skill content. */
@@ -51,7 +53,7 @@ export const CLI_COMMAND_HEADER_PREFIX = "# CLI command: ";
 
 /** The workspace-relative path of a concept page, as the injected headers and
  *  the `file_read` affordance spell it. */
-export function injectedConceptPath(slug: string): string {
+function injectedConceptPath(slug: string): string {
   return `memory/concepts/${slug}.md`;
 }
 
@@ -113,19 +115,10 @@ const NON_SECTION_CHUNK_HEADER_REGEX = new RegExp(
   "gm",
 );
 
-/**
- * The closing TOC line of the compact selector card (`[sections: §A · §B]`
- * or `[linked: …]`). The parser gives it no meaning; it is in the escape
- * class because the class is part of the stamped format
- * (`MEMORY_V3_INJECTED_BLOCK_FORMAT` in `v3/ever-injected-store.ts`): every
- * block carrying the stamp escapes and unescapes the same set of lines.
- */
-const CARD_TOC_LINE_SOURCE = String.raw`\[(?:sections|linked): .*\]`;
-
-/** Whole-line test: is this line in the escape class (a section header, a
- *  non-section chunk header, or a card TOC line)? */
+/** Whole-line test: is this line in the escape class (a section header or a
+ *  non-section chunk header, the lines the parser cuts chunks at)? */
 const GRAMMAR_LINE_REGEX = new RegExp(
-  `^(?:# ${SECTION_PATH_SOURCE}$|${NON_SECTION_CHUNK_HEADER_SOURCE}|${CARD_TOC_LINE_SOURCE}$)`,
+  `^(?:# ${SECTION_PATH_SOURCE}$|${NON_SECTION_CHUNK_HEADER_SOURCE})`,
 );
 
 /** UTF-8 byte length of rendered injection text, card or section: the
@@ -152,7 +145,7 @@ export function extractInjectedConceptSlugs(block: string): string[] {
 
 /** One `(slug, section key)` pair recovered from an injected block's headers
  *  or a pointer block's lines. */
-export interface InjectedSectionRef {
+interface InjectedSectionRef {
   slug: string;
   key: string;
 }
@@ -175,19 +168,18 @@ export function parseInjectedSectionPath(
 const BODY_ESCAPE = "\\";
 
 /** Whether the line, with its leading backslashes removed, is a grammar
- *  line: the class the escaper prefixes and the unescaper strips one
- *  backslash from. Including already-backslashed variants keeps the pair an
- *  exact bijection. */
+ *  line: the class the escaper prefixes. Including already-backslashed
+ *  variants keeps the escaper injective, so a body line that already
+ *  carries the escape can never render like an escaped grammar line. */
 function isEscapableLine(line: string): boolean {
   return GRAMMAR_LINE_REGEX.test(line.replace(/^\\+/, ""));
 }
 
 /**
  * Escape a rendered body so none of its lines can be read as grammar by
- * {@link parseInjectedSections}: a line that is a section header, a
- * non-section chunk header, or a card TOC line, or such a line behind a run
- * of backslashes, gets one leading backslash. Every other line is untouched.
- * {@link unescapeInjectedBody} is the exact inverse.
+ * {@link parseInjectedSections}: a line that is a section header or a
+ * non-section chunk header, or such a line behind a run of backslashes,
+ * gets one leading backslash. Every other line is untouched.
  */
 export function escapeInjectedBody(body: string): string {
   return body
@@ -196,24 +188,11 @@ export function escapeInjectedBody(body: string): string {
     .join("\n");
 }
 
-/** The exact inverse of {@link escapeInjectedBody}: strips the one backslash
- *  the escaper added to each grammar-shaped line. */
-export function unescapeInjectedBody(text: string): string {
-  return text
-    .split("\n")
-    .map((line) =>
-      line.startsWith(BODY_ESCAPE) && isEscapableLine(line)
-        ? line.slice(BODY_ESCAPE.length)
-        : line,
-    )
-    .join("\n");
-}
-
 // ─── block parsing ───────────────────────────────────────────────────────────
 
 /** One parsed injected section: the header line plus everything up to the
  *  next chunk boundary (or end of block), trailing whitespace removed. */
-export interface ParsedInjectedSection extends InjectedSectionRef {
+interface ParsedInjectedSection extends InjectedSectionRef {
   /** The section text INCLUDING its header line, `trimEnd()`ed so re-joining
    *  with `\n\n` reproduces the renderer's exact bytes. */
   text: string;
@@ -469,34 +448,19 @@ export function filterLegacyCards(
  * `null` when absent/malformed. `key` selects the injection layer: v2's
  * `memoryInjectedBlock` or memory-v3's section block
  * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
- *
- * NOTE: `memory/conversation-crud.ts` carries a private copy of this exact
- * helper (its fork-seeding scan predates this export); consolidating it onto
- * this one is a pending cleanup tracked alongside the prune-valve work.
  */
 export function readInjectedBlock(
   metadata: string | null | undefined,
   key: string,
 ): string | null {
-  const block = readInjectedMetadata(metadata)?.[key];
+  const block = readInjectedMetadata(metadata)[key];
   return typeof block === "string" ? block : null;
 }
 
-/** A message's metadata JSON as a record, or `null` when absent or
- *  malformed (anything but a JSON object). */
+/** A message's metadata JSON as a record; empty when absent or malformed
+ *  (anything but a JSON object). */
 export function readInjectedMetadata(
   metadata: string | null | undefined,
-): Record<string, unknown> | null {
-  if (!metadata) {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(metadata);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // Malformed metadata: treat as no metadata.
-  }
-  return null;
+): Record<string, unknown> {
+  return metadata ? safeParseRecord(metadata) : {};
 }

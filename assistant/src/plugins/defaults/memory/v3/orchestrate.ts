@@ -77,6 +77,7 @@ import {
 } from "../../../../daemon/turn-latency-sub-spans.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../logging.js";
+import { injectionUnits } from "./capabilities.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
@@ -176,8 +177,6 @@ export const DEFAULT_NEEDLE_K = 12;
 export const DEFAULT_DENSE_K = 0;
 /** Default hard cap on entity-lane articles folded into the pool per turn. */
 export const DEFAULT_ENTITY_CAP = 8;
-/** Default cap on finder lines (matched sections) one page may carry. */
-export const DEFAULT_FINDER_SECTIONS_PER_PAGE = 3;
 /** Contributing query terms carried per finder candidate for its
  *  keyword-in-context snippet (the renderer uses the first one that occurs
  *  in the section body). */
@@ -232,10 +231,9 @@ export interface OrchestrateDeps {
    *  learned line counts as one. A rare-term line is outside the cap,
    *  neither counted against it nor displaced by it (the lane's own
    *  `rareTerm.cap` bounds those per turn), so a page carries at most this
-   *  many lines plus its rare lines. Defaults to
-   *  {@link DEFAULT_FINDER_SECTIONS_PER_PAGE} (canonical value:
+   *  many lines plus its rare lines (canonical value, default included:
    *  `memory.v3.finderSectionsPerPage`). */
-  finderSectionsPerPage?: number;
+  finderSectionsPerPage: number;
   /** Per-lane article budget for the reply-query pass (needle + dense re-run
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
    *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
@@ -281,29 +279,29 @@ export interface OrchestrateDeps {
    *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
    *  telemetry detail (the gate itself never reads it). */
   realConceptPageCount?: number;
-  /** Whether one of a selection's injection units for this turn (a selected
-   *  section, or the lead when `section` is undefined) is already resident in
+  /** Whether one of this turn's injection units (`injectionUnits` in
+   *  `capabilities.ts`: a selected section, or the lead of a page selected
+   *  with none, by page slug and section-store key) is already resident in
    *  the conversation. Used ONLY to compute the `net_new_count` telemetry
    *  field, selections it rejects are what the injector actually renders.
    *  Read-only and side-effect-free: selection never consults it, and
    *  omitting it just drops the field. The injector reads the same store, so
    *  the two agree for a turn that has not yet committed. */
-  isResident?: (slug: Slug, section: Section | undefined) => boolean;
+  isResident?: (slug: Slug, key: string) => boolean;
 }
 
 /** A finder-lane candidate, one pool line: the slug, the matched section
  *  when the lane scored one (absent for an edge or learned hit), the query
  *  terms that contributed most to that match (best first; they drive the
- *  selector's keyword-in-context snippet), the descriptor that justified the
- *  line, and the lane that surfaced it. One page can carry several
- *  candidates, one per distinct matched section, in surfacing order. */
+ *  selector's keyword-in-context snippet, and a rare-term line carries the
+ *  one word it was keyed on as its only term), the descriptor that
+ *  justified the line, and the lane that surfaced it. One page can carry
+ *  several candidates, one per distinct matched section, in surfacing
+ *  order. */
 export interface FinderCandidate {
   slug: Slug;
   section?: Section;
   terms?: string[];
-  /** The one query term the lane keyed the line on (a rare-term hit);
-   *  rendered in the line's lane tag as `(lane: term)`. */
-  term?: string;
   descriptor: string;
   lane: FinderLane;
 }
@@ -343,9 +341,9 @@ export interface OrchestrateResult {
    *  `selector_ran` telemetry field). False when the pool was empty, when the
    *  disabled-selector passthrough kept every candidate, and when a closed
    *  injection gate hard-skipped selection. On that last path `lanes` still
-   *  carries the stable prefix (the injector exempts it from pruning) but no
-   *  pool was ever assembled, so a false value with empty `selections` means
-   *  the selector was given nothing. */
+   *  carries the stable prefix as computed, but no pool was ever assembled,
+   *  so a false value with empty `selections` means the selector was given
+   *  nothing. */
   selectorRan: boolean;
 }
 
@@ -492,8 +490,7 @@ export async function orchestrate(
   // surfacing order, its rare lines aside (`poolLine`). Hits on
   // stable-prefix slugs are kept like any other, so the selector and the
   // injection see those pages' CURRENT relevance.
-  const finderCap =
-    deps.finderSectionsPerPage ?? DEFAULT_FINDER_SECTIONS_PER_PAGE;
+  const finderCap = deps.finderSectionsPerPage;
   const finder: FinderCandidate[] = [];
   const finderByArticle = new Map<Slug, FinderCandidate[]>();
 
@@ -552,15 +549,14 @@ export async function orchestrate(
     );
   };
 
-  // A rare-term hit is keyed on one query word, which is the line's snippet
-  // term and its tag both.
+  // A rare-term hit is keyed on one query word, which is the line's only
+  // snippet term and, through the lane, its tag.
   const addRareHit = (hit: RareTermHit): void => {
     const section = sections[hit.section]!;
     poolLine({
       slug: hit.article,
       section,
       terms: [hit.term],
-      term: hit.term,
       descriptor: section.text,
       lane: "rare",
     });
@@ -753,11 +749,12 @@ export async function orchestrate(
   //     candidate was kept without a real judgment. Distinguishes "kept the whole
   //     pool because it gave up" from "explicitly selected a large set", which
   //     otherwise look identical and inflate the same way.
-  //   - net_new: the injection units among the selections (each selected
-  //     section, or the lead of a page selected with none) not already live
-  //     in the conversation, the injector renders only these (prior turns'
-  //     sections ride history), so it is the real incremental injection,
-  //     where `selected_count` re-counts the whole standing set every turn.
+  //   - net_new: the injection units among the selections (`injectionUnits`:
+  //     each selected section, or the lead of a page selected with none, a
+  //     capability page as one unit) not already live in the conversation,
+  //     the injector renders only these (prior turns' sections ride
+  //     history), so it is the real incremental injection, where
+  //     `selected_count` re-counts the whole standing set every turn.
   //     Omitted when the caller did not supply `isResident` (tests,
   //     shadow-less paths). The count reads the same units the injector will
   //     (a closed gate's selections carry no sections, so it counts leads).
@@ -778,14 +775,9 @@ export async function orchestrate(
     };
     const isResident = deps.isResident;
     if (isResident !== undefined) {
-      detail.net_new_count = selections.reduce(
-        (count, { slug, sections }) =>
-          count +
-          (sections.length > 0 ? sections : [undefined]).filter(
-            (unit) => !isResident(slug, unit),
-          ).length,
-        0,
-      );
+      detail.net_new_count = injectionUnits(selections).filter(
+        ({ slug, key }) => !isResident(slug, key),
+      ).length;
     }
     if (deps.realConceptPageCount !== undefined) {
       detail.real_concept_page_count = deps.realConceptPageCount;
@@ -961,7 +953,6 @@ export async function orchestrate(
     lane: c.lane,
     section: c.section,
     terms: c.terms,
-    term: c.term,
     descriptor:
       c.descriptor.trim().length > 0
         ? c.descriptor

@@ -24,8 +24,13 @@
  *      process (its capability cache unseeded, or the capability gone)
  *      keeps its points, so the commit is settled only after the
  *      deleted-page prune (stage 3) has had its chance to remove it, and a
- *      row still standing holds the commit, and the rebuild marker, for a
- *      later pass.
+ *      row still standing holds the commit, and the rebuild marker. The job
+ *      runs in the memory worker, whose skill and CLI caches are never
+ *      seeded, so there every stored capability row renders empty and the
+ *      prune, whose page index lists no capability row, removes them all: a
+ *      version rebuild in the worker commits over a store with no
+ *      capability points, which `backfillAllSections` (run in the daemon,
+ *      caches seeded) restores.
  *   2. **Capability reconcile**: embed capability rows (synthetic skill/CLI
  *      slugs) present in the page index but missing from the section store. The
  *      re-embed delta above EXCLUDES capability rows (they have `modifiedAt` 0,
@@ -988,7 +993,8 @@ export async function maintainJob(
     // rows and no failure the commit is deferred until the deleted-page
     // prune has run: a row the page index no longer lists leaves the store
     // there, and a row still standing afterwards holds the commit, and the
-    // rebuild marker, for a later pass whose caches resolve it.
+    // rebuild marker (in the memory worker, where the job runs, every
+    // capability row is cold and the prune removes them all).
     if (outcome.reembedFailures > 0) {
       log.info(
         {
@@ -1066,7 +1072,7 @@ export async function maintainJob(
         outcome.unrebuiltCapabilityRows = deferredCommit.unrebuilt;
         log.info(
           { unrebuiltCapabilityRows: deferredCommit.unrebuilt },
-          "memory-v3 maintain: embed checkpoint held (stored capability rows this process cannot rebuild keep the previous chunker's points); they retry next pass",
+          "memory-v3 maintain: embed checkpoint held (stored capability rows this process cannot rebuild keep the previous chunker's points); the next pass retries",
         );
       }
     } catch (err) {

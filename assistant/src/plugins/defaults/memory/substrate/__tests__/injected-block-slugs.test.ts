@@ -11,7 +11,7 @@ import {
   parseInjectedSections,
   parseLegacyCards,
   readInjectedBlock,
-  unescapeInjectedBody,
+  renderedBytes,
 } from "../injected-block-slugs.js";
 
 describe("extractInjectedConceptSlugs", () => {
@@ -238,15 +238,23 @@ describe("parseInjectedSections: capability pieces", () => {
   });
 });
 
-describe("escapeInjectedBody / unescapeInjectedBody", () => {
+describe("renderedBytes", () => {
+  test("counts UTF-8 bytes, not characters", () => {
+    expect(renderedBytes("abc")).toBe(3);
+    expect(renderedBytes("§")).toBe(2); // U+00A7 is 2 bytes in UTF-8
+    const header = injectedSectionHeader("page-a", "Notes");
+    expect(header.match(/§/g)).toHaveLength(1);
+    expect(renderedBytes(header)).toBe(header.length + 1);
+  });
+});
+
+describe("escapeInjectedBody", () => {
   const boundaryLines = [
     "# memory/concepts/example.md",
     "# memory/concepts/example.md § Notes",
     "# Skills",
     "# Skill: foo",
     "# CLI command: bar",
-    "[sections: §A · §B]",
-    "[linked: a · b]",
   ];
 
   test("prefixes exactly the lines that would parse as grammar", () => {
@@ -256,13 +264,15 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
       "\\frac{1}{2}",
       "## memory/concepts/example.md",
       " # memory/concepts/example.md",
+      "[sections: §A · §B]",
+      "[linked: a · b]",
     ];
     expect(escapeInjectedBody([...others, ...boundaryLines].join("\n"))).toBe(
       [...others, ...boundaryLines.map((line) => `\\${line}`)].join("\n"),
     );
   });
 
-  test("is a bijection, including bodies that already carry the escape", () => {
+  test("is injective, so a body line that already carries the escape never renders like an escaped grammar line", () => {
     const lines = [
       ...boundaryLines,
       "\\# memory/concepts/example.md",
@@ -270,12 +280,10 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
       "\\# not a boundary",
       "plain",
     ];
-    for (const line of lines) {
-      expect(unescapeInjectedBody(escapeInjectedBody(line))).toBe(line);
-    }
-    const body = lines.join("\n");
-    expect(unescapeInjectedBody(escapeInjectedBody(body))).toBe(body);
-    // Distinct sources escape to distinct forms.
+    expect(escapeInjectedBody("\\# memory/concepts/example.md")).toBe(
+      "\\\\# memory/concepts/example.md",
+    );
+    expect(escapeInjectedBody("\\# not a boundary")).toBe("\\# not a boundary");
     expect(new Set(lines.map(escapeInjectedBody)).size).toBe(lines.length);
   });
 

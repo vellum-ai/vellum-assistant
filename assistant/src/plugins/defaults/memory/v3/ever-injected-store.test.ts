@@ -37,9 +37,10 @@ import { ensureMemoryV3EverInjectedSchema } from "../../../../persistence/migrat
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
-import { renderedBytes } from "./card.js";
+import { renderedBytes } from "../substrate/injected-block-slugs.js";
 import {
   ensureMemoryV3InjectedSectionsSchema,
+  ensureMemoryV3PluginSchema,
   SECTIONS_LEGACY_COPY_DONE_KEY,
 } from "./plugin-schema.js";
 import type { InjectedBlock } from "./types.js";
@@ -89,7 +90,6 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 
 const {
   clearConversation,
-  ensureMemoryV3InjectedSectionsStore,
   forkEverInjected,
   getActiveEntries,
   getActiveSections,
@@ -741,7 +741,7 @@ describe("memory-side schema", () => {
 
   test("the plugin-init ensure creates the table and no-ops when the memory database is unavailable", () => {
     memorySqlite = new Database(":memory:");
-    ensureMemoryV3InjectedSectionsStore();
+    ensureMemoryV3PluginSchema();
     expect(
       memorySqlite
         .query(
@@ -751,7 +751,7 @@ describe("memory-side schema", () => {
     ).not.toBeNull();
 
     memoryDbAvailable = false;
-    expect(() => ensureMemoryV3InjectedSectionsStore()).not.toThrow();
+    expect(() => ensureMemoryV3PluginSchema()).not.toThrow();
   });
 
   test("ensure is idempotent — running twice leaves a usable table", () => {

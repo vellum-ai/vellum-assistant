@@ -35,7 +35,7 @@ export interface SectionNeedleScoredHit {
 
 /** A single-term hit: a section index (into `SectionIndex.sections`) and the
  *  term's own BM25F contribution to that section. */
-export interface SectionTermHit {
+interface SectionTermHit {
   doc: number;
   score: number;
 }

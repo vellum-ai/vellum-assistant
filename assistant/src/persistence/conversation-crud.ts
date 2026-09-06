@@ -425,8 +425,8 @@ export const messageMetadataSchema = z
      *  feature. */
     memoryV3InjectedBlock: z.string().optional(),
     /** Rendering format of `memoryV3InjectedBlock`, stamped by the build
-     *  that persisted it (the memory plugin's
-     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT`); a row carrying the block without
+     *  that persisted it and compared on read against the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT`; a row carrying the block without
      *  it holds a legacy compact-card block. The key matches the plugin's
      *  `MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY`, kept as a literal here
      *  so the storage schema does not import the memory feature. */

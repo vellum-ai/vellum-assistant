@@ -182,6 +182,16 @@ export interface SectionRef {
 }
 
 /**
+ * The one string encoding of a {@link SectionRef}, for keying maps and sets
+ * by section: slug and key joined on a NUL, which neither side can contain
+ * (a slug is a path, a key derives from one heading line), so the encoding
+ * is injective. A pair is never parsed back out of it.
+ */
+export function sectionRefId({ slug, key }: SectionRef): string {
+  return `${slug}\u0000${key}`;
+}
+
+/**
  * A flat, deterministic index of every page's sections plus an article→section
  * lookup. `byArticle` maps each article slug to the indices (into `sections`)
  * of that article's sections, in order.

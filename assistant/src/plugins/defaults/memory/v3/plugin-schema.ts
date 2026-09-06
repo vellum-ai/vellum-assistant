@@ -5,10 +5,11 @@
  * `memory_v3_selections`. Plugin storage is created by the plugin,
  * idempotently and fail-open, never by the global migration chain that gates
  * database readiness: the memory plugin's `init` hook runs every ensure on
- * every boot, and each store runs its own again on the first use of a
- * connection in its process (the memory worker is a separate process). A
- * memory database that cannot be opened therefore degrades the stores to
- * no-ops instead of failing the daemon's readiness.
+ * every boot ({@link ensureMemoryV3PluginSchema}), and each store runs its
+ * own again on the first use of a connection in its process (the memory
+ * worker is a separate process) through the once-per-connection wrappers
+ * below. A memory database that cannot be opened therefore degrades the
+ * stores to no-ops instead of failing the daemon's readiness.
  *
  * Every ensure takes the raw handle, and the sections ensure records its
  * one-shot legacy copy in the checkpoint ledger it is handed (the main
@@ -22,9 +23,51 @@ import {
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
 import { getLogger } from "../logging.js";
-import type { MemorySqlite } from "../memory-db.js";
+import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 
 const log = getLogger("memory-v3-plugin-schema");
+
+/**
+ * The raw memory connection with `ensure` applied to it, or `null` (with the
+ * degraded-mode warning) when the connection is unavailable: what a store
+ * resolves before every statement.
+ */
+export function ensuredMemorySqlite(
+  context: string,
+  ensure: (memoryRaw: MemorySqlite) => void,
+): MemorySqlite | null {
+  const raw = memorySqliteOrNull(context);
+  if (raw) {
+    ensure(raw);
+  }
+  return raw;
+}
+
+/**
+ * A fail-soft reader over the memory connection for one store. `resolve`
+ * returns the store's handle with its schema ensured, or `null` when the
+ * connection is unavailable ({@link ensuredMemorySqlite}, or a store's own
+ * resolver); the reader runs `read` on it and returns `fallback` when there
+ * is no handle or the read throws (a missing table on an install whose
+ * migration is still deferred, an I/O error), reporting a throw to
+ * `onFailure` with the read's `context`. A read failure never takes
+ * memory-v3 down with it: an empty dedup set re-injects a section at worst,
+ * and an inspector read shows no diagnostic rather than failing its route.
+ */
+export function memoryReader<Handle>(
+  resolve: (context: string) => Handle | null,
+  onFailure: (err: unknown, context: string) => void,
+): <T>(context: string, fallback: T, read: (handle: Handle) => T) => T {
+  return (context, fallback, read) => {
+    try {
+      const handle = resolve(context);
+      return handle === null ? fallback : read(handle);
+    } catch (err) {
+      onFailure(err, context);
+      return fallback;
+    }
+  };
+}
 
 /**
  * Wrap a schema ensure so it runs once per connection in this process:
@@ -103,6 +146,13 @@ export function ensureMemoryV3PoolsSchema(memoryRaw: MemorySqlite): void {
   `);
 }
 
+/** {@link ensureMemoryV3PoolsSchema} once per connection in this process,
+ *  for the pool log's writer and readers. */
+export const ensureMemoryV3PoolsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3PoolsSchema,
+  "failed to ensure memory_v3_pools; pool logging degraded",
+);
+
 const SECTIONS_TABLE = "memory_v3_injected_sections";
 const LEGACY_CARDS_TABLE = "memory_v3_ever_injected";
 
@@ -112,7 +162,7 @@ const LEGACY_CARDS_TABLE = "memory_v3_ever_injected";
  * one-shot legacy copy in: the store hands it the real one, tests a map. A
  * read that throws is an unreadable ledger.
  */
-export interface CheckpointLedger {
+interface CheckpointLedger {
   get(key: string): string | null;
   set(key: string, value: string): void;
 }
@@ -226,6 +276,13 @@ export function ensureMemoryV3InjectedSectionsSchema(
   }
 }
 
+/** {@link ensureMemoryV3InjectedSectionsSchema} once per connection in this
+ *  process, for the section store's reads and writes. */
+export const ensureMemoryV3InjectedSectionsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3InjectedSectionsSchema,
+  "failed to ensure memory_v3_injected_sections; section record degraded",
+);
+
 /**
  * Delete `conversationId`'s rows from the legacy card table, for the
  * compaction reset that clears the conversation's section record (the
@@ -261,9 +318,7 @@ const SELECTIONS_TABLE = "memory_v3_selections";
  * which {@link ensureMemoryV3SelectionsSectionKeyOnce} reports and retries
  * on the connection's next use.
  */
-export function ensureMemoryV3SelectionsSectionKey(
-  memoryRaw: MemorySqlite,
-): void {
+function ensureMemoryV3SelectionsSectionKey(memoryRaw: MemorySqlite): void {
   ensureColumn(memoryRaw, SELECTIONS_TABLE, "section_key", "TEXT");
 }
 
@@ -273,3 +328,19 @@ export const ensureMemoryV3SelectionsSectionKeyOnce = ensureOncePerConnection(
   ensureMemoryV3SelectionsSectionKey,
   "failed to ensure memory_v3_selections.section_key; selection log degraded",
 );
+
+/**
+ * Ensure the whole plugin-owned schema on the memory connection of this
+ * process, for the memory plugin's `init` hook: the pools and
+ * injected-sections tables and the selection log's `section_key` column,
+ * each through its once-per-connection wrapper so a store's first use on
+ * the same connection is a no-op. No-op when the connection is unavailable
+ * (the stores degrade to no-ops as on any turn).
+ */
+export function ensureMemoryV3PluginSchema(): void {
+  ensuredMemorySqlite("ensureMemoryV3PluginSchema", (raw) => {
+    ensureMemoryV3PoolsSchemaOnce(raw);
+    ensureMemoryV3InjectedSectionsSchemaOnce(raw);
+    ensureMemoryV3SelectionsSectionKeyOnce(raw);
+  });
+}

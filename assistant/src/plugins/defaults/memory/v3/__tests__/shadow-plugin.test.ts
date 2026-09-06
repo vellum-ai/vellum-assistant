@@ -70,7 +70,6 @@ const realEdge = { ...(await import("../edge.js")) };
 const realSectionDenseStore = {
   ...(await import("../section-dense-store.js")),
 };
-const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
@@ -539,6 +538,11 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
   },
 }));
 
+// Captured after the substrate mocks above: orchestrate reaches
+// `capabilities.ts`, whose default resolvers bind the skill and CLI stores
+// at evaluation, so an earlier import would bind the real stores.
+const realOrchestrate = { ...(await import("../orchestrate.js")) };
+
 mock.module("../orchestrate.js", () => ({
   ...realOrchestrate,
   orchestrate: (...args: Parameters<typeof realOrchestrate.orchestrate>) =>
@@ -827,7 +831,7 @@ describe("memory-v3 engine", () => {
       slug,
       lane,
       section_title: null,
-      section_ordinal: null,
+      section_key: null,
       chosen,
     });
     expect(JSON.parse(pools[0]!.candidates_json)).toEqual([
@@ -840,14 +844,14 @@ describe("memory-v3 engine", () => {
         slug: "page-1",
         lane: "needle",
         section_title: "",
-        section_ordinal: 0,
+        section_key: "",
         chosen: true,
       },
       {
         slug: "page-2",
         lane: "dense",
         section_title: "",
-        section_ordinal: 0,
+        section_key: "",
         chosen: true,
       },
       card("page-3", "edge", true),
@@ -874,7 +878,7 @@ describe("memory-v3 engine", () => {
           {
             slug: "page-rare",
             section: pumpkin,
-            term: "gourd",
+            terms: ["gourd"],
             descriptor: "",
             lane: "rare",
           },
@@ -891,7 +895,7 @@ describe("memory-v3 engine", () => {
         slug: "page-rare",
         lane: "rare",
         section_title: "Pumpkin",
-        section_ordinal: 1,
+        section_key: "Pumpkin",
         chosen: true,
       },
     ]);
@@ -938,7 +942,7 @@ describe("memory-v3 engine", () => {
 
   test("a closed-gate turn persists an empty pool with selector_ran = 0, not the stable prefix as rejected", async () => {
     // The gate hard-skipped selection: the result still carries the stable
-    // lanes (the injector's prune exemptions) but the selector never saw them.
+    // lanes as computed, but the selector never saw them.
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
       lanes: {
@@ -1107,7 +1111,7 @@ describe("memory-v3 engine", () => {
         {
           slug: "page-two",
           section: pumpkin,
-          term: "gourd",
+          terms: ["gourd"],
           descriptor: "",
           lane: "rare" as const,
         },
@@ -1248,7 +1252,7 @@ describe("memory-v3 engine", () => {
           {
             slug: "page-1",
             section: pumpkin,
-            term: "gourd",
+            terms: ["gourd"],
             descriptor: "",
             lane: "rare",
           },
