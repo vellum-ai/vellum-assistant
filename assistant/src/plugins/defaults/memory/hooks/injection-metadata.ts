@@ -31,9 +31,10 @@ import {
  *    remove.
  *  - `blocks.memoryV3InjectedBlock` (the frozen net-new section block,
  *    unwrapped) persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY` with
- *    the block's rendering format stamped beside it, only when the turn
- *    rendered net-new sections: an all-repeat rerun leaves the anchor's
- *    frozen block in place.
+ *    `MEMORY_V3_INJECTED_BLOCK_FORMAT` stamped beside it (the value the
+ *    readers compare to tell a section block from a legacy card block),
+ *    only when the turn rendered net-new sections: an all-repeat rerun
+ *    leaves the anchor's frozen block in place.
  *  - `blocks.memoryV3PointerBlock` (the wrapped `<memory_pointer>` that was
  *    sent) persists under `MEMORY_V3_POINTER_BLOCK_METADATA_KEY`; a turn
  *    without a pointer DELETES the key, and the legacy

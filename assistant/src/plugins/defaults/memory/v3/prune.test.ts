@@ -1,6 +1,7 @@
 /**
  * Tests for `prune.ts` — the memory-v3 resident-footprint prune valve:
- *   - `parseInjectedSections` / `filterPrunedSections`: section-boundary
+ *   - `parseInjectedSections` / `filterResidentSections` over the tombstones
+ *     alone (an empty newest-copy map): section-boundary
  *     parsing at the `# memory/concepts/<slug>.md[ § <key>]` headers,
  *     byte-identical remainders, all-pruned → `""`, no-op → same reference,
  *     non-section chunks (`# Skills`, `# Skill:` / `# CLI command:` headers)
@@ -21,7 +22,7 @@
  *   - `runPruneValve` + the live strip: the blocks memory-v3 placed (owned by
  *     object identity) stripped in place by header span, an unowned twin
  *     untouched even when byte-identical, all-pruned blocks removed,
- *     and the rehydration filter (the same `filterPrunedSections` over
+ *     and the rehydration filter (the same `filterResidentSections` over
  *     persisted metadata) converging to the same bytes;
  *   - re-injection round-trip: `recordInjected` clears `pruned_at`, after
  *     which the filter keeps the section again;
@@ -45,16 +46,18 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
 import {
+  escapeInjectedBody,
   injectedSectionHeader,
   parseInjectedSections,
-  unescapeInjectedBody,
+  renderedBytes,
 } from "../substrate/injected-block-slugs.js";
-import { renderedBytes } from "./card.js";
+import type { SectionRefSet } from "./ever-injected-store.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
 import {
-  type CheckpointLedger,
-  ensureMemoryV3InjectedSectionsSchema,
-} from "./plugin-schema.js";
-import type { InjectedBlock, InjectedBlockFormat } from "./types.js";
+  type InjectedBlock,
+  type InjectedBlockFormat,
+  sectionRefId,
+} from "./types.js";
 
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
@@ -117,7 +120,6 @@ mock.module("../config.js", () => ({
 }));
 
 const {
-  filterPrunedSections,
   filterResidentPointerEntries,
   filterResidentSections,
   flushPruneValveForTests,
@@ -127,6 +129,16 @@ const {
   schedulePruneValve,
   stripPrunedSectionsFromMessages,
 } = await import("./prune.js");
+
+/** The filter over the tombstones alone: no newest-copy index, so only a
+ *  pruned section (or a legacy card whose lead is pruned) leaves. */
+function filterPrunedSections(
+  inner: string,
+  format: InjectedBlockFormat,
+  pruned: SectionRefSet,
+): string {
+  return filterResidentSections(inner, format, 0, pruned, new Map());
+}
 const {
   getActiveSections,
   getInjected,
@@ -419,13 +431,11 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     ]);
     expect(parsed.sections[0]!.text).toBe(entry);
     // Pruning removes the whole section, forged lines included, and the
-    // grammar's inverse recovers the body the page carries.
+    // rendered body is exactly the page's body under the escaper.
     expect(
       filterPrunedSections(inner, "current", refSet(["page-a", "Notes"])),
     ).toBe(renderInjectionBlockInner([lead("page-b")]));
-    expect(unescapeInjectedBody(entry.slice(entry.indexOf("\n") + 1))).toBe(
-      body,
-    );
+    expect(entry.slice(entry.indexOf("\n") + 1)).toBe(escapeInjectedBody(body));
   });
 
   test("a legacy block (a pre-stamp row's) is filtered by card under each lead ref: a tombstoned card leaves, the rest stays byte-identical, and the block is never indexed", () => {
@@ -536,8 +546,8 @@ describe("newestCopyIndexes / filterResidentSections", () => {
 
   test("a section injected on two blocks is current on the later one only; the earlier copy is superseded", () => {
     const newest = newestCopyIndexes([current(oldA), null, current(newA)]);
-    expect(newest.get("page-a\n")).toBe(2);
-    expect(newest.get("page-b\n")).toBe(0);
+    expect(newest.get(sectionRefId({ slug: "page-a", key: "" }))).toBe(2);
+    expect(newest.get(sectionRefId({ slug: "page-b", key: "" }))).toBe(0);
 
     expect(filterResidentSections(oldA, "current", 0, refSet(), newest)).toBe(
       renderInjectionBlockInner([lead("page-b")]),
@@ -566,9 +576,13 @@ describe("newestCopyIndexes / filterResidentSections", () => {
     ]);
     const newer = renderInjectionBlockInner([CAPABILITY_CHUNK]);
     const newest = newestCopyIndexes([current(older), current(newer)]);
-    expect(newest.get("skills/meet-join\n")).toBe(1);
-    expect(newest.get("cli-commands/export\n")).toBe(0);
-    expect(newest.get("page-a\n")).toBe(0);
+    expect(
+      newest.get(sectionRefId({ slug: "skills/meet-join", key: "" })),
+    ).toBe(1);
+    expect(
+      newest.get(sectionRefId({ slug: "cli-commands/export", key: "" })),
+    ).toBe(0);
+    expect(newest.get(sectionRefId({ slug: "page-a", key: "" }))).toBe(0);
 
     // The older skill copy goes, and with it the skills hint chunk the
     // renderer adds beside skill entries; the lead and the CLI command stay,
@@ -637,9 +651,9 @@ describe("filterResidentPointerEntries", () => {
 
   test("drops a line whose section's newest copy sits on a later index; keeps one at or before the pointer", () => {
     const newest = new Map([
-      ["page-a\n", 5],
-      ["page-a\nNotes", 3],
-      ["page-b\nDesign#1", 1],
+      [sectionRefId({ slug: "page-a", key: "" }), 5],
+      [sectionRefId({ slug: "page-a", key: "Notes" }), 3],
+      [sectionRefId({ slug: "page-b", key: "Design#1" }), 1],
     ]);
     // Index 3: page-a's lead is only re-injected at 5, so that line predates
     // the re-injection; the other two are already in context.
@@ -672,9 +686,9 @@ describe("filterResidentPointerEntries", () => {
         0,
         refSet(),
         new Map([
-          ["page-a\n", 8],
-          ["page-a\nNotes", 8],
-          ["page-b\nDesign#1", 8],
+          [sectionRefId({ slug: "page-a", key: "" }), 8],
+          [sectionRefId({ slug: "page-a", key: "Notes" }), 8],
+          [sectionRefId({ slug: "page-b", key: "Design#1" }), 8],
         ]),
       ),
     ).toBe("");
@@ -1469,13 +1483,12 @@ describe("legacy card rows", () => {
     // The one-shot copy records itself in the checkpoint ledger; this suite
     // runs on a bare memory database, so hand the ensure a map-backed one.
     const values = new Map<string, string>();
-    const ledger: CheckpointLedger = {
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, {
       get: (key) => values.get(key) ?? null,
       set: (key, value) => {
         values.set(key, value);
       },
-    };
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite, ledger);
+    });
     recordInjected("conv-1", [{ slug: "page-b", key: "", bytes: 100 }], 2_000);
 
     expect(getActiveSections("conv-1")).toEqual(

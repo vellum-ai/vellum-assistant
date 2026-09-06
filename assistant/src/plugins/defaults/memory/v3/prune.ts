@@ -134,6 +134,7 @@ import {
   type InjectedBlockFormat,
   markV3LiveBlock,
   type SectionRef,
+  sectionRefId,
   v3LiveBlockFormat,
 } from "./types.js";
 
@@ -141,44 +142,10 @@ const log = getLogger("memory-v3-shadow");
 
 // ─── pruned-section filtering ────────────────────────────────────────────────
 
-/**
- * Remove pruned sections from an unwrapped block body of the given format: a
- * current-format block by section, a legacy-format block by card under each
- * card's lead ref (see {@link filterSections}).
- *
- * Returns the input string UNCHANGED (same reference) when nothing is
- * removed (callers use identity to detect a no-op) and `""` when every
- * chunk is pruned (the caller drops/skips the whole block; a bare
- * instruction header with no sections carries no content). A capability
- * chunk is reached under its capability slug with the empty key (the
- * identity the store records it by); the store never tombstones one, so a
- * block whose sections are all pruned but which carries capability content
- * keeps its preamble and that content. Kept chunks are re-joined exactly as
- * the renderer joined them (`\n\n`), so an unpruned remainder stays
- * byte-identical to what a fresh render of those chunks would produce: the
- * skills hint chunk the renderer adds beside skill chunks leaves with the
- * block's last skill chunk.
- */
-export function filterPrunedSections(
-  inner: string,
-  format: InjectedBlockFormat,
-  pruned: SectionRefSet,
-): string {
-  return filterSections(inner, format, (slug, key) =>
-    sectionRefSetHas(pruned, slug, key),
-  );
-}
-
-function refId(slug: string, key: string): string {
-  return `${slug}\n${key}`;
-}
-
 /** The `(slug, key)` identity a parsed chunk carries in the section store:
  *  a section's own pair, a capability chunk's capability slug under the
  *  empty key, and none for the skills hint chunk. */
-function pieceIdentity(
-  piece: InjectionBlockPiece,
-): { slug: string; key: string } | null {
+function pieceIdentity(piece: InjectionBlockPiece): SectionRef | null {
   switch (piece.kind) {
     case "section":
       return { slug: piece.slug, key: piece.key };
@@ -206,8 +173,8 @@ export function persistedV3Block(
   metadata: string | null | undefined,
 ): InjectedBlock | null {
   const parsed = readInjectedMetadata(metadata);
-  const block = parsed?.[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
-  if (parsed === null || typeof block !== "string") {
+  const block = parsed[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
+  if (typeof block !== "string") {
     return null;
   }
   return { inner: unwrapMemoryBlock(block), format: v3BlockFormatOf(parsed) };
@@ -236,7 +203,7 @@ export function newestCopyIndexes(
     for (const piece of parseInjectedSections(block.inner).pieces) {
       const identity = pieceIdentity(piece);
       if (identity !== null) {
-        newest.set(refId(identity.slug, identity.key), index);
+        newest.set(sectionRefId(identity), index);
       }
     }
   });
@@ -244,10 +211,24 @@ export function newestCopyIndexes(
 }
 
 /**
- * Remove from block `index` of that sequence every section that is pruned or
- * whose newest copy lives on a later block (`newest` from
- * {@link newestCopyIndexes}); a legacy block's cards are tested under their
- * lead refs. Same contract as {@link filterPrunedSections}.
+ * Remove from an unwrapped block body at `index` of that sequence every
+ * section that is pruned or whose newest copy lives on a later block
+ * (`newest` from {@link newestCopyIndexes}; an empty map drops on the
+ * tombstones alone): a current-format block by section, a legacy-format
+ * block by card under each card's lead ref (see {@link filterSections}).
+ *
+ * Returns the input string UNCHANGED (same reference) when nothing is
+ * removed (callers use identity to detect a no-op) and `""` when every
+ * chunk is dropped (the caller drops/skips the whole block; a bare
+ * instruction header with no sections carries no content). A capability
+ * chunk is reached under its capability slug with the empty key (the
+ * identity the store records it by); the store never tombstones one, so a
+ * block whose sections are all pruned but which carries capability content
+ * keeps its preamble and that content. Kept chunks are re-joined exactly as
+ * the renderer joined them (`\n\n`), so an unpruned remainder stays
+ * byte-identical to what a fresh render of those chunks would produce: the
+ * skills hint chunk the renderer adds beside skill chunks leaves with the
+ * block's last skill chunk.
  */
 export function filterResidentSections(
   inner: string,
@@ -259,9 +240,9 @@ export function filterResidentSections(
   return filterSections(
     inner,
     format,
-    (slug, key) =>
-      sectionRefSetHas(pruned, slug, key) ||
-      (newest.get(refId(slug, key)) ?? index) !== index,
+    (ref) =>
+      sectionRefSetHas(pruned, ref.slug, ref.key) ||
+      (newest.get(sectionRefId(ref)) ?? index) !== index,
   );
 }
 
@@ -278,15 +259,15 @@ export function filterResidentSections(
 function filterSections(
   inner: string,
   format: InjectedBlockFormat,
-  drop: (slug: string, key: string) => boolean,
+  drop: (ref: SectionRef) => boolean,
 ): string {
   if (format === "legacy") {
-    return filterLegacyCards(inner, (slug) => drop(slug, ""));
+    return filterLegacyCards(inner, (slug) => drop({ slug, key: "" }));
   }
   const parsed = parseInjectedSections(inner);
   const survivors = parsed.pieces.filter((piece) => {
     const identity = pieceIdentity(piece);
-    return identity === null || !drop(identity.slug, identity.key);
+    return identity === null || !drop(identity);
   });
   // The renderer adds the skills hint chunk only beside skill chunks, so a
   // block that loses its last one loses the hint with it.
@@ -304,7 +285,7 @@ function filterSections(
  * index (`newest` from {@link newestCopyIndexes}): such a pointer predates
  * the section's re-injection, and the live history lost the line when the
  * section was pruned, so restoring it would claim a section that is only in
- * context further down. Same contract as {@link filterPrunedSections}: the
+ * context further down. Same contract as {@link filterResidentSections}: the
  * input is returned UNCHANGED (same reference) when it is not a pointer block
  * or nothing is dropped, and `""` when every entry line is dropped (the
  * caller drops the block: a pointer with nothing to point at carries no
@@ -330,7 +311,7 @@ export function filterResidentPointerEntries(
     entries += 1;
     if (
       sectionRefSetHas(pruned, ref.slug, ref.key) ||
-      (newest.get(refId(ref.slug, ref.key)) ?? index) > index
+      (newest.get(sectionRefId(ref)) ?? index) > index
     ) {
       return false;
     }
@@ -416,27 +397,12 @@ export function planPrune(
 // ─── live-history strip ──────────────────────────────────────────────────────
 
 /**
- * The rendering format of the v3-owned `<memory>` block a user message
- * already carries, or `undefined` when it carries none. At a turn's first
- * assembly the tail carries one only when the turn re-runs onto its original
- * anchor row (`/conversations/:id/retry`), rehydrated from the anchor's
- * metadata with the first run's frozen entries.
- */
-export function ownedTailBlockFormat(
-  message: Message,
-): InjectedBlockFormat | undefined {
-  for (const block of message.content) {
-    const format = block.type === "text" ? v3LiveBlockFormat(block) : undefined;
-    if (format !== undefined) {
-      return format;
-    }
-  }
-  return undefined;
-}
-
-/**
  * Where a turn's net-new section block goes when the tail user message
- * already carries a v3-owned block ({@link ownedTailBlockFormat}):
+ * already carries a v3-owned block (by object identity, `v3LiveBlockFormat`
+ * in `types.ts`; at a turn's first assembly the tail carries one only when
+ * the turn re-runs onto its original anchor row, `/conversations/:id/retry`,
+ * rehydrated from the anchor's metadata with the first run's frozen
+ * entries):
  *  - `"none"`: it carries none; the block is spliced as on any turn.
  *  - `"merged"`: it carries a current-format block, which took the new
  *    entries: `messages` holds the tail with that block replaced by one
@@ -448,7 +414,7 @@ export function ownedTailBlockFormat(
  *    current-format entries under one metadata key; the caller attaches the
  *    new block in memory only and neither persists nor claims it.
  */
-export type AnchorBlockMerge =
+type AnchorBlockMerge =
   | { kind: "none" }
   | { kind: "legacy" }
   | { kind: "merged"; messages: Message[]; inner: string };

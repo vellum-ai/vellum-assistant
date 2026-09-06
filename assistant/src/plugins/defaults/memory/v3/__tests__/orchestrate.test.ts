@@ -246,6 +246,7 @@ function depsOf(
     hotSlugs,
     freshSlugs,
     prefixCards,
+    finderSectionsPerPage: 3,
     ...overrides,
   };
 }
@@ -1805,7 +1806,7 @@ describe("orchestrate — injection gate", () => {
       pool_size: 0,
     });
     // The result carries the same fact for the pool record: the stable prefix
-    // is still reported as a lane (the injector's prune exemption) but the
+    // is still reported as a lane, as computed, but the
     // selector never ran over it.
     expect(result.selectorRan).toBe(false);
     expect(result.selections).toEqual([]);
@@ -2258,12 +2259,13 @@ describe("orchestrate: rare-term lane", () => {
     );
 
     const lines = result.lanes.finder.filter((c) => c.slug === "silly-lines");
-    expect(lines.map((c) => [c.lane, c.section, c.term])).toEqual([
-      ["needle", parody, undefined],
-      ["rare", pumpkin, "gourd"],
-      ["rare", harvest, "gourd"],
+    expect(lines.map((c) => [c.lane, c.section])).toEqual([
+      ["needle", parody],
+      ["rare", pumpkin],
+      ["rare", harvest],
     ]);
     expect(lines[1]!.terms).toEqual(["gourd"]);
+    expect(lines[2]!.terms).toEqual(["gourd"]);
     // The second page's only "gourd" section is the needle's own line for
     // it, and the third-ranked "gourd" section is past perTerm anyway.
     expect(
@@ -2372,14 +2374,17 @@ describe("orchestrate: rare-term lane", () => {
       await cappedPageDeps("alpha text", tail),
     );
     expect(
-      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal, c.term]),
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
     ).toEqual([
-      ["needle", 1, undefined],
-      ["dense", 2, undefined],
-      ["reply", 3, undefined],
-      ["rare", 4, "gourd"],
-      ["rare", 5, "gourd"],
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+      ["rare", 5],
     ]);
+    expect(
+      result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
+    ).toEqual([["gourd"], ["gourd"]]);
 
     // The lane's own cap is what bounds the lines past the page cap, so a
     // page carries at most `finderSectionsPerPage + rareTerm.cap` lines.
@@ -2410,13 +2415,16 @@ describe("orchestrate: rare-term lane", () => {
       ]),
     );
     expect(
-      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal, c.term]),
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
     ).toEqual([
-      ["needle", 1, undefined],
-      ["dense", 2, undefined],
-      ["reply", 3, undefined],
-      ["rare", 4, "gourd"],
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
     ]);
+    expect(
+      result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
+    ).toEqual([["gourd"]]);
   });
 
   test("omitting the rare-term tuning disables the lane", async () => {
@@ -2448,8 +2456,8 @@ describe("orchestrate: rare-term lane", () => {
       }),
     );
 
-    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.term])).toEqual([
-      ["topic-a", "rare", "apple"],
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.terms])).toEqual([
+      ["topic-a", "rare", ["apple"]],
     ]);
     expect(lastPool).not.toContain("topic-d");
   });

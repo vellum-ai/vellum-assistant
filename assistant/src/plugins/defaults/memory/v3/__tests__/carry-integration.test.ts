@@ -70,9 +70,10 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../../memory-marker.js";
+import { renderedBytes } from "../../substrate/injected-block-slugs.js";
 import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { parsePageContent } from "../../substrate/page-store.js";
-import { renderCard, renderedBytes } from "../card.js";
+import { renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -91,7 +92,7 @@ import {
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
   type Section,
   type SectionIndex,
-  type SectionRef,
+  sectionRefId,
   type Slug,
 } from "../types.js";
 
@@ -286,6 +287,7 @@ async function scriptedObserveTurn(conversationId: string, turnIndex: number) {
       coreSlugs: lanes.coreSlugs,
       hotSlugs: lanes.hotSlugs,
       freshSlugs: [],
+      finderSectionsPerPage: 3,
       prefixCards: lanes.prefixCards,
     },
   );
@@ -602,16 +604,16 @@ function makeProviderStub(): Provider {
 // hook do around the injectors each turn (see the module doc).
 // ---------------------------------------------------------------------------
 
-/** `slug§key` id of a section ref. */
-function refId(ref: SectionRef): string {
-  return `${ref.slug}§${ref.key}`;
+/** The store's `(slug, key)` id of a section ref, from its two halves. */
+function ref(slug: string, key = ""): string {
+  return sectionRefId({ slug, key });
 }
 
 function refIds(set: ReadonlyMap<string, ReadonlySet<string>>): Set<string> {
   const ids = new Set<string>();
   for (const [slug, keys] of set) {
     for (const key of keys) {
-      ids.add(refId({ slug, key }));
+      ids.add(sectionRefId({ slug, key }));
     }
   }
   return ids;
@@ -719,7 +721,7 @@ async function runTurn(
     ),
   );
   const netNewBytes = getInjected(convId)
-    .filter((row) => netNew.has(refId(row)))
+    .filter((row) => netNew.has(sectionRefId(row)))
     .reduce((sum, row) => sum + row.bytes, 0);
 
   // Runtime assembly: a non-empty section block splices onto the CURRENT user
@@ -855,7 +857,7 @@ async function reinjectTurn(
     refs: new Set(
       sections.text.length > 0
         ? parseInjectedSections(unwrapMemoryBlock(sections.text)).sections.map(
-            refId,
+            sectionRefId,
           )
         : [],
     ),
@@ -875,7 +877,7 @@ function readMetadata(rowId: string): Record<string, unknown> {
 /** The `(slug, key)` refs a v3 block text carries. */
 function blockRefs(text: string): Set<string> {
   return new Set(
-    parseInjectedSections(unwrapMemoryBlock(text)).sections.map(refId),
+    parseInjectedSections(unwrapMemoryBlock(text)).sections.map(sectionRefId),
   );
 }
 
@@ -1098,7 +1100,7 @@ let finalRehydratedJson = "";
 
 /** Per-turn script: query terms drive the needle (each term names one page's
  *  `Detail` or `Notes` section); `keep` is the deterministic selector output
- *  (subset of stable prefix ∪ needle hits); `expectNetNew` the `slug§key`
+ *  (subset of stable prefix ∪ needle hits); `expectNetNew` the section-ref
  *  refs the turn must inject. */
 const SCRIPT: Array<{ query: string; keep: Slug[]; expectNetNew: string[] }> = [
   // 1: first turn: core + hot pages selected via the stable prefix (no
@@ -1106,26 +1108,31 @@ const SCRIPT: Array<{ query: string; keep: Slug[]; expectNetNew: string[] }> = [
   {
     query: "apple",
     keep: ["core-alpha", "core-beta", "hot-one", "page-a"],
-    expectNetNew: ["core-alpha§", "core-beta§", "hot-one§", "page-a§Detail"],
+    expectNetNew: [
+      ref("core-alpha"),
+      ref("core-beta"),
+      ref("hot-one"),
+      ref("page-a", "Detail"),
+    ],
   },
   // 2: a finder hit on a HOT page (raspberry) injects its matched section,
   //     not its lead.
   {
     query: "banana raspberry",
     keep: ["hot-two", "page-b"],
-    expectNetNew: ["hot-two§Detail", "page-b§Detail"],
+    expectNetNew: [ref("hot-two", "Detail"), ref("page-b", "Detail")],
   },
   // 3: the same page as turn 1, a DIFFERENT section (cider → Notes).
-  { query: "cider", keep: ["page-a"], expectNetNew: ["page-a§Notes"] },
+  { query: "cider", keep: ["page-a"], expectNetNew: [ref("page-a", "Notes")] },
   // 4 — topic shift: four fresh pages.
   {
     query: "cherry dragonfruit elderberry fig",
     keep: ["page-c", "page-d", "page-e", "page-f"],
     expectNetNew: [
-      "page-c§Detail",
-      "page-d§Detail",
-      "page-e§Detail",
-      "page-f§Detail",
+      ref("page-c", "Detail"),
+      ref("page-d", "Detail"),
+      ref("page-e", "Detail"),
+      ref("page-f", "Detail"),
     ],
   },
   // 5: ALL-REPEAT turn: turn 1's section and a core lead re-selected →
@@ -1135,19 +1142,27 @@ const SCRIPT: Array<{ query: string; keep: Slug[]; expectNetNew: string[] }> = [
   {
     query: "guava honeydew imbe",
     keep: ["page-g", "page-h", "page-i"],
-    expectNetNew: ["page-g§Detail", "page-h§Detail", "page-i§Detail"],
+    expectNetNew: [
+      ref("page-g", "Detail"),
+      ref("page-h", "Detail"),
+      ref("page-i", "Detail"),
+    ],
   },
   // 7: the prune valve trips after this turn (window configured in beforeAll).
   {
     query: "jackfruit kiwi lemon",
     keep: ["page-j", "page-k", "page-l"],
-    expectNetNew: ["page-j§Detail", "page-k§Detail", "page-l§Detail"],
+    expectNetNew: [
+      ref("page-j", "Detail"),
+      ref("page-k", "Detail"),
+      ref("page-l", "Detail"),
+    ],
   },
   // 8 — one more page; the restart + fork checkpoints follow this turn.
-  { query: "olive", keep: ["page-o"], expectNetNew: ["page-o§Detail"] },
+  { query: "olive", keep: ["page-o"], expectNetNew: [ref("page-o", "Detail")] },
   // 9: a PRUNED lead (core-beta, selected from the stable prefix with no
   //     finder hit) re-selected re-injects.
-  { query: "hello", keep: ["core-beta"], expectNetNew: ["core-beta§"] },
+  { query: "hello", keep: ["core-beta"], expectNetNew: [ref("core-beta")] },
   // 10: final all-repeat turn (steady state: fresh cost is pointer-only).
   { query: "cherry", keep: ["page-c", "core-alpha"], expectNetNew: [] },
 ];
@@ -1298,7 +1313,9 @@ describe("memory-v3 carry integration — cache contract", () => {
       const inner = unwrapMemoryBlock(record.blockText);
       const parsed = parseInjectedSections(inner);
       expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
-      expect(new Set(parsed.sections.map(refId))).toEqual(new Set(expected));
+      expect(new Set(parsed.sections.map(sectionRefId))).toEqual(
+        new Set(expected),
+      );
       for (const section of parsed.sections) {
         expect(section.text).toBe(render(section.slug, section.key));
       }
@@ -1451,24 +1468,26 @@ describe("memory-v3 carry integration — prune contract", () => {
     // Turn 7: exactly the two least-recently-selected sections, a core
     // page's lead and a hot page's lead. core-alpha's lead (re-selected on
     // turn 5) and page-a's Detail (re-selected on turn 5) survive.
-    expect(records[6]!.pruned).toEqual(new Set(["core-beta§", "hot-one§"]));
+    expect(records[6]!.pruned).toEqual(
+      new Set([ref("core-beta"), ref("hot-one")]),
+    );
     expect(records[6]!.residentBytes).toBe(pruneWindow.target);
     expect(records[6]!.residentBytes).toBeLessThanOrEqual(pruneWindow.max);
     const activeAfter7 = refIds(getActiveSections(CONV));
-    expect(activeAfter7.has("core-alpha§")).toBe(true);
-    expect(activeAfter7.has("page-a§Detail")).toBe(true);
-    expect(activeAfter7.has("hot-two§Detail")).toBe(true);
+    expect(activeAfter7.has(ref("core-alpha"))).toBe(true);
+    expect(activeAfter7.has(ref("page-a", "Detail"))).toBe(true);
+    expect(activeAfter7.has(ref("hot-two", "Detail"))).toBe(true);
   });
 
   test("a pruned lead re-selected at turn 9 re-injects as a fresh entry", () => {
     const turn9 = records[8]!;
-    expect(turn9.netNew).toEqual(new Set(["core-beta§"]));
+    expect(turn9.netNew).toEqual(new Set([ref("core-beta")]));
     expect(turn9.blockText).toBe(
       wrapMemoryBlock(renderInjectionBlockInner([render("core-beta", "")])),
     );
     // core-beta's lead is active again; hot-one's stays pruned.
-    expect(turn9.pruned).toEqual(new Set(["hot-one§"]));
-    expect(refIds(getActiveSections(CONV)).has("core-beta§")).toBe(true);
+    expect(turn9.pruned).toEqual(new Set([ref("hot-one")]));
+    expect(refIds(getActiveSections(CONV)).has(ref("core-beta"))).toBe(true);
   });
 });
 
@@ -1567,7 +1586,7 @@ describe("memory-v3 carry integration — fork contract", () => {
   test("a fork inherits the dedup record: inherited sections are pointed at, only new ones render", () => {
     // page-g's Detail was injected on the parent before the fork; hot-three's
     // Detail (a finder hit on a hot page) never was.
-    expect(forkRecord.netNew).toEqual(new Set(["hot-three§Detail"]));
+    expect(forkRecord.netNew).toEqual(new Set([ref("hot-three", "Detail")]));
     expect(forkRecord.blockText).toBe(
       wrapMemoryBlock(
         renderInjectionBlockInner([render("hot-three", "Detail")]),
@@ -1578,10 +1597,10 @@ describe("memory-v3 carry integration — fork contract", () => {
     );
     // Inherited active and pruned state both copied (full-fork semantics).
     const forkActive = refIds(getActiveSections(FORK_CONV));
-    expect(forkActive.has("page-g§Detail")).toBe(true);
-    expect(forkActive.has("core-alpha§")).toBe(true);
+    expect(forkActive.has(ref("page-g", "Detail"))).toBe(true);
+    expect(forkActive.has(ref("core-alpha"))).toBe(true);
     expect(refIds(getPrunedSections(FORK_CONV))).toEqual(
-      new Set(["core-beta§", "hot-one§"]),
+      new Set([ref("core-beta"), ref("hot-one")]),
     );
     // The fork's rehydrated history carries the inherited page-g section
     // exactly once (from the copied metadata), not a re-render.
@@ -1647,10 +1666,10 @@ describe("memory-v3 carry integration — footprint gate", () => {
 describe("memory-v3 carry integration: compaction contract", () => {
   const KEEP: Slug[] = ["core-alpha", "core-beta", "hot-one", "page-a"];
   const REFS = new Set([
-    "core-alpha§",
-    "core-beta§",
-    "hot-one§",
-    "page-a§Detail",
+    ref("core-alpha"),
+    ref("core-beta"),
+    ref("hot-one"),
+    ref("page-a", "Detail"),
   ]);
 
   /** Turn 1 injects the four sections, then a tool call continues the turn
@@ -1766,7 +1785,7 @@ describe("memory-v3 carry integration: re-entry contract", () => {
       "core-alpha",
       "page-b",
     ]);
-    expect(second.netNew).toEqual(new Set(["page-b§Detail"]));
+    expect(second.netNew).toEqual(new Set([ref("page-b", "Detail")]));
     expect(second.pointerText).toContain("memory/concepts/page-a.md");
     const history = histories.get(REENTRY_CONV)!;
     // Turn 2's user message: the tail while the turn is in flight.
@@ -1812,7 +1831,7 @@ describe("memory-v3 carry integration: retry contract", () => {
     expect(retry.merged).toBe(true);
     expect(retry.pointerText).toContain("memory/concepts/page-a.md");
 
-    const expected = new Set([...claimedBefore, "page-b§Detail"]);
+    const expected = new Set([...claimedBefore, ref("page-b", "Detail")]);
     expect(refIds(getActiveSections(RETRY_CONV))).toEqual(expected);
     // The live tail carries exactly one block holding both runs' sections.
     const live = histories.get(RETRY_CONV)!;

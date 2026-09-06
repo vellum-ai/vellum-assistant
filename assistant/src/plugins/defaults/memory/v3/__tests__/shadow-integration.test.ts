@@ -328,6 +328,7 @@ async function runTurn(
     coreSlugs: deps.core ?? [],
     hotSlugs: deps.hot ?? [],
     freshSlugs: [],
+    finderSectionsPerPage: 3,
     // Mirrors lane init: every stable-prefix slug gets a pre-rendered card.
     prefixCards: new Map(
       stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  MEMORY_POINTER_LEAD_LINE,
   renderInjectionBlockInner,
   renderPointerInner,
   V3_INJECTION_HEADER,
@@ -54,7 +53,7 @@ describe("renderPointerInner", () => {
     ]);
     expect(inner).toBe(
       [
-        MEMORY_POINTER_LEAD_LINE,
+        "Already in context above, relevant again this turn:",
         "memory/concepts/page-a.md § Alpha",
         "memory/concepts/topics/page-b.md",
         "memory/concepts/page-c.md § Notes#1",

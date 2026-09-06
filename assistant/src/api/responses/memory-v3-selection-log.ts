@@ -38,14 +38,19 @@ import { z } from "zod";
  * One candidate the selector saw. `lane` is `core`, `hot`, `fresh`, or
  * `always` for the stable-prefix cards and a finder lane label for the tail
  * (kept a permissive string, like `source` below). `sectionHeading` is the
- * matched section a finder lane surfaced (`""` for the page lead); null for
- * cards and finder lines with no matched section. `chosen` is whether the
- * selector kept the candidate's page.
+ * matched section a finder lane surfaced (`""` for the page lead) and
+ * `sectionKey` its stable key within the page (the heading, with `#<n>` for
+ * a repeated heading's n-th occurrence and `~<n>` for the n-th chunk of an
+ * over-long one), which tells two lines under one heading apart; both null
+ * for cards and finder lines with no matched section, and the key null on
+ * pools logged before it was recorded. `chosen` is whether the selector
+ * kept the candidate's page.
  */
 export const MemoryV3PoolCandidateSchema = z.object({
   slug: z.string(),
   lane: z.string(),
   sectionHeading: z.string().nullable(),
+  sectionKey: z.string().nullable(),
   chosen: z.boolean(),
 });
 

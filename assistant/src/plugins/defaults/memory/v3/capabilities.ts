@@ -17,18 +17,25 @@
  *    make a command semantically findable.
  */
 
-import { buildCliCommandSummary } from "../substrate/cli-command-content.js";
 import {
-  getCliCommandCapability,
   isCliCommandSlug,
-} from "../substrate/cli-command-store.js";
+  isSkillSlug,
+} from "../substrate/capability-slugs.js";
+import { buildCliCommandSummary } from "../substrate/cli-command-content.js";
+import { getCliCommandCapability } from "../substrate/cli-command-store.js";
 import {
   CLI_COMMAND_HEADER_PREFIX,
   escapeInjectedBody,
   SKILL_HEADER_PREFIX,
 } from "../substrate/injected-block-slugs.js";
-import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
-import { type Section, sectionKey, type Slug } from "./types.js";
+import { getSkillCapability } from "../substrate/skill-store.js";
+import {
+  type Section,
+  sectionKey,
+  type SectionRef,
+  type SelectedPage,
+  type Slug,
+} from "./types.js";
 
 /** True iff the slug is a synthetic skill or CLI-command capability row. */
 export function isCapabilitySlug(slug: Slug): boolean {
@@ -39,10 +46,7 @@ export function isCapabilitySlug(slug: Slug): boolean {
  * The section-store key a selected page injects under: a capability slug
  * always injects its whole capability content (`""`), a page with a matched
  * section injects that section under its {@link sectionKey}, and a page
- * selected without a match injects its lead (`""`). Shared by the injector
- * (dedup against the store), the pointer (what to point at), and the
- * selection telemetry (`net_new_count`) so the three agree on what "already
- * resident" means.
+ * selected without a match injects its lead (`""`).
  */
 export function injectionSectionKey(
   slug: Slug,
@@ -52,6 +56,40 @@ export function injectionSectionKey(
     return "";
   }
   return sectionKey(section);
+}
+
+/** One injection unit of a selection: the page, the unit's section-store
+ *  key, and the matched section it renders (`undefined` for the lead and
+ *  for capability content). */
+export interface InjectionUnit extends SectionRef {
+  matched: Section | undefined;
+}
+
+/**
+ * The injection units of a turn's selections, in selection order: one per
+ * selected section, or one lead unit for a page selected with none, deduped
+ * by `(slug, key)` (a capability page's sections all inject as its whole
+ * content under the empty key, so it is one unit however many were
+ * selected). Shared by the injector (what to render or point at, against
+ * the section store) and the selection telemetry (`net_new_count`), so the
+ * two agree on what a turn injects.
+ */
+export function injectionUnits(selections: SelectedPage[]): InjectionUnit[] {
+  const units: InjectionUnit[] = [];
+  const seen = new Map<Slug, Set<string>>();
+  for (const { slug, sections } of selections) {
+    for (const matched of sections.length > 0 ? sections : [undefined]) {
+      const key = injectionSectionKey(slug, matched);
+      const keys = seen.get(slug) ?? new Set<string>();
+      if (keys.has(key)) {
+        continue;
+      }
+      keys.add(key);
+      seen.set(slug, keys);
+      units.push({ slug, key, matched });
+    }
+  }
+  return units;
 }
 
 interface SkillCapabilityEntry {

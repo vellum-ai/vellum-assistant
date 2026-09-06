@@ -52,7 +52,6 @@ import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
 import {
   capabilityOrDiskBody,
-  injectionSectionKey,
   renderCapabilityContent,
 } from "./capabilities.js";
 import { renderCard } from "./card.js";
@@ -90,6 +89,7 @@ import {
   type MemoryRoutingTurn,
   type SectionIndex,
   sectionKey,
+  sectionRefId,
   type SelectionSource,
   type Slug,
 } from "./types.js";
@@ -644,7 +644,10 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
       firstLane.set(candidate.slug, candidate.lane);
     }
     if (candidate.section) {
-      const id = `${candidate.slug}\u0000${sectionKey(candidate.section)}`;
+      const id = sectionRefId({
+        slug: candidate.slug,
+        key: sectionKey(candidate.section),
+      });
       if (!sectionLane.has(id)) {
         sectionLane.set(id, candidate.lane);
       }
@@ -653,7 +656,9 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   return result.selections.map((sel) => {
     const section = sel.sections[0];
     const lineLane = section
-      ? sectionLane.get(`${sel.slug}\u0000${sectionKey(section)}`)
+      ? sectionLane.get(
+          sectionRefId({ slug: sel.slug, key: sectionKey(section) }),
+        )
       : undefined;
     return {
       slug: sel.slug,
@@ -715,18 +720,6 @@ function replaceSelections(
       row.sectionTitle,
       row.sectionKey,
     );
-  }
-}
-
-/**
- * Ensure the selection log's `section_key` column on the memory connection
- * of this process, for the memory plugin's `init` hook. No-op when the
- * connection is unavailable (the log degrades to no-ops as on any turn).
- */
-export function ensureMemoryV3SelectionsStore(): void {
-  const raw = memorySqliteOrNull("ensureMemoryV3SelectionsStore");
-  if (raw) {
-    ensureMemoryV3SelectionsSectionKeyOnce(raw);
   }
 }
 
@@ -846,9 +839,8 @@ export async function observeTurn(
     // lanes for stable-prefix cache reuse.
     const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
     // Read-only: lets orchestrate compute the `net_new_count` telemetry field
-    // against the same store, and the same per-page injection key, the
-    // injector renders from. This turn has not committed yet, so the set
-    // matches what the injector will see.
+    // against the same store the injector renders from. This turn has not
+    // committed yet, so the set matches what the injector will see.
     const activeSections = getActiveSections(conversationId);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
@@ -864,12 +856,7 @@ export async function observeTurn(
       needleK: tuning.needleK,
       denseK: tuning.denseK,
       realConceptPageCount: lanes.realConceptPageCount,
-      isResident: (slug, section) =>
-        sectionRefSetHas(
-          activeSections,
-          slug,
-          injectionSectionKey(slug, section),
-        ),
+      isResident: (slug, key) => sectionRefSetHas(activeSections, slug, key),
       entityCap: v3.entity.cap,
       // Rare lines are candidates for the selector's judgment, not evidence
       // strong enough to inject unjudged, so the lane runs only when the

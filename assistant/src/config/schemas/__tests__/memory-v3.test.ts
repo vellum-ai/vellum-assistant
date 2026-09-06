@@ -90,13 +90,13 @@ describe("MemoryV3ConfigSchema", () => {
     ).toThrow();
   });
 
-  test("ignores a persisted retired per-turn window sub-config", () => {
-    // Config files seeded before the section-window tuning was retired still
-    // carry the key; unknown-key stripping keeps them parsing.
+  test("ignores the persisted `spotlight` sub-config", () => {
+    // Workspace migrations 117 and 119 seeded `memory.v3.spotlight` into
+    // config files; unknown-key stripping keeps them parsing.
     const parsed = MemoryV3ConfigSchema.parse({
-      retiredWindow: { n: 3, windowTurns: 2 },
+      spotlight: { n: 3, windowTurns: 2 },
     });
-    expect(parsed).not.toHaveProperty("retiredWindow");
+    expect(parsed).not.toHaveProperty("spotlight");
   });
 
   test("accepts explicit lane-K overrides including zero", () => {

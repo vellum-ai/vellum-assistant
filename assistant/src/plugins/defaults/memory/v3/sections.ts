@@ -29,7 +29,7 @@ export const SECTION_CHUNK_CHARS = 6000;
  * `Section.title` itself is never truncated: keys and renders use the full
  * heading.
  */
-export const SECTION_HEAD_TITLE_CHARS = 200;
+const SECTION_HEAD_TITLE_CHARS = 200;
 
 /** Last `/`- or `.`-delimited segment of a slug (used for the head line). */
 function lastSlugSegment(slug: Slug): string {

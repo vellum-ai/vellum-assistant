@@ -33,7 +33,7 @@ import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migra
 import * as schema from "../../../../../persistence/schema/index.js";
 import {
   ensureMemoryV3PoolsSchema,
-  ensureMemoryV3SelectionsSectionKey,
+  ensureMemoryV3SelectionsSectionKeyOnce,
 } from "../plugin-schema.js";
 import type { PoolCandidateRecord, PoolLane } from "../pool-log-store.js";
 import { type Section, sectionKey } from "../types.js";
@@ -69,7 +69,7 @@ function makeDb() {
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
   // The plugin's own column on the relocated table, so `seed` can write keys.
-  ensureMemoryV3SelectionsSectionKey(memorySqlite);
+  ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite);
   ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
 }
@@ -79,13 +79,13 @@ function candidate(
   slug: string,
   lane: PoolLane,
   chosen: boolean,
-  section?: { title: string; ordinal: number },
+  section?: { title: string },
 ): PoolCandidateRecord {
   return {
     slug,
     lane,
     section_title: section?.title ?? null,
-    section_ordinal: section?.ordinal ?? null,
+    section_key: section?.title ?? null,
     chosen,
   };
 }
@@ -368,10 +368,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       candidates: [
         candidate("domain-a/page-1", "core", true),
         candidate("domain-c/page-9", "hot", false),
-        candidate("domain-b/page-2", "needle", true, {
-          title: "Heading B",
-          ordinal: 2,
-        }),
+        candidate("domain-b/page-2", "needle", true, { title: "Heading B" }),
       ],
       pool_size: 3,
       selected_count: 2,
@@ -397,18 +394,21 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
           slug: "domain-a/page-1",
           lane: "core",
           sectionHeading: null,
+          sectionKey: null,
           chosen: true,
         },
         {
           slug: "domain-c/page-9",
           lane: "hot",
           sectionHeading: null,
+          sectionKey: null,
           chosen: false,
         },
         {
           slug: "domain-b/page-2",
           lane: "needle",
           sectionHeading: "Heading B",
+          sectionKey: "Heading B",
           chosen: true,
         },
       ],
@@ -454,10 +454,7 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
     writePool(memorySqlite, "conv-m", 5, {
       candidates: [
         candidate("domain-a/page-1", "core", false),
-        candidate("domain-b/page-2", "needle", false, {
-          title: "Heading B",
-          ordinal: 2,
-        }),
+        candidate("domain-b/page-2", "needle", false, { title: "Heading B" }),
       ],
       pool_size: 2,
       selected_count: 0,
@@ -484,12 +481,14 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
             slug: "domain-a/page-1",
             lane: "core",
             sectionHeading: null,
+            sectionKey: null,
             chosen: false,
           },
           {
             slug: "domain-b/page-2",
             lane: "needle",
             sectionHeading: "Heading B",
+            sectionKey: "Heading B",
             chosen: false,
           },
         ],

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderCard, renderedBytes } from "./card.js";
+import { renderCard } from "./card.js";
 
 describe("renderCard", () => {
   test("standard article renders head section + section TOC", () => {
@@ -168,23 +168,5 @@ describe("renderCard", () => {
     expect(renderCard("page-g", raw)).toContain(
       "[sections: §Already · §Plain]",
     );
-  });
-});
-
-describe("renderedBytes", () => {
-  test("counts UTF-8 bytes, not characters", () => {
-    expect(renderedBytes("abc")).toBe(3);
-    expect(renderedBytes("§")).toBe(2); // U+00A7 is 2 bytes in UTF-8
-  });
-
-  test("accounts for a rendered card's full byte footprint", () => {
-    const card = renderCard(
-      "page-a",
-      ["# T", "", "Lead.", "", "## S", "b"].join("\n"),
-    );
-    // The card contains exactly one multibyte char (the TOC's "§"), so its
-    // byte footprint is one over its character length.
-    expect(card.match(/§/g)).toHaveLength(1);
-    expect(renderedBytes(card)).toBe(card.length + 1);
   });
 });
