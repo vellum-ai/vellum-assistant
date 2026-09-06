@@ -20,6 +20,8 @@ import {
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { startConversationEvictor } from "../daemon/conversation-evictor.js";
+import { stopMcpServerManager } from "../mcp/manager.js";
+import { startConfiguredMcpServers } from "../mcp/startup.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { registerWorkerPluginSurface } from "../plugins/worker-plugin-surface.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
@@ -102,6 +104,18 @@ async function main(): Promise<void> {
     );
   }
 
+  // Connect this process's own MCP servers. The tool registry is per-process
+  // and MCP tools reach it only by connecting to each server and listing what
+  // it offers, so `initializeTools()` above leaves them out: it loads core
+  // built-ins and workspace tools from disk and nothing else. Without this an
+  // execute-mode schedule fails every `mcp__*` call as "Unknown tool" while the
+  // daemon, which does connect at boot, lists the same tool as registered.
+  //
+  // Connecting here rather than borrowing the daemon's connections is what
+  // keeps this process independent of the daemon's event loop, which is the
+  // reason it is a separate process at all.
+  await startConfiguredMcpServers(getConfig().mcp);
+
   // Sweep idle conversations out of the in-memory pool. The daemon starts
   // this at startup; this process hosts conversations too, so without it
   // every scheduled run's conversation is retained for the process lifetime.
@@ -122,6 +136,13 @@ async function main(): Promise<void> {
       clearInterval(flagRefreshTimer);
     }
     disposePidGuard?.();
+    // Best-effort, deliberately not awaited: this process exits immediately on
+    // a signal by design, and the exit is what everything else here relies on.
+    // Starting the close still lets a stdio server see its stdin shut rather
+    // than only noticing when the pipe breaks.
+    void stopMcpServerManager().catch((err) => {
+      log.warn({ err }, "MCP server shutdown failed (non-fatal)");
+    });
     cleanupWorkerPidFile(pidPath);
     process.exit(0);
   };
