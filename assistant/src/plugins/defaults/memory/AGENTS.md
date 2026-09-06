@@ -208,12 +208,17 @@ between the sections injector's classification and the pointer's render is
 dropped from it (absent this turn, it re-injects on its next selection), and
 a pointer left with nothing is not emitted.
 Under a run-messages replacement (the Slack chronological transcript,
-`TurnContext.replacesRunMessages`, stated by runtime assembly ahead of the
-chain) no frozen block from an earlier turn is in the prompt, so the sections
-injector renders every selection afresh, the pointer injector emits nothing,
-and assembly attaches the block to the transcript's tail in memory only,
-uncaptured and uncommitted: the store claims nothing and the valve is not
-scheduled. The memory-prefix blocks assembly carries from the original tail
+`TurnContext.replacesRunMessages`, set by the chain walker on the context of
+every injector after the one that produced the replacing block, so it is set
+exactly when the replacement fires and never when the channel plugin is
+disabled or its injector gated off) no frozen block from an earlier turn is
+in the prompt, so the sections injector renders every selection afresh, the
+pointer injector emits nothing, and assembly attaches the block to the
+transcript's tail in memory only, uncaptured and uncommitted: the store
+claims nothing and the valve is not scheduled. Assembly captures a block for
+persistence only when it carries a commit, so a block rendered without one is
+never persisted or claimed whatever history it lands on. The memory-prefix
+blocks assembly carries from the original tail
 onto the transcript leave out any v3-owned block whenever the injector
 produced one (a retry's anchor carries the first run's rehydrated frozen
 block), so each re-selected section reaches the model once, in the fresh
