@@ -291,7 +291,7 @@ function seedMemoryConfig(): void {
       rareTerm: {
         enabled: rareTermEnabledCfg,
         maxDf: 12,
-        maxDfFraction: 0.001,
+        maxDfFraction: 0.002,
         perTerm: 2,
         cap: 24,
       },
@@ -1393,7 +1393,7 @@ describe("memory-v3 engine", () => {
     expect(deps.rareTerm).toEqual({
       enabled: true,
       maxDf: 12,
-      maxDfFraction: 0.001,
+      maxDfFraction: 0.002,
       perTerm: 2,
       cap: 24,
     });

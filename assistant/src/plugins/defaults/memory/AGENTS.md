@@ -469,7 +469,7 @@ words first up to `cap` per turn, with no token-shape filtering (a word the
 corpus does not hold has df 0 and drops out on its own; bigram terms are never
 eligible). Rare is corpus-relative: a word qualifies when its df is at most
 `min(maxDf, max(1, floor(sectionCount * maxDfFraction)))` (defaults 12 and
-0.001), so a corpus of 12,000 sections or more runs at `maxDf` and a corpus of
+0.002), so a corpus of 6,000 sections or more runs at `maxDf` and a corpus of
 a few hundred sections counts only a word unique to one section as rare; an
 absolute ceiling would make most ordinary words of a small corpus rare and
 fill `cap` with noise every turn. Both are synchronous in-memory passes that

@@ -215,9 +215,9 @@ describe("rareTermLane corpus-relative ceiling", () => {
   });
 
   test("on a few hundred sections the default fraction admits only a word unique to one section", () => {
-    // floor(300 * 0.001) = 0, floored to 1: "marrow" (df 8) sits under
+    // floor(300 * 0.002) = 0, floored to 1: "marrow" (df 8) sits under
     // `maxDf` but not under the corpus-relative ceiling.
-    const options = { ...TUNED, maxDfFraction: 0.001 };
+    const options = { ...TUNED, maxDfFraction: 0.002 };
     expect(effectiveMaxDf(wide.index.sections.length, options)).toBe(1);
     expect(
       rareTermLane(wide.needle, wide.index, MESSAGE, options).map(
@@ -240,17 +240,18 @@ describe("rareTermLane corpus-relative ceiling", () => {
 });
 
 describe("effectiveMaxDf", () => {
-  const DEFAULTS = { maxDf: 12, maxDfFraction: 0.001 };
+  const DEFAULTS = { maxDf: 12, maxDfFraction: 0.002 };
 
   test("a large corpus keeps maxDf as the binding ceiling", () => {
-    // The corpus the defaults were tuned on: floor(13.665) = 13, above 12.
+    // The corpus the defaults were tuned on: floor(27.33) = 27, above 12.
     expect(effectiveMaxDf(13_665, DEFAULTS)).toBe(12);
-    expect(effectiveMaxDf(12_000, DEFAULTS)).toBe(12);
+    expect(effectiveMaxDf(6_000, DEFAULTS)).toBe(12);
   });
 
   test("below that the ceiling scales with the corpus, never under 1", () => {
-    expect(effectiveMaxDf(11_999, DEFAULTS)).toBe(11);
-    expect(effectiveMaxDf(5_000, DEFAULTS)).toBe(5);
+    expect(effectiveMaxDf(5_999, DEFAULTS)).toBe(11);
+    expect(effectiveMaxDf(5_000, DEFAULTS)).toBe(10);
+    expect(effectiveMaxDf(1_000, DEFAULTS)).toBe(2);
     expect(effectiveMaxDf(150, DEFAULTS)).toBe(1);
     expect(effectiveMaxDf(0, DEFAULTS)).toBe(1);
   });

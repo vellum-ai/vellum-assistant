@@ -30,7 +30,7 @@ describe("MemoryV3ConfigSchema", () => {
       rareTerm: {
         enabled: true,
         maxDf: 12,
-        maxDfFraction: 0.001,
+        maxDfFraction: 0.002,
         perTerm: 2,
         cap: 24,
       },
@@ -141,14 +141,14 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed.rareTerm).toEqual({
       enabled: false,
       maxDf: 5,
-      maxDfFraction: 0.001,
+      maxDfFraction: 0.002,
       perTerm: 2,
       cap: 24,
     });
   });
 
-  test("rareTerm.maxDfFraction defaults to 0.001, takes a value in (0, 1], and rejects the rest", () => {
-    expect(MemoryV3ConfigSchema.parse({}).rareTerm.maxDfFraction).toBe(0.001);
+  test("rareTerm.maxDfFraction defaults to 0.002, takes a value in (0, 1], and rejects the rest", () => {
+    expect(MemoryV3ConfigSchema.parse({}).rareTerm.maxDfFraction).toBe(0.002);
     expect(
       MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: 0.05 } }).rareTerm
         .maxDfFraction,

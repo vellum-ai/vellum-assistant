@@ -18,7 +18,7 @@ import type { SectionIndex, Slug } from "./types.js";
  * `min(maxDf, max(1, floor(sectionCount * maxDfFraction)))`
  * ({@link effectiveMaxDf}): `maxDf` is the absolute ceiling the defaults were
  * tuned at, and the fraction lowers it on a smaller corpus. At the defaults
- * (12 and 0.001) a corpus of 12,000 sections or more runs at 12, while a
+ * (12 and 0.002) a corpus of 6,000 sections or more runs at 12, while a
  * corpus of a few hundred sections counts only a word unique to one section
  * as rare: ordinary words there have df at or below 12, and an absolute
  * ceiling would make most of the message "rare" and fill `cap` with noise

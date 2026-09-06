@@ -249,9 +249,9 @@ export const MemoryV3RareTermSchema = z
       .number({ error: "memory.v3.rareTerm.maxDfFraction must be a number" })
       .positive("memory.v3.rareTerm.maxDfFraction must be greater than 0")
       .max(1, "memory.v3.rareTerm.maxDfFraction must be at most 1")
-      .default(0.001)
+      .default(0.002)
       .describe(
-        "Fraction of the corpus's section count that bounds the rare-word ceiling: the ceiling in force is min(maxDf, max(1, floor(sectionCount * maxDfFraction))), so what counts as rare scales with the corpus. At the default, a corpus of 12,000 sections or more runs at maxDf and a corpus of a few hundred sections counts only a word unique to one section as rare (an absolute ceiling would make most of its ordinary words rare). 1 leaves maxDf as the sole ceiling.",
+        "Fraction of the corpus's section count that bounds the rare-word ceiling: the ceiling in force is min(maxDf, max(1, floor(sectionCount * maxDfFraction))), so what counts as rare scales with the corpus. At the default, a corpus of 6,000 sections or more runs at maxDf and a corpus of a few hundred sections counts only a word unique to one section as rare (an absolute ceiling would make most of its ordinary words rare). 1 leaves maxDf as the sole ceiling.",
       ),
     perTerm: z
       .number({ error: "memory.v3.rareTerm.perTerm must be a number" })
