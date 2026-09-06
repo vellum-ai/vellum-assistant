@@ -418,7 +418,7 @@ export const MemoryV3ConfigSchema = z
       .positive("memory.v3.finderSectionsPerPage must be a positive integer")
       .default(3)
       .describe(
-        "Maximum finder lines one page may carry in the selector pool per turn. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity, rare) until the cap; a section-less edge or learned hit counts as one line.",
+        "Maximum finder lines one page may carry in the selector pool per turn, its rare-term lines aside. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity) until the cap; a section-less edge or learned hit counts as one line. A rare-term line neither counts against the cap nor yields to it (rareTerm.cap bounds those per turn), so a rare word's section surfaces however many lines its page already carries.",
       ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
