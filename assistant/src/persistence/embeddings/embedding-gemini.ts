@@ -191,7 +191,19 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
         `Gemini batch embeddings request failed (${response.status}): ${responseBody}`,
       );
     }
-    const payload = (await response.json()) as GeminiBatchEmbedResponse;
+    let payload: GeminiBatchEmbedResponse;
+    try {
+      payload = (await response.json()) as GeminiBatchEmbedResponse;
+    } catch (err) {
+      log.warn(
+        {
+          inputs: run.length,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "Gemini batch embeddings response was not JSON; re-sending this batch one text per call",
+      );
+      return null;
+    }
     const embeddings = payload.embeddings;
     const vectors: number[][] = [];
     if (Array.isArray(embeddings) && embeddings.length === run.length) {

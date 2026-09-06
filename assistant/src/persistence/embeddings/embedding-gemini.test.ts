@@ -569,6 +569,33 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
+  test("a batch answered with a body that is not JSON is re-sent as singles", async () => {
+    let batchCalls = 0;
+    const fetchMock = mock(async (url: string, init: RequestInit) => {
+      if (url.includes(":batchEmbedContents")) {
+        batchCalls += 1;
+        return new Response("<html>gateway timeout</html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      const body = JSON.parse(init.body as string) as {
+        content: { parts: Array<{ text: string }> };
+      };
+      return makeSuccessResponse([textIndex(body.content.parts[0]!.text)]);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(texts(3));
+
+    expect(vectors.map((v) => v[0])).toEqual([0, 1, 2]);
+    expect(batchCalls).toBe(1);
+    expect(fetchMock.mock.calls).toHaveLength(4);
+  });
+
   test("a batch body without one vector per input is re-sent as singles", async () => {
     const fetchMock = routedFetch({ body: [{ values: [0] }] });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
