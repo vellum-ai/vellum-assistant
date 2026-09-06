@@ -3529,6 +3529,15 @@ export async function dispatchAgentEvent(
         deps.ctx.messages = strippedBase;
         if (event.compacted) {
           await deps.applyCompaction(event, strippedBase);
+        } else {
+          // The strip alone left durable history without the frozen memory
+          // blocks the injection ledgers claim (nothing eligible to summarize,
+          // or an overflow rung that reduced without summarizing), so the
+          // ledgers reset as `applyCompactionResult` resets them on a real
+          // compaction; otherwise every later turn points at sections whose
+          // blocks are gone. Nothing was summarized, so the count is zero, as
+          // on `/clean`.
+          await deps.ctx.graphMemory.onCompacted(0);
         }
         break;
       }

@@ -683,6 +683,11 @@ import {
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  getActiveSections as getV3ActiveSections,
+  recordInjected as recordV3Injected,
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
@@ -906,6 +911,40 @@ function makeCompactionResult(
     summaryModel: "mock-model",
     summaryText: "summary",
     ...overrides,
+  };
+}
+
+/**
+ * `makeCtx` overrides for a real loop that appends a tool turn, is rejected as
+ * context-too-large on the following call, and recovers on the retry, so the
+ * reactive overflow ladder runs between the rejection and the recovery.
+ */
+function overflowAfterToolTurnScenario(): NonNullable<
+  Parameters<typeof makeCtx>[0]
+> {
+  return {
+    providerResponses: [
+      toolUseResponse("t1", "file_read", {}),
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+      textResponse("recovered"),
+    ],
+    loopTools: [
+      {
+        name: "file_read",
+        description: "Read a file",
+        input_schema: { type: "object", properties: {} },
+      },
+    ],
+    toolExecutor: async () => ({ content: "ok", isError: false }),
+    contextWindowManager: {
+      updateConfig: () => {},
+      shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+      maybeCompact: async () => ({ compacted: false }),
+    } as unknown as Conversation["contextWindowManager"],
   };
 }
 
@@ -4429,30 +4468,7 @@ describe("session-agent-loop", () => {
       // context-too-large error on the following call — reactive overflow
       // recovery strips that appended history when it compacts before a final
       // call recovers.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("t1", "file_read", {}),
-          new ContextOverflowError(
-            "context_length_exceeded: 250000 tokens > 200000 maximum",
-            "mock-provider",
-            { actualTokens: 250_000, maxTokens: 200_000 },
-          ),
-          textResponse("recovered"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+      const ctx = makeCtx(overflowAfterToolTurnScenario());
 
       // WHEN the loop runs the turn to completion
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -4483,35 +4499,112 @@ describe("session-agent-loop", () => {
       // context-too-large error on the following call, driving the
       // overflow-recovery strip whose marker-write helper is stubbed to throw,
       // before a final call recovers.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("t1", "file_read", {}),
-          new ContextOverflowError(
-            "context_length_exceeded: 250000 tokens > 200000 maximum",
-            "mock-provider",
-            { actualTokens: 250_000, maxTokens: 200_000 },
-          ),
-          textResponse("recovered"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+      const ctx = makeCtx(overflowAfterToolTurnScenario());
 
-      // Must not throw — the strip-site marker write is wrapped in try/catch.
+      // Must not throw: the strip-site marker write is wrapped in try/catch.
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("injection ledger reset on a non-compacting pipeline run", () => {
+    // The durable base is injection-stripped on every pipeline run, so the
+    // frozen memory blocks the ledgers claim leave history whether or not a
+    // summary lands. The ledgers must reset either way, and before the
+    // post-compaction hook re-injects onto the stripped base; otherwise the
+    // next turn classifies a re-selected section as resident and points at a
+    // block that is gone.
+
+    /** Seed the real memory-v3 section store with one resident section (and
+     *  prove the store is live in this process, so an empty read after the
+     *  run is a reset rather than a degraded store), then arrange a real
+     *  graph memory whose `onCompacted` records its position in `order`
+     *  before running for real, and a post-compact hook that records when
+     *  re-injection ran. */
+    function arrangeResidentSectionAndObservers(conversationId: string) {
+      recordV3Injected(conversationId, [
+        { slug: "page-a", key: "", bytes: 100 },
+      ]);
+      expect(getV3ActiveSections(conversationId)).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      const order: string[] = [];
+      const graphMemory = new ConversationGraphMemory(conversationId);
+      const original = graphMemory.onCompacted.bind(graphMemory);
+      const onCompacted = spyOn(graphMemory, "onCompacted").mockImplementation(
+        async (count: number) => {
+          order.push("reset");
+          await original(count);
+        },
+      );
+      registerPlugin({
+        manifest: { name: "test-observe-post-compact", version: "1.0.0" },
+        hooks: {
+          "post-compact": async () => {
+            order.push("post_compact");
+          },
+        },
+      });
+      return { graphMemory, onCompacted, order };
+    }
+
+    test("a budget-gate run that finds nothing to summarize resets the ledgers before re-injection", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // Above the loop's first-call gate threshold, so it compacts in place
+      // before its first provider call.
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: {
+          updateConfig: () => {},
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async (messages: Message[]) => {
+            order.push("pipeline");
+            // Drop back under budget so the provider call proceeds.
+            mockEstimateTokens = 1000;
+            // The pipeline's no-op result: nothing eligible to summarize.
+            return { compacted: false, messages };
+          },
+        } as unknown as Conversation["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the ledgers reset exactly once, as a strip with no summary, and
+      // before the post-compaction hook re-injected onto the stripped base
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      // AND the section store no longer claims the section, so the next turn
+      // injects it net-new instead of pointing at a block that is gone
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("an overflow rung that reduces without summarizing resets the ledgers before re-injection", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // Reducer: a truncation rung that reduces the history with no summary.
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const ctx = makeCtx({ ...overflowAfterToolTurnScenario(), graphMemory });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
     });
   });
 });

@@ -239,7 +239,16 @@ in `v3/prune.ts`, at assembly's Step 2), so the tail carries one merged block
 section the store claims a body that rehydrates; a legacy-format one (a
 pre-stamp row) cannot take current-format entries under one key, so the
 rerun's block rides the tail in memory only, uncaptured and uncommitted, the
-post-compaction no-claim shape. A re-injection assembly (the post-compaction hook,
+post-compaction no-claim shape. The store reset (`clearConversation`, through
+`ConversationGraphMemory.onCompacted`) runs whenever the durable history is
+injection-stripped, not only when a summary lands: the loop's
+`compaction_completed` dispatch resets it on a pipeline run that compacted
+nothing (no eligible messages, or an overflow rung that reduced without
+summarizing) exactly as `applyCompactionResult` does on a real compaction,
+`/clean` resets it the same way, and every reset precedes the re-injection
+below, so the store never claims a section whose frozen block left durable
+history and the re-injection's render agrees with its residency partition.
+A re-injection assembly (the post-compaction hook,
 which also serves the overflow ladder's rungs) attaches its blocks in memory
 only and never persists them. The injector's turn memo remembers what the
 turn's first produce rendered, and a re-entry re-emits those entries byte for

@@ -357,8 +357,12 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Notify that context compaction just happened.
-   * On the next turn, we'll re-run full context load.
+   * Notify that the durable history was injection-stripped: a compaction
+   * pipeline run (whether or not it summarized anything), an overflow-ladder
+   * rung, or `/clean`. Every injection ledger resets, since the frozen memory
+   * blocks it claims are gone from history, and the next turn re-runs the
+   * full context load. `compactedMessageCount` is 0 when nothing was
+   * summarized.
    */
   async onCompacted(compactedMessageCount: number): Promise<void> {
     // Evict everything — compaction summarized all prior turns.
@@ -388,9 +392,9 @@ export class ConversationGraphMemory {
       );
     }
 
-    // Memory-v3's frozen-card dedup record resets at the same trigger: the
-    // cached card blocks those slugs rode were just stripped by compaction, so
-    // every slug must become re-injectable. Cleared unconditionally for the
+    // Memory-v3's section record resets at the same trigger: the frozen
+    // section blocks it claims were just stripped from history, so every
+    // section must become re-injectable. Cleared unconditionally for the
     // same crash-drift reason as v2's `everInjected` above.
     try {
       clearV3EverInjected(this.conversationId);

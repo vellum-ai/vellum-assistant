@@ -435,14 +435,15 @@ export type AgentEvent =
        * `stripInjectionsForCompaction`.
        *
        * The daemon's event dispatcher commits the stripped pre-compaction
-       * base as the conversation's durable message state. Re-injection (the
+       * base as the conversation's durable message state and resets the
+       * memory-injection ledgers, whose frozen blocks leave durable history
+       * with the strip whether or not a summary landed. Re-injection (the
        * post-compaction hook) strips runtime injections before re-applying
        * them, so it is idempotent whether the loop continues from the
        * stripped compaction result or from the unchanged injected history.
        * When `compacted` is set the dispatcher additionally commits the
-       * durable compaction result (DB-record fields, graph-memory side
-       * effects, SSE) and projects Slack provenance from the pre-compaction
-       * base.
+       * durable compaction result (DB-record fields, SSE) and projects Slack
+       * provenance from the pre-compaction base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
@@ -1049,9 +1050,10 @@ export class AgentLoop {
       );
     }
     // Emit unconditionally: the dispatcher commits the stripped pre-compaction
-    // base (re-derived from the start event) as the durable message base
-    // whether or not the pipeline compacted (re-injection reads it), and runs
-    // the durable compaction commit only when `compacted`.
+    // base (re-derived from the start event) as the durable message base and
+    // resets the memory-injection ledgers whether or not the pipeline
+    // compacted (re-injection reads both), and runs the durable compaction
+    // commit only when `compacted`.
     await onEvent({
       type: "compaction_completed",
       compactionId,
