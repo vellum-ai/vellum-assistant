@@ -4508,13 +4508,15 @@ describe("session-agent-loop", () => {
     });
   });
 
-  describe("injection ledger reset on a non-compacting pipeline run", () => {
+  describe("injection ledger reset after an injection strip", () => {
     // The durable base is injection-stripped on every pipeline run, so the
     // frozen memory blocks the ledgers claim leave history whether or not a
     // summary lands. The ledgers must reset either way, and before the
     // post-compaction hook re-injects onto the stripped base; otherwise the
     // next turn classifies a re-selected section as resident and points at a
-    // block that is gone.
+    // block that is gone. The reset is gated on the history-stripped marker:
+    // without it a restart rehydrates the stripped blocks, so cleared ledgers
+    // would inject each section again beside its rehydrated copy.
 
     /** Seed the real memory-v3 section store with one resident section (and
      *  prove the store is live in this process, so an empty read after the
@@ -4549,6 +4551,23 @@ describe("session-agent-loop", () => {
       return { graphMemory, onCompacted, order };
     }
 
+    /** A manager whose pipeline runs (recorded in `order`) and finds nothing
+     *  eligible to summarize, dropping the estimate back under budget so the
+     *  provider call proceeds. */
+    function noopPipelineManager(
+      order: string[],
+    ): Conversation["contextWindowManager"] {
+      return {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (messages: Message[]) => {
+          order.push("pipeline");
+          mockEstimateTokens = 1000;
+          return { compacted: false, messages };
+        },
+      } as unknown as Conversation["contextWindowManager"];
+    }
+
     test("a budget-gate run that finds nothing to summarize resets the ledgers before re-injection", async () => {
       const { graphMemory, onCompacted, order } =
         arrangeResidentSectionAndObservers("test-conv");
@@ -4557,23 +4576,18 @@ describe("session-agent-loop", () => {
       mockEstimateTokens = 90_000;
       const ctx = makeCtx({
         graphMemory,
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async (messages: Message[]) => {
-            order.push("pipeline");
-            // Drop back under budget so the provider call proceeds.
-            mockEstimateTokens = 1000;
-            // The pipeline's no-op result: nothing eligible to summarize.
-            return { compacted: false, messages };
-          },
-        } as unknown as Conversation["contextWindowManager"],
+        contextWindowManager: noopPipelineManager(order),
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      // THEN the ledgers reset exactly once, as a strip with no summary, and
-      // before the post-compaction hook re-injected onto the stripped base
+      // THEN the marker is durable, so the ledgers reset exactly once, as a
+      // strip with no summary, and before the post-compaction hook
+      // re-injected onto the stripped base
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
+        "test-conv",
+        expect.any(Number),
+      );
       expect(onCompacted.mock.calls).toEqual([[0]]);
       expect(order).toEqual(["pipeline", "reset", "post_compact"]);
       // AND the section store no longer claims the section, so the next turn
@@ -4605,6 +4619,76 @@ describe("session-agent-loop", () => {
       expect(onCompacted.mock.calls).toEqual([[0]]);
       expect(order).toEqual(["pipeline", "reset", "post_compact"]);
       expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("leaves the ledgers intact when the history-stripped marker cannot be written", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // The marker write fails at the strip and again at the re-attempt that
+      // precedes the reset.
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN no reset ran: a restart rehydrates the frozen blocks with no
+      // marker to skip them, so the store must keep claiming the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalled();
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(order).toEqual(["pipeline", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+    });
+
+    test("applyCompactionResult resets the ledgers only once the marker is written", async () => {
+      const order: string[] = [];
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        order.push("marker");
+      });
+      const onCompacted = mock(async (_count: number) => {
+        order.push("reset");
+      });
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult(),
+        () => {},
+        "req-1",
+      );
+
+      expect(onCompacted.mock.calls).toEqual([[4]]);
+      expect(order).toEqual(["marker", "reset"]);
+    });
+
+    test("applyCompactionResult leaves the ledgers intact when the marker cannot be written", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      const onCompacted = mock(async (_count: number) => {});
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      // The marker write is best-effort, so the durable commit still lands.
+      await expect(
+        applyCompactionResult(ctx, makeCompactionResult(), () => {}, "req-1"),
+      ).resolves.toBeUndefined();
+
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
+        "test-conv",
+        expect.any(Number),
+      );
+      expect(onCompacted).not.toHaveBeenCalled();
     });
   });
 });

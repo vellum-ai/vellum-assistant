@@ -158,19 +158,47 @@ function shouldPersistProviderErrorAsAssistantMessage(classified: {
 /**
  * Persist the history-stripped marker after the loop strips runtime injections
  * for compaction / overflow recovery. The marker is a durability hint, not
- * turn-critical state — a transient SQLite write failure (SQLITE_BUSY,
+ * turn-critical state: a transient SQLite write failure (SQLITE_BUSY,
  * disk-full, read-only FS) must not abort the turn, so failures log a warning
- * and continue.
+ * and continue. Returns whether the marker is durable, which gates the
+ * memory-injection ledger reset ({@link resetInjectionLedgersForStrip}).
  */
-export function markHistoryStrippedBestEffort(conversationId: string): void {
+export function markHistoryStrippedBestEffort(conversationId: string): boolean {
   try {
     setConversationHistoryStrippedAt(conversationId, Date.now());
+    return true;
   } catch (err) {
     log.warn(
       { err, conversationId },
       "Failed to persist history-stripped marker after compaction strip (non-fatal)",
     );
+    return false;
   }
+}
+
+/**
+ * Reset the memory-injection ledgers for an injection strip of the durable
+ * history, once the history-stripped marker is durable. The marker is what
+ * keeps `loadFromDb` from rehydrating the stripped blocks: a reset without it
+ * would leave a restart rehydrating blocks the ledgers no longer claim, so
+ * each would inject again beside its rehydrated copy. The marker is written
+ * (or re-attempted) here, and when it cannot be written the ledgers are left
+ * as they are, so the rehydrated blocks and the claiming ledgers still agree,
+ * and the skipped reset is logged. `compactedMessageCount` is the summarized
+ * count, 0 when nothing was summarized.
+ */
+export async function resetInjectionLedgersForStrip(
+  ctx: Pick<Conversation, "conversationId" | "graphMemory">,
+  compactedMessageCount: number,
+): Promise<void> {
+  if (!markHistoryStrippedBestEffort(ctx.conversationId)) {
+    log.warn(
+      { conversationId: ctx.conversationId },
+      "History-stripped marker not durable; leaving the memory-injection ledgers intact",
+    );
+    return;
+  }
+  await ctx.graphMemory.onCompacted(compactedMessageCount);
 }
 
 // ── Partial-persistence tunables ─────────────────────────────────────
@@ -3537,7 +3565,7 @@ export async function dispatchAgentEvent(
           // compaction; otherwise every later turn points at sections whose
           // blocks are gone. Nothing was summarized, so the count is zero, as
           // on `/clean`.
-          await deps.ctx.graphMemory.onCompacted(0);
+          await resetInjectionLedgersForStrip(deps.ctx, 0);
         }
         break;
       }
@@ -3545,7 +3573,9 @@ export async function dispatchAgentEvent(
         // Record the history-stripped DB marker right after the loop strips
         // injections (before the pipeline). Best-effort: a transient marker
         // write must not abort the turn, so unlike `compaction_completed` this
-        // is not on the re-throw allowlist below.
+        // is not on the re-throw allowlist below. The `compaction_completed`
+        // dispatch re-attempts the write before resetting the injection
+        // ledgers, so a failure here only defers the marker.
         markHistoryStrippedBestEffort(deps.ctx.conversationId);
         break;
       case "error":

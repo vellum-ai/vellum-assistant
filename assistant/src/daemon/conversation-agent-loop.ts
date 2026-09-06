@@ -96,7 +96,7 @@ import {
   dispatchAgentEvent,
   type EventHandlerDeps,
   finalizePendingToolResultRow,
-  markHistoryStrippedBestEffort,
+  resetInjectionLedgersForStrip,
   settlePendingPartialFlush,
 } from "./conversation-agent-loop-handlers.js";
 import {
@@ -2235,13 +2235,12 @@ export async function applyCompactionResult(
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
+  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

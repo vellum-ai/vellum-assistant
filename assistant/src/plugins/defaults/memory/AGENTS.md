@@ -248,6 +248,13 @@ summarizing) exactly as `applyCompactionResult` does on a real compaction,
 `/clean` resets it the same way, and every reset precedes the re-injection
 below, so the store never claims a section whose frozen block left durable
 history and the re-injection's render agrees with its residency partition.
+Each reset is gated on the `historyStrippedAt` marker being durable
+(`resetInjectionLedgersForStrip` in `daemon/conversation-agent-loop-handlers.ts`
+writes it, or re-attempts it, first): a reset without the marker would let a
+restart rehydrate blocks the store no longer claims, injecting each again
+beside its rehydrated copy, so a marker write that fails leaves the store
+intact (the rehydrated blocks and the claiming store still agree) and logs
+the skipped reset.
 A re-injection assembly (the post-compaction hook,
 which also serves the overflow ladder's rungs) attaches its blocks in memory
 only and never persists them. The injector's turn memo remembers what the
