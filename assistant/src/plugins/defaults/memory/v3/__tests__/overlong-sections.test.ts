@@ -77,6 +77,24 @@ describe("listOverlongSections", () => {
     ]);
   });
 
+  test("a blank heading shares the lead's empty title and is told apart by occurrence", async () => {
+    const over = "y".repeat(bodyLimit("notes", "") + 1);
+
+    const report = await listOverlongSections(
+      "/unused",
+      deps({ notes: `lead text\n## \n${over}` }),
+    );
+
+    expect(report.sections).toEqual([
+      {
+        slug: "notes",
+        title: "",
+        chars: indexedChars("notes", "", over),
+        occurrence: 1,
+      },
+    ]);
+  });
+
   test("a corpus with nothing over the window reports no sections", async () => {
     const report = await listOverlongSections(
       "/unused",

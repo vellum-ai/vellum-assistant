@@ -1000,9 +1000,14 @@ export function renderOverlongSectionsSection(
       section.occurrence !== undefined
         ? ` (the ${ordinal(section.occurrence + 1)} heading of that name)`
         : "";
+    // An empty title is the lead when it is the page's first (the split
+    // always seeds the lead first); a later one is a blank `## ` heading.
+    const blankHeading = section.occurrence ?? 0;
     const where =
       section.title.length === 0
-        ? "the lead"
+        ? blankHeading === 0
+          ? "the lead"
+          : `a blank \`## \` heading (the ${ordinal(blankHeading)} heading with no title)`
         : `\`## ${sanitizeParseFailureText(section.title, MAX_SLUG_CHARS)}\`${repeat}`;
     return `- \`memory/concepts/${sanitizeParseFailureText(
       section.slug,

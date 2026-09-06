@@ -727,6 +727,26 @@ describe("resolveConsolidationPrompt: over-long-sections repair section", () => 
     );
   });
 
+  test("an empty title is the lead only when it is the page's first; a later one is a blank heading", () => {
+    const section = renderOverlongSectionsSection({
+      windowChars: 6000,
+      sections: [
+        { slug: "notes", title: "", chars: 7000, occurrence: 0 },
+        { slug: "notes", title: "", chars: 6500, occurrence: 1 },
+        { slug: "other", title: "", chars: 6200 },
+      ],
+    });
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, the lead (7,000 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, a blank `## ` heading (the 1st heading with no title) (6,500 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/other.md`, the lead (6,200 characters)",
+    );
+  });
+
   test("caps the list at ten, largest first, and counts the remainder", () => {
     const sections = Array.from({ length: 12 }, (_, i) => ({
       slug: `page-${i}`,
