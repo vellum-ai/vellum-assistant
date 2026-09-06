@@ -149,10 +149,12 @@ function legacyCardsTableExists(memoryRaw: MemorySqlite): boolean {
  * its `injected_at` and `pruned_at`, so in-flight conversations keep their
  * dedup state across the cutover (a frozen card in history is the page's
  * lead plus a TOC, and the lead is what a re-selection of that page without
- * a matched section would inject again). Zero bytes because the card's
- * block is opaque to the section readers (rehydrated verbatim, never parsed
- * or stripped): like a capability row, the entry is dedup-only, never a
- * prune candidate, and never counted in the resident footprint.
+ * a matched section would inject again). Zero bytes because a legacy block
+ * is never re-pruned (its cards leave only under the `pruned_at` carried
+ * here, or when a current block re-injects a lead; `filterLegacyCards` in
+ * `substrate/injected-block-slugs.ts`): like a capability row, the entry is
+ * dedup-only, never a prune candidate, and never counted in the resident
+ * footprint.
  *
  * The copy runs once per database. The first ensure that finds the legacy
  * table copies its rows and records {@link SECTIONS_LEGACY_COPY_DONE_KEY} in

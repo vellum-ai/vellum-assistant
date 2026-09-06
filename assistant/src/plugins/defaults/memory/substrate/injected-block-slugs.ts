@@ -21,9 +21,11 @@
  *
  * The parser reads this escaped grammar only. A v3 block persisted without
  * the format stamp (`memoryV3InjectedBlockFormat`; `InjectedBlockFormat` in
- * `plugins/defaults/memory/v3/types.ts`) was rendered by a build before body
- * escaping and is opaque to every reader: rehydrated verbatim and never
- * handed to the parser.
+ * `plugins/defaults/memory/v3/types.ts`) was rendered as compact cards by a
+ * build before body escaping and is never handed to the parser: the legacy
+ * card grammar below ({@link parseLegacyCards}, {@link filterLegacyCards})
+ * reads it exactly as that build did, so a card pruned before the upgrade
+ * is filtered out of it at rehydration and in the live strip.
  *
  * Skill and CLI-command chunks carry no recoverable slug, so the slug
  * extractor intentionally skips them.
@@ -239,9 +241,63 @@ type BoundaryRef =
   | { kind: "capability"; capability: "skill" | "cli-command"; id: string }
   | { kind: "other" };
 
-interface Boundary {
+/** A chunk boundary: the offset of the header line that opens a piece, with
+ *  the piece's classification. */
+interface Boundary<Ref> {
   index: number;
-  ref: BoundaryRef;
+  ref: Ref;
+}
+
+/**
+ * Cut `inner` at `boundaries` (sorted in place) into the preamble before the
+ * first one and one piece per boundary: its `ref` plus the text from its
+ * header up to the next boundary, `trimEnd()`ed so re-joining pieces with
+ * `\n\n` reproduces the renderer's exact bytes. With no boundary the whole
+ * text is the preamble.
+ */
+function cutAtBoundaries<Ref extends object>(
+  inner: string,
+  boundaries: Array<Boundary<Ref>>,
+): { preamble: string; pieces: Array<Ref & { text: string }> } {
+  if (boundaries.length === 0) {
+    return { preamble: inner, pieces: [] };
+  }
+  boundaries.sort((a, b) => a.index - b.index);
+  const preamble = inner.slice(0, boundaries[0]!.index).trimEnd();
+  const pieces = boundaries.map((boundary, i) => {
+    const end =
+      i + 1 < boundaries.length ? boundaries[i + 1]!.index : undefined;
+    return {
+      ...boundary.ref,
+      text: inner.slice(boundary.index, end).trimEnd(),
+    };
+  });
+  return { preamble, pieces };
+}
+
+/**
+ * Re-join the pieces kept from a parsed block behind its preamble on the
+ * renderer's `\n\n` seams, byte-identical to a fresh render of those chunks.
+ * Returns `inner` UNCHANGED (same reference) when every piece is kept, so a
+ * caller detects a no-op by identity, and `""` when none is (a bare preamble
+ * carries no content; the caller drops the block).
+ */
+export function rejoinKeptPieces(
+  inner: string,
+  parsed: { preamble: string; pieces: ReadonlyArray<{ text: string }> },
+  kept: ReadonlyArray<{ text: string }>,
+): string {
+  if (kept.length === parsed.pieces.length) {
+    return inner;
+  }
+  if (kept.length === 0) {
+    return "";
+  }
+  const texts = kept.map((piece) => piece.text);
+  if (parsed.preamble.length > 0) {
+    texts.unshift(parsed.preamble);
+  }
+  return texts.join("\n\n");
 }
 
 /** Whether a header match at `index` opens its own `\n\n`-joined chunk: it
@@ -297,14 +353,14 @@ function classifyNonSectionHeader(line: string): BoundaryRef {
  *
  * Only a block rendered under this grammar is handed to the parser (a
  * persisted block carrying the format stamp, or one rendered in-process); a
- * pre-stamp block is opaque, see the module doc.
+ * pre-stamp block is read by {@link parseLegacyCards}.
  */
 export function parseInjectedSections(inner: string): {
   preamble: string;
   sections: ParsedInjectedSection[];
   pieces: InjectionBlockPiece[];
 } {
-  const boundaries: Boundary[] = [];
+  const boundaries: Array<Boundary<BoundaryRef>> = [];
   for (const match of inner.matchAll(INJECTED_CONCEPT_HEADER_REGEX)) {
     if (onChunkSeam(inner, match.index!)) {
       boundaries.push({
@@ -323,23 +379,89 @@ export function parseInjectedSections(inner: string): {
       });
     }
   }
-  boundaries.sort((a, b) => a.index - b.index);
-  if (boundaries.length === 0) {
-    return { preamble: inner, sections: [], pieces: [] };
-  }
-
-  const preamble = inner.slice(0, boundaries[0]!.index).trimEnd();
-  const pieces = boundaries.map((boundary, i): InjectionBlockPiece => {
-    const end =
-      i + 1 < boundaries.length ? boundaries[i + 1]!.index : undefined;
-    const text = inner.slice(boundary.index, end).trimEnd();
-    return { ...boundary.ref, text };
-  });
+  const { preamble, pieces } = cutAtBoundaries(inner, boundaries);
   const sections = pieces.filter(
     (piece): piece is Extract<InjectionBlockPiece, { kind: "section" }> =>
       piece.kind === "section",
   );
   return { preamble, sections, pieces };
+}
+
+// ─── legacy card grammar ─────────────────────────────────────────────────────
+
+/**
+ * Header line of a legacy card: the bare page header, one compact card per
+ * page, as the builds before the format stamp rendered a block. Greedy in
+ * the slug (no section key existed to bleed into it). Flagged `gm` for
+ * `matchAll` like {@link INJECTED_CONCEPT_HEADER_REGEX}: never `exec`/`test`
+ * it.
+ */
+const LEGACY_CARD_HEADER_REGEX = /^# memory\/concepts\/(.+)\.md$/gm;
+
+/** Any top-level `# ` line: a card header or a foreign one (a capability
+ *  chunk's `# Skill:` / `# CLI command:` line, the `# Skills` hint). */
+const TOP_LEVEL_HEADER_REGEX = /^# /gm;
+
+type LegacyCardRef = { kind: "card"; slug: string } | { kind: "other" };
+
+/** One ordered chunk of a parsed legacy card block: a page's card (owned by
+ *  `slug`) or any other `\n\n`-joined chunk (capability content under its
+ *  own header, the skills hint; never dropped). */
+export type LegacyCardPiece = LegacyCardRef & { text: string };
+
+/**
+ * Split an UNWRAPPED legacy card block (a `memoryV3InjectedBlock` persisted
+ * without the format stamp) into its preamble and ordered chunk pieces,
+ * under the grammar the build that rendered it read: a card opens at every
+ * page header wherever it sits (bodies were not escaped, so a page line
+ * shaped like one splits here exactly as it did for that build's valve) and
+ * ends at the next page header or at any other top-level `# ` line on a
+ * `\n\n` seam, so a capability chunk trailing a card is its own piece and
+ * dropping the card never deletes it. The seam requirement keeps a card
+ * head's own `# Title` line, which follows the path header with a single
+ * `\n`, inside the card. With no page header the whole text is the
+ * preamble.
+ */
+export function parseLegacyCards(inner: string): {
+  preamble: string;
+  pieces: LegacyCardPiece[];
+} {
+  const boundaries: Array<Boundary<LegacyCardRef>> = [];
+  const cardStarts = new Set<number>();
+  for (const match of inner.matchAll(LEGACY_CARD_HEADER_REGEX)) {
+    cardStarts.add(match.index!);
+    boundaries.push({
+      index: match.index!,
+      ref: { kind: "card", slug: match[1]! },
+    });
+  }
+  if (boundaries.length === 0) {
+    return { preamble: inner, pieces: [] };
+  }
+  for (const match of inner.matchAll(TOP_LEVEL_HEADER_REGEX)) {
+    if (!cardStarts.has(match.index!) && onChunkSeam(inner, match.index!)) {
+      boundaries.push({ index: match.index!, ref: { kind: "other" } });
+    }
+  }
+  return cutAtBoundaries(inner, boundaries);
+}
+
+/**
+ * Remove from an unwrapped legacy card block every card whose page slug
+ * `drop` names; non-card chunks are always kept. Same contract as
+ * {@link rejoinKeptPieces}: the input UNCHANGED (same reference) when
+ * nothing is removed, `""` when every chunk is, and a remainder
+ * byte-identical to a fresh render of the kept chunks.
+ */
+export function filterLegacyCards(
+  inner: string,
+  drop: (slug: string) => boolean,
+): string {
+  const parsed = parseLegacyCards(inner);
+  const kept = parsed.pieces.filter(
+    (piece) => piece.kind !== "card" || !drop(piece.slug),
+  );
+  return rejoinKeptPieces(inner, parsed, kept);
 }
 
 /**

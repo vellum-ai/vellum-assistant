@@ -5,8 +5,10 @@
  *     byte-identical remainders, all-pruned → `""`, no-op → same reference,
  *     non-section chunks (`# Skills`, `# Skill:` / `# CLI command:` headers)
  *     terminating a section and surviving its prune, arbitrary `# ` lines
- *     inside a section body staying inside it, and a body line that would
- *     read as a header arriving escaped from the renderer;
+ *     inside a section body staying inside it, a body line that would
+ *     read as a header arriving escaped from the renderer, and a legacy
+ *     (pre-stamp) block filtered by card under each card's lead ref, never
+ *     indexed;
  *   - `filterResidentPointerEntries`: a pruned section's line, or one whose
  *     section was re-injected further down, leaves the `<memory_pointer>`
  *     block; an emptied pointer collapses to `""`;
@@ -135,7 +137,7 @@ const {
   seedEverInjectedFromBlocks,
   touchSelected,
 } = await import("./ever-injected-store.js");
-const { markV3LiveBlock } = await import("./types.js");
+const { markV3LiveBlock, v3LiveBlockFormat } = await import("./types.js");
 const { V3_INJECTION_HEADER, renderInjectionBlockInner, renderPointerInner } =
   await import("./render-injection.js");
 const { renderV3SectionInjection } = await import("./page-content.js");
@@ -151,6 +153,12 @@ function lead(slug: string): string {
 /** A heading-section entry: `§ key` header plus body. */
 function section(slug: string, key: string): string {
   return `${injectedSectionHeader(slug, key)}\nbody of ${slug} ${key}`;
+}
+
+/** A card exactly as the pre-stamp builds' card renderer shaped one: page
+ *  header, the page's own `# Title` line, head, one-line section TOC. */
+function legacyCard(slug: string): string {
+  return `${injectedSectionHeader(slug, "")}\n# ${slug}\nhead of ${slug}\n\n[sections: §One · §Two]`;
 }
 
 /** A capability chunk exactly as `renderCapabilityContent` shapes it: its own
@@ -173,7 +181,7 @@ function refSet(
 }
 
 /** A persisted block with its row's provenance: current (this build's
- *  render, stamped) or legacy (a pre-stamp row, opaque). */
+ *  render, stamped) or legacy (a pre-stamp row, read by card). */
 const current = (inner: string): InjectedBlock => ({
   inner,
   format: "current",
@@ -420,7 +428,61 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
   });
 
-  test("a legacy block (a pre-stamp row's) is opaque: the filter returns it as is whatever the tombstones name, and the newest-copy index skips it", () => {
+  test("a legacy block (a pre-stamp row's) is filtered by card under each lead ref: a tombstoned card leaves, the rest stays byte-identical, and the block is never indexed", () => {
+    const cardA = legacyCard("page-a");
+    const cardB = legacyCard("page-b");
+    const legacyInner = [V3_INJECTION_HEADER, cardA, cardB].join("\n\n");
+
+    // Nothing it holds tombstoned: the same reference back. A heading
+    // section's tombstone names no card.
+    expect(filterPrunedSections(legacyInner, "legacy", refSet())).toBe(
+      legacyInner,
+    );
+    expect(
+      filterPrunedSections(legacyInner, "legacy", refSet(["page-a", "One"])),
+    ).toBe(legacyInner);
+    // page-b's lead tombstoned before the upgrade: its card leaves and
+    // page-a's rehydrates byte for byte.
+    expect(
+      filterPrunedSections(legacyInner, "legacy", refSet(["page-b", ""])),
+    ).toBe([V3_INJECTION_HEADER, cardA].join("\n\n"));
+    // Every card tombstoned: nothing left, the caller drops the block.
+    expect(
+      filterPrunedSections(
+        legacyInner,
+        "legacy",
+        refSet(["page-a", ""], ["page-b", ""]),
+      ),
+    ).toBe("");
+
+    // page-a's lead re-injected by a current block after that prune (which
+    // cleared its tombstone): the current copy supersedes the card. The
+    // legacy block contributes nothing to the index, so a legacy copy
+    // sitting after a current one never retires it.
+    const reinjected = renderInjectionBlockInner([lead("page-a")]);
+    const newest = newestCopyIndexes([
+      legacy(legacyInner),
+      current(reinjected),
+    ]);
+    expect(newest.size).toBe(1);
+    expect(
+      filterResidentSections(legacyInner, "legacy", 0, refSet(), newest),
+    ).toBe([V3_INJECTION_HEADER, cardB].join("\n\n"));
+    expect(
+      filterResidentSections(reinjected, "current", 1, refSet(), newest),
+    ).toBe(reinjected);
+    expect(
+      filterResidentSections(
+        reinjected,
+        "current",
+        0,
+        refSet(),
+        newestCopyIndexes([current(reinjected), legacy(legacyInner)]),
+      ),
+    ).toBe(reinjected);
+  });
+
+  test("a legacy block is read with its build's card grammar: an unescaped head line shaped like a page header opens a card, as it did for that build's valve", () => {
     const cardA = [
       injectedSectionHeader("page-a", ""),
       "# Page A",
@@ -434,43 +496,24 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     const legacyInner = [V3_INJECTION_HEADER, cardA, lead("page-b")].join(
       "\n\n",
     );
-    // The same reference back, every slug it holds tombstoned or not.
+    const forgedCard =
+      "# memory/concepts/example.md\nmore lead prose\n\n[sections: §Notes · §Design]";
     expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        refSet(["page-a", ""], ["page-b", ""], ["example", ""]),
-      ),
-    ).toBe(legacyInner);
+      filterPrunedSections(legacyInner, "legacy", refSet(["page-a", ""])),
+    ).toBe([V3_INJECTION_HEADER, forgedCard, lead("page-b")].join("\n\n"));
+    expect(
+      filterPrunedSections(legacyInner, "legacy", refSet(["example", ""])),
+    ).toBe(
+      [
+        V3_INJECTION_HEADER,
+        cardA.slice(0, cardA.indexOf(forgedCard)).trimEnd(),
+        lead("page-b"),
+      ].join("\n\n"),
+    );
     // The same bytes under the current format are filtered by section.
     expect(
       filterPrunedSections(legacyInner, "current", refSet(["page-b", ""])),
     ).toBe([V3_INJECTION_HEADER, cardA].join("\n\n"));
-
-    // A later current copy of page-a's lead retires nothing in the legacy
-    // block, and the legacy block contributes nothing to the index: a legacy
-    // copy sitting after a current one never retires it either.
-    const reinjected = renderInjectionBlockInner([lead("page-a")]);
-    const newest = newestCopyIndexes([
-      legacy(legacyInner),
-      current(reinjected),
-    ]);
-    expect(newest.size).toBe(1);
-    expect(
-      filterResidentSections(legacyInner, "legacy", 0, refSet(), newest),
-    ).toBe(legacyInner);
-    expect(
-      filterResidentSections(reinjected, "current", 1, refSet(), newest),
-    ).toBe(reinjected);
-    expect(
-      filterResidentSections(
-        reinjected,
-        "current",
-        0,
-        refSet(),
-        newestCopyIndexes([current(reinjected), legacy(legacyInner)]),
-      ),
-    ).toBe(reinjected);
   });
 
   test("all sections pruned keeps the preamble + capability chunks", () => {
@@ -1265,21 +1308,24 @@ describe("runPruneValve", () => {
     expect(await runPruneValve("conv-1")).toBeNull();
   });
 
-  test("the valve never strips a legacy block: it stays the same object while a current block beside it is stripped, and rehydration agrees", async () => {
-    const card = [
-      injectedSectionHeader("stub", ""),
-      "# Stub",
-      "just a lead, no sections",
-      "",
-      "[sections: §One]",
-    ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, card].join("\n\n");
+  test("the valve never plans a legacy card; the live strip drops a card tombstoned before the upgrade from a legacy block, re-marked legacy, and rehydration agrees", async () => {
+    const stubCard = legacyCard("stub");
+    const keptCard = legacyCard("kept");
+    const legacyInner = [V3_INJECTION_HEADER, stubCard, keptCard].join("\n\n");
     const currentInner = renderInjectionBlockInner([lead("page-a")]);
     insertUserRowWithV3Block("conv-1", "m1", legacyInner, "legacy");
     insertUserRowWithV3Block("conv-1", "m2", currentInner);
-    // The card's row is dedup-only (zero bytes, as the schema ensure copies
-    // it in) and already tombstoned; the current lead carries its bytes.
-    recordInjected("conv-1", [{ slug: "stub", key: "", bytes: 0 }], 1_000);
+    // The cards' rows are dedup-only (zero bytes, as the schema ensure copies
+    // them in), stub's tombstoned before the upgrade; the current lead
+    // carries its bytes.
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "stub", key: "", bytes: 0 },
+        { slug: "kept", key: "", bytes: 0 },
+      ],
+      1_000,
+    );
     markPruned("conv-1", [{ slug: "stub", key: "" }], 1_500);
     recordInjected("conv-1", [{ slug: "page-a", key: "", bytes: 300 }], 2_000);
 
@@ -1308,15 +1354,22 @@ describe("runPruneValve", () => {
       sections: [{ slug: "page-a", key: "" }],
       bytesFreed: 300,
     });
-    expect(liveMessages[0]!.content[0]).toBe(legacyBlock);
+    // The legacy block lost stub's card, kept the other byte for byte, and
+    // is owned in its place under its own format for the next strip.
+    const remainder = [V3_INJECTION_HEADER, keptCard].join("\n\n");
+    const stripped = liveMessages[0]!.content[0]!;
+    expect(stripped).not.toBe(legacyBlock);
+    expect(stripped).toEqual({
+      type: "text",
+      text: wrapMemoryBlock(remainder),
+    });
+    expect(v3LiveBlockFormat(stripped)).toBe("legacy");
     expect(liveMessages[2]!.content).toEqual([
       { type: "text", text: "turn 2" },
     ]);
     const pruned = getPrunedSections("conv-1");
     expect(pruned).toEqual(refSet(["stub", ""], ["page-a", ""]));
-    expect(filterPrunedSections(legacyInner, "legacy", pruned)).toBe(
-      legacyInner,
-    );
+    expect(filterPrunedSections(legacyInner, "legacy", pruned)).toBe(remainder);
     expect(filterPrunedSections(currentInner, "current", pruned)).toBe("");
   });
 

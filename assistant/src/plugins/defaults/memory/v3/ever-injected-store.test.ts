@@ -601,7 +601,7 @@ describe("seedEverInjectedFromBlocks", () => {
     expect(residentBytes("conv-child")).toBe(renderedBytes(leadA));
   });
 
-  test("a legacy block (a pre-stamp row's) is opaque and seeds nothing; the current blocks beside it seed as usual", () => {
+  test("a legacy block (a pre-stamp row's) seeds nothing; the current blocks beside it seed as usual", () => {
     const card = [
       injectedSectionHeader("topics/page-a", ""),
       "# Page A",

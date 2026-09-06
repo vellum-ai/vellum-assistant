@@ -78,12 +78,18 @@
  * next turn persists the capability anew) is superseded like a section's.
  *
  * Legacy-format note: a v3 block persisted without the format stamp
- * (`InjectedBlockFormat` in `types.ts`) is opaque at both filter points and
- * in the newest-copy index: rehydrated verbatim, never parsed, stripped, or
- * superseded, and never retiring a later current copy of a section it holds.
- * The section store carries its slugs at zero bytes (`plugin-schema.ts`), so
- * nothing in it is ever planned, and it leaves with the compaction that
- * strips memory blocks and clears the store.
+ * (`InjectedBlockFormat` in `types.ts`) was rendered as compact cards by a
+ * build before body escaping, and both filter points read it with that
+ * build's card grammar (`filterLegacyCards` in
+ * `substrate/injected-block-slugs.ts`), each card under its lead ref
+ * `(slug, "")`: a card whose lead is tombstoned leaves, so a prune that
+ * predates the upgrade holds across restarts, and one whose lead a
+ * current-format block re-injected after such a prune (clearing the
+ * tombstone) is superseded by that copy. The block is never indexed by
+ * {@link newestCopyIndexes} (its cards retire no current copy), the section
+ * store carries its slugs at zero bytes (`plugin-schema.ts`) so nothing in
+ * it is ever planned, and it leaves with the compaction that strips memory
+ * blocks and clears the store.
  *
  * Accounting-drift note: a section whose recorded bytes have no locatable
  * persisted text (e.g. its metadata row was lost) can be planned and
@@ -106,10 +112,12 @@ import {
 } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
+  filterLegacyCards,
   type InjectionBlockPiece,
   parseInjectedSectionPath,
   parseInjectedSections,
   readInjectedMetadata,
+  rejoinKeptPieces,
 } from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
@@ -134,8 +142,9 @@ const log = getLogger("memory-v3-shadow");
 // ─── pruned-section filtering ────────────────────────────────────────────────
 
 /**
- * Remove pruned sections from an unwrapped block body of the given format; a
- * legacy-format block is opaque and comes back unchanged.
+ * Remove pruned sections from an unwrapped block body of the given format: a
+ * current-format block by section, a legacy-format block by card under each
+ * card's lead ref (see {@link filterSections}).
  *
  * Returns the input string UNCHANGED (same reference) when nothing is
  * removed (callers use identity to detect a no-op) and `""` when every
@@ -212,9 +221,9 @@ export function persistedV3Block(
  * re-entry rendered in memory gets a persisted copy again when a later turn
  * selects it against the reset store; the live conversation holds only the
  * newest, so rehydration and the live strip keep exactly that copy and treat
- * every earlier one as superseded. A legacy-format block is opaque and is
- * not indexed: its copies neither retire a later current copy nor are
- * retired by one.
+ * every earlier one as superseded. A legacy-format block is not indexed:
+ * its cards retire no current copy, while a current copy of a card's lead
+ * does retire the card (see {@link filterSections}).
  */
 export function newestCopyIndexes(
   blocks: ReadonlyArray<InjectedBlock | null>,
@@ -237,7 +246,8 @@ export function newestCopyIndexes(
 /**
  * Remove from block `index` of that sequence every section that is pruned or
  * whose newest copy lives on a later block (`newest` from
- * {@link newestCopyIndexes}). Same contract as {@link filterPrunedSections}.
+ * {@link newestCopyIndexes}); a legacy block's cards are tested under their
+ * lead refs. Same contract as {@link filterPrunedSections}.
  */
 export function filterResidentSections(
   inner: string,
@@ -255,43 +265,36 @@ export function filterResidentSections(
   );
 }
 
-/** The shared filter: a legacy-format block is opaque and returned as is; a
- *  current one loses the chunks `drop` names. */
+/**
+ * The shared filter: a current-format block loses the chunks `drop` names;
+ * a legacy-format block, read with the card grammar of the build that
+ * rendered it, loses every card `drop` names under the card's lead ref
+ * `(slug, "")`, the identity the section store carries it by. A legacy
+ * block is never indexed by {@link newestCopyIndexes}, so for its cards the
+ * newest-copy test a caller folds into `drop` reads as: a current-format
+ * block holds a copy of this lead, which means the card was pruned before
+ * the upgrade and its lead re-selected after it.
+ */
 function filterSections(
   inner: string,
   format: InjectedBlockFormat,
   drop: (slug: string, key: string) => boolean,
 ): string {
   if (format === "legacy") {
-    return inner;
+    return filterLegacyCards(inner, (slug) => drop(slug, ""));
   }
-  const { preamble, pieces } = parseInjectedSections(inner);
-  if (pieces.length === 0) {
-    return inner;
-  }
-
-  const survivors = pieces.filter((piece) => {
+  const parsed = parseInjectedSections(inner);
+  const survivors = parsed.pieces.filter((piece) => {
     const identity = pieceIdentity(piece);
     return identity === null || !drop(identity.slug, identity.key);
   });
   // The renderer adds the skills hint chunk only beside skill chunks, so a
   // block that loses its last one loses the hint with it.
   const kept =
-    pieces.some(isSkillChunk) && !survivors.some(isSkillChunk)
+    parsed.pieces.some(isSkillChunk) && !survivors.some(isSkillChunk)
       ? survivors.filter((piece) => piece.kind !== "other")
       : survivors;
-  if (kept.length === pieces.length) {
-    return inner;
-  }
-  if (kept.length === 0) {
-    return "";
-  }
-
-  const texts = kept.map((piece) => piece.text);
-  if (preamble.length > 0) {
-    texts.unshift(preamble);
-  }
-  return texts.join("\n\n");
+  return rejoinKeptPieces(inner, parsed, kept);
 }
 
 /**
@@ -510,10 +513,10 @@ export function mergeIntoAnchorBlock(
 
 /**
  * Strip pruned sections from the live in-memory history: for every
- * current-format `<memory>` text block memory-v3 owns (by object identity,
- * see the module doc; a legacy-format owned block is left as is), drop the
- * pruned sections and any copy superseded by a newer one later in the
- * history, and for every `<memory_pointer>` block drop the
+ * `<memory>` text block memory-v3 owns (by object identity, see the module
+ * doc; a legacy-format owned block is filtered by card and re-marked
+ * legacy), drop the pruned sections and any copy superseded by a newer one
+ * later in the history, and for every `<memory_pointer>` block drop the
  * lines naming pruned sections; a block left with no sections (or no pointer
  * entries) is removed outright (matching the rehydration splice, which skips
  * such a block). A rewritten block is registered in the owner's place.

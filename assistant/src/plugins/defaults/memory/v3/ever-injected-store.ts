@@ -106,8 +106,8 @@ export const MEMORY_V3_INJECTED_BLOCK_METADATA_KEY = "memoryV3InjectedBlock";
  * Message-metadata key the persisting build stamps beside
  * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`: the block's rendering format
  * ({@link MEMORY_V3_INJECTED_BLOCK_FORMAT}). A row carrying the section block
- * without it was persisted before the stamp existed and holds a legacy
- * block, opaque to every reader (`InjectedBlockFormat` in `./types.ts`).
+ * without it was persisted before the stamp existed and holds a legacy card
+ * block (`InjectedBlockFormat` in `./types.ts`).
  */
 export const MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY =
   "memoryV3InjectedBlockFormat";
@@ -590,9 +590,10 @@ export function forkEverInjected(
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
- * A legacy-format block (a pre-stamp row's) is opaque and seeds nothing: the
- * child rehydrates it verbatim, and a later selection of a section it holds
- * injects that section afresh beside it, accepted for the one-time window
+ * A legacy-format block (a pre-stamp row's) seeds nothing: the child
+ * rehydrates it with no tombstone of its own for the cards it holds, and a
+ * later selection of a section it holds injects that section afresh, which
+ * supersedes the card at the next strip; accepted for the one-time window
  * such rows live in (they leave with the child's first compaction).
  *
  * No-op when the child inherited no current-format blocks. The rows live on
