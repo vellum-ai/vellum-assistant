@@ -28,7 +28,8 @@ export const memoryV2InjectionEvents = sqliteTable(
 
 // Per-conversation record of every memory-v3 section ever injected, keyed by
 // (page slug, section key: `""` for the page lead or capability content), with
-// a pruned_at tombstone so re-injection can be suppressed after pruning. Lives
+// a pruned_at tombstone so re-injection can be suppressed after pruning and a
+// last_selected_at stamp the prune valve ranks eviction by. Lives
 // in the dedicated memory database (`assistant-memory.db`), not main, access
 // it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`). The
 // legacy card-grain `memory_v3_ever_injected` table stays on disk (migrations
@@ -44,6 +45,13 @@ export const memoryV3InjectedSections = sqliteTable(
     injectedAt: integer("injected_at").notNull(),
     bytes: integer("bytes").notNull().default(0),
     prunedAt: integer("pruned_at"),
+    /** Epoch ms of the latest turn that selected the section, net-new or
+     *  already resident: the prune valve's recency, with `injected_at`
+     *  standing in while null. Plugin-owned like the table: the memory
+     *  plugin's schema ensure (`v3/plugin-schema.ts`) adds it to a table
+     *  created before the column existed, so it is null on rows written
+     *  before then and on a truncated fork's seeded rows. */
+    lastSelectedAt: integer("last_selected_at"),
   },
   (table) => [
     primaryKey({

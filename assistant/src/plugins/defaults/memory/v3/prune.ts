@@ -98,7 +98,6 @@ import type { ContentBlock, Message } from "@vellumai/plugin-api";
 
 import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
-import { memorySqliteOrNull } from "../memory-db.js";
 import {
   unwrapMemoryBlock,
   unwrapMemoryPointerBlock,
@@ -126,7 +125,6 @@ import {
   type InjectedBlock,
   type InjectedBlockFormat,
   markV3LiveBlock,
-  sectionKeyTitle,
   type SectionRef,
   v3LiveBlockFormat,
 } from "./types.js";
@@ -364,18 +362,16 @@ export interface PruneDeps {
  * within `maxResidentBytes` (or nothing is prunable).
  *
  * The footprint and the candidates both range over the ACTIVE injected
- * sections. Candidates are ranked by last selection recency, read from
- * `memory_v3_selections` over the dedicated memory connection (an unavailable
- * memory database reads as no selection rows): a heading section takes the
- * latest `created_at` of a selection of its page whose `section_title` is
- * that heading (the key decoded through `sectionKeyTitle`, so a chunked or
- * repeated heading shares its title's recency), and a lead section (empty
- * title) takes the latest selection of its page under any title. A section
- * with no matching selection rows (e.g. rows copied or seeded by a fork)
- * falls back to the store's `injected_at`. Candidates are taken oldest-first
- * until the footprint is at `targetResidentBytes`. There are no exemptions;
- * zero-byte rows (capability slugs: dedup-only, no byte accounting) are
- * skipped, since pruning them frees nothing.
+ * sections. Candidates are ranked by last selection recency, carried on the
+ * section row itself: `last_selected_at`, which the injector's commit stamps
+ * on every section the turn selected, net-new (`recordInjected`) and already
+ * resident (`touchSelected`) alike, so each of a page's selected sections
+ * ages from its own selections. A row with no stamp (a truncated fork's
+ * seeded row, or one written before the column existed) ranks by the store's
+ * `injected_at`. Candidates are taken oldest-first until the footprint is at
+ * `targetResidentBytes`. There are no exemptions; zero-byte rows (capability
+ * slugs: dedup-only, no byte accounting) are skipped, since pruning them
+ * frees nothing.
  */
 export function planPrune(
   deps: PruneDeps,
@@ -387,49 +383,12 @@ export function planPrune(
     return null;
   }
 
-  const memoryRaw = memorySqliteOrNull("planPrune");
-  const selectionRows = memoryRaw
-    ? (memoryRaw
-        .query(
-          /*sql*/ `
-      SELECT slug, section_title AS title, MAX(created_at) AS lastSelectedAt
-      FROM memory_v3_selections
-      WHERE conversation_id = ?
-      GROUP BY slug, section_title
-    `,
-        )
-        .all(conversationId) as Array<{
-        slug: string;
-        title: string | null;
-        lastSelectedAt: number;
-      }>)
-    : [];
-  const bySlug = new Map<string, number>();
-  const byTitle = new Map<string, number>();
-  for (const row of selectionRows) {
-    bySlug.set(
-      row.slug,
-      Math.max(bySlug.get(row.slug) ?? -Infinity, row.lastSelectedAt),
-    );
-    if (row.title !== null) {
-      const id = `${row.slug}\n${row.title}`;
-      byTitle.set(
-        id,
-        Math.max(byTitle.get(id) ?? -Infinity, row.lastSelectedAt),
-      );
-    }
-  }
-
   const candidates = activeEntries
     .filter((entry) => entry.bytes > 0)
-    .map((entry) => {
-      const title = sectionKeyTitle(entry.key);
-      const lastSelectedAt =
-        title.length === 0
-          ? bySlug.get(entry.slug)
-          : byTitle.get(`${entry.slug}\n${title}`);
-      return { ...entry, recency: lastSelectedAt ?? entry.injectedAt };
-    })
+    .map((entry) => ({
+      ...entry,
+      recency: entry.lastSelectedAt ?? entry.injectedAt,
+    }))
     // Oldest first; slug then key ascending as the deterministic tiebreak.
     .sort(
       (a, b) =>

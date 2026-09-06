@@ -1,7 +1,8 @@
 /**
  * The memory-v3 plugin's own schema on the memory connection
  * (`v3/plugin-schema.ts`): `memory_v3_injected_sections` is created
- * idempotently and seeded once per database from the card-grain
+ * idempotently, its `last_selected_at` column added to a table created
+ * without it, and seeded once per database from the card-grain
  * `memory_v3_ever_injected`, one zero-byte lead entry per legacy row, with
  * the copy recorded in the checkpoint ledger; `deleteLegacyCardRows` clears
  * a conversation's legacy rows for the compaction reset; `memory_v3_pools`
@@ -67,6 +68,12 @@ function objectNames(db: Database, type: "table" | "index"): string[] {
       .query(`SELECT name FROM sqlite_master WHERE type = ?`)
       .all(type) as Array<{ name: string }>
   ).map((row) => row.name);
+}
+
+function columnNames(db: Database, table: string): string[] {
+  return (
+    db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  ).map((column) => column.name);
 }
 
 /** A map-backed checkpoint ledger whose reads or writes can be made to
@@ -275,6 +282,57 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
     expect(checkpoints.values.get(SECTIONS_LEGACY_COPY_DONE_KEY)).toBe("1");
   });
 
+  test("creates a fresh table with last_selected_at, and adds it to a table created without it, keeping its rows", () => {
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, ledger());
+    expect(columnNames(memorySqlite, "memory_v3_injected_sections")).toContain(
+      "last_selected_at",
+    );
+
+    // A table an earlier build created, carrying a row.
+    const older = new Database(":memory:");
+    older.exec(/*sql*/ `
+      CREATE TABLE memory_v3_injected_sections (
+        conversation_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        section_key TEXT NOT NULL,
+        injected_at INTEGER NOT NULL,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        pruned_at INTEGER,
+        PRIMARY KEY (conversation_id, slug, section_key)
+      )
+    `);
+    older.exec(/*sql*/ `
+      INSERT INTO memory_v3_injected_sections
+        (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
+      VALUES ('conv-1', 'topics/page-a', 'Notes', 1000, 120, NULL)
+    `);
+
+    ensureMemoryV3InjectedSectionsSchema(older, ledger());
+
+    expect(columnNames(older, "memory_v3_injected_sections")).toContain(
+      "last_selected_at",
+    );
+    expect(
+      older
+        .query(
+          `SELECT slug, section_key, bytes, last_selected_at
+           FROM memory_v3_injected_sections`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        slug: "topics/page-a",
+        section_key: "Notes",
+        bytes: 120,
+        last_selected_at: null,
+      },
+    ]);
+    // A second ensure adds nothing.
+    const columns = columnNames(older, "memory_v3_injected_sections");
+    ensureMemoryV3InjectedSectionsSchema(older, ledger());
+    expect(columnNames(older, "memory_v3_injected_sections")).toEqual(columns);
+  });
+
   test("a table carrying an extra nullable column is left as is and still takes the copy", () => {
     memorySqlite.exec(/*sql*/ `
       CREATE TABLE memory_v3_injected_sections (
@@ -387,14 +445,6 @@ describe("ensureMemoryV3PoolsSchema", () => {
 });
 
 describe("ensureMemoryV3SelectionsSectionKey", () => {
-  function columnNames(db: Database): string[] {
-    return (
-      db.query(`PRAGMA table_info(memory_v3_selections)`).all() as Array<{
-        name: string;
-      }>
-    ).map((column) => column.name);
-  }
-
   test("adds section_key to the table migration 338 creates, keeping its rows", () => {
     ensureMemoryV3SelectionsSchema(memorySqlite);
     memorySqlite.exec(/*sql*/ `
@@ -406,7 +456,9 @@ describe("ensureMemoryV3SelectionsSectionKey", () => {
 
     ensureMemoryV3SelectionsSectionKey(memorySqlite);
 
-    expect(columnNames(memorySqlite)).toContain("section_key");
+    expect(columnNames(memorySqlite, "memory_v3_selections")).toContain(
+      "section_key",
+    );
     expect(
       memorySqlite
         .query(
@@ -421,11 +473,11 @@ describe("ensureMemoryV3SelectionsSectionKey", () => {
   test("is a no-op on a table that already has the column", () => {
     ensureMemoryV3SelectionsSchema(memorySqlite);
     ensureMemoryV3SelectionsSectionKey(memorySqlite);
-    const columns = columnNames(memorySqlite);
+    const columns = columnNames(memorySqlite, "memory_v3_selections");
 
     ensureMemoryV3SelectionsSectionKey(memorySqlite);
 
-    expect(columnNames(memorySqlite)).toEqual(columns);
+    expect(columnNames(memorySqlite, "memory_v3_selections")).toEqual(columns);
     expect(columns.filter((name) => name === "section_key")).toHaveLength(1);
   });
 
@@ -438,7 +490,9 @@ describe("ensureMemoryV3SelectionsSectionKey", () => {
     ensureMemoryV3SelectionsSchema(memorySqlite);
     ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite);
 
-    expect(columnNames(memorySqlite)).toContain("section_key");
+    expect(columnNames(memorySqlite, "memory_v3_selections")).toContain(
+      "section_key",
+    );
   });
 });
 

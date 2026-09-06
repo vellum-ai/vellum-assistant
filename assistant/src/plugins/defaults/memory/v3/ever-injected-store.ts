@@ -9,13 +9,18 @@
  * page's lead and for capability content (skills and CLI commands inject
  * whole). The active (non-pruned) rows are the injection dedup record: a pair
  * present here rides the cached message prefix and must not be re-rendered.
- * `bytes` sums into the resident footprint the prune valve bounds. Rows are
- * never deleted by pruning (`pruned_at` is set instead) so the record stays
- * auditable; a pruned section that is re-selected re-injects by clearing
- * `pruned_at` on upsert. `clearConversation` is the compaction reset: the
- * cached blocks those sections lived on are gone, so future turns are free to
- * re-inject them; it takes the conversation's legacy card rows with it
- * (`plugin-schema.ts`), so no later copy re-imports them.
+ * `bytes` sums into the resident footprint the prune valve bounds, and
+ * `last_selected_at` is the recency the valve ranks by: the injector's commit
+ * stamps it on every section the turn selected, the net-new ones through
+ * `recordInjected` and the resident ones through `touchSelected`, so each
+ * section ages from its own latest selection (`injected_at` stands in for a
+ * row with no stamp). Rows are never deleted by pruning (`pruned_at` is set
+ * instead) so the record stays auditable; a pruned section that is
+ * re-selected re-injects by clearing `pruned_at` on upsert.
+ * `clearConversation` is the compaction reset: the cached blocks those
+ * sections lived on are gone, so future turns are free to re-inject them; it
+ * takes the conversation's legacy card rows with it (`plugin-schema.ts`), so
+ * no later copy re-imports them.
  *
  * Fork semantics mirror v2's activation-store hooks. The fork copy runs on the
  * memory connection, so it is not atomic with the main-DB `forkConversation()`
@@ -156,6 +161,9 @@ export interface InjectedSectionRow extends SectionRef {
   bytes: number;
   /** Epoch ms the section was (last) injected. */
   injectedAt: number;
+  /** Epoch ms of the latest turn that selected the section, or `null` for a
+   *  row no turn has stamped (see {@link ActiveInjectedEntry}). */
+  lastSelectedAt: number | null;
   /** Epoch ms the prune valve removed the section, or `null` while resident. */
   prunedAt: number | null;
 }
@@ -196,6 +204,7 @@ export function getInjected(conversationId: string): InjectedSectionRow[] {
         key: memoryV3InjectedSections.sectionKey,
         bytes: memoryV3InjectedSections.bytes,
         injectedAt: memoryV3InjectedSections.injectedAt,
+        lastSelectedAt: memoryV3InjectedSections.lastSelectedAt,
         prunedAt: memoryV3InjectedSections.prunedAt,
       })
       .from(memoryV3InjectedSections)
@@ -242,10 +251,14 @@ export function getActiveSections(conversationId: string): SectionRefSet {
 /** One active (resident) row of the prune valve's candidate set. */
 export interface ActiveInjectedEntry extends SectionRef {
   bytes: number;
-  /** Epoch ms the section was (last) injected: the recency fallback for
-   *  sections with no matching selection rows (e.g. rows copied by a full
-   *  fork). */
+  /** Epoch ms the section was (last) injected: the recency the prune valve
+   *  falls back to for a row with no `lastSelectedAt`. */
   injectedAt: number;
+  /** Epoch ms of the latest turn that selected the section, net-new or
+   *  already resident: the prune valve's recency. `null` for a row no turn
+   *  has stamped (a truncated fork's seeded row, or one written before the
+   *  column existed). */
+  lastSelectedAt: number | null;
 }
 
 /**
@@ -262,6 +275,7 @@ export function getActiveEntries(
         key: memoryV3InjectedSections.sectionKey,
         bytes: memoryV3InjectedSections.bytes,
         injectedAt: memoryV3InjectedSections.injectedAt,
+        lastSelectedAt: memoryV3InjectedSections.lastSelectedAt,
       })
       .from(memoryV3InjectedSections)
       .where(
@@ -284,9 +298,11 @@ export function getPrunedSections(conversationId: string): SectionRefSet {
 }
 
 /**
- * Upsert this turn's injected sections. Re-recording an existing pair clears
- * `pruned_at` and refreshes `bytes`/`injected_at`: a pruned section that is
- * re-selected re-injects as a fresh entry on the current message. Its older
+ * Upsert this turn's injected sections, each stamped `last_selected_at = at`
+ * (the turn that injects a section selected it). Re-recording an existing
+ * pair clears `pruned_at` and refreshes `bytes`, `injected_at`, and the
+ * stamp: a pruned section that is re-selected re-injects as a fresh entry on
+ * the current message. Its older
  * copies stay in earlier messages' persisted metadata; rehydration and the
  * live strip keep only the newest persisted copy of a pair
  * (`newestCopyIndexes` in `prune.ts`), so clearing the tombstone never
@@ -316,6 +332,7 @@ export function recordInjected(
           slug: entry.slug,
           sectionKey: entry.key,
           injectedAt: at,
+          lastSelectedAt: at,
           bytes: entry.bytes,
           prunedAt: null,
         })
@@ -325,7 +342,12 @@ export function recordInjected(
             memoryV3InjectedSections.slug,
             memoryV3InjectedSections.sectionKey,
           ],
-          set: { injectedAt: at, bytes: entry.bytes, prunedAt: null },
+          set: {
+            injectedAt: at,
+            lastSelectedAt: at,
+            bytes: entry.bytes,
+            prunedAt: null,
+          },
         })
         .run();
     }
@@ -334,36 +356,39 @@ export function recordInjected(
   }
 }
 
-/** Composite keys per tombstone statement. Each key is one `OR` term, and
- *  SQLite caps expression depth at 1000, so a plan of any size is applied in
- *  batches well under that. */
-const PRUNE_KEY_BATCH_SIZE = 100;
+/** Composite keys per statement of a `(slug, key)`-addressed update. Each
+ *  key is one `OR` term, and SQLite caps expression depth at 1000, so a ref
+ *  list of any size is applied in batches well under that. */
+const REF_KEY_BATCH_SIZE = 100;
 
 /**
- * Mark sections pruned from the live context. Rows are never deleted: the
- * record stays auditable and the sections stay eligible for re-injection.
- * The update runs in {@link PRUNE_KEY_BATCH_SIZE}-key batches inside one
- * transaction, so a large plan neither exceeds SQLite's expression-depth
- * limit nor leaves a partially applied tombstone set.
+ * Apply `set` to the conversation's rows named by `refs`, in
+ * {@link REF_KEY_BATCH_SIZE}-key batches inside one transaction, so a list of
+ * any size neither exceeds SQLite's expression-depth limit nor leaves a
+ * partially applied update. Best-effort like every store write: a degraded
+ * memory connection or a failed statement logs `failureMessage` and leaves
+ * the rows as they were. A ref with no row is a no-op.
  */
-export function markPruned(
+function updateRefs(
+  context: string,
   conversationId: string,
   refs: SectionRef[],
-  at: number,
+  set: Partial<typeof memoryV3InjectedSections.$inferInsert>,
+  failureMessage: string,
 ): void {
   if (refs.length === 0) {
     return;
   }
   try {
-    const mdb = memoryDb("markPruned");
+    const mdb = memoryDb(context);
     if (!mdb) {
       return;
     }
     mdb.transaction((tx) => {
-      for (let i = 0; i < refs.length; i += PRUNE_KEY_BATCH_SIZE) {
-        const batch = refs.slice(i, i + PRUNE_KEY_BATCH_SIZE);
+      for (let i = 0; i < refs.length; i += REF_KEY_BATCH_SIZE) {
+        const batch = refs.slice(i, i + REF_KEY_BATCH_SIZE);
         tx.update(memoryV3InjectedSections)
-          .set({ prunedAt: at })
+          .set(set)
           .where(
             and(
               eq(memoryV3InjectedSections.conversationId, conversationId),
@@ -381,8 +406,47 @@ export function markPruned(
       }
     });
   } catch (err) {
-    log.warn({ err }, "failed to mark injected sections pruned; continuing");
+    log.warn({ err }, failureMessage);
   }
+}
+
+/**
+ * Mark sections pruned from the live context. Rows are never deleted: the
+ * record stays auditable and the sections stay eligible for re-injection.
+ */
+export function markPruned(
+  conversationId: string,
+  refs: SectionRef[],
+  at: number,
+): void {
+  updateRefs(
+    "markPruned",
+    conversationId,
+    refs,
+    { prunedAt: at },
+    "failed to mark injected sections pruned; continuing",
+  );
+}
+
+/**
+ * Stamp `last_selected_at = at` on the sections a turn selected that were
+ * already resident (the injector's pointer entries and its resident
+ * capability units): the prune valve's recency, so a section re-selected
+ * turn after turn is never evicted as stale. The turn's net-new sections
+ * take the stamp from {@link recordInjected} instead.
+ */
+export function touchSelected(
+  conversationId: string,
+  refs: SectionRef[],
+  at: number,
+): void {
+  updateRefs(
+    "touchSelected",
+    conversationId,
+    refs,
+    { lastSelectedAt: at },
+    "failed to stamp selected sections; continuing",
+  );
 }
 
 /**
@@ -459,6 +523,7 @@ export function forkEverInjected(
         slug: memoryV3InjectedSections.slug,
         sectionKey: memoryV3InjectedSections.sectionKey,
         injectedAt: memoryV3InjectedSections.injectedAt,
+        lastSelectedAt: memoryV3InjectedSections.lastSelectedAt,
         bytes: memoryV3InjectedSections.bytes,
         prunedAt: memoryV3InjectedSections.prunedAt,
       })
@@ -477,6 +542,7 @@ export function forkEverInjected(
           ],
           set: {
             injectedAt: row.injectedAt,
+            lastSelectedAt: row.lastSelectedAt,
             bytes: row.bytes,
             prunedAt: row.prunedAt,
           },
@@ -498,11 +564,13 @@ export function forkEverInjected(
  * `seedForkActivationState`: a wholesale copy would over-claim, while seeding
  * nothing would re-attach every inherited section as a duplicate.
  *
- * Rows are stamped `injected_at = at` and `bytes` = the byte length of the
- * section's span in the inherited block (header through body, the measure
- * `recordInjected` takes from the live render), so the child's resident
- * accounting starts at what it actually inherited and the valve can evict an
- * inherited section like any other. A section present in several inherited
+ * Rows are stamped `injected_at = at`, with no `last_selected_at` (no turn of
+ * the child has selected them; the valve ranks them by `injected_at` until
+ * one does), and `bytes` = the byte length of the section's span in the
+ * inherited block (header through body, the measure `recordInjected` takes
+ * from the live render), so the child's resident accounting starts at what it
+ * actually inherited and the valve can evict an inherited section like any
+ * other. A section present in several inherited
  * blocks (re-injected after a prune) takes its latest span, mirroring the
  * upsert. An inherited capability chunk (`# Skill: ` / `# CLI command: `)
  * seeds its capability slug exactly as the injector records one: under the

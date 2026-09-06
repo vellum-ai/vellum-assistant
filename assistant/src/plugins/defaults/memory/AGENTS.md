@@ -174,8 +174,16 @@ re-imports leads whose blocks are gone. A page's lead injection carries its
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane
-exemptions. The live strip is idempotent over the conversation's full tombstone
-set and runs both in the valve and at runtime assembly Step 0 on every turn:
+exemptions. That recency is each section row's own `last_selected_at`: the
+injector's commit stamps it on every section the turn selected, the net-new
+ones with their record (`recordInjected`) and the resident ones, pointer
+entries and capability units alike, by `touchSelected`, so two sections of
+one page selected together both age from that turn, and a row with no stamp
+(a truncated fork's seed, or one written before the column existed) ranks by
+`injected_at`. The selection log (`memory_v3_selections`), which keeps one
+section per slug, plays no part in eviction. The live strip is idempotent over
+the conversation's full tombstone set and runs both in the valve and at
+runtime assembly Step 0 on every turn:
 the valve fires on a timer while the turn that scheduled it may still be in
 flight, so a section pruned on the turn that injected it folds back in
 afterwards, and the assembly strip removes it on the next turn. A pruned section that is re-selected re-injects as a fresh entry on
@@ -386,7 +394,7 @@ Persisted rows; a rename orphans every existing install.
 | `memory_v2_injection_events`      | v2 scoring feedback                                             |
 | `memory_v3_selections`            | v3 selection log (`section_key` column plugin-added, see below) |
 | `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
-| `memory_v3_injected_sections`     | v3 section dedup + prune accounting (plugin-created, see below) |
+| `memory_v3_injected_sections`     | v3 section dedup, prune bytes + recency (plugin-created, below) |
 | `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
 | `memory_retrospective_state`      | retrospective (tier-agnostic)                                   |
 | `activation_sessions`             | onboarding activation rail                                      |
@@ -397,10 +405,12 @@ tables, created by the plugin rather than by the global migration chain
 boot, and each store ensures again on the first use of a connection in its
 process (the memory worker is a separate process), idempotently and fail-open,
 so a memory database that cannot be opened degrades the stores to no-ops
-instead of failing database readiness. The sections ensure also copies the
-legacy `memory_v3_ever_injected` rows in as zero-byte lead entries, once per
-database: the first ensure that finds the legacy table copies
-(`INSERT OR IGNORE`) and records `memory_v3_injected_sections:legacy_copy_done`
+instead of failing database readiness. The sections ensure adds the
+`last_selected_at` column (the prune valve's recency stamp) to a table created
+before it existed, and copies the legacy `memory_v3_ever_injected` rows in as
+zero-byte lead entries, once per database: the first ensure that finds the
+legacy table copies (`INSERT OR IGNORE`) and records
+`memory_v3_injected_sections:legacy_copy_done`
 in `memory_checkpoints`, later ensures skip on that record, and a ledger that
 cannot be read skips the copy rather than repeating it. The compaction reset
 (`clearConversation`) and the conversation purge delete a conversation's
@@ -411,7 +421,9 @@ blocks compaction stripped. `memory_v3_selections` itself is created by migratio
 (`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
 it on the first use of a connection, and the `init` hook at boot. Every
 selection row records one section per slug, the selection's first selected
-section, as its `sectionKey` beside the title and ordinal, and the inspector
+section, as its `sectionKey` beside the title and ordinal (an inspector and
+frecency record only; the prune valve's recency lives on the section store's
+rows, see the v3 injection layers above), and the inspector
 resolves a row by that key first (exactly, so a repeated heading's other
 occurrence is never substituted), falling back to title-then-ordinal only for
 rows written before the column existed.

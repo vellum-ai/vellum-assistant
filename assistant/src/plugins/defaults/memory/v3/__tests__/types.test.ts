@@ -4,7 +4,6 @@ import {
   type MemoryRoutingTurn,
   type Section,
   sectionKey,
-  sectionKeyTitle,
   type SelectionSource,
   type Slug,
 } from "../types.js";
@@ -70,7 +69,7 @@ describe("sectionKey", () => {
     expect(sectionKey(section("Issue #12"))).toBe("Issue ##12");
   });
 
-  test("sectionKeyTitle is the exact inverse of sectionKey", () => {
+  test("distinct (title, occurrence, chunk) triples never share a key, titles ending in a suffix marker included", () => {
     const titles = [
       "",
       "Notes",
@@ -87,19 +86,16 @@ describe("sectionKey", () => {
       "x#1~2",
       "5",
     ];
+    const keys = new Set<string>();
+    let triples = 0;
     for (const title of titles) {
       for (const occurrence of [undefined, 1, 12]) {
         for (const chunk of [undefined, 1, 3]) {
-          const s = section(title, { occurrence, chunk });
-          expect(sectionKeyTitle(sectionKey(s))).toBe(title);
+          keys.add(sectionKey(section(title, { occurrence, chunk })));
+          triples += 1;
         }
       }
     }
-    // Keys that differ decode to different (title, occurrence, chunk) triples.
-    expect(sectionKeyTitle("Topic##1")).toBe("Topic#1");
-    expect(sectionKeyTitle("Topic#1")).toBe("Topic");
-    expect(sectionKeyTitle("Topic~~1")).toBe("Topic~1");
-    expect(sectionKeyTitle("Topic~1")).toBe("Topic");
-    expect(sectionKeyTitle("Topic##1#1~1")).toBe("Topic#1");
+    expect(keys.size).toBe(triples);
   });
 });

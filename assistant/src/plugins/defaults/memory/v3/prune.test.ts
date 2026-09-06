@@ -11,11 +11,11 @@
  *     section was re-injected further down, leaves the `<memory_pointer>`
  *     block; an emptied pointer collapses to `""`;
  *   - `planPrune`: no-op below the cap, oldest-first selection-recency ranking
- *     down to the target at section grain (a heading section's recency is its
- *     own title's selections; a lead's is any selection of the page), no lane
- *     exemptions, `injected_at` fallback, zero-byte (capability) rows
- *     skipped, a truncated fork's inherited sections as candidates carrying
- *     their spans' bytes, idempotence below the cap;
+ *     down to the target at section grain (each row's own `last_selected_at`,
+ *     so two sections of one page selected on one turn both age from it), no
+ *     lane exemptions, `injected_at` fallback for an unstamped row, zero-byte
+ *     (capability) rows skipped, a truncated fork's inherited sections as
+ *     candidates carrying their spans' bytes, idempotence below the cap;
  *   - `runPruneValve` + the live strip: the blocks memory-v3 placed (owned by
  *     object identity) stripped in place by header span, an unowned twin
  *     untouched even when byte-identical, all-pruned blocks removed,
@@ -40,7 +40,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ContentBlock, Message } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
 import {
@@ -67,9 +66,9 @@ let pruneConfig: {
 } | null = null;
 
 let testSqlite: Database;
-// `planPrune`'s recency ranking reads `memory_v3_selections` over the
-// dedicated memory connection, resolved via `getMemorySqlite` — stubbed to a
-// second in-memory DB carrying the relocated tables' schema.
+// The section store, which carries `planPrune`'s candidates and recency,
+// lives on the dedicated memory connection, resolved via `getMemorySqlite`,
+// stubbed to a second in-memory DB carrying the store's schema.
 let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
@@ -88,7 +87,6 @@ function makeDb() {
     )
   `);
   memorySqlite = new Database(":memory:");
-  ensureMemoryV3SelectionsSchema(memorySqlite);
   ensureMemoryV3InjectedSectionsSchema(memorySqlite);
   return db;
 }
@@ -135,6 +133,7 @@ const {
   recordInjected,
   residentBytes,
   seedEverInjectedFromBlocks,
+  touchSelected,
 } = await import("./ever-injected-store.js");
 const { markV3LiveBlock } = await import("./types.js");
 const { V3_INJECTION_HEADER, renderInjectionBlockInner, renderPointerInner } =
@@ -190,22 +189,21 @@ function v3Block(
   return markV3LiveBlock({ type: "text" as const, text }, format);
 }
 
-function insertSelection(
+/** Clear a row's selection stamp, as a row written before the column existed
+ *  carries none. */
+function clearSelectionStamp(
   conversationId: string,
-  turn: number,
   slug: string,
-  createdAt: number,
-  sectionTitle: string | null = null,
+  key: string,
 ): void {
   memorySqlite
     .query(
       /*sql*/ `
-      INSERT OR REPLACE INTO memory_v3_selections
-        (conversation_id, turn, slug, source, created_at, section_title)
-      VALUES (?, ?, ?, 'needle', ?, ?)
+      UPDATE memory_v3_injected_sections SET last_selected_at = NULL
+      WHERE conversation_id = ? AND slug = ? AND section_key = ?
     `,
     )
-    .run(conversationId, turn, slug, createdAt, sectionTitle);
+    .run(conversationId, slug, key);
 }
 
 function insertUserRowWithV3Block(
@@ -659,10 +657,11 @@ describe("planPrune", () => {
       ],
       1_000,
     );
-    insertSelection("conv-1", 0, "page-a", 1_000);
-    insertSelection("conv-1", 0, "page-b", 2_000);
-    insertSelection("conv-1", 0, "page-c", 3_000);
-    insertSelection("conv-1", 0, "page-d", 4_000);
+    // Later turns re-select b, c, and d in that order; a keeps its record's
+    // stamp (1_000).
+    touchSelected("conv-1", [{ slug: "page-b", key: "" }], 2_000);
+    touchSelected("conv-1", [{ slug: "page-c", key: "" }], 3_000);
+    touchSelected("conv-1", [{ slug: "page-d", key: "" }], 4_000);
 
     const plan = planPrune(deps, "conv-1");
     expect(plan).toEqual({
@@ -674,7 +673,7 @@ describe("planPrune", () => {
     });
   });
 
-  test("a heading section's recency is its own title's selections; the lead's is any selection of the page", () => {
+  test("recency is per section row: two sections of one page selected on one turn both carry its stamp, and neither is evicted ahead of an older section", () => {
     recordInjected(
       "conv-1",
       [
@@ -685,89 +684,60 @@ describe("planPrune", () => {
       ],
       1_000,
     );
-    // page-a: Notes selected at 2_000, Design at 5_000, and the page again
-    // (no section) at 6_000, the lead reads 6_000, Notes 2_000, Design 5_000.
-    insertSelection("conv-1", 0, "page-a", 2_000, "Notes");
-    insertSelection("conv-1", 1, "page-a", 5_000, "Design");
-    insertSelection("conv-1", 2, "page-a", 6_000, null);
-    // page-b's Notes was selected at 3_000 under a DIFFERENT title only, so
-    // its Notes section falls back to injected_at (1_000): the oldest.
-    insertSelection("conv-1", 0, "page-b", 3_000, "Other");
+    // A later turn re-selects page-b's Notes, and the turn after it
+    // re-selects page-a's Notes and Design together; page-a's lead keeps its
+    // record's stamp.
+    touchSelected("conv-1", [{ slug: "page-b", key: "Notes" }], 3_000);
+    touchSelected(
+      "conv-1",
+      [
+        { slug: "page-a", key: "Notes" },
+        { slug: "page-a", key: "Design" },
+      ],
+      5_000,
+    );
 
-    const plan = planPrune(deps, "conv-1");
-    expect(plan!.sections).toEqual([
+    // Resident 400 > max 300: page-a's lead (1_000) goes first, then page-b's
+    // Notes (3_000); both sections selected at 5_000 survive.
+    expect(planPrune(deps, "conv-1")!.sections).toEqual([
+      { slug: "page-a", key: "" },
       { slug: "page-b", key: "Notes" },
-      { slug: "page-a", key: "Notes" },
-    ]);
-  });
-
-  test("a chunked heading (key~n) shares its title's recency", () => {
-    recordInjected(
-      "conv-1",
-      [
-        { slug: "page-a", key: "Long~1", bytes: 200 },
-        { slug: "page-b", key: "", bytes: 200 },
-      ],
-      1_000,
-    );
-    insertSelection("conv-1", 0, "page-a", 9_000, "Long");
-    insertSelection("conv-1", 0, "page-b", 2_000);
-
-    expect(planPrune(deps, "conv-1")!.sections).toEqual([
-      { slug: "page-b", key: "" },
-    ]);
-  });
-
-  test("a heading whose own title ends in #<n> decodes to its selections' title, distinct from a repeated heading", () => {
-    // The literal heading `Topic#1` keys as `Topic##1`; a second `Topic`
-    // heading keys as `Topic#1`. Each row must find its own selections.
-    recordInjected(
-      "conv-1",
-      [
-        { slug: "page-a", key: "Topic##1", bytes: 200 },
-        { slug: "page-a", key: "Topic#1", bytes: 200 },
-        { slug: "page-b", key: "", bytes: 200 },
-      ],
-      1_000,
-    );
-    insertSelection("conv-1", 0, "page-a", 9_000, "Topic#1");
-    insertSelection("conv-1", 1, "page-a", 8_000, "Topic");
-    insertSelection("conv-1", 0, "page-b", 2_000);
-
-    // Resident 600 > max 300: page-b's lead (2_000) goes first, then the
-    // repeated `Topic` section (8_000); the literal `Topic#1` heading (9_000)
-    // is the most recent and survives.
-    expect(planPrune(deps, "conv-1")!.sections).toEqual([
-      { slug: "page-b", key: "" },
-      { slug: "page-a", key: "Topic#1" },
     ]);
   });
 
   test("re-selection recency outranks injection order", () => {
     recordInjected(
       "conv-1",
-      [
-        { slug: "page-old", key: "", bytes: 200 },
-        { slug: "page-new", key: "", bytes: 200 },
-      ],
+      [{ slug: "page-old", key: "", bytes: 200 }],
       1_000,
+    );
+    recordInjected(
+      "conv-1",
+      [{ slug: "page-new", key: "", bytes: 200 }],
+      2_000,
     );
     // page-old was injected first but re-selected most recently; page-new was
     // selected only at injection time.
-    insertSelection("conv-1", 0, "page-old", 1_000);
-    insertSelection("conv-1", 1, "page-new", 2_000);
-    insertSelection("conv-1", 5, "page-old", 9_000);
+    touchSelected("conv-1", [{ slug: "page-old", key: "" }], 9_000);
 
     const plan = planPrune(deps, "conv-1");
     expect(plan!.sections).toEqual([{ slug: "page-new", key: "" }]);
   });
 
-  test("never-selected sections fall back to injected_at for recency", () => {
+  test("a row with no selection stamp ranks by injected_at", () => {
     recordInjected("conv-1", [{ slug: "page-a", key: "", bytes: 200 }], 5_000);
     recordInjected("conv-1", [{ slug: "page-b", key: "", bytes: 200 }], 1_000);
+    recordInjected("conv-1", [{ slug: "page-c", key: "", bytes: 200 }], 9_000);
+    clearSelectionStamp("conv-1", "page-b", "");
+    clearSelectionStamp("conv-1", "page-c", "");
 
-    const plan = planPrune(deps, "conv-1");
-    expect(plan!.sections).toEqual([{ slug: "page-b", key: "" }]);
+    // Resident 600 > max 300: page-b (injected 1_000, unstamped) goes first,
+    // then page-a (stamped 5_000); page-c (injected 9_000, unstamped) is the
+    // most recent and survives.
+    expect(planPrune(deps, "conv-1")!.sections).toEqual([
+      { slug: "page-b", key: "" },
+      { slug: "page-a", key: "" },
+    ]);
   });
 
   test("no lane exemptions: the oldest section is pruned whatever page it belongs to", () => {
@@ -780,9 +750,8 @@ describe("planPrune", () => {
       ],
       1_000,
     );
-    insertSelection("conv-1", 0, "core-page", 1_000);
-    insertSelection("conv-1", 0, "page-b", 2_000);
-    insertSelection("conv-1", 0, "page-c", 3_000);
+    touchSelected("conv-1", [{ slug: "page-b", key: "" }], 2_000);
+    touchSelected("conv-1", [{ slug: "page-c", key: "" }], 3_000);
 
     // Resident 450 > max 300: reaching the 200 target needs the two oldest,
     // and the core page's lead is simply the oldest.
@@ -1166,8 +1135,9 @@ describe("runPruneValve", () => {
       ],
       1_000,
     );
-    insertSelection("conv-1", 0, "page-drifted", 1_000);
-    insertSelection("conv-1", 0, "page-a", 2_000);
+    // page-a was re-selected after both were injected: the drifted row is
+    // the oldest candidate.
+    touchSelected("conv-1", [{ slug: "page-a", key: "" }], 2_000);
 
     const liveMessages: Message[] = [
       {
@@ -1225,9 +1195,10 @@ describe("runPruneValve", () => {
       ],
       1_000,
     );
-    insertSelection("conv-1", 0, "page-a", 1_000);
-    insertSelection("conv-1", 1, "page-a", 2_000, "Notes");
-    insertSelection("conv-1", 1, "page-c", 3_000);
+    // Turn 1 re-selected page-a's Notes and turn 2 selected page-c; page-a's
+    // lead keeps its record's stamp, the oldest.
+    touchSelected("conv-1", [{ slug: "page-a", key: "Notes" }], 2_000);
+    touchSelected("conv-1", [{ slug: "page-c", key: "" }], 3_000);
 
     // Live history as rehydration would build it, plus a v2-lookalike block
     // that must survive untouched.
@@ -1394,8 +1365,7 @@ describe("schedulePruneValve", () => {
       ],
       1_000,
     );
-    insertSelection("conv-1", 0, "page-a", 1_000);
-    insertSelection("conv-1", 0, "page-b", 2_000);
+    touchSelected("conv-1", [{ slug: "page-b", key: "" }], 2_000);
 
     pruneConfig = { maxResidentBytes: 300, targetResidentBytes: 200 };
     schedulePruneValve("conv-1", { liveMessages: () => null });

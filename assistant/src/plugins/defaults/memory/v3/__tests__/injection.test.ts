@@ -11,6 +11,9 @@
  *   - commit deferral: the section-store write happens in the block's
  *     attachment-commit callback (invoked by assembly on user-tail turns),
  *     never in `produce()` itself;
+ *   - commit stamping: the commit stamps the turn's time on every selected
+ *     section, net-new and resident alike (capability units included), so
+ *     the prune valve's recency follows selection;
  *   - trust gate: an untrusted remote actor's turn produces nothing and
  *     records nothing (the v2 personal-memory gate);
  *   - fork dedup: a conversation whose record was seeded from inherited
@@ -28,13 +31,20 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import type { Conversation } from "../../../../../daemon/conversation.js";
-import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { InjectionBlock } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
@@ -96,16 +106,15 @@ mock.module("../../../../../util/logger.js", () => ({
 }));
 
 let testSqlite: Database;
-// The prune valve's recency ranking reads `memory_v3_selections` over the
-// dedicated memory connection, resolved via `getMemorySqlite` — stubbed to a
-// second in-memory DB carrying the relocated tables' schema.
+// The section store (the prune valve's candidate set and recency) lives on
+// the dedicated memory connection, resolved via `getMemorySqlite`, stubbed to
+// a second in-memory DB carrying the store's schema.
 let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
   memorySqlite = new Database(":memory:");
-  ensureMemoryV3SelectionsSchema(memorySqlite);
   ensureMemoryV3InjectedSectionsSchema(memorySqlite);
   // The prune valve strips only sections locatable in persisted
   // `memoryV3InjectedBlock` rows (`collectPersistedV3Sections`), minimal
@@ -567,6 +576,63 @@ describe("memoryV3Injector: frozen net-new sections", () => {
     const pointer = await producePointer("conv-1", 1);
     expect(pointer!.text).toContain("memory/concepts/page-a.md § Beta");
     expect(pointer!.text).not.toContain("§ Alpha");
+  });
+
+  test("the commit stamps the turn's time on every selected section: net-new ones with their record, resident ones (pointer entries and capability units) by touch", async () => {
+    liveEnabled = true;
+    const skill = "skills/test-skill";
+    turnResults.set(
+      0,
+      result(
+        ["page-a", skill],
+        [
+          ["page-a", alpha],
+          ["page-a", beta],
+        ],
+      ),
+    );
+    // Turn 1 re-selects Beta (a pointer entry) and the skill (resident, with
+    // no pointer line) beside net-new page-c; Alpha is not selected.
+    turnResults.set(1, result(["page-a", "page-c", skill], [["page-a", beta]]));
+    const stamps = () =>
+      new Map(
+        getInjected("conv-1").map((row) => [
+          `${row.slug}§${row.key}`,
+          row.lastSelectedAt,
+        ]),
+      );
+
+    try {
+      setSystemTime(new Date(1_000_000));
+      await produceSections("conv-1", 0);
+      expect(stamps()).toEqual(
+        new Map([
+          ["page-a§Alpha", 1_000_000],
+          ["page-a§Beta", 1_000_000],
+          [`${skill}§`, 1_000_000],
+        ]),
+      );
+
+      setSystemTime(new Date(2_000_000));
+      await produceSections("conv-1", 1);
+      expect(stamps()).toEqual(
+        new Map([
+          ["page-a§Alpha", 1_000_000],
+          ["page-a§Beta", 2_000_000],
+          ["page-c§", 2_000_000],
+          [`${skill}§`, 2_000_000],
+        ]),
+      );
+      // A touched section keeps its record's injected_at.
+      expect(
+        getInjected("conv-1").find((row) => row.key === "Beta")!.injectedAt,
+      ).toBe(1_000_000);
+      const pointer = await producePointer("conv-1", 1);
+      expect(pointer!.text).toContain("memory/concepts/page-a.md § Beta");
+      expect(pointer!.text).not.toContain("test-skill");
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("a capability page selected on two sections injects its content once", async () => {
