@@ -189,7 +189,16 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
       return null;
     }
     if (!response.ok) {
-      const responseBody = await response.text();
+      // The error body is diagnostic only; a stream that resets while it is
+      // read is one more batch-route fault to fall back from.
+      let responseBody = "";
+      try {
+        responseBody = await response.text();
+      } catch (err) {
+        if (options?.signal?.aborted) {
+          throw err;
+        }
+      }
       if (BATCH_ROUTE_UNAVAILABLE_STATUSES.has(response.status)) {
         this.batchRouteUnavailable = true;
         log.warn(

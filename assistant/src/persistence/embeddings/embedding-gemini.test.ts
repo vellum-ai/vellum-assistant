@@ -599,6 +599,35 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     ).rejects.toThrow("fetch failed");
   });
 
+  test("a batch error whose body cannot be read is re-sent as singles", async () => {
+    let batchCalls = 0;
+    const fetchMock = mock(async (url: string, init: RequestInit) => {
+      if (url.includes(":batchEmbedContents")) {
+        batchCalls += 1;
+        const stream = new ReadableStream({
+          pull(controller) {
+            controller.error(new Error("stream reset"));
+          },
+        });
+        return new Response(stream, { status: 502 });
+      }
+      const body = JSON.parse(init.body as string) as {
+        content: { parts: Array<{ text: string }> };
+      };
+      return makeSuccessResponse([textIndex(body.content.parts[0]!.text)]);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(texts(2));
+
+    expect(vectors.map((v) => v[0])).toEqual([0, 1]);
+    expect(batchCalls).toBe(1);
+    expect(fetchMock.mock.calls).toHaveLength(3);
+  });
+
   test("a batch answered with a body that is not JSON is re-sent as singles", async () => {
     let batchCalls = 0;
     const fetchMock = mock(async (url: string, init: RequestInit) => {
