@@ -1,5 +1,3 @@
-import type { InjectedBlockFormat } from "../substrate/injected-block-slugs.js";
-
 export type Slug = string;
 
 /**
@@ -55,6 +53,29 @@ export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
   "memoryV3SpotlightBlock" as const;
 
 /**
+ * How a persisted memory-v3 section block was rendered, which decides whether
+ * a reader parses it. `"current"`: rendered by a build that stamps
+ * `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT` in
+ * `ever-injected-store.ts`) beside the block, so its inner text follows the
+ * escaped grammar of `substrate/injected-block-slugs.ts` and is parsed,
+ * pruned, superseded by newer copies, and fork-seeded at section grain.
+ * `"legacy"`: persisted by a build before the stamp existed (a row carrying
+ * the block without it), which is opaque: rehydrated verbatim, never parsed,
+ * stripped, superseded, or fork-seeded, and gone with the compaction that
+ * strips memory blocks and clears the section store. Provenance is explicit,
+ * never inferred from a block's content.
+ */
+export type InjectedBlockFormat = "legacy" | "current";
+
+/** A persisted section block's unwrapped inner text with its rendering
+ *  format: the per-block input of the rehydration filter, the live strip,
+ *  and the fork seeder. */
+export interface InjectedBlock {
+  inner: string;
+  format: InjectedBlockFormat;
+}
+
+/**
  * The `<memory>` content blocks memory-v3 itself placed in live history, by
  * object identity: the block runtime assembly attaches for the `memory-v3`
  * injector, the block `loadFromDb` splices from persisted metadata, and the
@@ -67,9 +88,10 @@ export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
  * the pruned and superseded filters are authoritative. Each entry carries
  * the block's rendering format (`InjectedBlockFormat`): current for the
  * blocks the injector renders in this process, and whatever the row's
- * metadata recorded for a block `loadFromDb` spliced, so the strip parses an
- * owned block by its provenance rather than its content. A `WeakMap`, so
- * entries leave with the histories they belonged to.
+ * metadata recorded for a block `loadFromDb` spliced, so the strip filters a
+ * current owned block and leaves a legacy one verbatim, by provenance rather
+ * than content. A `WeakMap`, so entries leave with the histories they
+ * belonged to.
  */
 const v3LiveBlocks = new WeakMap<object, InjectedBlockFormat>();
 

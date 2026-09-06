@@ -77,6 +77,14 @@
  * a later block renders again (a post-compaction re-entry copy, once the
  * next turn persists the capability anew) is superseded like a section's.
  *
+ * Legacy-format note: a v3 block persisted without the format stamp
+ * (`InjectedBlockFormat` in `types.ts`) is opaque at both filter points and
+ * in the newest-copy index: rehydrated verbatim, never parsed, stripped, or
+ * superseded, and never retiring a later current copy of a section it holds.
+ * The section store carries its slugs at zero bytes (`plugin-schema.ts`), so
+ * nothing in it is ever planned, and it leaves with the compaction that
+ * strips memory blocks and clears the store.
+ *
  * Accounting-drift note: a section whose recorded bytes have no locatable
  * persisted text (e.g. its metadata row was lost) can be planned and
  * tombstoned — the strip/rehydration filter simply finds nothing to remove,
@@ -99,8 +107,6 @@ import {
 } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
-  type InjectedBlock,
-  type InjectedBlockFormat,
   type InjectionBlockPiece,
   parseInjectedSectionPath,
   parseInjectedSections,
@@ -108,7 +114,6 @@ import {
 } from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
-  getKnownCardBytes,
   getPrunedSections,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -118,6 +123,8 @@ import {
   v3BlockFormatOf,
 } from "./ever-injected-store.js";
 import {
+  type InjectedBlock,
+  type InjectedBlockFormat,
   markV3LiveBlock,
   sectionKeyTitle,
   type SectionRef,
@@ -129,10 +136,8 @@ const log = getLogger("memory-v3-shadow");
 // ─── pruned-section filtering ────────────────────────────────────────────────
 
 /**
- * Remove pruned sections from an unwrapped block body. `knownCardBytes` (the
- * conversation's recorded lead-entry bytes, see `getKnownCardBytes`) lets the
- * parser split a card frozen before body escaping only at headers whose span
- * is a card the conversation actually froze.
+ * Remove pruned sections from an unwrapped block body of the given format; a
+ * legacy-format block is opaque and comes back unchanged.
  *
  * Returns the input string UNCHANGED (same reference) when nothing is
  * removed (callers use identity to detect a no-op) and `""` when every
@@ -151,13 +156,9 @@ export function filterPrunedSections(
   inner: string,
   format: InjectedBlockFormat,
   pruned: SectionRefSet,
-  knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
-  return filterSections(
-    inner,
-    format,
-    (slug, key) => sectionRefSetHas(pruned, slug, key),
-    knownCardBytes,
+  return filterSections(inner, format, (slug, key) =>
+    sectionRefSetHas(pruned, slug, key),
   );
 }
 
@@ -213,21 +214,19 @@ export function persistedV3Block(
  * re-entry rendered in memory gets a persisted copy again when a later turn
  * selects it against the reset store; the live conversation holds only the
  * newest, so rehydration and the live strip keep exactly that copy and treat
- * every earlier one as superseded.
+ * every earlier one as superseded. A legacy-format block is opaque and is
+ * not indexed: its copies neither retire a later current copy nor are
+ * retired by one.
  */
 export function newestCopyIndexes(
   blocks: ReadonlyArray<InjectedBlock | null>,
-  knownCardBytes?: ReadonlyMap<string, number>,
 ): ReadonlyMap<string, number> {
   const newest = new Map<string, number>();
   blocks.forEach((block, index) => {
-    if (block === null) {
+    if (block === null || block.format === "legacy") {
       return;
     }
-    for (const piece of parseInjectedSections(block.inner, {
-      format: block.format,
-      knownCardBytes,
-    }).pieces) {
+    for (const piece of parseInjectedSections(block.inner).pieces) {
       const identity = pieceIdentity(piece);
       if (identity !== null) {
         newest.set(refId(identity.slug, identity.key), index);
@@ -248,7 +247,6 @@ export function filterResidentSections(
   index: number,
   pruned: SectionRefSet,
   newest: ReadonlyMap<string, number>,
-  knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
   return filterSections(
     inner,
@@ -256,20 +254,20 @@ export function filterResidentSections(
     (slug, key) =>
       sectionRefSetHas(pruned, slug, key) ||
       (newest.get(refId(slug, key)) ?? index) !== index,
-    knownCardBytes,
   );
 }
 
+/** The shared filter: a legacy-format block is opaque and returned as is; a
+ *  current one loses the chunks `drop` names. */
 function filterSections(
   inner: string,
   format: InjectedBlockFormat,
   drop: (slug: string, key: string) => boolean,
-  knownCardBytes?: ReadonlyMap<string, number>,
 ): string {
-  const { preamble, pieces } = parseInjectedSections(inner, {
-    format,
-    knownCardBytes,
-  });
+  if (format === "legacy") {
+    return inner;
+  }
+  const { preamble, pieces } = parseInjectedSections(inner);
   if (pieces.length === 0) {
     return inner;
   }
@@ -519,10 +517,10 @@ export function mergeIntoAnchorBlock(
     return { kind: "legacy" };
   }
   const existing = unwrapMemoryBlock(owned.text);
-  const hasHint = parseInjectedSections(existing, {
-    format: "current",
-  }).pieces.some((piece) => piece.kind === "other");
-  const appended = parseInjectedSections(newInner, { format: "current" })
+  const hasHint = parseInjectedSections(existing).pieces.some(
+    (piece) => piece.kind === "other",
+  );
+  const appended = parseInjectedSections(newInner)
     .pieces.filter((piece) => !(hasHint && piece.kind === "other"))
     .map((piece) => piece.text);
   if (appended.length === 0) {
@@ -552,9 +550,10 @@ export function mergeIntoAnchorBlock(
 
 /**
  * Strip pruned sections from the live in-memory history: for every
- * `<memory>` text block memory-v3 owns (by object identity, see the module
- * doc), drop the pruned sections and any copy superseded by a newer one
- * later in the history, and for every `<memory_pointer>` block drop the
+ * current-format `<memory>` text block memory-v3 owns (by object identity,
+ * see the module doc; a legacy-format owned block is left as is), drop the
+ * pruned sections and any copy superseded by a newer one later in the
+ * history, and for every `<memory_pointer>` block drop the
  * lines naming pruned sections; a block left with no sections (or no pointer
  * entries) is removed outright (matching the rehydration splice, which skips
  * such a block). A rewritten block is registered in the owner's place.
@@ -565,13 +564,10 @@ export function mergeIntoAnchorBlock(
  * `Message` objects IN PLACE (`message.content` reassignment): the agent
  * loop's working arrays share these object references, so its end-of-turn
  * history fold-back keeps the strip. Returns the number of blocks changed.
- * `knownCardBytes` is the conversation's recorded frozen card lengths
- * (`getKnownCardBytes`).
  */
 export function stripPrunedSectionsFromMessages(
   messages: Message[],
   pruned: SectionRefSet,
-  knownCardBytes?: ReadonlyMap<string, number>,
 ): number {
   // A v3-owned `<memory>` block's inner text with the format the registry
   // recorded for it, or `null` for any other block.
@@ -594,7 +590,7 @@ export function stripPrunedSectionsFromMessages(
       }
     }
   }
-  const newest = newestCopyIndexes(owned, knownCardBytes);
+  const newest = newestCopyIndexes(owned);
 
   let strippedBlocks = 0;
   let ownedIndex = 0;
@@ -635,7 +631,6 @@ export function stripPrunedSectionsFromMessages(
         index,
         pruned,
         newest,
-        knownCardBytes,
       );
       if (filtered === ownedHere.inner) {
         nextContent.push(block);
@@ -725,7 +720,6 @@ export async function runPruneValve(
     strippedBlocks = stripPrunedSectionsFromMessages(
       liveMessages,
       getPrunedSections(conversationId),
-      getKnownCardBytes(conversationId),
     );
   }
 

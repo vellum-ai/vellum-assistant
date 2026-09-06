@@ -94,7 +94,6 @@ const realEverInjectedStore =
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
   getPrunedSections: () => prunedSectionsSlot,
-  getKnownCardBytes: () => new Map<string, number>(),
 }));
 
 const { applyRuntimeInjections } =

@@ -3,7 +3,6 @@ import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import {
   extractInjectedConceptSlugs,
-  type InjectedBlock,
   readInjectedBlock,
 } from "./substrate/injected-block-slugs.js";
 import {
@@ -15,6 +14,7 @@ import {
   seedEverInjectedFromBlocks,
 } from "./v3/ever-injected-store.js";
 import { persistedV3Block } from "./v3/prune.js";
+import type { InjectedBlock } from "./v3/types.js";
 
 /** Inputs to {@link forkConversationMemory}. */
 export interface ForkConversationMemoryInput {
@@ -109,8 +109,8 @@ export function forkConversationMemory(
         }
       }
       // Each inherited block carries the format its row's metadata records
-      // (the copied metadata keeps the persisting build's stamp), so the
-      // seeder parses it by provenance.
+      // (the copied metadata keeps the persisting build's stamp): the seeder
+      // scans the current ones and skips the legacy ones, which are opaque.
       const v3Block = persistedV3Block(message.metadata);
       if (v3Block) {
         inheritedV3Blocks.push(v3Block);

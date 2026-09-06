@@ -76,17 +76,12 @@ const realEverInjectedStore = {
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSections = new Map<string, Set<string>>();
-let mockKnownCardBytes = new Map<string, number>();
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
   getPrunedSections: (conversationId: string) =>
     lifecycleStoreMockActive
       ? mockPrunedSections
       : realEverInjectedStore.getPrunedSections(conversationId),
-  getKnownCardBytes: (conversationId: string) =>
-    lifecycleStoreMockActive
-      ? mockKnownCardBytes
-      : realEverInjectedStore.getKnownCardBytes(conversationId),
 }));
 
 import {
@@ -99,7 +94,6 @@ import { injectionMetadataUpdates } from "../plugins/defaults/memory/hooks/injec
 beforeEach(() => {
   lifecycleStoreMockActive = true;
   mockPrunedSections = new Map();
-  mockKnownCardBytes = new Map();
 });
 
 afterAll(() => {
@@ -629,6 +623,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b",
+          memoryV3InjectedBlockFormat: 2,
         }),
       },
       {
@@ -651,50 +646,10 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("rehydration parses legacy cards with the conversation's recorded card bytes (a headless card after a sectionless one prunes alone)", async () => {
-    mockConversation = defaultConv();
-    mockPrunedSections = new Map([["headless", new Set([""])]]);
-    const stub = "# memory/concepts/stub.md\n# Stub\njust a lead, no sections";
-    const headless =
-      "# memory/concepts/headless.md\nprose only, no title line\n\n[sections: §One]";
-    mockKnownCardBytes = new Map([
-      ["stub", Buffer.byteLength(stub, "utf8")],
-      ["headless", Buffer.byteLength(headless, "utf8")],
-    ]);
-    mockDbMessages = [
-      {
-        id: "m1",
-        role: "user",
-        content: [{ type: "text", text: "First turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: `header line\n\n${stub}\n\n${headless}`,
-        }),
-      },
-      {
-        id: "m2",
-        role: "assistant",
-        content: [{ type: "text", text: "Reply" }],
-      },
-    ];
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    expect(conversation.getMessages()[0].content).toEqual([
-      { type: "text", text: `<memory>\nheader line\n\n${stub}\n</memory>` },
-      { type: "text", text: "First turn" },
-    ]);
-  });
-
-  test("a memoryV3InjectedBlock stamped with the current format parses at its headers whatever the conversation's frozen card lengths say", async () => {
+  test("a memoryV3InjectedBlock stamped with the current format is filtered by section: a pruned lead leaves", async () => {
     mockConversation = defaultConv();
     const leadA = "# memory/concepts/page-a.md\nlead a";
     const leadB = "# memory/concepts/page-b.md\nlead b";
-    // page-a was migrated from a card exactly as long as this lead-only
-    // block, and page-b's lead is pruned.
-    mockKnownCardBytes = new Map([
-      ["page-a", Buffer.byteLength(`${leadA}\n\n${leadB}`, "utf8")],
-    ]);
     mockPrunedSections = new Map([["page-b", new Set([""])]]);
     mockDbMessages = [
       {
@@ -722,14 +677,14 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("the same block persisted without the format stamp is a legacy block: the frozen length holds the card together", async () => {
+  test("the same block persisted without the format stamp is a legacy block: rehydrated verbatim with every slug it holds tombstoned, where a current block leaves", async () => {
     mockConversation = defaultConv();
     const leadA = "# memory/concepts/page-a.md\nlead a";
     const leadB = "# memory/concepts/page-b.md\nlead b";
-    mockKnownCardBytes = new Map([
-      ["page-a", Buffer.byteLength(`${leadA}\n\n${leadB}`, "utf8")],
+    mockPrunedSections = new Map([
+      ["page-a", new Set([""])],
+      ["page-b", new Set([""])],
     ]);
-    mockPrunedSections = new Map([["page-b", new Set([""])]]);
     mockDbMessages = [
       {
         id: "m1",
@@ -744,18 +699,32 @@ describe("loadFromDb metadata injection rehydration", () => {
         role: "assistant",
         content: [{ type: "text", text: "Reply" }],
       },
+      // page-a's lead re-injected later under the current format: pruned
+      // like any current section, and a block left with nothing is skipped.
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Second turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${leadA}`,
+          memoryV3InjectedBlockFormat: 2,
+        }),
+      },
     ];
 
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    // One card, page-a's, holding both leads: nothing named page-b to prune.
-    expect(conversation.getMessages()[0].content).toEqual([
+    const messages = conversation.getMessages();
+    expect(messages[0].content).toEqual([
       {
         type: "text",
         text: `<memory>\nheader line\n\n${leadA}\n\n${leadB}\n</memory>`,
       },
       { type: "text", text: "First turn" },
+    ]);
+    expect(messages[2].content).toEqual([
+      { type: "text", text: "Second turn" },
     ]);
   });
 
@@ -966,6 +935,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         content: [{ type: "text", text: "Turn 1" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock: `header line\n\n${oldCopy}\n\n# memory/concepts/page-b.md\nhead b`,
+          memoryV3InjectedBlockFormat: 2,
         }),
       },
       {
@@ -979,6 +949,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         content: [{ type: "text", text: "Turn 8" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock: `header line\n\n${newCopy}`,
+          memoryV3InjectedBlockFormat: 2,
         }),
       },
     ];
@@ -1060,7 +1031,10 @@ describe("loadFromDb metadata injection rehydration", () => {
         id: "m1",
         role: "user",
         content: [{ type: "text", text: "Turn 1" }],
-        metadata: JSON.stringify({ memoryV3InjectedBlock: block("old lead") }),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: block("old lead"),
+          memoryV3InjectedBlockFormat: 2,
+        }),
       },
       {
         id: "m2",
@@ -1082,7 +1056,10 @@ describe("loadFromDb metadata injection rehydration", () => {
         id: "m8",
         role: "user",
         content: [{ type: "text", text: "Turn 8" }],
-        metadata: JSON.stringify({ memoryV3InjectedBlock: block("new lead") }),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: block("new lead"),
+          memoryV3InjectedBlockFormat: 2,
+        }),
       },
       {
         id: "m9",
@@ -1124,6 +1101,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a",
+          memoryV3InjectedBlockFormat: 2,
         }),
       },
       {

@@ -57,6 +57,8 @@ import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected as recordV3Injected,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
@@ -1254,6 +1256,8 @@ describe("forkConversation", () => {
     const skill = "# Skill: meet-join\nJoin a meeting.";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
+        [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]:
+          MEMORY_V3_INJECTED_BLOCK_FORMAT,
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesA}\n\n${leadB}\n\n${skill}`,
         // A v2 block on the same message must seed only the v2 record.
         memoryInjectedBlock: "# memory/concepts/topics/page-v2.md\nSummary",
@@ -1272,6 +1276,8 @@ describe("forkConversation", () => {
     // Past the fork boundary, its section must NOT be claimed.
     await addMessage(source.id, "user", "third turn", {
       metadata: {
+        [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]:
+          MEMORY_V3_INJECTED_BLOCK_FORMAT,
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
           "# memory/concepts/topics/page-c.md\nLead C",
       },
@@ -1342,6 +1348,8 @@ describe("forkConversation", () => {
     const notesB = "# memory/concepts/topics/page-b.md § Notes\nNotes B";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
+        [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]:
+          MEMORY_V3_INJECTED_BLOCK_FORMAT,
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesB}`,
       },
       skipIndexing: true,

@@ -43,10 +43,6 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
-import type {
-  InjectedBlock,
-  InjectedBlockFormat,
-} from "../substrate/injected-block-slugs.js";
 import {
   injectedSectionHeader,
   parseInjectedSections,
@@ -54,6 +50,7 @@ import {
 } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
 import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
+import type { InjectedBlock, InjectedBlockFormat } from "./types.js";
 
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
@@ -130,10 +127,10 @@ const {
 const {
   getActiveSections,
   getInjected,
-  getKnownCardBytes,
   getPrunedSections,
   markPruned,
   recordInjected,
+  residentBytes,
   seedEverInjectedFromBlocks,
 } = await import("./ever-injected-store.js");
 const { markV3LiveBlock } = await import("./types.js");
@@ -173,8 +170,8 @@ function refSet(
   return set;
 }
 
-/** A block as the parser must be told to read it: current (this build's
- *  render) or legacy (frozen before body escaping, no format stamp). */
+/** A persisted block with its row's provenance: current (this build's
+ *  render, stamped) or legacy (a pre-stamp row, opaque). */
 const current = (inner: string): InjectedBlock => ({
   inner,
   format: "current",
@@ -188,19 +185,6 @@ function v3Block(
   format: InjectedBlockFormat = "current",
 ): ContentBlock {
   return markV3LiveBlock({ type: "text" as const, text }, format);
-}
-
-/** Give a lead entry the frozen length migration 378 (or the fork seeder)
- *  records for it, the block parser's evidence for a pre-escaping card. */
-function freeze(conversationId: string, slug: string, bytes: number): void {
-  memorySqlite
-    .query(
-      /*sql*/ `
-      UPDATE memory_v3_injected_sections SET frozen_card_bytes = ?
-      WHERE conversation_id = ? AND slug = ? AND section_key = ''
-    `,
-    )
-    .run(bytes, conversationId, slug);
 }
 
 function insertSelection(
@@ -267,7 +251,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
   ]);
 
   test("parses preamble and per-section pieces at the path headers, keyed by (slug, key)", () => {
-    const parsed = parseInjectedSections(inner, { format: "current" });
+    const parsed = parseInjectedSections(inner);
     expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
     expect(parsed.sections.map((s) => [s.slug, s.key])).toEqual([
       ["page-a", ""],
@@ -282,7 +266,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       "# Skill: telegram-setup\nSet up Telegram.",
       lead("page-a"),
     ]);
-    const parsed = parseInjectedSections(mixed, { format: "current" });
+    const parsed = parseInjectedSections(mixed);
     expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
     expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a"]);
     expect(parsed.pieces.map((piece) => piece.kind)).toEqual([
@@ -328,7 +312,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     // section: only concept headers and capability chunks do.
     const bodyWithHeadings = `${injectedSectionHeader("page-a", "Setup")}\nrun this:\n\n# not a boundary\n\n# also inside`;
     const block = renderInjectionBlockInner([bodyWithHeadings, lead("page-b")]);
-    const parsed = parseInjectedSections(block, { format: "current" });
+    const parsed = parseInjectedSections(block);
     expect(parsed.sections.map((s) => [s.slug, s.key])).toEqual([
       ["page-a", "Setup"],
       ["page-b", ""],
@@ -362,7 +346,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       CAPABILITY_CHUNK,
       section("page-b", "Notes"),
     ]);
-    const parsed = parseInjectedSections(mixed, { format: "current" });
+    const parsed = parseInjectedSections(mixed);
     expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a", "page-b"]);
     // page-a's section stops AT the capability header — it must not absorb it.
     expect(parsed.sections[0]!.text).toBe(lead("page-a"));
@@ -419,7 +403,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
 
     const inner = renderInjectionBlockInner([entry, lead("page-b")]);
-    const parsed = parseInjectedSections(inner, { format: "current" });
+    const parsed = parseInjectedSections(inner);
     expect(parsed.sections.map(({ slug, key }) => ({ slug, key }))).toEqual([
       { slug: "page-a", key: "Notes" },
       { slug: "page-b", key: "" },
@@ -435,7 +419,7 @@ describe("parseInjectedSections / filterPrunedSections", () => {
     );
   });
 
-  test("a card frozen before body escaping prunes whole even when its lead carries a header-shaped line", () => {
+  test("a legacy block (a pre-stamp row's) is opaque: the filter returns it as is whatever the tombstones name, and the newest-copy index skips it", () => {
     const cardA = [
       injectedSectionHeader("page-a", ""),
       "# Page A",
@@ -446,116 +430,46 @@ describe("parseInjectedSections / filterPrunedSections", () => {
       "",
       "[sections: §Notes · §Design]",
     ].join("\n");
-    const cardB = [
-      injectedSectionHeader("page-b", ""),
-      "# Page B",
-      "lead b",
-      "",
-      "[sections: §X]",
-    ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, cardA, cardB].join("\n\n");
-
+    const legacyInner = [V3_INJECTION_HEADER, cardA, lead("page-b")].join(
+      "\n\n",
+    );
+    // The same reference back, every slug it holds tombstoned or not.
     expect(
-      filterPrunedSections(legacyInner, "legacy", refSet(["page-a", ""])),
-    ).toBe([V3_INJECTION_HEADER, cardB].join("\n\n"));
-    // The header-shaped line names no section, so nothing keyed on it exists.
-    expect(
-      filterPrunedSections(legacyInner, "legacy", refSet(["example", ""])),
+      filterPrunedSections(
+        legacyInner,
+        "legacy",
+        refSet(["page-a", ""], ["page-b", ""], ["example", ""]),
+      ),
     ).toBe(legacyInner);
-  });
-
-  test("a legacy card whose lead carries a capability-shaped line prunes whole (no phantom capability chunk survives)", () => {
-    const card = [
-      injectedSectionHeader("page-a", ""),
-      "# Page A",
-      "lead prose",
-      "",
-      "# Skill: example-skill",
-      "prose about that skill",
-      "",
-      "[sections: §Notes]",
-    ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, card, lead("page-b")].join(
-      "\n\n",
-    );
+    // The same bytes under the current format are filtered by section.
     expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        refSet(["page-a", ""]),
-        new Map([["page-a", renderedBytes(card)]]),
-      ),
-    ).toBe([V3_INJECTION_HEADER, lead("page-b")].join("\n\n"));
-  });
+      filterPrunedSections(legacyInner, "current", refSet(["page-b", ""])),
+    ).toBe([V3_INJECTION_HEADER, cardA].join("\n\n"));
 
-  test("a sectionless legacy card with a recorded length prunes whole, grammar-shaped lead lines included", () => {
-    const card = [
-      injectedSectionHeader("stub", ""),
-      "# Stub",
-      "lead prose",
-      "",
-      "# memory/concepts/example.md",
-      "a cited path",
-      "",
-      "# Skill: example-skill",
-      "a skill-shaped line",
-    ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, card, lead("page-b")].join(
-      "\n\n",
-    );
-    const knownCardBytes = new Map([["stub", renderedBytes(card)]]);
-    expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        refSet(["stub", ""]),
-        knownCardBytes,
-      ),
-    ).toBe([V3_INJECTION_HEADER, lead("page-b")].join("\n\n"));
-    expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        refSet(["page-b", ""]),
-        knownCardBytes,
-      ),
-    ).toBe([V3_INJECTION_HEADER, card].join("\n\n"));
-  });
-
-  test("with the conversation's recorded card bytes, a headless legacy card after a sectionless one prunes on its own", () => {
-    const stub = [
-      injectedSectionHeader("stub", ""),
-      "# Stub",
-      "just a lead, no sections",
-    ].join("\n");
-    const headless = [
-      injectedSectionHeader("headless", ""),
-      "prose only, no title line",
-      "",
-      "[sections: §One]",
-    ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
-    const knownCardBytes = new Map([
-      ["stub", renderedBytes(stub)],
-      ["headless", renderedBytes(headless)],
+    // A later current copy of page-a's lead retires nothing in the legacy
+    // block, and the legacy block contributes nothing to the index: a legacy
+    // copy sitting after a current one never retires it either.
+    const reinjected = renderInjectionBlockInner([lead("page-a")]);
+    const newest = newestCopyIndexes([
+      legacy(legacyInner),
+      current(reinjected),
     ]);
-
+    expect(newest.size).toBe(1);
     expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        refSet(["headless", ""]),
-        knownCardBytes,
-      ),
-    ).toBe([V3_INJECTION_HEADER, stub].join("\n\n"));
+      filterResidentSections(legacyInner, "legacy", 0, refSet(), newest),
+    ).toBe(legacyInner);
     expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        refSet(["stub", ""]),
-        knownCardBytes,
+      filterResidentSections(reinjected, "current", 1, refSet(), newest),
+    ).toBe(reinjected);
+    expect(
+      filterResidentSections(
+        reinjected,
+        "current",
+        0,
+        refSet(),
+        newestCopyIndexes([current(reinjected), legacy(legacyInner)]),
       ),
-    ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
+    ).toBe(reinjected);
   });
 
   test("all sections pruned keeps the preamble + capability chunks", () => {
@@ -1377,124 +1291,59 @@ describe("runPruneValve", () => {
     expect(await runPruneValve("conv-1")).toBeNull();
   });
 
-  test("the valve parses legacy cards with the conversation's recorded card bytes: strip and rehydration split a headless card from a sectionless one", async () => {
-    const stub = [
+  test("the valve never strips a legacy block: it stays the same object while a current block beside it is stripped, and rehydration agrees", async () => {
+    const card = [
       injectedSectionHeader("stub", ""),
       "# Stub",
       "just a lead, no sections",
-    ].join("\n");
-    const headless = [
-      injectedSectionHeader("headless", ""),
-      "prose only, no title line",
       "",
       "[sections: §One]",
     ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
+    const legacyInner = [V3_INJECTION_HEADER, card].join("\n\n");
+    const currentInner = renderInjectionBlockInner([lead("page-a")]);
     insertUserRowWithV3Block("conv-1", "m1", legacyInner, "legacy");
-    // Both cards are recorded with the length the old injector measured (the
-    // migration copies legacy card rows in as lead entries); the stub is the
-    // older injection.
-    recordInjected(
-      "conv-1",
-      [{ slug: "stub", key: "", bytes: renderedBytes(stub) }],
-      1_000,
-    );
-    recordInjected(
-      "conv-1",
-      [{ slug: "headless", key: "", bytes: renderedBytes(headless) }],
-      2_000,
-    );
-    freeze("conv-1", "stub", renderedBytes(stub));
-    freeze("conv-1", "headless", renderedBytes(headless));
+    insertUserRowWithV3Block("conv-1", "m2", currentInner);
+    // The card's row is dedup-only (zero bytes, as the schema ensure copies
+    // it in) and already tombstoned; the current lead carries its bytes.
+    recordInjected("conv-1", [{ slug: "stub", key: "", bytes: 0 }], 1_000);
+    markPruned("conv-1", [{ slug: "stub", key: "" }], 1_500);
+    recordInjected("conv-1", [{ slug: "page-a", key: "", bytes: 300 }], 2_000);
 
+    const legacyBlock = v3Block(wrapMemoryBlock(legacyInner), "legacy");
     const liveMessages: Message[] = [
       {
         role: "user",
+        content: [legacyBlock, { type: "text", text: "turn 1" }],
+      },
+      { role: "assistant", content: [{ type: "text", text: "reply 1" }] },
+      {
+        role: "user",
         content: [
-          v3Block(wrapMemoryBlock(legacyInner), "legacy"),
-          { type: "text", text: "turn 1" },
+          v3Block(wrapMemoryBlock(currentInner)),
+          { type: "text", text: "turn 2" },
         ],
       },
     ];
-    pruneConfig = {
-      maxResidentBytes: renderedBytes(stub) + renderedBytes(headless) - 1,
-      targetResidentBytes: renderedBytes(headless),
-    };
+    pruneConfig = { maxResidentBytes: 200, targetResidentBytes: 0 };
     const plan = await runPruneValve("conv-1", {
       liveMessages: () => liveMessages,
       now: 9_000,
     });
 
     expect(plan).toEqual({
-      sections: [{ slug: "stub", key: "" }],
-      bytesFreed: renderedBytes(stub),
+      sections: [{ slug: "page-a", key: "" }],
+      bytesFreed: 300,
     });
-    // Only the stub card leaves; the headless card is its own card because
-    // its slug is recorded, so it stays byte-identical.
-    expect(liveMessages[0]!.content).toEqual([
-      {
-        type: "text",
-        text: wrapMemoryBlock([V3_INJECTION_HEADER, headless].join("\n\n")),
-      },
-      { type: "text", text: "turn 1" },
+    expect(liveMessages[0]!.content[0]).toBe(legacyBlock);
+    expect(liveMessages[2]!.content).toEqual([
+      { type: "text", text: "turn 2" },
     ]);
-    expect(
-      filterPrunedSections(
-        legacyInner,
-        "legacy",
-        getPrunedSections("conv-1"),
-        getKnownCardBytes("conv-1"),
-      ),
-    ).toBe([V3_INJECTION_HEADER, headless].join("\n\n"));
-  });
-
-  test("a legacy headless card whose lead is pruned and re-injected still parses by its frozen length: the old copy is superseded, not absorbed", () => {
-    const stub = [
-      injectedSectionHeader("stub", ""),
-      "# Stub",
-      "just a lead, no sections",
-    ].join("\n");
-    const headless = [
-      injectedSectionHeader("headless", ""),
-      "prose only, no title line",
-      "",
-      "[sections: §One]",
-    ].join("\n");
-    const legacyInner = [V3_INJECTION_HEADER, stub, headless].join("\n\n");
-    recordInjected(
-      "conv-1",
-      [
-        { slug: "stub", key: "", bytes: renderedBytes(stub) },
-        { slug: "headless", key: "", bytes: renderedBytes(headless) },
-      ],
-      1_000,
-    );
-    freeze("conv-1", "stub", renderedBytes(stub));
-    freeze("conv-1", "headless", renderedBytes(headless));
-    markPruned("conv-1", [{ slug: "headless", key: "" }], 5_000);
-
-    // The re-injection renders the lead under the current grammar and
-    // refreshes the row's bytes, never its frozen length.
-    const reinjected = renderInjectionBlockInner([lead("headless")]);
-    recordInjected(
-      "conv-1",
-      [{ slug: "headless", key: "", bytes: renderedBytes(lead("headless")) }],
-      8_000,
-    );
-    const known = getKnownCardBytes("conv-1");
-    expect(known.get("headless")).toBe(renderedBytes(headless));
-
     const pruned = getPrunedSections("conv-1");
-    const newest = newestCopyIndexes(
-      [legacy(legacyInner), current(reinjected)],
-      known,
+    expect(pruned).toEqual(refSet(["stub", ""], ["page-a", ""]));
+    expect(filterPrunedSections(legacyInner, "legacy", pruned)).toBe(
+      legacyInner,
     );
-    expect(
-      filterResidentSections(legacyInner, "legacy", 0, pruned, newest, known),
-    ).toBe([V3_INJECTION_HEADER, stub].join("\n\n"));
-    expect(
-      filterResidentSections(reinjected, "current", 1, pruned, newest, known),
-    ).toBe(reinjected);
+    expect(filterPrunedSections(currentInner, "current", pruned)).toBe("");
   });
 
   test("a pruned section later re-selected re-injects and is kept by the filter again", async () => {
@@ -1571,5 +1420,35 @@ describe("schedulePruneValve", () => {
     // The markPruned preceding the failing strip still landed; the error
     // itself did not propagate.
     expect(getPrunedSections("conv-1")).toEqual(refSet(["page-a", ""]));
+  });
+});
+
+describe("legacy card rows", () => {
+  test("the schema ensure copies memory_v3_ever_injected rows in at zero bytes: dedup-only, never counted, never planned", () => {
+    memorySqlite.run(/*sql*/ `
+      CREATE TABLE memory_v3_ever_injected (
+        conversation_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        injected_at INTEGER NOT NULL,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        pruned_at INTEGER,
+        PRIMARY KEY (conversation_id, slug)
+      )
+    `);
+    memorySqlite.run(/*sql*/ `
+      INSERT INTO memory_v3_ever_injected
+        (conversation_id, slug, injected_at, bytes, pruned_at)
+      VALUES ('conv-1', 'page-a', 1000, 640, NULL)
+    `);
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    recordInjected("conv-1", [{ slug: "page-b", key: "", bytes: 100 }], 2_000);
+
+    expect(getActiveSections("conv-1")).toEqual(
+      refSet(["page-a", ""], ["page-b", ""]),
+    );
+    expect(residentBytes("conv-1")).toBe(100);
+    expect(
+      planPrune({ maxResidentBytes: 50, targetResidentBytes: 0 }, "conv-1"),
+    ).toEqual({ sections: [{ slug: "page-b", key: "" }], bytesFreed: 100 });
   });
 });

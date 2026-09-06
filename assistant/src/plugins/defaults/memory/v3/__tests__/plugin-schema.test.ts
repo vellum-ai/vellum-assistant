@@ -2,7 +2,8 @@
  * The memory-v3 plugin's own schema on the memory connection
  * (`v3/plugin-schema.ts`): `memory_v3_injected_sections` is created
  * idempotently and seeded from the card-grain `memory_v3_ever_injected`, one
- * lead entry per legacy row; `memory_v3_pools` is created idempotently; the
+ * zero-byte lead entry per legacy row; `memory_v3_pools` is created
+ * idempotently; the
  * selection log's `section_key` column is added to the `memory_v3_selections`
  * table migration 338 creates. Every ensure takes the raw handle, so these
  * tests run on in-memory databases with no connection stub, and the
@@ -29,14 +30,12 @@ interface Row {
   injected_at: number;
   bytes: number;
   pruned_at: number | null;
-  frozen_card_bytes: number | null;
 }
 
 function rows(db: Database): Row[] {
   return db
     .query(
-      `SELECT conversation_id, slug, section_key, injected_at, bytes, pruned_at,
-              frozen_card_bytes
+      `SELECT conversation_id, slug, section_key, injected_at, bytes, pruned_at
        FROM memory_v3_injected_sections ORDER BY conversation_id, slug, section_key`,
     )
     .all() as Row[];
@@ -84,7 +83,7 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
     expect(rows(memorySqlite)).toEqual([]);
   });
 
-  test("copies every legacy card row as that page's lead entry, fields preserved", () => {
+  test("copies every legacy card row as that page's lead entry at zero bytes, injected_at and pruned_at preserved", () => {
     createLegacyCardsTable(memorySqlite);
     memorySqlite.exec(/*sql*/ `
       INSERT INTO memory_v3_ever_injected
@@ -103,18 +102,16 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         slug: "topics/page-a",
         section_key: "",
         injected_at: 1000,
-        bytes: 120,
+        bytes: 0,
         pruned_at: null,
-        frozen_card_bytes: 120,
       },
       {
         conversation_id: "conv-1",
         slug: "topics/page-b",
         section_key: "",
         injected_at: 2000,
-        bytes: 340,
+        bytes: 0,
         pruned_at: 3000,
-        frozen_card_bytes: 340,
       },
       {
         conversation_id: "conv-2",
@@ -123,7 +120,6 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         injected_at: 4000,
         bytes: 0,
         pruned_at: null,
-        frozen_card_bytes: 0,
       },
     ]);
     // The legacy table is left in place, untouched.
@@ -157,13 +153,11 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         injected_at: 9000,
         bytes: 150,
         pruned_at: null,
-        // The frozen length is the card's, whatever the row's bytes became.
-        frozen_card_bytes: 120,
       },
     ]);
   });
 
-  test("adds frozen_card_bytes to a table created without it and backfills copied rows from the legacy table", () => {
+  test("a table carrying an extra nullable column is left as is and still takes the copy", () => {
     memorySqlite.exec(/*sql*/ `
       CREATE TABLE memory_v3_injected_sections (
         conversation_id TEXT NOT NULL,
@@ -172,14 +166,9 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
         injected_at INTEGER NOT NULL,
         bytes INTEGER NOT NULL DEFAULT 0,
         pruned_at INTEGER,
+        frozen_card_bytes INTEGER,
         PRIMARY KEY (conversation_id, slug, section_key)
-      );
-      INSERT INTO memory_v3_injected_sections
-        (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
-      VALUES
-        ('conv-1', 'topics/page-a', '', 9000, 150, NULL),
-        ('conv-1', 'topics/page-a', 'Notes', 9100, 60, NULL),
-        ('conv-1', 'fresh-page', '', 9200, 80, NULL)
+      )
     `);
     createLegacyCardsTable(memorySqlite);
     memorySqlite.exec(/*sql*/ `
@@ -189,20 +178,9 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
     `);
 
     ensureMemoryV3InjectedSectionsSchema(memorySqlite);
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
 
-    // The copied lead keeps the row the store refreshed but gains the card's
-    // length; a section row and a page the legacy table never had stay null.
-    expect(
-      rows(memorySqlite).map((row) => [
-        `${row.slug} ${row.section_key}`,
-        row.bytes,
-        row.frozen_card_bytes,
-      ]),
-    ).toEqual([
-      ["fresh-page ", 80, null],
-      ["topics/page-a ", 150, 120],
-      ["topics/page-a Notes", 60, null],
+    expect(rows(memorySqlite).map((row) => [row.slug, row.bytes])).toEqual([
+      ["topics/page-a", 0],
     ]);
   });
 
@@ -218,9 +196,9 @@ describe("ensureMemoryV3InjectedSectionsSchema", () => {
 
     ensureMemoryV3InjectedSectionsSchema(memorySqlite);
 
-    expect(
-      rows(memorySqlite).map((row) => [row.slug, row.frozen_card_bytes]),
-    ).toEqual([["topics/page-a", 120]]);
+    expect(rows(memorySqlite).map((row) => [row.slug, row.bytes])).toEqual([
+      ["topics/page-a", 0],
+    ]);
   });
 });
 

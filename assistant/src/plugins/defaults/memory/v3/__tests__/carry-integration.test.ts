@@ -70,7 +70,6 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../../memory-marker.js";
-import type { InjectedBlock } from "../../substrate/injected-block-slugs.js";
 import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { parsePageContent } from "../../substrate/page-store.js";
 import { renderCard, renderedBytes } from "../card.js";
@@ -84,6 +83,7 @@ import {
 } from "../plugin-schema.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
+import type { InjectedBlock } from "../types.js";
 import {
   isV3LiveBlock,
   markV3LiveBlock,
@@ -321,7 +321,6 @@ const {
   forkEverInjected,
   getActiveSections,
   getInjected,
-  getKnownCardBytes,
   getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_FORMAT,
   MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY,
@@ -855,9 +854,9 @@ async function reinjectTurn(
     pointerText: pointer?.text ?? "",
     refs: new Set(
       sections.text.length > 0
-        ? parseInjectedSections(unwrapMemoryBlock(sections.text), {
-            format: "current",
-          }).sections.map(refId)
+        ? parseInjectedSections(unwrapMemoryBlock(sections.text)).sections.map(
+            refId,
+          )
         : [],
     ),
   };
@@ -876,9 +875,7 @@ function readMetadata(rowId: string): Record<string, unknown> {
 /** The `(slug, key)` refs a v3 block text carries. */
 function blockRefs(text: string): Set<string> {
   return new Set(
-    parseInjectedSections(unwrapMemoryBlock(text), {
-      format: "current",
-    }).sections.map(refId),
+    parseInjectedSections(unwrapMemoryBlock(text)).sections.map(refId),
   );
 }
 
@@ -1037,14 +1034,13 @@ function rehydrateFromDb(
     created_at: number;
   }>;
   const pruned = getPrunedSections(convId);
-  const knownCardBytes = getKnownCardBytes(convId);
   const preStripped = (row: (typeof rows)[number]): boolean =>
     historyStrippedAt !== null && row.created_at < historyStrippedAt;
   const blockOf = (row: (typeof rows)[number]): InjectedBlock | null =>
     row.role === "user" && !preStripped(row)
       ? persistedV3Block(row.metadata)
       : null;
-  const newest = newestCopyIndexes(rows.map(blockOf), knownCardBytes);
+  const newest = newestCopyIndexes(rows.map(blockOf));
   return rows.map((row, index) => {
     let content = JSON.parse(row.content) as ContentBlock[];
     if (row.role === "user" && row.metadata && !preStripped(row)) {
@@ -1069,7 +1065,6 @@ function rehydrateFromDb(
           index,
           pruned,
           newest,
-          knownCardBytes,
         );
         if (resident.length > 0) {
           content = [
@@ -1301,7 +1296,7 @@ describe("memory-v3 carry integration — cache contract", () => {
       // The block contains exactly the net-new sections, each byte-identical
       // to a fresh render, behind the shared read-affordance header.
       const inner = unwrapMemoryBlock(record.blockText);
-      const parsed = parseInjectedSections(inner, { format: "current" });
+      const parsed = parseInjectedSections(inner);
       expect(parsed.preamble).toBe(V3_INJECTION_HEADER);
       expect(new Set(parsed.sections.map(refId))).toEqual(new Set(expected));
       for (const section of parsed.sections) {
@@ -1741,7 +1736,6 @@ describe("memory-v3 carry integration: compaction contract", () => {
     stripPrunedSectionsFromMessages(
       history,
       getPrunedSections(COMPACT_LIVE_CONV),
-      getKnownCardBytes(COMPACT_LIVE_CONV),
     );
     expect(v3Blocks([toolResultMessage])).toBe(0);
     expect(v3Blocks(history)).toBe(1);
@@ -1832,9 +1826,7 @@ describe("memory-v3 carry integration: retry contract", () => {
     expect(anchorBlocks).toHaveLength(1);
     expect(blockRefs(anchorBlocks[0]!.text)).toEqual(expected);
     expect(
-      parseInjectedSections(unwrapMemoryBlock(anchorBlocks[0]!.text), {
-        format: "current",
-      }).sections,
+      parseInjectedSections(unwrapMemoryBlock(anchorBlocks[0]!.text)).sections,
     ).toHaveLength(expected.size);
     expect(JSON.stringify(rehydrated)).toBe(persistentView(live));
   });

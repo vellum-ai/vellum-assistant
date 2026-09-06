@@ -28,13 +28,10 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
-import type { InjectedBlock } from "../substrate/injected-block-slugs.js";
-import {
-  injectedSectionHeader,
-  parseInjectedSections,
-} from "../substrate/injected-block-slugs.js";
+import { injectedSectionHeader } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
 import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
+import type { InjectedBlock } from "./types.js";
 
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
@@ -73,7 +70,6 @@ const {
   getActiveEntries,
   getActiveSections,
   getInjected,
-  getKnownCardBytes,
   getPrunedSections,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -92,39 +88,6 @@ beforeEach(() => {
 afterAll(() => {
   storeMockActive = false;
 });
-
-/** Give a lead entry the frozen length migration 378 (or the fork seeder)
- *  records for it. */
-function freeze(conversationId: string, slug: string, bytes: number): void {
-  memorySqlite
-    .query(
-      /*sql*/ `
-      UPDATE memory_v3_injected_sections SET frozen_card_bytes = ?
-      WHERE conversation_id = ? AND slug = ? AND section_key = ''
-    `,
-    )
-    .run(bytes, conversationId, slug);
-}
-
-/** The frozen lengths on record for a conversation, by `slug key`. */
-function frozenOf(conversationId: string): Record<string, number | null> {
-  const rows = memorySqlite
-    .query(
-      /*sql*/ `
-      SELECT slug, section_key, frozen_card_bytes AS frozen
-      FROM memory_v3_injected_sections WHERE conversation_id = ?
-      ORDER BY slug, section_key
-    `,
-    )
-    .all(conversationId) as Array<{
-    slug: string;
-    section_key: string;
-    frozen: number | null;
-  }>;
-  return Object.fromEntries(
-    rows.map((row) => [`${row.slug} ${row.section_key}`, row.frozen]),
-  );
-}
 
 /** Project the oracle rows down to the fields a test asserts on. */
 function summary(conversationId: string) {
@@ -275,48 +238,6 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
     ).toHaveLength(1_100);
   });
 
-  test("getKnownCardBytes maps each lead entry carrying a frozen length, resident or pruned, per conversation; re-recording keeps the length", () => {
-    recordInjected(
-      "conv-1",
-      [
-        { slug: "topics/page-a", key: "", bytes: 100 },
-        { slug: "topics/page-a", key: "Notes", bytes: 70 },
-        { slug: "topics/page-b", key: "", bytes: 250 },
-        { slug: "topics/page-c", key: "", bytes: 30 },
-        { slug: "skills/meet-join", key: "", bytes: 0 },
-      ],
-      1_000,
-    );
-    freeze("conv-1", "topics/page-a", 900);
-    freeze("conv-1", "topics/page-b", 950);
-    freeze("conv-1", "skills/meet-join", 0);
-    recordInjected("conv-2", [{ slug: "elsewhere", key: "", bytes: 1 }], 1_000);
-    markPruned("conv-1", [{ slug: "topics/page-b", key: "" }], 2_000);
-
-    // A lead entry with no frozen length (page-c, recorded by this build) is
-    // absent; the frozen length is the card's, not the row's current bytes.
-    expect(getKnownCardBytes("conv-1")).toEqual(
-      new Map([
-        ["skills/meet-join", 0],
-        ["topics/page-a", 900],
-        ["topics/page-b", 950],
-      ]),
-    );
-    expect(getKnownCardBytes("conv-unknown")).toEqual(new Map());
-
-    // A prune and re-injection refreshes bytes and clears the tombstone but
-    // never touches the frozen length.
-    recordInjected(
-      "conv-1",
-      [{ slug: "topics/page-b", key: "", bytes: 40 }],
-      3_000,
-    );
-    expect(getKnownCardBytes("conv-1").get("topics/page-b")).toBe(950);
-    expect(
-      getActiveEntries("conv-1").find((e) => e.slug === "topics/page-b"),
-    ).toMatchObject({ bytes: 40 });
-  });
-
   test("empty ref list is a no-op and residentBytes is 0 for unknown conversations", () => {
     recordInjected(
       "conv-1",
@@ -350,19 +271,6 @@ describe("clearConversation", () => {
 });
 
 describe("forkEverInjected", () => {
-  test("copies the parent's frozen lengths along with the rows", () => {
-    recordInjected(
-      "conv-parent",
-      [{ slug: "topics/page-a", key: "", bytes: 100 }],
-      1_000,
-    );
-    freeze("conv-parent", "topics/page-a", 640);
-
-    forkEverInjected("conv-parent", "conv-child");
-
-    expect(frozenOf("conv-child")).toEqual({ "topics/page-a ": 640 });
-  });
-
   test("copies the parent's full record, pruned state included", () => {
     recordInjected(
       "conv-parent",
@@ -516,16 +424,9 @@ describe("seedEverInjectedFromBlocks", () => {
       ]),
     );
     expect(residentBytes("conv-child")).toBe(renderedBytes(leadA));
-    // Copies from a current-format block record no frozen evidence: the
-    // frozen lengths and capability memberships describe legacy cards alone.
-    expect(frozenOf("conv-child")).toEqual({
-      "cli-commands/export ": null,
-      "skills/meet-join ": null,
-      "topics/page-a ": null,
-    });
   });
 
-  test("a card frozen before body escaping seeds one lead entry spanning the whole card", () => {
+  test("a legacy block (a pre-stamp row's) is opaque and seeds nothing; the current blocks beside it seed as usual", () => {
     const card = [
       injectedSectionHeader("topics/page-a", ""),
       "# Page A",
@@ -539,251 +440,27 @@ describe("seedEverInjectedFromBlocks", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
-      [legacy(`preamble\n\n${card}`)],
+      [legacy(`preamble\n\n${card}`), current(designB)],
       5_000,
     );
 
     expect(summary("conv-child")).toEqual([
-      {
-        slug: "topics/page-a",
-        key: "",
-        bytes: renderedBytes(card),
-        prunedAt: null,
-      },
-    ]);
-  });
-
-  test("legacy cards are seeded with the parent's recorded card bytes: a headless card after a sectionless one seeds its own entry", () => {
-    const stub = [
-      injectedSectionHeader("topics/stub", ""),
-      "# Stub",
-      "just a lead, no sections",
-    ].join("\n");
-    const headless = [
-      injectedSectionHeader("topics/headless", ""),
-      "prose only, no title line",
-      "",
-      "[sections: §One]",
-    ].join("\n");
-    const block = `preamble\n\n${stub}\n\n${headless}`;
-    // The parent's rows carry the lengths the old injector measured.
-    recordInjected(
-      "conv-parent",
-      [
-        { slug: "topics/stub", key: "", bytes: renderedBytes(stub) },
-        { slug: "topics/headless", key: "", bytes: renderedBytes(headless) },
-      ],
-      1_000,
-    );
-    freeze("conv-parent", "topics/stub", renderedBytes(stub));
-    freeze("conv-parent", "topics/headless", renderedBytes(headless));
-
-    seedEverInjectedFromBlocks(
-      "conv-parent",
-      "conv-child",
-      [legacy(block)],
-      5_000,
-    );
-
-    expect(summary("conv-child")).toEqual([
-      {
-        slug: "topics/headless",
-        key: "",
-        bytes: renderedBytes(headless),
-        prunedAt: null,
-      },
-      {
-        slug: "topics/stub",
-        key: "",
-        bytes: renderedBytes(stub),
-        prunedAt: null,
-      },
-    ]);
-    // Each seeded lead entry records its inherited span as its own frozen
-    // length, so the child's copies parse the same way after re-injections.
-    expect(frozenOf("conv-child")).toEqual({
-      "topics/headless ": renderedBytes(headless),
-      "topics/stub ": renderedBytes(stub),
-    });
-  });
-
-  test("a legacy card whose lead carries a capability-shaped line seeds one lead entry and no capability row", () => {
-    const card = [
-      injectedSectionHeader("topics/page-a", ""),
-      "# Page A",
-      "lead prose",
-      "",
-      "# CLI command: export",
-      "prose about that command",
-      "",
-      "[sections: §Notes]",
-    ].join("\n");
-    recordInjected(
-      "conv-parent",
-      [{ slug: "topics/page-a", key: "", bytes: renderedBytes(card) }],
-      1_000,
-    );
-
-    seedEverInjectedFromBlocks(
-      "conv-parent",
-      "conv-child",
-      [legacy(`preamble\n\n${card}`)],
-      5_000,
-    );
-
-    expect(summary("conv-child")).toEqual([
-      {
-        slug: "topics/page-a",
-        key: "",
-        bytes: renderedBytes(card),
-        prunedAt: null,
-      },
-    ]);
-  });
-
-  test("a sectionless legacy card with a recorded length seeds one lead entry, whatever grammar-shaped lines its lead carries", () => {
-    const card = [
-      injectedSectionHeader("topics/stub", ""),
-      "# Stub",
-      "lead prose",
-      "",
-      "# memory/concepts/example.md",
-      "a cited path",
-      "",
-      "# CLI command: export",
-      "a command-shaped line",
-    ].join("\n");
-    recordInjected(
-      "conv-parent",
-      [{ slug: "topics/stub", key: "", bytes: renderedBytes(card) }],
-      1_000,
-    );
-    freeze("conv-parent", "topics/stub", renderedBytes(card));
-
-    seedEverInjectedFromBlocks(
-      "conv-parent",
-      "conv-child",
-      [legacy(`preamble\n\n${card}`)],
-      5_000,
-    );
-
-    expect(summary("conv-child")).toEqual([
-      {
-        slug: "topics/stub",
-        key: "",
-        bytes: renderedBytes(card),
-        prunedAt: null,
-      },
-    ]);
-  });
-
-  test("each inherited block is parsed by its own format: a current lead-only block for a migrated slug seeds an entry per lead where the same bytes as a legacy block seed one card", () => {
-    const leadB = `${injectedSectionHeader("topics/page-b", "")}\nLead B`;
-    const block = `${leadA}\n\n${leadB}`;
-    // The parent froze page-a as a card exactly as long as this block.
-    recordInjected(
-      "conv-parent",
-      [{ slug: "topics/page-a", key: "", bytes: renderedBytes(block) }],
-      1_000,
-    );
-    freeze("conv-parent", "topics/page-a", renderedBytes(block));
-
-    seedEverInjectedFromBlocks(
-      "conv-parent",
-      "conv-child",
-      [current(block)],
-      5_000,
-    );
-    expect(summary("conv-child")).toEqual([
-      {
-        slug: "topics/page-a",
-        key: "",
-        bytes: renderedBytes(leadA),
-        prunedAt: null,
-      },
       {
         slug: "topics/page-b",
-        key: "",
-        bytes: renderedBytes(leadB),
+        key: "Design#1",
+        bytes: renderedBytes(designB),
         prunedAt: null,
       },
     ]);
 
+    // Legacy blocks alone: a no-op.
     seedEverInjectedFromBlocks(
       "conv-parent",
-      "conv-child-legacy",
-      [legacy(block)],
+      "conv-child-legacy-only",
+      [legacy(`preamble\n\n${card}`)],
       5_000,
     );
-    expect(summary("conv-child-legacy")).toEqual([
-      {
-        slug: "topics/page-a",
-        key: "",
-        bytes: renderedBytes(block),
-        prunedAt: null,
-      },
-    ]);
-  });
-
-  test("a fork inheriting a legacy card and a later current re-injection of the same lead keeps the parent's legacy length, and its legacy block parses by it on reload", () => {
-    const stub = [
-      injectedSectionHeader("topics/stub", ""),
-      "# Stub",
-      "just a lead, no sections",
-    ].join("\n");
-    const headless = [
-      injectedSectionHeader("topics/headless", ""),
-      "prose only, no title line",
-      "",
-      "[sections: §One]",
-    ].join("\n");
-    const legacyInner = `preamble\n\n${stub}\n\n${headless}`;
-    const reinjected = `${injectedSectionHeader("topics/headless", "")}\nthe lead, re-injected after a prune`;
-    recordInjected(
-      "conv-parent",
-      [
-        { slug: "topics/stub", key: "", bytes: renderedBytes(stub) },
-        { slug: "topics/headless", key: "", bytes: renderedBytes(reinjected) },
-      ],
-      1_000,
-    );
-    freeze("conv-parent", "topics/stub", renderedBytes(stub));
-    freeze("conv-parent", "topics/headless", renderedBytes(headless));
-
-    seedEverInjectedFromBlocks(
-      "conv-parent",
-      "conv-child",
-      [legacy(legacyInner), current(`preamble\n\n${reinjected}`)],
-      5_000,
-    );
-
-    // The span follows the latest copy; the frozen length is the legacy
-    // card's, not the current copy's.
-    expect(summary("conv-child")).toEqual([
-      {
-        slug: "topics/headless",
-        key: "",
-        bytes: renderedBytes(reinjected),
-        prunedAt: null,
-      },
-      {
-        slug: "topics/stub",
-        key: "",
-        bytes: renderedBytes(stub),
-        prunedAt: null,
-      },
-    ]);
-    expect(frozenOf("conv-child")).toEqual({
-      "topics/headless ": renderedBytes(headless),
-      "topics/stub ": renderedBytes(stub),
-    });
-    // The child's evidence splits the inherited legacy block at the cards.
-    expect(
-      parseInjectedSections(legacyInner, {
-        format: "legacy",
-        knownCardBytes: getKnownCardBytes("conv-child"),
-      }).sections.map((section) => section.text),
-    ).toEqual([stub, headless]);
+    expect(getInjected("conv-child-legacy-only")).toEqual([]);
   });
 
   test("carries the parent's pruned_at tombstones for inherited sections", () => {

@@ -60,10 +60,7 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
-import {
-  getKnownCardBytes,
-  getPrunedSections,
-} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { getPrunedSections } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import {
   mergeIntoAnchorBlock,
   stripPrunedSectionsFromMessages,
@@ -2645,7 +2642,6 @@ export async function applyRuntimeInjections(
     stripPrunedSectionsFromMessages(
       runMessagesForAssembly,
       getPrunedSections(conversationId),
-      getKnownCardBytes(conversationId),
     );
   }
 

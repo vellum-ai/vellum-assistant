@@ -74,7 +74,6 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
-  getKnownCardBytes,
   getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   type SectionRefSet,
@@ -1206,21 +1205,6 @@ export class Conversation {
       }
       return v3PrunedSectionsMemo;
     };
-    // The conversation's recorded lead-entry bytes, read the same lazy way:
-    // the block parser's `knownCardBytes`, so a card frozen before body
-    // escaping splits only at headers whose span is a card this
-    // conversation actually froze.
-    let v3KnownCardBytesMemo: ReadonlyMap<string, number> | null = null;
-    const v3KnownCardBytes = (): ReadonlyMap<string, number> => {
-      if (v3KnownCardBytesMemo === null) {
-        try {
-          v3KnownCardBytesMemo = getKnownCardBytes(this.conversationId);
-        } catch {
-          v3KnownCardBytesMemo = new Map();
-        }
-      }
-      return v3KnownCardBytesMemo;
-    };
     // Provider-id → row-text index for reaction target resolution, built
     // lazily on the first reaction row: most conversations carry none, so
     // most loads never walk the rows a second time. Keyed over the full
@@ -1278,7 +1262,6 @@ export class Conversation {
               ? persistedV3Block(row.metadata)
               : null,
           ),
-          v3KnownCardBytes(),
         );
       }
       return v3NewestCopyMemo;
@@ -1482,7 +1465,8 @@ export class Conversation {
             ] as string;
             // The block's rendering format is the row's own provenance (the
             // persisting build's stamp, absent on pre-stamp rows), never
-            // read off the block's content.
+            // read off the block's content: a current block is filtered by
+            // section, a legacy block is opaque and rehydrates verbatim.
             const v3Format = v3BlockFormatOf(meta);
             const v3Resident = filterResidentSections(
               unwrapMemoryBlock(v3Block),
@@ -1490,7 +1474,6 @@ export class Conversation {
               index,
               v3PrunedSections(),
               v3NewestCopy(),
-              v3KnownCardBytes(),
             );
             if (v3Resident.length > 0) {
               content = [

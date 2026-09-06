@@ -104,23 +104,20 @@ const LEGACY_CARDS_TABLE = "memory_v3_ever_injected";
  * Create `memory_v3_injected_sections` and its index, then seed it from the
  * card-grain `memory_v3_ever_injected` (the superseded record, relocated to
  * the memory connection by migration 345 and frozen there): every legacy row
- * becomes that page's LEAD entry (`section_key = ''`), keeping its
- * `injected_at`, `bytes`, and `pruned_at`, so in-flight conversations keep
- * their dedup and prune state across the cutover (a frozen card in history is
- * the page's lead plus a TOC, and the lead is what a re-selection of that
- * page without a matched section would inject again). The legacy `bytes`,
- * the length the card injector measured for the whole frozen card, is also
- * kept as `frozen_card_bytes`, which a later re-injection never refreshes:
- * it is the block parser's boundary evidence for the card still sitting in
- * that message's metadata.
+ * becomes that page's LEAD entry (`section_key = ''`) at zero bytes, keeping
+ * its `injected_at` and `pruned_at`, so in-flight conversations keep their
+ * dedup state across the cutover (a frozen card in history is the page's
+ * lead plus a TOC, and the lead is what a re-selection of that page without
+ * a matched section would inject again). Zero bytes because the card's
+ * block is opaque to the section readers (rehydrated verbatim, never parsed
+ * or stripped): like a capability row, the entry is dedup-only, never a
+ * prune candidate, and never counted in the resident footprint.
  *
- * Idempotent: `IF NOT EXISTS` DDL, the `frozen_card_bytes` column added to a
- * table created without it, an `INSERT OR IGNORE` copy, and a
- * `frozen_card_bytes` backfill that only fills rows still missing it, so a
- * rerun neither duplicates rows nor overwrites entries the section store has
- * since refreshed. A memory database without the legacy table (a fresh
- * install, or one the relocation has not reached yet) gets the empty table;
- * the copy runs on a later ensure once the legacy rows are there.
+ * Idempotent: `IF NOT EXISTS` DDL and an `INSERT OR IGNORE` copy, so a rerun
+ * neither duplicates rows nor overwrites entries the section store has since
+ * refreshed. A memory database without the legacy table (a fresh install, or
+ * one the relocation has not reached yet) gets the empty table; the copy
+ * runs on a later ensure once the legacy rows are there.
  */
 export function ensureMemoryV3InjectedSectionsSchema(
   memoryRaw: MemorySqlite,
@@ -133,11 +130,9 @@ export function ensureMemoryV3InjectedSectionsSchema(
       injected_at INTEGER NOT NULL,
       bytes INTEGER NOT NULL DEFAULT 0,
       pruned_at INTEGER,
-      frozen_card_bytes INTEGER,
       PRIMARY KEY (conversation_id, slug, section_key)
     )
   `);
-  ensureColumn(memoryRaw, SECTIONS_TABLE, "frozen_card_bytes", "INTEGER");
   memoryRaw.exec(/*sql*/ `
     CREATE INDEX IF NOT EXISTS idx_memory_v3_injected_sections_conv
       ON ${SECTIONS_TABLE} (conversation_id)
@@ -152,23 +147,9 @@ export function ensureMemoryV3InjectedSectionsSchema(
   }
   memoryRaw.exec(/*sql*/ `
     INSERT OR IGNORE INTO ${SECTIONS_TABLE}
-      (conversation_id, slug, section_key, injected_at, bytes, pruned_at,
-       frozen_card_bytes)
-    SELECT conversation_id, slug, '', injected_at, bytes, pruned_at, bytes
+      (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
+    SELECT conversation_id, slug, '', injected_at, 0, pruned_at
     FROM ${LEGACY_CARDS_TABLE}
-  `);
-  memoryRaw.exec(/*sql*/ `
-    UPDATE ${SECTIONS_TABLE} AS t
-    SET frozen_card_bytes = (
-      SELECT l.bytes FROM ${LEGACY_CARDS_TABLE} AS l
-      WHERE l.conversation_id = t.conversation_id AND l.slug = t.slug
-    )
-    WHERE t.section_key = ''
-      AND t.frozen_card_bytes IS NULL
-      AND EXISTS (
-        SELECT 1 FROM ${LEGACY_CARDS_TABLE} AS l
-        WHERE l.conversation_id = t.conversation_id AND l.slug = t.slug
-      )
   `);
 }
 

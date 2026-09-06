@@ -146,38 +146,26 @@ a `\n\n` seam, and every renderer passes each chunk body through the module's
 `escapeInjectedBody` (one leading backslash on any line that would otherwise
 read as a boundary; `unescapeInjectedBody` is the exact inverse), so page or
 skill text can never forge one. The prune valve (`v3/prune.ts`), the
-`loadFromDb` rehydration filter, the truncated-fork seed (which measures each
-inherited section's bytes from its span, seeds inherited capability chunks at
-zero bytes as the injector records them, and takes frozen evidence from
-inherited legacy-format copies alone, so a later current re-injection of a
-lead never overwrites the length its legacy card parses by), and the inspector all read
-blocks through the module's `parseInjectedSections`, and every call states the
-block's rendering format (`InjectedBlockFormat`, `"legacy" | "current"`),
-which is explicit provenance and never inferred from content: the persisting
-build stamps `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT`, 2) beside `memoryV3InjectedBlock`, a row carrying the block without the stamp
-is legacy (exactly the pre-stamp rows; fork copies carry the stamp with the
-metadata), `persistedV3Block` reads both for rehydration and the fork seeder,
-and the identity registry records the format of every block in live history
-(the injector's own blocks are current; a spliced block keeps its row's). Under
-`"legacy"` the parser also recognises the compact-card shape earlier builds
-froze without escaping (header, page head, blank line, `[sections: …]` TOC
-line) so a header-shaped line inside such a card's lead stays card text unless
-the span from it to a later header is, byte for byte, the frozen card length
-the conversation recorded for that slug, and an open card whose own slug has a
-recorded length ends exactly that many bytes after its header (so a
-sectionless card, with no TOC line, still holds its lead together and the next
-boundary is the first header at that extent); under `"current"` only producer
-headers on seams split, whatever the frozen lengths say, so a lead plus a
-following chunk that happen to measure a migrated slug's old card length stay
-separate (`getKnownCardBytes` reads `frozen_card_bytes`, the legacy length the
-store's schema ensure copied in from `memory_v3_ever_injected` or the fork
-seeder took from an inherited legacy copy, which `recordInjected` never
-refreshes, so the evidence survives a prune and re-injection of the lead);
-page slug membership alone never splits a card. A `# Skill: ` / `# CLI command: `
-line inside such a lead likewise stays card text unless the capability slug it
-names is a recorded key (capability entries are recorded at zero bytes, so
-membership is the whole signal), and a `# Skills` line always does, since the
-hint chunk was never recorded. A page's lead injection carries its
+`loadFromDb` rehydration filter, and the truncated-fork seed (which measures
+each inherited section's bytes from its span and seeds inherited capability
+chunks at zero bytes as the injector records them) all read blocks through
+the module's `parseInjectedSections`, which reads that grammar alone. Which
+blocks it reads is explicit provenance, never inferred from content
+(`InjectedBlockFormat` in `v3/types.ts`, `"legacy" | "current"`): the
+persisting build stamps `memoryV3InjectedBlockFormat`
+(`MEMORY_V3_INJECTED_BLOCK_FORMAT`, 2) beside `memoryV3InjectedBlock`, a row
+carrying the block without the stamp is legacy (exactly the pre-stamp rows;
+fork copies carry the stamp with the metadata), `persistedV3Block` reads both
+for rehydration and the fork seeder, and the identity registry records the
+format of every block in live history (the injector's own blocks are current;
+a spliced block keeps its row's). A legacy block is opaque: rehydrated
+verbatim, never parsed for sections, never pruned or stripped by the valve,
+never indexed by the newest-copy pass, and never fork-seeded (a later
+re-selection of a section it holds injects that section afresh beside it);
+its `memory_v3_ever_injected` rows are copied into the section store at zero
+bytes, dedup-only like capability rows, so nothing in it is ever planned or
+counted, and it ages out at compaction, which strips memory blocks and clears
+the store. A page's lead injection carries its
 `[current: …]` annotation under the header, as the selector card does. The valve strips a pruned section
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
@@ -253,7 +241,7 @@ the identity the store records them by (the capability slug, empty key), so a
 re-entry copy of a skill or CLI command retires once a later turn persists the
 capability again. `memory_v3_ever_injected` is the superseded
 card-grain record: the section store's schema ensure (`v3/plugin-schema.ts`)
-copies its rows in as lead entries, and nothing reads or writes it. Rows written by builds that shipped the per-turn
+copies its rows in as zero-byte lead entries, and nothing reads or writes it. Rows written by builds that shipped the per-turn
 `<memory_spotlight>` layer carry `memoryV3SpotlightBlock`
 (`LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`): nothing writes it, and
 `loadFromDb` rehydrates it verbatim as inert history so those turns' prompts
@@ -406,9 +394,9 @@ boot, and each store ensures again on the first use of a connection in its
 process (the memory worker is a separate process), idempotently and fail-open,
 so a memory database that cannot be opened degrades the stores to no-ops
 instead of failing database readiness. The sections ensure also copies the
-legacy `memory_v3_ever_injected` rows in as lead entries (`INSERT OR IGNORE`,
-plus the `frozen_card_bytes` column and backfill for a table created without
-it). `memory_v3_selections` itself is created by migration 338, but its
+legacy `memory_v3_ever_injected` rows in as zero-byte lead entries
+(`INSERT OR IGNORE`). `memory_v3_selections` itself is created by migration
+338, but its
 `section_key` column is plugin-owned the same way: the selection log's writer
 (`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
 it on the first use of a connection, and the `init` hook at boot. Every
