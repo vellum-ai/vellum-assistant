@@ -129,12 +129,6 @@ export function SkillsReferenceACPContent() {
               unless you accept.
             </li>
             <li>
-              <strong>Existing Codex installations.</strong> If you use the legacy
-              @zed-industries/codex-acp package, ask your assistant to migrate to
-              @agentclientprotocol/codex-acp. It will ask for approval, preserve your
-              custom settings, and verify the replacement in a fresh session.
-            </li>
-            <li>
               <strong>Fully independent.</strong> ACP agents are separate processes with their own
               context window and tools.
             </li>

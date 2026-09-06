@@ -99,19 +99,6 @@ bun add -g @agentclientprotocol/codex-acp@latest
 
 Codex uses the adapter's bundled dependency by default, within the version range declared by the adapter. If `CODEX_PATH` selects a separate CLI, update that installation separately. Verify the required model with a fresh `acp_spawn` call after updating.
 
-### Migrating the legacy package
-
-Existing `@zed-industries/codex-acp` installations need an explicit replacement because both packages provide the `codex-acp` command.
-
-Before replacing it, get approval, let active sessions finish, and record the installed package/version and custom profile settings for rollback. Use the package manager that owns the installation. For bun:
-
-```bash
-bun remove -g @zed-industries/codex-acp
-bun add -g @agentclientprotocol/codex-acp
-```
-
-Preserve custom profiles and executable paths. Verify the resolved `codex-acp` belongs to the successor package, check `codex-acp --version`, and start a fresh session. If verification fails, restore the recorded package/version and settings.
-
 ## When to use acp_steer vs acp_spawn
 
 - **On a running session, `acp_steer` interrupts the in-flight prompt.** Use it to course-correct ("stop, do X instead"). It cancels whatever the agent is currently working on and replaces it with the new instruction. Queued follow-ups behind a running prompt are not supported - wait for the `acp_session_completed` notification instead.
