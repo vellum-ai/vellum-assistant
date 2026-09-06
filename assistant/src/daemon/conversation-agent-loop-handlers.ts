@@ -3563,8 +3563,11 @@ export async function dispatchAgentEvent(
           // or an overflow rung that reduced without summarizing), so the
           // ledgers reset as `applyCompactionResult` resets them on a real
           // compaction; otherwise every later turn points at sections whose
-          // blocks are gone. Nothing was summarized, so the count is zero, as
-          // on `/clean`.
+          // blocks are gone. The loop continues from the same stripped shape
+          // (`AgentLoop.compact`), so the re-injection that follows renders a
+          // section the reset left unclaimed once, with no frozen copy left on
+          // an earlier message. Nothing was summarized, so the count is zero,
+          // as on `/clean`.
           await resetInjectionLedgersForStrip(deps.ctx, 0);
         }
         break;

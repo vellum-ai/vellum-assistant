@@ -14,8 +14,12 @@
  * captures are not needed by the re-injection caller, so only the messages
  * propagate.
  *
- * The base the loop hands in is the full injected history (the loop does not
- * pre-strip it), so the tail strip is what keeps injection idempotency a
+ * The base the loop hands in is injection-stripped (the compaction result, or
+ * the loop's own strip of a history the pipeline left uncompacted), matching
+ * the durable history the dispatcher committed when it reset the memory
+ * ledgers, so no frozen memory block from an earlier turn survives into the
+ * re-injected history. The tail strip covers the per-turn blocks that strip
+ * keeps (`<turn_context>` and its peers), so injection idempotency stays a
  * property of the injection machinery rather than of the agent loop.
  *
  * Every per-turn input the live conversation can supply is self-resolved from
@@ -81,10 +85,9 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
     config.llm,
     conversationId,
   );
-  // Clear any per-turn injection blocks the base already carries on its tail
-  // before re-injecting, so the continuation history holds a single copy of
-  // each block rather than double-stacking on the injected base the loop hands
-  // in.
+  // Clear any per-turn injection blocks the base still carries on its tail
+  // (the ones the compaction strip keeps in history) before re-injecting, so
+  // the continuation history holds a single copy of each block.
   const strippedHistory = stripTailInjectionsForReinjection(history);
   // `reinjection`: the blocks this assembly attaches are never persisted
   // (the captured blocks are dropped below, and every message in the base

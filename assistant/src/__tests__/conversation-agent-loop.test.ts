@@ -13,6 +13,7 @@ import {
 
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
@@ -504,7 +505,11 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
-  stripInjectionsForCompaction: (msgs: Message[]) => msgs,
+  // The real strip, not a pass-through: this module re-exports it, and a
+  // module mock overrides the re-exported binding at its source, so a stub
+  // here would turn the compaction strip the loop and the event dispatcher
+  // import from `context/strip-injections.js` into a no-op as well.
+  stripInjectionsForCompaction,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,
@@ -683,7 +688,9 @@ import {
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import type { PostCompactContext } from "../hooks/types.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { wrapMemoryBlock } from "../plugins/defaults/memory/memory-marker.js";
 import {
   getActiveSections as getV3ActiveSections,
   recordInjected as recordV3Injected,
@@ -4619,6 +4626,156 @@ describe("session-agent-loop", () => {
       expect(onCompacted.mock.calls).toEqual([[0]]);
       expect(order).toEqual(["pipeline", "reset", "post_compact"]);
       expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    /**
+     * The resident section's frozen memory-v3 block as it sits on an earlier
+     * turn's user message; the reset clears its residency, so re-injection
+     * renders the section net-new.
+     */
+    const FROZEN_SECTION_BLOCK = wrapMemoryBlock("## page-a\nbody");
+
+    /** Earlier turns whose user message carries the frozen section block. */
+    function historyWithFrozenSection(): Message[] {
+      return [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Earlier turn" },
+            { type: "text", text: FROZEN_SECTION_BLOCK },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Earlier reply" }],
+        },
+      ];
+    }
+
+    /** The number of text blocks across `messages` whose text is `text`. */
+    function countTextBlocks(messages: Message[], text: string): number {
+      return messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === "text" && block.text === text).length;
+    }
+
+    /**
+     * Register a post-compact hook standing in for the memory plugin's
+     * re-injection: it records the history it receives beside the durable
+     * history at that moment, then renders the section net-new onto the tail
+     * (the reset store no longer claims it) and writes the result back onto
+     * the context, as the real hook does.
+     */
+    function registerReinjectingPostCompactHook(ctx: Conversation): {
+      received: Array<{ history: Message[]; durable: Message[] }>;
+    } {
+      const received: Array<{ history: Message[]; durable: Message[] }> = [];
+      registerPlugin({
+        manifest: { name: "test-reinject-post-compact", version: "1.0.0" },
+        hooks: {
+          "post-compact": async (hookCtx: PostCompactContext) => {
+            received.push({
+              history: hookCtx.history,
+              durable: structuredClone(ctx.messages),
+            });
+            const tail = hookCtx.history[hookCtx.history.length - 1]!;
+            hookCtx.history = [
+              ...hookCtx.history.slice(0, -1),
+              {
+                ...tail,
+                content: [
+                  ...tail.content,
+                  { type: "text", text: FROZEN_SECTION_BLOCK },
+                ],
+              },
+            ];
+          },
+        },
+      });
+      return { received };
+    }
+
+    test("continues a budget-gate run that found nothing to summarize from the stripped base, so a section re-injected after the reset reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, and a pipeline run that finds nothing to summarize
+      const { graphMemory, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the hook re-injected onto the history the durable commit holds:
+      // the stripped base, with the frozen block gone from the earlier message
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(history).toEqual(durable);
+      // AND the provider call that followed carried the section exactly once,
+      // rendered net-new on the tail
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+    });
+
+    test("continues an overflow rung that reduced without summarizing from the stripped base, so the retry carries a re-injected section once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, and a truncation rung that reduces with no summary
+      const { graphMemory, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const scenario = overflowAfterToolTurnScenario();
+      const { provider, calls } = createMockProvider(
+        scenario.providerResponses!,
+        "mock-provider",
+      );
+      const ctx = makeCtx({
+        ...scenario,
+        graphMemory,
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn through the rejection and the retry
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the hook re-injected onto the stripped base the durable commit
+      // holds, not the rung's reduced copy of the injected history
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(history).toEqual(durable);
+      // AND the rejected call carried the frozen copy while the retry after
+      // the rung carried the re-injected copy alone, so recovery regained no
+      // tokens it set out to remove
+      expect(calls).toHaveLength(3);
+      expect(countTextBlocks(calls[1]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
     });
 
     test("leaves the ledgers intact when the history-stripped marker cannot be written", async () => {

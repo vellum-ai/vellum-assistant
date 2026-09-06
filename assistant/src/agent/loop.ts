@@ -2,6 +2,7 @@ import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -438,10 +439,11 @@ export type AgentEvent =
        * base as the conversation's durable message state and, once the
        * history-stripped marker is durable, resets the memory-injection
        * ledgers, whose frozen blocks leave durable history with the strip
-       * whether or not a summary landed. Re-injection (the
-       * post-compaction hook) strips runtime injections before re-applying
-       * them, so it is idempotent whether the loop continues from the
-       * stripped compaction result or from the unchanged injected history.
+       * whether or not a summary landed. The loop continues from the same
+       * injection-stripped shape (the compaction result, or its own strip of
+       * the history the pipeline left uncompacted), so re-injection (the
+       * post-compaction hook) renders onto a history carrying no frozen block
+       * the reset ledgers no longer claim.
        * When `compacted` is set the dispatcher additionally commits the
        * durable compaction result (DB-record fields, SSE) and projects Slack
        * provenance from the pre-compaction base.
@@ -983,16 +985,22 @@ export class AgentLoop {
    * Calls the default compaction plugin, then re-applies injections via the
    * supplied hooks. Both the budget and overflow paths hand the full injected
    * `history` to the plugin (so the summary call reuses the agent's warm prefix
-   * cache); the POST_COMPACT hook owns re-injection idempotency so continuing
-   * from injected history does not double-stack blocks. When `overflowSignal`
-   * is supplied the plugin routes through the manager's reduction ladder (which
-   * advances one rung per call and reports `exhausted` / `autoCompressApplied`
-   * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
-   * the re-injected history to continue from alongside the ladder's terminal
-   * state. On the ordinary path an exhausted compactor yields a `null` history
-   * (nothing reduced worth continuing from, so the caller proceeds with the
-   * call); the overflow path always returns the rung's reduced history so the
-   * call is retried once at maximum reduction before the turn ends.
+   * cache). The base handed to the POST_COMPACT hook is injection-stripped
+   * either way (the compactor's output, or this method's own strip of a
+   * history the pipeline left uncompacted): the same shape the event
+   * dispatcher commits as the durable history while it resets the
+   * memory-injection ledgers, so re-injection renders onto a history that
+   * carries no frozen memory block those ledgers no longer claim, and the
+   * hook's own tail strip keeps the per-turn blocks single. When
+   * `overflowSignal` is supplied the plugin routes through the manager's
+   * reduction ladder (which advances one rung per call and reports
+   * `exhausted` / `autoCompressApplied` / `injectionMode`); otherwise it runs
+   * ordinary forced compaction. Returns the re-injected history to continue
+   * from alongside the ladder's terminal state. On the ordinary path an
+   * exhausted compactor yields a `null` history (nothing reduced worth
+   * continuing from, so the caller proceeds with the call); the overflow path
+   * always returns the rung's reduced history so the call is retried once at
+   * maximum reduction before the turn ends.
    */
   private async compact(
     history: Message[],
@@ -1069,17 +1077,21 @@ export class AgentLoop {
     if (overflowSignal == null && exhausted) {
       return { history: null, exhausted, autoCompressApplied };
     }
-    // The POST_COMPACT hook strips runtime injections from this base and
-    // re-applies them, so continuing from injected history is safe. The
-    // overflow ladder transforms the history on every rung (truncation /
-    // media stubbing / injection downgrade) regardless of whether the summary
-    // ran, so continue from its reduced messages; the ordinary path continues
-    // from the compacted messages when the pipeline compacted, otherwise from
-    // the unchanged injected history.
-    const base =
-      overflowSignal != null || compactResult.compacted
-        ? compactResult.messages
-        : history;
+    // Continue from an injection-stripped base, the shape the dispatcher
+    // committed as the durable history when it reset the memory-injection
+    // ledgers. A compacted result is already the summary plus the compactor's
+    // stripped tail. The overflow ladder's non-summary rungs (truncation /
+    // media stubbing / injection downgrade) return the reduced history with
+    // its injections intact, and the ordinary path leaves the injected history
+    // unchanged, so those are stripped here. The POST_COMPACT hook then
+    // re-applies the runtime injections onto a history with no frozen memory
+    // block, so a section the reset ledgers no longer claim renders once, on
+    // the tail, rather than beside a frozen copy on an earlier message.
+    const base = compactResult.compacted
+      ? compactResult.messages
+      : stripInjectionsForCompaction(
+          overflowSignal != null ? compactResult.messages : history,
+        );
     const postCompactCtx: PostCompactInputContext = {
       history: base,
       requestId,

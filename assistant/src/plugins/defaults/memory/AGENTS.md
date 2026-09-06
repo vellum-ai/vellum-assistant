@@ -248,6 +248,11 @@ summarizing) exactly as `applyCompactionResult` does on a real compaction,
 `/clean` resets it the same way, and every reset precedes the re-injection
 below, so the store never claims a section whose frozen block left durable
 history and the re-injection's render agrees with its residency partition.
+The loop continues from that same stripped base (`AgentLoop.compact` strips
+a history the pipeline left uncompacted itself; a compacted result is the
+summary plus the compactor's stripped tail), so the re-injection renders onto
+a history carrying no frozen block and a section the reset left unclaimed
+reaches the model once, on the tail.
 Each reset is gated on the `historyStrippedAt` marker being durable
 (`resetInjectionLedgersForStrip` in `daemon/conversation-agent-loop-handlers.ts`
 writes it, or re-attempts it, first): a reset without the marker would let a
