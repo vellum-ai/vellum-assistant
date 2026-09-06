@@ -261,7 +261,16 @@ succeeds there counts for the pair, so `resetInjectionLedgersForStrip` (in
 `daemon/conversation-agent-loop-handlers.ts`) resets without a second write;
 it writes the marker itself only when no write for the strip has succeeded,
 and when that write fails too it leaves the store intact (the rehydrated
-blocks and the claiming store still agree) and logs the skipped reset.
+blocks and the claiming store still agree) and logs the skipped reset. A
+skipped reset on a run that compacted nothing keeps the frozen blocks in the
+live history too: the dispatcher commits the injected pre-compaction history
+as the durable base and reports the outcome to the loop through its run's
+`injectionLedgerResets`, so the loop defers its strip and continues from the
+injected history (on the overflow ladder, the rung's reduced copy with its
+injections intact), the re-injection's pointers for the sections the store
+still claims point at blocks that are still there, and a reload rehydrates
+the same blocks from the persisted rows. A compacted result always continues
+from the summary output.
 A re-injection assembly (the post-compaction hook,
 which also serves the overflow ladder's rungs) attaches its blocks in memory
 only and never persists them. The injector's turn memo remembers what the

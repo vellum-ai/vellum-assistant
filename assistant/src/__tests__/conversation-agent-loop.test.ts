@@ -690,7 +690,10 @@ import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
 import type { PostCompactContext } from "../hooks/types.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
-import { wrapMemoryBlock } from "../plugins/defaults/memory/memory-marker.js";
+import {
+  wrapMemoryBlock,
+  wrapMemoryPointerBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   getActiveSections as getV3ActiveSections,
   recordInjected as recordV3Injected,
@@ -4712,10 +4715,13 @@ describe("session-agent-loop", () => {
 
     /**
      * The resident section's frozen memory-v3 block as it sits on an earlier
-     * turn's user message; the reset clears its residency, so re-injection
-     * renders the section net-new.
+     * turn's user message. A reset clears its residency, so re-injection
+     * renders the section net-new; a skipped reset leaves it resident, so
+     * re-injection points at it instead.
      */
     const FROZEN_SECTION_BLOCK = wrapMemoryBlock("## page-a\nbody");
+    /** The pointer re-injection emits for the section while it is resident. */
+    const SECTION_POINTER_BLOCK = wrapMemoryPointerBlock("page-a");
 
     /** Earlier turns whose user message carries the frozen section block. */
     function historyWithFrozenSection(): Message[] {
@@ -4744,9 +4750,10 @@ describe("session-agent-loop", () => {
     /**
      * Register a post-compact hook standing in for the memory plugin's
      * re-injection: it records the history it receives beside the durable
-     * history at that moment, then renders the section net-new onto the tail
-     * (the reset store no longer claims it) and writes the result back onto
-     * the context, as the real hook does.
+     * history at that moment, then partitions the section by residency the
+     * way the real injector does (a section the store still claims gets a
+     * pointer on the tail; one a reset left unclaimed renders net-new there)
+     * and writes the result back onto the context, as the real hook does.
      */
     function registerReinjectingPostCompactHook(ctx: Conversation): {
       received: Array<{ history: Message[]; durable: Message[] }>;
@@ -4760,6 +4767,9 @@ describe("session-agent-loop", () => {
               history: hookCtx.history,
               durable: structuredClone(ctx.messages),
             });
+            const resident = getV3ActiveSections(ctx.conversationId).has(
+              "page-a",
+            );
             const tail = hookCtx.history[hookCtx.history.length - 1]!;
             hookCtx.history = [
               ...hookCtx.history.slice(0, -1),
@@ -4767,7 +4777,12 @@ describe("session-agent-loop", () => {
                 ...tail,
                 content: [
                   ...tail.content,
-                  { type: "text", text: FROZEN_SECTION_BLOCK },
+                  {
+                    type: "text",
+                    text: resident
+                      ? SECTION_POINTER_BLOCK
+                      : FROZEN_SECTION_BLOCK,
+                  },
                 ],
               },
             ];
@@ -4775,6 +4790,15 @@ describe("session-agent-loop", () => {
         },
       });
       return { received };
+    }
+
+    /** Stub the marker write to fail at the strip and again at the
+     *  re-attempt that precedes the reset, as a SQLite lock held across the
+     *  compaction (SQLITE_BUSY) would. */
+    function failEveryMarkerWrite(): void {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
     }
 
     test("continues a budget-gate run that found nothing to summarize from the stripped base, so a section re-injected after the reset reaches the provider once", async () => {
@@ -4860,14 +4884,115 @@ describe("session-agent-loop", () => {
       expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
     });
 
+    test("continues a budget-gate run whose strip marker cannot be made durable from the injected history, so the section the intact ledgers still claim reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a pipeline run that finds nothing to summarize, and a
+      // marker write that fails at the strip and at the re-attempt
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN both marker writes failed, so no reset ran and the store still
+      // claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the history the durable commit holds:
+      // the injected history, the frozen block still on the earlier message
+      // where the store's residency expects it
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the provider call that followed carried the section exactly once:
+      // the frozen copy, pointed at rather than rendered again
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[0]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("continues an overflow rung whose strip marker cannot be made durable from the rung's reduced history with its injections intact, so the retry carries the section the intact ledgers still claim once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a truncation rung that reduces with no summary, and a
+      // marker write that fails at the strip and at the re-attempt
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const scenario = overflowAfterToolTurnScenario();
+      const { provider, calls } = createMockProvider(
+        scenario.providerResponses!,
+        "mock-provider",
+      );
+      const ctx = makeCtx({
+        ...scenario,
+        graphMemory,
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn through the rejection and the retry
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN no reset ran and the store still claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the injected history the durable commit
+      // holds, the frozen block still on the earlier message
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the retry after the rung carried the frozen copy once, pointed at
+      // rather than rendered again
+      expect(calls).toHaveLength(3);
+      expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[2]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
     test("leaves the ledgers intact when the history-stripped marker cannot be written", async () => {
       const { graphMemory, onCompacted, order } =
         arrangeResidentSectionAndObservers("test-conv");
-      // The marker write fails at the strip and again at the re-attempt that
-      // precedes the reset.
-      setConversationHistoryStrippedAtMock.mockImplementation(() => {
-        throw new Error("db write failed");
-      });
+      failEveryMarkerWrite();
       mockEstimateTokens = 90_000;
       const ctx = makeCtx({
         graphMemory,

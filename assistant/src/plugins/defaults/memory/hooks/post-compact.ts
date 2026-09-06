@@ -14,13 +14,16 @@
  * captures are not needed by the re-injection caller, so only the messages
  * propagate.
  *
- * The base the loop hands in is injection-stripped (the compaction result, or
- * the loop's own strip of a history the pipeline left uncompacted), matching
- * the durable history the dispatcher committed when it reset the memory
- * ledgers, so no frozen memory block from an earlier turn survives into the
- * re-injected history. The tail strip covers the per-turn blocks that strip
- * keeps (`<turn_context>` and its peers), so injection idempotency stays a
- * property of the injection machinery rather than of the agent loop.
+ * The base the loop hands in matches the durable history the dispatcher
+ * committed: a compaction result, or a history the pipeline left uncompacted
+ * that the loop stripped of its injections when the dispatcher reset the
+ * memory ledgers (so no frozen memory block from an earlier turn survives into
+ * the re-injected history) and left injected when the reset was skipped (the
+ * ledgers then still claim those frozen blocks, so the pointers this
+ * re-injection emits for them point at blocks that are still there). The tail
+ * strip covers the per-turn blocks the compaction strip keeps
+ * (`<turn_context>` and its peers), so injection idempotency stays a property
+ * of the injection machinery rather than of the agent loop.
  *
  * Every per-turn input the live conversation can supply is self-resolved from
  * it (looked up by id) rather than threaded in by the loop:

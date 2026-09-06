@@ -1395,6 +1395,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
+          injectionLedgerResets: state.injectionLedgerResets,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
