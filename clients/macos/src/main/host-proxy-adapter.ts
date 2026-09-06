@@ -79,6 +79,7 @@ export const installHostProxyBridge = (
       getClientId: getDeviceId,
       getMachineName: hostname,
       interfaceId: "macos",
+      supportsWindowCapture: true,
     }),
     executors: {
       host_bash: hostBashExecutor,

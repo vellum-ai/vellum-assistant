@@ -307,6 +307,7 @@ export const HOST_PROXY_CAPABILITIES = [
   "host_bash",
   "host_file",
   "host_cu",
+  "host_cu_window_capture",
   "host_browser",
   "host_app_control",
   "host_ui_snapshot",
@@ -347,6 +348,10 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
+  // Window capture is additionally negotiated on each client connection.
+  if (capability === "host_cu_window_capture") {
+    return id === "macos";
+  }
   // macOS supports every host proxy capability including host_browser
   // and host_app_control. The host_browser proxy is provisioned via the
   // assistant event hub. When no extension is connected, browser tools fall

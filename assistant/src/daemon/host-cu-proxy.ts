@@ -174,8 +174,8 @@ export class HostCuProxy {
   private _previousAXTree: string | undefined;
   private _consecutiveUnchangedSteps = 0;
   private _actionHistory: ActionRecord[] = [];
-  /** Request IDs owned by this instance — used to scope dispose(). */
-  private _ownedRequests = new Set<string>();
+  /** Owned request IDs mapped to whether their observation is scoped. */
+  private _ownedRequests = new Map<string, boolean>();
 
   constructor(maxSteps = loadConfig().maxStepsPerSession) {
     this._maxSteps = maxSteps;
@@ -303,6 +303,46 @@ export class HostCuProxy {
       }
     }
 
+    const hasWindowTarget = Object.hasOwn(input, "capture_window_id");
+    if (hasWindowTarget) {
+      const id = input.capture_window_id;
+      if (
+        toolName !== "computer_use_observe" ||
+        typeof id !== "number" ||
+        !Number.isInteger(id) ||
+        id < 1 ||
+        id > 0xffffffff ||
+        Object.hasOwn(input, "captureWindowId") ||
+        Object.hasOwn(input, "captureDisplayId")
+      ) {
+        return Promise.resolve({
+          content:
+            "capture_window_id requires a valid CGWindowID on computer_use_observe with no conflicting capture target.",
+          isError: true,
+        });
+      }
+      // Never dispatch this option to a legacy executor: it would forward the
+      // unknown snake-case key and silently capture the entire desktop.
+      const client =
+        resolvedTargetClientId == null
+          ? undefined
+          : assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client?.capabilities.includes("host_cu_window_capture")) {
+        return Promise.resolve({
+          content:
+            "Window-only observation requires a connected client advertising host_cu_window_capture; update the desktop app before retrying. No capture was requested.",
+          isError: true,
+        });
+      }
+    }
+    const scopedObservation =
+      hasWindowTarget ||
+      Object.hasOwn(input, "captureWindowId") ||
+      Object.hasOwn(input, "captureDisplayId");
+    if (scopedObservation) {
+      this._previousAXTree = undefined;
+      this._consecutiveUnchangedSteps = 0;
+    }
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
@@ -346,7 +386,7 @@ export class HostCuProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this._ownedRequests.add(requestId);
+      this._ownedRequests.set(requestId, scopedObservation);
 
       pendingInteractions.register(requestId, {
         conversationId,
@@ -399,6 +439,7 @@ export class HostCuProxy {
     requestId: string,
     observation: CuObservationResult,
   ): ToolExecutionResult | undefined {
+    const scopedObservation = this._ownedRequests.get(requestId) ?? false;
     this._ownedRequests.delete(requestId);
     const interaction = pendingInteractions.resolve(requestId, "answered");
     if (!interaction?.rpcResolve) {
@@ -406,9 +447,20 @@ export class HostCuProxy {
       return undefined;
     }
 
+    // A targeted snapshot has no comparable action/diff baseline; neither it
+    // nor the first desktop observation after it can imply "no visible effect".
+    if (scopedObservation) {
+      this._previousAXTree = undefined;
+      this._consecutiveUnchangedSteps = 0;
+    }
     const prevAXTree = this._previousAXTree;
-    this.updateStateFromObservation(observation);
-    const result = this.formatObservation(observation, prevAXTree);
+    const comparableObservation = scopedObservation
+      ? { ...observation, axDiff: undefined, secondaryWindows: undefined }
+      : observation;
+    if (!scopedObservation) {
+      this.updateStateFromObservation(comparableObservation);
+    }
+    const result = this.formatObservation(comparableObservation, prevAXTree);
     interaction.rpcResolve(result);
     return result;
   }
@@ -566,7 +618,7 @@ export class HostCuProxy {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
-    for (const requestId of this._ownedRequests) {
+    for (const requestId of this._ownedRequests.keys()) {
       const entry = pendingInteractions.resolve(requestId, "cancelled");
       if (!entry) {
         continue;

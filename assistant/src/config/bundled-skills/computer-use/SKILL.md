@@ -35,8 +35,9 @@ A missing window must not be replaced with a desktop capture.
 This is a **single observation**, not a session-wide privacy boundary: normal
 click/type/scroll and other action tools still return their normal desktop
 observations. Do not promise app-only capture for a whole control session.
-The helper must support targeted capture; older installed desktop versions
-must not be assumed to enforce this option. Other desktop platforms reject it.
+The desktop must explicitly advertise `host_cu_window_capture` support on its
+connection; the daemon rejects older or unsupported clients before requesting
+any capture. Other desktop platforms reject this option.
 
 The screenshot is window-relative, while action coordinates are screen points;
 do not scale it using full-display dimensions. Prefer accessibility element IDs
