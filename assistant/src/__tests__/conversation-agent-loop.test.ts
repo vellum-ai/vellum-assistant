@@ -339,6 +339,7 @@ let mockStoredMessages: unknown[] = [];
 const updateMessageContentMock = mock(() => {});
 const finalizeMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+const updateConversationContextWindowMock = mock(() => {});
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -359,7 +360,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
-  updateConversationContextWindow: () => {},
+  updateConversationContextWindow: updateConversationContextWindowMock,
   updateConversationSlackContextWatermark:
     updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
@@ -5086,6 +5087,25 @@ describe("session-agent-loop", () => {
 
       expect(onCompacted.mock.calls).toEqual([[4]]);
       expect(order).toEqual(["marker", "reset"]);
+    });
+
+    test("applyCompactionResult leaves the ledgers intact when the compaction commit throws, so a reload of the un-compacted history finds its frozen blocks still claimed", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      updateConversationContextWindowMock.mockImplementationOnce(() => {
+        throw new Error("SQLITE_READONLY");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await expect(
+        applyCompactionResult(ctx, makeCompactionResult(), () => {}, "req-1"),
+      ).rejects.toThrow("SQLITE_READONLY");
+
+      expect(onCompacted).not.toHaveBeenCalled();
     });
 
     test("applyCompactionResult resets the ledgers even when the marker cannot be written, since the compacted history has already lost its frozen blocks", async () => {

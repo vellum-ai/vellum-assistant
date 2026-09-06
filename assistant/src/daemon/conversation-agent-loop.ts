@@ -2244,12 +2244,6 @@ export async function applyCompactionResult(
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  // The compacted history is the summary plus the compactor's stripped tail,
-  // so the ledgers reset even when the marker cannot be made durable.
-  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages, {
-    historyStripMarkerDurable: options.historyStripMarkerDurable,
-    historyAlreadyStripped: true,
-  });
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
@@ -2264,6 +2258,15 @@ export async function applyCompactionResult(
     ctx.slackContextCompactionWatermarkTs =
       options.slackContextCompactionWatermarkTs;
   }
+  // The ledgers reset only once the compaction commit above has landed: a
+  // commit that throws aborts the turn with the ledgers untouched, so a reload
+  // of the un-compacted history finds its frozen blocks still claimed. The
+  // compacted history is the summary plus the compactor's stripped tail, so
+  // the reset then runs even when the marker cannot be made durable.
+  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages, {
+    historyStripMarkerDurable: options.historyStripMarkerDurable,
+    historyAlreadyStripped: true,
+  });
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,

@@ -205,7 +205,8 @@ not break.
   loop through its run's `injectionLedgerResets`, and the loop continues from
   the injected history), so residency and the live history agree either way.
   A compacted result has already lost its frozen blocks to the summary, so
-  there the store resets even without the marker (a reload may rehydrate the
+  there, once the compaction commit has landed, the store resets even without
+  the marker (a reload may rehydrate the
   kept tail's blocks unclaimed once, until the newest-copy filter retires them
   behind a re-injected copy), and a reset whose ledger clear fails reports
   that the same way a missing marker does.
