@@ -74,12 +74,27 @@ const MAX_RENDERED_OVERLONG_SECTIONS = 10;
  * A `## ` section (or a page lead, `title` `""`) whose text exceeds the
  * section-grain retrieval window, reported by the tier that owns the window
  * (memory-v3's section chunker) so the consolidation agent can split it.
- * `chars` is the length of the section's body.
+ * `chars` is the length of the section's body. `occurrence` is the section's
+ * index among the page's headings of the same title (absent for the first),
+ * so a repeated heading names the right one.
  */
 export interface OverlongSection {
   slug: string;
   title: string;
   chars: number;
+  occurrence?: number;
+}
+
+/** `2nd`, `3rd`, `11th`: the English ordinal of a 1-based position. */
+function ordinal(position: number): string {
+  const tens = position % 100;
+  const suffix =
+    tens >= 11 && tens <= 13
+      ? "th"
+      : (({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[
+          position % 10
+        ] ?? "th");
+  return `${position}${suffix}`;
 }
 
 /** The over-long sections of one corpus, with the window they exceed. */
@@ -979,10 +994,14 @@ export function renderOverlongSectionsSection(
   const ordered = [...report.sections].sort((a, b) => b.chars - a.chars);
   const shown = ordered.slice(0, MAX_RENDERED_OVERLONG_SECTIONS);
   const lines = shown.map((section) => {
+    const repeat =
+      section.occurrence !== undefined && section.occurrence > 0
+        ? ` (the ${ordinal(section.occurrence + 1)} heading of that name)`
+        : "";
     const where =
       section.title.length === 0
         ? "the lead"
-        : `\`## ${sanitizeParseFailureText(section.title, MAX_SLUG_CHARS)}\``;
+        : `\`## ${sanitizeParseFailureText(section.title, MAX_SLUG_CHARS)}\`${repeat}`;
     return `- \`memory/concepts/${sanitizeParseFailureText(
       section.slug,
       MAX_SLUG_CHARS,

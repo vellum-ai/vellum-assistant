@@ -54,9 +54,19 @@ export async function listOverlongSections(
   const sections: OverlongSection[] = [];
   for (const slug of await deps.listSlugs()) {
     const body = await deps.readPageBody(slug);
+    // Repeated headings are told apart by occurrence, as the section index
+    // keys them (`title#<n>`), so the agent edits the right one.
+    const occurrences = new Map<string, number>();
     for (const raw of splitIntoRawSections(body)) {
+      const occurrence = occurrences.get(raw.title) ?? 0;
+      occurrences.set(raw.title, occurrence + 1);
       if (rawSectionChunkCount(slug, raw) > 1) {
-        sections.push({ slug, title: raw.title, chars: raw.body.length });
+        sections.push({
+          slug,
+          title: raw.title,
+          chars: raw.body.length,
+          ...(occurrence > 0 ? { occurrence } : {}),
+        });
       }
     }
   }

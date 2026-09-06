@@ -38,6 +38,20 @@ describe("listOverlongSections", () => {
     ]);
   });
 
+  test("a repeated heading carries its occurrence so the right one is named", async () => {
+    const over = "y".repeat(bodyLimit("notes", "Notes") + 1);
+
+    const report = await listOverlongSections(
+      "/unused",
+      deps({ notes: `## Notes\nshort\n## Notes\n${over}\n## Notes\n${over}` }),
+    );
+
+    expect(report.sections).toEqual([
+      { slug: "notes", title: "Notes", chars: over.length, occurrence: 1 },
+      { slug: "notes", title: "Notes", chars: over.length, occurrence: 2 },
+    ]);
+  });
+
   test("a corpus with nothing over the window reports no sections", async () => {
     const report = await listOverlongSections(
       "/unused",

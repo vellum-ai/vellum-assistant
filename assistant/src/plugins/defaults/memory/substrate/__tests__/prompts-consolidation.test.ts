@@ -707,6 +707,26 @@ describe("resolveConsolidationPrompt: over-long-sections repair section", () => 
     expect(section).not.toContain("reported next pass");
   });
 
+  test("a repeated heading is named by its position on the page", () => {
+    const section = renderOverlongSectionsSection({
+      windowChars: 6000,
+      sections: [
+        { slug: "notes", title: "Notes", chars: 7000, occurrence: 1 },
+        { slug: "notes", title: "Notes", chars: 6500, occurrence: 2 },
+        { slug: "notes", title: "Notes", chars: 6200 },
+      ],
+    });
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, `## Notes` (the 2nd heading of that name) (7,000 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, `## Notes` (the 3rd heading of that name) (6,500 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, `## Notes` (6,200 characters)",
+    );
+  });
+
   test("caps the list at ten, largest first, and counts the remainder", () => {
     const sections = Array.from({ length: 12 }, (_, i) => ({
       slug: `page-${i}`,
