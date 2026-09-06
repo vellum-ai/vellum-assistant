@@ -220,13 +220,14 @@ export const MemoryV3EntitySchema = z
   );
 
 /**
- * Rare-term lane tuning: a query word that occurs in at most `maxDf` sections
- * surfaces its top `perTerm` sections by single-term BM25F as their own
- * finder lines, tagged with the word. A word that rare is a near-certain
- * signal on its own, whatever the rest of the message is about: additive
- * BM25 lets the message's bulk theme pick a page's section, and a query on
- * the clause alone cannot rank a page whose only distinctive token is that
- * word.
+ * Rare-term lane tuning: a query word rare across the corpus surfaces its top
+ * `perTerm` sections by single-term BM25F as their own finder lines, tagged
+ * with the word. A word that rare is a near-certain signal on its own,
+ * whatever the rest of the message is about: additive BM25 lets the
+ * message's bulk theme pick a page's section, and a query on the clause
+ * alone cannot rank a page whose only distinctive token is that word. Rare
+ * is corpus-relative: `maxDf` is the absolute df ceiling and `maxDfFraction`
+ * lowers it on a smaller corpus (the rule is on that field).
  */
 export const MemoryV3RareTermSchema = z
   .object({
@@ -242,7 +243,15 @@ export const MemoryV3RareTermSchema = z
       .positive("memory.v3.rareTerm.maxDf must be a positive integer")
       .default(12)
       .describe(
-        "Highest number of sections a query word may occur in and still count as rare. A word the corpus does not hold never matches; there is no token-shape filtering.",
+        "Highest number of sections a query word may occur in and still count as rare, before maxDfFraction lowers the ceiling on a smaller corpus. A word the corpus does not hold never matches; there is no token-shape filtering.",
+      ),
+    maxDfFraction: z
+      .number({ error: "memory.v3.rareTerm.maxDfFraction must be a number" })
+      .positive("memory.v3.rareTerm.maxDfFraction must be greater than 0")
+      .max(1, "memory.v3.rareTerm.maxDfFraction must be at most 1")
+      .default(0.001)
+      .describe(
+        "Fraction of the corpus's section count that bounds the rare-word ceiling: the ceiling in force is min(maxDf, max(1, floor(sectionCount * maxDfFraction))), so what counts as rare scales with the corpus. At the default, a corpus of 12,000 sections or more runs at maxDf and a corpus of a few hundred sections counts only a word unique to one section as rare (an absolute ceiling would make most of its ordinary words rare). 1 leaves maxDf as the sole ceiling.",
       ),
     perTerm: z
       .number({ error: "memory.v3.rareTerm.perTerm must be a number" })

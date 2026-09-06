@@ -27,7 +27,13 @@ describe("MemoryV3ConfigSchema", () => {
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
-      rareTerm: { enabled: true, maxDf: 12, perTerm: 2, cap: 24 },
+      rareTerm: {
+        enabled: true,
+        maxDf: 12,
+        maxDfFraction: 0.001,
+        perTerm: 2,
+        cap: 24,
+      },
       gate: {
         enabled: true,
         denseThreshold: 0.66,
@@ -135,9 +141,27 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed.rareTerm).toEqual({
       enabled: false,
       maxDf: 5,
+      maxDfFraction: 0.001,
       perTerm: 2,
       cap: 24,
     });
+  });
+
+  test("rareTerm.maxDfFraction defaults to 0.001, takes a value in (0, 1], and rejects the rest", () => {
+    expect(MemoryV3ConfigSchema.parse({}).rareTerm.maxDfFraction).toBe(0.001);
+    expect(
+      MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: 0.05 } }).rareTerm
+        .maxDfFraction,
+    ).toBe(0.05);
+    expect(
+      MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: 1 } }).rareTerm
+        .maxDfFraction,
+    ).toBe(1);
+    for (const bad of [0, -0.001, 1.5]) {
+      expect(() =>
+        MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: bad } }),
+      ).toThrow();
+    }
   });
 
   test("rareTerm knobs must be positive integers and enabled a boolean", () => {

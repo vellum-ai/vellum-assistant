@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { rareTermLane } from "./rare-term-lane.js";
+import { effectiveMaxDf, rareTermLane } from "./rare-term-lane.js";
 import { buildSectionNeedle, type SectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
 import type { SectionIndex, Slug } from "./types.js";
@@ -37,13 +37,13 @@ const PAGES: Record<Slug, string> = {
   ].join("\n"),
 };
 
-async function corpus(): Promise<{
+async function corpus(pages: Record<Slug, string>): Promise<{
   index: SectionIndex;
   needle: SectionNeedle;
 }> {
   const index = await buildSectionIndex(
-    Object.keys(PAGES),
-    async (slug) => PAGES[slug]!,
+    Object.keys(pages),
+    async (slug) => pages[slug]!,
   );
   return { index, needle: buildSectionNeedle(index) };
 }
@@ -59,12 +59,14 @@ function docOf(index: SectionIndex, article: Slug, title: string): number {
   return doc;
 }
 
-const { index, needle } = await corpus();
+const { index, needle } = await corpus(PAGES);
 const pumpkin = docOf(index, "silly-lines", "Pumpkin");
 const harvest = docOf(index, "silly-lines", "Harvest");
 const soup = docOf(index, "autumn-recipes", "Soup");
 
-const OPTIONS = { maxDf: 3, perTerm: 2, cap: 24 };
+// `maxDfFraction: 1` leaves `maxDf` as the sole ceiling on this ten-section
+// corpus; the corpus-relative rule has its own fixture below.
+const OPTIONS = { maxDf: 3, maxDfFraction: 1, perTerm: 2, cap: 24 };
 
 describe("rareTermLane", () => {
   test("surfaces a rare word's top sections, tagged with the word, whatever else the message says", () => {
@@ -156,10 +158,104 @@ describe("rareTermLane", () => {
   test("non-positive tuning surfaces nothing", () => {
     for (const options of [
       { ...OPTIONS, maxDf: 0 },
+      { ...OPTIONS, maxDfFraction: 0 },
       { ...OPTIONS, perTerm: 0 },
       { ...OPTIONS, cap: 0 },
     ]) {
       expect(rareTermLane(needle, index, "gourd", options)).toEqual([]);
     }
+  });
+});
+
+/** The distinctive word of the n-th generated section, "" for a filler one. */
+function markerOf(n: number): string {
+  if (n < 13) {
+    return "gourd";
+  }
+  if (n < 21) {
+    return "marrow";
+  }
+  if (n === 21) {
+    return "quince";
+  }
+  return "";
+}
+
+/**
+ * A generated corpus of 300 short sections (30 pages of a lead plus nine
+ * headings) for the corpus-relative ceiling: "gourd" occurs in 13 sections,
+ * "marrow" in 8, "quince" in 1, and the filler in every one.
+ */
+const WIDE_PAGES: Record<Slug, string> = Object.fromEntries(
+  Array.from({ length: 30 }, (_, page): [Slug, string] => {
+    const lines: string[] = [];
+    for (let heading = 0; heading < 10; heading++) {
+      if (heading > 0) {
+        lines.push(`## Part ${heading}`);
+      }
+      lines.push(
+        `here is my little note ${markerOf(page * 10 + heading)}`.trimEnd(),
+      );
+    }
+    return [`wide-${String(page).padStart(2, "0")}`, lines.join("\n")];
+  }),
+);
+
+const wide = await corpus(WIDE_PAGES);
+
+describe("rareTermLane corpus-relative ceiling", () => {
+  const TUNED = { maxDf: 12, perTerm: 2, cap: 24 };
+  const MESSAGE = "gourd quince marrow";
+
+  test("the fixture holds 300 sections with words of df 13, 8, and 1", () => {
+    expect(wide.index.sections).toHaveLength(300);
+    expect(wide.needle.df("gourd")).toBe(13);
+    expect(wide.needle.df("marrow")).toBe(8);
+    expect(wide.needle.df("quince")).toBe(1);
+  });
+
+  test("on a few hundred sections the default fraction admits only a word unique to one section", () => {
+    // floor(300 * 0.001) = 0, floored to 1: "marrow" (df 8) sits under
+    // `maxDf` but not under the corpus-relative ceiling.
+    const options = { ...TUNED, maxDfFraction: 0.001 };
+    expect(effectiveMaxDf(wide.index.sections.length, options)).toBe(1);
+    expect(
+      rareTermLane(wide.needle, wide.index, MESSAGE, options).map(
+        (h) => h.term,
+      ),
+    ).toEqual(["quince"]);
+  });
+
+  test("a fraction whose corpus share exceeds maxDf leaves maxDf binding", () => {
+    // floor(300 * 0.05) = 15, above `maxDf`: "marrow" (df 8) is rare again
+    // and "gourd" (df 13) still is not.
+    const options = { ...TUNED, maxDfFraction: 0.05 };
+    expect(effectiveMaxDf(wide.index.sections.length, options)).toBe(12);
+    expect(
+      rareTermLane(wide.needle, wide.index, MESSAGE, options).map(
+        (h) => h.term,
+      ),
+    ).toEqual(["quince", "marrow", "marrow"]);
+  });
+});
+
+describe("effectiveMaxDf", () => {
+  const DEFAULTS = { maxDf: 12, maxDfFraction: 0.001 };
+
+  test("a large corpus keeps maxDf as the binding ceiling", () => {
+    // The corpus the defaults were tuned on: floor(13.665) = 13, above 12.
+    expect(effectiveMaxDf(13_665, DEFAULTS)).toBe(12);
+    expect(effectiveMaxDf(12_000, DEFAULTS)).toBe(12);
+  });
+
+  test("below that the ceiling scales with the corpus, never under 1", () => {
+    expect(effectiveMaxDf(11_999, DEFAULTS)).toBe(11);
+    expect(effectiveMaxDf(5_000, DEFAULTS)).toBe(5);
+    expect(effectiveMaxDf(150, DEFAULTS)).toBe(1);
+    expect(effectiveMaxDf(0, DEFAULTS)).toBe(1);
+  });
+
+  test("a fraction of 1 leaves maxDf as the sole ceiling", () => {
+    expect(effectiveMaxDf(10, { maxDf: 3, maxDfFraction: 1 })).toBe(3);
   });
 });

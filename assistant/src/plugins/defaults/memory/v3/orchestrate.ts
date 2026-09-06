@@ -219,8 +219,11 @@ export interface OrchestrateDeps {
    *  Ignored when `entityIndex` is omitted (the lane is off). */
   entityCap?: number;
   /** Rare-term lane tuning (canonical value: `memory.v3.rareTerm`): the df
-   *  ceiling for a query word to count as rare, the sections surfaced per
-   *  rare word, and the per-turn cap. Omitted disables the lane. */
+   *  ceiling for a query word to count as rare (`maxDf`, lowered on a smaller
+   *  corpus by `maxDfFraction`), the sections surfaced per rare word, and the
+   *  per-turn cap. Omitted disables the lane, which the caller does whenever
+   *  the selector is off: rare lines are candidates for a judge, not evidence
+   *  strong enough to inject unjudged. */
   rareTerm?: RareTermLaneOptions;
   /** Cap on finder lines one page may carry per turn, applied in surfacing
    *  order (needle, dense, reply, span, entity, rare); a section-less edge or

@@ -463,15 +463,24 @@ edge and learned, and each only ever adds lines. The entity lane
 (`v3/entity-lane.ts`, `memory.v3.entity`) and the rare-term lane
 (`v3/rare-term-lane.ts`, `memory.v3.rareTerm`) key on one strong token rather
 than the whole message: a distinctive `## ` heading token the message names,
-and a query word that occurs in at most `maxDf` sections (default 12), which
-surfaces its top `perTerm` sections by single-term BM25F (`SectionNeedle.df`
-and `scoreTerm`), rarest words first up to `cap` per turn, with no token-shape
-filtering (a word the corpus does not hold has df 0 and drops out on its own;
-bigram terms are never eligible). Both are synchronous in-memory passes that
-run at every corpus size (the lean profile does not switch them off), feed
-neither the injection gate nor the edge seeds, and pool through the same
+and a query word rare across the corpus, which surfaces its top `perTerm`
+sections by single-term BM25F (`SectionNeedle.df` and `scoreTerm`), rarest
+words first up to `cap` per turn, with no token-shape filtering (a word the
+corpus does not hold has df 0 and drops out on its own; bigram terms are never
+eligible). Rare is corpus-relative: a word qualifies when its df is at most
+`min(maxDf, max(1, floor(sectionCount * maxDfFraction)))` (defaults 12 and
+0.001), so a corpus of 12,000 sections or more runs at `maxDf` and a corpus of
+a few hundred sections counts only a word unique to one section as rare; an
+absolute ceiling would make most ordinary words of a small corpus rare and
+fill `cap` with noise every turn. Both are synchronous in-memory passes that
+feed neither the injection gate nor the edge seeds, and pool through the same
 per-page cap and `(page, section key)` dedupe as every other lane, so a
-section another lane already pooled is a no-op. A rare hit's pool line is
+section another lane already pooled is a no-op. The entity lane runs at every
+corpus size (the lean profile does not switch it off); the rare-term lane runs
+only when the selector does (`v3/shadow-plugin.ts` threads `rareTerm` only
+with `selectorEnabled`), because rare lines are candidates for a judge, not
+evidence strong enough to inject unjudged, and with the selector off every
+pooled line is injected. A rare hit's pool line is
 tagged `(rare: <word>)` with a keyword-in-context snippet centered on the
 word, and its selection records `source = 'rare'`; the pool record and the
 selection log carry the lane name with no other change.

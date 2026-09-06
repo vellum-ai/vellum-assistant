@@ -288,7 +288,13 @@ function seedMemoryConfig(): void {
       },
       edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
-      rareTerm: { enabled: rareTermEnabledCfg, maxDf: 12, perTerm: 2, cap: 24 },
+      rareTerm: {
+        enabled: rareTermEnabledCfg,
+        maxDf: 12,
+        maxDfFraction: 0.001,
+        perTerm: 2,
+        cap: 24,
+      },
       // Gate tuning (schema defaults) with the mutable `enabled` kill-switch,
       // threaded through to orchestrate as-is.
       gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
@@ -1376,7 +1382,9 @@ describe("memory-v3 engine", () => {
     expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
   });
 
-  test("rareTerm enabled (default) → threads the lane tuning into orchestrate", async () => {
+  test("rareTerm enabled (default) with the selector on → threads the lane tuning into orchestrate", async () => {
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = true;
     await observeTurn("conv-1", 0);
 
     const deps = (
@@ -1385,12 +1393,15 @@ describe("memory-v3 engine", () => {
     expect(deps.rareTerm).toEqual({
       enabled: true,
       maxDf: 12,
+      maxDfFraction: 0.001,
       perTerm: 2,
       cap: 24,
     });
   });
 
-  test("rareTerm.enabled:false → the lane threads nothing", async () => {
+  test("rareTerm.enabled:false → the lane threads nothing even with the selector on", async () => {
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = true;
     rareTermEnabledCfg = false;
     await observeTurn("conv-1", 0);
 
@@ -1398,6 +1409,38 @@ describe("memory-v3 engine", () => {
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { rareTerm?: unknown };
     expect(deps.rareTerm).toBeUndefined();
+  });
+
+  test("the lean profile's selector-off turns the rare-term lane off with it", async () => {
+    // Sparse corpus: the lean profile disables the selector, and every pooled
+    // line is injected unjudged, so rare lines (judge candidates, not
+    // evidence) stay out of the pool.
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { selectorEnabled?: boolean; rareTerm?: unknown };
+    expect(deps.selectorEnabled).toBe(false);
+    expect(deps.rareTerm).toBeUndefined();
+  });
+
+  test("rareTerm follows the configured selector per turn on an established corpus", async () => {
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+    const offDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { rareTerm?: unknown };
+    expect(offDeps.rareTerm).toBeUndefined();
+
+    // A live config edit turning the selector on brings the lane with it on
+    // the next turn, with no lane rebuild.
+    selectorEnabledCfg = true;
+    await observeTurn("conv-1", 1);
+    const onDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[1]![1] as { rareTerm?: unknown };
+    expect(onDeps.rareTerm).toBeDefined();
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {

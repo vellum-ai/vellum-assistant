@@ -2241,7 +2241,7 @@ describe("orchestrate: rare-term lane", () => {
   };
   const MESSAGE =
     "parody verse hilarious, everyone laughed: skit, roast, encore, standing ovation, crowd. Here is my little gourd";
-  const RARE = { maxDf: 3, perTerm: 2, cap: 24 };
+  const RARE = { maxDf: 3, maxDfFraction: 1, perTerm: 2, cap: 24 };
 
   test("a rare word's top sections join as lines tagged with the word beside the bulk-theme line, and selecting them selects the sections", async () => {
     const lanes = await customLanes(GOURD_PAGES);

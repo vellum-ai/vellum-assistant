@@ -857,7 +857,12 @@ export async function observeTurn(
           injectionSectionKey(slug, section),
         ),
       entityCap: v3.entity.cap,
-      rareTerm: v3.rareTerm.enabled ? v3.rareTerm : undefined,
+      // Rare lines are candidates for the selector's judgment, not evidence
+      // strong enough to inject unjudged, so the lane runs only when the
+      // selector does: with the selector off (the lean profile) every pooled
+      // line is injected.
+      rareTerm:
+        v3.rareTerm.enabled && tuning.selectorEnabled ? v3.rareTerm : undefined,
       finderSectionsPerPage: v3.finderSectionsPerPage,
       replyQueryK: tuning.replyQueryK,
       spanQueryK: tuning.spanQueryK,
