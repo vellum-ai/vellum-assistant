@@ -77,6 +77,7 @@ describe("maintainJob", () => {
       built: Slug[][];
       deleted: string[];
       upserted: Section[][];
+      warmed: Section[][];
       invalidate: number;
       commit: number;
     };
@@ -85,6 +86,7 @@ describe("maintainJob", () => {
       built: [] as Slug[][],
       deleted: [] as string[],
       upserted: [] as Section[][],
+      warmed: [] as Section[][],
       invalidate: 0,
       commit: 0,
     };
@@ -103,6 +105,9 @@ describe("maintainJob", () => {
       },
       upsertSections: async (_config, sections) => {
         calls.upserted.push(sections);
+      },
+      warmSectionEmbeddings: async (_config, sections) => {
+        calls.warmed.push(sections);
       },
       commitEmbedHighWater: () => {
         calls.commit += 1;
@@ -191,8 +196,12 @@ describe("maintainJob", () => {
     expect(outcome.reembedFailures).toBe(0);
     expect(outcome.invalidated).toBe(true);
 
-    // Each changed page: delete its stale sections, then upsert fresh ones.
-    expect(calls.built).toEqual([["page-a"], ["page-b"]]);
+    // The cache is warmed for both pages at once, then each changed page:
+    // delete its stale sections, then upsert fresh ones.
+    expect(calls.warmed.map((s) => s.map((x) => x.article))).toEqual([
+      ["page-a", "page-b"],
+    ]);
+    expect(calls.built).toEqual([["page-a", "page-b"], ["page-a"], ["page-b"]]);
     expect(calls.deleted).toEqual(["page-a", "page-b"]);
     expect(calls.upserted.flat().map((s) => s.article)).toEqual([
       "page-a",
@@ -200,6 +209,64 @@ describe("maintainJob", () => {
     ]);
     expect(calls.invalidate).toBe(1);
     expect(calls.commit).toBe(1);
+  });
+
+  test("warms the embedding cache for every changed page before any page is deleted or upserted", async () => {
+    memoryV3LiveSlot = true;
+    const order: string[] = [];
+    const { deps: d } = deps({
+      selectChangedPages: async () => ["page-a", "page-b", "page-c"],
+      warmSectionEmbeddings: async (_config, sections) => {
+        order.push(`warm:${sections.map((s) => s.article).join(",")}`);
+      },
+      deleteSectionsForArticle: async (_config, article) => {
+        order.push(`delete:${article}`);
+      },
+      upsertSections: async (_config, sections) => {
+        order.push(`upsert:${sections[0]!.article}`);
+      },
+    });
+    await maintainJob(JOB, CONFIG, d);
+
+    expect(order).toEqual([
+      "warm:page-a,page-b,page-c",
+      "delete:page-a",
+      "upsert:page-a",
+      "delete:page-b",
+      "upsert:page-b",
+      "delete:page-c",
+      "upsert:page-c",
+    ]);
+  });
+
+  test("a failing cache warm-up is non-fatal: pages still re-embed one at a time", async () => {
+    memoryV3LiveSlot = true;
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => ["page-a", "page-b"],
+      warmSectionEmbeddings: async () => {
+        throw new Error("embedding backend down");
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.reembedded).toBe(2);
+    expect(outcome.reembedFailures).toBe(0);
+    expect(calls.deleted).toEqual(["page-a", "page-b"]);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "page-a",
+      "page-b",
+    ]);
+  });
+
+  test("a single changed page skips the warm-up", async () => {
+    memoryV3LiveSlot = true;
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => ["page-a"],
+    });
+    await maintainJob(JOB, CONFIG, d);
+
+    expect(calls.warmed).toEqual([]);
+    expect(calls.built).toEqual([["page-a"]]);
   });
 
   test("runs when only the live flag is on", async () => {
@@ -767,6 +834,7 @@ describe("backfillAllSections", () => {
       built: Slug[][];
       deleted: string[];
       upserted: Section[][];
+      warmed: Section[][];
       committed: number[];
       probed: number;
     };
@@ -776,6 +844,7 @@ describe("backfillAllSections", () => {
       built: [] as Slug[][],
       deleted: [] as string[],
       upserted: [] as Section[][],
+      warmed: [] as Section[][],
       committed: [] as number[],
       probed: 0,
     };
@@ -797,6 +866,9 @@ describe("backfillAllSections", () => {
       },
       upsertSections: async (_config, sections) => {
         calls.upserted.push(sections);
+      },
+      warmSectionEmbeddings: async (_config, sections) => {
+        calls.warmed.push(sections);
       },
       commitEmbedHighWater: (ms) => {
         calls.committed.push(ms);
@@ -835,6 +907,8 @@ describe("backfillAllSections", () => {
     expect(outcome.failures).toBe(0);
     expect(calls.ensured).toBe(1);
     expect(calls.built).toEqual([["page-a"], ["skills/example"]]);
+    // One real page alone warms nothing; capability rows never warm.
+    expect(calls.warmed).toEqual([]);
     expect(calls.deleted).toEqual(["page-a", "skills/example"]);
 
     // The synthetic slug's upsert carries its rendered capability content, not a
@@ -847,6 +921,28 @@ describe("backfillAllSections", () => {
       "example capability body",
     );
     expect(outcome.sections).toBe(calls.upserted.flat().length);
+  });
+
+  test("warms the cache for the real pages together and leaves capability rows to the per-row path", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-a", "page-b", "skills/example"],
+      readPageBody: async (slug) =>
+        slug === "skills/example"
+          ? "# Example\nrendered skill"
+          : `body for ${slug}`,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    expect(outcome.failures).toBe(0);
+    expect(calls.warmed.map((s) => s.map((x) => x.article))).toEqual([
+      ["page-a", "page-b"],
+    ]);
+    expect(calls.built).toEqual([
+      ["page-a", "page-b"],
+      ["page-a"],
+      ["page-b"],
+      ["skills/example"],
+    ]);
   });
 
   test("advances the high-water checkpoint to the injected now", async () => {
@@ -1095,6 +1191,7 @@ describe("maintainJob skill usage-prune", () => {
       buildSectionIndex: async (slugs) => makeIndex(slugs),
       readPageBody: async (s) => `body for ${s}`,
       readCapabilityBody: async (s) => `capability body for ${s}`,
+      warmSectionEmbeddings: async () => {},
       deleteSectionsForArticle: async (_config, article) => {
         sectionDeletes.push(article);
       },

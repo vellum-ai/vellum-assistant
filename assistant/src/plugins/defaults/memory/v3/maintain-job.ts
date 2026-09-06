@@ -106,6 +106,7 @@ import {
   listSectionArticles as realListSectionArticles,
   MAINTAIN_EMBED_HIGH_WATER_KEY,
   upsertSections as realUpsertSections,
+  warmSectionEmbeddings as realWarmSectionEmbeddings,
 } from "./section-dense-store.js";
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
@@ -161,6 +162,11 @@ export interface MaintainJobDeps {
   deleteSectionsForArticle: typeof realDeleteSectionsForArticle;
   /** Embed + upsert an article's current sections into the dense store. */
   upsertSections: typeof realUpsertSections;
+  /**
+   * Warm the embedding cache for many pages' sections in one batched backend
+   * call before the per-page upserts, which then serve from the cache.
+   */
+  warmSectionEmbeddings: typeof realWarmSectionEmbeddings;
   /**
    * Persist the high-water mark after a re-embed pass with zero failures. The
    * value is captured before the pass's writes (see the key docstring); the
@@ -244,6 +250,11 @@ export interface BackfillJobDeps {
   deleteSectionsForArticle: typeof realDeleteSectionsForArticle;
   /** Embed + upsert an article's current sections into the dense store. */
   upsertSections: typeof realUpsertSections;
+  /**
+   * Warm the embedding cache for many pages' sections in one batched backend
+   * call before the per-page upserts, which then serve from the cache.
+   */
+  warmSectionEmbeddings: typeof realWarmSectionEmbeddings;
   /**
    * Persist the high-water mark after the backfill completes with zero
    * failures. Skipped when any page failed so failed pages retry next pass.
@@ -437,6 +448,7 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
       backfillPageBodyFromWorkspace(workspaceDir, slug),
     deleteSectionsForArticle: realDeleteSectionsForArticle,
     upsertSections: realUpsertSections,
+    warmSectionEmbeddings: realWarmSectionEmbeddings,
     commitEmbedHighWater: commitSectionEmbedHighWater,
     ensureChunkerVersion: realEnsureSectionChunkerVersion,
     listSectionArticles: () => realListSectionArticles(config),
@@ -472,6 +484,7 @@ function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
     readPageBody: (slug) => backfillPageBodyFromWorkspace(workspaceDir, slug),
     deleteSectionsForArticle: realDeleteSectionsForArticle,
     upsertSections: realUpsertSections,
+    warmSectionEmbeddings: realWarmSectionEmbeddings,
     commitEmbedHighWater: commitSectionEmbedHighWater,
     ensureChunkerVersion: realEnsureSectionChunkerVersion,
     nowMs: () => Date.now(),
@@ -494,6 +507,7 @@ async function reembedChangedPages(
 ): Promise<{ reembedded: number; reembedFailures: number }> {
   let reembedded = 0;
   let reembedFailures = 0;
+  await warmEmbeddingCacheForPages(slugs, deps);
   for (const slug of slugs) {
     try {
       const index = await deps.buildSectionIndex([slug], deps.readPageBody);
@@ -509,6 +523,37 @@ async function reembedChangedPages(
     }
   }
   return { reembedded, reembedFailures };
+}
+
+/**
+ * Warm the embedding cache for every section of `slugs` in one batched backend
+ * call before the per-page loop, which otherwise pays one backend call per
+ * page. Only worth a call for two or more pages. Best-effort: a failure here
+ * is logged and the per-page loop embeds as it always has, so the loop's
+ * per-page failure containment is unchanged.
+ */
+async function warmEmbeddingCacheForPages(
+  slugs: Slug[],
+  deps: Pick<
+    MaintainJobDeps,
+    "buildSectionIndex" | "readPageBody" | "warmSectionEmbeddings" | "config"
+  >,
+): Promise<void> {
+  if (slugs.length < 2) {
+    return;
+  }
+  try {
+    const index = await deps.buildSectionIndex(slugs, deps.readPageBody);
+    await deps.warmSectionEmbeddings(deps.config, index.sections);
+  } catch (err) {
+    log.warn(
+      {
+        pages: slugs.length,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "memory-v3 maintain: embedding cache warm-up failed; pages embed one at a time (non-fatal)",
+    );
+  }
 }
 
 /**
@@ -850,6 +895,13 @@ export async function backfillAllSections(
   };
 
   const coldCapabilities: Slug[] = [];
+  // Real pages warm the embedding cache in one batched call first; capability
+  // rows stay on the per-page path below, whose cold-row guard must see each
+  // body before anything of it is embedded.
+  await warmEmbeddingCacheForPages(
+    slugs.filter((slug) => !isCapabilitySlug(slug)),
+    deps,
+  );
   for (const slug of slugs) {
     if ((await embedOne(slug)) === "cold") {
       coldCapabilities.push(slug);

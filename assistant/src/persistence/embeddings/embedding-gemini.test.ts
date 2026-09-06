@@ -234,14 +234,17 @@ describe("GeminiEmbeddingBackend", () => {
   });
 
   describe("multiple inputs", () => {
-    test("embeds multiple inputs sequentially", async () => {
-      let callCount = 0;
-      mockFetch = mock(() => {
-        callCount++;
-        return Promise.resolve(
-          makeSuccessResponse([0.1 * callCount, 0.2 * callCount]),
-        );
-      });
+    test("embeds multiple text inputs in one batch call", async () => {
+      mockFetch = mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              embeddings: [{ values: [0.1, 0.2] }, { values: [0.2, 0.4] }],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
       const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
@@ -249,7 +252,7 @@ describe("GeminiEmbeddingBackend", () => {
       });
       const result = await backend.embed(["hello", "world"]);
 
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual([0.1, 0.2]);
       expect(result[1]).toEqual([0.2, 0.4]);
@@ -347,5 +350,235 @@ describe("GeminiEmbeddingBackend", () => {
       const body = JSON.parse(init.body as string);
       expect(body.outputDimensionality).toBe(3072);
     });
+  });
+});
+
+/** The input index encoded in a `t<n>` fixture text. */
+function textIndex(text: string): number {
+  return Number(text.replace(/^t/, ""));
+}
+
+/**
+ * A fetch stub that answers both routes: a single `embedContent` call with a
+ * vector encoding its input index, and a `batchEmbedContents` call with one
+ * such vector per request in order, unless `batch` overrides its outcome.
+ */
+function routedFetch(batch?: {
+  status?: number;
+  statusOnFirstCall?: number;
+  body?: unknown;
+}) {
+  let batchCalls = 0;
+  return mock(async (url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string) as {
+      requests?: Array<{ content: { parts: Array<{ text?: string }> } }>;
+      content?: { parts: Array<{ text?: string }> };
+    };
+    if (url.includes(":batchEmbedContents")) {
+      batchCalls += 1;
+      const status =
+        batchCalls === 1 && batch?.statusOnFirstCall !== undefined
+          ? batch.statusOnFirstCall
+          : (batch?.status ?? 200);
+      if (status !== 200) {
+        return new Response("no batch here", { status });
+      }
+      const embeddings =
+        batch?.body !== undefined
+          ? batch.body
+          : body.requests!.map((request) => ({
+              values: [textIndex(request.content.parts[0]!.text!)],
+            }));
+      return new Response(JSON.stringify({ embeddings }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const part = body.content!.parts[0]!;
+    return makeSuccessResponse([
+      part.text !== undefined ? textIndex(part.text) : -1,
+    ]);
+  });
+}
+
+function texts(count: number): string[] {
+  return Array.from({ length: count }, (_v, i) => `t${i}`);
+}
+
+function calledUrls(fetchMock: ReturnType<typeof mock>): string[] {
+  return fetchMock.mock.calls.map((call) => (call as [string])[0]);
+}
+
+describe("GeminiEmbeddingBackend: batched text inputs", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("250 texts go out as three batchEmbedContents calls of 100, 100, and 50, vectors in input order", async () => {
+    const fetchMock = routedFetch();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(texts(250));
+
+    const urls = calledUrls(fetchMock);
+    expect(urls).toHaveLength(3);
+    expect(urls.every((url) => url.includes(":batchEmbedContents"))).toBe(true);
+    const sizes = fetchMock.mock.calls.map(
+      (call) =>
+        (
+          JSON.parse((call as [string, RequestInit])[1].body as string) as {
+            requests: unknown[];
+          }
+        ).requests.length,
+    );
+    expect(sizes).toEqual([100, 100, 50]);
+    expect(vectors.map((v) => v[0])).toEqual(texts(250).map(textIndex));
+  });
+
+  test("each batched request names the model with the models/ prefix and carries taskType and outputDimensionality", async () => {
+    const fetchMock = routedFetch();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+      taskType: "RETRIEVAL_DOCUMENT",
+      dimensions: 256,
+    });
+
+    await backend.embed(texts(2));
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/models/test-model:batchEmbedContents?key=test-key");
+    const body = JSON.parse(init.body as string) as {
+      requests: Array<Record<string, unknown>>;
+      model?: unknown;
+    };
+    expect(body.model).toBeUndefined();
+    expect(body.requests).toEqual([
+      {
+        model: "models/test-model",
+        content: { parts: [{ text: "t0" }] },
+        taskType: "RETRIEVAL_DOCUMENT",
+        outputDimensionality: 256,
+      },
+      {
+        model: "models/test-model",
+        content: { parts: [{ text: "t1" }] },
+        taskType: "RETRIEVAL_DOCUMENT",
+        outputDimensionality: 256,
+      },
+    ]);
+  });
+
+  test("a lone text keeps the embedContent route", async () => {
+    const fetchMock = routedFetch();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(["t7"]);
+
+    expect(calledUrls(fetchMock)).toEqual([
+      "https://generativelanguage.googleapis.com/v1beta/models/test-model:embedContent?key=test-key",
+    ]);
+    expect(vectors).toEqual([[7]]);
+  });
+
+  test("multimodal inputs take the single route while the texts around them batch, in input order", async () => {
+    const fetchMock = routedFetch();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed([
+      "t0",
+      { type: "image", data: Buffer.from("png"), mimeType: "image/png" },
+      "t2",
+      "t3",
+    ]);
+
+    const urls = calledUrls(fetchMock);
+    expect(
+      urls.map((url) =>
+        url.includes(":batchEmbedContents") ? "batch" : "single",
+      ),
+    ).toEqual(["single", "single", "batch"]);
+    expect(vectors.map((v) => v[0])).toEqual([0, -1, 2, 3]);
+  });
+
+  test("a batch route that does not exist falls back to single calls and is not tried again", async () => {
+    const fetchMock = routedFetch({ status: 404 });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const first = await backend.embed(texts(3));
+    expect(first.map((v) => v[0])).toEqual([0, 1, 2]);
+    // One failed batch attempt, then three singles.
+    expect(
+      calledUrls(fetchMock).map((url) => url.includes(":batchEmbedContents")),
+    ).toEqual([true, false, false, false]);
+
+    const second = await backend.embed(["t4", "t5"]);
+    expect(second.map((v) => v[0])).toEqual([4, 5]);
+    // No further batch attempt: straight to singles.
+    expect(
+      calledUrls(fetchMock)
+        .slice(4)
+        .every((url) => url.includes(":embedContent")),
+    ).toBe(true);
+    expect(fetchMock.mock.calls).toHaveLength(6);
+  });
+
+  test("a batch rejected as a bad request is re-sent as singles; the next batch is tried again", async () => {
+    const fetchMock = routedFetch({ statusOnFirstCall: 400 });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(texts(150));
+
+    expect(vectors.map((v) => v[0])).toEqual(texts(150).map(textIndex));
+    const kinds = calledUrls(fetchMock).map((url) =>
+      url.includes(":batchEmbedContents") ? "batch" : "single",
+    );
+    // The rejected first batch, its 100 singles, then the second batch of 50.
+    expect(kinds).toHaveLength(102);
+    expect(kinds[0]).toBe("batch");
+    expect(kinds.slice(1, 101).every((kind) => kind === "single")).toBe(true);
+    expect(kinds[101]).toBe("batch");
+  });
+
+  test("a transient batch failure throws so the caller's retry policy sees it", async () => {
+    const fetchMock = routedFetch({ status: 503 });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    await expect(backend.embed(texts(3))).rejects.toThrow(
+      "Gemini batch embeddings request failed (503)",
+    );
+    expect(fetchMock.mock.calls).toHaveLength(1);
+  });
+
+  test("a batch body without one vector per input is re-sent as singles", async () => {
+    const fetchMock = routedFetch({ body: [{ values: [0] }] });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      interCallDelayMs: 0,
+    });
+
+    const vectors = await backend.embed(texts(3));
+
+    expect(vectors.map((v) => v[0])).toEqual([0, 1, 2]);
+    expect(fetchMock.mock.calls).toHaveLength(4);
   });
 });

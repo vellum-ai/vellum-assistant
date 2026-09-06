@@ -586,6 +586,24 @@ export async function upsertSections(
 }
 
 /**
+ * Warm the `memory_embeddings` cache for `sections` in one batched backend call
+ * (every miss across every page at once), so the per-page `upsertSections`
+ * calls that follow serve from the cache and make no backend round trip. A
+ * corpus rebuild otherwise pays one backend call per page. The vectors are
+ * not returned: the cache rows are the product, keyed exactly as the per-page
+ * path keys them, and an empty `sections` array is a no-op.
+ */
+export async function warmSectionEmbeddings(
+  config: AssistantConfig,
+  sections: Section[],
+): Promise<void> {
+  if (sections.length === 0) {
+    return;
+  }
+  await embedSectionsCached(config, sections);
+}
+
+/**
  * Resolve a dense vector per section, reusing cached vectors for sections whose
  * `text` is unchanged and embedding only the misses in a single batched backend
  * call. Returns one entry per input section, index-aligned; a position is left

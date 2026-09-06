@@ -266,6 +266,7 @@ mock.module("../../../../../persistence/checkpoints.js", () => ({
 const {
   ensureSectionCollection,
   upsertSections,
+  warmSectionEmbeddings,
   deleteSectionsForArticle,
   listSectionArticles,
   SECTION_COLLECTION,
@@ -593,6 +594,41 @@ describe("memory v3 section-dense-store — embedding cache", () => {
     expect(state.upsertCalls[1]!.points.map((p) => p.vector)).toEqual(
       state.upsertCalls[0]!.points.map((p) => p.vector),
     );
+  });
+
+  test("warmSectionEmbeddings embeds every miss across pages in one backend call, and the per-page upserts then serve from cache", async () => {
+    state.collectionExists = true;
+    const alice = [
+      section("people/alice", 0, "alice lead text"),
+      section("people/alice", 1, "alice section one"),
+    ];
+    const bob = [section("people/bob", 0, "bob lead text")];
+
+    await warmSectionEmbeddings(CONFIG, [...alice, ...bob]);
+    expect(embedState.calls).toEqual([
+      ["alice lead text", "alice section one", "bob lead text"],
+    ]);
+    expect(state.upsertCalls).toHaveLength(0);
+
+    await upsertSections(CONFIG, alice);
+    await upsertSections(CONFIG, bob);
+    // No further backend call: both pages rebuilt their points from the cache.
+    expect(embedState.calls).toHaveLength(1);
+    expect(state.upsertCalls).toHaveLength(2);
+    expect(
+      state.upsertCalls.flatMap((c) => c.points).map((p) => p.vector),
+    ).toEqual(
+      [
+        embedState.calls[0]!.map((_t, i) =>
+          Array.from({ length: embedState.dim }, (_v, j) => (i + 1) * (j + 1)),
+        ),
+      ].flat(),
+    );
+  });
+
+  test("warmSectionEmbeddings with no sections makes no backend call", async () => {
+    await warmSectionEmbeddings(CONFIG, []);
+    expect(embedState.calls).toHaveLength(0);
   });
 
   test("a changed section text re-embeds (content hash differs)", async () => {
