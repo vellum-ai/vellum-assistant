@@ -18,9 +18,7 @@ import { getConfig } from "../../../../config/loader.js";
 import { registerMemoryPluginJobHandlers } from "../job-handler-registration.js";
 import { getLogger } from "../logging.js";
 import { runMemoryStartup } from "../startup.js";
-import { ensureMemoryV3InjectedSectionsStore } from "../v3/ever-injected-store.js";
-import { ensureMemoryV3PoolsStore } from "../v3/pool-log-store.js";
-import { ensureMemoryV3SelectionsStore } from "../v3/shadow-plugin.js";
+import { ensureMemoryV3PluginSchema } from "../v3/plugin-schema.js";
 
 const log = getLogger("memory-init");
 
@@ -39,9 +37,7 @@ const init: HookFunction<InitContext> = async () => {
   // no-ops rather than failing readiness). Each store ensures again on the
   // first use of a connection in its process, which covers the memory
   // worker.
-  ensureMemoryV3PoolsStore();
-  ensureMemoryV3InjectedSectionsStore();
-  ensureMemoryV3SelectionsStore();
+  ensureMemoryV3PluginSchema();
 
   // Boot Qdrant, reconcile collections, and start the memory jobs worker in the
   // background so the daemon keeps accepting requests without waiting on it.

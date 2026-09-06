@@ -246,6 +246,7 @@ function depsOf(
     hotSlugs,
     freshSlugs,
     prefixCards,
+    finderSectionsPerPage: 3,
     ...overrides,
   };
 }
@@ -1805,7 +1806,7 @@ describe("orchestrate — injection gate", () => {
       pool_size: 0,
     });
     // The result carries the same fact for the pool record: the stable prefix
-    // is still reported as a lane (the injector's prune exemption) but the
+    // is still reported as a lane, as computed, but the
     // selector never ran over it.
     expect(result.selectorRan).toBe(false);
     expect(result.selections).toEqual([]);
@@ -2258,12 +2259,13 @@ describe("orchestrate: rare-term lane", () => {
     );
 
     const lines = result.lanes.finder.filter((c) => c.slug === "silly-lines");
-    expect(lines.map((c) => [c.lane, c.section, c.term])).toEqual([
-      ["needle", parody, undefined],
-      ["rare", pumpkin, "gourd"],
-      ["rare", harvest, "gourd"],
+    expect(lines.map((c) => [c.lane, c.section])).toEqual([
+      ["needle", parody],
+      ["rare", pumpkin],
+      ["rare", harvest],
     ]);
     expect(lines[1]!.terms).toEqual(["gourd"]);
+    expect(lines[2]!.terms).toEqual(["gourd"]);
     // The second page's only "gourd" section is the needle's own line for
     // it, and the third-ranked "gourd" section is past perTerm anyway.
     expect(
@@ -2316,6 +2318,115 @@ describe("orchestrate: rare-term lane", () => {
     );
   });
 
+  // Deps for a page the bulk-theme lanes fill to a per-page cap of three
+  // before the rare lane runs: the needle pools `## Alpha` (ordinal 1), the
+  // full-message dense pass `## Bravo` (2), and the reply pass `## Charlie`
+  // (3). `alpha` is the Alpha section's text, `tail` the page's further
+  // sections. Of the message's words only "gourd" occurs in the corpus.
+  const CAPPED_MESSAGE = "here is my little gourd";
+  const REPLY = "the previous reply";
+  async function cappedPageDeps(
+    alpha: string,
+    tail: string[],
+    rareTerm = RARE,
+  ): Promise<OrchestrateDeps> {
+    const lanes = await customLanes({
+      "many-page": [
+        "lead for the many page",
+        "## Alpha",
+        alpha,
+        "## Bravo",
+        "bravo text",
+        "## Charlie",
+        "charlie text",
+        ...tail,
+      ].join("\n"),
+    });
+    const alphaDoc = lanes.sectionIndex.byArticle.get("many-page")![1]!;
+    denseHits = [{ article: "many-page", section: 2 }];
+    denseHitsByQuery.set(REPLY, [{ article: "many-page", section: 3 }]);
+    return depsOf(lanes, {
+      needle: {
+        ...lanes.needle,
+        queryScored: () => [
+          { article: "many-page", section: alphaDoc, score: 1 },
+        ],
+      },
+      denseK: 100,
+      replyQueryK: 5,
+      finderSectionsPerPage: 3,
+      rareTerm,
+    });
+  }
+
+  test("a rare hit joins a page the prior lanes filled to the per-page cap, bounded by the lane's own cap", async () => {
+    // "gourd" is held by `## Delta` (ordinal 4) and `## Echo` (5) alone.
+    const tail = [
+      "## Delta",
+      "delta text, and the gourd",
+      "## Echo",
+      "echo text, and the gourd",
+    ];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text", tail),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+      ["rare", 5],
+    ]);
+    expect(
+      result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
+    ).toEqual([["gourd"], ["gourd"]]);
+
+    // The lane's own cap is what bounds the lines past the page cap, so a
+    // page carries at most `finderSectionsPerPage + rareTerm.cap` lines.
+    const bounded = await orchestrate(
+      makeTurn(2, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text", tail, { ...RARE, cap: 1 }),
+    );
+    expect(
+      bounded.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+    ]);
+  });
+
+  test("a rare hit on a section a capped page already carries is still a no-op", async () => {
+    // "gourd" is held by `## Alpha`, which the needle pooled, and by
+    // `## Delta` (ordinal 4).
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text, and the gourd", [
+        "## Delta",
+        "delta text, and the gourd",
+      ]),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+    ]);
+    expect(
+      result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
+    ).toEqual([["gourd"]]);
+  });
+
   test("omitting the rare-term tuning disables the lane", async () => {
     const lanes = await customLanes(GOURD_PAGES);
     providerStub = selectProvider([]);
@@ -2345,8 +2456,8 @@ describe("orchestrate: rare-term lane", () => {
       }),
     );
 
-    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.term])).toEqual([
-      ["topic-a", "rare", "apple"],
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.terms])).toEqual([
+      ["topic-a", "rare", ["apple"]],
     ]);
     expect(lastPool).not.toContain("topic-d");
   });

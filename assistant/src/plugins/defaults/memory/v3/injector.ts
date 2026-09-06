@@ -93,18 +93,22 @@
  * (`stripPrunedSectionsFromMessages`).
  *
  * An assembly that replaces the run messages with a transcript rendered
- * from persisted rows (`TurnContext.replacesRunMessages`: the Slack
- * chronological transcript, on every Slack conversation) carries no frozen
- * block from any earlier turn, because those blocks live only in message
- * metadata. Residency means nothing in that prompt, so the sections
- * injector renders every selection afresh, whether the store counts it
- * active or not, the pointer injector has nothing to point at, and the
- * block carries no commit: nothing is recorded, the valve is not scheduled,
- * and runtime assembly attaches the block to the transcript's tail in
- * memory only, leaving a retried anchor's rehydrated frozen block off the
- * transcript so the fresh render is the single copy. The turn memo still
- * remembers what the first produce rendered, so a re-entry of such a turn
- * re-emits the same bytes.
+ * from persisted rows (`TurnContext.replacesRunMessages`, set by the chain
+ * walker once the replacing injector has produced its block: the Slack
+ * chronological transcript) carries no frozen block from any earlier turn,
+ * because those blocks live only in message metadata. Residency means
+ * nothing in that prompt, so the sections injector renders every selection
+ * afresh, whether the store counts it active or not, the pointer injector
+ * has nothing to point at, and the block carries no commit: nothing is
+ * recorded, the valve is not scheduled, and runtime assembly attaches the
+ * block to the transcript's tail in memory only (it persists and claims a
+ * block only when the block carries a commit), leaving a retried anchor's
+ * rehydrated frozen block off the transcript so the fresh render is the
+ * single copy. A Slack conversation whose transcript injector is absent
+ * (the channel plugin disabled) is not replaced, and its turn is an
+ * ordinary committed injection. The turn memo still remembers what the
+ * first produce rendered, so a re-entry of such a turn re-emits the same
+ * bytes.
  */
 
 import { getConfig } from "../../../../config/loader.js";
@@ -125,8 +129,12 @@ import {
 } from "../../../types.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
-import { injectionSectionKey, isCapabilitySlug } from "./capabilities.js";
-import { renderedBytes } from "./card.js";
+import { renderedBytes } from "../substrate/injected-block-slugs.js";
+import {
+  type InjectionUnit,
+  injectionUnits,
+  isCapabilitySlug,
+} from "./capabilities.js";
 import {
   getActiveSections,
   getPrunedSections,
@@ -147,9 +155,7 @@ import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
   MEMORY_V3_POINTER_BLOCK_ID,
-  type Section,
   type SectionRef,
-  type SelectedPage,
   type Slug,
 } from "./types.js";
 
@@ -170,14 +176,6 @@ const log = getLogger("memory-v3-shadow");
  */
 const MAX_TRACKED_CONVERSATIONS = 256;
 let trackedConversationsCap = MAX_TRACKED_CONVERSATIONS;
-
-/** Test-only: shrink the memo cap so eviction is reachable with a handful
- *  of conversations (`null` restores the default). */
-export function setMemoryV3TurnMemoCapacityForTests(
-  capacity: number | null,
-): void {
-  trackedConversationsCap = capacity ?? MAX_TRACKED_CONVERSATIONS;
-}
 
 /**
  * Whether the conversation's turn is running: the live conversation's
@@ -342,52 +340,22 @@ function rememberRendered(
   cached.rendered = rendered;
 }
 
-/** Test-only reset for the per-turn memo and its cap. */
-export function resetMemoryV3InjectorStateForTests(): void {
+/** Test-only reset for the per-turn memo and its cap; a `capacity` shrinks
+ *  the cap so eviction is reachable with a handful of conversations. */
+export function resetMemoryV3InjectorStateForTests(
+  capacity: number = MAX_TRACKED_CONVERSATIONS,
+): void {
   observedTurns.clear();
-  trackedConversationsCap = MAX_TRACKED_CONVERSATIONS;
+  trackedConversationsCap = capacity;
 }
 
 // ─── injectors ───────────────────────────────────────────────────────────────
-
-/** One injection unit of a selection: the page, the unit's section-store
- *  key, and the matched section it renders (`undefined` for the lead and
- *  for capability content). */
-interface InjectionUnit {
-  slug: Slug;
-  key: string;
-  matched: Section | undefined;
-}
 
 /** One unit this assembly's block carries, in selection order: `text` is
  *  the first produce's entry when re-emitted by a re-entry, and is rendered
  *  here otherwise. */
 interface BlockSlot extends InjectionUnit {
   text: string | undefined;
-}
-
-/**
- * The injection units of a turn's selections, in selection order: one per
- * selected section, or one lead unit for a page selected with none, deduped
- * by `(slug, key)` (a capability page's sections all inject as its whole
- * content under the empty key).
- */
-function injectionUnits(selections: SelectedPage[]): InjectionUnit[] {
-  const units: InjectionUnit[] = [];
-  const seen = new Map<Slug, Set<string>>();
-  for (const { slug, sections } of selections) {
-    for (const matched of sections.length > 0 ? sections : [undefined]) {
-      const key = injectionSectionKey(slug, matched);
-      const keys = seen.get(slug) ?? new Set<string>();
-      if (keys.has(key)) {
-        continue;
-      }
-      keys.add(key);
-      seen.set(slug, keys);
-      units.push({ slug, key, matched });
-    }
-  }
-  return units;
 }
 
 export const memoryV3Injector: Injector = {

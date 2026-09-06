@@ -804,7 +804,6 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
         descriptor: pumpkin.text,
         section: pumpkin,
         terms: ["gourd"],
-        term: "gourd",
         lane: "rare",
       }),
       makeTurn("here is my little gourd"),

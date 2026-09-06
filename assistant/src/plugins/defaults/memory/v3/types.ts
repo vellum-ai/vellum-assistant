@@ -53,17 +53,21 @@ export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
   "memoryV3SpotlightBlock" as const;
 
 /**
- * How a persisted memory-v3 section block was rendered, which decides whether
- * a reader parses it. `"current"`: rendered by a build that stamps
- * `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT` in
+ * How a persisted memory-v3 section block was rendered, which decides the
+ * grammar a reader parses it with. `"current"`: rendered by a build that
+ * stamps `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT` in
  * `ever-injected-store.ts`) beside the block, so its inner text follows the
  * escaped grammar of `substrate/injected-block-slugs.ts` and is parsed,
  * pruned, superseded by newer copies, and fork-seeded at section grain.
  * `"legacy"`: persisted by a build before the stamp existed (a row carrying
- * the block without it), which is opaque: rehydrated verbatim, never parsed,
- * stripped, superseded, or fork-seeded, and gone with the compaction that
- * strips memory blocks and clears the section store. Provenance is explicit,
- * never inferred from a block's content.
+ * the block without it), rendered as compact cards, which the rehydration
+ * filter and the live strip read with that build's card grammar
+ * (`filterLegacyCards` in `substrate/injected-block-slugs.ts`) under each
+ * card's lead ref: a card whose lead is tombstoned, or re-injected by a
+ * current block after a prune, leaves. The block itself is never pruned,
+ * indexed, or fork-seeded, and is gone with the compaction that strips
+ * memory blocks and clears the section store. Provenance is explicit, never
+ * inferred from a block's content.
  */
 export type InjectedBlockFormat = "legacy" | "current";
 
@@ -175,6 +179,16 @@ export function sectionKey(section: Section): string {
 export interface SectionRef {
   slug: Slug;
   key: string;
+}
+
+/**
+ * The one string encoding of a {@link SectionRef}, for keying maps and sets
+ * by section: slug and key joined on a NUL, which neither side can contain
+ * (a slug is a path, a key derives from one heading line), so the encoding
+ * is injective. A pair is never parsed back out of it.
+ */
+export function sectionRefId({ slug, key }: SectionRef): string {
+  return `${slug}\u0000${key}`;
 }
 
 /**

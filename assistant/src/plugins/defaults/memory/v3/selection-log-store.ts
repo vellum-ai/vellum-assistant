@@ -30,14 +30,18 @@ import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../logging.js";
-import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3InjectionEntry } from "./page-content.js";
-import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
+import {
+  ensuredMemorySqlite,
+  ensureMemoryV3SelectionsSectionKeyOnce,
+  memoryReader,
+} from "./plugin-schema.js";
 import {
   type PoolRecord,
   readPoolForMessageIds,
@@ -72,26 +76,18 @@ const log = getLogger("memory-v3-selection-log-store");
 let readFailureWarned = false;
 
 /**
- * Run a selection-log read against the memory connection, its plugin-owned
- * `section_key` column ensured on the connection's first use in this process
- * (`plugin-schema.ts`), degrading to no rows when the connection is
+ * A selection-log read against the memory connection (`plugin-schema.ts`),
+ * its plugin-owned `section_key` column ensured on the connection's first
+ * use in this process, degrading to its fallback when the connection is
  * unavailable or the statement fails. The ensure is fail-open, so on a
  * database whose ALTER failed (a schema lock, read-only storage) the column
  * is missing and the read throws; the inspector then shows no v3 diagnostic
  * rather than failing its route. Warns once per process.
  */
-function readSelectionRows(
-  context: string,
-  read: (raw: MemorySqlite) => SelectionRow[],
-): SelectionRow[] {
-  const raw = memorySqliteOrNull(context);
-  if (!raw) {
-    return [];
-  }
-  ensureMemoryV3SelectionsSectionKeyOnce(raw);
-  try {
-    return read(raw);
-  } catch (err) {
+const readSelectionsOr = memoryReader(
+  (context) =>
+    ensuredMemorySqlite(context, ensureMemoryV3SelectionsSectionKeyOnce),
+  (err, context) => {
     if (!readFailureWarned) {
       readFailureWarned = true;
       log.warn(
@@ -99,13 +95,13 @@ function readSelectionRows(
         "memory-v3 selection read failed; the inspector shows no v3 selection",
       );
     }
-    return [];
-  }
-}
+  },
+);
 
 function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
-  return readSelectionRows(
+  return readSelectionsOr(
     "rowsForTurn",
+    [],
     (raw) =>
       raw
         .query(
@@ -127,8 +123,9 @@ function rowsForMessageIds(messageIds: string[]): SelectionRow[] | null {
     return null;
   }
   const placeholders = messageIds.map(() => "?").join(", ");
-  const rows = readSelectionRows(
+  const rows = readSelectionsOr(
     "rowsForMessageIds",
+    [],
     (raw) =>
       raw
         .query(
@@ -302,6 +299,8 @@ function toInspectorPool(
       slug: candidate.slug,
       lane: candidate.lane,
       sectionHeading: candidate.section_title,
+      // Legacy pool rows omit `section_key`.
+      sectionKey: candidate.section_key ?? null,
       chosen: candidate.chosen,
     })),
   };

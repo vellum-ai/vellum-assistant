@@ -110,7 +110,7 @@ export function forkConversationMemory(
       }
       // Each inherited block carries the format its row's metadata records
       // (the copied metadata keeps the persisting build's stamp): the seeder
-      // scans the current ones and skips the legacy ones, which are opaque.
+      // scans the current ones and skips the legacy ones, which seed nothing.
       const v3Block = persistedV3Block(message.metadata);
       if (v3Block) {
         inheritedV3Blocks.push(v3Block);

@@ -44,7 +44,7 @@ export function renderInjectionBlockInner(entries: string[]): string {
 
 /** Opening line of the pointer block, telling the model what the listed paths
  *  are: sections that already sit in the frozen `<memory>` blocks above. */
-export const MEMORY_POINTER_LEAD_LINE =
+const MEMORY_POINTER_LEAD_LINE =
   "Already in context above, relevant again this turn:";
 
 /**

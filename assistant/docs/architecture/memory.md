@@ -13,7 +13,7 @@ An assistant runs exactly one memory tier, derived by `memoryTier()` in
 | Tier  | Selected when                                | Injection source                                 |
 | ----- | -------------------------------------------- | ------------------------------------------------ |
 | `off` | `memory.enabled === false`                   | none                                             |
-| `v3`  | `memory.v3.live === true`                    | v3 lanes + card (`v3/injector.ts`)               |
+| `v3`  | `memory.v3.live === true`                    | v3 lanes + sections (`v3/injector.ts`)           |
 | `v2`  | `memory.v2.enabled === true` and v3 not live | v2 activation/router engine (`v2/`)              |
 | `v1`  | otherwise                                    | PKB `<knowledge_base>` block (`v1/pkb/`, legacy) |
 

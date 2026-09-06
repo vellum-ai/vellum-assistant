@@ -30,11 +30,12 @@
  */
 
 import { getLogger } from "../logging.js";
-import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
+import type { MemorySqlite } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import {
-  ensureMemoryV3PoolsSchema,
-  ensureOncePerConnection,
+  ensuredMemorySqlite,
+  ensureMemoryV3PoolsSchemaOnce,
+  memoryReader,
 } from "./plugin-schema.js";
 import { type FinderLane, sectionKey, type Slug } from "./types.js";
 
@@ -51,7 +52,11 @@ export interface PoolCandidateRecord {
   /** Heading of the matched section this finder line carries (`""` for the
    *  lead); null for stable-prefix cards and section-less finder lines. */
   section_title: string | null;
-  section_ordinal: number | null;
+  /** The matched section's `sectionKey` (`types.ts`), which tells a repeated
+   *  heading's lines (`Topic`, `Topic#1`) apart where the title cannot; null
+   *  exactly when `section_title` is, and absent on rows written before the
+   *  field existed. */
+  section_key: string | null;
   /** Whether the selector kept this line: for a finder line carrying a
    *  section, whether that section was selected; for a card or a
    *  section-less line, whether its page was kept at all. */
@@ -73,7 +78,7 @@ export interface PoolRecord {
 }
 
 /** A persisted pool row: the turn it was written for and its record. */
-export interface StoredPool {
+interface StoredPool {
   turn: number;
   record: PoolRecord;
 }
@@ -115,7 +120,7 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
     slug,
     lane,
     section_title: null,
-    section_ordinal: null,
+    section_key: null,
     chosen: selected.has(slug),
   });
   const { core, hot, fresh, always, finder } = result.lanes;
@@ -124,17 +129,19 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
     ...hot.map((slug) => card(slug, "hot")),
     ...fresh.map((slug) => card(slug, "fresh")),
     ...always.map((slug) => card(slug, "always")),
-    ...finder.map(
-      ({ slug, lane, section }): PoolCandidateRecord => ({
+    ...finder.map(({ slug, lane, section }): PoolCandidateRecord => {
+      const key = section ? sectionKey(section) : null;
+      return {
         slug,
         lane,
         section_title: section?.title ?? null,
-        section_ordinal: section?.ordinal ?? null,
-        chosen: section
-          ? (selected.get(slug)?.has(sectionKey(section)) ?? false)
-          : selected.has(slug),
-      }),
-    ),
+        section_key: key,
+        chosen:
+          key === null
+            ? selected.has(slug)
+            : (selected.get(slug)?.has(key) ?? false),
+      };
+    }),
   ];
   return {
     candidates,
@@ -145,30 +152,10 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
 }
 
 /**
- * Ensure the store's table on `raw` once per connection in this process
- * (see `plugin-schema.ts`): idempotent DDL, fail-open.
- */
-const ensurePoolsSchemaOnce = ensureOncePerConnection(
-  ensureMemoryV3PoolsSchema,
-  "failed to ensure memory_v3_pools; pool logging degraded",
-);
-
-/**
- * Ensure the store's table on the memory connection of this process, for the
- * memory plugin's `init` hook. No-op when the connection is unavailable (the
- * store degrades to no-ops as on any turn).
- */
-export function ensureMemoryV3PoolsStore(): void {
-  const raw = memorySqliteOrNull("ensureMemoryV3PoolsStore");
-  if (raw) {
-    ensurePoolsSchemaOnce(raw);
-  }
-}
-
-/**
- * Write the turn's pool row on `raw`. The PK is `(conversation_id, turn)`,
- * so a re-observed turn overwrites its row, with `message_id` reset to NULL
- * for the turn-end backfill. Throws on a failed statement: `writeTurnLog` in
+ * Write the turn's pool row on `raw`, its table ensured first
+ * (`plugin-schema.ts`). The PK is `(conversation_id, turn)`, so a
+ * re-observed turn overwrites its row, with `message_id` reset to NULL for
+ * the turn-end backfill. Throws on a failed statement: `writeTurnLog` in
  * `shadow-plugin.ts` runs this inside the transaction that also replaces the
  * turn's selection rows, and owns the best-effort boundary around it.
  */
@@ -178,7 +165,7 @@ export function writePool(
   turn: number,
   record: PoolRecord,
 ): void {
-  ensurePoolsSchemaOnce(raw);
+  ensureMemoryV3PoolsSchemaOnce(raw);
   raw
     .query(
       /*sql*/ `
@@ -226,31 +213,29 @@ function toStoredPool(row: PoolRow): StoredPool {
 }
 
 /**
- * Best-effort read shared by the two lookups. Returns `null` when the memory
- * connection is unavailable or `select` finds no row; a failed statement or an
- * unreadable `candidates_json` logs a warning and also reads as `null`, so the
- * diagnostic can never break the inspector's selection view.
+ * Best-effort read shared by the two lookups (`plugin-schema.ts`). Returns
+ * `null` when the memory connection is unavailable or `select` finds no row;
+ * a failed statement or an unreadable `candidates_json` logs a warning and
+ * also reads as `null`, so the diagnostic can never break the inspector's
+ * selection view.
  */
+const readPoolOr = memoryReader(
+  (context) => ensuredMemorySqlite(context, ensureMemoryV3PoolsSchemaOnce),
+  (err, context) =>
+    log.warn(
+      { err, context },
+      "failed to read memory-v3 pool; treating the turn as unrecorded",
+    ),
+);
+
 function readPool(
   context: string,
-  key: Record<string, unknown>,
   select: (raw: MemorySqlite) => PoolRow | null,
 ): StoredPool | null {
-  const raw = memorySqliteOrNull(context);
-  if (!raw) {
-    return null;
-  }
-  ensurePoolsSchemaOnce(raw);
-  try {
+  return readPoolOr(context, null, (raw) => {
     const row = select(raw);
     return row ? toStoredPool(row) : null;
-  } catch (err) {
-    log.warn(
-      { err, ...key },
-      "failed to read memory-v3 pool; treating the turn as unrecorded",
-    );
-    return null;
-  }
+  });
 }
 
 /**
@@ -263,7 +248,6 @@ export function readPoolForTurn(
 ): PoolRecord | null {
   const stored = readPool(
     "readPoolForTurn",
-    { conversationId, turn },
     (raw) =>
       raw
         .query(
@@ -293,7 +277,6 @@ export function readPoolForMessageIds(messageIds: string[]): StoredPool | null {
   const placeholders = messageIds.map(() => "?").join(", ");
   return readPool(
     "readPoolForMessageIds",
-    { messageIds },
     (raw) =>
       raw
         .query(

@@ -118,7 +118,7 @@ function orchestrated(): OrchestrateResult {
 /**
  * A turn the injection gate hard-skipped: the selector was never consulted,
  * so there are no selections, but the result's lanes still carry the stable
- * prefix (the injector needs it as a prune exemption).
+ * prefix as computed.
  */
 function hardSkipped(): OrchestrateResult {
   return {
@@ -153,7 +153,7 @@ const card = (
   slug,
   lane,
   section_title: null,
-  section_ordinal: null,
+  section_key: null,
   chosen,
 });
 
@@ -170,7 +170,7 @@ describe("buildPoolRecord", () => {
         slug: "topic/a",
         lane: "needle",
         section_title: "",
-        section_ordinal: 0,
+        section_key: "",
         chosen: true,
       },
       // The dense lane also hit the core page: it is listed again as a finder
@@ -179,14 +179,14 @@ describe("buildPoolRecord", () => {
         slug: "core/page",
         lane: "dense",
         section_title: "Recent",
-        section_ordinal: 3,
+        section_key: "Recent",
         chosen: true,
       },
       {
         slug: "topic/b",
         lane: "entity",
         section_title: "Details",
-        section_ordinal: 2,
+        section_key: "Details",
         chosen: false,
       },
       card("topic/c", "edge", true),

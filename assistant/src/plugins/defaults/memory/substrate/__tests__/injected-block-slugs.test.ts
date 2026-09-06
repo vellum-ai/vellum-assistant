@@ -3,13 +3,15 @@ import { describe, expect, test } from "bun:test";
 import {
   escapeInjectedBody,
   extractInjectedConceptSlugs,
+  filterLegacyCards,
   injectedConceptHeader,
   injectedSectionHeader,
   injectedSectionPath,
   parseInjectedSectionPath,
   parseInjectedSections,
+  parseLegacyCards,
   readInjectedBlock,
-  unescapeInjectedBody,
+  renderedBytes,
 } from "../injected-block-slugs.js";
 
 describe("extractInjectedConceptSlugs", () => {
@@ -236,15 +238,23 @@ describe("parseInjectedSections: capability pieces", () => {
   });
 });
 
-describe("escapeInjectedBody / unescapeInjectedBody", () => {
+describe("renderedBytes", () => {
+  test("counts UTF-8 bytes, not characters", () => {
+    expect(renderedBytes("abc")).toBe(3);
+    expect(renderedBytes("§")).toBe(2); // U+00A7 is 2 bytes in UTF-8
+    const header = injectedSectionHeader("page-a", "Notes");
+    expect(header.match(/§/g)).toHaveLength(1);
+    expect(renderedBytes(header)).toBe(header.length + 1);
+  });
+});
+
+describe("escapeInjectedBody", () => {
   const boundaryLines = [
     "# memory/concepts/example.md",
     "# memory/concepts/example.md § Notes",
     "# Skills",
     "# Skill: foo",
     "# CLI command: bar",
-    "[sections: §A · §B]",
-    "[linked: a · b]",
   ];
 
   test("prefixes exactly the lines that would parse as grammar", () => {
@@ -254,13 +264,15 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
       "\\frac{1}{2}",
       "## memory/concepts/example.md",
       " # memory/concepts/example.md",
+      "[sections: §A · §B]",
+      "[linked: a · b]",
     ];
     expect(escapeInjectedBody([...others, ...boundaryLines].join("\n"))).toBe(
       [...others, ...boundaryLines.map((line) => `\\${line}`)].join("\n"),
     );
   });
 
-  test("is a bijection, including bodies that already carry the escape", () => {
+  test("is injective, so a body line that already carries the escape never renders like an escaped grammar line", () => {
     const lines = [
       ...boundaryLines,
       "\\# memory/concepts/example.md",
@@ -268,12 +280,10 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
       "\\# not a boundary",
       "plain",
     ];
-    for (const line of lines) {
-      expect(unescapeInjectedBody(escapeInjectedBody(line))).toBe(line);
-    }
-    const body = lines.join("\n");
-    expect(unescapeInjectedBody(escapeInjectedBody(body))).toBe(body);
-    // Distinct sources escape to distinct forms.
+    expect(escapeInjectedBody("\\# memory/concepts/example.md")).toBe(
+      "\\\\# memory/concepts/example.md",
+    );
+    expect(escapeInjectedBody("\\# not a boundary")).toBe("\\# not a boundary");
     expect(new Set(lines.map(escapeInjectedBody)).size).toBe(lines.length);
   });
 
@@ -296,6 +306,106 @@ describe("escapeInjectedBody / unescapeInjectedBody", () => {
     ]);
     expect(parsed.pieces).toHaveLength(1);
     expect(extractInjectedConceptSlugs(entry)).toEqual(["topics/page-a"]);
+  });
+});
+
+describe("parseLegacyCards / filterLegacyCards", () => {
+  const PREAMBLE = "Memory cards. Read a page with file_read.";
+  const CAPABILITY_CHUNK =
+    "# Skill: meet-join\nJoin a video meeting on request.";
+  /** A card as the pre-stamp builds rendered one: page header, the page's
+   *  own `# Title` line, head, one-line TOC. */
+  const card = (slug: string): string =>
+    `${injectedConceptHeader(slug)}\n# ${slug}\nhead of ${slug}\n\n[sections: §One · §Two]`;
+  const block = (...chunks: string[]): string =>
+    [PREAMBLE, ...chunks].join("\n\n");
+  const inner = block(card("page-a"), card("page-b"), card("page-c"));
+  const is = (slugs: string[]) => (slug: string) => slugs.includes(slug);
+
+  test("parses the preamble and one card piece per page header; a card head's own # Title line stays inside it", () => {
+    const parsed = parseLegacyCards(inner);
+    expect(parsed.preamble).toBe(PREAMBLE);
+    expect(parsed.pieces).toEqual([
+      { kind: "card", slug: "page-a", text: card("page-a") },
+      { kind: "card", slug: "page-b", text: card("page-b") },
+      { kind: "card", slug: "page-c", text: card("page-c") },
+    ]);
+  });
+
+  test("a page header opens a card wherever it sits: bodies were not escaped", () => {
+    const head = `${injectedConceptHeader("page-a")}\nlead\n${injectedConceptHeader("quoted")}\nquoted line`;
+    expect(parseLegacyCards(block(head)).pieces).toEqual([
+      {
+        kind: "card",
+        slug: "page-a",
+        text: `${injectedConceptHeader("page-a")}\nlead`,
+      },
+      {
+        kind: "card",
+        slug: "quoted",
+        text: `${injectedConceptHeader("quoted")}\nquoted line`,
+      },
+    ]);
+    // The current grammar receives the same line escaped by the renderer
+    // (the body under the header) and keeps it inside the section.
+    const body = `lead\n${injectedConceptHeader("quoted")}\nquoted line`;
+    expect(
+      parseInjectedSections(
+        block(
+          `${injectedConceptHeader("page-a")}\n${escapeInjectedBody(body)}`,
+        ),
+      ).sections.map(refOf),
+    ).toEqual([{ slug: "page-a", key: "" }]);
+  });
+
+  test("a foreign top-level header on a seam ends the card and is its own piece; off a seam it stays inside", () => {
+    const parsed = parseLegacyCards(
+      block(card("page-a"), CAPABILITY_CHUNK, card("page-b")),
+    );
+    expect(parsed.pieces).toEqual([
+      { kind: "card", slug: "page-a", text: card("page-a") },
+      { kind: "other", text: CAPABILITY_CHUNK },
+      { kind: "card", slug: "page-b", text: card("page-b") },
+    ]);
+    const inline = `${injectedConceptHeader("page-a")}\n# Skill: not-a-chunk\nstill the head`;
+    expect(parseLegacyCards(block(inline)).pieces).toEqual([
+      { kind: "card", slug: "page-a", text: inline },
+    ]);
+  });
+
+  test("text with no page header is all preamble and passes the filter unchanged", () => {
+    const plain = "remember: user prefers tea";
+    expect(parseLegacyCards(plain)).toEqual({ preamble: plain, pieces: [] });
+    expect(filterLegacyCards(plain, () => true)).toBe(plain);
+  });
+
+  test("nothing dropped: the same reference; every card dropped: empty", () => {
+    expect(filterLegacyCards(inner, () => false)).toBe(inner);
+    expect(filterLegacyCards(inner, is(["page-z"]))).toBe(inner);
+    expect(filterLegacyCards(inner, () => true)).toBe("");
+  });
+
+  test("a dropped card leaves the remainder byte-identical to a fresh render", () => {
+    expect(filterLegacyCards(inner, is(["page-b"]))).toBe(
+      block(card("page-a"), card("page-c")),
+    );
+    expect(filterLegacyCards(inner, is(["page-a", "page-c"]))).toBe(
+      block(card("page-b")),
+    );
+  });
+
+  test("dropping a card never swallows a capability chunk, and a block left with only capability content keeps it", () => {
+    const mixed = block(card("page-a"), CAPABILITY_CHUNK, card("page-b"));
+    expect(filterLegacyCards(mixed, is(["page-a"]))).toBe(
+      block(CAPABILITY_CHUNK, card("page-b")),
+    );
+    const trailing = block(card("page-a"), CAPABILITY_CHUNK);
+    expect(filterLegacyCards(trailing, is(["page-a"]))).toBe(
+      block(CAPABILITY_CHUNK),
+    );
+    expect(filterLegacyCards(trailing, () => true)).toBe(
+      block(CAPABILITY_CHUNK),
+    );
   });
 });
 

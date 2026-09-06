@@ -131,16 +131,16 @@ function providerBillingNoticeFromError(
  *  candidate that also carries its matched `section` and the query `terms`
  *  that scored it (best first) renders a keyword-in-context snippet instead:
  *  a window of the section body around the first of those terms that occurs
- *  in it. A candidate keyed on one query `term` (a rare-term hit) tags as
- *  `(lane: term)`. One page can appear on several lines, one per matched
- *  section; selecting a line selects that section. */
+ *  in it. A rare-term line (lane `rare`) is keyed on the one query word it
+ *  carries as its only term and tags as `(rare: word)`. One page can appear
+ *  on several lines, one per matched section; selecting a line selects that
+ *  section. */
 export interface PoolCandidate {
   slug: Slug;
   descriptor: string;
   lane?: string;
   section?: Section;
   terms?: string[];
-  term?: string;
 }
 
 /** A stable-prefix candidate: the slug plus its pre-rendered FULL card
@@ -391,25 +391,25 @@ function renderCardSegment(stable: StableCandidate[]): string {
   return `<candidate_cards>\n${cards.join("\n\n")}\n</candidate_cards>`;
 }
 
-/** A finder line's lane tag: `(lane) `, or `(lane: term) ` for a candidate
- *  keyed on one query term; empty for a candidate without a lane. */
+/** A finder line's lane tag: `(lane) `, or `(rare: word) ` for a rare-term
+ *  line, keyed on the one word it carries as its term; empty for a candidate
+ *  without a lane. */
 function laneTag(candidate: PoolCandidate): string {
   if (candidate.lane === undefined) {
     return "";
   }
-  const keyed =
-    candidate.term === undefined
-      ? candidate.lane
-      : `${candidate.lane}: ${candidate.term}`;
-  return `(${keyed}) `;
+  const word = candidate.lane === "rare" ? candidate.terms?.[0] : undefined;
+  return word === undefined
+    ? `(${candidate.lane}) `
+    : `(${candidate.lane}: ${word}) `;
 }
 
 /**
  * Render the finder tail: one `[m+i] (lane) slug — snippet` line per
  * candidate, numbered continuing after the `offset` stable-prefix cards. The
- * lane tag is omitted for a candidate without one and names the keyed term
- * for a candidate that carries one (`(rare: gourd)`); a candidate with an
- * empty descriptor renders without the dash.
+ * lane tag is omitted for a candidate without one and names the keyed word
+ * for a rare-term line (`(rare: gourd)`); a candidate with an empty
+ * descriptor renders without the dash.
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
   const lines = finder.map((c, i) => {

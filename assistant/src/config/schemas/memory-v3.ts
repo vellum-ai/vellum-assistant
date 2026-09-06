@@ -352,12 +352,9 @@ export const MemoryV3GateSchema = z
     "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when `enabled` is on).",
   );
 
-// NOTE: retired sub-configs (`workingSet`, the maxPages/evictWindow of the old
-// per-turn carry set, and the `n`/`windowTurns` tuning of the retired
-// per-turn section window) are absent here on purpose. Existing user config
-// files may still contain those keys; zod default unknown-key stripping
-// accepts and ignores them, so legacy configs keep parsing. Do not make this
-// object `.strict()`.
+// Persisted config files can carry unsupported tuning keys this object does
+// not declare; zod's default unknown-key stripping accepts and drops them, so
+// such a config keeps parsing. Do not make this object `.strict()`.
 //
 // The retrieval tuning defaults across these sub-schemas (hotSet.k, freshSet.k,
 // learnedEdges.cap, edge.{seedCount,perSeed,cap}) and the top-level needleK /
@@ -418,7 +415,7 @@ export const MemoryV3ConfigSchema = z
       .positive("memory.v3.finderSectionsPerPage must be a positive integer")
       .default(3)
       .describe(
-        "Maximum finder lines one page may carry in the selector pool per turn. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity, rare) until the cap; a section-less edge or learned hit counts as one line.",
+        "Maximum finder lines one page may carry in the selector pool per turn, its rare-term lines aside. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity) until the cap; a section-less edge or learned hit counts as one line. A rare-term line neither counts against the cap nor yields to it (rareTerm.cap bounds those per turn), so a rare word's section surfaces however many lines its page already carries.",
       ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })

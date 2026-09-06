@@ -10020,12 +10020,17 @@ paths:
                                           anyOf:
                                             - type: string
                                             - type: "null"
+                                        sectionKey:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
                                         chosen:
                                           type: boolean
                                       required:
                                         - slug
                                         - lane
                                         - sectionHeading
+                                        - sectionKey
                                         - chosen
                                       additionalProperties: false
                                   selectorRan:
@@ -22263,12 +22268,17 @@ paths:
                                           anyOf:
                                             - type: string
                                             - type: "null"
+                                        sectionKey:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
                                         chosen:
                                           type: boolean
                                       required:
                                         - slug
                                         - lane
                                         - sectionHeading
+                                        - sectionKey
                                         - chosen
                                       additionalProperties: false
                                   selectorRan:

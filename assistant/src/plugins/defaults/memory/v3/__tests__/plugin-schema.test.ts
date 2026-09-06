@@ -23,11 +23,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import {
-  type CheckpointLedger,
   deleteLegacyCardRows,
   ensureMemoryV3InjectedSectionsSchema,
   ensureMemoryV3PoolsSchema,
-  ensureMemoryV3SelectionsSectionKey,
   ensureMemoryV3SelectionsSectionKeyOnce,
   ensureOncePerConnection,
   SECTIONS_LEGACY_COPY_DONE_KEY,
@@ -81,14 +79,14 @@ function columnNames(db: Database, table: string): string[] {
 function ledger() {
   const values = new Map<string, string>();
   const fails = { reads: false, writes: false };
-  const api: CheckpointLedger = {
-    get: (key) => {
+  const api = {
+    get: (key: string): string | null => {
       if (fails.reads) {
         throw new Error("no such table: memory_checkpoints");
       }
       return values.get(key) ?? null;
     },
-    set: (key, value) => {
+    set: (key: string, value: string): void => {
       if (fails.writes) {
         throw new Error("database is locked");
       }
@@ -444,7 +442,7 @@ describe("ensureMemoryV3PoolsSchema", () => {
   });
 });
 
-describe("ensureMemoryV3SelectionsSectionKey", () => {
+describe("ensureMemoryV3SelectionsSectionKeyOnce", () => {
   test("adds section_key to the table migration 338 creates, keeping its rows", () => {
     ensureMemoryV3SelectionsSchema(memorySqlite);
     memorySqlite.exec(/*sql*/ `
@@ -454,7 +452,7 @@ describe("ensureMemoryV3SelectionsSectionKey", () => {
       VALUES ('conv-1', 0, 'topics/page-a', 'needle', 1000, 2, 'Notes')
     `);
 
-    ensureMemoryV3SelectionsSectionKey(memorySqlite);
+    ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite);
 
     expect(columnNames(memorySqlite, "memory_v3_selections")).toContain(
       "section_key",
@@ -470,23 +468,35 @@ describe("ensureMemoryV3SelectionsSectionKey", () => {
     ]);
   });
 
-  test("is a no-op on a table that already has the column", () => {
-    ensureMemoryV3SelectionsSchema(memorySqlite);
-    ensureMemoryV3SelectionsSectionKey(memorySqlite);
-    const columns = columnNames(memorySqlite, "memory_v3_selections");
+  test("is a no-op on a table that already has the column (another process's connection to the same database)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "memory-v3-selections-"));
+    const path = join(dir, "assistant-memory.db");
+    const first = new Database(path);
+    const second = new Database(path);
+    try {
+      ensureMemoryV3SelectionsSchema(first);
+      ensureMemoryV3SelectionsSectionKeyOnce(first);
+      const columns = columnNames(first, "memory_v3_selections");
 
-    ensureMemoryV3SelectionsSectionKey(memorySqlite);
+      ensureMemoryV3SelectionsSectionKeyOnce(second);
 
-    expect(columnNames(memorySqlite, "memory_v3_selections")).toEqual(columns);
-    expect(columns.filter((name) => name === "section_key")).toHaveLength(1);
+      expect(columnNames(second, "memory_v3_selections")).toEqual(columns);
+      expect(columns.filter((name) => name === "section_key")).toHaveLength(1);
+    } finally {
+      first.close();
+      second.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  test("fails on a connection without the table, which the once-per-connection ensure retries once the table is there", () => {
-    expect(() => ensureMemoryV3SelectionsSectionKey(memorySqlite)).toThrow();
-
+  test("fails open on a connection without the table and retries once the table is there", () => {
     expect(() =>
       ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite),
     ).not.toThrow();
+    expect(objectNames(memorySqlite, "table")).not.toContain(
+      "memory_v3_selections",
+    );
+
     ensureMemoryV3SelectionsSchema(memorySqlite);
     ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite);
 

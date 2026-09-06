@@ -40,7 +40,7 @@ import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { memoryV3InjectedSections } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
-import { memoryDbOrNull, memorySqliteOrNull } from "../memory-db.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
@@ -49,49 +49,28 @@ import {
 } from "../substrate/injected-block-slugs.js";
 import {
   deleteLegacyCardRows,
-  ensureMemoryV3InjectedSectionsSchema,
-  ensureOncePerConnection,
+  ensureMemoryV3InjectedSectionsSchemaOnce,
+  memoryReader,
 } from "./plugin-schema.js";
-import type {
-  InjectedBlock,
-  InjectedBlockFormat,
-  SectionRef,
+import {
+  type InjectedBlock,
+  type InjectedBlockFormat,
+  type SectionRef,
+  sectionRefId,
 } from "./types.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
 
-/**
- * Ensure the store's table on `raw` once per connection in this process
- * (see `plugin-schema.ts`, which also copies the legacy card rows in):
- * idempotent DDL, fail-open.
- */
-const ensureSectionsSchemaOnce = ensureOncePerConnection(
-  ensureMemoryV3InjectedSectionsSchema,
-  "failed to ensure memory_v3_injected_sections; section record degraded",
-);
-
-/**
- * Ensure the store's table on the memory connection of this process, for the
- * memory plugin's `init` hook. No-op when the connection is unavailable (the
- * store degrades to no-ops as on any turn).
- */
-export function ensureMemoryV3InjectedSectionsStore(): void {
-  const raw = memorySqliteOrNull("ensureMemoryV3InjectedSectionsStore");
-  if (raw) {
-    ensureSectionsSchemaOnce(raw);
-  }
-}
-
 /** The memory connection every read and write resolves, its table ensured
- *  first ({@link ensureSectionsSchemaOnce}); `null`, with the degraded-mode
- *  warning, when the connection is unavailable. */
+ *  first (`plugin-schema.ts`, which also copies the legacy card rows in);
+ *  `null`, with the degraded-mode warning, when the connection is
+ *  unavailable. */
 function memoryDb(context: string): ReturnType<typeof memoryDbOrNull> {
-  const raw = memorySqliteOrNull(context);
-  if (!raw) {
-    return null;
+  const mdb = memoryDbOrNull(context);
+  if (mdb) {
+    ensureMemoryV3InjectedSectionsSchemaOnce(mdb.$client);
   }
-  ensureSectionsSchemaOnce(raw);
-  return memoryDbOrNull(context);
+  return mdb;
 }
 
 /**
@@ -106,24 +85,29 @@ export const MEMORY_V3_INJECTED_BLOCK_METADATA_KEY = "memoryV3InjectedBlock";
  * Message-metadata key the persisting build stamps beside
  * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`: the block's rendering format
  * ({@link MEMORY_V3_INJECTED_BLOCK_FORMAT}). A row carrying the section block
- * without it was persisted before the stamp existed and holds a legacy
- * block, opaque to every reader (`InjectedBlockFormat` in `./types.ts`).
+ * without it was persisted before the stamp existed and holds a legacy card
+ * block (`InjectedBlockFormat` in `./types.ts`).
  */
 export const MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY =
   "memoryV3InjectedBlockFormat";
 
-/** The format this build renders and stamps: section headers plus body
- *  escaping. */
+/**
+ * The format this build renders and stamps (section headers plus body
+ * escaping, the grammar of `substrate/injected-block-slugs.ts`), and the
+ * value {@link v3BlockFormatOf} compares a row's stamp against. No other
+ * value is ever written: a build that changes the grammar bumps this and
+ * extends that classification to the rows the earlier value marks.
+ */
 export const MEMORY_V3_INJECTED_BLOCK_FORMAT = 2;
 
 /** The rendering format a message row's metadata records for its v3 section
- *  block: current when the persisting build stamped the format key, legacy
- *  otherwise. */
+ *  block: current when its stamp equals this build's
+ *  {@link MEMORY_V3_INJECTED_BLOCK_FORMAT}, legacy for a row without one. */
 export function v3BlockFormatOf(
   metadata: Readonly<Record<string, unknown>>,
 ): InjectedBlockFormat {
-  return typeof metadata[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] ===
-    "number"
+  return metadata[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] ===
+    MEMORY_V3_INJECTED_BLOCK_FORMAT
     ? "current"
     : "legacy";
 }
@@ -158,7 +142,7 @@ function toSectionRefSet(rows: SectionRef[]): Map<string, Set<string>> {
 }
 
 /** One row of the record, pruned or resident. */
-export interface InjectedSectionRow extends SectionRef {
+interface InjectedSectionRow extends SectionRef {
   bytes: number;
   /** Epoch ms the section was (last) injected. */
   injectedAt: number;
@@ -169,27 +153,12 @@ export interface InjectedSectionRow extends SectionRef {
   prunedAt: number | null;
 }
 
-/**
- * Run a read against the memory connection, degrading to `fallback` when the
- * connection is unavailable or the statement fails (a missing table on an
- * install whose migration is still deferred, an I/O error). A read failure
- * must never take memory-v3 down with it: an empty dedup set re-injects a
- * section at worst, while a throw inside `observeTurn` would skip the turn's
- * memory entirely.
- */
-function readOr<T>(
-  context: string,
-  fallback: T,
-  read: (mdb: NonNullable<ReturnType<typeof memoryDbOrNull>>) => T,
-): T {
-  try {
-    const mdb = memoryDb(context);
-    return mdb ? read(mdb) : fallback;
-  } catch (err) {
-    log.warn({ err, context }, "injected-section read failed; continuing");
-    return fallback;
-  }
-}
+/** The store's fail-soft read (`plugin-schema.ts`): a throw inside
+ *  `observeTurn` would skip the turn's memory entirely, so a failed read
+ *  degrades to its fallback instead. */
+const readOr = memoryReader(memoryDb, (err, context) =>
+  log.warn({ err, context }, "injected-section read failed; continuing"),
+);
 
 /**
  * The full per-conversation record, pruned rows included, ordered by
@@ -590,9 +559,10 @@ export function forkEverInjected(
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
- * A legacy-format block (a pre-stamp row's) is opaque and seeds nothing: the
- * child rehydrates it verbatim, and a later selection of a section it holds
- * injects that section afresh beside it, accepted for the one-time window
+ * A legacy-format block (a pre-stamp row's) seeds nothing: the child
+ * rehydrates it with no tombstone of its own for the cards it holds, and a
+ * later selection of a section it holds injects that section afresh, which
+ * supersedes the card at the next strip; accepted for the one-time window
  * such rows live in (they leave with the child's first compaction).
  *
  * No-op when the child inherited no current-format blocks. The rows live on
@@ -614,14 +584,14 @@ export function seedEverInjectedFromBlocks(
     for (const piece of parseInjectedSections(unwrapMemoryBlock(block.inner))
       .pieces) {
       if (piece.kind === "section") {
-        inherited.set(`${piece.slug} ${piece.key}`, {
+        inherited.set(sectionRefId(piece), {
           slug: piece.slug,
           key: piece.key,
           bytes: renderedBytes(piece.text),
         });
       } else if (piece.kind === "capability") {
-        const slug = capabilitySlugOf(piece);
-        inherited.set(`${slug} `, { slug, key: "", bytes: 0 });
+        const ref = { slug: capabilitySlugOf(piece), key: "" };
+        inherited.set(sectionRefId(ref), { ...ref, bytes: 0 });
       }
     }
   }
@@ -648,7 +618,7 @@ export function seedEverInjectedFromBlocks(
       )
       .all();
     const parentPrunedAt = new Map(
-      prunedRows.map((r) => [`${r.slug} ${r.key}`, r.prunedAt]),
+      prunedRows.map((r) => [sectionRefId(r), r.prunedAt]),
     );
     for (const [id, { slug, key, bytes }] of inherited) {
       mdb

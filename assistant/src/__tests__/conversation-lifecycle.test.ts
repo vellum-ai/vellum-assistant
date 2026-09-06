@@ -677,14 +677,11 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("the same block persisted without the format stamp is a legacy block: rehydrated verbatim with every slug it holds tombstoned, where a current block leaves", async () => {
+  test("the same block persisted without the format stamp is a legacy card block: the card whose lead was tombstoned before the upgrade leaves and the other rehydrates byte-identical", async () => {
     mockConversation = defaultConv();
     const leadA = "# memory/concepts/page-a.md\nlead a";
     const leadB = "# memory/concepts/page-b.md\nlead b";
-    mockPrunedSections = new Map([
-      ["page-a", new Set([""])],
-      ["page-b", new Set([""])],
-    ]);
+    mockPrunedSections = new Map([["page-b", new Set([""])]]);
     mockDbMessages = [
       {
         id: "m1",
@@ -699,8 +696,38 @@ describe("loadFromDb metadata injection rehydration", () => {
         role: "assistant",
         content: [{ type: "text", text: "Reply" }],
       },
-      // page-a's lead re-injected later under the current format: pruned
-      // like any current section, and a block left with nothing is skipped.
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${leadA}\n</memory>` },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("a legacy card whose lead a later row re-injected under the current format is superseded by that copy; a card with no such copy stays", async () => {
+    mockConversation = defaultConv();
+    const leadA = "# memory/concepts/page-a.md\nlead a";
+    const leadB = "# memory/concepts/page-b.md\nlead b";
+    // page-a was pruned before the upgrade and re-selected after it: the
+    // re-injection cleared its tombstone, so neither lead is pruned now.
+    mockPrunedSections = new Map();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: `header line\n\n${leadA}\n\n${leadB}`,
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
       {
         id: "m3",
         role: "user",
@@ -717,13 +744,11 @@ describe("loadFromDb metadata injection rehydration", () => {
 
     const messages = conversation.getMessages();
     expect(messages[0].content).toEqual([
-      {
-        type: "text",
-        text: `<memory>\nheader line\n\n${leadA}\n\n${leadB}\n</memory>`,
-      },
+      { type: "text", text: `<memory>\nheader line\n\n${leadB}\n</memory>` },
       { type: "text", text: "First turn" },
     ]);
     expect(messages[2].content).toEqual([
+      { type: "text", text: `<memory>\nheader line\n\n${leadA}\n</memory>` },
       { type: "text", text: "Second turn" },
     ]);
   });

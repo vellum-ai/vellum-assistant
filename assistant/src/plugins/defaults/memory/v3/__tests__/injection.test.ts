@@ -244,7 +244,6 @@ const {
   memoryV3PointerInjector,
   memoryV3TurnMemoSizeForTests,
   resetMemoryV3InjectorStateForTests,
-  setMemoryV3TurnMemoCapacityForTests,
 } = await import("../injector.js");
 const {
   clearConversation,
@@ -1101,7 +1100,7 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
 
   test("a turn in flight keeps its memo under LRU pressure, so its re-entry still re-emits the first produce's bytes; an idle conversation's memo is evicted", async () => {
     liveEnabled = true;
-    setMemoryV3TurnMemoCapacityForTests(2);
+    resetMemoryV3InjectorStateForTests(2);
     turnResults.set(0, result(["page-a", "page-c"], [["page-c", gamma]]));
     processingConversations.add("conv-live");
     const first = await produceSections("conv-live", 0);
@@ -1131,7 +1130,7 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
 
   test("after a burst of turns in flight past the cap, the next insert shrinks the memo back to capacity", async () => {
     liveEnabled = true;
-    setMemoryV3TurnMemoCapacityForTests(2);
+    resetMemoryV3InjectorStateForTests(2);
     turnResults.set(0, result(["page-a"]));
     const burst = ["conv-b1", "conv-b2", "conv-b3", "conv-b4"];
     for (const id of burst) {
@@ -1140,7 +1139,7 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
     for (const id of burst) {
       await produceSections(id, 0);
     }
-    // Every entry was pinned, so the map grew past the cap.
+    // Every entry's turn was in flight, so the map grew past the cap.
     expect(memoryV3TurnMemoSizeForTests()).toBe(burst.length);
 
     // The burst finishes; one more conversation's turn evicts idle entries
@@ -1152,7 +1151,7 @@ describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
 
   test("after a burst of turns in flight past the cap, a tracked conversation's next turn (a refresh, not an insert) shrinks the memo back to capacity too", async () => {
     liveEnabled = true;
-    setMemoryV3TurnMemoCapacityForTests(2);
+    resetMemoryV3InjectorStateForTests(2);
     turnResults.set(0, result(["page-a"]));
     turnResults.set(1, result(["page-c"], [["page-c", gamma]]));
     const burst = ["conv-b1", "conv-b2", "conv-b3", "conv-b4"];
@@ -1224,8 +1223,8 @@ describe("memoryV3Injector: run-messages replacement (Slack transcript)", () => 
   const gamma = section("page-c", "Gamma", "gamma section text");
 
   /** Produce for an assembly that replaces the run messages with a
-   *  transcript rendered from persisted rows, which runtime assembly states
-   *  on the turn context for every Slack conversation. */
+   *  transcript rendered from persisted rows, which the chain walker states
+   *  on the turn context once the transcript injector has produced it. */
   function produceReplaced(conversationId: string, turnIndex: number) {
     seedMemoryConfig();
     return memoryV3Injector.produce({

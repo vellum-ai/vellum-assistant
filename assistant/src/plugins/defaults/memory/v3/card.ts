@@ -1,20 +1,17 @@
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import {
-  injectedConceptHeader,
-  renderedBytes,
-} from "../substrate/injected-block-slugs.js";
+import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
 import { LINK_SEPARATOR, parseLinkEntry } from "../substrate/page-links.js";
 import type { Slug } from "./types.js";
 
 /**
  * Compact card renderer for memory-v3: a page's head section (the `# Title`
  * line plus lead paragraphs, everything before the first `## ` heading) plus a
- * one-line section TOC. Cards are the compact injection unit — they carry
- * enough signal to act on (or `file_read` the full page) at a fraction of the
- * full-page byte cost.
+ * one-line section TOC. Cards are the selector pool's stable-prefix unit;
+ * they carry enough signal to judge a page (or `file_read` the full page) at
+ * a fraction of the full-page byte cost.
  *
  * The `# memory/concepts/<slug>.md` header (shared builder:
- * `injectedConceptHeader` in `memory/v2/injected-block-slugs.ts`) matches the
+ * `injectedConceptHeader` in `substrate/injected-block-slugs.ts`) matches the
  * v2 memory-block page convention, so the existing `file_read` affordance
  * instruction applies to cards unchanged.
  *
@@ -175,8 +172,3 @@ export function renderCard(
 
   return card;
 }
-
-/** Byte measure of rendered injection text, shared with the block grammar so
- *  the parser's legacy-card span check uses the same measure the injectors
- *  record. */
-export { renderedBytes };
