@@ -131,6 +131,9 @@ function seedV2Identity(text: string | null): void {
  * does too. `inner === null` means the injector produced nothing this turn
  * (error/empty selection); `inner === ""` mirrors an all-repeat turn (block
  * produced, empty text — nothing attached, but v2 is still suppressed).
+ * `commit` is the residency commit the real injector attaches to a turn's
+ * first produce outside a run-messages replacement; a block without one is
+ * attached in memory only and never captured for persistence.
  */
 function v3Injector(inner: string | null, commit?: () => void): Injector {
   return {
@@ -222,7 +225,7 @@ describe("memory-v3-live v2 suppression", () => {
 
   test("flag ON + v3 produced a block → TAIL v2 stripped, historical memory blocks frozen in place", async () => {
     memoryV3LiveSlot = true;
-    injectorChainSlot.push(v3Injector("net-new cards"));
+    injectorChainSlot.push(v3Injector("net-new cards", () => {}));
     seedV2Identity("fresh recalled fact");
 
     // History: a prior user turn carrying a frozen memory block (a v3 card
@@ -256,8 +259,9 @@ describe("memory-v3-live v2 suppression", () => {
     expect(texts[1]).toBe("current question");
     expect(texts).toHaveLength(2);
 
-    // The v3 block is captured for metadata persistence (UNWRAPPED) and the
-    // turn is marked v3-active so the hook skips v2's metadata write.
+    // The committed v3 block is captured for metadata persistence
+    // (UNWRAPPED) and the turn is marked v3-active so the hook skips v2's
+    // metadata write.
     expect(result.blocks.memoryV3InjectedBlock).toBe("net-new cards");
     expect(result.blocks.memoryV3Active).toBe(true);
   });
@@ -610,6 +614,29 @@ describe("memory-v3-live v2 suppression", () => {
     expect(commit).toHaveBeenCalledTimes(1);
   });
 
+  test("a v3 block carrying no commit is attached in memory only: never captured, so nothing persists it", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector("uncommitted sections"));
+    seedV2Identity(null);
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // The block reaches the model, and v3 still owns the turn's `<memory>`
+    // layer, but a block the store will never claim must not be persisted:
+    // a persisted, unclaimed copy would render again on every later turn.
+    expect(tailTexts(result.messages)).toEqual([
+      "<memory>\nuncommitted sections\n</memory>",
+      "question",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(result.blocks.memoryV3Active).toBe(true);
+  });
+
   test("the commit callback is SKIPPED when the tail is not a user message (block never attaches)", async () => {
     memoryV3LiveSlot = true;
     const commit = mock(() => {});
@@ -925,6 +952,64 @@ describe("memory-v3-live v2 suppression", () => {
     ]);
     expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
     expect(commits).toBe(0);
+  });
+
+  /** An injector that records the `replacesRunMessages` it was handed and
+   *  contributes nothing. */
+  function replacementProbe(
+    name: string,
+    order: number,
+    seen: Map<string, boolean | undefined>,
+  ): Injector {
+    return {
+      name,
+      order,
+      async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+        seen.set(name, ctx.replacesRunMessages);
+        return null;
+      },
+    };
+  }
+
+  test("the run-messages replacement is stated on the turn context of every injector after the replacing one, and of none when no injector replaces", async () => {
+    const seen = new Map<string, boolean | undefined>();
+    const transcript: Message[] = [
+      { role: "user", content: [{ type: "text", text: "transcript line" }] },
+    ];
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ];
+    injectorChainSlot.push(
+      replacementProbe("before-replace", 10, seen),
+      replaceInjector(transcript),
+      replacementProbe("after-replace", 1000, seen),
+    );
+
+    const replaced = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(seen.get("before-replace")).toBeUndefined();
+    expect(seen.get("after-replace")).toBe(true);
+    expect(tailTexts(replaced.messages)).toEqual(["transcript line"]);
+
+    // The replacing injector out of the chain (its plugin disabled or never
+    // registered): the flag follows the replacement, so nobody is told of
+    // one and the history stays the turn's own.
+    injectorChainSlot.length = 0;
+    seen.clear();
+    injectorChainSlot.push(
+      replacementProbe("before-replace", 10, seen),
+      replacementProbe("after-replace", 1000, seen),
+    );
+
+    const kept = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(seen.get("before-replace")).toBeUndefined();
+    expect(seen.get("after-replace")).toBeUndefined();
+    expect(tailTexts(kept.messages)).toEqual(["question"]);
   });
 
   test("a retry assembled onto a run-messages replacement leaves the anchor's frozen block off the transcript: the fresh render is the single copy, uncaptured, commit withheld", async () => {

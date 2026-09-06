@@ -1224,8 +1224,8 @@ describe("memoryV3Injector: run-messages replacement (Slack transcript)", () => 
   const gamma = section("page-c", "Gamma", "gamma section text");
 
   /** Produce for an assembly that replaces the run messages with a
-   *  transcript rendered from persisted rows, which runtime assembly states
-   *  on the turn context for every Slack conversation. */
+   *  transcript rendered from persisted rows, which the chain walker states
+   *  on the turn context once the transcript injector has produced it. */
   function produceReplaced(conversationId: string, turnIndex: number) {
     seedMemoryConfig();
     return memoryV3Injector.produce({

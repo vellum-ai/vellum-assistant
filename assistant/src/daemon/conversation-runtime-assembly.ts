@@ -1871,8 +1871,11 @@ export interface RuntimeInjectionBlocks {
    * UNWRAPPED inner text of the memory-v3 frozen net-new section block the v3
    * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
    * contract (rehydration re-wraps on use). Undefined when v3 attached no new
-   * sections (all-repeat turn, v3 off, or v3 failure). Persisted by the
-   * user-prompt-submit hook under `metadata.memoryV3InjectedBlock`
+   * sections (all-repeat turn, v3 off, or v3 failure) and when the block
+   * attached in memory only, carrying no residency commit (a replaced
+   * history, a re-entry): what is captured here is persisted, and only a
+   * block the store claims may be. Persisted by the user-prompt-submit hook
+   * under `metadata.memoryV3InjectedBlock`
    * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
    */
   memoryV3InjectedBlock?: string;
@@ -1922,6 +1925,21 @@ export interface RuntimeInjectionResult {
 const SELF_INSTRUMENTED_INJECTORS = new Set(["memory-v3-shadow"]);
 
 /**
+ * Whether `block` replaces the turn's run messages: a
+ * `"replace-run-messages"` placement carrying the override that
+ * {@link applyInjectionBlock} swaps in (a replace block without one is a
+ * no-op there).
+ */
+function replacesRunMessages(
+  block: InjectionBlock,
+): block is InjectionBlock & { messagesOverride: Message[] } {
+  return (
+    block.placement === "replace-run-messages" &&
+    block.messagesOverride !== undefined
+  );
+}
+
+/**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
  * already sorted by ascending `order`) and return every non-null block it
  * produced, timing each non-self-instrumented injector as a latency
@@ -1933,6 +1951,15 @@ const SELF_INSTRUMENTED_INJECTORS = new Set(["memory-v3-shadow"]);
  * callers ({@link composeInjectorChain}) that drive the chain without a
  * message array.
  *
+ * `ctx` is handed to each injector as given, except that once an injector
+ * has produced the run-messages replacement ({@link replacesRunMessages}),
+ * every injector after it in the chain is told so on its context
+ * (`TurnContext.replacesRunMessages`, read by the memory-v3 sections
+ * injector). The flag follows the block Step 1 of
+ * {@link applyRuntimeInjections} swaps in, so it is set exactly when the
+ * replacement fires: never for a replacing injector that is unregistered,
+ * disabled with its plugin, or gated off for the turn.
+ *
  * Injectors returning `null` are omitted from the result. The returned array
  * preserves ascending-`order` sort so downstream callers (notably
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
@@ -1943,16 +1970,21 @@ async function collectInjectorBlocks(
   runMessages?: Message[],
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
+  let injectorCtx = ctx;
   for (const injector of getRegisteredInjectors()) {
     const block = SELF_INSTRUMENTED_INJECTORS.has(injector.name)
-      ? await injector.produce(ctx, runMessages)
+      ? await injector.produce(injectorCtx, runMessages)
       : await timeLatencySubSpan(
           `injector:${injector.name}`,
           `Injector: ${injector.name}`,
-          () => injector.produce(ctx, runMessages),
+          () => injector.produce(injectorCtx, runMessages),
         );
-    if (block) {
-      out.push(block);
+    if (!block) {
+      continue;
+    }
+    out.push(block);
+    if (replacesRunMessages(block)) {
+      injectorCtx = { ...injectorCtx, replacesRunMessages: true };
     }
   }
   return out;
@@ -2297,9 +2329,10 @@ function fallbackTurnTrust(
  *     tail. When replacement fires, re-prepend any memory-prefix blocks
  *     that `graphMemory.prepareMemory` had attached to the original tail —
  *     the Slack transcript is rendered fresh from persisted rows and
- *     carries no memory prefix of its own. The chain is told ahead of time
- *     that the replacement will fire (`replacesRunMessages` on the turn
- *     context, resolved with the transcript in step 1), and the memory-v3
+ *     carries no memory prefix of its own. Every injector after the
+ *     replacing one was told that the replacement will fire
+ *     (`replacesRunMessages` on its turn context, set by the chain walker
+ *     in step 2 as the replacing block is produced), and the memory-v3
  *     block then attaches to the replaced tail in memory only (step 4); a
  *     memory-v3 block the original tail already carried (a retry's anchor)
  *     is left off the transcript in that case, so the fresh render is the
@@ -2457,17 +2490,6 @@ export async function applyRuntimeInjections(
           liveConversation?.slackContextCompactionWatermarkTs,
       })
     : null;
-  // The `slack-messages` injector replaces the run messages with that
-  // transcript whenever it has at least one entry. Stated on the turn
-  // context ahead of the chain (the transcript is loaded here, before any
-  // injector runs) so an injector whose output depends on what history
-  // carries renders for the transcript rather than for `runMessages`: the
-  // transcript is rendered from raw persisted content, so the frozen memory
-  // blocks that live in message metadata never reach it.
-  const replacesRunMessages =
-    slackChronologicalMessages !== null &&
-    slackChronologicalMessages.length > 0;
-
   // Assemble the per-turn TurnContext handed to the injector chain. The
   // turn-identity fields come from `options` when supplied; `requestId` is the
   // only one the caller must provide, since the other three are recovered from
@@ -2481,7 +2503,6 @@ export async function applyRuntimeInjections(
     channelCapabilities,
     slackChronologicalMessages,
     slackActiveThreadFocusBlock,
-    replacesRunMessages,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation,
     activeDocuments,
@@ -2679,7 +2700,7 @@ export async function applyRuntimeInjections(
 
   // ── Step 1: Slack chronological replacement (chain "replace" block) ──
   let historyReplaced = false;
-  if (replaceBlock && replaceBlock.messagesOverride) {
+  if (replaceBlock && replacesRunMessages(replaceBlock)) {
     historyReplaced = true;
     // `graphMemory.prepareMemory` prepends a `<memory __injected>` block
     // (and any memory-image groups) to the last user message before
@@ -2729,7 +2750,13 @@ export async function applyRuntimeInjections(
   // deferred section-store commit runs here, once attachment is certain (a
   // user tail; on any other tail `applyInjectionBlock` no-ops the block and
   // a commit would claim sections that never attached, suppressing them
-  // until compaction). A turn re-run onto its original anchor row
+  // until compaction). Capture and commit go together, and only a block
+  // carrying a commit gets either: the injector attaches one to a turn's
+  // first produce alone, and withholds it when the turn's history is
+  // replaced, so a block without one rides the tail in memory only,
+  // whatever history it lands on, and is never persisted or claimed (a
+  // persisted copy the store never claimed would be rendered and persisted
+  // again on every later turn). A turn re-run onto its original anchor row
   // (`/conversations/:id/retry`) assembles onto a tail that already carries
   // the first run's frozen block, rehydrated from the anchor's metadata:
   // a current-format one takes the rerun's net-new entries
@@ -2743,11 +2770,11 @@ export async function applyRuntimeInjections(
   // copy. A re-injection assembly (`options.reinjection`) never commits:
   // its block is never persisted, so the store must not claim sections
   // whose only copy vanishes on restart. A replaced history (Step 1) takes
-  // the same in-memory-only shape: the transcript is rendered from
-  // persisted rows, so a block captured here would never reach a later
-  // prompt, and the injector rendered every selection afresh for the
-  // replacement (`replacesRunMessages` on the turn context) and attached
-  // no commit; Step 1 left a retried anchor's frozen block off the
+  // the in-memory-only shape whatever the block carries: the transcript is
+  // rendered from persisted rows, so a block captured here would never
+  // reach a later prompt; the injector, told of the replacement on its turn
+  // context, rendered every selection afresh for it and attached no
+  // commit, and Step 1 left a retried anchor's frozen block off the
   // transcript, so the block spliced here is the prompt's only copy. An
   // empty-text block (all-repeat turn) attaches nothing and captures
   // nothing.
@@ -2760,7 +2787,8 @@ export async function applyRuntimeInjections(
     if (!tail || tail.role !== "user") {
       continue;
     }
-    if (historyReplaced) {
+    const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
+    if (historyReplaced || typeof commit !== "function") {
       result = applyInjectionBlock(result, block);
       continue;
     }
@@ -2778,8 +2806,7 @@ export async function applyRuntimeInjections(
         memoryV3Captured = unwrapMemoryBlock(block.text);
       }
     }
-    const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
-    if (typeof commit === "function" && !options.reinjection) {
+    if (!options.reinjection) {
       (commit as () => void)();
     }
   }

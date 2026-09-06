@@ -93,18 +93,22 @@
  * (`stripPrunedSectionsFromMessages`).
  *
  * An assembly that replaces the run messages with a transcript rendered
- * from persisted rows (`TurnContext.replacesRunMessages`: the Slack
- * chronological transcript, on every Slack conversation) carries no frozen
- * block from any earlier turn, because those blocks live only in message
- * metadata. Residency means nothing in that prompt, so the sections
- * injector renders every selection afresh, whether the store counts it
- * active or not, the pointer injector has nothing to point at, and the
- * block carries no commit: nothing is recorded, the valve is not scheduled,
- * and runtime assembly attaches the block to the transcript's tail in
- * memory only, leaving a retried anchor's rehydrated frozen block off the
- * transcript so the fresh render is the single copy. The turn memo still
- * remembers what the first produce rendered, so a re-entry of such a turn
- * re-emits the same bytes.
+ * from persisted rows (`TurnContext.replacesRunMessages`, set by the chain
+ * walker once the replacing injector has produced its block: the Slack
+ * chronological transcript) carries no frozen block from any earlier turn,
+ * because those blocks live only in message metadata. Residency means
+ * nothing in that prompt, so the sections injector renders every selection
+ * afresh, whether the store counts it active or not, the pointer injector
+ * has nothing to point at, and the block carries no commit: nothing is
+ * recorded, the valve is not scheduled, and runtime assembly attaches the
+ * block to the transcript's tail in memory only (it persists and claims a
+ * block only when the block carries a commit), leaving a retried anchor's
+ * rehydrated frozen block off the transcript so the fresh render is the
+ * single copy. A Slack conversation whose transcript injector is absent
+ * (the channel plugin disabled) is not replaced, and its turn is an
+ * ordinary committed injection. The turn memo still remembers what the
+ * first produce rendered, so a re-entry of such a turn re-emits the same
+ * bytes.
  */
 
 import { getConfig } from "../../../../config/loader.js";
