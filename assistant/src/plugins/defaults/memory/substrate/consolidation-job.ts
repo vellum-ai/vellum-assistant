@@ -323,7 +323,12 @@ export interface ConsolidationJobDeps {
   /**
    * Sections over the section-grain retrieval window, for the prompt's
    * over-long-sections repair step. Read only where memory-v3 is live, since
-   * the window is v3's; a missing or failing lister omits the step.
+   * the window is v3's; a missing or failing lister omits the step. Like the
+   * other repair steps it rides a buffer-driven pass: an empty buffer skips
+   * the run, repairs included, so no LLM pass is spent on a workspace with
+   * nothing new to file, and a quiet workspace's backlog waits for its next
+   * real pass. An over-long section stays retrievable meanwhile, chunk by
+   * chunk.
    */
   listOverlongSections?: (
     workspaceDir: string,
