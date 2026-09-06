@@ -41,10 +41,10 @@
  *      init, followed by the finder candidates (needle → dense → reply →
  *      span → entity → rare → edge → learned surfacing order), one line per
  *      distinct (page, matched section) and at most `finderSectionsPerPage`
- *      lines per page from the lanes other than rare (a rare-term line never
- *      counts against the cap or yields to it; see `poolLine`), so a page
- *      whose sections match different parts of the message is shown section
- *      by section. The stable prefix
+ *      lines per page from the lanes other than entity and rare (an entity
+ *      line and a rare-term line never count against the cap or yield to it;
+ *      see `poolLine`), so a page whose sections match different parts of
+ *      the message is shown section by section. The stable prefix
  *      is identical across consecutive turns while the lanes are unchanged
  *      (lane invalidation at consolidation is the recompute cadence), so the
  *      selector input's leading segment rides the provider KV cache (the
@@ -227,12 +227,12 @@ export interface OrchestrateDeps {
    *  strong enough to inject unjudged. */
   rareTerm?: RareTermLaneOptions;
   /** Cap on finder lines one page may carry per turn, applied in surfacing
-   *  order (needle, dense, reply, span, entity); a section-less edge or
-   *  learned line counts as one. A rare-term line is outside the cap,
-   *  neither counted against it nor displaced by it (the lane's own
-   *  `rareTerm.cap` bounds those per turn), so a page carries at most this
-   *  many lines plus its rare lines (canonical value, default included:
-   *  `memory.v3.finderSectionsPerPage`). */
+   *  order (needle, dense, reply, span); a section-less edge or learned line
+   *  counts as one. An entity line and a rare-term line are outside the cap,
+   *  neither counted against it nor displaced by it (the lanes' own
+   *  `entityCap` and `rareTerm.cap` bound those per turn), so a page carries
+   *  at most this many lines plus its entity and rare lines (canonical
+   *  value, default included: `memory.v3.finderSectionsPerPage`). */
   finderSectionsPerPage: number;
   /** Per-lane article budget for the reply-query pass (needle + dense re-run
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
@@ -487,26 +487,28 @@ export async function orchestrate(
   // learned neighbour, a dense ordinal the index no longer holds) is one
   // section-less line per page, added only when nothing has surfaced the
   // page yet. Each page's lines are capped at `finderSectionsPerPage` in
-  // surfacing order, its rare lines aside (`poolLine`). Hits on
+  // surfacing order, its entity and rare lines aside (`poolLine`). Hits on
   // stable-prefix slugs are kept like any other, so the selector and the
   // injection see those pages' CURRENT relevance.
   const finderCap = deps.finderSectionsPerPage;
   const finder: FinderCandidate[] = [];
   const finderByArticle = new Map<Slug, FinderCandidate[]>();
 
-  // Whether a line counts against its page's cap. A rare-term line does
-  // not: its lane runs after every lane that fills the cap, so holding it
-  // to the cap would displace exactly the line the lane exists to surface.
-  // The lane's own `rareTerm.cap` bounds the lines it adds per turn instead.
+  // Whether a line counts against its page's cap. An entity line and a
+  // rare-term line do not: both lanes key on one strong token the message
+  // names and run after every lane that fills the cap, so holding them to
+  // the cap would displace exactly the line each lane exists to surface.
+  // The lanes' own caps (`entityCap`, `rareTerm.cap`) bound the lines they
+  // add per turn instead.
   const countsAgainstCap = (line: FinderCandidate): boolean =>
-    line.lane !== "rare";
+    line.lane !== "entity" && line.lane !== "rare";
 
   // Pool a line for its page unless the page already carries it or is at
   // the cap: a line with a section duplicates a line for the same section
   // key; a section-less line duplicates any line. The cap holds the page's
   // counted lines at `finderCap`; a line outside the cap joins past it, so a
-  // page carries at most `finderCap` counted lines plus its rare lines,
-  // `finderCap + rareTerm.cap` in all.
+  // page carries at most `finderCap` counted lines plus its entity and rare
+  // lines, `finderCap + entityCap + rareTerm.cap` in all.
   const poolLine = (candidate: FinderCandidate): void => {
     const lines = finderByArticle.get(candidate.slug) ?? [];
     const key = candidate.section ? sectionKey(candidate.section) : undefined;
