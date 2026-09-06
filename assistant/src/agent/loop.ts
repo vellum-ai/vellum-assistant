@@ -1118,7 +1118,8 @@ export class AgentLoop {
     // runtime injections onto a history with no frozen memory block and a
     // section the reset left unclaimed renders once, on the tail, rather than
     // beside a frozen copy on an earlier message. When the reset was skipped
-    // (the history-stripped marker could not be made durable) the ledgers
+    // (the history-stripped marker could not be made durable, or a ledger
+    // clear failed) the ledgers
     // still claim those frozen blocks, so the strip is deferred and the
     // injected history continues: the pointers the hook emits for those
     // sections point at blocks that are still there, and a reload rehydrates

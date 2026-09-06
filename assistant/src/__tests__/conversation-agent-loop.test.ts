@@ -853,7 +853,7 @@ function makeCtx(
     modelOverride: undefined,
 
     graphMemory: {
-      onCompacted: async () => {},
+      onCompacted: async () => true,
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,
@@ -4547,7 +4547,7 @@ describe("session-agent-loop", () => {
       const onCompacted = spyOn(graphMemory, "onCompacted").mockImplementation(
         async (count: number) => {
           order.push("reset");
-          await original(count);
+          return await original(count);
         },
       );
       registerPlugin({
@@ -4931,6 +4931,57 @@ describe("session-agent-loop", () => {
       );
     });
 
+    test("continues a budget-gate run whose ledger clear fails from the injected history, so the section the ledgers still claim reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a pipeline run that finds nothing to summarize, a
+      // marker write that succeeds, and a ledger clear that fails
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      onCompacted.mockImplementation(async () => {
+        order.push("reset");
+        return false;
+      });
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker landed at the strip and the reset ran but reported an
+      // incomplete clear, so the store still claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(1);
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the injected history the durable commit
+      // holds, the frozen block still on the earlier message where the
+      // store's residency expects it
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the provider call carried the section exactly once: the frozen
+      // copy, pointed at rather than rendered again
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[0]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
     test("continues an overflow rung whose strip marker cannot be made durable from the rung's reduced history with its injections intact, so the retry carries the section the intact ledgers still claim once", async () => {
       // GIVEN a resident section whose frozen block sits on an earlier turn's
       // user message, a truncation rung that reduces with no summary, and a
@@ -5020,6 +5071,7 @@ describe("session-agent-loop", () => {
       });
       const onCompacted = mock(async (_count: number) => {
         order.push("reset");
+        return true;
       });
       const ctx = makeCtx({
         graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
@@ -5036,11 +5088,11 @@ describe("session-agent-loop", () => {
       expect(order).toEqual(["marker", "reset"]);
     });
 
-    test("applyCompactionResult leaves the ledgers intact when the marker cannot be written", async () => {
+    test("applyCompactionResult resets the ledgers even when the marker cannot be written, since the compacted history has already lost its frozen blocks", async () => {
       setConversationHistoryStrippedAtMock.mockImplementation(() => {
         throw new Error("db write failed");
       });
-      const onCompacted = mock(async (_count: number) => {});
+      const onCompacted = mock(async (_count: number) => true);
       const ctx = makeCtx({
         graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
       });
@@ -5054,14 +5106,16 @@ describe("session-agent-loop", () => {
         "test-conv",
         expect.any(Number),
       );
-      expect(onCompacted).not.toHaveBeenCalled();
+      // The summary output carries no frozen block, so the ledgers must not
+      // keep claiming sections whose blocks are gone.
+      expect(onCompacted.mock.calls).toEqual([[4]]);
     });
 
     test("applyCompactionResult resets the ledgers on an already-durable marker without a second write", async () => {
       setConversationHistoryStrippedAtMock.mockImplementation(() => {
         throw new Error("SQLITE_BUSY");
       });
-      const onCompacted = mock(async (_count: number) => {});
+      const onCompacted = mock(async (_count: number) => true);
       const ctx = makeCtx({
         graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
       });

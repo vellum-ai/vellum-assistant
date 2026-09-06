@@ -2244,11 +2244,12 @@ export async function applyCompactionResult(
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  await resetInjectionLedgersForStrip(
-    ctx,
-    result.compactedPersistedMessages,
-    options.historyStripMarkerDurable ?? false,
-  );
+  // The compacted history is the summary plus the compactor's stripped tail,
+  // so the ledgers reset even when the marker cannot be made durable.
+  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages, {
+    historyStripMarkerDurable: options.historyStripMarkerDurable,
+    historyAlreadyStripped: true,
+  });
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,

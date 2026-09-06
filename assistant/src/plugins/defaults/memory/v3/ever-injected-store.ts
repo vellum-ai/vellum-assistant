@@ -427,13 +427,15 @@ export function touchSelected(
  * bring them back). Compaction reset: the cached blocks are gone from
  * history, so every section must become re-injectable. Both deletes ride
  * one transaction, so a failed reset leaves the record whole rather than
- * half-cleared.
+ * half-cleared. Returns whether the record is clear: `true` once the rows are
+ * deleted, or when there is no memory database to hold any; `false` when the
+ * delete fails and the record still claims its sections.
  */
-export function clearConversation(conversationId: string): void {
+export function clearConversation(conversationId: string): boolean {
   try {
     const mdb = memoryDb("clearConversation");
     if (!mdb) {
-      return;
+      return true;
     }
     mdb.transaction((tx) => {
       tx.delete(memoryV3InjectedSections)
@@ -443,11 +445,13 @@ export function clearConversation(conversationId: string): void {
       // transaction's own connection, inside it.
       deleteLegacyCardRows(mdb.$client, conversationId);
     });
+    return true;
   } catch (err) {
     log.warn(
       { err },
       "failed to clear injected-section record for conversation; continuing",
     );
+    return false;
   }
 }
 
