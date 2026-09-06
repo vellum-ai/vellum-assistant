@@ -299,7 +299,7 @@ function toInspectorPool(
       slug: candidate.slug,
       lane: candidate.lane,
       sectionHeading: candidate.section_title,
-      // Rows written before the key was recorded carry none.
+      // Legacy pool rows omit `section_key`.
       sectionKey: candidate.section_key ?? null,
       chosen: candidate.chosen,
     })),

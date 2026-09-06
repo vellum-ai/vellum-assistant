@@ -43,7 +43,7 @@ import { z } from "zod";
  * a repeated heading's n-th occurrence and `~<n>` for the n-th chunk of an
  * over-long one), which tells two lines under one heading apart; both null
  * for cards and finder lines with no matched section, and the key null on
- * pools logged before it was recorded. `chosen` is whether the selector
+ * legacy pool rows that omit `section_key`. `chosen` is whether the selector
  * kept the candidate's page.
  */
 export const MemoryV3PoolCandidateSchema = z.object({

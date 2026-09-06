@@ -352,10 +352,9 @@ export const MemoryV3GateSchema = z
     "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when `enabled` is on).",
   );
 
-// Persisted config files can carry keys this object does not declare (the
-// sub-configs of tuning that no longer exists); zod's default unknown-key
-// stripping accepts and drops them, so such a config keeps parsing. Do not
-// make this object `.strict()`.
+// Persisted config files can carry unsupported tuning keys this object does
+// not declare; zod's default unknown-key stripping accepts and drops them, so
+// such a config keeps parsing. Do not make this object `.strict()`.
 //
 // The retrieval tuning defaults across these sub-schemas (hotSet.k, freshSet.k,
 // learnedEdges.cap, edge.{seedCount,perSeed,cap}) and the top-level needleK /
