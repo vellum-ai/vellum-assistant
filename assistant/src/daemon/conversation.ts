@@ -1466,7 +1466,7 @@ export class Conversation {
             // The block's rendering format is the row's own provenance (the
             // persisting build's stamp, absent on pre-stamp rows), never
             // read off the block's content: a current block is filtered by
-            // section, a legacy block is opaque and rehydrates verbatim.
+            // section, a legacy block by card under each card's lead ref.
             const v3Format = v3BlockFormatOf(meta);
             const v3Resident = filterResidentSections(
               unwrapMemoryBlock(v3Block),

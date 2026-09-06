@@ -159,17 +159,25 @@ carrying the block without the stamp is legacy (exactly the pre-stamp rows;
 fork copies carry the stamp with the metadata), `persistedV3Block` reads both
 for rehydration and the fork seeder, and the identity registry records the
 format of every block in live history (the injector's own blocks are current;
-a spliced block keeps its row's). A legacy block is opaque: rehydrated
-verbatim, never parsed for sections, never pruned or stripped by the valve,
-never indexed by the newest-copy pass, and never fork-seeded (a later
-re-selection of a section it holds injects that section afresh beside it);
-its `memory_v3_ever_injected` rows are copied into the section store at zero
-bytes, once per database (`memory_v3_injected_sections:legacy_copy_done` in
+a spliced block keeps its row's). A legacy block is read with the card
+grammar of the build that rendered it (`filterLegacyCards` in
+`substrate/injected-block-slugs.ts`: one compact card per page header,
+bodies unescaped), at rehydration and in the live strip, each card under its
+lead ref `(slug, "")`: a card whose lead is tombstoned leaves, so a prune
+that predates the upgrade holds across restarts, and a card whose lead a
+current-format block re-injected after such a prune (clearing the tombstone)
+is superseded by that copy; a block with nothing to drop rehydrates byte for
+byte. A legacy block is never re-pruned: its `memory_v3_ever_injected` rows,
+`pruned_at` included, are copied into the section store at zero bytes, once
+per database (`memory_v3_injected_sections:legacy_copy_done` in
 `memory_checkpoints`), dedup-only like capability rows, so nothing in it is
-ever planned or counted, and it ages out at compaction, which strips memory
-blocks and clears the store, the conversation's legacy rows included
-(`clearConversation`, as the conversation purge does), so no later copy
-re-imports leads whose blocks are gone. A page's lead injection carries its
+ever planned or counted. It is never indexed by the newest-copy pass (its
+cards retire no current copy) and never fork-seeded (a truncated fork
+re-injects a section it holds afresh, superseding the card), and it ages out
+at compaction, which strips memory blocks and clears the store, the
+conversation's legacy rows included (`clearConversation`, as the
+conversation purge does), so no later copy re-imports leads whose blocks
+are gone. A page's lead injection carries its
 `[current: …]` annotation under the header, as the selector card does. The valve strips a pruned section
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
