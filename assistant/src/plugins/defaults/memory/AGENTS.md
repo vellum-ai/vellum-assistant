@@ -443,13 +443,14 @@ selector's full candidate pool (every stable-prefix card and finder line, in
 pool order, with lane, matched section, and a per-line verdict) for the
 inspector's Memory tab, plus `selector_ran`. A page carries one finder line
 per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
-surfacing order (needle, dense, reply, span, entity, rare), and selecting a line
-selects that section; the selection log keeps one row per slug, so the pool
-row is where the per-section verdicts live. A turn whose selector never judged a pool
-(the injection gate hard-skipped it, or nothing was pooled) persists an empty
-pool with `selector_ran = 0`, and a turn that logged no selections is still
-reachable by its stamped `message_id`, so the inspector shows negative
-verdicts too. The pool row and the turn's `memory_v3_selections` rows are
+surfacing order (needle, dense, reply, span, entity) plus its rare-term
+lines, and selecting a line selects that section; the selection log keeps
+one row per slug, so the pool row is where the per-section verdicts live. A
+turn whose selector never judged a pool (the injection gate hard-skipped it,
+or nothing was pooled) persists an empty pool with `selector_ran = 0`, and a
+turn that logged no selections is still reachable by its stamped
+`message_id`, so the inspector shows negative verdicts too. The pool row and
+the turn's `memory_v3_selections` rows are
 written in one transaction (`writeTurnLog` in `v3/shadow-plugin.ts`), and a
 turn observed again replaces both, so the pool's `chosen` flags and the
 selection rows always describe the same observation. Rows are per-turn
@@ -474,10 +475,18 @@ a few hundred sections counts only a word unique to one section as rare; an
 absolute ceiling would make most ordinary words of a small corpus rare and
 fill `cap` with noise every turn. Both are synchronous in-memory passes that
 feed neither the injection gate nor the edge seeds, and pool through the same
-per-page cap and `(page, section key)` dedupe as every other lane, so a
-section another lane already pooled is a no-op. The entity lane runs at every
-corpus size (the lean profile does not switch it off); the rare-term lane runs
-only when the selector does (`v3/shadow-plugin.ts` threads `rareTerm` only
+`(page, section key)` dedupe as every other lane, so a section another lane
+already pooled is a no-op. The entity lane also pools through the per-page
+cap (`memory.v3.finderSectionsPerPage`); a rare-term line is outside it,
+neither counted against the cap nor displaced by it, because the lane runs
+after every lane that fills the cap and a page already carrying that many
+bulk-theme lines would otherwise drop exactly the line the lane exists to
+surface. The lane's own `perTerm` and `cap` bound what it adds instead, so a
+page carries at most `finderSectionsPerPage` capped lines plus its rare
+lines, `finderSectionsPerPage + rareTerm.cap` in all. The entity lane runs
+at every corpus size (the lean profile does not switch it off); the
+rare-term lane runs only when the selector does (`v3/shadow-plugin.ts`
+threads `rareTerm` only
 with `selectorEnabled`), because rare lines are candidates for a judge, not
 evidence strong enough to inject unjudged, and with the selector off every
 pooled line is injected. A rare hit's pool line is

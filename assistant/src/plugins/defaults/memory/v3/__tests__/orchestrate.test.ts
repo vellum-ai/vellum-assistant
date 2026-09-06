@@ -2316,6 +2316,109 @@ describe("orchestrate: rare-term lane", () => {
     );
   });
 
+  // Deps for a page the bulk-theme lanes fill to a per-page cap of three
+  // before the rare lane runs: the needle pools `## Alpha` (ordinal 1), the
+  // full-message dense pass `## Bravo` (2), and the reply pass `## Charlie`
+  // (3). `alpha` is the Alpha section's text, `tail` the page's further
+  // sections. Of the message's words only "gourd" occurs in the corpus.
+  const CAPPED_MESSAGE = "here is my little gourd";
+  const REPLY = "the previous reply";
+  async function cappedPageDeps(
+    alpha: string,
+    tail: string[],
+    rareTerm = RARE,
+  ): Promise<OrchestrateDeps> {
+    const lanes = await customLanes({
+      "many-page": [
+        "lead for the many page",
+        "## Alpha",
+        alpha,
+        "## Bravo",
+        "bravo text",
+        "## Charlie",
+        "charlie text",
+        ...tail,
+      ].join("\n"),
+    });
+    const alphaDoc = lanes.sectionIndex.byArticle.get("many-page")![1]!;
+    denseHits = [{ article: "many-page", section: 2 }];
+    denseHitsByQuery.set(REPLY, [{ article: "many-page", section: 3 }]);
+    return depsOf(lanes, {
+      needle: {
+        ...lanes.needle,
+        queryScored: () => [
+          { article: "many-page", section: alphaDoc, score: 1 },
+        ],
+      },
+      denseK: 100,
+      replyQueryK: 5,
+      finderSectionsPerPage: 3,
+      rareTerm,
+    });
+  }
+
+  test("a rare hit joins a page the prior lanes filled to the per-page cap, bounded by the lane's own cap", async () => {
+    // "gourd" is held by `## Delta` (ordinal 4) and `## Echo` (5) alone.
+    const tail = [
+      "## Delta",
+      "delta text, and the gourd",
+      "## Echo",
+      "echo text, and the gourd",
+    ];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text", tail),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal, c.term]),
+    ).toEqual([
+      ["needle", 1, undefined],
+      ["dense", 2, undefined],
+      ["reply", 3, undefined],
+      ["rare", 4, "gourd"],
+      ["rare", 5, "gourd"],
+    ]);
+
+    // The lane's own cap is what bounds the lines past the page cap, so a
+    // page carries at most `finderSectionsPerPage + rareTerm.cap` lines.
+    const bounded = await orchestrate(
+      makeTurn(2, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text", tail, { ...RARE, cap: 1 }),
+    );
+    expect(
+      bounded.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+    ]);
+  });
+
+  test("a rare hit on a section a capped page already carries is still a no-op", async () => {
+    // "gourd" is held by `## Alpha`, which the needle pooled, and by
+    // `## Delta` (ordinal 4).
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text, and the gourd", [
+        "## Delta",
+        "delta text, and the gourd",
+      ]),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal, c.term]),
+    ).toEqual([
+      ["needle", 1, undefined],
+      ["dense", 2, undefined],
+      ["reply", 3, undefined],
+      ["rare", 4, "gourd"],
+    ]);
+  });
+
   test("omitting the rare-term tuning disables the lane", async () => {
     const lanes = await customLanes(GOURD_PAGES);
     providerStub = selectProvider([]);
