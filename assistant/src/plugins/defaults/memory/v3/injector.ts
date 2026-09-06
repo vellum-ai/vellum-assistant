@@ -8,17 +8,25 @@
  *
  *  - {@link memoryV3Injector} (id `memory-v3`, `after-memory-prefix`): the
  *    PERSISTENT layer. The injection unit is the SECTION: each selected page
- *    contributes its finder-matched section, or its lead when it was selected
- *    without a match (a capability slug contributes its whole capability
+ *    contributes every section selected for it, or its lead when it was
+ *    selected with none (a capability slug contributes its whole capability
  *    content). Renders only this turn's NET-NEW sections, pairs
  *    `(slug, section key)` not already active in the section store, inside
- *    one `<memory>` block and returns the block. The store write
- *    (`recordInjected`) and the prune-valve schedule are DEFERRED to a commit
- *    callback the block carries (`meta[MEMORY_V3_COMMIT_META_KEY]`): runtime
- *    assembly invokes it only when the turn's tail is a user message — the
- *    same gate as metadata capture — so a turn whose block silently fails to
- *    attach never claims its sections in the store (which would suppress
- *    them until compaction). Runtime assembly splices the block onto the
+ *    one `<memory>` block and returns the block. The resident pairs are
+ *    stamped with the turn's selection time (`touchSelected`, the prune
+ *    valve's recency) synchronously at classification, before the page reads
+ *    yield: a valve queued by an earlier turn's commit fires on a timer and
+ *    can run while those reads are awaited, so it ranks this turn's recency
+ *    rather than the stale one, and a turn whose net-new pairs all render
+ *    empty (no block, no commit) still stamps them. The stamp is a recency
+ *    bump, never a claim, so a turn whose block does not attach bumps
+ *    harmlessly. The net-new record (`recordInjected`) and the prune-valve
+ *    schedule are DEFERRED to a commit callback the block carries
+ *    (`meta[MEMORY_V3_COMMIT_META_KEY]`): runtime assembly invokes it only
+ *    when the turn's tail is a user message (the same gate as metadata
+ *    capture), so a turn whose block silently fails to attach never claims
+ *    its sections in the store (which would suppress them until compaction).
+ *    Runtime assembly splices the block onto the
  *    current user message and the user-prompt-submit hook persists the
  *    unwrapped inner text under `metadata.memoryV3InjectedBlock`;
  *    `conversation.ts` rehydrates it on load. The block is FROZEN thereafter:
@@ -38,7 +46,12 @@
  *    selected sections that are ALREADY resident in history (selected again,
  *    not injected net-new this turn) as a `<memory_pointer>` block of
  *    `memory/concepts/<slug>.md § <key>` lines, no bodies, so the model knows
- *    which frozen sections the turn is about. Runtime assembly splices the
+ *    which frozen sections the turn is about. The entries are re-validated
+ *    against the section store at render time: a pair the valve tombstoned
+ *    since the sections injector classified it (its body stripped from the
+ *    live history) is dropped rather than pointed at, and with nothing left
+ *    no block is emitted. Such a section is simply absent this turn and
+ *    re-injects on its next selection. Runtime assembly splices the
  *    block onto the current user message immediately after any frozen
  *    `<memory>` sections; the user-prompt-submit hook persists the wrapped
  *    text under `metadata.memoryV3PointerBlock` and `conversation.ts`
@@ -119,6 +132,7 @@ import {
   getPrunedSections,
   recordInjected,
   sectionRefSetHas,
+  touchSelected,
 } from "./ever-injected-store.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { renderV3InjectionEntry } from "./page-content.js";
@@ -135,6 +149,7 @@ import {
   MEMORY_V3_POINTER_BLOCK_ID,
   type Section,
   type SectionRef,
+  type SelectedPage,
   type Slug,
 } from "./types.js";
 
@@ -335,14 +350,44 @@ export function resetMemoryV3InjectorStateForTests(): void {
 
 // ─── injectors ───────────────────────────────────────────────────────────────
 
-/** One selection this assembly's block carries, in selection order: `text`
- *  is the first produce's entry when re-emitted by a re-entry, and is
- *  rendered here otherwise. */
-interface BlockSlot {
+/** One injection unit of a selection: the page, the unit's section-store
+ *  key, and the matched section it renders (`undefined` for the lead and
+ *  for capability content). */
+interface InjectionUnit {
   slug: Slug;
   key: string;
   matched: Section | undefined;
+}
+
+/** One unit this assembly's block carries, in selection order: `text` is
+ *  the first produce's entry when re-emitted by a re-entry, and is rendered
+ *  here otherwise. */
+interface BlockSlot extends InjectionUnit {
   text: string | undefined;
+}
+
+/**
+ * The injection units of a turn's selections, in selection order: one per
+ * selected section, or one lead unit for a page selected with none, deduped
+ * by `(slug, key)` (a capability page's sections all inject as its whole
+ * content under the empty key).
+ */
+function injectionUnits(selections: SelectedPage[]): InjectionUnit[] {
+  const units: InjectionUnit[] = [];
+  const seen = new Map<Slug, Set<string>>();
+  for (const { slug, sections } of selections) {
+    for (const matched of sections.length > 0 ? sections : [undefined]) {
+      const key = injectionSectionKey(slug, matched);
+      const keys = seen.get(slug) ?? new Set<string>();
+      if (keys.has(key)) {
+        continue;
+      }
+      keys.add(key);
+      seen.set(slug, keys);
+      units.push({ slug, key, matched });
+    }
+  }
+  return units;
 }
 
 export const memoryV3Injector: Injector = {
@@ -385,13 +430,15 @@ export const memoryV3Injector: Injector = {
     const result = observed;
 
     try {
-      // Partition this turn's selections. Each page injects under ONE key
-      // this turn: its matched section's key, or `""` for the lead (and for
-      // capability content, which injects whole). A resident pair (active in
-      // the section store) is a pointer entry; capability slugs are left out
-      // of the pointer because they have no `memory/concepts/` path to point
-      // at. On a re-entry assembly (`rendered` set by the turn's first
-      // produce) an entry the first produce rendered is re-emitted from the
+      // Partition this turn's injection units. Each selected section injects
+      // under its own key, and a page selected with none under `""` (its
+      // lead; capability content injects whole under `""` too). A resident
+      // pair (active in the section store) is a pointer entry and is stamped
+      // with the turn's selection time below; capability slugs are stamped
+      // too but left out of the pointer because they have no
+      // `memory/concepts/` path to point at. On a re-entry assembly
+      // (`rendered` set by the turn's first produce) an entry the first
+      // produce rendered is re-emitted from the
       // memo byte for byte: the store counts it active, but its only copy
       // rode the tail the re-injection strip cleared, so the store alone
       // would read it as resident and drop it for the rest of the turn. A
@@ -414,9 +461,7 @@ export const memoryV3Injector: Injector = {
         : getPrunedSections(ctx.conversationId);
       const resident: SectionRef[] = [];
       const slots: BlockSlot[] = [];
-      for (const { slug } of result.selections) {
-        const matched = result.matchedSections.get(slug);
-        const key = injectionSectionKey(slug, matched);
+      for (const { slug, key, matched } of injectionUnits(result.selections)) {
         if (pruned && sectionRefSetHas(pruned, slug, key)) {
           continue;
         }
@@ -426,14 +471,31 @@ export const memoryV3Injector: Injector = {
           continue;
         }
         if (active && sectionRefSetHas(active, slug, key)) {
-          if (!isCapabilitySlug(slug)) {
-            resident.push({ slug, key });
-          }
+          resident.push({ slug, key });
           continue;
         }
         slots.push({ slug, key, matched, text: undefined });
       }
-      rememberPointerEntries(ctx.conversationId, ctx.turnIndex, resident);
+      rememberPointerEntries(
+        ctx.conversationId,
+        ctx.turnIndex,
+        resident.filter(({ slug }) => !isCapabilitySlug(slug)),
+      );
+      // The turn's selection time, stamped on the resident pairs NOW, in the
+      // same synchronous segment as the classification above: the page reads
+      // below yield to the event loop, and a prune valve queued by an earlier
+      // turn's commit fires on a timer, so it can run while they are awaited
+      // and would otherwise rank a pair this turn is about by its stale
+      // stamp and evict it. The stamp is a recency bump, not a claim, so a
+      // turn whose block never attaches (or that returns null below because
+      // every net-new pair rendered empty) bumps harmlessly. Only the first
+      // produce stamps: a re-entry re-emits the turn's selections, and a
+      // run-messages replacement claims nothing (`resident` is empty there).
+      // The net-new pairs take the same time with their record in the commit.
+      const selectedAt = Date.now();
+      if (firstProduce) {
+        touchSelected(ctx.conversationId, resident, selectedAt);
+      }
 
       // Render net-new sections (each an independent page read, so in
       // parallel), skipping pairs that resolve to no content (deleted pages,
@@ -484,20 +546,22 @@ export const memoryV3Injector: Injector = {
       if (replaced) {
         return block;
       }
-      // The section-store write and the prune-valve schedule are DEFERRED to
-      // this commit callback, invoked by runtime assembly at the point where
+      // The net-new record and the prune-valve schedule are DEFERRED to this
+      // commit callback, invoked by runtime assembly at the point where
       // attachment is guaranteed (the turn's tail is a user message, the
       // same gate as metadata capture). Recording here in `produce()` would
       // let a never-attached turn (non-user tail) claim sections in the
       // store, suppressing them until compaction. Only the turn's first
-      // produce carries it: a re-entry block re-emits what this one
-      // rendered and is never persisted, so it must not record anything.
-      // The valve is scheduled after `recordInjected` so the resident
-      // accounting includes this turn's sections; it evicts by recency with
-      // no lane exemptions. It runs on a timer, so this turn's block may not
-      // have folded back into the live history when it strips; a section it
-      // prunes from this very turn is stripped by assembly Step 0 on the
-      // next turn, which applies the store's full tombstone set every turn.
+      // produce carries it: a re-entry block re-emits what this one rendered
+      // and is never persisted, so it must not record anything. The valve is
+      // scheduled after the record so the resident accounting, and the
+      // recency it ranks by, include this turn's sections (the resident
+      // pairs carry their stamp from the classification above); it evicts by
+      // recency with no lane exemptions. It runs on a timer, so this turn's
+      // block may not have folded back into the live history when it strips;
+      // a section it prunes from this very turn is stripped by assembly Step
+      // 0 on the next turn, which applies the store's full tombstone set
+      // every turn.
       const commit = (): void => {
         recordInjected(
           ctx.conversationId,
@@ -511,6 +575,7 @@ export const memoryV3Injector: Injector = {
             // (the valve would otherwise loop-fire on bytes it cannot free).
             bytes: isCapabilitySlug(slug) ? 0 : renderedBytes(text),
           })),
+          selectedAt,
         );
         schedulePruneValve(ctx.conversationId);
       };
@@ -538,8 +603,21 @@ export const memoryV3PointerInjector: Injector = {
     if (!turnIsEligible(ctx)) {
       return null;
     }
-    const entries = observedTurn(ctx.conversationId, ctx.turnIndex)?.pointer;
-    if (!entries || entries.length === 0) {
+    const remembered = observedTurn(ctx.conversationId, ctx.turnIndex)?.pointer;
+    if (!remembered || remembered.length === 0) {
+      return null;
+    }
+    // Re-validate against the store at render time: the sections injector
+    // classified these pairs as resident before awaiting its page reads, and
+    // a prune valve queued by an earlier turn's commit can fire in that
+    // window and tombstone one of them, stripping its body from the live
+    // history. A pair no longer active is dropped rather than pointed at; it
+    // is simply absent this turn and re-injects on its next selection.
+    const active = getActiveSections(ctx.conversationId);
+    const entries = remembered.filter(({ slug, key }) =>
+      sectionRefSetHas(active, slug, key),
+    );
+    if (entries.length === 0) {
       return null;
     }
     return {

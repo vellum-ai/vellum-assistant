@@ -86,26 +86,28 @@ function section(article: Slug, title: string, ordinal: number): Section {
  * no matched section.
  */
 function orchestrated(): OrchestrateResult {
+  const recent = section("core/page", "Recent", 3);
+  const lead = section("topic/a", "", 0);
   return {
     selections: [
-      { slug: "core/page" },
-      { slug: "topic/a" },
-      { slug: "topic/c" },
+      { slug: "core/page", sections: [recent] },
+      { slug: "topic/a", sections: [lead] },
+      { slug: "topic/c", sections: [] },
     ],
-    matchedSections: new Map([
-      ["core/page", section("core/page", "Recent", 3)],
-      ["topic/a", section("topic/a", "", 0)],
-      ["topic/b", section("topic/b", "Details", 2)],
-    ]),
     lanes: {
       core: ["core/page"],
       hot: ["hot/page"],
       fresh: ["fresh/page"],
       always: ["skills/example"],
       finder: [
-        { slug: "topic/a", descriptor: "", lane: "needle" },
-        { slug: "core/page", descriptor: "", lane: "dense" },
-        { slug: "topic/b", descriptor: "", lane: "entity" },
+        { slug: "topic/a", section: lead, descriptor: "", lane: "needle" },
+        { slug: "core/page", section: recent, descriptor: "", lane: "dense" },
+        {
+          slug: "topic/b",
+          section: section("topic/b", "Details", 2),
+          descriptor: "",
+          lane: "entity",
+        },
         { slug: "topic/c", descriptor: "", lane: "edge" },
       ],
     },
@@ -121,7 +123,6 @@ function orchestrated(): OrchestrateResult {
 function hardSkipped(): OrchestrateResult {
   return {
     selections: [],
-    matchedSections: new Map(),
     lanes: {
       core: ["core/page"],
       hot: ["hot/page"],
@@ -200,7 +201,6 @@ describe("buildPoolRecord", () => {
     expect(
       buildPoolRecord({
         selections: [],
-        matchedSections: new Map(),
         lanes: { core: [], hot: [], fresh: [], always: [], finder: [] },
         selectorRan: false,
       }),
@@ -223,6 +223,35 @@ describe("buildPoolRecord", () => {
     });
   });
 
+  test("verdicts are per line: only the selected section's line reads chosen, and the card reads chosen when the page was kept", () => {
+    const first = section("topic/a", "One", 1);
+    const second = section("topic/a", "Two", 2);
+    const record = buildPoolRecord({
+      selections: [{ slug: "topic/a", sections: [second] }],
+      lanes: {
+        core: ["topic/a"],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          { slug: "topic/a", section: first, descriptor: "", lane: "needle" },
+          { slug: "topic/a", section: second, descriptor: "", lane: "span" },
+        ],
+      },
+      selectorRan: true,
+    });
+
+    expect(
+      record.candidates.map((c) => [c.lane, c.section_title, c.chosen]),
+    ).toEqual([
+      ["core", null, true],
+      ["needle", "One", false],
+      ["span", "Two", true],
+    ]);
+    expect(record.pool_size).toBe(3);
+    expect(record.selected_count).toBe(1);
+  });
+
   test("a pool the selector rejected wholesale keeps every candidate, unchosen", () => {
     const record = buildPoolRecord({ ...orchestrated(), selections: [] });
 
@@ -237,11 +266,10 @@ describe("buildPoolRecord", () => {
     // a selector judgment: the pool was real, so it is recorded.
     const record = buildPoolRecord({
       selections: [
-        { slug: "core/page" },
-        { slug: "hot/page" },
-        { slug: "fresh/page" },
+        { slug: "core/page", sections: [] },
+        { slug: "hot/page", sections: [] },
+        { slug: "fresh/page", sections: [] },
       ],
-      matchedSections: new Map(),
       lanes: {
         core: ["core/page"],
         hot: ["hot/page"],

@@ -22,6 +22,7 @@ describe("MemoryV3ConfigSchema", () => {
       denseK: 100,
       replyQueryK: 12,
       spanQueryK: 0,
+      finderSectionsPerPage: 3,
       selectorEnabled: true,
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },

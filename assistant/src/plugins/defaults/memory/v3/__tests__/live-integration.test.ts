@@ -277,14 +277,19 @@ async function runTurn(
     sectionIndex.sections[sectionIndex.byArticle.get(slug)![0]!]!;
   const netNew: Slug[] = [];
   const entries: Array<{ slug: Slug; key: string; text: string }> = [];
-  for (const { slug } of result.selections) {
-    const section = result.matchedSections.get(slug) ?? leadOf(slug);
-    const key = sectionKey(section);
-    if (sectionRefSetHas(active, slug, key)) {
-      continue;
+  for (const { slug, sections } of result.selections) {
+    for (const section of sections.length > 0 ? sections : [leadOf(slug)]) {
+      const key = sectionKey(section);
+      if (sectionRefSetHas(active, slug, key)) {
+        continue;
+      }
+      netNew.push(slug);
+      entries.push({
+        slug,
+        key,
+        text: renderV3SectionInjection(slug, section),
+      });
     }
-    netNew.push(slug);
-    entries.push({ slug, key, text: renderV3SectionInjection(slug, section) });
   }
   recordInjected(
     conversationId,

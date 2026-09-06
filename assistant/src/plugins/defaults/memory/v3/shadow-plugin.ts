@@ -602,14 +602,14 @@ async function buildShadowTurn(
 interface SelectionRow {
   slug: Slug;
   source: SelectionSource;
-  /** Ordinal of the matched section a finder lane surfaced; null for
-   *  core/hot/fresh/edge selections with no matched section. */
+  /** Ordinal of the selection's first selected section; null for a page
+   *  selected with no section (a card, or a section-less edge or learned
+   *  line). */
   sectionOrdinal: number | null;
-  /** Heading of the matched section; null when there is no matched section. */
+  /** Heading of that section; null when there is no selected section. */
   sectionTitle: string | null;
-  /** The matched section's `sectionKey` (`types.ts`), the identity the
-   *  inspector resolves the section by; null when there is no matched
-   *  section. */
+  /** That section's `sectionKey` (`types.ts`), the identity the inspector
+   *  resolves the section by; null when there is no selected section. */
   sectionKey: string | null;
 }
 
@@ -622,19 +622,25 @@ interface SelectionRow {
  * time). A finder hit on a stable-prefix page therefore still logs as its
  * prefix lane — the prefix is where the candidate lived. (`"needle"` is the
  * fallback if a selected slug is somehow absent from every lane, which should
- * not happen since every pooled candidate comes from one.)
+ * not happen since every pooled candidate comes from one.) A page with
+ * several finder lines is attributed the lane of its first line.
+ *
+ * The row holds one section per slug: the selection's FIRST selected section
+ * (pool order) stands for the page; a page selected with no section (a card,
+ * or a section-less edge or learned line) logs none.
  */
 export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const core = new Set<Slug>(result.lanes.core);
   const hot = new Set<Slug>(result.lanes.hot);
   const fresh = new Set<Slug>(result.lanes.fresh);
-  const finderLane = new Map(
-    result.lanes.finder.map((c) => [c.slug, c.lane] as const),
-  );
+  const finderLane = new Map<Slug, SelectionSource>();
+  for (const candidate of result.lanes.finder) {
+    if (!finderLane.has(candidate.slug)) {
+      finderLane.set(candidate.slug, candidate.lane);
+    }
+  }
   return result.selections.map((sel) => {
-    // The matched section is populated only for finder-lane hits (including
-    // hits on core/hot pages); core/hot/fresh/edge-only selections have none.
-    const section = result.matchedSections.get(sel.slug);
+    const section = sel.sections[0];
     return {
       slug: sel.slug,
       source: core.has(sel.slug)
@@ -851,6 +857,7 @@ export async function observeTurn(
           injectionSectionKey(slug, section),
         ),
       entityCap: v3.entity.cap,
+      finderSectionsPerPage: v3.finderSectionsPerPage,
       replyQueryK: tuning.replyQueryK,
       spanQueryK: tuning.spanQueryK,
       edgeSeeds: tuning.edgeSeedCount,

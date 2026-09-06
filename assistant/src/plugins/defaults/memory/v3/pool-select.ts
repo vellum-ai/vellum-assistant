@@ -27,8 +27,9 @@
  * the stable prefix per conversation state and bust the cache. Re-selecting
  * an injected page is harmless (injection dedup happens downstream) and feeds
  * hot-set frecency + section injection. A page may appear BOTH as a
- * stable-prefix card and as a finder line (its current matched section);
- * selections are deduped by slug.
+ * stable-prefix card and on finder lines, one per matched section (its
+ * current relevance); selecting a finder line selects that section, and
+ * selections are merged per slug with every selected section.
  *
  * Failure handling distinguishes a DELIBERATE empty selection from an
  * INFRASTRUCTURE failure — the two are different outcomes, not the same one:
@@ -65,7 +66,15 @@ import {
 import { getLogger } from "../logging.js";
 import { loadPromptOverride } from "../prompt-override.js";
 import { retryForResult } from "./llm-retry.js";
-import type { MemoryRoutingTurn, SelectedPage, Slug } from "./types.js";
+import { findTerm } from "./section-needle.js";
+import { sectionBody } from "./sections.js";
+import {
+  type MemoryRoutingTurn,
+  type Section,
+  sectionKey,
+  type SelectedPage,
+  type Slug,
+} from "./types.js";
 
 const log = getLogger("memory-v3-pool-select");
 
@@ -116,13 +125,20 @@ function providerBillingNoticeFromError(
 }
 
 /** A dynamic-tail (finder) candidate: the slug plus the descriptor that
- *  justifies it — a matched section for a needle/dense hit, or a curated link
- *  description for an edge page. Rendered as a one-line snippet, prefixed
- *  with the surfacing lane when one is supplied. */
+ *  justifies it (a matched section's text for a needle/dense hit, or a
+ *  curated link description for an edge page), rendered as a one-line
+ *  snippet and prefixed with the surfacing lane when one is supplied. A
+ *  candidate that also carries its matched `section` and the query `terms`
+ *  that scored it (best first) renders a keyword-in-context snippet instead:
+ *  a window of the section body around the first of those terms that occurs
+ *  in it. One page can appear on several lines, one per matched section;
+ *  selecting a line selects that section. */
 export interface PoolCandidate {
   slug: Slug;
   descriptor: string;
   lane?: string;
+  section?: Section;
+  terms?: string[];
 }
 
 /** A stable-prefix candidate: the slug plus its pre-rendered FULL card
@@ -139,7 +155,8 @@ export interface StableCandidate {
  * (core+hot cards) then the dynamic finder tail. The two segments share one
  * numbering — `[1]…[m]` cards, `[m+1]…` finder lines — and MAY repeat a slug
  * (a finder hit on a core/hot page keeps its matched-section line so the
- * page's CURRENT relevance stays visible); selections are deduped by slug.
+ * page's CURRENT relevance stays visible, and a page hit on several sections
+ * has one line per section); selections are merged per slug.
  */
 export interface SelectorPool {
   stable: StableCandidate[];
@@ -215,6 +232,8 @@ const SELECT_PAGES_TOOL: ToolDefinition = {
 
 const SYSTEM_PROMPT = `You are given the candidate memory pages for an assistant's next reply, in two segments that share one numbering: full page cards first (the curated core, recently-recurring, and recently-modified pages, shown every turn), then this turn's search hits as one-line snippets. Cards carry a \`[lane: …]\` annotation — core is curated, hot recurs by selection frequency, fresh was recently modified (with its last-update time) — and search hits are tagged with the lane that surfaced them.
 
+A page can appear on several search-hit lines, one per matched section, each snippet showing the matched words in context; selecting a line selects that section, so keep every line whose section the reply would draw on.
+
 Select EVERY candidate whose content the upcoming reply would draw on. That includes facts the reply needs, current task and event state (open items, deadlines, schedules, recent activity), and equally register, established framing, calibration rules, and relationship/person/project texture — pages that shape HOW to reply, not only what to say. There is no limit on how many you may select; recall matters more than precision, so when a candidate could plausibly inform the reply, keep it. For a list or an "all of X" request, keep EVERY candidate that belongs to X rather than guessing a representative subset.
 
 Pages you select persist in the conversation automatically, and re-selecting a page that is already in context is harmless (duplicates are removed downstream) — so never withhold a candidate because it might have been selected before. Judge each candidate only by whether the upcoming reply would draw on it.
@@ -245,9 +264,57 @@ export function resolveSelectorPrompt(
   );
 }
 
-/** Collapse a descriptor to one line and cap its length for a finder line. */
-function renderSnippet(descriptor: string): string {
-  return truncate(descriptor.replace(/\s+/g, " ").trim(), SNIPPET_MAX_CHARS);
+/** Collapse text to one line. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The keyword-in-context snippet of a candidate's matched section:
+ * `§<title>: … <window> …`, the window being up to {@link SNIPPET_MAX_CHARS}
+ * of the one-line section body centered on the first occurrence of the
+ * best-contributing query term that occurs in it (the lead, titled `""`,
+ * renders the window alone). `undefined` when no term occurs in the body.
+ */
+function renderKeywordInContext(
+  section: Section,
+  terms: string[],
+): string | undefined {
+  const body = oneLine(sectionBody(section));
+  for (const term of terms) {
+    const span = findTerm(body, term);
+    if (!span) {
+      continue;
+    }
+    const center = Math.floor((span.start + span.end) / 2);
+    const start = Math.max(
+      0,
+      Math.min(
+        center - Math.floor(SNIPPET_MAX_CHARS / 2),
+        body.length - SNIPPET_MAX_CHARS,
+      ),
+    );
+    const end = Math.min(body.length, start + SNIPPET_MAX_CHARS);
+    const window = [
+      start > 0 ? "… " : "",
+      body.slice(start, end).trim(),
+      end < body.length ? " …" : "",
+    ].join("");
+    const title = section.title.trim();
+    return title.length > 0 ? `§${title}: ${window}` : window;
+  }
+  return undefined;
+}
+
+/** A finder candidate's one-line snippet: the keyword-in-context window when
+ *  it carries a section and a query term that occurs in that section's body,
+ *  otherwise its descriptor collapsed to one line and capped. */
+function renderSnippet(candidate: PoolCandidate): string {
+  const kwic =
+    candidate.section && candidate.terms
+      ? renderKeywordInContext(candidate.section, candidate.terms)
+      : undefined;
+  return kwic ?? truncate(oneLine(candidate.descriptor), SNIPPET_MAX_CHARS);
 }
 
 function readStringField(value: unknown, key: string): string | undefined {
@@ -330,7 +397,7 @@ function renderCardSegment(stable: StableCandidate[]): string {
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
   const lines = finder.map((c, i) => {
-    const snippet = renderSnippet(c.descriptor);
+    const snippet = renderSnippet(c);
     const id = offset + i + 1;
     const lane = c.lane !== undefined ? `(${c.lane}) ` : "";
     return snippet.length > 0
@@ -340,21 +407,61 @@ function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
   return `<candidates>\n${lines.join("\n")}\n</candidates>`;
 }
 
-/** Dedupe selections by slug, preserving first-seen order (a page can be
- *  selected as both a card and a finder line). */
-function dedupeBySlug(slugs: Slug[]): SelectedPage[] {
-  return [...new Set(slugs)].map((slug) => ({ slug }));
+/** One pool line as a selectable unit: a stable-prefix card (no section) or
+ *  a finder line with the section it carries (none for a section-less edge
+ *  or learned line). */
+interface PoolLine {
+  slug: Slug;
+  section?: Section;
 }
 
-/** Every candidate slug in the pool's concatenated numbering: ids 1…m are the
+/** Every line in the pool's concatenated numbering: ids 1…m are the
  *  stable-prefix cards, ids m+1… are the finder lines. */
-function orderedSlugs(pool: SelectorPool): Slug[] {
-  return [...pool.stable.map((c) => c.slug), ...pool.finder.map((c) => c.slug)];
+function orderedLines(pool: SelectorPool): PoolLine[] {
+  return [
+    ...pool.stable.map((c): PoolLine => ({ slug: c.slug })),
+    ...pool.finder.map((c): PoolLine => ({ slug: c.slug, section: c.section })),
+  ];
 }
 
-/** Return every candidate in pool order, deduped by slug. */
+/**
+ * Merge the picked lines (0-based indices into `lines`, in the order the
+ * selector listed them) into pages: one per slug in first-picked order (a
+ * page can be picked as a card and on several finder lines), each carrying
+ * the sections of its picked finder lines in pool order, deduped by section
+ * key. A card or a section-less line contributes no section.
+ */
+function mergeSelectedLines(
+  lines: PoolLine[],
+  picked: number[],
+): SelectedPage[] {
+  const pages = new Map<Slug, SelectedPage>();
+  for (const index of picked) {
+    const { slug } = lines[index]!;
+    if (!pages.has(slug)) {
+      pages.set(slug, { slug, sections: [] });
+    }
+  }
+  for (const index of [...new Set(picked)].sort((a, c) => a - c)) {
+    const { slug, section } = lines[index]!;
+    const page = pages.get(slug)!;
+    if (
+      section &&
+      !page.sections.some((s) => sectionKey(s) === sectionKey(section))
+    ) {
+      page.sections.push(section);
+    }
+  }
+  return [...pages.values()];
+}
+
+/** Return every candidate in pool order, merged per slug. */
 export function selectAllPoolCandidates(pool: SelectorPool): SelectedPage[] {
-  return dedupeBySlug(orderedSlugs(pool));
+  const lines = orderedLines(pool);
+  return mergeSelectedLines(
+    lines,
+    lines.map((_, index) => index),
+  );
 }
 
 /** A selection plus whether it came from the recall-safe keep-all fallback. */
@@ -369,9 +476,9 @@ export interface PoolSelection {
 
 /**
  * Run the single forced-tool selector over the unified candidate pool. Returns
- * the pages to inject, deduped by slug (a page that appeared as both a card
- * and a finder line yields one entry), plus a `keptAll` flag marking the
- * recall-safe fallback.
+ * the pages to inject, merged per slug (a page selected as a card and on
+ * finder lines yields one entry carrying every selected section), plus a
+ * `keptAll` flag marking the recall-safe fallback.
  *
  * An omitted `ids` keeps ALL candidates (the recall-safe "all of these are
  * relevant" signal, `keptAll: true`); an explicit `[]` keeps none; an
@@ -387,7 +494,7 @@ export async function selectPool(
   turn: MemoryRoutingTurn,
   systemPrompt: string = SYSTEM_PROMPT,
 ): Promise<PoolSelection> {
-  const ordered = orderedSlugs(pool);
+  const ordered = orderedLines(pool);
   if (ordered.length === 0) {
     return { pages: [], keptAll: false };
   }
@@ -572,13 +679,13 @@ export async function selectPool(
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.
   if (parsed.ids === undefined) {
-    return { pages: dedupeBySlug(ordered), keptAll: true };
+    return { pages: selectAllPoolCandidates(pool), keptAll: true };
   }
 
   // Map 1-based IDs over the concatenated numbering, dropping out-of-range
-  // IDs without throwing, then dedupe by slug.
-  const selected = parsed.ids
+  // IDs without throwing, then merge the picked lines per slug.
+  const picked = parsed.ids
     .filter((id) => id >= 1 && id <= ordered.length)
-    .map((id) => ordered[id - 1]!);
-  return { pages: dedupeBySlug(selected), keptAll: false };
+    .map((id) => id - 1);
+  return { pages: mergeSelectedLines(ordered, picked), keptAll: false };
 }

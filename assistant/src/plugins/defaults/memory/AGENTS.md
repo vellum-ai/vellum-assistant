@@ -130,9 +130,10 @@ imports the array and nothing else. A new tier injector is added to that array,
 never registered from the host.
 
 **v3 injection layers.** The v3 injection unit is the SECTION. Each turn the
-`memory-v3` injector renders every selected page's matched section (its lead
-when the page was selected without a match; a capability slug renders its
-whole capability content) into one frozen `<memory>` block, net-new only:
+`memory-v3` injector renders every section selected for each selected page
+(its lead when the page was selected with no section; a capability slug
+renders its whole capability content) into one frozen `<memory>` block,
+net-new only:
 `memory_v3_injected_sections` records one row per `(conversation, slug,
 section key)` ever injected, where the key is `v3/types.ts`'s `sectionKey()`
 (`""` for the lead, the trimmed heading title otherwise, `title#<n>` for the
@@ -173,8 +174,22 @@ re-imports leads whose blocks are gone. A page's lead injection carries its
 by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane
-exemptions. The live strip is idempotent over the conversation's full tombstone
-set and runs both in the valve and at runtime assembly Step 0 on every turn:
+exemptions. That recency is each section row's own `last_selected_at`: the
+injector stamps it on every section the turn selected, the resident ones,
+pointer entries and capability units alike, by `touchSelected` in the same
+synchronous segment that classifies them (a valve queued by an earlier turn's
+commit fires on a timer and can run while the turn's page reads are awaited,
+so it ranks the fresh stamp, and a turn whose net-new sections all render
+empty, which carries no block and no commit, still stamps them; the stamp is
+a recency bump, never a claim, so a turn whose block does not attach bumps
+harmlessly), and the net-new ones with their record (`recordInjected`) at its
+commit, so two sections of one page selected together both age from that
+turn, and a row with no stamp (a truncated fork's seed, or one written before
+the column existed) ranks by `injected_at`. The selection log
+(`memory_v3_selections`), which keeps one section per slug, plays no part in
+eviction. The live strip is idempotent over
+the conversation's full tombstone set and runs both in the valve and at
+runtime assembly Step 0 on every turn:
 the valve fires on a timer while the turn that scheduled it may still be in
 flight, so a section pruned on the turn that injected it folds back in
 afterwards, and the assembly strip removes it on the next turn. A pruned section that is re-selected re-injects as a fresh entry on
@@ -187,7 +202,11 @@ copy sits on a later message is dropped the same way
 identity (`markV3LiveBlock` / `isV3LiveBlock` in `v3/types.ts`: the blocks
 assembly attaches, `loadFromDb` splices, and the strip rewrites), never by
 text, so a pre-cutover v2 block byte-identical to a v3 entry is left alone. Re-selected sections that are already resident are listed, paths
-only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block.
+only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block,
+re-validated against the store at render time: a section the valve tombstoned
+between the sections injector's classification and the pointer's render is
+dropped from it (absent this turn, it re-injects on its next selection), and
+a pointer left with nothing is not emitted.
 Under a run-messages replacement (the Slack chronological transcript,
 `TurnContext.replacesRunMessages`, stated by runtime assembly ahead of the
 chain) no frozen block from an earlier turn is in the prompt, so the sections
@@ -385,7 +404,7 @@ Persisted rows; a rename orphans every existing install.
 | `memory_v2_injection_events`      | v2 scoring feedback                                             |
 | `memory_v3_selections`            | v3 selection log (`section_key` column plugin-added, see below) |
 | `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
-| `memory_v3_injected_sections`     | v3 section dedup + prune accounting (plugin-created, see below) |
+| `memory_v3_injected_sections`     | v3 section dedup, prune bytes + recency (plugin-created, below) |
 | `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
 | `memory_retrospective_state`      | retrospective (tier-agnostic)                                   |
 | `activation_sessions`             | onboarding activation rail                                      |
@@ -396,10 +415,12 @@ tables, created by the plugin rather than by the global migration chain
 boot, and each store ensures again on the first use of a connection in its
 process (the memory worker is a separate process), idempotently and fail-open,
 so a memory database that cannot be opened degrades the stores to no-ops
-instead of failing database readiness. The sections ensure also copies the
-legacy `memory_v3_ever_injected` rows in as zero-byte lead entries, once per
-database: the first ensure that finds the legacy table copies
-(`INSERT OR IGNORE`) and records `memory_v3_injected_sections:legacy_copy_done`
+instead of failing database readiness. The sections ensure adds the
+`last_selected_at` column (the prune valve's recency stamp) to a table created
+before it existed, and copies the legacy `memory_v3_ever_injected` rows in as
+zero-byte lead entries, once per database: the first ensure that finds the
+legacy table copies (`INSERT OR IGNORE`) and records
+`memory_v3_injected_sections:legacy_copy_done`
 in `memory_checkpoints`, later ensures skip on that record, and a ledger that
 cannot be read skips the copy rather than repeating it. The compaction reset
 (`clearConversation`) and the conversation purge delete a conversation's
@@ -409,15 +430,22 @@ blocks compaction stripped. `memory_v3_selections` itself is created by migratio
 `section_key` column is plugin-owned the same way: the selection log's writer
 (`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
 it on the first use of a connection, and the `init` hook at boot. Every
-selection row records its matched section's `sectionKey` beside the title and
-ordinal, and the inspector resolves a row by that key first (exactly, so a
-repeated heading's other occurrence is never substituted), falling back to
-title-then-ordinal only for rows written before the column existed.
+selection row records one section per slug, the selection's first selected
+section, as its `sectionKey` beside the title and ordinal (an inspector and
+frecency record only; the prune valve's recency lives on the section store's
+rows, see the v3 injection layers above), and the inspector
+resolves a row by that key first (exactly, so a repeated heading's other
+occurrence is never substituted), falling back to title-then-ordinal only for
+rows written before the column existed.
 
 `memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
 selector's full candidate pool (every stable-prefix card and finder line, in
-pool order, with lane, matched section, and verdict) for the inspector's
-Memory tab, plus `selector_ran`. A turn whose selector never judged a pool
+pool order, with lane, matched section, and a per-line verdict) for the
+inspector's Memory tab, plus `selector_ran`. A page carries one finder line
+per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
+surfacing order (needle, dense, reply, span, entity), and selecting a line
+selects that section; the selection log keeps one row per slug, so the pool
+row is where the per-section verdicts live. A turn whose selector never judged a pool
 (the injection gate hard-skipped it, or nothing was pooled) persists an empty
 pool with `selector_ran = 0`, and a turn that logged no selections is still
 reachable by its stamped `message_id`, so the inspector shows negative

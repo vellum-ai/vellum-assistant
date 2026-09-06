@@ -5,6 +5,9 @@
  *     clearing `pruned_at`;
  *   - `markPruned` excluding exactly the named pair from the active set and
  *     `residentBytes`, leaving sibling sections of the page resident;
+ *   - `touchSelected` stamping `last_selected_at` on exactly the named rows
+ *     (batched past SQLite's expression depth), the stamp `recordInjected`
+ *     sets for new and re-recorded rows and a full fork copies;
  *   - `clearConversation` (compaction reset), the conversation's legacy card
  *     rows included so no later copy re-imports them;
  *   - fork hooks: full-row copy (pruned state included) and truncated-fork
@@ -98,6 +101,7 @@ const {
   residentBytes,
   sectionRefSetHas,
   seedEverInjectedFromBlocks,
+  touchSelected,
 } = await import("./ever-injected-store.js");
 
 beforeEach(() => {
@@ -164,6 +168,10 @@ describe("recordInjected / getInjected / getActiveSections", () => {
       { slug: "topics/page-a", key: "Notes", bytes: 80, prunedAt: null },
       { slug: "topics/page-b", key: "Design#1", bytes: 250, prunedAt: null },
     ]);
+    // The turn that injects a section selected it.
+    expect(getInjected("conv-1").map((row) => row.lastSelectedAt)).toEqual([
+      1_000, 1_000, 1_000,
+    ]);
     const active = getActiveSections("conv-1");
     expect(active).toEqual(
       new Map([
@@ -179,7 +187,7 @@ describe("recordInjected / getInjected / getActiveSections", () => {
     expect(getActiveSections("conv-other").size).toBe(0);
   });
 
-  test("re-recording a pruned section clears pruned_at and refreshes bytes and injected_at", () => {
+  test("re-recording a pruned section clears pruned_at and refreshes bytes, injected_at, and last_selected_at", () => {
     recordInjected(
       "conv-1",
       [{ slug: "topics/page-a", key: "Notes", bytes: 100 }],
@@ -202,6 +210,7 @@ describe("recordInjected / getInjected / getActiveSections", () => {
         key: "Notes",
         bytes: 140,
         injectedAt: 3_000,
+        lastSelectedAt: 3_000,
         prunedAt: null,
       },
     ]);
@@ -242,7 +251,13 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
       new Map([["topics/page-a", new Set(["Notes"])]]),
     );
     expect(getActiveEntries("conv-1")).toEqual([
-      { slug: "topics/page-a", key: "Notes", bytes: 250, injectedAt: 1_000 },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: 250,
+        injectedAt: 1_000,
+        lastSelectedAt: 1_000,
+      },
     ]);
     expect(getPrunedSections("conv-1")).toEqual(
       new Map([
@@ -289,6 +304,82 @@ describe("markPruned / residentBytes / getPrunedSections", () => {
     markPruned("conv-1", [], 2_000);
     expect(residentBytes("conv-1")).toBe(100);
     expect(residentBytes("conv-unknown")).toBe(0);
+  });
+});
+
+describe("touchSelected", () => {
+  /** Each row's selection stamp, by `(slug, key)`. */
+  function stamps(conversationId: string) {
+    return getInjected(conversationId).map(({ slug, key, lastSelectedAt }) => [
+      slug,
+      key,
+      lastSelectedAt,
+    ]);
+  }
+
+  test("stamps exactly the named rows, leaving injected_at and other conversations alone; an unknown ref is a no-op", () => {
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "topics/page-a", key: "", bytes: 100 },
+        { slug: "topics/page-a", key: "Notes", bytes: 80 },
+        { slug: "topics/page-b", key: "", bytes: 50 },
+      ],
+      1_000,
+    );
+    recordInjected(
+      "conv-2",
+      [{ slug: "topics/page-a", key: "Notes", bytes: 80 }],
+      1_000,
+    );
+
+    touchSelected(
+      "conv-1",
+      [
+        { slug: "topics/page-a", key: "Notes" },
+        { slug: "topics/page-b", key: "" },
+        { slug: "topics/page-c", key: "" },
+      ],
+      2_000,
+    );
+
+    expect(stamps("conv-1")).toEqual([
+      ["topics/page-a", "", 1_000],
+      ["topics/page-a", "Notes", 2_000],
+      ["topics/page-b", "", 2_000],
+    ]);
+    expect(stamps("conv-2")).toEqual([["topics/page-a", "Notes", 1_000]]);
+    expect(getInjected("conv-1").every((row) => row.injectedAt === 1_000)).toBe(
+      true,
+    );
+  });
+
+  test("stamps a ref list far larger than one batch (and SQLite's expression depth) in one call", () => {
+    const refs = Array.from({ length: 1_100 }, (_, i) => ({
+      slug: `topics/page-${i}`,
+      key: i % 2 === 0 ? "" : "Notes",
+    }));
+    recordInjected(
+      "conv-1",
+      refs.map((ref) => ({ ...ref, bytes: 1 })),
+      1_000,
+    );
+
+    touchSelected("conv-1", refs, 2_000);
+
+    expect(
+      getInjected("conv-1").filter((row) => row.lastSelectedAt === 2_000),
+    ).toHaveLength(1_100);
+  });
+
+  test("empty ref list is a no-op", () => {
+    recordInjected(
+      "conv-1",
+      [{ slug: "topics/page-a", key: "", bytes: 100 }],
+      1_000,
+    );
+    touchSelected("conv-1", [], 2_000);
+    expect(stamps("conv-1")).toEqual([["topics/page-a", "", 1_000]]);
   });
 });
 
@@ -349,7 +440,7 @@ describe("clearConversation", () => {
 });
 
 describe("forkEverInjected", () => {
-  test("copies the parent's full record, pruned state included", () => {
+  test("copies the parent's full record, pruned state and selection stamps included", () => {
     recordInjected(
       "conv-parent",
       [
@@ -359,6 +450,7 @@ describe("forkEverInjected", () => {
       1_000,
     );
     markPruned("conv-parent", [{ slug: "topics/page-a", key: "Notes" }], 2_000);
+    touchSelected("conv-parent", [{ slug: "topics/page-a", key: "" }], 3_000);
 
     forkEverInjected("conv-parent", "conv-child");
 
@@ -368,6 +460,7 @@ describe("forkEverInjected", () => {
         key: "",
         bytes: 100,
         injectedAt: 1_000,
+        lastSelectedAt: 3_000,
         prunedAt: null,
       },
       {
@@ -375,6 +468,7 @@ describe("forkEverInjected", () => {
         key: "Notes",
         bytes: 250,
         injectedAt: 1_000,
+        lastSelectedAt: 1_000,
         prunedAt: 2_000,
       },
     ]);
@@ -402,7 +496,7 @@ describe("seedEverInjectedFromBlocks", () => {
   const blockA = `${leadA}\n\n${notesA}`;
   const designB = `${injectedSectionHeader("topics/page-b", "Design#1")}\nDesign B`;
 
-  test("seeds a row per inherited section, stamped at the given time, with the bytes of its inherited span", () => {
+  test("seeds a row per inherited section, stamped at the given time with no selection stamp, with the bytes of its inherited span", () => {
     seedEverInjectedFromBlocks(
       "conv-parent",
       "conv-child",
@@ -416,6 +510,7 @@ describe("seedEverInjectedFromBlocks", () => {
         key: "",
         bytes: renderedBytes(leadA),
         injectedAt: 5_000,
+        lastSelectedAt: null,
         prunedAt: null,
       },
       {
@@ -423,6 +518,7 @@ describe("seedEverInjectedFromBlocks", () => {
         key: "Notes",
         bytes: renderedBytes(notesA),
         injectedAt: 5_000,
+        lastSelectedAt: null,
         prunedAt: null,
       },
       {
@@ -430,6 +526,7 @@ describe("seedEverInjectedFromBlocks", () => {
         key: "Design#1",
         bytes: renderedBytes(designB),
         injectedAt: 5_000,
+        lastSelectedAt: null,
         prunedAt: null,
       },
     ]);
@@ -711,6 +808,9 @@ describe("fail-soft without a memory database", () => {
     expect(getPrunedSections("conv-1").size).toBe(0);
     expect(getInjected("conv-1")).toEqual([]);
     expect(residentBytes("conv-1")).toBe(0);
+    expect(() =>
+      touchSelected("conv-1", [{ slug: "topics/page-a", key: "" }], 2_000),
+    ).not.toThrow();
     expect(() => clearConversation("conv-1")).not.toThrow();
   });
 });
@@ -742,6 +842,9 @@ describe("fail-soft when the underlying statement fails", () => {
     ).not.toThrow();
     expect(() =>
       markPruned("conv-1", [{ slug: "topics/page-a", key: "" }], 2_000),
+    ).not.toThrow();
+    expect(() =>
+      touchSelected("conv-1", [{ slug: "topics/page-a", key: "" }], 2_000),
     ).not.toThrow();
     expect(() => clearConversation("conv-1")).not.toThrow();
     expect(() => forkEverInjected("conv-parent", "conv-child")).not.toThrow();

@@ -359,6 +359,14 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Per-chunk article budget for the span-query dense pass: the current message's clause spans (merged into at most 8 contiguous chunks) re-run through the dense lane as separate queries, union-additive into the candidate pool. 0 disables the pass; it is also inert when denseK is 0 or the message yields fewer than two chunks. Deliberately small next to denseK — the pass rescues motifs a long message's single query vector averages away, not a second full sweep.",
       ),
+    finderSectionsPerPage: z
+      .number({ error: "memory.v3.finderSectionsPerPage must be a number" })
+      .int("memory.v3.finderSectionsPerPage must be an integer")
+      .positive("memory.v3.finderSectionsPerPage must be a positive integer")
+      .default(3)
+      .describe(
+        "Maximum finder lines one page may carry in the selector pool per turn. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity) until the cap; a section-less edge or learned hit counts as one line.",
+      ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
       .default(true)

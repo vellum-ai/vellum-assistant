@@ -139,7 +139,8 @@ describe("parseInjectedSections", () => {
 
   test("an escaped key (doubled #) round-trips through the header verbatim", () => {
     // `sectionKey` doubles a title's literal `#`; the header carries the key
-    // as-is and the parser hands it back unchanged for `sectionKeyTitle`.
+    // as-is and the parser hands it back unchanged, so a parsed ref carries
+    // the section store's identity.
     const header = injectedSectionHeader("topics/page-a", "Topic##1");
     expect(header).toBe("# memory/concepts/topics/page-a.md § Topic##1");
     expect(

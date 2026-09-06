@@ -154,12 +154,11 @@ export interface Section {
  * edits that shift ordinals, and across a re-chunking of one heading, which
  * changes only that heading's own `~` keys.
  *
- * The key is a bijection of `(title, occurrence, chunk)`: every literal `#`
+ * The key is injective over `(title, occurrence, chunk)`: every literal `#`
  * and `~` in the title is doubled before the single-character suffixes are
  * appended, so a heading that itself ends in `#<n>` (`Topic#1`, key
  * `Topic##1`) can never collide with a repeat's key (`Topic` again, key
- * `Topic#1`), nor one ending in `~<n>` with a chunk's. {@link sectionKeyTitle}
- * is the exact inverse.
+ * `Topic#1`), nor one ending in `~<n>` with a chunk's.
  */
 export function sectionKey(section: Section): string {
   const encoded = section.title
@@ -169,36 +168,6 @@ export function sectionKey(section: Section): string {
   const occurrence = section.occurrence ? `#${section.occurrence}` : "";
   const chunk = section.chunk ? `~${section.chunk}` : "";
   return `${encoded}${occurrence}${chunk}`;
-}
-
-/**
- * Match a key's trailing `<marker><n>` suffix together with the run of the
- * marker that precedes the digits. A suffix separator is one marker character
- * and every one a title contributes is doubled by {@link sectionKey}, so the
- * run is odd exactly when the suffix is present: `Topic#1` (run of 1, a
- * repeat of `Topic`) versus `Topic##1` (run of 2, the literal heading
- * `Topic#1`).
- */
-const OCCURRENCE_SUFFIX_REGEX = /^([\s\S]*?)(#+)(\d+)$/;
-const CHUNK_SUFFIX_REGEX = /^([\s\S]*?)(~+)(\d+)$/;
-
-function stripOddRunSuffix(key: string, suffix: RegExp): string {
-  const match = suffix.exec(key);
-  return match && match[2]!.length % 2 === 1
-    ? `${match[1]}${match[2]!.slice(1)}`
-    : key;
-}
-
-/** The section title a {@link sectionKey} names (`""` for the lead): the
- *  exact inverse of the key encoding. The chunk suffix is outermost, so it
- *  is stripped first. */
-export function sectionKeyTitle(key: string): string {
-  return stripOddRunSuffix(
-    stripOddRunSuffix(key, CHUNK_SUFFIX_REGEX),
-    OCCURRENCE_SUFFIX_REGEX,
-  )
-    .replaceAll("##", "#")
-    .replaceAll("~~", "~");
 }
 
 /** One injected section's identity in the section store: page slug plus
@@ -218,9 +187,15 @@ export interface SectionIndex {
   byArticle: Map<Slug, number[]>;
 }
 
-/** A page selected from the candidate pool. */
+/**
+ * A page selected from the candidate pool, with the matched sections whose
+ * finder lines were selected, in pool order and deduped by {@link sectionKey}.
+ * Empty when only the page's stable-prefix card, or a section-less edge or
+ * learned line, was selected: the injector then injects the page's lead.
+ */
 export interface SelectedPage {
   slug: Slug;
+  sections: Section[];
 }
 
 export interface MemoryRoutingTurn {

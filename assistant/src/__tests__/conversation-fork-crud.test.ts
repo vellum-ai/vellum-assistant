@@ -1214,6 +1214,7 @@ describe("forkConversation", () => {
         key: "",
         bytes: 120,
         injectedAt: 1_700_000_000_000,
+        lastSelectedAt: 1_700_000_000_000,
         prunedAt: null,
       },
       {
@@ -1221,6 +1222,7 @@ describe("forkConversation", () => {
         key: "Notes",
         bytes: 80,
         injectedAt: 1_700_000_000_000,
+        lastSelectedAt: 1_700_000_000_000,
         prunedAt: null,
       },
       {
@@ -1228,6 +1230,7 @@ describe("forkConversation", () => {
         key: "",
         bytes: 340,
         injectedAt: 1_700_000_000_000,
+        lastSelectedAt: 1_700_000_000_000,
         prunedAt: 1_700_000_001_000,
       },
     ]);

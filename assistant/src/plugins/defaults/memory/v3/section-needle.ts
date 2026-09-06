@@ -59,14 +59,52 @@ export interface SectionNeedle {
    * entity keys (hub words like "vellum" fall below the floor).
    */
   idf(term: string): number;
+  /**
+   * The query terms contributing the most BM25F score to the section at
+   * `doc` (an index into `SectionIndex.sections`), best first, at most `n`;
+   * ties break by term. Empty when no query term occurs in that section.
+   * Feeds the keyword-in-context finder snippets in `pool-select.ts`.
+   */
+  topTerms(doc: number, queryText: string, n: number): string[];
 }
 
-/** Lowercase, split on non-alphanumeric, drop empties. */
+/** The characters of a needle token; the tokenizer splits on any other. */
+const TOKEN_CHARS = "a-z0-9";
+const NON_TOKEN_RUN = new RegExp(`[^${TOKEN_CHARS}]+`);
+/** The shape of a needle term: a unigram of token characters, or a bigram
+ *  of two joined by `_`. */
+const TERM_SHAPE = new RegExp(`^[${TOKEN_CHARS}]+(?:_[${TOKEN_CHARS}]+)*$`);
+
+/** Lowercase, split on non-token characters, drop empties. */
 function tokenizeUnigrams(text: string): string[] {
   return text
     .toLowerCase()
-    .split(/[^a-z0-9]+/)
+    .split(NON_TOKEN_RUN)
     .filter((token) => token.length > 0);
+}
+
+/**
+ * The span of the first whole-token occurrence of a needle `term` in `text`,
+ * or `undefined`. The term matches case-insensitively at token boundaries,
+ * with a bigram's halves separated by any run of non-token characters, so
+ * the occurrence found is one the tokenizer would have indexed. Feeds the
+ * keyword-in-context snippets in `pool-select.ts`.
+ */
+export function findTerm(
+  text: string,
+  term: string,
+): { start: number; end: number } | undefined {
+  if (!TERM_SHAPE.test(term)) {
+    return undefined;
+  }
+  const halves = term.split("_").join(`[^${TOKEN_CHARS}]+`);
+  const match = new RegExp(
+    `(?<![${TOKEN_CHARS}])${halves}(?![${TOKEN_CHARS}])`,
+    "i",
+  ).exec(text);
+  return match
+    ? { start: match.index, end: match.index + match[0].length }
+    : undefined;
 }
 
 /** Unigrams plus adjacent-token bigrams (`a_b`), matching the harness. */
@@ -144,6 +182,14 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return idfFromDf(postings.get(term)?.length ?? 0);
   }
 
+  /** One term's BM25F contribution to section `doc`. */
+  function termScore(doc: number, weightedTf: number, termIdf: number): number {
+    const norm = weightedTf * (k1 + 1);
+    const denom =
+      weightedTf + k1 * (1 - b + b * (docLengths[doc]! / avgDocLength));
+    return termIdf * (norm / denom);
+  }
+
   /** BM25F score per section for the given query terms. */
   function scoreSections(queryTerms: Set<string>): Map<number, number> {
     const scores = new Map<number, number>();
@@ -160,14 +206,56 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
       const termIdf = idfFromDf(list.length);
 
       for (const { doc, weightedTf } of list) {
-        const norm = weightedTf * (k1 + 1);
-        const denom =
-          weightedTf + k1 * (1 - b + b * (docLengths[doc]! / avgDocLength));
-        scores.set(doc, (scores.get(doc) ?? 0) + termIdf * (norm / denom));
+        scores.set(
+          doc,
+          (scores.get(doc) ?? 0) + termScore(doc, weightedTf, termIdf),
+        );
       }
     }
 
     return scores;
+  }
+
+  /** The posting of `doc` in `list`, or `undefined` when the term is absent
+   *  from that section. Sections are indexed in ascending order, so every
+   *  postings list is sorted by `doc` and a binary search finds it. */
+  function postingFor(list: Posting[], doc: number): Posting | undefined {
+    let lo = 0;
+    let hi = list.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      const posting = list[mid]!;
+      if (posting.doc === doc) {
+        return posting;
+      }
+      if (posting.doc < doc) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return undefined;
+  }
+
+  function topTerms(doc: number, queryText: string, n: number): string[] {
+    if (n <= 0 || doc < 0 || doc >= docCount) {
+      return [];
+    }
+    const contributions: Array<{ term: string; score: number }> = [];
+    for (const term of new Set(tokenize(queryText))) {
+      const list = postings.get(term);
+      const posting = list ? postingFor(list, doc) : undefined;
+      if (list && posting) {
+        contributions.push({
+          term,
+          score: termScore(doc, posting.weightedTf, idfFromDf(list.length)),
+        });
+      }
+    }
+    contributions.sort(
+      (a, c) => c.score - a.score || a.term.localeCompare(c.term),
+    );
+    return contributions.slice(0, n).map((c) => c.term);
   }
 
   /** Deterministic order: score desc, then (article, ordinal) asc. */
@@ -249,5 +337,5 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return best;
   }
 
-  return { query, queryScored, bestSection, idf };
+  return { query, queryScored, bestSection, idf, topTerms };
 }

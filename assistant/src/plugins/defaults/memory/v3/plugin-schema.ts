@@ -139,9 +139,12 @@ function legacyCardsTableExists(memoryRaw: MemorySqlite): boolean {
 }
 
 /**
- * Create `memory_v3_injected_sections` and its index, then seed it from the
- * card-grain `memory_v3_ever_injected` (the superseded record, relocated to
- * the memory connection by migration 345 and frozen there): every legacy row
+ * Create `memory_v3_injected_sections` and its index, adding
+ * `last_selected_at` (the prune valve's recency stamp, see
+ * `ever-injected-store.ts`) to a table created before the column existed,
+ * then seed it from the card-grain `memory_v3_ever_injected` (the
+ * superseded record, relocated to the memory connection by migration 345
+ * and frozen there): every legacy row
  * becomes that page's LEAD entry (`section_key = ''`) at zero bytes, keeping
  * its `injected_at` and `pruned_at`, so in-flight conversations keep their
  * dedup state across the cutover (a frozen card in history is the page's
@@ -179,9 +182,11 @@ export function ensureMemoryV3InjectedSectionsSchema(
       injected_at INTEGER NOT NULL,
       bytes INTEGER NOT NULL DEFAULT 0,
       pruned_at INTEGER,
+      last_selected_at INTEGER,
       PRIMARY KEY (conversation_id, slug, section_key)
     )
   `);
+  ensureColumn(memoryRaw, SECTIONS_TABLE, "last_selected_at", "INTEGER");
   memoryRaw.exec(/*sql*/ `
     CREATE INDEX IF NOT EXISTS idx_memory_v3_injected_sections_conv
       ON ${SECTIONS_TABLE} (conversation_id)
