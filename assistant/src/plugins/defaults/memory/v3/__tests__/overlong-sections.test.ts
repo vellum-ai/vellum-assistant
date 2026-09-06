@@ -1,0 +1,52 @@
+import { describe, expect, test } from "bun:test";
+
+import { listOverlongSections } from "../overlong-sections.js";
+import { SECTION_CHUNK_CHARS, sectionHeadLine } from "../sections.js";
+import type { Slug } from "../types.js";
+
+/** The longest body a section can carry before the chunker splits it. */
+function bodyLimit(article: Slug, title: string): number {
+  return SECTION_CHUNK_CHARS - sectionHeadLine(article, title).length - 1;
+}
+
+/** Deps over a fixture map, scanned in the map's key order. */
+function deps(pages: Record<string, string>) {
+  return {
+    listSlugs: async () => Object.keys(pages) as Slug[],
+    readPageBody: async (slug: Slug) => pages[slug] ?? "",
+  };
+}
+
+describe("listOverlongSections", () => {
+  test("reports exactly the sections the chunker splits, with the window and each body's length", async () => {
+    const fits = "x".repeat(bodyLimit("notes", "Fits"));
+    const over = "y".repeat(bodyLimit("notes", "Over") + 1);
+    const leadOver = "z".repeat(bodyLimit("journal", "") + 1);
+
+    const report = await listOverlongSections(
+      "/unused",
+      deps({
+        notes: `lead\n## Fits\n${fits}\n## Over\n${over}\n## Short\nshort`,
+        journal: `${leadOver}\n## Small\ntext`,
+      }),
+    );
+
+    expect(report.windowChars).toBe(SECTION_CHUNK_CHARS);
+    expect(report.sections).toEqual([
+      { slug: "notes", title: "Over", chars: over.length },
+      { slug: "journal", title: "", chars: leadOver.length },
+    ]);
+  });
+
+  test("a corpus with nothing over the window reports no sections", async () => {
+    const report = await listOverlongSections(
+      "/unused",
+      deps({
+        notes: "lead\n## One\nshort\n## Two\nalso short",
+        empty: "",
+      }),
+    );
+
+    expect(report.sections).toEqual([]);
+  });
+});

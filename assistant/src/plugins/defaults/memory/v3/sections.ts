@@ -63,7 +63,7 @@ export function sectionBody(section: Section): string {
   return section.text;
 }
 
-interface RawSection {
+export interface RawSection {
   title: string;
   body: string;
 }
@@ -73,7 +73,7 @@ interface RawSection {
  * the first `## ` heading is the lead (title `""`); each subsequent `## `
  * heading starts a new section whose title is the heading text.
  */
-function splitIntoRawSections(body: string): RawSection[] {
+export function splitIntoRawSections(body: string): RawSection[] {
   // Always seed a lead section (title `""`). The lead may stay empty, so a
   // headingless or empty page still yields a single ordinal-0 section.
   const sections: { title: string; lines: string[] }[] = [
@@ -133,6 +133,14 @@ function rawSectionChunks(article: Slug, raw: RawSection): string[] {
   // a pathological slug segment, since a zero limit would never advance.
   const limit = Math.max(1, SECTION_CHUNK_CHARS - head.length - 1);
   return chunkText(raw.body, limit).map((chunk) => `${head}\n${chunk}`);
+}
+
+/**
+ * How many chunks {@link buildSectionIndex} makes of one raw section: one when
+ * its text fits the window with its head line, more when it is split.
+ */
+export function rawSectionChunkCount(article: Slug, raw: RawSection): number {
+  return rawSectionChunks(article, raw).length;
 }
 
 /**
