@@ -8,6 +8,7 @@ import { isCapabilitySlug } from "./capabilities.js";
 import {
   rawSectionChunkCount,
   SECTION_CHUNK_CHARS,
+  sectionHeadLine,
   splitIntoRawSections,
 } from "./sections.js";
 import type { Slug } from "./types.js";
@@ -54,18 +55,26 @@ export async function listOverlongSections(
   const sections: OverlongSection[] = [];
   for (const slug of await deps.listSlugs()) {
     const body = await deps.readPageBody(slug);
-    // Repeated headings are told apart by occurrence, as the section index
-    // keys them (`title#<n>`), so the agent edits the right one.
-    const occurrences = new Map<string, number>();
-    for (const raw of splitIntoRawSections(body)) {
-      const occurrence = occurrences.get(raw.title) ?? 0;
-      occurrences.set(raw.title, occurrence + 1);
+    const raws = splitIntoRawSections(body);
+    // A title that repeats on its page is told apart by occurrence, as the
+    // section index keys it (`title#<n>`), the first included, so the agent
+    // edits the right one.
+    const totals = new Map<string, number>();
+    for (const raw of raws) {
+      totals.set(raw.title, (totals.get(raw.title) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    for (const raw of raws) {
+      const occurrence = seen.get(raw.title) ?? 0;
+      seen.set(raw.title, occurrence + 1);
       if (rawSectionChunkCount(slug, raw) > 1) {
         sections.push({
           slug,
           title: raw.title,
-          chars: raw.body.length,
-          ...(occurrence > 0 ? { occurrence } : {}),
+          // The size the window applies to: the head line, a newline, and
+          // the body.
+          chars: sectionHeadLine(slug, raw.title).length + 1 + raw.body.length,
+          ...((totals.get(raw.title) ?? 0) > 1 ? { occurrence } : {}),
         });
       }
     }

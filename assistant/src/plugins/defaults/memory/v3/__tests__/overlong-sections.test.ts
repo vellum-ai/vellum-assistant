@@ -9,6 +9,11 @@ function bodyLimit(article: Slug, title: string): number {
   return SECTION_CHUNK_CHARS - sectionHeadLine(article, title).length - 1;
 }
 
+/** The indexed size of a section: its head line, a newline, and its body. */
+function indexedChars(article: Slug, title: string, body: string): number {
+  return sectionHeadLine(article, title).length + 1 + body.length;
+}
+
 /** Deps over a fixture map, scanned in the map's key order. */
 function deps(pages: Record<string, string>) {
   return {
@@ -33,22 +38,42 @@ describe("listOverlongSections", () => {
 
     expect(report.windowChars).toBe(SECTION_CHUNK_CHARS);
     expect(report.sections).toEqual([
-      { slug: "notes", title: "Over", chars: over.length },
-      { slug: "journal", title: "", chars: leadOver.length },
+      {
+        slug: "notes",
+        title: "Over",
+        chars: indexedChars("notes", "Over", over),
+      },
+      {
+        slug: "journal",
+        title: "",
+        chars: indexedChars("journal", "", leadOver),
+      },
     ]);
+    // The reported size is what the window applies to, so it always reads
+    // as over the window even when the body alone does not.
+    expect(over.length).toBeLessThan(SECTION_CHUNK_CHARS);
+    expect(report.sections[0]!.chars).toBeGreaterThan(SECTION_CHUNK_CHARS);
   });
 
-  test("a repeated heading carries its occurrence so the right one is named", async () => {
+  test("a repeated heading carries its occurrence, the first included, so the right one is named", async () => {
     const over = "y".repeat(bodyLimit("notes", "Notes") + 1);
+    const chars = indexedChars("notes", "Notes", over);
 
     const report = await listOverlongSections(
       "/unused",
-      deps({ notes: `## Notes\nshort\n## Notes\n${over}\n## Notes\n${over}` }),
+      deps({
+        notes: `## Notes\n${over}\n## Notes\nshort\n## Notes\n${over}\n## Alone\n${over}`,
+      }),
     );
 
     expect(report.sections).toEqual([
-      { slug: "notes", title: "Notes", chars: over.length, occurrence: 1 },
-      { slug: "notes", title: "Notes", chars: over.length, occurrence: 2 },
+      { slug: "notes", title: "Notes", chars, occurrence: 0 },
+      { slug: "notes", title: "Notes", chars, occurrence: 2 },
+      {
+        slug: "notes",
+        title: "Alone",
+        chars: indexedChars("notes", "Alone", over),
+      },
     ]);
   });
 

@@ -74,9 +74,11 @@ const MAX_RENDERED_OVERLONG_SECTIONS = 10;
  * A `## ` section (or a page lead, `title` `""`) whose text exceeds the
  * section-grain retrieval window, reported by the tier that owns the window
  * (memory-v3's section chunker) so the consolidation agent can split it.
- * `chars` is the length of the section's body. `occurrence` is the section's
- * index among the page's headings of the same title (absent for the first),
- * so a repeated heading names the right one.
+ * `chars` is the length of the section's indexed text, its heading line plus
+ * its body, which is what the window applies to. `occurrence` is the
+ * section's index among the page's headings of the same title, present for
+ * every section whose title repeats on its page (the first included), so a
+ * repeated heading names the right one.
  */
 export interface OverlongSection {
   slug: string;
@@ -995,7 +997,7 @@ export function renderOverlongSectionsSection(
   const shown = ordered.slice(0, MAX_RENDERED_OVERLONG_SECTIONS);
   const lines = shown.map((section) => {
     const repeat =
-      section.occurrence !== undefined && section.occurrence > 0
+      section.occurrence !== undefined
         ? ` (the ${ordinal(section.occurrence + 1)} heading of that name)`
         : "";
     const where =
@@ -1014,9 +1016,9 @@ export function renderOverlongSectionsSection(
       : "";
   const window = report.windowChars.toLocaleString("en-US");
   return `## 0. FIRST: split sections that exceed the retrieval window
-Retrieval works one \`## \` section at a time, and a section longer than ${window} characters is indexed and injected as separate chunks: only the chunk that matched reaches context, cut from the rest of its section. These sections are over the window, largest first:
+Retrieval works one \`## \` section at a time, and a section whose indexed text (its heading line plus its body) runs past ${window} characters is indexed and injected as separate chunks: only the chunk that matched reaches context, cut from the rest of its section. These sections are over the window, largest first, each with the size of its indexed text:
 ${lines.join("\n")}${remainderNote}
-Bring each one under the window this pass, keeping every fact:
+Bring each one well under the window this pass (the heading line counts, so leave room), keeping every fact:
 - **Split it into named \`## \` sections.** Section names are how retrieval navigates (they head the selector's card and every injected section), so name each new section for what it holds, never "part 2".
 - **Spin out a new article** when the material is its own topic: move it, link it, and leave a short summary in place.
 - **For an append-only log** (a journal, a daily log, a list that only grows): roll the older entries into dated sections or a per-period article, and keep the current period on top.

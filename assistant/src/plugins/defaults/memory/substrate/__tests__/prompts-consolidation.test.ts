@@ -691,7 +691,7 @@ describe("resolveConsolidationPrompt: over-long-sections repair section", () => 
         "## 0. FIRST: split sections that exceed the retrieval window",
       ),
     ).toBe(true);
-    expect(section).toContain("longer than 6,000 characters");
+    expect(section).toContain("runs past 6,000 characters");
     const pieces = section.indexOf(
       "`memory/concepts/project-notes.md`, `## design notes` (95,270 characters)",
     );
@@ -712,18 +712,18 @@ describe("resolveConsolidationPrompt: over-long-sections repair section", () => 
       windowChars: 6000,
       sections: [
         { slug: "notes", title: "Notes", chars: 7000, occurrence: 1 },
-        { slug: "notes", title: "Notes", chars: 6500, occurrence: 2 },
-        { slug: "notes", title: "Notes", chars: 6200 },
+        { slug: "notes", title: "Notes", chars: 6500, occurrence: 0 },
+        { slug: "other", title: "Notes", chars: 6200 },
       ],
     });
     expect(section).toContain(
       "`memory/concepts/notes.md`, `## Notes` (the 2nd heading of that name) (7,000 characters)",
     );
     expect(section).toContain(
-      "`memory/concepts/notes.md`, `## Notes` (the 3rd heading of that name) (6,500 characters)",
+      "`memory/concepts/notes.md`, `## Notes` (the 1st heading of that name) (6,500 characters)",
     );
     expect(section).toContain(
-      "`memory/concepts/notes.md`, `## Notes` (6,200 characters)",
+      "`memory/concepts/other.md`, `## Notes` (6,200 characters)",
     );
   });
 
