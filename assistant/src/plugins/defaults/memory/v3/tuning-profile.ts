@@ -49,6 +49,8 @@ export const MEMORY_V3_FULL_PROFILE_MIN_PAGES = 10;
  * Lean profile for brand-new / sparse-corpus assistants: dense lane off,
  * selector off, learned-edge lane off, and small pools. Applied until the
  * corpus crosses {@link MEMORY_V3_FULL_PROFILE_MIN_PAGES} real concept pages.
+ * The synchronous in-memory lanes (entity, rare-term) are not profile
+ * switched: their `memory.v3.*` tuning applies at every corpus size.
  */
 export const MEMORY_V3_NEW_USER_TUNING: ResolvedV3Tuning = {
   hotSetK: 8,

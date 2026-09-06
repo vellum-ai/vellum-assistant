@@ -260,3 +260,63 @@ describe("queryScored", () => {
     expect(findTerm("a (b) c", "(b)")).toBeUndefined();
   });
 });
+
+describe("df and scoreTerm", () => {
+  test("df counts the sections a unigram occurs in, head or body, and reads 0 when absent", async () => {
+    const idx = await index({
+      "page-a": "## Mango\nthe mango tree\n\n## Notes\nno fruit here",
+      "page-b": "## Notes\nmango jam",
+    });
+    const needle = buildSectionNeedle(idx);
+
+    expect(needle.df("mango")).toBe(2);
+    // Head-line occurrences count: both `## Notes` headings.
+    expect(needle.df("notes")).toBe(2);
+    expect(needle.df("fruit")).toBe(1);
+    expect(needle.df("absent")).toBe(0);
+  });
+
+  test("a bigram is never a single-term signal: df 0 and no hits", async () => {
+    const idx = await index({
+      "page-a": "## Notes\nthe mango tree grows here",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, notesDoc] = idx.byArticle.get("page-a")!;
+
+    // The bigram is indexed for the query lanes but reads as absent here.
+    expect(needle.topTerms(notesDoc!, "mango tree", 3)).toContain("mango_tree");
+    expect(needle.df("mango_tree")).toBe(0);
+    expect(needle.scoreTerm("mango_tree", 3)).toEqual([]);
+  });
+
+  test("scoreTerm ranks a unigram's sections by its own contribution, head above body, cut at k", async () => {
+    const idx = await index({
+      "page-a": "## Mango\nfiller words to balance length across the docs here",
+      "page-b":
+        "## Notes\nfiller words mango plus more padding to balance length",
+      "page-c": "## Notes\nnothing relevant",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, mangoDoc] = idx.byArticle.get("page-a")!;
+    const [, notesDoc] = idx.byArticle.get("page-b")!;
+
+    const hits = needle.scoreTerm("mango", 5);
+    expect(hits.map((h) => h.doc)).toEqual([mangoDoc, notesDoc]);
+    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score);
+    expect(needle.scoreTerm("mango", 1).map((h) => h.doc)).toEqual([mangoDoc]);
+    expect(needle.scoreTerm("mango", 0)).toEqual([]);
+    expect(needle.scoreTerm("absent", 5)).toEqual([]);
+  });
+
+  test("scoreTerm breaks score ties by (article, ordinal)", async () => {
+    const idx = await index({
+      "page-b": "## S\nidentical pineapple content",
+      "page-a": "## S\nidentical pineapple content",
+    });
+    const needle = buildSectionNeedle(idx);
+
+    expect(
+      needle.scoreTerm("pineapple", 5).map((h) => idx.sections[h.doc]!.article),
+    ).toEqual(["page-a", "page-b"]);
+  });
+});

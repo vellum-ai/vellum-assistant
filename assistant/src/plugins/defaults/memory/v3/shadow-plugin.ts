@@ -857,6 +857,7 @@ export async function observeTurn(
           injectionSectionKey(slug, section),
         ),
       entityCap: v3.entity.cap,
+      rareTerm: v3.rareTerm.enabled ? v3.rareTerm : undefined,
       finderSectionsPerPage: v3.finderSectionsPerPage,
       replyQueryK: tuning.replyQueryK,
       spanQueryK: tuning.spanQueryK,

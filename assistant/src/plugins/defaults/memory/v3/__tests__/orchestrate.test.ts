@@ -471,6 +471,8 @@ describe("orchestrate — candidate pool composition", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
@@ -1056,6 +1058,8 @@ describe("orchestrate — degradation", () => {
           bestSection: () => -1,
           idf: () => 0,
           topTerms: () => [],
+          df: () => 0,
+          scoreTerm: () => [],
         },
       }),
     );
@@ -1105,6 +1109,8 @@ describe("orchestrate — entity lane", () => {
       bestSection: () => leadDoc!,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     const entityIndex = new Map<string, number[]>([["widget", [headingDoc!]]]);
 
@@ -1142,6 +1148,8 @@ describe("orchestrate — entity lane", () => {
       bestSection: () => headingDoc!,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     const entityIndex = new Map<string, number[]>([["widget", [headingDoc!]]]);
 
@@ -1165,6 +1173,8 @@ describe("orchestrate — entity lane", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     const entityIndex = new Map<string, number[]>([["gadget", [headingDoc!]]]);
 
@@ -1258,6 +1268,8 @@ describe("orchestrate — injection gate", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1285,6 +1297,8 @@ describe("orchestrate — injection gate", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1450,6 +1464,8 @@ describe("orchestrate — injection gate", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1478,6 +1494,8 @@ describe("orchestrate — injection gate", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1524,6 +1542,8 @@ describe("orchestrate — injection gate", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1732,6 +1752,8 @@ describe("orchestrate — injection gate", () => {
       bestSection: () => -1,
       idf: () => 0,
       topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     denseHits = [];
     providerStub = selectProvider([]);
@@ -2186,5 +2208,169 @@ describe("orchestrate: multi-section finder lines", () => {
       ["dense", 2],
       ["span", 3],
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rare-term lane: a query word that occurs in at most `maxDf` sections
+// surfaces its top sections as their own lines tagged with the word, after
+// the entity lane; a section a prior lane pooled is a no-op, and rare hits
+// feed neither the injection gate nor the edge seeds.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate: rare-term lane", () => {
+  // The message's bulk theme (the parody) matches `## Parody`; its last
+  // clause's one distinctive word, "gourd", sits twice each in two other
+  // sections of the page and once, in a longer body, on a second page. The
+  // common words recur in every section, so among the message's words only
+  // the parody words (which hit `## Parody` alone) and "gourd" are rare.
+  const GOURD_PAGES: Record<Slug, string> = {
+    "silly-lines": [
+      "here is my little log of silly lines",
+      "## Parody",
+      "parody verse: everyone laughed, hilarious skit, roast, encore, standing ovation, crowd; here is my little friend",
+      "## Pumpkin",
+      "pumpkin bit: here is my little gourd, gourd of my heart",
+      "## Harvest",
+      "harvest song: gourd on the porch, gourd in the pie; here is my little ballad",
+    ].join("\n"),
+    "autumn-recipes": [
+      "## Soup",
+      "gourd soup: here is my little pot; onions, celery, carrots, thyme, cream, salt, pepper, and a long simmer",
+    ].join("\n"),
+  };
+  const MESSAGE =
+    "parody verse hilarious, everyone laughed: skit, roast, encore, standing ovation, crowd. Here is my little gourd";
+  const RARE = { maxDf: 3, perTerm: 2, cap: 24 };
+
+  test("a rare word's top sections join as lines tagged with the word beside the bulk-theme line, and selecting them selects the sections", async () => {
+    const lanes = await customLanes(GOURD_PAGES);
+    const [, parodyDoc, pumpkinDoc, harvestDoc] =
+      lanes.sectionIndex.byArticle.get("silly-lines")!;
+    const parody = lanes.sectionIndex.sections[parodyDoc!]!;
+    const pumpkin = lanes.sectionIndex.sections[pumpkinDoc!]!;
+    const harvest = lanes.sectionIndex.sections[harvestDoc!]!;
+    providerStub = selectProvider(["silly-lines"]);
+
+    const result = await orchestrate(
+      makeTurn(1, MESSAGE),
+      depsOf(lanes, { rareTerm: RARE }),
+    );
+
+    const lines = result.lanes.finder.filter((c) => c.slug === "silly-lines");
+    expect(lines.map((c) => [c.lane, c.section, c.term])).toEqual([
+      ["needle", parody, undefined],
+      ["rare", pumpkin, "gourd"],
+      ["rare", harvest, "gourd"],
+    ]);
+    expect(lines[1]!.terms).toEqual(["gourd"]);
+    // The second page's only "gourd" section is the needle's own line for
+    // it, and the third-ranked "gourd" section is past perTerm anyway.
+    expect(
+      result.lanes.finder
+        .filter((c) => c.slug === "autumn-recipes")
+        .map((c) => c.lane),
+    ).toEqual(["needle"]);
+    // Each rare line is tagged with the word and snippets the section
+    // around it.
+    const rareLines = lastPoolLines.filter((l) => l.includes("(rare: gourd) "));
+    expect(rareLines).toHaveLength(2);
+    expect(rareLines[0]).toContain("(rare: gourd) silly-lines ");
+    expect(rareLines[0]).toContain(
+      "§Pumpkin: pumpkin bit: here is my little gourd",
+    );
+    expect(rareLines[1]).toContain("§Harvest: ");
+    expect(rareLines[1]).toContain("gourd");
+    expect(result.selections).toContainEqual({
+      slug: "silly-lines",
+      sections: [parody, pumpkin, harvest],
+    });
+  });
+
+  test("a rare hit on a section the needle already pooled is a no-op", async () => {
+    const lanes = await customLanes(GOURD_PAGES);
+    const [, , pumpkinDoc, harvestDoc] =
+      lanes.sectionIndex.byArticle.get("silly-lines")!;
+    const pumpkin = lanes.sectionIndex.sections[pumpkinDoc!]!;
+    const harvest = lanes.sectionIndex.sections[harvestDoc!]!;
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "gourd"),
+      depsOf(lanes, {
+        needle: {
+          ...lanes.needle,
+          queryScored: () => [
+            { article: "silly-lines", section: pumpkinDoc!, score: 1 },
+          ],
+        },
+        rareTerm: RARE,
+      }),
+    );
+
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.section])).toEqual(
+      [
+        ["silly-lines", "needle", pumpkin],
+        ["silly-lines", "rare", harvest],
+      ],
+    );
+  });
+
+  test("omitting the rare-term tuning disables the lane", async () => {
+    const lanes = await customLanes(GOURD_PAGES);
+    providerStub = selectProvider([]);
+
+    const without = await orchestrate(makeTurn(1, "gourd"), depsOf(lanes));
+    expect(without.lanes.finder.some((c) => c.lane === "rare")).toBe(false);
+
+    const withLane = await orchestrate(
+      makeTurn(2, "gourd"),
+      depsOf(lanes, { rareTerm: RARE }),
+    );
+    expect(withLane.lanes.finder.some((c) => c.lane === "rare")).toBe(true);
+  });
+
+  test("rare hits seed no edge expansion", async () => {
+    // topic-a links to topic-d, and "apple" occurs only in topic-a's
+    // `## Details`. With the needle finding nothing for the message, the
+    // rare lane alone surfaces topic-a, and the edge lane has no seed.
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle: { ...lanes.needle, queryScored: () => [] },
+        rareTerm: RARE,
+      }),
+    );
+
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.term])).toEqual([
+      ["topic-a", "rare", "apple"],
+    ]);
+    expect(lastPool).not.toContain("topic-d");
+  });
+
+  test("rare hits do not open the injection gate", async () => {
+    // No sparse signal (the needle finds nothing) and a dense top-1 far
+    // below every threshold close the gate; the rare hit on topic-a neither
+    // opens it nor survives the closed gate.
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle: { ...lanes.needle, queryScored: () => [] },
+        denseK: 100,
+        gateConfig: gateConfigOf(),
+        rareTerm: RARE,
+      }),
+    );
+
+    expect(selectCalls).toBe(0);
+    expect(result.selections).toEqual([]);
+    expect(result.lanes.finder).toEqual([]);
   });
 });

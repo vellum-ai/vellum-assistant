@@ -220,6 +220,50 @@ export const MemoryV3EntitySchema = z
   );
 
 /**
+ * Rare-term lane tuning: a query word that occurs in at most `maxDf` sections
+ * surfaces its top `perTerm` sections by single-term BM25F as their own
+ * finder lines, tagged with the word. A word that rare is a near-certain
+ * signal on its own, whatever the rest of the message is about: additive
+ * BM25 lets the message's bulk theme pick a page's section, and a query on
+ * the clause alone cannot rank a page whose only distinctive token is that
+ * word.
+ */
+export const MemoryV3RareTermSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "memory.v3.rareTerm.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the rare-term lane runs: surface the sections a query word rare across the corpus occurs in, regardless of the message's bulk theme. Recall-additive and a synchronous in-memory pass.",
+      ),
+    maxDf: z
+      .number({ error: "memory.v3.rareTerm.maxDf must be a number" })
+      .int("memory.v3.rareTerm.maxDf must be an integer")
+      .positive("memory.v3.rareTerm.maxDf must be a positive integer")
+      .default(12)
+      .describe(
+        "Highest number of sections a query word may occur in and still count as rare. A word the corpus does not hold never matches; there is no token-shape filtering.",
+      ),
+    perTerm: z
+      .number({ error: "memory.v3.rareTerm.perTerm must be a number" })
+      .int("memory.v3.rareTerm.perTerm must be an integer")
+      .positive("memory.v3.rareTerm.perTerm must be a positive integer")
+      .default(2)
+      .describe(
+        "Sections surfaced per rare word: its top single-term BM25F hits.",
+      ),
+    cap: z
+      .number({ error: "memory.v3.rareTerm.cap must be a number" })
+      .int("memory.v3.rareTerm.cap must be an integer")
+      .positive("memory.v3.rareTerm.cap must be a positive integer")
+      .default(24)
+      .describe(
+        "Hard cap on rare-term lines surfaced per turn, rarest words first.",
+      ),
+  })
+  .describe("Memory v3 rare-term lane (single distinctive query word) tuning.");
+
+/**
  * Per-turn injection-gate tuning: thresholds the retrieval signals must clear
  * for the gate to open and run the selector. The gate runs only when the
  * `enabled` kill-switch below is on.
@@ -365,7 +409,7 @@ export const MemoryV3ConfigSchema = z
       .positive("memory.v3.finderSectionsPerPage must be a positive integer")
       .default(3)
       .describe(
-        "Maximum finder lines one page may carry in the selector pool per turn. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity) until the cap; a section-less edge or learned hit counts as one line.",
+        "Maximum finder lines one page may carry in the selector pool per turn. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span, entity, rare) until the cap; a section-less edge or learned hit counts as one line.",
       ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
@@ -382,6 +426,7 @@ export const MemoryV3ConfigSchema = z
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
     entity: MemoryV3EntitySchema.default(MemoryV3EntitySchema.parse({})),
+    rareTerm: MemoryV3RareTermSchema.default(MemoryV3RareTermSchema.parse({})),
     gate: MemoryV3GateSchema.default(MemoryV3GateSchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");

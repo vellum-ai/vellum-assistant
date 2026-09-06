@@ -27,6 +27,7 @@ describe("MemoryV3ConfigSchema", () => {
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
+      rareTerm: { enabled: true, maxDf: 12, perTerm: 2, cap: 24 },
       gate: {
         enabled: true,
         denseThreshold: 0.66,
@@ -125,6 +126,31 @@ describe("MemoryV3ConfigSchema", () => {
       MemoryV3ConfigSchema.parse({ edge: { perSeed: 0 } }),
     ).toThrow();
     expect(() => MemoryV3ConfigSchema.parse({ edge: { cap: -1 } })).toThrow();
+  });
+
+  test("accepts a partial rareTerm override, defaulting the rest", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      rareTerm: { maxDf: 5, enabled: false },
+    });
+    expect(parsed.rareTerm).toEqual({
+      enabled: false,
+      maxDf: 5,
+      perTerm: 2,
+      cap: 24,
+    });
+  });
+
+  test("rareTerm knobs must be positive integers and enabled a boolean", () => {
+    for (const key of ["maxDf", "perTerm", "cap"]) {
+      for (const bad of [0, -1, 1.5]) {
+        expect(() =>
+          MemoryV3ConfigSchema.parse({ rareTerm: { [key]: bad } }),
+        ).toThrow();
+      }
+    }
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ rareTerm: { enabled: "yes" } }),
+    ).toThrow();
   });
 
   test("accepts a partial gate override, defaulting the rest", () => {

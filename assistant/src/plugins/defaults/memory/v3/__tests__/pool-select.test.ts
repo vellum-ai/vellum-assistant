@@ -789,6 +789,36 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     expect(line).not.toContain("…");
   });
 
+  test("a rare-term line tags its lane with the word and centers the window on it", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [] }));
+    const filler =
+      "filler words that push the match well past the head of the section ";
+    const pumpkin = sectionOf(
+      "silly-lines",
+      "Pumpkin",
+      `${filler.repeat(6)}the pumpkin bit: my little gourd ${filler.repeat(3)}`,
+    );
+    await selectPool(
+      finderOnly({
+        slug: "silly-lines",
+        descriptor: pumpkin.text,
+        section: pumpkin,
+        terms: ["gourd"],
+        term: "gourd",
+        lane: "rare",
+      }),
+      makeTurn("here is my little gourd"),
+    );
+    const [block] = sentBlocks();
+    const line = block.text
+      .split("\n")
+      .find((l) => l.startsWith("[1] (rare: gourd) silly-lines "))!;
+    expect(line).toContain("§Pumpkin: … ");
+    expect(line).toContain("my little gourd");
+    // The selector is told what the tag means.
+    expect(providerCalls[0]!.options?.systemPrompt).toContain("(rare: word)");
+  });
+
   test("a bigram term matches its two words across punctuation", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [] }));
     const notes = sectionOf(

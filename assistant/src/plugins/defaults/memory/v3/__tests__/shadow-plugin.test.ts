@@ -120,6 +120,9 @@ let selectorEnabledCfg = false;
 // Mutable `memory.v3.gate.enabled` config kill-switch carried by the mocked
 // config (default on, mirroring the schema default).
 let gateEnabledCfg = true;
+// Mutable `memory.v3.rareTerm.enabled` switch carried by the mocked config
+// (default on, mirroring the schema default).
+let rareTermEnabledCfg = true;
 let messages: Array<{
   role: string;
   content: string;
@@ -285,6 +288,7 @@ function seedMemoryConfig(): void {
       },
       edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
+      rareTerm: { enabled: rareTermEnabledCfg, maxDf: 12, perTerm: 2, cap: 24 },
       // Gate tuning (schema defaults) with the mutable `enabled` kill-switch,
       // threaded through to orchestrate as-is.
       gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
@@ -652,6 +656,7 @@ beforeEach(() => {
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
   gateEnabledCfg = true;
+  rareTermEnabledCfg = true;
   messages = [
     {
       role: "user",
@@ -842,6 +847,47 @@ describe("memory-v3 engine", () => {
       card("page-3", "edge", true),
       card("page-4", "reply", true),
       card("page-5", "learned", true),
+    ]);
+  });
+
+  test("a rare-term selection persists source rare and its pool line's lane", async () => {
+    const pumpkin: Section = {
+      article: "page-rare",
+      title: "Pumpkin",
+      text: "x",
+      ordinal: 1,
+    };
+    orchestrateSpy.mockImplementationOnce(async () => ({
+      selections: [{ slug: "page-rare", sections: [pumpkin] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          {
+            slug: "page-rare",
+            section: pumpkin,
+            term: "gourd",
+            descriptor: "",
+            lane: "rare",
+          },
+        ],
+      },
+      selectorRan: true,
+    }));
+
+    await observeTurn("conv-1", 2);
+
+    expect(readRows()).toEqual([{ slug: "page-rare", source: "rare" }]);
+    expect(JSON.parse(readPools()[0]!.candidates_json)).toEqual([
+      {
+        slug: "page-rare",
+        lane: "rare",
+        section_title: "Pumpkin",
+        section_ordinal: 1,
+        chosen: true,
+      },
     ]);
   });
 
@@ -1127,6 +1173,43 @@ describe("memory-v3 engine", () => {
     ]);
   });
 
+  test("a selection of a rare-term line records source rare with its section", () => {
+    const pumpkin: Section = {
+      article: "page-1",
+      title: "Pumpkin",
+      text: "x",
+      ordinal: 2,
+    };
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1", sections: [pumpkin] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          {
+            slug: "page-1",
+            section: pumpkin,
+            term: "gourd",
+            descriptor: "",
+            lane: "rare",
+          },
+        ],
+      },
+      selectorRan: true,
+    });
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "rare",
+        sectionOrdinal: 2,
+        sectionTitle: "Pumpkin",
+        sectionKey: "Pumpkin",
+      },
+    ]);
+  });
+
   test("the turn passed to orchestrate carries the latest user message", async () => {
     await observeTurn("conv-1", 0);
     const turn = (
@@ -1291,6 +1374,30 @@ describe("memory-v3 engine", () => {
     // The kill-switch makes the effective `enabled` false, so selection
     // always runs.
     expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+  });
+
+  test("rareTerm enabled (default) → threads the lane tuning into orchestrate", async () => {
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { rareTerm?: unknown };
+    expect(deps.rareTerm).toEqual({
+      enabled: true,
+      maxDf: 12,
+      perTerm: 2,
+      cap: 24,
+    });
+  });
+
+  test("rareTerm.enabled:false → the lane threads nothing", async () => {
+    rareTermEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { rareTerm?: unknown };
+    expect(deps.rareTerm).toBeUndefined();
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {

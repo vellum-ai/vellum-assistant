@@ -239,7 +239,9 @@ export interface MemoryRoutingTurn {
  * clause chunks as separate queries); `learned` marks candidates
  * surfaced by the co-selection NPMI association graph; `entity` marks
  * candidates surfaced because the message named an entity that titles a section
- * heading (the heading-anchored entity lane).
+ * heading (the heading-anchored entity lane); `rare` marks candidates surfaced
+ * by the rare-term lane (a query word that occurs in at most a handful of
+ * sections, whose sections surface on that word alone).
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with retired labels (e.g. the old
@@ -257,6 +259,7 @@ export const SELECTION_SOURCES = [
   "span",
   "learned",
   "entity",
+  "rare",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];
