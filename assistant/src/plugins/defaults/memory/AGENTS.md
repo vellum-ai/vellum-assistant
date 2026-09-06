@@ -253,13 +253,15 @@ a history the pipeline left uncompacted itself; a compacted result is the
 summary plus the compactor's stripped tail), so the re-injection renders onto
 a history carrying no frozen block and a section the reset left unclaimed
 reaches the model once, on the tail.
-Each reset is gated on the `historyStrippedAt` marker being durable
-(`resetInjectionLedgersForStrip` in `daemon/conversation-agent-loop-handlers.ts`
-writes it, or re-attempts it, first): a reset without the marker would let a
-restart rehydrate blocks the store no longer claims, injecting each again
-beside its rehydrated copy, so a marker write that fails leaves the store
-intact (the rehydrated blocks and the claiming store still agree) and logs
-the skipped reset.
+Each reset is gated on the `historyStrippedAt` marker being durable: a reset
+without the marker would let a restart rehydrate blocks the store no longer
+claims, injecting each again beside its rehydrated copy. The loop's
+`history_stripped` dispatch writes the marker at the strip, and a write that
+succeeds there counts for the pair, so `resetInjectionLedgersForStrip` (in
+`daemon/conversation-agent-loop-handlers.ts`) resets without a second write;
+it writes the marker itself only when no write for the strip has succeeded,
+and when that write fails too it leaves the store intact (the rehydrated
+blocks and the claiming store still agree) and logs the skipped reset.
 A re-injection assembly (the post-compaction hook,
 which also serves the overflow ladder's rungs) attaches its blocks in memory
 only and never persists them. The injector's turn memo remembers what the

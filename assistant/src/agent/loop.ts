@@ -476,6 +476,12 @@ export type AgentEvent =
        * critical.
        */
       type: "history_stripped";
+      /**
+       * Correlates this strip with its `context_compacting` /
+       * `compaction_completed` pair, so the dispatcher can carry the marker
+       * write's outcome from this event to the pair's end event.
+       */
+      compactionId: string;
     }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
@@ -1028,7 +1034,7 @@ export class AgentLoop {
     // The durable pre-compaction base is stripped by the event dispatcher
     // (re-derived from the start event), so record the history-stripped
     // marker for this compaction before the pipeline runs.
-    await onEvent({ type: "history_stripped" });
+    await onEvent({ type: "history_stripped", compactionId });
     // The compaction module owns the per-conversation manager; pass the
     // conversation id and let `defaultCompact` resolve it from the store.
     // The budget gate is reached only when this turn decides to compact in

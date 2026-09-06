@@ -1081,6 +1081,7 @@ export async function runAgentLoopImpl(
     const applySuccessfulCompaction = async (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
       compactedBasis?: Message[],
+      historyStripMarkerDurable = false,
     ) => {
       const provenanceContext = compactedBasis
         ? getSlackProvenanceContextForCompactionBasis(
@@ -1095,6 +1096,7 @@ export async function runAgentLoopImpl(
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
         cronRunId: turnCronRunId,
+        historyStripMarkerDurable,
       });
       slackChronologicalContext = projectSlackProvenanceAfterCompaction(
         provenanceContext,
@@ -2216,6 +2218,12 @@ export async function applyCompactionResult(
     slackContextCompactionWatermarkTs?: string | null;
     /** Firing's `cron_runs.id` stamped onto the compaction usage row. */
     cronRunId?: string | null;
+    /**
+     * Whether a history-stripped marker write for this strip already
+     * succeeded (the loop's `history_stripped` dispatch), so the
+     * memory-injection ledger reset needs no second marker write.
+     */
+    historyStripMarkerDurable?: boolean;
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
@@ -2235,7 +2243,11 @@ export async function applyCompactionResult(
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages);
+  await resetInjectionLedgersForStrip(
+    ctx,
+    result.compactedPersistedMessages,
+    options.historyStripMarkerDurable ?? false,
+  );
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,

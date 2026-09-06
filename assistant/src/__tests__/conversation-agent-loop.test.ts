@@ -4588,9 +4588,11 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      // THEN the marker is durable, so the ledgers reset exactly once, as a
-      // strip with no summary, and before the post-compaction hook
-      // re-injected onto the stripped base
+      // THEN the marker written at the strip is durable, so the ledgers reset
+      // exactly once on its strength (no second marker write), as a strip
+      // with no summary, and before the post-compaction hook re-injected onto
+      // the stripped base
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(1);
       expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
         "test-conv",
         expect.any(Number),
@@ -4599,6 +4601,86 @@ describe("session-agent-loop", () => {
       expect(order).toEqual(["pipeline", "reset", "post_compact"]);
       // AND the section store no longer claims the section, so the next turn
       // injects it net-new instead of pointing at a block that is gone
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    /** Stub the marker write so the first write succeeds and every later
+     *  write fails, as a transient SQLite error (SQLITE_BUSY) landing between
+     *  the strip and the reset would. */
+    function failMarkerWritesAfterTheFirst(): void {
+      let markerWrites = 0;
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        markerWrites += 1;
+        if (markerWrites > 1) {
+          throw new Error("SQLITE_BUSY");
+        }
+      });
+    }
+
+    /** A manager whose pipeline runs (recorded in `order`) and compacts,
+     *  summarizing two persisted messages and dropping the estimate back under
+     *  budget so the provider call proceeds. */
+    function compactingPipelineManager(
+      order: string[],
+    ): Conversation["contextWindowManager"] {
+      return {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (messages: Message[]) => {
+          order.push("pipeline");
+          mockEstimateTokens = 1000;
+          return {
+            ...makeCompactionResult({
+              messages: [
+                { role: "user", content: [{ type: "text", text: "summary" }] },
+                messages[messages.length - 1]!,
+              ],
+              compactedPersistedMessages: 2,
+              compactedMessages: 2,
+            }),
+            compacted: true,
+            summaryFailed: false,
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"];
+    }
+
+    test("resets the ledgers on the strip's durable marker write when a later marker write would fail", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failMarkerWritesAfterTheFirst();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker the strip wrote is durable, so the reset does not
+      // depend on a re-attempt that would fail: the ledgers reset once,
+      // before re-injection, and the store no longer claims the section
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("resets the ledgers on the strip's durable marker write when the pipeline compacts and a later marker write would fail", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failMarkerWritesAfterTheFirst();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: compactingPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the durable commit resets the ledgers with the summarized count
+      // on the strip's marker, without depending on a re-attempt that fails
+      expect(onCompacted.mock.calls).toEqual([[2]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
       expect(getV3ActiveSections("test-conv")).toEqual(new Map());
     });
 
@@ -4794,9 +4876,11 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      // THEN no reset ran: a restart rehydrates the frozen blocks with no
-      // marker to skip them, so the store must keep claiming the section
-      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalled();
+      // THEN the reset re-attempted the write (no write for the strip had
+      // succeeded) and that failed too, so no reset ran: a restart rehydrates
+      // the frozen blocks with no marker to skip them, so the store must keep
+      // claiming the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
       expect(onCompacted).not.toHaveBeenCalled();
       expect(order).toEqual(["pipeline", "post_compact"]);
       expect(getV3ActiveSections("test-conv")).toEqual(
@@ -4846,6 +4930,29 @@ describe("session-agent-loop", () => {
         expect.any(Number),
       );
       expect(onCompacted).not.toHaveBeenCalled();
+    });
+
+    test("applyCompactionResult resets the ledgers on an already-durable marker without a second write", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+      const onCompacted = mock(async (_count: number) => {});
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult(),
+        () => {},
+        "req-1",
+        { historyStripMarkerDurable: true },
+      );
+
+      // The strip's marker write already succeeded, so the reset neither
+      // needs nor attempts another write that would fail here.
+      expect(setConversationHistoryStrippedAtMock).not.toHaveBeenCalled();
+      expect(onCompacted.mock.calls).toEqual([[4]]);
     });
   });
 });
