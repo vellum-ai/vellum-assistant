@@ -526,11 +526,11 @@ async function reembedChangedPages(
 }
 
 /**
- * Warm the embedding cache for every section of `slugs` in one batched backend
- * call before the per-page loop, which otherwise pays one backend call per
+ * Warm the embedding cache for every section of `slugs` in batched backend
+ * calls before the per-page loop, which otherwise pays one backend call per
  * page. Only worth a call for two or more pages. Best-effort: a failure here
- * is logged and the per-page loop embeds as it always has, so the loop's
- * per-page failure containment is unchanged.
+ * is logged, and the per-page loop then embeds each page independently, with
+ * each page's failure contained to that page.
  */
 async function warmEmbeddingCacheForPages(
   slugs: Slug[],
@@ -551,7 +551,7 @@ async function warmEmbeddingCacheForPages(
         pages: slugs.length,
         err: err instanceof Error ? err.message : String(err),
       },
-      "memory-v3 maintain: embedding cache warm-up failed; pages embed one at a time (non-fatal)",
+      "memory-v3 maintain: embedding cache warm-up failed; each page embeds on its own (non-fatal)",
     );
   }
 }

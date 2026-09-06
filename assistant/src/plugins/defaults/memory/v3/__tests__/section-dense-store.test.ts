@@ -267,6 +267,7 @@ const {
   ensureSectionCollection,
   upsertSections,
   warmSectionEmbeddings,
+  WARM_SECTIONS_PER_CALL,
   deleteSectionsForArticle,
   listSectionArticles,
   SECTION_COLLECTION,
@@ -624,6 +625,23 @@ describe("memory v3 section-dense-store — embedding cache", () => {
         ),
       ].flat(),
     );
+  });
+
+  test("warmSectionEmbeddings bounds each backend call to WARM_SECTIONS_PER_CALL sections", async () => {
+    state.collectionExists = true;
+    const count = WARM_SECTIONS_PER_CALL * 2 + 1;
+    const sections = Array.from({ length: count }, (_v, i) =>
+      section(`page-${Math.floor(i / 10)}`, i % 10, `text ${i}`),
+    );
+
+    await warmSectionEmbeddings(CONFIG, sections);
+
+    expect(embedState.calls.map((c) => c.length)).toEqual([
+      WARM_SECTIONS_PER_CALL,
+      WARM_SECTIONS_PER_CALL,
+      1,
+    ]);
+    expect(embedState.calls.flat()).toEqual(sections.map((s) => s.text));
   });
 
   test("warmSectionEmbeddings with no sections makes no backend call", async () => {

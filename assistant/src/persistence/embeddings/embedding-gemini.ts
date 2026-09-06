@@ -73,14 +73,14 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
   /**
    * Embed `inputs` in order. Runs of text inputs go through
    * `batchEmbedContents`, {@link GEMINI_EMBED_BATCH_SIZE} texts per round
-   * trip, so a corpus re-embed costs one request per hundred sections instead
-   * of one per section; a lone text and every multimodal input take the
+   * trip, so a corpus re-embed costs one request per hundred sections rather
+   * than one per section; a lone text and every multimodal input take the
    * single `embedContent` route. A batch the API rejects as a bad request, or
-   * answers with a malformed body, is re-sent as single calls so each input
-   * fails or succeeds on its own exactly as it would have; a batch route that
-   * does not exist is remembered and skipped for the rest of the backend's
-   * life. Transient failures (rate limits, server errors, network) throw, so
-   * the caller's retry policy sees them as before.
+   * answers with a malformed body, is re-sent as single calls, so each of its
+   * inputs succeeds or fails independently; a batch route that does not exist
+   * is remembered and skipped for the rest of the backend's life. Transient
+   * failures (rate limits, server errors, network) throw, so they reach the
+   * caller's retry policy.
    */
   async embed(
     inputs: EmbeddingInput[],
