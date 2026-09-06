@@ -41,10 +41,10 @@
  *      init, followed by the finder candidates (needle → dense → reply →
  *      span → entity → rare → edge → learned surfacing order), one line per
  *      distinct (page, matched section) and at most `finderSectionsPerPage`
- *      lines per page from the lanes other than rare (a rare-term line never
- *      counts against the cap or yields to it; see `poolLine`), so a page
- *      whose sections match different parts of the message is shown section
- *      by section. The stable prefix
+ *      lines per page from the lanes other than entity and rare (an entity
+ *      line and a rare-term line never count against the cap or yield to it;
+ *      see `poolLine`), so a page whose sections match different parts of
+ *      the message is shown section by section. The stable prefix
  *      is identical across consecutive turns while the lanes are unchanged
  *      (lane invalidation at consolidation is the recompute cadence), so the
  *      selector input's leading segment rides the provider KV cache (the
