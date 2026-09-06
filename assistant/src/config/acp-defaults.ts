@@ -28,14 +28,14 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
   codex: Object.freeze({
     command: "codex-acp",
     args: FROZEN_EMPTY_ARGS,
-    description: "OpenAI Codex CLI (via @zed-industries/codex-acp)",
+    description: "OpenAI Codex CLI (via @agentclientprotocol/codex-acp)",
   }),
 });
 
 /**
- * Single source of truth for adapter binary → npm package name. Both the
- * version-check probe in `acp_spawn` and the resolver's install-hint format
- * key off this map, so a new adapter only needs one entry here.
+ * Single source of truth for adapter binary → npm package name. Automatic
+ * installation and the resolver's install hints use this map, so a new
+ * adapter only needs one entry here.
  *
  * Keyed by command name (not agent id) so the mapping follows the binary
  * regardless of how a user's config aliases an agent.
@@ -43,5 +43,5 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
 export const DEFAULT_AGENT_NPM_PACKAGES: Readonly<Record<string, string>> =
   Object.freeze({
     "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-    "codex-acp": "@zed-industries/codex-acp",
+    "codex-acp": "@agentclientprotocol/codex-acp",
   });
