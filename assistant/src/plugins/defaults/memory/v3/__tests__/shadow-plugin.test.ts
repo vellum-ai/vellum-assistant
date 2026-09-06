@@ -1191,7 +1191,7 @@ describe("memory-v3 engine", () => {
     ]);
   });
 
-  test("a page selected on several sections logs its first selected section under the lane of its first line", () => {
+  test("a page selected on several sections logs its first selected section under the lane of that section's line", () => {
     const details: Section = {
       article: "page-1",
       title: "Details",
@@ -1218,10 +1218,11 @@ describe("memory-v3 engine", () => {
       },
       selectorRan: true,
     });
+    // "Notes" was selected first and its line came from the span lane.
     expect(rows).toEqual([
       {
         slug: "page-1",
-        source: "needle",
+        source: "span",
         sectionOrdinal: 2,
         sectionTitle: "Notes",
         sectionKey: "Notes",
