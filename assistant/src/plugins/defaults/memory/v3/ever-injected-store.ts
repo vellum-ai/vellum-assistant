@@ -10,11 +10,12 @@
  * whole). The active (non-pruned) rows are the injection dedup record: a pair
  * present here rides the cached message prefix and must not be re-rendered.
  * `bytes` sums into the resident footprint the prune valve bounds, and
- * `last_selected_at` is the recency the valve ranks by: the injector's commit
- * stamps it on every section the turn selected, the net-new ones through
- * `recordInjected` and the resident ones through `touchSelected`, so each
- * section ages from its own latest selection (`injected_at` stands in for a
- * row with no stamp). Rows are never deleted by pruning (`pruned_at` is set
+ * `last_selected_at` is the recency the valve ranks by: the injector stamps
+ * it on every section the turn selected, the resident ones through
+ * `touchSelected` as soon as it classifies them and the net-new ones through
+ * `recordInjected` at its commit, so each section ages from its own latest
+ * selection (`injected_at` stands in for a row with no stamp). Rows are
+ * never deleted by pruning (`pruned_at` is set
  * instead) so the record stays auditable; a pruned section that is
  * re-selected re-injects by clearing `pruned_at` on upsert.
  * `clearConversation` is the compaction reset: the cached blocks those
@@ -432,8 +433,10 @@ export function markPruned(
  * Stamp `last_selected_at = at` on the sections a turn selected that were
  * already resident (the injector's pointer entries and its resident
  * capability units): the prune valve's recency, so a section re-selected
- * turn after turn is never evicted as stale. The turn's net-new sections
- * take the stamp from {@link recordInjected} instead.
+ * turn after turn is never evicted as stale. The injector stamps them in the
+ * same synchronous segment that classifies them, so a valve already queued
+ * never ranks the stale stamp in between. The turn's net-new sections take
+ * the stamp from {@link recordInjected} instead.
  */
 export function touchSelected(
   conversationId: string,

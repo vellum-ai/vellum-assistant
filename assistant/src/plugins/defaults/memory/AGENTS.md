@@ -175,13 +175,19 @@ by exactly its header span, in live history and at rehydration, drops the
 section's line from any `<memory_pointer>` that named it (a pointer left empty
 is dropped whole), and evicts by last selection recency with no lane
 exemptions. That recency is each section row's own `last_selected_at`: the
-injector's commit stamps it on every section the turn selected, the net-new
-ones with their record (`recordInjected`) and the resident ones, pointer
-entries and capability units alike, by `touchSelected`, so two sections of
-one page selected together both age from that turn, and a row with no stamp
-(a truncated fork's seed, or one written before the column existed) ranks by
-`injected_at`. The selection log (`memory_v3_selections`), which keeps one
-section per slug, plays no part in eviction. The live strip is idempotent over
+injector stamps it on every section the turn selected, the resident ones,
+pointer entries and capability units alike, by `touchSelected` in the same
+synchronous segment that classifies them (a valve queued by an earlier turn's
+commit fires on a timer and can run while the turn's page reads are awaited,
+so it ranks the fresh stamp, and a turn whose net-new sections all render
+empty, which carries no block and no commit, still stamps them; the stamp is
+a recency bump, never a claim, so a turn whose block does not attach bumps
+harmlessly), and the net-new ones with their record (`recordInjected`) at its
+commit, so two sections of one page selected together both age from that
+turn, and a row with no stamp (a truncated fork's seed, or one written before
+the column existed) ranks by `injected_at`. The selection log
+(`memory_v3_selections`), which keeps one section per slug, plays no part in
+eviction. The live strip is idempotent over
 the conversation's full tombstone set and runs both in the valve and at
 runtime assembly Step 0 on every turn:
 the valve fires on a timer while the turn that scheduled it may still be in
@@ -196,7 +202,11 @@ copy sits on a later message is dropped the same way
 identity (`markV3LiveBlock` / `isV3LiveBlock` in `v3/types.ts`: the blocks
 assembly attaches, `loadFromDb` splices, and the strip rewrites), never by
 text, so a pre-cutover v2 block byte-identical to a v3 entry is left alone. Re-selected sections that are already resident are listed, paths
-only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block.
+only, in the `memory-v3-pointer` injector's per-turn `<memory_pointer>` block,
+re-validated against the store at render time: a section the valve tombstoned
+between the sections injector's classification and the pointer's render is
+dropped from it (absent this turn, it re-injects on its next selection), and
+a pointer left with nothing is not emitted.
 Under a run-messages replacement (the Slack chronological transcript,
 `TurnContext.replacesRunMessages`, stated by runtime assembly ahead of the
 chain) no frozen block from an earlier turn is in the prompt, so the sections

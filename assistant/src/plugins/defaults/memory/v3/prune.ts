@@ -363,10 +363,11 @@ export interface PruneDeps {
  *
  * The footprint and the candidates both range over the ACTIVE injected
  * sections. Candidates are ranked by last selection recency, carried on the
- * section row itself: `last_selected_at`, which the injector's commit stamps
- * on every section the turn selected, net-new (`recordInjected`) and already
- * resident (`touchSelected`) alike, so each of a page's selected sections
- * ages from its own selections. A row with no stamp (a truncated fork's
+ * section row itself: `last_selected_at`, which the injector stamps on every
+ * section the turn selected, the resident ones (`touchSelected`) as it
+ * classifies them and the net-new ones (`recordInjected`) at its commit, so
+ * each of a page's selected sections ages from its own selections. A row
+ * with no stamp (a truncated fork's
  * seeded row, or one written before the column existed) ranks by the store's
  * `injected_at`. Candidates are taken oldest-first until the footprint is at
  * `targetResidentBytes`. There are no exemptions; zero-byte rows (capability
