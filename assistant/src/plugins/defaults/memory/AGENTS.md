@@ -437,14 +437,15 @@ absolute ceiling would make most ordinary words of a small corpus rare and
 fill `cap` with noise every turn. Both are synchronous in-memory passes that
 feed neither the injection gate nor the edge seeds, and pool through the same
 `(page, section key)` dedupe as every other lane, so a section another lane
-already pooled is a no-op. The entity lane also pools through the per-page
-cap (`memory.v3.finderSectionsPerPage`); a rare-term line is outside it,
-neither counted against the cap nor displaced by it, because the lane runs
-after every lane that fills the cap and a page already carrying that many
-bulk-theme lines would otherwise drop exactly the line the lane exists to
-surface. The lane's own `perTerm` and `cap` bound what it adds instead, so a
-page carries at most `finderSectionsPerPage` capped lines plus its rare
-lines, `finderSectionsPerPage + rareTerm.cap` in all. The entity lane runs
+already pooled is a no-op. Both lanes' lines are outside the per-page cap
+(`memory.v3.finderSectionsPerPage`), neither counted against it nor
+displaced by it, because each lane runs after every lane that fills the cap
+and a page already carrying that many bulk-theme lines would otherwise drop
+exactly the line the lane exists to surface. The lanes' own caps bound what
+they add instead (`entityCap` articles per turn for the entity lane,
+`perTerm` and `cap` for the rare-term lane), so a page carries at most
+`finderSectionsPerPage` capped lines plus its entity and rare lines,
+`finderSectionsPerPage + entityCap + rareTerm.cap` in all. The entity lane runs
 at every corpus size (the lean profile does not switch it off); the
 rare-term lane runs only when the selector does (`v3/shadow-plugin.ts`
 threads `rareTerm` only

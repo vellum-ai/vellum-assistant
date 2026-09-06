@@ -2331,6 +2331,7 @@ describe("orchestrate: rare-term lane", () => {
     alpha: string,
     tail: string[],
     rareTerm = RARE,
+    entity?: { token: string; ordinal: number },
   ): Promise<OrchestrateDeps> {
     const lanes = await customLanes({
       "many-page": [
@@ -2344,7 +2345,8 @@ describe("orchestrate: rare-term lane", () => {
         ...tail,
       ].join("\n"),
     });
-    const alphaDoc = lanes.sectionIndex.byArticle.get("many-page")![1]!;
+    const docs = lanes.sectionIndex.byArticle.get("many-page")!;
+    const alphaDoc = docs[1]!;
     denseHits = [{ article: "many-page", section: 2 }];
     denseHitsByQuery.set(REPLY, [{ article: "many-page", section: 3 }]);
     return depsOf(lanes, {
@@ -2358,8 +2360,36 @@ describe("orchestrate: rare-term lane", () => {
       replyQueryK: 5,
       finderSectionsPerPage: 3,
       rareTerm,
+      ...(entity
+        ? { entityIndex: new Map([[entity.token, [docs[entity.ordinal]!]]]) }
+        : {}),
     });
   }
+
+  test("an entity hit joins a page the prior lanes filled to the per-page cap", async () => {
+    // The message names the `## Delta` heading (ordinal 4) of a page whose
+    // first three sections the bulk-theme lanes already pooled. Of the
+    // message's words only "delta" occurs in the corpus, so the rare lane's
+    // hit on the same section is a no-op behind the entity line.
+    const tail = ["## Delta", "delta text"];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, `${CAPPED_MESSAGE} and delta`, REPLY),
+      await cappedPageDeps("alpha text", tail, RARE, {
+        token: "delta",
+        ordinal: 4,
+      }),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["entity", 4],
+    ]);
+  });
 
   test("a rare hit joins a page the prior lanes filled to the per-page cap, bounded by the lane's own cap", async () => {
     // "turnip" is held by `## Delta` (ordinal 4) and `## Echo` (5) alone.
