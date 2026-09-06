@@ -49,7 +49,10 @@ import {
   unescapeInjectedBody,
 } from "../substrate/injected-block-slugs.js";
 import { renderedBytes } from "./card.js";
-import { ensureMemoryV3InjectedSectionsSchema } from "./plugin-schema.js";
+import {
+  type CheckpointLedger,
+  ensureMemoryV3InjectedSectionsSchema,
+} from "./plugin-schema.js";
 import type { InjectedBlock, InjectedBlockFormat } from "./types.js";
 
 const realDb = {
@@ -1440,7 +1443,16 @@ describe("legacy card rows", () => {
         (conversation_id, slug, injected_at, bytes, pruned_at)
       VALUES ('conv-1', 'page-a', 1000, 640, NULL)
     `);
-    ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+    // The one-shot copy records itself in the checkpoint ledger; this suite
+    // runs on a bare memory database, so hand the ensure a map-backed one.
+    const values = new Map<string, string>();
+    const ledger: CheckpointLedger = {
+      get: (key) => values.get(key) ?? null,
+      set: (key, value) => {
+        values.set(key, value);
+      },
+    };
+    ensureMemoryV3InjectedSectionsSchema(memorySqlite, ledger);
     recordInjected("conv-1", [{ slug: "page-b", key: "", bytes: 100 }], 2_000);
 
     expect(getActiveSections("conv-1")).toEqual(
