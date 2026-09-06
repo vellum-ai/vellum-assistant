@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { cardBytes, renderCard } from "./card.js";
+import { renderCard, renderedBytes } from "./card.js";
 
 describe("renderCard", () => {
   test("standard article renders head section + section TOC", () => {
@@ -152,12 +152,29 @@ describe("renderCard", () => {
     const raw = ["# T", "", "Lead.", "", "## S", "b"].join("\n");
     expect(renderCard("page-f", raw)).toBe(renderCard("page-f", raw));
   });
+
+  test("a heading that already opens with § is not doubled in the TOC", () => {
+    const raw = [
+      "# T",
+      "",
+      "Lead.",
+      "",
+      "## §Already",
+      "a",
+      "",
+      "## Plain",
+      "b",
+    ].join("\n");
+    expect(renderCard("page-g", raw)).toContain(
+      "[sections: §Already · §Plain]",
+    );
+  });
 });
 
-describe("cardBytes", () => {
+describe("renderedBytes", () => {
   test("counts UTF-8 bytes, not characters", () => {
-    expect(cardBytes("abc")).toBe(3);
-    expect(cardBytes("§")).toBe(2); // U+00A7 is 2 bytes in UTF-8
+    expect(renderedBytes("abc")).toBe(3);
+    expect(renderedBytes("§")).toBe(2); // U+00A7 is 2 bytes in UTF-8
   });
 
   test("accounts for a rendered card's full byte footprint", () => {
@@ -168,6 +185,6 @@ describe("cardBytes", () => {
     // The card contains exactly one multibyte char (the TOC's "§"), so its
     // byte footprint is one over its character length.
     expect(card.match(/§/g)).toHaveLength(1);
-    expect(cardBytes(card)).toBe(card.length + 1);
+    expect(renderedBytes(card)).toBe(card.length + 1);
   });
 });

@@ -213,6 +213,16 @@ export interface TurnContext {
    */
   readonly slackActiveThreadFocusBlock?: string | null;
   /**
+   * True when this assembly replaces `runMessages` with a transcript
+   * rendered from persisted rows (the default chain's Slack chronological
+   * transcript, on every Slack conversation with at least one transcript
+   * entry). Content that lives only in message metadata, such as frozen
+   * memory blocks rehydrated onto earlier messages, is absent from that
+   * prompt, so an injector that would otherwise point at content already
+   * resident in history renders it again instead.
+   */
+  readonly replacesRunMessages?: boolean;
+  /**
    * When true, inject the `<non_interactive_context>` block so the model
    * knows no human is present to answer clarification questions.
    */

@@ -1,316 +1,479 @@
 /**
- * Per-conversation everInjected record for memory-v3's frozen-card carry.
+ * Per-conversation record of memory-v3's injected sections.
  *
- * Backed by `memory_v3_ever_injected`, which lives on the dedicated memory
- * connection (`assistant-memory.db`) — every read/write resolves it via
+ * Backed by `memory_v3_injected_sections`, which lives on the dedicated memory
+ * connection (`assistant-memory.db`): every read/write resolves it via
  * `memoryDbOrNull` and degrades to a no-op when that connection is
- * unavailable. One row per (conversation, page-slug) the v3 injector ever
- * attached as a card. The
- * active (non-pruned) slug set is the injection dedup record — a slug present
- * here rides the cached message prefix and must not be re-rendered — and
+ * unavailable. One row per (conversation, page slug, section key) the v3
+ * injector ever attached: the key is the section's `sectionKey()`, `""` for a
+ * page's lead and for capability content (skills and CLI commands inject
+ * whole). The active (non-pruned) rows are the injection dedup record: a pair
+ * present here rides the cached message prefix and must not be re-rendered.
  * `bytes` sums into the resident footprint the prune valve bounds. Rows are
  * never deleted by pruning (`pruned_at` is set instead) so the record stays
- * auditable; a pruned page that is re-selected re-injects by clearing
+ * auditable; a pruned section that is re-selected re-injects by clearing
  * `pruned_at` on upsert. `clearConversation` is the compaction reset: the
- * cached blocks those slugs lived on are gone, so future turns are free to
- * re-inject them.
+ * cached blocks those sections lived on are gone, so future turns are free to
+ * re-inject them; it takes the conversation's legacy card rows with it
+ * (`plugin-schema.ts`), so no later copy re-imports them.
  *
  * Fork semantics mirror v2's activation-store hooks. The fork copy runs on the
- * memory connection, so it is no longer atomic with the main-DB
- * `forkConversation()` transaction that drives it — a best-effort copy that
- * no-ops when the memory database is unavailable:
+ * memory connection, so it is not atomic with the main-DB `forkConversation()`
+ * transaction that drives it: a best-effort copy that no-ops when the memory
+ * database is unavailable.
  *   - full-history forks copy the parent's rows wholesale
  *     (`forkEverInjected`), pruned state included;
- *   - truncated forks seed from the slugs scanned out of the inherited
- *     messages' persisted card blocks (`seedEverInjectedFromSlugs`) — a
- *     wholesale copy would over-claim slugs injected on turns the child does
- *     not contain, suppressing their re-injection forever.
+ *   - truncated forks seed from the section headers scanned out of the
+ *     inherited messages' persisted current-format blocks
+ *     (`seedEverInjectedFromBlocks`): a wholesale copy would over-claim
+ *     sections injected on turns the child does not contain, suppressing
+ *     their re-injection forever.
  */
 
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
-import { memoryV3EverInjected } from "../../../../persistence/schema/index.js";
+import { memoryV3InjectedSections } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
-import { memoryDbOrNull } from "../memory-db.js";
+import { memoryDbOrNull, memorySqliteOrNull } from "../memory-db.js";
+import { unwrapMemoryBlock } from "../memory-marker.js";
+import { capabilitySlugOf } from "../substrate/capability-slugs.js";
+import {
+  parseInjectedSections,
+  renderedBytes,
+} from "../substrate/injected-block-slugs.js";
+import {
+  deleteLegacyCardRows,
+  ensureMemoryV3InjectedSectionsSchema,
+  ensureOncePerConnection,
+} from "./plugin-schema.js";
+import type {
+  InjectedBlock,
+  InjectedBlockFormat,
+  SectionRef,
+} from "./types.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
 
 /**
- * Message-metadata key the v3 injector persists each turn's card block under
- * (the v3 counterpart of v2's `memoryInjectedBlock`). Shared by the writer,
- * the conversation-load rehydration splice, and the truncated-fork seed scan
- * in `conversation-crud.ts` so all three agree on the key.
+ * Ensure the store's table on `raw` once per connection in this process
+ * (see `plugin-schema.ts`, which also copies the legacy card rows in):
+ * idempotent DDL, fail-open.
+ */
+const ensureSectionsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3InjectedSectionsSchema,
+  "failed to ensure memory_v3_injected_sections; section record degraded",
+);
+
+/**
+ * Ensure the store's table on the memory connection of this process, for the
+ * memory plugin's `init` hook. No-op when the connection is unavailable (the
+ * store degrades to no-ops as on any turn).
+ */
+export function ensureMemoryV3InjectedSectionsStore(): void {
+  const raw = memorySqliteOrNull("ensureMemoryV3InjectedSectionsStore");
+  if (raw) {
+    ensureSectionsSchemaOnce(raw);
+  }
+}
+
+/** The memory connection every read and write resolves, its table ensured
+ *  first ({@link ensureSectionsSchemaOnce}); `null`, with the degraded-mode
+ *  warning, when the connection is unavailable. */
+function memoryDb(context: string): ReturnType<typeof memoryDbOrNull> {
+  const raw = memorySqliteOrNull(context);
+  if (!raw) {
+    return null;
+  }
+  ensureSectionsSchemaOnce(raw);
+  return memoryDbOrNull(context);
+}
+
+/**
+ * Message-metadata key the v3 injector persists each turn's section block
+ * under (the v3 counterpart of v2's `memoryInjectedBlock`). Shared by the
+ * writer, the conversation-load rehydration splice, and the truncated-fork
+ * seed scan so all three agree on the key.
  */
 export const MEMORY_V3_INJECTED_BLOCK_METADATA_KEY = "memoryV3InjectedBlock";
 
-export interface EverInjectedEntry {
+/**
+ * Message-metadata key the persisting build stamps beside
+ * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`: the block's rendering format
+ * ({@link MEMORY_V3_INJECTED_BLOCK_FORMAT}). A row carrying the section block
+ * without it was persisted before the stamp existed and holds a legacy
+ * block, opaque to every reader (`InjectedBlockFormat` in `./types.ts`).
+ */
+export const MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY =
+  "memoryV3InjectedBlockFormat";
+
+/** The format this build renders and stamps: section headers plus body
+ *  escaping. */
+export const MEMORY_V3_INJECTED_BLOCK_FORMAT = 2;
+
+/** The rendering format a message row's metadata records for its v3 section
+ *  block: current when the persisting build stamped the format key, legacy
+ *  otherwise. */
+export function v3BlockFormatOf(
+  metadata: Readonly<Record<string, unknown>>,
+): InjectedBlockFormat {
+  return typeof metadata[MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY] ===
+    "number"
+    ? "current"
+    : "legacy";
+}
+
+/**
+ * A set of section refs keyed by slug, the shape the dedup and prune filters
+ * consume: `slug → keys`. Built by {@link getActiveSections} and
+ * {@link getPrunedSections}; membership via {@link sectionRefSetHas}.
+ */
+export type SectionRefSet = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** Whether `(slug, key)` is a member of the set. */
+export function sectionRefSetHas(
+  set: SectionRefSet,
+  slug: string,
+  key: string,
+): boolean {
+  return set.get(slug)?.has(key) ?? false;
+}
+
+function toSectionRefSet(rows: SectionRef[]): Map<string, Set<string>> {
+  const set = new Map<string, Set<string>>();
+  for (const row of rows) {
+    let keys = set.get(row.slug);
+    if (!keys) {
+      keys = new Set();
+      set.set(row.slug, keys);
+    }
+    keys.add(row.key);
+  }
+  return set;
+}
+
+/** One row of the record, pruned or resident. */
+export interface InjectedSectionRow extends SectionRef {
   bytes: number;
-  /** Epoch ms the prune valve removed the card, or `null` while resident. */
+  /** Epoch ms the section was (last) injected. */
+  injectedAt: number;
+  /** Epoch ms the prune valve removed the section, or `null` while resident. */
   prunedAt: number | null;
 }
 
 /**
- * The full per-conversation record, pruned rows included. Test oracle only —
- * no production code path reads it; production consumers use the narrower
- * accessors ({@link getActiveSlugs}, {@link getActiveEntries},
- * {@link getPrunedSlugs}, {@link residentBytes}).
+ * Run a read against the memory connection, degrading to `fallback` when the
+ * connection is unavailable or the statement fails (a missing table on an
+ * install whose migration is still deferred, an I/O error). A read failure
+ * must never take memory-v3 down with it: an empty dedup set re-injects a
+ * section at worst, while a throw inside `observeTurn` would skip the turn's
+ * memory entirely.
  */
-export function getInjected(
-  conversationId: string,
-): Map<string, EverInjectedEntry> {
-  const mdb = memoryDbOrNull("getInjected");
-  if (!mdb) {
-    return new Map();
+function readOr<T>(
+  context: string,
+  fallback: T,
+  read: (mdb: NonNullable<ReturnType<typeof memoryDbOrNull>>) => T,
+): T {
+  try {
+    const mdb = memoryDb(context);
+    return mdb ? read(mdb) : fallback;
+  } catch (err) {
+    log.warn({ err, context }, "injected-section read failed; continuing");
+    return fallback;
   }
-  const rows = mdb
-    .select({
-      slug: memoryV3EverInjected.slug,
-      bytes: memoryV3EverInjected.bytes,
-      prunedAt: memoryV3EverInjected.prunedAt,
-    })
-    .from(memoryV3EverInjected)
-    .where(eq(memoryV3EverInjected.conversationId, conversationId))
-    .all();
+}
 
-  return new Map(
-    rows.map((row) => [row.slug, { bytes: row.bytes, prunedAt: row.prunedAt }]),
+/**
+ * The full per-conversation record, pruned rows included, ordered by
+ * `(slug, key)`. Test oracle only: no production code path reads it;
+ * production consumers use the narrower accessors ({@link getActiveSections},
+ * {@link getActiveEntries}, {@link getPrunedSections}, {@link residentBytes}).
+ */
+export function getInjected(conversationId: string): InjectedSectionRow[] {
+  return readOr("getInjected", [], (mdb) =>
+    mdb
+      .select({
+        slug: memoryV3InjectedSections.slug,
+        key: memoryV3InjectedSections.sectionKey,
+        bytes: memoryV3InjectedSections.bytes,
+        injectedAt: memoryV3InjectedSections.injectedAt,
+        prunedAt: memoryV3InjectedSections.prunedAt,
+      })
+      .from(memoryV3InjectedSections)
+      .where(eq(memoryV3InjectedSections.conversationId, conversationId))
+      .orderBy(
+        memoryV3InjectedSections.slug,
+        memoryV3InjectedSections.sectionKey,
+      )
+      .all(),
   );
 }
 
-/** The injection dedup set: slugs whose cards are currently resident. */
-export function getActiveSlugs(conversationId: string): Set<string> {
-  const mdb = memoryDbOrNull("getActiveSlugs");
-  if (!mdb) {
-    return new Set();
-  }
-  const rows = mdb
-    .select({ slug: memoryV3EverInjected.slug })
-    .from(memoryV3EverInjected)
-    .where(
-      and(
-        eq(memoryV3EverInjected.conversationId, conversationId),
-        isNull(memoryV3EverInjected.prunedAt),
-      ),
-    )
-    .all();
-  return new Set(rows.map((row) => row.slug));
+function selectRefs(
+  conversationId: string,
+  pruned: boolean,
+  context: string,
+): SectionRef[] {
+  return readOr(context, [], (mdb) =>
+    mdb
+      .select({
+        slug: memoryV3InjectedSections.slug,
+        key: memoryV3InjectedSections.sectionKey,
+      })
+      .from(memoryV3InjectedSections)
+      .where(
+        and(
+          eq(memoryV3InjectedSections.conversationId, conversationId),
+          pruned
+            ? isNotNull(memoryV3InjectedSections.prunedAt)
+            : isNull(memoryV3InjectedSections.prunedAt),
+        ),
+      )
+      .all(),
+  );
+}
+
+/** The injection dedup set: sections currently resident, keyed by slug. */
+export function getActiveSections(conversationId: string): SectionRefSet {
+  return toSectionRefSet(
+    selectRefs(conversationId, false, "getActiveSections"),
+  );
 }
 
 /** One active (resident) row of the prune valve's candidate set. */
-export interface ActiveInjectedEntry {
-  slug: string;
+export interface ActiveInjectedEntry extends SectionRef {
   bytes: number;
-  /** Epoch ms the card was (last) injected — the recency fallback for slugs
-   *  with no selection rows (e.g. rows copied by a full fork). */
+  /** Epoch ms the section was (last) injected: the recency fallback for
+   *  sections with no matching selection rows (e.g. rows copied by a full
+   *  fork). */
   injectedAt: number;
 }
 
 /**
- * Active (non-pruned) rows with byte and injection-time accounting — the
- * prune valve's candidate set ({@link ActiveInjectedEntry}).
+ * Active (non-pruned) rows with byte and injection-time accounting: the prune
+ * valve's candidate set ({@link ActiveInjectedEntry}).
  */
 export function getActiveEntries(
   conversationId: string,
 ): ActiveInjectedEntry[] {
-  const mdb = memoryDbOrNull("getActiveEntries");
-  if (!mdb) {
-    return [];
-  }
-  return mdb
-    .select({
-      slug: memoryV3EverInjected.slug,
-      bytes: memoryV3EverInjected.bytes,
-      injectedAt: memoryV3EverInjected.injectedAt,
-    })
-    .from(memoryV3EverInjected)
-    .where(
-      and(
-        eq(memoryV3EverInjected.conversationId, conversationId),
-        isNull(memoryV3EverInjected.prunedAt),
-      ),
-    )
-    .all();
+  return readOr("getActiveEntries", [], (mdb) =>
+    mdb
+      .select({
+        slug: memoryV3InjectedSections.slug,
+        key: memoryV3InjectedSections.sectionKey,
+        bytes: memoryV3InjectedSections.bytes,
+        injectedAt: memoryV3InjectedSections.injectedAt,
+      })
+      .from(memoryV3InjectedSections)
+      .where(
+        and(
+          eq(memoryV3InjectedSections.conversationId, conversationId),
+          isNull(memoryV3InjectedSections.prunedAt),
+        ),
+      )
+      .all(),
+  );
 }
 
 /**
- * Slugs currently marked pruned — the card-section skip set shared by the
- * live-history strip and the `loadFromDb` rehydration filter (see
- * `prune.ts` / `daemon/conversation.ts`).
+ * Sections currently marked pruned, keyed by slug: the skip set shared by the
+ * live-history strip and the `loadFromDb` rehydration filter (see `prune.ts`
+ * / `daemon/conversation.ts`).
  */
-export function getPrunedSlugs(conversationId: string): Set<string> {
-  const mdb = memoryDbOrNull("getPrunedSlugs");
-  if (!mdb) {
-    return new Set();
-  }
-  const rows = mdb
-    .select({ slug: memoryV3EverInjected.slug })
-    .from(memoryV3EverInjected)
-    .where(
-      and(
-        eq(memoryV3EverInjected.conversationId, conversationId),
-        isNotNull(memoryV3EverInjected.prunedAt),
-      ),
-    )
-    .all();
-  return new Set(rows.map((row) => row.slug));
+export function getPrunedSections(conversationId: string): SectionRefSet {
+  return toSectionRefSet(selectRefs(conversationId, true, "getPrunedSections"));
 }
 
 /**
- * Upsert this turn's injected cards. Re-recording an existing slug clears
- * `pruned_at` and refreshes `bytes`/`injected_at` — a pruned page that is
- * re-selected re-injects as a fresh card.
+ * Upsert this turn's injected sections. Re-recording an existing pair clears
+ * `pruned_at` and refreshes `bytes`/`injected_at`: a pruned section that is
+ * re-selected re-injects as a fresh entry on the current message. Its older
+ * copies stay in earlier messages' persisted metadata; rehydration and the
+ * live strip keep only the newest persisted copy of a pair
+ * (`newestCopyIndexes` in `prune.ts`), so clearing the tombstone never
+ * revives them.
  */
 export function recordInjected(
   conversationId: string,
-  entries: Array<{ slug: string; bytes: number }>,
+  entries: Array<SectionRef & { bytes: number }>,
   at: number = Date.now(),
 ): void {
   if (entries.length === 0) {
     return;
   }
-  // Best-effort — a derived injection-accounting write must never abort the
+  // Best-effort: a derived injection-accounting write must never abort the
   // agent turn, so a degraded memory connection or a failed statement only
   // logs a warning.
   try {
-    const mdb = memoryDbOrNull("recordInjected");
+    const mdb = memoryDb("recordInjected");
     if (!mdb) {
       return;
     }
     for (const entry of entries) {
       mdb
-        .insert(memoryV3EverInjected)
+        .insert(memoryV3InjectedSections)
         .values({
           conversationId,
           slug: entry.slug,
+          sectionKey: entry.key,
           injectedAt: at,
           bytes: entry.bytes,
           prunedAt: null,
         })
         .onConflictDoUpdate({
           target: [
-            memoryV3EverInjected.conversationId,
-            memoryV3EverInjected.slug,
+            memoryV3InjectedSections.conversationId,
+            memoryV3InjectedSections.slug,
+            memoryV3InjectedSections.sectionKey,
           ],
           set: { injectedAt: at, bytes: entry.bytes, prunedAt: null },
         })
         .run();
     }
   } catch (err) {
-    log.warn({ err }, "failed to record ever-injected cards; continuing");
+    log.warn({ err }, "failed to record injected sections; continuing");
   }
 }
 
+/** Composite keys per tombstone statement. Each key is one `OR` term, and
+ *  SQLite caps expression depth at 1000, so a plan of any size is applied in
+ *  batches well under that. */
+const PRUNE_KEY_BATCH_SIZE = 100;
+
 /**
- * Mark cards pruned from the live context. Rows are never deleted — the
- * record stays auditable and the slugs stay eligible for re-injection.
+ * Mark sections pruned from the live context. Rows are never deleted: the
+ * record stays auditable and the sections stay eligible for re-injection.
+ * The update runs in {@link PRUNE_KEY_BATCH_SIZE}-key batches inside one
+ * transaction, so a large plan neither exceeds SQLite's expression-depth
+ * limit nor leaves a partially applied tombstone set.
  */
 export function markPruned(
   conversationId: string,
-  slugs: string[],
+  refs: SectionRef[],
   at: number,
 ): void {
-  if (slugs.length === 0) {
+  if (refs.length === 0) {
     return;
   }
   try {
-    const mdb = memoryDbOrNull("markPruned");
+    const mdb = memoryDb("markPruned");
     if (!mdb) {
       return;
     }
-    mdb
-      .update(memoryV3EverInjected)
-      .set({ prunedAt: at })
-      .where(
-        and(
-          eq(memoryV3EverInjected.conversationId, conversationId),
-          inArray(memoryV3EverInjected.slug, slugs),
-        ),
-      )
-      .run();
+    mdb.transaction((tx) => {
+      for (let i = 0; i < refs.length; i += PRUNE_KEY_BATCH_SIZE) {
+        const batch = refs.slice(i, i + PRUNE_KEY_BATCH_SIZE);
+        tx.update(memoryV3InjectedSections)
+          .set({ prunedAt: at })
+          .where(
+            and(
+              eq(memoryV3InjectedSections.conversationId, conversationId),
+              or(
+                ...batch.map((ref) =>
+                  and(
+                    eq(memoryV3InjectedSections.slug, ref.slug),
+                    eq(memoryV3InjectedSections.sectionKey, ref.key),
+                  ),
+                ),
+              ),
+            ),
+          )
+          .run();
+      }
+    });
   } catch (err) {
-    log.warn({ err }, "failed to mark ever-injected cards pruned; continuing");
+    log.warn({ err }, "failed to mark injected sections pruned; continuing");
   }
 }
 
 /**
- * Delete the conversation's entire record. Compaction reset: the cached
- * blocks are gone from history, so every slug must become re-injectable.
+ * Delete the conversation's entire record, its legacy card rows included
+ * ({@link deleteLegacyCardRows}: a copy that runs after the reset must not
+ * bring them back). Compaction reset: the cached blocks are gone from
+ * history, so every section must become re-injectable. Both deletes ride
+ * one transaction, so a failed reset leaves the record whole rather than
+ * half-cleared.
  */
 export function clearConversation(conversationId: string): void {
   try {
-    const mdb = memoryDbOrNull("clearConversation");
+    const mdb = memoryDb("clearConversation");
     if (!mdb) {
       return;
     }
-    mdb
-      .delete(memoryV3EverInjected)
-      .where(eq(memoryV3EverInjected.conversationId, conversationId))
-      .run();
+    mdb.transaction((tx) => {
+      tx.delete(memoryV3InjectedSections)
+        .where(eq(memoryV3InjectedSections.conversationId, conversationId))
+        .run();
+      // The legacy table has no schema object: a raw statement on the
+      // transaction's own connection, inside it.
+      deleteLegacyCardRows(mdb.$client, conversationId);
+    });
   } catch (err) {
     log.warn(
       { err },
-      "failed to clear ever-injected record for conversation; continuing",
+      "failed to clear injected-section record for conversation; continuing",
     );
   }
 }
 
-/** Total bytes of resident (non-pruned) cards — the prune-valve input. */
+/** Total bytes of resident (non-pruned) sections: the prune-valve input. */
 export function residentBytes(conversationId: string): number {
-  const mdb = memoryDbOrNull("residentBytes");
-  if (!mdb) {
-    return 0;
-  }
-  const row = mdb
-    .select({
-      total: sql<number>`COALESCE(SUM(${memoryV3EverInjected.bytes}), 0)`,
-    })
-    .from(memoryV3EverInjected)
-    .where(
-      and(
-        eq(memoryV3EverInjected.conversationId, conversationId),
-        isNull(memoryV3EverInjected.prunedAt),
-      ),
-    )
-    .get();
-  return row?.total ?? 0;
+  return readOr(
+    "residentBytes",
+    0,
+    (mdb) =>
+      mdb
+        .select({
+          total: sql<number>`COALESCE(SUM(${memoryV3InjectedSections.bytes}), 0)`,
+        })
+        .from(memoryV3InjectedSections)
+        .where(
+          and(
+            eq(memoryV3InjectedSections.conversationId, conversationId),
+            isNull(memoryV3InjectedSections.prunedAt),
+          ),
+        )
+        .get()?.total ?? 0,
+  );
 }
 
 /**
  * Copy the parent conversation's rows to a new conversation id, pruned state
- * included. No-op if the parent has no rows. Full-history forks only —
- * truncated forks must use `seedEverInjectedFromSlugs` instead.
+ * included. No-op if the parent has no rows. Full-history forks only;
+ * truncated forks must use {@link seedEverInjectedFromBlocks} instead.
  *
  * The rows live on the memory connection, so this writes there rather than on
- * the main fork transaction's handle — the `_db` main handle is unused. The
- * copy is best-effort: an unavailable memory database is a no-op.
+ * the main fork transaction's handle. The copy is best-effort: an unavailable
+ * memory database is a no-op.
  */
 export function forkEverInjected(
   parentConversationId: string,
   newConversationId: string,
 ): void {
   try {
-    const mdb = memoryDbOrNull("forkEverInjected");
+    const mdb = memoryDb("forkEverInjected");
     if (!mdb) {
       return;
     }
     const parentRows = mdb
       .select({
-        slug: memoryV3EverInjected.slug,
-        injectedAt: memoryV3EverInjected.injectedAt,
-        bytes: memoryV3EverInjected.bytes,
-        prunedAt: memoryV3EverInjected.prunedAt,
+        slug: memoryV3InjectedSections.slug,
+        sectionKey: memoryV3InjectedSections.sectionKey,
+        injectedAt: memoryV3InjectedSections.injectedAt,
+        bytes: memoryV3InjectedSections.bytes,
+        prunedAt: memoryV3InjectedSections.prunedAt,
       })
-      .from(memoryV3EverInjected)
-      .where(eq(memoryV3EverInjected.conversationId, parentConversationId))
+      .from(memoryV3InjectedSections)
+      .where(eq(memoryV3InjectedSections.conversationId, parentConversationId))
       .all();
     for (const row of parentRows) {
       mdb
-        .insert(memoryV3EverInjected)
+        .insert(memoryV3InjectedSections)
         .values({ conversationId: newConversationId, ...row })
         .onConflictDoUpdate({
           target: [
-            memoryV3EverInjected.conversationId,
-            memoryV3EverInjected.slug,
+            memoryV3InjectedSections.conversationId,
+            memoryV3InjectedSections.slug,
+            memoryV3InjectedSections.sectionKey,
           ],
           set: {
             injectedAt: row.injectedAt,
@@ -321,83 +484,125 @@ export function forkEverInjected(
         .run();
     }
   } catch (err) {
-    log.warn({ err }, "failed to fork ever-injected record; continuing");
+    log.warn({ err }, "failed to fork injected-section record; continuing");
   }
 }
 
 /**
- * Seed a truncated fork's record from the slugs whose card blocks the child
- * actually inherited (scanned out of the copied messages'
- * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY` metadata). Mirrors
+ * Seed a truncated fork's record from the sections whose blocks the child
+ * actually inherited: the `# memory/concepts/<slug>.md § <key>` and lead
+ * headers scanned out of the copied messages' persisted
+ * `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY` blocks (`blocks`, each with the
+ * format its row's metadata records, see `persistedV3Block` in `prune.ts`;
+ * a wrapped body is unwrapped). Mirrors
  * `seedForkActivationState`: a wholesale copy would over-claim, while seeding
- * nothing would re-attach every inherited card as a duplicate.
+ * nothing would re-attach every inherited section as a duplicate.
  *
- * Rows are stamped `injected_at = at` and `bytes = 0` — the rendered size of
- * inherited cards is unknown, so `residentBytes` accounting restarts from the
- * fork's own injections.
+ * Rows are stamped `injected_at = at` and `bytes` = the byte length of the
+ * section's span in the inherited block (header through body, the measure
+ * `recordInjected` takes from the live render), so the child's resident
+ * accounting starts at what it actually inherited and the valve can evict an
+ * inherited section like any other. A section present in several inherited
+ * blocks (re-injected after a prune) takes its latest span, mirroring the
+ * upsert. An inherited capability chunk (`# Skill: ` / `# CLI command: `)
+ * seeds its capability slug exactly as the injector records one: under the
+ * empty key at zero bytes, dedup-only, so the child never re-injects
+ * capability content that already rides its inherited history.
  *
  * The parent's `pruned_at` tombstones are carried over: pruning leaves the
  * persisted metadata block intact and relies on the tombstone to filter the
  * section out at rehydration, so the metadata scan feeding this seed
- * necessarily sees pruned cards' sections too. Seeding those slugs as active
- * would resurrect parent-pruned cards in the child on its next load (and
+ * necessarily sees pruned sections too. Seeding those as active would
+ * resurrect parent-pruned sections in the child on its next load (and
  * diverge from the full-fork copy path, which preserves tombstones). A
  * tombstoned seed keeps the child's rehydrated view identical to the parent's
  * live view at fork time; re-selection clears the tombstone and re-injects,
  * same as in the parent.
  *
- * No-op when the child inherited no card blocks. The rows live on the memory
- * connection, so this writes there rather than on the main fork transaction's
- * handle — the `_db` main handle is unused, and an unavailable memory database
- * is a best-effort no-op.
+ * A legacy-format block (a pre-stamp row's) is opaque and seeds nothing: the
+ * child rehydrates it verbatim, and a later selection of a section it holds
+ * injects that section afresh beside it, accepted for the one-time window
+ * such rows live in (they leave with the child's first compaction).
+ *
+ * No-op when the child inherited no current-format blocks. The rows live on
+ * the memory connection, so this writes there rather than on the main fork
+ * transaction's handle, and an unavailable memory database is a best-effort
+ * no-op.
  */
-export function seedEverInjectedFromSlugs(
+export function seedEverInjectedFromBlocks(
   parentConversationId: string,
   newConversationId: string,
-  slugs: string[],
+  blocks: ReadonlyArray<InjectedBlock>,
   at: number,
 ): void {
-  if (slugs.length === 0) {
+  const inherited = new Map<string, SectionRef & { bytes: number }>();
+  for (const block of blocks) {
+    if (block.format === "legacy") {
+      continue;
+    }
+    for (const piece of parseInjectedSections(unwrapMemoryBlock(block.inner))
+      .pieces) {
+      if (piece.kind === "section") {
+        inherited.set(`${piece.slug} ${piece.key}`, {
+          slug: piece.slug,
+          key: piece.key,
+          bytes: renderedBytes(piece.text),
+        });
+      } else if (piece.kind === "capability") {
+        const slug = capabilitySlugOf(piece);
+        inherited.set(`${slug} `, { slug, key: "", bytes: 0 });
+      }
+    }
+  }
+  if (inherited.size === 0) {
     return;
   }
   try {
-    const mdb = memoryDbOrNull("seedEverInjectedFromSlugs");
+    const mdb = memoryDb("seedEverInjectedFromBlocks");
     if (!mdb) {
       return;
     }
     const prunedRows = mdb
       .select({
-        slug: memoryV3EverInjected.slug,
-        prunedAt: memoryV3EverInjected.prunedAt,
+        slug: memoryV3InjectedSections.slug,
+        key: memoryV3InjectedSections.sectionKey,
+        prunedAt: memoryV3InjectedSections.prunedAt,
       })
-      .from(memoryV3EverInjected)
+      .from(memoryV3InjectedSections)
       .where(
         and(
-          eq(memoryV3EverInjected.conversationId, parentConversationId),
-          isNotNull(memoryV3EverInjected.prunedAt),
+          eq(memoryV3InjectedSections.conversationId, parentConversationId),
+          isNotNull(memoryV3InjectedSections.prunedAt),
         ),
       )
       .all();
-    const parentPrunedAt = new Map(prunedRows.map((r) => [r.slug, r.prunedAt]));
-    for (const slug of slugs) {
+    const parentPrunedAt = new Map(
+      prunedRows.map((r) => [`${r.slug} ${r.key}`, r.prunedAt]),
+    );
+    for (const [id, { slug, key, bytes }] of inherited) {
       mdb
-        .insert(memoryV3EverInjected)
+        .insert(memoryV3InjectedSections)
         .values({
           conversationId: newConversationId,
           slug,
+          sectionKey: key,
           injectedAt: at,
-          bytes: 0,
-          prunedAt: parentPrunedAt.get(slug) ?? null,
+          bytes,
+          prunedAt: parentPrunedAt.get(id) ?? null,
         })
         .onConflictDoNothing({
           target: [
-            memoryV3EverInjected.conversationId,
-            memoryV3EverInjected.slug,
+            memoryV3InjectedSections.conversationId,
+            memoryV3InjectedSections.slug,
+            memoryV3InjectedSections.sectionKey,
           ],
         })
         .run();
     }
   } catch (err) {
-    log.warn({ err }, "failed to seed forked ever-injected record; continuing");
+    log.warn(
+      { err },
+      "failed to seed forked injected-section record; continuing",
+    );
   }
 }

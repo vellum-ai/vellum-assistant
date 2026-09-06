@@ -49,7 +49,7 @@
  *      The finder tail is NOT deduped against the stable prefix: a finder hit
  *      on a core/hot page keeps its matched-section line (and its
  *      `matchedSections` ref + `lanes.finder` entry), so the selector and the
- *      section spotlight see that page's CURRENT relevance even though the
+ *      section injection see that page's CURRENT relevance even though the
  *      page itself sits in the stable prefix. The selector dedupes selections
  *      by slug.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
@@ -242,13 +242,14 @@ export interface OrchestrateDeps {
    *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
    *  telemetry detail (the gate itself never reads it). */
   realConceptPageCount?: number;
-  /** Slugs already live in this conversation (prior turns' injected cards). Used
-   *  ONLY to compute the `net_new_count` telemetry field — selections minus this
-   *  set are what the injector actually renders. Read-only and side-effect-free:
-   *  selection never consults it, and omitting it just drops the field. The
-   *  injector reads the same store, so the two agree for a turn that has not yet
-   *  committed. */
-  activeSlugs?: ReadonlySet<Slug>;
+  /** Whether a selected page's injection unit for this turn (its matched
+   *  section, or its lead when `section` is undefined) is already resident in
+   *  the conversation. Used ONLY to compute the `net_new_count` telemetry
+   *  field, selections it rejects are what the injector actually renders.
+   *  Read-only and side-effect-free: selection never consults it, and
+   *  omitting it just drops the field. The injector reads the same store, so
+   *  the two agree for a turn that has not yet committed. */
+  isResident?: (slug: Slug, section: Section | undefined) => boolean;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -291,7 +292,7 @@ export interface OrchestrateResult {
   matchedSections: Map<Slug, Section>;
   /** The candidate lanes in cache order; see {@link OrchestrateLanes}. Consumed
    *  by the selection telemetry (lane attribution), the per-turn pool record
-   *  (`pool-log-store.ts`), and the downstream selector rendering/spotlight. */
+   *  (`pool-log-store.ts`), and the downstream selector rendering. */
   lanes: OrchestrateLanes;
   /** Whether the selector LLM judged a non-empty pool this turn (the
    *  `selector_ran` telemetry field). False when the pool was empty, when the
@@ -436,7 +437,7 @@ export async function orchestrate(
 
   // `matchedSections` records the matched `Section` (when one is known) for
   // every finder hit — INCLUDING hits on stable-prefix slugs — for downstream
-  // injection/spotlight. `finder` accumulates one entry per distinct
+  // injection. `finder` accumulates one entry per distinct
   // finder-surfaced article; the first lane to surface a slug wins the entry,
   // so the needle → dense → edge call order encodes lane precedence.
   const matchedSections = new Map<Slug, Section>();
@@ -503,7 +504,7 @@ export async function orchestrate(
   // surfaced keep their primary attribution (`addFinder`'s first-lane-wins
   // dedup); only genuinely reply-surfaced articles tag `"reply"`. Matched
   // sections are recorded the same way as the primary lanes', so injection
-  // and the spotlight render the reply-matched section.
+  // renders the reply-matched section.
   for (const hit of replyNeedled) {
     addFinder(hit.article, sections[hit.section], undefined, "reply");
   }
@@ -578,8 +579,8 @@ export async function orchestrate(
   // reply) already recorded for the SAME page: `addFinder` keeps the first
   // matched section and skips duplicate slugs, so override the matched section
   // and the existing finder descriptor here before delegating, ensuring
-  // injection, the spotlight, and the selector snippet all render the heading
-  // rather than the earlier non-entity match.
+  // injection and the selector snippet both render the heading rather than
+  // the earlier non-entity match.
   if (deps.entityIndex) {
     for (const hit of entityLane(
       deps.entityIndex,
@@ -668,17 +669,21 @@ export async function orchestrate(
   //     candidate was kept without a real judgment. Distinguishes "kept the whole
   //     pool because it gave up" from "explicitly selected a large set", which
   //     otherwise look identical and inflate the same way.
-  //   - net_new: selections not already live in the conversation — the injector
-  //     renders only these (prior turns' cards ride history), so it is the real
+  //   - net_new: selections whose injection unit (matched section, else lead)
+  //     is not already live in the conversation, the injector renders only
+  //     these (prior turns' sections ride history), so it is the real
   //     incremental injection, where `selected_count` re-counts the whole
   //     standing set every turn. Omitted when the caller did not supply
-  //     `activeSlugs` (tests, shadow-less paths).
+  //     `isResident` (tests, shadow-less paths). `sections` is the matched
+  //     map the returned result carries, so the count reads the same unit the
+  //     injector will (a closed gate returns no sections, so it counts leads).
   const selectorRanOver = (poolSize: number): boolean =>
     deps.selectorEnabled !== false && poolSize > 0;
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
     keptAll: boolean,
+    sections: ReadonlyMap<Slug, Section>,
   ): void => {
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
@@ -688,9 +693,9 @@ export async function orchestrate(
       selected_count: selections.length,
       pool_size: poolSize,
     };
-    if (deps.activeSlugs !== undefined) {
+    if (deps.isResident !== undefined) {
       detail.net_new_count = selections.filter(
-        (s) => !deps.activeSlugs!.has(s.slug),
+        (s) => !deps.isResident!(s.slug, sections.get(s.slug)),
       ).length;
     }
     if (deps.realConceptPageCount !== undefined) {
@@ -779,14 +784,14 @@ export async function orchestrate(
               stable: stableOnly,
               finder: [],
             });
-            recordSelection(bypassed, stableOnly.length, keptAll);
+            recordSelection(bypassed, stableOnly.length, keptAll, new Map());
             return closed(bypassed, selectorRanOver(stableOnly.length));
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
           // `selector_ran: false` keeps it out of any relevance rate, and the
           // result's `selectorRan` keeps it out of the persisted pool record.
-          recordSelection([], 0, false);
+          recordSelection([], 0, false, new Map());
           return closed([], false);
         }
       }
@@ -886,7 +891,7 @@ export async function orchestrate(
   );
   const poolSize = stable.length + finderTail.length;
   const { selections, keptAll } = await runSelection(pool);
-  recordSelection(selections, poolSize, keptAll);
+  recordSelection(selections, poolSize, keptAll, matchedSections);
 
   return {
     selections,

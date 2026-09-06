@@ -107,6 +107,7 @@ describe("maintainJob", () => {
       commitEmbedHighWater: () => {
         calls.commit += 1;
       },
+      ensureChunkerVersion: async () => false,
       // Prune stage off by default: no stored articles ⇒ nothing to prune. The
       // dedicated prune tests below override both collaborators.
       listSectionArticles: async () => [],
@@ -146,6 +147,26 @@ describe("maintainJob", () => {
     await maintainJob(JOB, CONFIG, d);
 
     expect(order).toEqual(["ensure", "select"]);
+  });
+
+  test("runs the chunker version guard after ensuring the collection and before selecting deltas", async () => {
+    memoryV3LiveSlot = true;
+    const order: string[] = [];
+    const { deps: d } = deps({
+      ensureSectionCollection: async () => {
+        order.push("ensure");
+      },
+      ensureChunkerVersion: async () => {
+        order.push("version");
+        return false;
+      },
+      selectChangedPages: async () => {
+        order.push("select");
+        return [];
+      },
+    });
+    await maintainJob(JOB, CONFIG, d);
+    expect(order).toEqual(["ensure", "version", "select"]);
   });
 
   test("no-op when v3 is disabled", async () => {
@@ -457,6 +478,237 @@ describe("maintainJob", () => {
     expect(calls.deleted).toEqual([]);
     expect(calls.upserted).toEqual([]);
   });
+
+  test("a version-triggered rebuild re-embeds the capability rows the store holds from their capability bodies, then commits", async () => {
+    memoryV3LiveSlot = true;
+    // The chunker version check reports a rebuild pending. The index lists a
+    // changed page, two capability rows the store already holds (built by the
+    // previous chunker) and one it does not. The delta names only the page,
+    // so the rebuild must refresh the stored capability rows before the
+    // commit releases the dense-read hold; the missing row is the reconcile
+    // stage's, after the commit.
+    const order: string[] = [];
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => true,
+      selectChangedPages: async () => ["page-a"],
+      listIndexedSlugs: async () => [
+        "page-a",
+        "skills/stored",
+        "cli-commands/stored",
+        "skills/missing",
+      ],
+      listSectionArticles: async () => [
+        "page-a",
+        "skills/stored",
+        "cli-commands/stored",
+      ],
+      buildSectionIndex: async (slugs, pageBody) => {
+        order.push(`build:${slugs[0]}:${await pageBody(slugs[0]!)}`);
+        return makeIndex(slugs);
+      },
+      commitEmbedHighWater: () => {
+        order.push("commit");
+        calls.commit += 1;
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(order).toEqual([
+      "build:page-a:body for page-a",
+      "build:skills/stored:capability body for skills/stored",
+      "build:cli-commands/stored:capability body for cli-commands/stored",
+      "commit",
+      "build:skills/missing:capability body for skills/missing",
+    ]);
+    expect(calls.deleted).toEqual([
+      "page-a",
+      "skills/stored",
+      "cli-commands/stored",
+      "skills/missing",
+    ]);
+    expect(outcome.reembedded).toBe(3);
+    expect(outcome.reembedFailures).toBe(0);
+    expect(outcome.capabilitiesReconciled).toBe(1);
+    expect(calls.commit).toBe(1);
+  });
+
+  test("a version-triggered rebuild holds the commit when a stored capability row fails", async () => {
+    memoryV3LiveSlot = true;
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => true,
+      selectChangedPages: async () => ["page-a"],
+      listIndexedSlugs: async () => ["page-a", "skills/bad", "skills/good"],
+      listSectionArticles: async () => ["page-a", "skills/bad", "skills/good"],
+      upsertSections: async (_config, sections) => {
+        if (sections.some((s) => s.article === "skills/bad")) {
+          throw new Error("embed boom");
+        }
+        calls.upserted.push(sections);
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    // The page and the good row were refreshed; the failed row's points are
+    // gone (delete-then-upsert), so the commit that would release the
+    // dense-read hold is held and the next pass retries the rebuild.
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "page-a",
+      "skills/good",
+    ]);
+    expect(outcome.reembedded).toBe(2);
+    expect(outcome.reembedFailures).toBe(1);
+    expect(calls.commit).toBe(0);
+  });
+
+  test("a version-triggered rebuild holds the commit for a cold stored capability row the page index still lists, keeping its points", async () => {
+    memoryV3LiveSlot = true;
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => true,
+      listIndexedSlugs: async () => ["skills/cold", "skills/warm"],
+      listSectionArticles: async () => ["skills/cold", "skills/warm"],
+      readCapabilityBody: async (slug) =>
+        slug === "skills/cold" ? "" : `capability body for ${slug}`,
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    // The cold row's points were built by the previous chunker, so a commit
+    // over them would release the dense-read hold onto ordinals that can
+    // name the wrong section: the points are kept (never replaced with a
+    // blank) and the commit waits for a pass that rebuilds or removes the
+    // row.
+    expect(calls.deleted).toEqual(["skills/warm"]);
+    expect(outcome.reembedded).toBe(1);
+    expect(outcome.reembedFailures).toBe(0);
+    expect(outcome.unrebuiltCapabilityRows).toEqual(["skills/cold"]);
+    expect(calls.commit).toBe(0);
+  });
+
+  test("a version-triggered rebuild re-embeds a stored capability row the page index does not list", async () => {
+    memoryV3LiveSlot = true;
+    // An index built while this process's capability caches are unseeded
+    // lists no capability row; the stored row still carries the previous
+    // chunker's points and is rebuilt from its body all the same.
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => true,
+      listIndexedSlugs: async () => ["page-a", "skills/stored"],
+      listSectionArticles: async () => ["page-a", "skills/stored"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(calls.built).toEqual([["skills/stored"]]);
+    expect(outcome.reembedded).toBe(1);
+    expect(outcome.unrebuiltCapabilityRows).toEqual([]);
+    expect(calls.commit).toBe(1);
+  });
+
+  test("a later pass whose capability cache resolves the cold row rebuilds it and clears the rebuild", async () => {
+    memoryV3LiveSlot = true;
+    let seeded = false;
+    const { deps: d, calls } = deps({
+      // Pending until a pass commits, as the real marker is.
+      ensureChunkerVersion: async () => calls.commit === 0,
+      listIndexedSlugs: async () => ["skills/cold"],
+      listSectionArticles: async () => ["skills/cold"],
+      readCapabilityBody: async (slug) =>
+        seeded ? `capability body for ${slug}` : "",
+    });
+
+    const held = await maintainJob(JOB, CONFIG, d);
+    expect(held.unrebuiltCapabilityRows).toEqual(["skills/cold"]);
+    expect(calls.deleted).toEqual([]);
+    expect(calls.commit).toBe(0);
+
+    seeded = true;
+    const rebuilt = await maintainJob(JOB, CONFIG, d);
+    expect(rebuilt.reembedded).toBe(1);
+    expect(rebuilt.unrebuiltCapabilityRows).toEqual([]);
+    expect(calls.deleted).toEqual(["skills/cold"]);
+    expect(calls.commit).toBe(1);
+
+    // With the marker cleared the next pass is ordinary: the stored
+    // capability row is left alone.
+    const ordinary = await maintainJob(JOB, CONFIG, d);
+    expect(ordinary.reembedded).toBe(0);
+    expect(calls.commit).toBe(2);
+  });
+
+  test("a stored capability row the page index no longer lists leaves the store at the deleted-page prune, which settles the deferred commit in the same pass", async () => {
+    memoryV3LiveSlot = true;
+    const order: string[] = [];
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => true,
+      listIndexedSlugs: async () => ["page-a", "skills/warm"],
+      listSectionArticles: async () => ["page-a", "skills/gone", "skills/warm"],
+      readCapabilityBody: async (slug) =>
+        slug === "skills/gone" ? "" : `capability body for ${slug}`,
+      deleteSectionsForArticle: async (_config, article) => {
+        order.push(`delete:${article}`);
+        calls.deleted.push(article);
+      },
+      commitEmbedHighWater: () => {
+        order.push("commit");
+        calls.commit += 1;
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    // The warm row is rebuilt; the gone row renders empty (no capability
+    // resolves it) and is not blanked, then the prune removes its stale
+    // points because the index no longer lists it, and only then does the
+    // pass commit: no point built by the previous chunker survives the
+    // marker's clearing.
+    expect(order).toEqual([
+      "delete:skills/warm",
+      "delete:skills/gone",
+      "commit",
+    ]);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "skills/warm",
+    ]);
+    expect(outcome.pruned).toBe(1);
+    expect(outcome.unrebuiltCapabilityRows).toEqual([]);
+    expect(calls.commit).toBe(1);
+  });
+
+  test("a stored capability row the deleted-page prune could not remove keeps the rebuild held", async () => {
+    memoryV3LiveSlot = true;
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => true,
+      listIndexedSlugs: async () => [],
+      listSectionArticles: async () => ["skills/gone"],
+      readCapabilityBody: async () => "",
+      deleteSectionsForArticle: async (_config, article) => {
+        throw new Error(`delete boom: ${article}`);
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.pruneFailures).toBe(1);
+    expect(outcome.unrebuiltCapabilityRows).toEqual(["skills/gone"]);
+    expect(calls.commit).toBe(0);
+  });
+
+  test("an ordinary pass (no rebuild pending) leaves the stored capability rows alone", async () => {
+    memoryV3LiveSlot = true;
+    const { deps: d, calls } = deps({
+      ensureChunkerVersion: async () => false,
+      selectChangedPages: async () => ["page-a"],
+      listIndexedSlugs: async () => [
+        "page-a",
+        "skills/stored",
+        "skills/missing",
+      ],
+      listSectionArticles: async () => ["page-a", "skills/stored"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    // Only the changed page and the missing row are embedded; a stored
+    // capability row is touched only by a version rebuild.
+    expect(calls.built).toEqual([["page-a"], ["skills/missing"]]);
+    expect(outcome.reembedded).toBe(1);
+    expect(outcome.capabilitiesReconciled).toBe(1);
+    expect(calls.commit).toBe(1);
+  });
 });
 
 describe("computeChangedPages", () => {
@@ -549,6 +801,7 @@ describe("backfillAllSections", () => {
       commitEmbedHighWater: (ms) => {
         calls.committed.push(ms);
       },
+      ensureChunkerVersion: async () => false,
       nowMs: () => 4242,
       embedProbe: async () => {
         calls.probed += 1;
@@ -847,6 +1100,7 @@ describe("maintainJob skill usage-prune", () => {
       },
       upsertSections: async () => {},
       commitEmbedHighWater: () => {},
+      ensureChunkerVersion: async () => false,
       listSectionArticles: async () => [],
       listIndexedSlugs: async () => [],
       loadCoreSet: () => [],

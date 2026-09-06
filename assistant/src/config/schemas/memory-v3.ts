@@ -144,43 +144,12 @@ export const MemoryV3LearnedEdgesSchema = z
   );
 
 /**
- * Per-turn section-spotlight tuning: how many of the current turn's selected
- * finder hits render their matched section into the `<memory_spotlight>`
- * block, and how many previous turns' spotlight entries are carried along
- * before they age out. Each turn keeps the block it was sent with. A new
- * spotlight is added only on the new tail. Size is bounded by
- * `n × (windowTurns + 1)` entries.
- */
-export const MemoryV3SpotlightSchema = z
-  .object({
-    n: z
-      .number({ error: "memory.v3.spotlight.n must be a number" })
-      .int("memory.v3.spotlight.n must be an integer")
-      .positive("memory.v3.spotlight.n must be a positive integer")
-      .default(6)
-      .describe(
-        "Number of the current turn's selected finder hits whose matched sections render into the spotlight block.",
-      ),
-    windowTurns: z
-      .number({ error: "memory.v3.spotlight.windowTurns must be a number" })
-      .int("memory.v3.spotlight.windowTurns must be an integer")
-      .nonnegative(
-        "memory.v3.spotlight.windowTurns must be a non-negative integer",
-      )
-      .default(2)
-      .describe(
-        "Number of previous turns whose spotlight entries are carried into the current block before aging out (0 = current turn only).",
-      ),
-  })
-  .describe("Memory v3 ephemeral section-spotlight tuning.");
-
-/**
- * Prune-valve bounds on the resident (non-pruned) frozen-card footprint.
+ * Prune-valve bounds on the resident (non-pruned) frozen-section footprint.
  *
- * Frozen cards accumulate in history with no per-turn bound, so the valve is
- * the structural backstop: once resident card bytes exceed
- * `maxResidentBytes`, the least-recently-selected non-core/non-hot cards are
- * pruned until the footprint is back at `targetResidentBytes`.
+ * Frozen sections accumulate in history with no per-turn bound, so the valve
+ * is the structural backstop: once resident section bytes exceed
+ * `maxResidentBytes`, the least-recently-selected sections are pruned, with
+ * no lane exemptions, until the footprint is back at `targetResidentBytes`.
  *
  * Defaults rationale: production v2 ran 303KB of accumulated memory unpruned
  * on the widest observed conversation — 384KB max / 256KB target make the
@@ -194,7 +163,7 @@ export const MemoryV3PruneSchema = z
       .positive("memory.v3.prune.maxResidentBytes must be a positive integer")
       .default(393216 /* 384KB */)
       .describe(
-        "Resident (non-pruned) card bytes above which the prune valve fires.",
+        "Resident (non-pruned) injected-section bytes above which the prune valve fires.",
       ),
     targetResidentBytes: z
       .number({
@@ -206,14 +175,14 @@ export const MemoryV3PruneSchema = z
       )
       .default(262144 /* 256KB */)
       .describe(
-        "Resident card bytes a fired prune reduces the footprint to (must be below maxResidentBytes).",
+        "Resident injected-section bytes a fired prune reduces the footprint to (must be below maxResidentBytes).",
       ),
   })
   .refine((value) => value.targetResidentBytes < value.maxResidentBytes, {
     error:
       "memory.v3.prune.targetResidentBytes must be less than memory.v3.prune.maxResidentBytes",
   })
-  .describe("Memory v3 prune-valve (resident card footprint) bounds.");
+  .describe("Memory v3 prune-valve (resident section footprint) bounds.");
 
 /**
  * Entity-lane tuning: the heading-anchored named-entity match. A distinctive
@@ -330,10 +299,12 @@ export const MemoryV3GateSchema = z
     "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when `enabled` is on).",
   );
 
-// NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
-// per-turn carry set) used to live here. Existing user config files may still
-// contain the key; zod default unknown-key stripping accepts and ignores it,
-// so legacy configs keep parsing. Do not make this object `.strict()`.
+// NOTE: retired sub-configs (`workingSet`, the maxPages/evictWindow of the old
+// per-turn carry set, and the `n`/`windowTurns` tuning of the retired
+// per-turn section window) are absent here on purpose. Existing user config
+// files may still contain those keys; zod default unknown-key stripping
+// accepts and ignores them, so legacy configs keep parsing. Do not make this
+// object `.strict()`.
 //
 // The retrieval tuning defaults across these sub-schemas (hotSet.k, freshSet.k,
 // learnedEdges.cap, edge.{seedCount,perSeed,cap}) and the top-level needleK /
@@ -355,9 +326,6 @@ export const MemoryV3ConfigSchema = z
     freshSet: MemoryV3FreshSetSchema.default(MemoryV3FreshSetSchema.parse({})),
     learnedEdges: MemoryV3LearnedEdgesSchema.default(
       MemoryV3LearnedEdgesSchema.parse({}),
-    ),
-    spotlight: MemoryV3SpotlightSchema.default(
-      MemoryV3SpotlightSchema.parse({}),
     ),
     needleK: z
       .number({ error: "memory.v3.needleK must be a number" })

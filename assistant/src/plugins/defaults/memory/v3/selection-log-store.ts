@@ -7,13 +7,14 @@
  * after the fact.
  *
  * The rendered text is inspector-only and NOT byte-identical to live injection:
- * the live injector freezes net-new compact CARDS into history
- * (`renderV3CardContent`) plus an ephemeral spotlight. Here we re-render each
- * selection's MATCHED SECTION — resolved from the persisted `(slug, ordinal)`
- * against the current page — when one was recorded, falling back to the
- * full/lead page otherwise. Section text is re-derived from the current page,
- * so it reflects bounded page-drift if the page changed since the turn (the
- * same approximation the v2 inspector accepts).
+ * the live injector freezes only the turn's NET-NEW sections into history and
+ * points at the rest. Here we re-render EVERY selection with the injector's
+ * own entry renderer (`renderV3InjectionEntry`): the MATCHED SECTION resolved
+ * from the persisted section key (title and ordinal for rows recorded before
+ * keys were persisted) against the current page when one was recorded, the
+ * page's lead otherwise. Section text is re-derived from the
+ * current page, so it reflects bounded page-drift if the page changed since
+ * the turn (the same approximation the v2 inspector accepts).
  *
  * The log also carries the turn's candidate `pool` (`memory_v3_pools`, read by
  * the resolved rows' `(conversation, turn)` so it is always the same turn as
@@ -28,21 +29,25 @@ import type { MemoryV3SelectionLog } from "../../../../api/responses/memory-v3-s
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import { memorySqliteOrNull } from "../memory-db.js";
+import { getLogger } from "../logging.js";
+import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
+import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
-import { renderV3SectionContent } from "./page-content.js";
+import { renderV3InjectionEntry } from "./page-content.js";
+import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
 import {
   type PoolRecord,
   readPoolForMessageIds,
   readPoolForTurn,
 } from "./pool-log-store.js";
-import { renderMemoryBlock } from "./render-injection.js";
+import { renderInjectionBlockInner } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
 import {
   type Section,
+  sectionKey,
   SELECTION_SOURCES,
   type SelectionSource,
   type Slug,
@@ -55,46 +60,86 @@ interface SelectionRow {
   source: string;
   section_ordinal: number | null;
   section_title: string | null;
+  /** The matched section's `sectionKey`; null for rows recorded before the
+   *  column existed and for selections with no matched section. */
+  section_key: string | null;
 }
 
-const SELECTION_COLUMNS = `conversation_id, turn, slug, source, section_ordinal, section_title`;
+const SELECTION_COLUMNS = `conversation_id, turn, slug, source, section_ordinal, section_title, section_key`;
 
-function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
-  const raw = memorySqliteOrNull("rowsForTurn");
+const log = getLogger("memory-v3-selection-log-store");
+
+let readFailureWarned = false;
+
+/**
+ * Run a selection-log read against the memory connection, its plugin-owned
+ * `section_key` column ensured on the connection's first use in this process
+ * (`plugin-schema.ts`), degrading to no rows when the connection is
+ * unavailable or the statement fails. The ensure is fail-open, so on a
+ * database whose ALTER failed (a schema lock, read-only storage) the column
+ * is missing and the read throws; the inspector then shows no v3 diagnostic
+ * rather than failing its route. Warns once per process.
+ */
+function readSelectionRows(
+  context: string,
+  read: (raw: MemorySqlite) => SelectionRow[],
+): SelectionRow[] {
+  const raw = memorySqliteOrNull(context);
   if (!raw) {
     return [];
   }
-  return raw
-    .query(
-      /*sql*/ `
-      SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
-      WHERE conversation_id = ? AND turn = ?
-      ORDER BY rowid
-    `,
-    )
-    .all(conversationId, turn) as SelectionRow[];
+  ensureMemoryV3SelectionsSectionKeyOnce(raw);
+  try {
+    return read(raw);
+  } catch (err) {
+    if (!readFailureWarned) {
+      readFailureWarned = true;
+      log.warn(
+        { err, context },
+        "memory-v3 selection read failed; the inspector shows no v3 selection",
+      );
+    }
+    return [];
+  }
+}
+
+function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
+  return readSelectionRows(
+    "rowsForTurn",
+    (raw) =>
+      raw
+        .query(
+          /*sql*/ `
+          SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
+          WHERE conversation_id = ? AND turn = ?
+          ORDER BY rowid
+        `,
+        )
+        .all(conversationId, turn) as SelectionRow[],
+  );
 }
 
 /** The selection rows stamped with any of the given message ids, or `null`
- *  when there are none (including when the memory connection is unavailable). */
+ *  when there are none (including when the memory connection is unavailable
+ *  or the read degraded). */
 function rowsForMessageIds(messageIds: string[]): SelectionRow[] | null {
   if (messageIds.length === 0) {
     return null;
   }
-  const raw = memorySqliteOrNull("rowsForMessageIds");
-  if (!raw) {
-    return null;
-  }
   const placeholders = messageIds.map(() => "?").join(", ");
-  const rows = raw
-    .query(
-      /*sql*/ `
-      SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
-      WHERE message_id IN (${placeholders})
-      ORDER BY rowid
-    `,
-    )
-    .all(...messageIds) as SelectionRow[];
+  const rows = readSelectionRows(
+    "rowsForMessageIds",
+    (raw) =>
+      raw
+        .query(
+          /*sql*/ `
+          SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
+          WHERE message_id IN (${placeholders})
+          ORDER BY rowid
+        `,
+        )
+        .all(...messageIds) as SelectionRow[],
+  );
   return rows.length > 0 ? rows : null;
 }
 
@@ -158,18 +203,60 @@ function viaForkSource<T>(
 }
 
 /**
- * Resolve each selection's persisted matched section `(slug, ordinal)` to the
- * concrete `Section` in the CURRENT page, so the injected block renders the
- * matched section rather than the full page. Only slugs with a recorded ordinal
- * are resolved (core/hot/fresh/edge selections have none and render full-page).
- * A page edited since the turn re-derives the current section at that ordinal,
- * or falls back to full-page when the ordinal no longer exists.
+ * The current section a persisted selection row names. A row recorded with
+ * a `section_key` resolves to the current section carrying exactly that key
+ * (`sectionKey` in `types.ts`: title, heading occurrence, and chunk), so an
+ * edit or re-chunk of an earlier occurrence of a repeated heading can never
+ * redirect it to another occurrence; a key no longer on the page resolves to
+ * nothing (the lead renders instead). A row recorded before keys were
+ * persisted resolves by its title: chunk counts and ordinals shift whenever
+ * a page is edited or the chunker changes, so it takes the current section
+ * carrying its `section_title`, the recorded ordinal only choosing among
+ * repeated headings or chunks of that title when it still points at one of
+ * them and the first occurrence otherwise. A row with neither falls back to
+ * the ordinal alone.
+ */
+function resolveRecordedSection(
+  index: Awaited<ReturnType<typeof buildSectionIndex>>,
+  row: SelectionRow,
+): Section | undefined {
+  const sections = (index.byArticle.get(row.slug) ?? []).map(
+    (i) => index.sections[i]!,
+  );
+  if (row.section_key !== null) {
+    return sections.find((section) => sectionKey(section) === row.section_key);
+  }
+  if (row.section_title === null) {
+    return row.section_ordinal === null
+      ? undefined
+      : sectionByOrdinal(index, row.slug, row.section_ordinal);
+  }
+  const titled = sections.filter(
+    (section) => section.title === row.section_title,
+  );
+  return (
+    titled.find((section) => section.ordinal === row.section_ordinal) ??
+    titled[0]
+  );
+}
+
+/**
+ * Resolve each selection's persisted matched section to the concrete
+ * `Section` in the CURRENT page (see {@link resolveRecordedSection}), so the
+ * injected block renders the matched section rather than the lead. Only rows
+ * that recorded a section (a key, a title, or an ordinal) are resolved; core,
+ * hot, fresh, and edge selections record none and render the lead.
  */
 async function reconstructMatchedSections(
   rows: SelectionRow[],
 ): Promise<Map<Slug, Section>> {
   const sectionSlugs = rows
-    .filter((r) => r.section_ordinal != null)
+    .filter(
+      (r) =>
+        r.section_key != null ||
+        r.section_ordinal != null ||
+        r.section_title != null,
+    )
     .map((r) => r.slug);
   if (sectionSlugs.length === 0) {
     return new Map();
@@ -188,10 +275,7 @@ async function reconstructMatchedSections(
 
   const sectionBySlug = new Map<Slug, Section>();
   for (const row of rows) {
-    if (row.section_ordinal == null) {
-      continue;
-    }
-    const section = sectionByOrdinal(index, row.slug, row.section_ordinal);
+    const section = resolveRecordedSection(index, row);
     if (section) {
       sectionBySlug.set(row.slug, section);
     }
@@ -255,11 +339,17 @@ async function buildSelectionLog(
   }));
   const slugs: Slug[] = selections.map((s) => s.slug);
   const sectionBySlug = await reconstructMatchedSections(rows);
-  const injectedText = await renderMemoryBlock(
-    slugs,
-    sectionBySlug,
-    renderV3SectionContent,
-  );
+  // Each entry is an independent page read; the rendered block keeps `slugs`
+  // order regardless of which resolves first.
+  const entries = (
+    await Promise.all(
+      slugs.map((slug) =>
+        renderV3InjectionEntry(slug, sectionBySlug.get(slug)),
+      ),
+    )
+  ).filter((entry) => entry.length > 0);
+  const inner = renderInjectionBlockInner(entries);
+  const injectedText = inner.length === 0 ? "" : wrapMemoryBlock(inner);
 
   return {
     turn: first.turn,

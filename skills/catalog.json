@@ -1165,7 +1165,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-27T18:18:10.000Z"
+      "updatedAt": "2026-09-05T21:46:38.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
@@ -1179,7 +1179,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-04T16:14:06.000Z"
+      "updatedAt": "2026-09-04T16:57:56.000Z"
     },
     {
       "id": "vellum-self-knowledge",

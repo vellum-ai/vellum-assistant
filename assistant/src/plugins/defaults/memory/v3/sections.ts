@@ -12,15 +12,55 @@ import type { Section, SectionIndex, Slug } from "./types.js";
 
 /**
  * Max `Section.text` length in characters. Sections longer than this are split
- * into multiple ordered `Section`s sharing the same `(article, ordinal)` so the
- * embedding backend never receives an over-window input.
+ * into multiple ordered `Section`s, each keyed by its chunk index, so the
+ * embedding backend never receives an over-window input. Every chunk carries
+ * the synthetic head line plus a slice of the section body; the head line's
+ * title is capped at {@link SECTION_HEAD_TITLE_CHARS} so the body slice always
+ * keeps most of the window.
  */
 export const SECTION_CHUNK_CHARS = 6000;
+
+/**
+ * Max characters of a section title carried in the synthetic head line. A few
+ * hundred is plenty for lexical and dense matching, and the cap keeps a
+ * runaway heading from eating the chunk window: the body budget is the window
+ * minus the head line, so an uncapped heading at the window would leave one
+ * character per chunk and explode the section into thousands of chunks.
+ * `Section.title` itself is never truncated: keys and renders use the full
+ * heading.
+ */
+export const SECTION_HEAD_TITLE_CHARS = 200;
 
 /** Last `/`- or `.`-delimited segment of a slug (used for the head line). */
 function lastSlugSegment(slug: Slug): string {
   const segments = slug.split(/[/.]/);
   return segments[segments.length - 1] ?? slug;
+}
+
+/**
+ * The synthetic head line prepended to a section's text for lexical and dense
+ * matching: the slug's last segment and the section title, so a query naming
+ * either scores the section. The injection renderer strips it back off via
+ * {@link sectionBody}.
+ */
+export function sectionHeadLine(article: Slug, title: string): string {
+  return `${lastSlugSegment(article)} - ${title.slice(0, SECTION_HEAD_TITLE_CHARS)}`;
+}
+
+/**
+ * A section's text without its synthetic head line. Every chunk of a split
+ * section carries the head line, but a hand-built section may not, so the
+ * strip is keyed on the text actually starting with it.
+ */
+export function sectionBody(section: Section): string {
+  const head = sectionHeadLine(section.article, section.title);
+  if (section.text === head) {
+    return "";
+  }
+  if (section.text.startsWith(`${head}\n`)) {
+    return section.text.slice(head.length + 1);
+  }
+  return section.text;
 }
 
 interface RawSection {
@@ -53,22 +93,23 @@ function splitIntoRawSections(body: string): RawSection[] {
 }
 
 /**
- * Split `text` into chunks no longer than `SECTION_CHUNK_CHARS`, preferring to
- * break on newlines so chunks stay readable. Order is preserved.
+ * Split `text` into chunks no longer than `limit`, preferring to break on
+ * newlines so chunks stay readable. A single line longer than the limit is
+ * hard-split at the limit. Order is preserved.
  */
-function chunkText(text: string): string[] {
-  if (text.length <= SECTION_CHUNK_CHARS) {
+function chunkText(text: string, limit: number): string[] {
+  if (text.length <= limit) {
     return [text];
   }
 
   const chunks: string[] = [];
   let remaining = text;
-  while (remaining.length > SECTION_CHUNK_CHARS) {
-    const window = remaining.slice(0, SECTION_CHUNK_CHARS);
+  while (remaining.length > limit) {
+    const window = remaining.slice(0, limit);
     const newlineBreak = window.lastIndexOf("\n");
     // Only break on a newline if it leaves a non-trivial chunk; otherwise hard
     // split at the window boundary to guarantee forward progress.
-    const breakAt = newlineBreak > 0 ? newlineBreak : SECTION_CHUNK_CHARS;
+    const breakAt = newlineBreak > 0 ? newlineBreak : limit;
     chunks.push(remaining.slice(0, breakAt));
     remaining = remaining.slice(breakAt).replace(/^\n/, "");
   }
@@ -76,6 +117,38 @@ function chunkText(text: string): string[] {
     chunks.push(remaining);
   }
   return chunks;
+}
+
+/**
+ * A raw section's indexed text chunks: the body split to what the embedding
+ * window leaves after the synthetic head line, with the head line prepended
+ * to every chunk. Chunking the body rather than the head-plus-body text
+ * guarantees no chunk is ever head-only: a first body line longer than the
+ * window hard-splits at the window instead of leaving chunk 0 with nothing
+ * for the injection renderer (`sectionBody`) to show.
+ */
+function rawSectionChunks(article: Slug, raw: RawSection): string[] {
+  const head = sectionHeadLine(article, raw.title);
+  // The capped title keeps the budget near the window; the floor only guards
+  // a pathological slug segment, since a zero limit would never advance.
+  const limit = Math.max(1, SECTION_CHUNK_CHARS - head.length - 1);
+  return chunkText(raw.body, limit).map((chunk) => `${head}\n${chunk}`);
+}
+
+/**
+ * The lead section (ordinal 0) of one page body, built by the same split and
+ * chunk rules as {@link buildSectionIndex} so its text and key are exactly
+ * the index's own lead for that page. For callers that need a single page's
+ * lead (the injector's unmatched-page fallback) without indexing the corpus.
+ */
+export function leadSectionOfBody(article: Slug, body: string): Section {
+  const raw = splitIntoRawSections(body)[0]!;
+  return {
+    article,
+    title: raw.title,
+    text: rawSectionChunks(article, raw)[0]!,
+    ordinal: 0,
+  };
 }
 
 export async function buildSectionIndex(
@@ -87,18 +160,24 @@ export async function buildSectionIndex(
   // Sort slugs so the flat `sections` array is deterministic across runs.
   for (const article of [...slugs].sort((a, b) => a.localeCompare(b))) {
     const body = await pageBody(article);
-    const segment = lastSlugSegment(article);
 
     let ordinal = 0;
+    // Per-title occurrence counter over HEADINGS, not chunks: the n-th repeat
+    // of a heading keys as `title#<n>`, and the chunks of one heading key as
+    // `~<chunk>` on top of that, so re-chunking a heading never renumbers a
+    // later repeat of it (see `sectionKey` in `types.ts`).
+    const occurrences = new Map<string, number>();
     for (const raw of splitIntoRawSections(body)) {
-      const head = `${segment} — ${raw.title}`;
-      const fullText = `${head}\n${raw.body}`;
-      for (const chunk of chunkText(fullText)) {
+      const occurrence = occurrences.get(raw.title) ?? 0;
+      occurrences.set(raw.title, occurrence + 1);
+      for (const [chunk, text] of rawSectionChunks(article, raw).entries()) {
         sections.push({
           article,
           title: raw.title,
-          text: chunk,
+          text,
           ordinal: ordinal++,
+          ...(occurrence > 0 ? { occurrence } : {}),
+          ...(chunk > 0 ? { chunk } : {}),
         });
       }
     }

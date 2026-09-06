@@ -26,7 +26,7 @@
  * already-injected pages are NOT filtered out of the pool — that would change
  * the stable prefix per conversation state and bust the cache. Re-selecting
  * an injected page is harmless (injection dedup happens downstream) and feeds
- * hot-set frecency + spotlight eligibility. A page may appear BOTH as a
+ * hot-set frecency + section injection. A page may appear BOTH as a
  * stable-prefix card and as a finder line (its current matched section);
  * selections are deduped by slug.
  *
