@@ -38,11 +38,7 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
-import {
-  isSkillSlug,
-  SKILL_SLUG_PREFIX,
-  skillSlugFor,
-} from "./capability-slugs.js";
+import { SKILL_SLUG_PREFIX, skillSlugFor } from "./capability-slugs.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,
@@ -62,10 +58,6 @@ import { resolveSubstrateTuning } from "./tuning.js";
 import type { SkillEntry } from "./types.js";
 
 const log = getLogger("memory-v2-skill-store");
-
-/** Slug grammar of the skill rows (defined in the dependency-free
- *  `capability-slugs.ts` leaf; re-exported here for the store's callers). */
-export { isSkillSlug, SKILL_SLUG_PREFIX, skillSlugFor };
 
 /**
  * Payload discriminator written on every skill-seeded Qdrant point. Keeps

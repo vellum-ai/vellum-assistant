@@ -2,113 +2,63 @@
  * The memory-v3 {@link Injector}s: frozen net-new sections + per-turn pointer.
  *
  * Two injectors share one orchestration result per turn (memoized via
- * {@link observeTurnOnce} so re-entry assemblies — overflow convergence,
- * post-compaction re-injection — reuse the turn's selections instead of
+ * {@link observeTurnOnce}, so re-entry assemblies, overflow convergence and
+ * post-compaction re-injection, reuse the turn's selections instead of
  * re-running the selector):
  *
  *  - {@link memoryV3Injector} (id `memory-v3`, `after-memory-prefix`): the
  *    PERSISTENT layer. The injection unit is the SECTION: each selected page
  *    contributes every section selected for it, or its lead when it was
  *    selected with none (a capability slug contributes its whole capability
- *    content). Renders only this turn's NET-NEW sections, pairs
+ *    content). It renders only this turn's NET-NEW units, the pairs
  *    `(slug, section key)` not already active in the section store, inside
- *    one `<memory>` block and returns the block. The resident pairs are
- *    stamped with the turn's selection time (`touchSelected`, the prune
- *    valve's recency) synchronously at classification, before the page reads
- *    yield: a valve queued by an earlier turn's commit fires on a timer and
- *    can run while those reads are awaited, so it ranks this turn's recency
- *    rather than the stale one, and a turn whose net-new pairs all render
- *    empty (no block, no commit) still stamps them. The stamp is a recency
- *    bump, never a claim, so a turn whose block does not attach bumps
- *    harmlessly. The net-new record (`recordInjected`) and the prune-valve
- *    schedule are DEFERRED to a commit callback the block carries
- *    (`meta[MEMORY_V3_COMMIT_META_KEY]`): runtime assembly invokes it only
- *    when the turn's tail is a user message (the same gate as metadata
- *    capture), so a turn whose block silently fails to attach never claims
- *    its sections in the store (which would suppress them until compaction).
- *    Runtime assembly splices the block onto the
- *    current user message and the user-prompt-submit hook persists the
- *    unwrapped inner text under `metadata.memoryV3InjectedBlock`;
- *    `conversation.ts` rehydrates it on load. The block is FROZEN thereafter:
- *    prior turns' section blocks stay byte-identical in history, so they ride
- *    the provider's cached prefix and survive restarts, mirroring v2's
- *    `memoryInjectedBlock` mechanism. An all-repeat turn returns an
- *    EMPTY-TEXT block: assembly attaches nothing, but the block's presence
- *    still keys v2 suppression (v3 ran and owns the `<memory>` layer this
- *    turn). A `null` return (failure / empty selection / every net-new
- *    section rendered empty) attaches no v3 block: under `memory-v3-live` the
- *    user-prompt-submit hook skips v2 retrieval entirely, so a null return
- *    leaves the turn with no NEW injected memory (prior turns' frozen
- *    sections still ride history).
+ *    one `<memory>` block. The resident pairs are stamped with the turn's
+ *    selection time (`touchSelected`, the prune valve's recency); the
+ *    net-new record (`recordInjected`) and the valve schedule are DEFERRED
+ *    to a commit callback the block carries
+ *    (`meta[MEMORY_V3_COMMIT_META_KEY]`), which runtime assembly invokes
+ *    only when the block attached to a user tail, so a block that fails to
+ *    attach never claims its sections (which would suppress them until
+ *    compaction). The user-prompt-submit hook persists the unwrapped text
+ *    under `metadata.memoryV3InjectedBlock` and `conversation.ts` rehydrates
+ *    it on load. The block is FROZEN thereafter: prior turns' blocks stay
+ *    byte-identical in history, ride the provider's cached prefix, and
+ *    survive restarts, mirroring v2's `memoryInjectedBlock`. An all-repeat
+ *    turn returns an EMPTY-TEXT block: assembly attaches nothing, but its
+ *    presence keys v2 suppression. A `null` return (failure, empty
+ *    selection, every net-new section rendered empty) attaches no v3 block,
+ *    and since the hook skips v2 retrieval under `memory-v3-live` the turn
+ *    gets no NEW injected memory (prior turns' frozen sections still ride
+ *    history).
  *
  *  - {@link memoryV3PointerInjector} (id `memory-v3-pointer`,
  *    `after-memory-prefix`): the per-turn pointer layer. Lists this turn's
- *    selected sections that are ALREADY resident in history (selected again,
- *    not injected net-new this turn) as a `<memory_pointer>` block of
- *    `memory/concepts/<slug>.md § <key>` lines, no bodies, so the model knows
- *    which frozen sections the turn is about. The entries are re-validated
- *    against the section store at render time: a pair the valve tombstoned
- *    since the sections injector classified it (its body stripped from the
- *    live history) is dropped rather than pointed at, and with nothing left
- *    no block is emitted. Such a section is simply absent this turn and
- *    re-injects on its next selection. Runtime assembly splices the
- *    block onto the current user message immediately after any frozen
- *    `<memory>` sections; the user-prompt-submit hook persists the wrapped
- *    text under `metadata.memoryV3PointerBlock` and `conversation.ts`
- *    rehydrates it on load. Historical user messages keep the pointer they
- *    were sent with, so the provider prefix through those messages stays
- *    byte-identical; mid-turn re-entry and post-compact tail-strip the
- *    current tail before splicing a fresh pointer so the block does not
- *    double-stack.
+ *    selected sections that are ALREADY resident in history as a
+ *    `<memory_pointer>` block of `memory/concepts/<slug>.md § <key>` lines,
+ *    no bodies, so the model knows which frozen sections the turn is about.
+ *    The entries are re-validated against the section store at render time:
+ *    a pair the valve tombstoned since classification is dropped (it
+ *    re-injects on its next selection), and with nothing left no block is
+ *    emitted. Runtime assembly splices the block right after any frozen
+ *    `<memory>` sections; the hook persists the wrapped text under
+ *    `metadata.memoryV3PointerBlock` and `conversation.ts` rehydrates it.
+ *    Historical user messages keep the pointer they were sent with, so the
+ *    prefix through them stays byte-identical; re-entry and post-compaction
+ *    assemblies tail-strip the current pointer before splicing a fresh one.
  *
  * Gating: `memory.v3.live` (config) runs orchestration and attaches blocks;
- * with it off, no orchestration runs and nothing is attached.
+ * with it off, nothing runs and nothing is attached. Both injectors apply
+ * the personal-memory trust gate ({@link isPersonalMemoryAllowed}): an
+ * untrusted remote actor's turn produces, records, and persists nothing,
+ * since v3 blocks are persisted to message metadata and rehydrated forever.
  *
- * Both injectors apply the same personal-memory trust gate as v2
- * ({@link isPersonalMemoryAllowed}): an untrusted remote actor's turn
- * produces nothing, no orchestration, no sections, no pointer, and nothing
- * recorded or persisted. Memory pages, skill/CLI capability content, and
- * matched sections all surface private user content, and because v3 blocks
- * are persisted to message metadata and rehydrated forever, the gate must
- * also keep an untrusted turn from recording or persisting anything.
- *
- * Re-entry assemblies (the post-compaction hook, which also serves the
- * overflow ladder's rungs) attach their blocks in memory only: metadata is
+ * A re-entry assembly (the post-compaction hook, which also serves the
+ * overflow ladder's rungs) attaches its blocks in memory only: metadata is
  * persisted at the first-call site alone, and every message a re-entry
  * attaches to predates a compaction's `historyStrippedAt` marker, which
- * keeps `loadFromDb` from rehydrating it. The turn memo remembers what the
- * first produce rendered, and a re-entry re-emits those entries byte for
- * byte: the hook's tail strip cleared their only copy while the store still
- * counts them active, so partitioning against the store alone would read
- * them as resident and drop them for the rest of the turn. Around them it
- * points at the pairs still active, renders anew any pair a compaction's
- * store reset left unclaimed, and skips any pair tombstoned since (the
- * Step-0 strip's verdict stands). A re-entry block carries no commit, and
- * runtime assembly withholds the commit on a `reinjection` assembly
- * besides, so a turn's sections are recorded exactly once, at the
- * first-call site that persists them. After a compaction the re-rendered
- * sections stay unclaimed: the next turn injects them net-new onto its own
- * persisted user message, and the re-entry copy still in the live history
- * is superseded by the newest-copy rule at the assembly after that
- * (`stripPrunedSectionsFromMessages`).
- *
- * An assembly that replaces the run messages with a transcript rendered
- * from persisted rows (`TurnContext.replacesRunMessages`, set by the chain
- * walker once the replacing injector has produced its block: the Slack
- * chronological transcript) carries no frozen block from any earlier turn,
- * because those blocks live only in message metadata. Residency means
- * nothing in that prompt, so the sections injector renders every selection
- * afresh, whether the store counts it active or not, the pointer injector
- * has nothing to point at, and the block carries no commit: nothing is
- * recorded, the valve is not scheduled, and runtime assembly attaches the
- * block to the transcript's tail in memory only (it persists and claims a
- * block only when the block carries a commit), leaving a retried anchor's
- * rehydrated frozen block off the transcript so the fresh render is the
- * single copy. A Slack conversation whose transcript injector is absent
- * (the channel plugin disabled) is not replaced, and its turn is an
- * ordinary committed injection. The turn memo still remembers what the
- * first produce rendered, so a re-entry of such a turn re-emits the same
- * bytes.
+ * keeps `loadFromDb` from rehydrating it. How a re-entry, and an assembly
+ * whose run messages a transcript replaces, classify the turn's units is
+ * documented at the partition in {@link memoryV3Injector}.
  */
 
 import { getConfig } from "../../../../config/loader.js";
@@ -398,25 +348,38 @@ export const memoryV3Injector: Injector = {
     const result = observed;
 
     try {
-      // Partition this turn's injection units. Each selected section injects
-      // under its own key, and a page selected with none under `""` (its
-      // lead; capability content injects whole under `""` too). A resident
-      // pair (active in the section store) is a pointer entry and is stamped
-      // with the turn's selection time below; capability slugs are stamped
-      // too but left out of the pointer because they have no
-      // `memory/concepts/` path to point at. On a re-entry assembly
-      // (`rendered` set by the turn's first produce) an entry the first
-      // produce rendered is re-emitted from the
-      // memo byte for byte: the store counts it active, but its only copy
-      // rode the tail the re-injection strip cleared, so the store alone
-      // would read it as resident and drop it for the rest of the turn. A
-      // pair tombstoned since the first produce is skipped outright (a
-      // re-entry never revives what the valve pruned), and a pair the first
-      // produce saw resident whose copy a compaction's store reset has since
-      // unclaimed (neither active nor tombstoned) renders anew, in memory
-      // only. Under a run-messages replacement no earlier block is in the
-      // prompt at all, so the store's active set is not consulted: every
-      // pair renders (or re-emits) and none is pointed at.
+      // Partition this turn's injection units: each selected section under
+      // its own key, a page selected with none under `""` (its lead;
+      // capability content injects whole under `""` too).
+      //  - A pair tombstoned since the turn's first produce is skipped: a
+      //    re-entry never revives what the valve pruned.
+      //  - On a re-entry assembly (`rendered` set by the first produce) an
+      //    entry the first produce rendered is re-emitted from the memo byte
+      //    for byte: the store counts it active, but its only copy rode the
+      //    tail the re-injection strip cleared, so the store alone would
+      //    read it as resident and drop it for the rest of the turn. A
+      //    re-entry block carries no commit (and runtime assembly withholds
+      //    one on a `reinjection` assembly besides), so a turn's sections
+      //    are recorded once, at the first-call site; after a compaction they
+      //    stay unclaimed until the next turn injects them net-new onto its
+      //    own persisted message, and the newest-copy rule
+      //    (`stripPrunedSectionsFromMessages`) retires the re-entry copy.
+      //  - A pair active in the store is resident: a pointer entry, stamped
+      //    with the turn's selection time below. Capability slugs are
+      //    stamped too but left out of the pointer (no `memory/concepts/`
+      //    path to point at).
+      //  - Every other pair renders net-new, including one the first produce
+      //    saw resident whose copy a compaction's store reset has since
+      //    unclaimed (neither active nor tombstoned), in memory only.
+      // Under a run-messages replacement (`ctx.replacesRunMessages`: the
+      // Slack chronological transcript, rendered from persisted rows, so it
+      // carries no earlier turn's block) residency means nothing. The
+      // store's active set is not consulted, every pair renders or
+      // re-emits, none is pointed at, and the block carries no commit, so
+      // nothing is recorded or scheduled and runtime assembly attaches the
+      // block in memory only as the prompt's single copy. A Slack
+      // conversation whose transcript injector is absent is not replaced and
+      // injects as an ordinary committed turn.
       const rendered = observedTurn(
         ctx.conversationId,
         ctx.turnIndex,

@@ -2099,30 +2099,30 @@ describe("orchestrate — span-query pass", () => {
 
 describe("orchestrate: multi-section finder lines", () => {
   // A page whose `## Parody` section matches the message's bulk and whose
-  // `## Pumpkin` section matches only its last clause, deep in its body. The
-  // slug shares no token with the queries: its last segment heads every
+  // `## Inventory` section matches only its last clause, deep in its body.
+  // The slug shares no token with the queries: its last segment heads every
   // section's text, so a query term in it would score every section.
   const FILLER = "filler words to push the match deep into the section ";
-  const GOURD_PAGES: Record<Slug, string> = {
+  const BULK_AND_CLAUSE_PAGES: Record<Slug, string> = {
     "autumn-notes": [
-      "lead for the squash page",
+      "lead for the page",
       "## Parody",
-      "the parody verse everyone laughed at, a hilarious pumpkin patch skit",
-      "## Pumpkin",
-      `${FILLER.repeat(8)}the gourd loves the pumpkin song`,
+      "the parody verse everyone laughed at, a hilarious skit",
+      "## Inventory",
+      `${FILLER.repeat(8)}the turnip crates are counted here`,
     ].join("\n"),
   };
   const BULK = "the parody verse was hilarious and everyone laughed.";
-  const CLAUSE = "please remind me about the gourd.";
+  const CLAUSE = "please remind me about the turnip.";
 
   test("a page whose sections match the bulk and the last clause carries both lines, and keeping both selects both sections", async () => {
-    const lanes = await customLanes(GOURD_PAGES);
-    const [, parodyDoc, pumpkinDoc] =
+    const lanes = await customLanes(BULK_AND_CLAUSE_PAGES);
+    const [, parodyDoc, inventoryDoc] =
       lanes.sectionIndex.byArticle.get("autumn-notes")!;
     const parody = lanes.sectionIndex.sections[parodyDoc!]!;
-    const pumpkin = lanes.sectionIndex.sections[pumpkinDoc!]!;
+    const inventory = lanes.sectionIndex.sections[inventoryDoc!]!;
     // The needle scores the bulk theme (`## Parody`); the span pass over the
-    // last clause reaches `## Pumpkin`.
+    // last clause reaches `## Inventory`.
     denseHits = [];
     denseHitsByQuery.set(CLAUSE, [{ article: "autumn-notes", section: 2 }]);
     providerStub = selectProvider(["autumn-notes"]);
@@ -2135,35 +2135,35 @@ describe("orchestrate: multi-section finder lines", () => {
     const lines = result.lanes.finder.filter((c) => c.slug === "autumn-notes");
     expect(lines.map((c) => [c.lane, c.section])).toEqual([
       ["needle", parody],
-      ["span", pumpkin],
+      ["span", inventory],
     ]);
     // Two pool lines, each a keyword-in-context snippet of its own section.
     const poolLines = lastPoolLines.filter((l) => l.includes(" autumn-notes "));
     expect(poolLines).toHaveLength(2);
     expect(poolLines[0]).toContain("§Parody: ");
     expect(poolLines[0]).toContain("parody");
-    expect(poolLines[1]).toContain("§Pumpkin: ");
-    expect(poolLines[1]).toContain("gourd");
+    expect(poolLines[1]).toContain("§Inventory: ");
+    expect(poolLines[1]).toContain("turnip");
     // Keeping both ids selects both sections.
     expect(result.selections).toEqual([
-      { slug: "autumn-notes", sections: [parody, pumpkin] },
+      { slug: "autumn-notes", sections: [parody, inventory] },
     ]);
   });
 
   test("a needle line's snippet is a window around its top contributing term, not the section head", async () => {
-    const lanes = await customLanes(GOURD_PAGES);
+    const lanes = await customLanes(BULK_AND_CLAUSE_PAGES);
     providerStub = selectProvider([]);
 
-    const result = await orchestrate(makeTurn(1, "gourd"), depsOf(lanes));
+    const result = await orchestrate(makeTurn(1, "turnip"), depsOf(lanes));
 
-    expect(result.lanes.finder[0]?.terms).toEqual(["gourd"]);
+    expect(result.lanes.finder[0]?.terms).toEqual(["turnip"]);
     const line = lastPoolLines.find((l) => l.includes(" autumn-notes "))!;
-    // "gourd" sits past the first 300 characters of `## Pumpkin`, so a
+    // "turnip" sits past the first 300 characters of `## Inventory`, so a
     // section-head snippet would not show it; the window is centered on it
     // and the synthetic head line is not shown.
-    expect(line).toContain("§Pumpkin: … ");
-    expect(line).toContain("the gourd loves the pumpkin song");
-    expect(line).not.toContain("autumn-notes - Pumpkin");
+    expect(line).toContain("§Inventory: … ");
+    expect(line).toContain("the turnip crates are counted here");
+    expect(line).not.toContain("autumn-notes - Inventory");
   });
 
   test("finderSectionsPerPage caps a page's lines in surfacing order", async () => {
@@ -2221,53 +2221,53 @@ describe("orchestrate: multi-section finder lines", () => {
 
 describe("orchestrate: rare-term lane", () => {
   // The message's bulk theme (the parody) matches `## Parody`; its last
-  // clause's one distinctive word, "gourd", sits twice each in two other
+  // clause's one distinctive word, "turnip", sits twice each in two other
   // sections of the page and once, in a longer body, on a second page. The
   // common words recur in every section, so among the message's words only
-  // the parody words (which hit `## Parody` alone) and "gourd" are rare.
-  const GOURD_PAGES: Record<Slug, string> = {
-    "silly-lines": [
-      "here is my little log of silly lines",
+  // the parody words (which hit `## Parody` alone) and "turnip" are rare.
+  const RARE_TERM_PAGES: Record<Slug, string> = {
+    "sample-notes": [
+      "the weekly report lists the sample notes",
       "## Parody",
-      "parody verse: everyone laughed, hilarious skit, roast, encore, standing ovation, crowd; here is my little friend",
-      "## Pumpkin",
-      "pumpkin bit: here is my little gourd, gourd of my heart",
+      "parody verse: everyone laughed, hilarious skit, roast, encore, standing ovation, crowd; the weekly report lists the rest",
+      "## Inventory",
+      "inventory: the weekly report lists the turnip crates and the turnip totals",
       "## Harvest",
-      "harvest song: gourd on the porch, gourd in the pie; here is my little ballad",
+      "harvest: the weekly report lists the turnip deliveries and the turnip receipts, with the dates of each",
     ].join("\n"),
     "autumn-recipes": [
       "## Soup",
-      "gourd soup: here is my little pot; onions, celery, carrots, thyme, cream, salt, pepper, and a long simmer",
+      "turnip soup: the weekly report lists onions, celery, carrots, thyme, cream, salt, pepper, and a long simmer",
     ].join("\n"),
   };
   const MESSAGE =
-    "parody verse hilarious, everyone laughed: skit, roast, encore, standing ovation, crowd. Here is my little gourd";
+    "parody verse hilarious, everyone laughed: skit, roast, encore, standing ovation, crowd. The weekly report lists the turnip";
   const RARE = { maxDf: 3, maxDfFraction: 1, perTerm: 2, cap: 24 };
 
   test("a rare word's top sections join as lines tagged with the word beside the bulk-theme line, and selecting them selects the sections", async () => {
-    const lanes = await customLanes(GOURD_PAGES);
-    const [, parodyDoc, pumpkinDoc, harvestDoc] =
-      lanes.sectionIndex.byArticle.get("silly-lines")!;
+    const lanes = await customLanes(RARE_TERM_PAGES);
+    const [, parodyDoc, inventoryDoc, harvestDoc] =
+      lanes.sectionIndex.byArticle.get("sample-notes")!;
     const parody = lanes.sectionIndex.sections[parodyDoc!]!;
-    const pumpkin = lanes.sectionIndex.sections[pumpkinDoc!]!;
+    const inventory = lanes.sectionIndex.sections[inventoryDoc!]!;
     const harvest = lanes.sectionIndex.sections[harvestDoc!]!;
-    providerStub = selectProvider(["silly-lines"]);
+    providerStub = selectProvider(["sample-notes"]);
 
     const result = await orchestrate(
       makeTurn(1, MESSAGE),
       depsOf(lanes, { rareTerm: RARE }),
     );
 
-    const lines = result.lanes.finder.filter((c) => c.slug === "silly-lines");
+    const lines = result.lanes.finder.filter((c) => c.slug === "sample-notes");
     expect(lines.map((c) => [c.lane, c.section])).toEqual([
       ["needle", parody],
-      ["rare", pumpkin],
+      ["rare", inventory],
       ["rare", harvest],
     ]);
-    expect(lines[1]!.terms).toEqual(["gourd"]);
-    expect(lines[2]!.terms).toEqual(["gourd"]);
-    // The second page's only "gourd" section is the needle's own line for
-    // it, and the third-ranked "gourd" section is past perTerm anyway.
+    expect(lines[1]!.terms).toEqual(["turnip"]);
+    expect(lines[2]!.terms).toEqual(["turnip"]);
+    // The second page's only "turnip" section is the needle's own line for
+    // it, and the third-ranked "turnip" section is past perTerm anyway.
     expect(
       result.lanes.finder
         .filter((c) => c.slug === "autumn-recipes")
@@ -2275,35 +2275,37 @@ describe("orchestrate: rare-term lane", () => {
     ).toEqual(["needle"]);
     // Each rare line is tagged with the word and snippets the section
     // around it.
-    const rareLines = lastPoolLines.filter((l) => l.includes("(rare: gourd) "));
+    const rareLines = lastPoolLines.filter((l) =>
+      l.includes("(rare: turnip) "),
+    );
     expect(rareLines).toHaveLength(2);
-    expect(rareLines[0]).toContain("(rare: gourd) silly-lines ");
+    expect(rareLines[0]).toContain("(rare: turnip) sample-notes ");
     expect(rareLines[0]).toContain(
-      "§Pumpkin: pumpkin bit: here is my little gourd",
+      "§Inventory: inventory: the weekly report lists the turnip",
     );
     expect(rareLines[1]).toContain("§Harvest: ");
-    expect(rareLines[1]).toContain("gourd");
+    expect(rareLines[1]).toContain("turnip");
     expect(result.selections).toContainEqual({
-      slug: "silly-lines",
-      sections: [parody, pumpkin, harvest],
+      slug: "sample-notes",
+      sections: [parody, inventory, harvest],
     });
   });
 
   test("a rare hit on a section the needle already pooled is a no-op", async () => {
-    const lanes = await customLanes(GOURD_PAGES);
-    const [, , pumpkinDoc, harvestDoc] =
-      lanes.sectionIndex.byArticle.get("silly-lines")!;
-    const pumpkin = lanes.sectionIndex.sections[pumpkinDoc!]!;
+    const lanes = await customLanes(RARE_TERM_PAGES);
+    const [, , inventoryDoc, harvestDoc] =
+      lanes.sectionIndex.byArticle.get("sample-notes")!;
+    const inventory = lanes.sectionIndex.sections[inventoryDoc!]!;
     const harvest = lanes.sectionIndex.sections[harvestDoc!]!;
     providerStub = selectProvider([]);
 
     const result = await orchestrate(
-      makeTurn(1, "gourd"),
+      makeTurn(1, "turnip"),
       depsOf(lanes, {
         needle: {
           ...lanes.needle,
           queryScored: () => [
-            { article: "silly-lines", section: pumpkinDoc!, score: 1 },
+            { article: "sample-notes", section: inventoryDoc!, score: 1 },
           ],
         },
         rareTerm: RARE,
@@ -2312,8 +2314,8 @@ describe("orchestrate: rare-term lane", () => {
 
     expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.section])).toEqual(
       [
-        ["silly-lines", "needle", pumpkin],
-        ["silly-lines", "rare", harvest],
+        ["sample-notes", "needle", inventory],
+        ["sample-notes", "rare", harvest],
       ],
     );
   });
@@ -2322,8 +2324,8 @@ describe("orchestrate: rare-term lane", () => {
   // before the rare lane runs: the needle pools `## Alpha` (ordinal 1), the
   // full-message dense pass `## Bravo` (2), and the reply pass `## Charlie`
   // (3). `alpha` is the Alpha section's text, `tail` the page's further
-  // sections. Of the message's words only "gourd" occurs in the corpus.
-  const CAPPED_MESSAGE = "here is my little gourd";
+  // sections. Of the message's words only "turnip" occurs in the corpus.
+  const CAPPED_MESSAGE = "any turnip news";
   const REPLY = "the previous reply";
   async function cappedPageDeps(
     alpha: string,
@@ -2360,12 +2362,12 @@ describe("orchestrate: rare-term lane", () => {
   }
 
   test("a rare hit joins a page the prior lanes filled to the per-page cap, bounded by the lane's own cap", async () => {
-    // "gourd" is held by `## Delta` (ordinal 4) and `## Echo` (5) alone.
+    // "turnip" is held by `## Delta` (ordinal 4) and `## Echo` (5) alone.
     const tail = [
       "## Delta",
-      "delta text, and the gourd",
+      "delta text, and the turnip",
       "## Echo",
-      "echo text, and the gourd",
+      "echo text, and the turnip",
     ];
     providerStub = selectProvider([]);
 
@@ -2384,7 +2386,7 @@ describe("orchestrate: rare-term lane", () => {
     ]);
     expect(
       result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
-    ).toEqual([["gourd"], ["gourd"]]);
+    ).toEqual([["turnip"], ["turnip"]]);
 
     // The lane's own cap is what bounds the lines past the page cap, so a
     // page carries at most `finderSectionsPerPage + rareTerm.cap` lines.
@@ -2403,15 +2405,15 @@ describe("orchestrate: rare-term lane", () => {
   });
 
   test("a rare hit on a section a capped page already carries is still a no-op", async () => {
-    // "gourd" is held by `## Alpha`, which the needle pooled, and by
+    // "turnip" is held by `## Alpha`, which the needle pooled, and by
     // `## Delta` (ordinal 4).
     providerStub = selectProvider([]);
 
     const result = await orchestrate(
       makeTurn(1, CAPPED_MESSAGE, REPLY),
-      await cappedPageDeps("alpha text, and the gourd", [
+      await cappedPageDeps("alpha text, and the turnip", [
         "## Delta",
-        "delta text, and the gourd",
+        "delta text, and the turnip",
       ]),
     );
     expect(
@@ -2424,18 +2426,18 @@ describe("orchestrate: rare-term lane", () => {
     ]);
     expect(
       result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
-    ).toEqual([["gourd"]]);
+    ).toEqual([["turnip"]]);
   });
 
   test("omitting the rare-term tuning disables the lane", async () => {
-    const lanes = await customLanes(GOURD_PAGES);
+    const lanes = await customLanes(RARE_TERM_PAGES);
     providerStub = selectProvider([]);
 
-    const without = await orchestrate(makeTurn(1, "gourd"), depsOf(lanes));
+    const without = await orchestrate(makeTurn(1, "turnip"), depsOf(lanes));
     expect(without.lanes.finder.some((c) => c.lane === "rare")).toBe(false);
 
     const withLane = await orchestrate(
-      makeTurn(2, "gourd"),
+      makeTurn(2, "turnip"),
       depsOf(lanes, { rareTerm: RARE }),
     );
     expect(withLane.lanes.finder.some((c) => c.lane === "rare")).toBe(true);
