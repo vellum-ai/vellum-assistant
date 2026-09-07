@@ -4,8 +4,9 @@
  * sliders from research onboarding.
  *
  * "Update personality" persists the dials to `data/personality-sliders.json`.
- * Hosted Qwen reads that sidecar on the next chat turn. Other models still
- * run an identity rewrite so IDENTITY.md / SOUL.md match the new voice.
+ * A steering-capable hosted Qwen assistant reads that sidecar on the next
+ * chat turn. Other models, and older Qwen assistants, still run an identity
+ * rewrite so IDENTITY.md / SOUL.md match the new voice.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +20,6 @@ import {
   completeSliderValues,
   fetchPersonalitySliders,
   personalitySlidersQueryKey,
-  savePersonalitySliders,
 } from "@/assistant/personality-sliders";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -72,10 +72,9 @@ export function PersonalityPage() {
       assistantId,
       values: complete,
       assistantName: identityQuery.data?.identity?.name,
-    }).then(async (ok) => {
+    }).then((ok) => {
       setApplying(false);
       if (ok) {
-        await savePersonalitySliders(assistantId, complete);
         void queryClient.invalidateQueries({
           queryKey: personalitySlidersQueryKey(assistantId),
         });
