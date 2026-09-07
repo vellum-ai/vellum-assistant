@@ -1263,12 +1263,23 @@ export async function startVoiceTurn(
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
     }
+    // Ownership is not readable off this field the way it is off the others.
+    // Every other value here is an object compared by reference, so a winner
+    // that installed its own is told apart from this turn's by identity. The
+    // actor principal is a string, and two turns for the same guardian hold
+    // the identical one, so a match proves nothing about who wrote it.
+    // Clearing on that match would take a live winner's identity away
+    // mid-run and get its host-proxy calls refused, which is the exact
+    // failure this field was added to prevent. So only a real prior
+    // principal is ever put back, and dropping the stamp is left to
+    // `cleanup`, which runs on the paths where this turn did own the
+    // conversation.
     if (
+      snap.actorPrincipalId !== undefined &&
       (conversation.currentTurnSourceActorPrincipalId ?? null) ===
-      (voiceTurnValues.actorPrincipalId ?? null)
+        (voiceTurnValues.actorPrincipalId ?? null)
     ) {
-      conversation.currentTurnSourceActorPrincipalId =
-        snap.actorPrincipalId ?? undefined;
+      conversation.currentTurnSourceActorPrincipalId = snap.actorPrincipalId;
     }
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);

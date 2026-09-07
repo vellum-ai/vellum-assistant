@@ -1617,6 +1617,50 @@ describe("startVoiceTurn race-loss state restore", () => {
     expect(retryState.voiceCallControlPrompt).toContain("voice_call_control");
   });
 
+  /**
+   * Two turns for the same guardian carry the identical principal string, so
+   * a loser cannot tell the winner's stamp from its own by looking at the
+   * field. Clearing on that match is what would take a live winner's identity
+   * away mid-run and get its host-proxy calls refused, which is the exact
+   * failure the stamp was added to prevent.
+   */
+  test("a winner sharing this turn's guardian keeps its actor through the race loss", async () => {
+    const statesDuringWait: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          // The winner takes the lock and stamps the same guardian this turn
+          // did, which is what makes the two indistinguishable by value.
+          (
+            fake.conversation as { currentTurnSourceActorPrincipalId?: string }
+          ).currentTurnSourceActorPrincipalId = "principal-guardian";
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    // Nothing stamped before this turn, so the pre-install snapshot carries no
+    // principal. That is the case that used to put `undefined` back over the
+    // winner.
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-same-principal"),
+      callSessionId: "session-voice-loser",
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesDuringWait.length).toBe(1);
+    expect(statesDuringWait[0]!.actorPrincipalId).toBe("principal-guardian");
+  });
+
   test("a busy persist whose retry wait exhausts the budget leaves the winner's values in place", async () => {
     const winnerState = makeWinnerState();
     const fake = makeFakeConversation({
