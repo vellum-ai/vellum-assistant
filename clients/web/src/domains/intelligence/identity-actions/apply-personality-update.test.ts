@@ -18,7 +18,14 @@ const configGetMock = mock(
     response: { ok: true, status: 200 },
   }),
 );
-const runIdentityRewriteMock = mock(async () => true);
+const runIdentityRewriteMock = mock(
+  async (_opts: {
+    assistantId: string;
+    content: string;
+    title: string;
+    context: string;
+  }) => true,
+);
 const buildPersonalityMessageMock = mock(
   () => "<system-message>rewrite</system-message>",
 );
