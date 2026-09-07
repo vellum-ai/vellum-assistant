@@ -33044,8 +33044,8 @@ paths:
   /v1/suggestion:
     get:
       operationId: suggestion_get
-      summary: Get reply suggestion
-      description: Return an LLM-generated follow-up suggestion for the most recent assistant message.
+      summary: Get reply suggestions
+      description: Return up to two LLM-generated follow-up suggestions for the most recent assistant message.
       tags:
         - messages
       parameters:
@@ -33079,6 +33079,10 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  suggestions:
+                    type: array
+                    items:
+                      type: string
                   messageId:
                     anyOf:
                       - type: string
@@ -33089,6 +33093,7 @@ paths:
                     type: boolean
                 required:
                   - suggestion
+                  - suggestions
                   - messageId
                   - source
                 additionalProperties: false
