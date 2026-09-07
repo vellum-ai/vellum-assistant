@@ -5421,6 +5421,10 @@ paths:
                   minLength: 1
                 allowUnlisted:
                   type: boolean
+                inputModalities:
+                  anyOf:
+                    - $ref: "#/components/schemas/InputModalities"
+                    - type: "null"
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -36412,6 +36416,12 @@ components:
           anyOf:
             - type: boolean
             - type: "null"
+        inputModalities:
+          anyOf:
+            - anyOf:
+                - $ref: "#/components/schemas/InputModalities"
+                - type: "null"
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -36442,6 +36452,24 @@ components:
               minLength: 1
             - type: "null"
       additionalProperties: {}
+    InputModalities:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverride"
+        image:
+          $ref: "#/components/schemas/ModalityOverride"
+        audio:
+          $ref: "#/components/schemas/ModalityOverride"
+        video:
+          $ref: "#/components/schemas/ModalityOverride"
+    ModalityOverride:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
     ProfileStatus:
       type: string
       enum:
@@ -37193,6 +37221,10 @@ components:
           minLength: 1
         allowUnlisted:
           type: boolean
+        inputModalities:
+          anyOf:
+            - $ref: "#/components/schemas/InputModalitiesOutput"
+            - type: "null"
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -37734,6 +37766,26 @@ components:
         - name
         - status
         - origin
+      additionalProperties: false
+    InputModalitiesOutput:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        image:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        audio:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        video:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+      additionalProperties: false
+    ModalityOverrideOutput:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
       additionalProperties: false
     AuthOutput:
       oneOf:

@@ -11,6 +11,8 @@ import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileCreateModelFirst } from "@/domains/settings/ai/profile-create-model-first";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
+import { ProfileModalitiesSection } from "@/domains/settings/ai/profile-modalities-section";
+import { profileUsesFreeTextModel } from "@/domains/settings/ai/profile-modalities";
 import {
   entryPickerValue,
   expandEndpointEntries,
@@ -87,9 +89,25 @@ export function ProfileEditorFields({
   // Create-mode Advanced disclosure (modal variant only). Local state is
   // fine: hosts remount the fields on each open, matching the old reset.
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [modalitiesExpanded, setModalitiesExpanded] = useState(false);
   // The Name lives under Advanced, so a Name the user has to fix cannot be
   // left hidden behind a collapsed disclosure.
   const createAdvancedOpen = advancedExpanded || Boolean(editor.nameError);
+  const showModalities = profileUsesFreeTextModel(
+    editor.provider,
+    editor.model,
+  );
+
+  const modalitiesNode = showModalities ? (
+    <ProfileModalitiesSection
+      value={editor.inputModalities}
+      onChange={editor.setInputModalities}
+      isReadOnly={editor.isReadOnly}
+      expanded={flat || modalitiesExpanded}
+      onExpandedChange={setModalitiesExpanded}
+      collapsible={!flat}
+    />
+  ) : null;
 
   const displayNameField = (
     <div className="space-y-1">
@@ -436,6 +454,7 @@ export function ProfileEditorFields({
         ) : (
           createProviderSection
         )}
+        {modalitiesNode}
         {createAdvanced}
         {saveErrorNode}
       </div>
@@ -463,6 +482,8 @@ export function ProfileEditorFields({
         connectionNotFound={editor.connectionNotFound}
         providerError={editor.providerError}
       />
+
+      {modalitiesNode}
 
       {advancedParamsNode}
 

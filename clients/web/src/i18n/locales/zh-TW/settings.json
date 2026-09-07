@@ -1532,6 +1532,20 @@
     "selectModelPlaceholder": "選擇模型",
     "selectProviderPlaceholder": "選擇供應商…"
   },
+  "profileModalitiesSection": {
+    "audio": "音訊",
+    "enableAria": "啟用{modality}",
+    "enabledColumn": "啟用",
+    "helper": "只有在模態已啟用且標示為模型支援時，才會傳給模型。未以此方式傳送的圖片會改為文字說明。",
+    "image": "圖片",
+    "resolvedOff": "不傳給模型",
+    "resolvedOn": "傳給模型",
+    "supportedAria": "模型支援{modality}",
+    "supportedColumn": "模型支援",
+    "text": "文字",
+    "title": "模態",
+    "video": "影片"
+  },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的動作",
     "defaultTag": "預設",

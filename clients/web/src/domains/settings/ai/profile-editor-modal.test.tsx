@@ -1537,6 +1537,74 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     expect(getSaveBtn().disabled).toBe(false);
   });
 
+  test("shows Modalities for an openai-compatible profile and persists an image override", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const lmStudio = {
+      ...makeConnection("lm-studio", "openai-compatible"),
+      models: [{ id: "llama-3.1", displayName: "Llama 3.1" }],
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "local-llm",
+        label: "Local LLM",
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        provider_connection: "lm-studio",
+        status: "active",
+      },
+      (name, entry) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      },
+      [lmStudio],
+    );
+
+    const modalitiesTrigger = getButton("Modalities");
+    expect(modalitiesTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(modalitiesTrigger);
+    expect(modalitiesTrigger.getAttribute("aria-expanded")).toBe("true");
+
+    const enableImage = document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Enable Image"]',
+    );
+    const supportImage = document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Model supports Image"]',
+    );
+    if (!enableImage || !supportImage) {
+      throw new Error("expected Image modality switches");
+    }
+    expect(supportImage.disabled).toBe(true);
+    fireEvent.click(enableImage);
+    expect(supportImage.disabled).toBe(false);
+    fireEvent.click(supportImage);
+
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.inputModalities).toEqual({
+      image: { enabled: true, supported: true },
+    });
+  });
+
+  test("hides Modalities for a cataloged Anthropic model", () => {
+    renderEdit({
+      name: "opus",
+      label: "Opus",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      provider_connection: "anthropic-personal",
+      status: "active",
+    });
+
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (b) => b.textContent?.trim() === "Modalities",
+      ),
+    ).toBe(false);
+  });
+
   test("clears a catalog model the connection's subscription filters out, rather than offering it", async () => {
     // A ChatGPT-subscription OpenAI connection only accepts the Codex-compatible
     // model set, so a profile pinned to an in-catalog but non-Codex model
