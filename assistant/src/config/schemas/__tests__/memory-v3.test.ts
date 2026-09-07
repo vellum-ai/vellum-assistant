@@ -18,15 +18,22 @@ describe("MemoryV3ConfigSchema", () => {
         perSeed: 3,
         cap: 20,
       },
-      spotlight: { n: 6, windowTurns: 2 },
       needleK: 100,
       denseK: 100,
       replyQueryK: 12,
       spanQueryK: 0,
+      finderSectionsPerPage: 3,
       selectorEnabled: true,
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
+      rareTerm: {
+        enabled: true,
+        maxDf: 12,
+        maxDfFraction: 0.002,
+        perTerm: 2,
+        cap: 24,
+      },
       gate: {
         enabled: true,
         denseThreshold: 0.66,
@@ -83,20 +90,13 @@ describe("MemoryV3ConfigSchema", () => {
     ).toThrow();
   });
 
-  test("accepts a partial spotlight override and rejects invalid knobs", () => {
-    const parsed = MemoryV3ConfigSchema.parse({ spotlight: { n: 3 } });
-    expect(parsed.spotlight).toEqual({ n: 3, windowTurns: 2 });
-    // windowTurns: 0 is valid — current turn only, no carried window.
-    expect(
-      MemoryV3ConfigSchema.parse({ spotlight: { windowTurns: 0 } }).spotlight,
-    ).toEqual({ n: 6, windowTurns: 0 });
-    expect(() => MemoryV3ConfigSchema.parse({ spotlight: { n: 0 } })).toThrow();
-    expect(() =>
-      MemoryV3ConfigSchema.parse({ spotlight: { windowTurns: -1 } }),
-    ).toThrow();
-    expect(() =>
-      MemoryV3ConfigSchema.parse({ spotlight: { n: 1.5 } }),
-    ).toThrow();
+  test("ignores the persisted `spotlight` sub-config", () => {
+    // Workspace migrations 117 and 119 seeded `memory.v3.spotlight` into
+    // config files; unknown-key stripping keeps them parsing.
+    const parsed = MemoryV3ConfigSchema.parse({
+      spotlight: { n: 3, windowTurns: 2 },
+    });
+    expect(parsed).not.toHaveProperty("spotlight");
   });
 
   test("accepts explicit lane-K overrides including zero", () => {
@@ -132,6 +132,49 @@ describe("MemoryV3ConfigSchema", () => {
       MemoryV3ConfigSchema.parse({ edge: { perSeed: 0 } }),
     ).toThrow();
     expect(() => MemoryV3ConfigSchema.parse({ edge: { cap: -1 } })).toThrow();
+  });
+
+  test("accepts a partial rareTerm override, defaulting the rest", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      rareTerm: { maxDf: 5, enabled: false },
+    });
+    expect(parsed.rareTerm).toEqual({
+      enabled: false,
+      maxDf: 5,
+      maxDfFraction: 0.002,
+      perTerm: 2,
+      cap: 24,
+    });
+  });
+
+  test("rareTerm.maxDfFraction defaults to 0.002, takes a value in (0, 1], and rejects the rest", () => {
+    expect(MemoryV3ConfigSchema.parse({}).rareTerm.maxDfFraction).toBe(0.002);
+    expect(
+      MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: 0.05 } }).rareTerm
+        .maxDfFraction,
+    ).toBe(0.05);
+    expect(
+      MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: 1 } }).rareTerm
+        .maxDfFraction,
+    ).toBe(1);
+    for (const bad of [0, -0.001, 1.5]) {
+      expect(() =>
+        MemoryV3ConfigSchema.parse({ rareTerm: { maxDfFraction: bad } }),
+      ).toThrow();
+    }
+  });
+
+  test("rareTerm knobs must be positive integers and enabled a boolean", () => {
+    for (const key of ["maxDf", "perTerm", "cap"]) {
+      for (const bad of [0, -1, 1.5]) {
+        expect(() =>
+          MemoryV3ConfigSchema.parse({ rareTerm: { [key]: bad } }),
+        ).toThrow();
+      }
+    }
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ rareTerm: { enabled: "yes" } }),
+    ).toThrow();
   });
 
   test("accepts a partial gate override, defaulting the rest", () => {

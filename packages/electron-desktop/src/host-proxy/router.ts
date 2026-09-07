@@ -65,6 +65,8 @@ export interface HostProxyClientIdentity {
   getClientId: () => string;
   getMachineName: () => string;
   interfaceId: string;
+  /** Opt in only when the bundled CU executor supports window-only observations. */
+  supportsWindowCapture?: boolean;
 }
 
 export function createHostProxyClientHeaders(
@@ -79,6 +81,9 @@ export function createHostProxyClientHeaders(
       ...posterClientHeaders(),
       "X-Vellum-Interface-Id": identity.interfaceId,
       "X-Vellum-Machine-Name": identity.getMachineName(),
+      ...(identity.supportsWindowCapture
+        ? { "X-Vellum-Cu-Window-Capture": "1" }
+        : {}),
     }),
   };
 }

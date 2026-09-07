@@ -255,7 +255,6 @@
     "bodyLoadingWithClaims": "仍在檢查其餘資訊。您可以在資訊出現時進行檢閱。",
     "bodyReadyWithClaims": "我搜尋了網路。請隨意移除任何不實的資訊。",
     "bodyLoadingEmpty": "仍在整理中…",
-    "bodyReadyEmpty": "我沒有找到太多資訊，我們可以在聊天時補充。",
     "removeClaim": "移除「{claim}」",
     "notMe": "這不是我",
     "stillSearching": "仍在搜尋…"

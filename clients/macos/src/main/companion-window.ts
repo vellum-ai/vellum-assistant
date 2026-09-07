@@ -22,6 +22,8 @@ import {
   companionAnnotationPhaseSchema,
   companionAnnotationStrokeSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
+  companionCoachmarkSchema,
+  COMPANION_COACHMARK_MAX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
@@ -35,6 +37,7 @@ import {
   WATCH_FLAG,
   companionLowerReachFor,
   type CompanionCardGrowth,
+  type CompanionCoachmark,
   type CompanionGrowth,
   type CompanionContext,
   type CompanionIntroAction,
@@ -605,9 +608,13 @@ const currentState = (): CompanionSurfaceState => {
     // Settled to a boolean the way `watchTargets` is: the control this decides
     // starts capturing the user's screen, so not knowing reads as not offering.
     screenShareEnabled: context.screenShareEnabled === true,
-    // Main's own, and the only field here that is. Every line above passes on
-    // what the app's window said; this is what main did with its frame.
+    // Main's own, along with the marks below. Every line above passes on what
+    // the app's window said; these two are what main did with its frame.
     annotating,
+    // Absent rather than empty, so a surface reads one shape for nothing
+    // being pointed at whether the shell holds marks or has never heard of
+    // them.
+    coachmarks: coachmarks.length === 0 ? undefined : coachmarks,
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -1049,8 +1056,12 @@ const glideAvatarTo = (
 let annotating = false;
 
 /**
- * Whether the mode may be on at all: something is shared, and the frame is
- * drawn around *that*.
+ * Whether the frame is drawn around the shared surface: something is shared,
+ * and the frame is around *that*.
+ *
+ * What every mark on the frame depends on, drawn by either end. Coordinates
+ * on it are fractions of the surface the frame encloses, so they describe
+ * what they claim to only while this holds.
  *
  * The second half matters because {@link framedTarget} prefers a watch
  * session's target when both are running. The frame would then be around the
@@ -1058,7 +1069,7 @@ let annotating = false;
  * and a circle drawn on one would arrive on the other, around whatever
  * happened to lie at those coordinates.
  */
-const canAnnotate = (): boolean =>
+const framesTheShare = (): boolean =>
   context.watching !== true && context.screenShare !== undefined;
 
 /** Give the frame the mouse, or give it back to the desktop. */
@@ -1075,13 +1086,116 @@ const applyFrameMouse = (): void => {
  * eating every click on that display.
  */
 const setAnnotating = (next: boolean): void => {
-  const resolved = next && canAnnotate();
+  const resolved = next && framesTheShare();
   if (resolved === annotating) {
     return;
   }
   annotating = resolved;
   applyFrameMouse();
   pushState();
+};
+
+/**
+ * Nothing being pointed at, as one value.
+ *
+ * Shared rather than a fresh empty list each time, so {@link setCoachmarks}
+ * settles: clearing a frame that is already clear arrives as the value it
+ * already holds, and pushes nothing.
+ */
+const NO_COACHMARKS: readonly CompanionCoachmark[] = [];
+
+/**
+ * What the assistant is pointing at on the shared surface.
+ *
+ * Held by main for the reason {@link annotating} is: the marks are fractions
+ * of the surface the frame encloses, and the frame is main's. A window that
+ * kept its own marks would go on drawing them over a share that had moved to
+ * another target, which is the one thing a mark must never do.
+ */
+let coachmarks: readonly CompanionCoachmark[] = NO_COACHMARKS;
+
+/**
+ * The surface the standing marks were measured against, or nothing when none
+ * stand.
+ *
+ * Held beside them because a share can move to another display or window
+ * while they are up. The fractions would survive that move and describe the
+ * new surface instead, putting a ring around whatever lies at those
+ * coordinates there.
+ */
+let coachmarkTarget: WatchCaptureTarget | undefined;
+
+/** Whether two picks name the one surface. */
+const sameCaptureTarget = (
+  a: WatchCaptureTarget | undefined,
+  b: WatchCaptureTarget | undefined,
+): boolean => {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  if (a.kind === "display") {
+    return b.kind === "display" && a.displayId === b.displayId;
+  }
+  return b.kind === "window" && a.windowId === b.windowId;
+};
+
+/** Point at things on the shared surface, or take down what is pointed at. */
+const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
+  const resolved = framesTheShare() ? next : NO_COACHMARKS;
+  if (resolved.length > 0) {
+    // A mark says go and press that, so the press has to reach the app under
+    // it. Drawing is the one thing that makes this frame take the mouse, and
+    // a press on a ringed control would land in the drawing instead. Here
+    // rather than at either entrance, because it is a fact about marks being
+    // up rather than about who put them there. The mode is the user's, and
+    // pressing Draw again gets it back.
+    setAnnotating(false);
+  }
+  const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
+  if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
+    return;
+  }
+  coachmarks = resolved;
+  coachmarkTarget = against;
+  pushState();
+};
+
+/**
+ * Take the marks down when what they describe is gone: the share ended, a
+ * watch session took the frame, or the share moved to another surface.
+ *
+ * Run after every change to the context, for the reason {@link setAnnotating}
+ * is run there: a mark that outlives the surface it was measured against is a
+ * ring around whatever has since moved under it.
+ */
+const syncCoachmarks = (): void => {
+  if (
+    framesTheShare() &&
+    sameCaptureTarget(context.screenShare, coachmarkTarget)
+  ) {
+    return;
+  }
+  setCoachmarks(NO_COACHMARKS);
+};
+
+/**
+ * Point at things on the shared surface on the assistant's behalf, and say
+ * whether the marks stand.
+ *
+ * The answer is the point of this entrance. A press from the pill can watch
+ * the surface for what it did; the assistant is somewhere else, and marks it
+ * believes it placed on a screen nobody is sharing would have it talking
+ * about a ring the user cannot see. So a refusal comes back as one rather
+ * than as silence.
+ *
+ * Taking them down always succeeds: whatever the frame is around, marks that
+ * are gone are gone.
+ */
+export const showCompanionCoachmarks = (
+  marks: readonly CompanionCoachmark[],
+): boolean => {
+  setCoachmarks(marks);
+  return marks.length === 0 || framesTheShare();
 };
 
 /**
@@ -1243,9 +1357,12 @@ const framedTarget = (): WatchCaptureTarget | "screen" | null => {
 
 const syncWatchFrame = (): void => {
   // Before the frame is placed or taken down, so a mode that has lost its
-  // share is off by the time a window could be left holding the mouse for it.
-  // The pushed state that follows carries both facts at once.
+  // share is off by the time a window could be left holding the mouse for it,
+  // and marks that have lost theirs are down before the frame moves off the
+  // surface they were measured against. The pushed state that follows carries
+  // every fact at once.
   setAnnotating(annotating);
+  syncCoachmarks();
   const framed = framedTarget();
   if (framed === null) {
     stopFollowingWindow();
@@ -1667,8 +1784,8 @@ export const installCompanionWindow = (): void => {
    * `annotating` on the next push, the same way it learns a share started.
    *
    * A press asking for the mode with nothing shared is refused rather than
-   * remembered ({@link canAnnotate}), so the mode can never be armed ahead of
-   * a share and take a display's clicks the moment one starts.
+   * remembered ({@link framesTheShare}), so the mode can never be armed
+   * ahead of a share and take a display's clicks the moment one starts.
    */
   on("vellum:companion:setAnnotating", z.tuple([z.boolean()]), ([next]) => {
     setAnnotating(next);
@@ -1701,7 +1818,7 @@ export const installCompanionWindow = (): void => {
    *
    * A *mark* is refused unless the mode is on, because the mode is what makes
    * its coordinates mean anything: they are fractions of the frame, and the
-   * frame is only around the shared surface while {@link canAnnotate} holds.
+   * frame is only around the shared surface while {@link framesTheShare} holds.
    *
    * **A release carrying nothing is let through either way**, and the order
    * of events is the whole reason. Lowering the mode is what unmounts the
@@ -1728,6 +1845,30 @@ export const installCompanionWindow = (): void => {
         return;
       }
       dispatchWithoutRaising({ kind: "annotateShare", phase, strokes, ink });
+    },
+  );
+
+  /**
+   * Point at things on the shared surface, from the window holding the
+   * session: what the assistant is pointing at now, or an empty list for
+   * nothing.
+   *
+   * Handled here rather than forwarded, the way the drawing mode's press is,
+   * and for the same reason: the marks are drawn on a window main opened,
+   * around a surface only main knows the frame is still on. An ask made with
+   * nothing shared is refused rather than remembered
+   * ({@link framesTheShare}), so marks can never be armed ahead of a share
+   * and land on a surface nobody chose.
+   *
+   * The whole set every time rather than one mark added or removed. What is
+   * being pointed at is one thought, and a caller that could add to it would
+   * be a caller whose earlier marks it has to remember to take down.
+   */
+  on(
+    "vellum:companion:setCoachmarks",
+    z.tuple([z.array(companionCoachmarkSchema).max(COMPANION_COACHMARK_MAX)]),
+    ([marks]) => {
+      setCoachmarks(marks);
     },
   );
 

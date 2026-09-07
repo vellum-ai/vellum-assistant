@@ -455,12 +455,12 @@
     "urlPlaceholder": "在此貼上回呼 URL..."
   },
   "checkoutBonusModal": {
-    "body": "領取一次性 {amount} 點數，我們將直接將其新增至您的帳戶餘額。無需付款。",
-    "claim": "領取 {amount} 點數",
+    "body": "領取一次性 {amount} 額外用量，我們將直接將其新增至您的使用餘額。無需付款。",
+    "claim": "領取 {amount} 額外用量",
     "decline": "不用了，謝謝",
-    "errorToast": "無法新增點數。請再試一次。",
-    "grantedToast": "{amount} 點數已新增至您的帳戶。",
-    "title": "我們贈送您 {amount}",
+    "errorToast": "無法新增額外用量。請再試一次。",
+    "grantedToast": "{amount} 額外用量已新增至您的使用餘額。",
+    "title": "我們贈送您 {amount} 額外用量",
     "unavailableToast": "此優惠已不再提供。"
   },
   "checkoutPage": {

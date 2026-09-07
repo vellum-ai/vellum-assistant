@@ -455,12 +455,12 @@
     "urlPlaceholder": "Pega aquí la URL de devolución de llamada..."
   },
   "checkoutBonusModal": {
-    "body": "Reclama un crédito único de {amount} y lo añadiremos directamente al saldo de tu cuenta. No se requiere ningún pago.",
-    "claim": "Reclamar {amount} en créditos",
+    "body": "Reclama {amount} de uso adicional por única vez y lo añadiremos directamente a tu saldo de uso. No se requiere ningún pago.",
+    "claim": "Reclamar {amount} en uso adicional",
     "decline": "No, gracias",
-    "errorToast": "No se pudieron añadir los créditos. Inténtalo de nuevo.",
-    "grantedToast": "Se añadieron {amount} en créditos a tu cuenta.",
-    "title": "Aquí tienes {amount} de nuestra parte",
+    "errorToast": "No se pudo añadir el uso adicional. Inténtalo de nuevo.",
+    "grantedToast": "Se añadieron {amount} en uso adicional a tu saldo de uso.",
+    "title": "Aquí tienes {amount} de uso adicional de nuestra parte",
     "unavailableToast": "Esta oferta ya no está disponible."
   },
   "checkoutPage": {

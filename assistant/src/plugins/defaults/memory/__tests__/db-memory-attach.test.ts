@@ -10,9 +10,9 @@
  *      `memory` schema on its `database_list`.
  *   3. The relocated memory tables (`memory_jobs`, `memory_v2_injection_events`,
  *      `memory_v2_activation_logs`, `memory_recall_logs`,
- *      `memory_v3_selections`, `activation_sessions`, `activation_state`,
- *      `conversation_graph_memory_state`, `memory_v3_ever_injected`,
- *      `memory_retrospective_state`, and the graph cluster
+ *      `memory_v3_selections`, `memory_v3_pools`, `activation_sessions`,
+ *      `activation_state`, `conversation_graph_memory_state`,
+ *      `memory_v3_ever_injected`, `memory_retrospective_state`, and the graph cluster
  *      `memory_graph_nodes` / `memory_graph_edges` / `memory_graph_triggers` /
  *      `memory_graph_node_edits`) live in the dedicated memory connection, not
  *      in the main connection — proving the physical split.
@@ -25,6 +25,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { removeTestDbFiles } from "../../../../__tests__/assert-not-live-db.js";
+import { ensureMemoryV3PluginSchema } from "../v3/plugin-schema.js";
 
 const { getSqlite, getMemorySqlite } =
   await import("../../../../persistence/db-connection.js");
@@ -35,6 +36,9 @@ const { getMemoryDbPath } = await import("../../../../util/memory-db-path.js");
 const { findSqlite3 } = await import("../../../../util/sqlite3-runtime.js");
 
 await initializeDb();
+// The memory-v3 plugin creates its own tables (init hook, or a store's
+// first use), not the global chain: stand them up as the init hook does.
+ensureMemoryV3PluginSchema();
 
 const sqlite3Available = findSqlite3() !== undefined;
 
@@ -63,10 +67,12 @@ describe("memory database connection", () => {
     "memory_v2_activation_logs",
     "memory_recall_logs",
     "memory_v3_selections",
+    "memory_v3_pools",
     "activation_sessions",
     "activation_state",
     "conversation_graph_memory_state",
     "memory_v3_ever_injected",
+    "memory_v3_injected_sections",
     "memory_retrospective_state",
     "memory_graph_nodes",
     "memory_graph_edges",

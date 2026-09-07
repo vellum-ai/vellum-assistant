@@ -29,7 +29,6 @@ import type {
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
-  COMPANION_BASE_RESTING_PILL_HEIGHT,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
@@ -240,33 +239,37 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
  * colour is not, and being hollow is what keeps it from taking the screen away
  * from whatever the user is actually working in.
  *
- * **Two sizes, because the shape answers the pointer.** `idle` is the marker:
- * the creature is tucked behind it and peeks out of it every few seconds.
- * `active` is what a hand arriving grows it into, big enough for the creature
- * to stand up in. That growth is the whole of what hover does here, and it is
- * why the creature coming out and the pill opening read as one gesture rather
- * than two.
+ * **Two sizes, because the shape gives way to the creature.** `idle` is the
+ * marker: the creature is tucked behind it and peeks out of it every few
+ * seconds. `closing` is where it ends when a hand arrives and the creature
+ * stands up, which is on the creature's own artwork: the marker draws in from
+ * both ends until it is a ring the size of the creature, and goes out as the
+ * creature reaches full size. One gesture, and the thing it hands the surface
+ * over to is the creature.
  *
- * **Only `active` scales with the creature.** It has to contain it, so at
- * `ridiculous` it is five times the pill it is at `small`. `idle` holds one
- * size on every setting: sizing the creature is a statement about the
- * creature, and someone who wants a big mascot when they look at it has not
- * asked for a big lozenge sitting over their work all day. The rim holds one
- * thickness for the same reason, so the line stays a line instead of
+ * **Inward, not outward.** The pill used to grow into a frame the creature
+ * stood inside. The marker is wide and the creature is not, so that read as
+ * the surface swelling under the pointer and then the creature appearing in
+ * the middle of it, which is two events; drawing in reads as one shape
+ * becoming the other. It also leaves nothing lit behind the standing creature,
+ * which is the state hover is actually for.
+ *
+ * **Only `closing` scales with the creature**, because it lands on it. `idle`
+ * holds one size on every setting: sizing the creature is a statement about
+ * the creature, and someone who wants a big mascot when they look at it has
+ * not asked for a big lozenge sitting over their work all day. The rim holds
+ * one thickness for the same reason, so the line stays a line instead of
  * thickening into a frame.
  */
 const RESTING_PILL = {
   /** The marker. Wider than the artwork it stands in for, and hollow. */
   idle: { width: 64, height: 14 },
   /**
-   * What a pointer grows it into: the frame the whole creature stands in.
-   *
-   * The height is the contract's, because main places the window by it: this
-   * shape reaches further below the avatar's centre than the creature does,
-   * and a placement that did not know how far would hang its lower rim off
-   * the bottom of the display.
+   * Where the line ends up: the creature's own artwork, squared, so a
+   * `rounded-full` shape drawn at it is a ring on the creature's edge. Scaled
+   * with the creature by the caller, since the creature is what it lands on.
    */
-  active: { width: 150, height: COMPANION_BASE_RESTING_PILL_HEIGHT },
+  closing: AVATAR_IMAGE,
   /** The lit line's thickness, at every size and every setting. */
   rim: 2.5,
   /** How far that line throws light, as the nearer of its two blooms. */
@@ -944,22 +947,23 @@ export function CompanionSurface({
   /**
    * The creature's box over the one this file's lengths are authored for.
    *
-   * The activated pill takes it, because it has to contain the creature; the
-   * idle marker and the rim do not. See {@link RESTING_PILL}.
+   * The closing ring takes it, because it lands on the creature; the idle
+   * marker and the rim do not. See {@link RESTING_PILL}.
    */
   const restingScale = avatarBox / COMPANION_BASE_AVATAR_BOX;
 
   /**
-   * The resting pill's box: the marker, or what a pointer has grown it into.
+   * The lit line's box: the marker, or the ring it draws in to on the
+   * creature's own edge as the creature stands up.
    *
    * Read off `creatureOut` rather than off `hovered`, so the one thing that
-   * decides whether the creature is standing decides whether there is
-   * anywhere for it to stand. The two are the same gesture.
+   * decides whether the creature is standing decides where the line goes. The
+   * two are the same gesture: the marker becomes the creature.
    */
   const restingBox = creatureOut
     ? {
-        width: RESTING_PILL.active.width * restingScale,
-        height: RESTING_PILL.active.height * restingScale,
+        width: RESTING_PILL.closing * restingScale,
+        height: RESTING_PILL.closing * restingScale,
       }
     : RESTING_PILL.idle;
 
@@ -1139,8 +1143,8 @@ export function CompanionSurface({
       </div>
       {/* The pill the surface rests in: the assistant's own colour as a lit
         edge and nothing inside it. A marker with the creature tucked behind
-        it until a pointer arrives, then grown to the size the creature stands
-        up in. See {@link RESTING_PILL}.
+        it until a pointer arrives, then drawn in onto the creature and out.
+        See {@link RESTING_PILL}.
 
         A sibling of the pill that carries content rather than the same
         element, and the two cross-fade. They are different shapes in different
@@ -1150,26 +1154,31 @@ export function CompanionSurface({
         the centre to an edge mid-transition, which reads as the surface
         flinching.
 
+        **The footprint and the line are two nodes, and only the line moves.**
+        This one is the marker's own box and never changes size, because it is
+        what the pointer is hit-tested against: a shape that drew in from under
+        the hand that arrived would take the surface out from under it, the
+        pointer would land on the desktop, the creature would tuck back, and
+        the marker would return under the same stationary pointer to start
+        again. So the reach stays the marker's for as long as the creature is
+        out, and staying anywhere the marker covered keeps it out.
+
         A drag handle, as the creature and the pill both are. It is the largest
         thing on screen at rest, so it is what a hand reaches for to move the
-        surface, and a 150pt shape that ignored the press would read as broken.
+        surface, and a shape that ignored the press would read as broken.
         `aria-hidden` because it says nothing the creature beside it does not
         already say: the creature carries the accessible name and the press. */}
       <div
-        className="absolute cursor-grab rounded-full transition-[width,height,opacity] duration-300 active:cursor-grabbing"
+        className="absolute cursor-grab active:cursor-grabbing"
         style={{
-          width: inUnits(restingBox.width),
-          height: inUnits(restingBox.height),
-          // **Faded is not gone.** Opacity leaves the box where it is, and
-          // this one is drawn after the pill that carries content and centred
-          // on the same point the call's bar stands on, so a live call would
-          // hand its presses to an invisible sheet instead of to mute and
-          // end. It takes the pointer only while it is the shape on screen.
-          pointerEvents: expanded ? "none" : undefined,
-          // A reader who asked for stillness keeps the cross-fade and loses
-          // the growth: the box going from a marker to a frame is travel
-          // across the screen, which is the thing they asked not to have.
-          transitionProperty: reduce ? "opacity" : undefined,
+          width: inUnits(RESTING_PILL.idle.width),
+          height: inUnits(RESTING_PILL.idle.height),
+          // **The reach is not the drawing.** This box outlives the line
+          // inside it, and it is drawn after the pill that carries content and
+          // centred on the same point the call's bar stands on, so a live call
+          // would hand its presses to an invisible sheet instead of to mute
+          // and end. It takes the pointer only while the creature is in it.
+          pointerEvents: creatureOut ? "none" : undefined,
           // Centred on the point the host put the window around, which is the
           // point the creature holds. The creature is a sibling drawn on that
           // same point, so centring the pill on it is what puts the creature
@@ -1178,21 +1187,40 @@ export function CompanionSurface({
           left: "50%",
           top: lineAt(cardGrowth, 0),
           transform: "translate(-50%, -50%)",
-          boxShadow: restingRim(
-            accentHex,
-            inUnits(RESTING_PILL.rim),
-            inUnits(RESTING_PILL.bloom),
-          ),
-          // Gone the moment there is a pill with something in it. Not
-          // unmounted: the fade is what makes the two read as one surface
-          // changing shape rather than one object replacing another.
-          opacity: expanded ? 0 : 1,
         }}
         onPointerDown={onSurfacePointerDown}
         onContextMenu={onSurfaceContextMenu}
         ref={restingPillRef}
         aria-hidden
-      />
+      >
+        {/* The lit line itself, centred in that footprint: the marker at rest,
+          and the ring on the creature's own edge once the creature is out.
+          Drawn in rather than grown, so the marker reads as becoming the
+          creature rather than as swelling around it. */}
+        <div
+          className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,opacity] duration-300"
+          style={{
+            width: inUnits(restingBox.width),
+            height: inUnits(restingBox.height),
+            transform: "translate(-50%, -50%)",
+            transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+            // A reader who asked for stillness keeps the fade and loses the
+            // draw-in: the line travelling in across the screen is the thing
+            // they asked not to have.
+            transitionProperty: reduce ? "opacity" : undefined,
+            boxShadow: restingRim(
+              accentHex,
+              inUnits(RESTING_PILL.rim),
+              inUnits(RESTING_PILL.bloom),
+            ),
+            // Gone the moment the creature is out, which is what the draw-in
+            // hands the surface over to. Not unmounted: the fade is what makes
+            // the two read as one surface changing shape rather than one
+            // object replacing another.
+            opacity: creatureOut ? 0 : 1,
+          }}
+        />
+      </div>
       {/* The creature's name for a press, the way the Dock names an icon: a
           small label centred above it rather than a control standing beside
           it.

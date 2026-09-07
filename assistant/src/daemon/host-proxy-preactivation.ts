@@ -79,6 +79,7 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
   skillId: string;
 }> = [
   { capability: "host_cu", skillId: "computer-use" },
+  { capability: "host_cu", skillId: "screen-annotation" },
   { capability: "host_app_control", skillId: "app-control" },
 ];
 
