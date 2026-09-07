@@ -1072,8 +1072,7 @@ export async function startVoiceTurn(
     pendingVoiceApprovals.clear();
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
-    conversation.currentTurnSourceActorPrincipalId = undefined;
-    installedActorStampGeneration = null;
+    releaseActorStamp(undefined);
     conversation.setCommandIntent(null);
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
@@ -1189,6 +1188,31 @@ export async function startVoiceTurn(
    * the one standing.
    */
   let installedActorStampGeneration: number | null = null;
+  /**
+   * Leave `next` behind as the actor stamp, but only while this turn's own
+   * stamp is still the one standing.
+   *
+   * The release on the way out and the revert on a race loss both come
+   * through here, because they are the same question asked twice: is the
+   * stamp on the conversation still mine to take back? `runAgentLoopImpl`
+   * gives up the processing claim before the turn-boundary commit is
+   * awaited, so a retry can take the conversation and stamp its own actor
+   * while this turn is still unwinding. Clearing then would strip an actor
+   * the retry route installs no auth-context fallback for, and its
+   * host-proxy calls would be refused, which is the failure the stamp exists
+   * to prevent.
+   */
+  const releaseActorStamp = (next: string | undefined): void => {
+    if (
+      installedActorStampGeneration === null ||
+      conversation.currentTurnActorStampGeneration !==
+        installedActorStampGeneration
+    ) {
+      return;
+    }
+    conversation.currentTurnSourceActorPrincipalId = next;
+    installedActorStampGeneration = null;
+  };
   const voiceTurnValues = {
     assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     callSessionId: voiceSessionId,
@@ -1281,18 +1305,8 @@ export async function startVoiceTurn(
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
     }
-    // By the write count rather than by the value, for the reason
-    // `installedActorStampGeneration` gives. A turn that never installed has
-    // nothing of its own standing to take back.
-    if (
-      installedActorStampGeneration !== null &&
-      conversation.currentTurnActorStampGeneration ===
-        installedActorStampGeneration
-    ) {
-      conversation.currentTurnSourceActorPrincipalId =
-        snap.actorPrincipalId ?? undefined;
-      installedActorStampGeneration = null;
-    }
+    // Through the same guard the release uses: see `releaseActorStamp`.
+    releaseActorStamp(snap.actorPrincipalId ?? undefined);
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);
     }

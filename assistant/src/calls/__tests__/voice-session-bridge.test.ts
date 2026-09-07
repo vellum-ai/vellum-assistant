@@ -1573,6 +1573,38 @@ describe("startVoiceTurn actor principal", () => {
 
     expect(readState().actorPrincipalId).toBeUndefined();
   });
+
+  /**
+   * The release is not unconditional. `runAgentLoopImpl` gives up the
+   * processing claim before the turn-boundary commit is awaited, so a retry
+   * can take the conversation and stamp its own actor while this turn is
+   * still unwinding. The retry route installs no auth-context fallback, so a
+   * clear on the way out would leave it with no actor at all and its
+   * host-proxy calls refused.
+   */
+  test("does not clear an actor another turn stamped while this one unwound", async () => {
+    let conv: { currentTurnSourceActorPrincipalId?: string } | null = null;
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        conv!.currentTurnSourceActorPrincipalId = "principal-retry";
+      },
+    });
+    conv = fake.conversation as {
+      currentTurnSourceActorPrincipalId?: string;
+    };
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release-guard"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBe("principal-retry");
+  });
 });
 
 describe("startVoiceTurn race-loss state restore", () => {
