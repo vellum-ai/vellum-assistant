@@ -946,10 +946,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ...(perRequestHeaders ?? {}),
         };
         const extraBody = this.buildRequestExtraBody(options);
+        if (extraBody) {
+          Object.assign(params, extraBody);
+        }
         const createStream = () =>
           this.client.chat.completions.create(params, {
             signal: timeoutSignal,
-            ...(extraBody ? { extraBody } : {}),
             ...(Object.keys(requestHeaders).length > 0
               ? { headers: requestHeaders }
               : {}),
@@ -1370,9 +1372,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
   }
 
   /**
-   * Fields merged into the JSON body via the SDK `extraBody` request
-   * option. Unknown top-level create params are dropped; this is how
-   * hosted-Qwen `directions` reach the runtime proxy.
+   * Fields merged onto the `chat.completions.create` params object. The
+   * OpenAI Node SDK sends unknown body fields as-is, so hosted-Qwen
+   * `directions` reach the runtime proxy on the JSON body.
    */
   protected buildRequestExtraBody(
     _options?: SendMessageOptions,

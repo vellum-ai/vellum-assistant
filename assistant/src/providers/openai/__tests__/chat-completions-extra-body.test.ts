@@ -12,9 +12,10 @@ class ExtraBodyProvider extends OpenAIChatCompletionsProvider {
 }
 
 describe("chat-completions extraBody", () => {
-  test("forwards subclass extraBody on the SDK request options", async () => {
+  test("merges subclass extra body fields onto the SDK create params", async () => {
     const provider = new ExtraBodyProvider("test-key", "qwen/qwen3-8b");
-    let seen: Record<string, unknown> | undefined;
+    let seenParams: Record<string, unknown> | undefined;
+    let seenOptions: Record<string, unknown> | undefined;
     (
       provider as unknown as {
         client: {
@@ -28,8 +29,9 @@ describe("chat-completions extraBody", () => {
           };
         };
       }
-    ).client.chat.completions.create = async (_params, options) => {
-      seen = options;
+    ).client.chat.completions.create = async (params, options) => {
+      seenParams = params;
+      seenOptions = options;
       return {
         async *[Symbol.asyncIterator]() {
           yield {
@@ -43,6 +45,7 @@ describe("chat-completions extraBody", () => {
     await provider.sendMessage([
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ]);
-    expect(seen?.extraBody).toEqual({ directions: { companion: 0.4 } });
+    expect(seenParams?.directions).toEqual({ companion: 0.4 });
+    expect(seenOptions?.extraBody).toBeUndefined();
   });
 });
