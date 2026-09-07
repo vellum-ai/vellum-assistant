@@ -110,6 +110,18 @@ export function isAndroidBrowser(): boolean {
   return /Android/i.test(navigator.userAgent);
 }
 
+// X11 alone identifies a window system, not a supported Linux host.
+export function isLinuxBrowser(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent;
+  if (/Android|CrOS/i.test(ua)) {
+    return false;
+  }
+  return /Linux/i.test(ua);
+}
+
 /**
  * Returns true when the current browser is running on a phone or tablet,
  * whatever the OS.
@@ -442,6 +454,20 @@ export function useIsMacOSWeb(): boolean {
   return useSyncExternalStore(
     noop,
     () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
+    () => false,
+  );
+}
+
+/**
+ * Linux web user who should see custom nudge surfaces.
+ *
+ * Excludes Electron because the reader is already inside the Linux desktop
+ * app, and Capacitor for symmetry with `useIsMacOSWeb`.
+ */
+export function useIsLinuxWeb(): boolean {
+  return useSyncExternalStore(
+    noop,
+    () => isLinuxBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
 }

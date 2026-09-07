@@ -24,6 +24,9 @@ mock.module("@/components/nudges/native-app-banner", () => ({
 mock.module("@/components/nudges/macos-app-banner", () => ({
   MacOSAppBanner: () => <div data-testid="macos-app-banner" />,
 }));
+mock.module("@/components/nudges/linux-app-banner", () => ({
+  LinuxAppBanner: () => <div data-testid="linux-app-banner" />,
+}));
 mock.module("@/domains/chat/components/queued-messages-drawer", () => ({
   QueuedMessagesDrawer: () => null,
 }));
@@ -43,6 +46,7 @@ function makeNudges(overrides: Partial<Nudges> = {}): Nudges {
     isOnIOS: false,
     isOnAndroid: false,
     isOnMacOS: true,
+    isOnLinux: false,
     isOnNudgePlatform: true,
     mobilePromotion: null,
     nudge: {
@@ -129,6 +133,18 @@ describe("useChatBannerSlots — banner slot construction", () => {
     render(result.current.mainBannerSlot);
     expect(screen.getByTestId("macos-app-banner")).toBeDefined();
     expect(screen.queryByTestId("native-app-banner")).toBeNull();
+  });
+
+  test("a Linux browser picks the Linux banner over the macOS one", () => {
+    const { result } = renderHook(useChatBannerSlots, {
+      initialProps: makeParams(
+        makeNudges({ showBanner: true, isOnMacOS: false, isOnLinux: true }),
+      ),
+    });
+
+    render(result.current.mainBannerSlot);
+    expect(screen.getByTestId("linux-app-banner")).toBeDefined();
+    expect(screen.queryByTestId("macos-app-banner")).toBeNull();
   });
 
   test("clearing the flag drops the slot back to null", () => {

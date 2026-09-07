@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { KEY_LINUX_APP_FIRST_SEEN_AT } from "@/hooks/use-linux-app-nudge";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const IPHONE_SAFARI_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) " +
@@ -31,6 +33,8 @@ const DESKTOP_CHROME_UA =
 const MAC_SAFARI_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
   "(KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+const LINUX_FIREFOX_UA =
+  "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 
 const ORIGINAL_UA = navigator.userAgent;
 const ORIGINAL_PLATFORM = navigator.platform;
@@ -55,6 +59,7 @@ function renderNudges() {
 
 beforeEach(() => {
   localStorage.clear();
+  useClientFeatureFlagStore.setState({ linuxDesktopApp: false });
   setUserAgent(DESKTOP_CHROME_UA);
   setPlatform("Win32");
 });
@@ -122,5 +127,42 @@ describe("useAppNudges mobile promotion", () => {
     expect(result.current.mobilePromotion).toBeNull();
     expect(result.current.isOnNudgePlatform).toBe(false);
     expect(result.current.showBanner).toBe(false);
+  });
+});
+
+describe("useAppNudges Linux gating", () => {
+  test("stays dark on Linux while the flag is off", () => {
+    setUserAgent(LINUX_FIREFOX_UA);
+    setPlatform("Linux x86_64");
+
+    const result = renderNudges();
+    expect(result.current.isOnLinux).toBe(false);
+    expect(result.current.isOnNudgePlatform).toBe(false);
+    expect(result.current.showBanner).toBe(false);
+    // The 24h age gate must not start ticking before the flag turns on, or
+    // every returning Linux reader clears it the moment rollout begins.
+    expect(localStorage.getItem(KEY_LINUX_APP_FIRST_SEEN_AT)).toBeNull();
+  });
+
+  test("claims the Linux browser once the flag is on", () => {
+    setUserAgent(LINUX_FIREFOX_UA);
+    setPlatform("Linux x86_64");
+    useClientFeatureFlagStore.setState({ linuxDesktopApp: true });
+
+    const result = renderNudges();
+    expect(result.current.isOnLinux).toBe(true);
+    expect(result.current.mobilePromotion).toBeNull();
+    expect(result.current.isOnNudgePlatform).toBe(true);
+    expect(localStorage.getItem(KEY_LINUX_APP_FIRST_SEEN_AT)).not.toBeNull();
+  });
+
+  test("leaves other platforms alone when the flag is on", () => {
+    useClientFeatureFlagStore.setState({ linuxDesktopApp: true });
+    setUserAgent(MAC_SAFARI_UA);
+    setPlatform("MacIntel");
+
+    const result = renderNudges();
+    expect(result.current.isOnLinux).toBe(false);
+    expect(result.current.isOnMacOS).toBe(true);
   });
 });

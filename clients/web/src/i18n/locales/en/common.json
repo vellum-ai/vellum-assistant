@@ -340,6 +340,13 @@
   "localNotification": {
     "goToConversation": "Go to Conversation"
   },
+  "linuxAppBanner": {
+    "ariaLabel": "Download the Linux app",
+    "ctaAriaLabel": "Download Linux app",
+    "ctaLabel": "Download",
+    "subtitle": "Computer use · terminal access · native automation",
+    "title": "Get the Linux app"
+  },
   "macosAppBanner": {
     "ariaLabel": "Download the macOS app",
     "ctaAriaLabel": "Download macOS app",
