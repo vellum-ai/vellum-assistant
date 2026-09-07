@@ -434,7 +434,8 @@ export function geminiCacheExtras(config: AssistantConfig): string[] {
 /**
  * Cache-key fragments for a custom OpenAI-compatible embeddings endpoint.
  * Base URL and requested output dimensionality both change the vectors a
- * given model returns, so they belong in the in-memory backend identity.
+ * given model returns, so they belong in backend, in-memory, and durable
+ * cache identity.
  */
 export function customCacheExtras(config: AssistantConfig): string[] {
   const extras: string[] = [];
@@ -448,6 +449,50 @@ export function customCacheExtras(config: AssistantConfig): string[] {
     extras.push(`dim=${config.memory.embeddings.customDimensions}`);
   }
   return extras;
+}
+
+/**
+ * Provider extras that belong in durable `memory_embeddings` identity.
+ * Gemini task type / dimensions and custom endpoint URL / dimensions both
+ * change the vector for identical text, so cache readers must fold them in.
+ */
+export function durableEmbeddingCacheExtras(
+  config: AssistantConfig,
+  provider: string | null,
+): string[] {
+  if (provider === "gemini") {
+    return geminiCacheExtras(config);
+  }
+  if (provider === "custom") {
+    return customCacheExtras(config);
+  }
+  return [];
+}
+
+/**
+ * Checkpoint key for the custom embedding space last used to populate
+ * Qdrant. Compared at reconcile time so a same-dimension endpoint change
+ * still enqueues a reembed instead of mixing vector spaces.
+ */
+export const CUSTOM_EMBEDDING_SPACE_CHECKPOINT =
+  "memory:custom_embedding_space";
+
+/**
+ * Stable identity of the configured custom embeddings endpoint. Null when
+ * the provider is not `custom`. Includes model, normalized base URL, and
+ * requested dimensions.
+ */
+export function customEmbeddingSpaceIdentity(
+  config: AssistantConfig,
+): string | null {
+  if (config.memory.embeddings.provider !== "custom") {
+    return null;
+  }
+  return [
+    "custom",
+    config.memory.embeddings.customModel,
+    ...customCacheExtras(config),
+  ].join("\0");
 }
 
 /** Build (or reuse) the direct-API Gemini backend for the given key. */

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantConfig } from "../../config/types.js";
 import {
   clearEmbeddingBackendCache,
+  customEmbeddingSpaceIdentity,
   embedWithBackend,
   isEmbeddingDimensionAvailable,
   resetLocalEmbeddingFailureState,
@@ -494,5 +495,31 @@ describe("custom OpenAI-compatible embedding backend selection", () => {
 
     expect(await resolveBackendDimension(first)).toBe(1536);
     expect(await resolveBackendDimension(second)).toBe(1024);
+  });
+
+  test("customEmbeddingSpaceIdentity includes model, url, and dimensions", () => {
+    expect(
+      customEmbeddingSpaceIdentity(
+        customConfig({
+          baseUrl: "http://127.0.0.1:4000/v1/",
+          customModel: "embed-mistral",
+          customDimensions: 1024,
+        }),
+      ),
+    ).toBe("custom\0embed-mistral\0url=http://127.0.0.1:4000/v1\0dim=1024");
+  });
+
+  test("customEmbeddingSpaceIdentity is null when the provider is not custom", () => {
+    expect(
+      customEmbeddingSpaceIdentity({
+        memory: {
+          embeddings: {
+            provider: "openai",
+            openaiModel: "text-embedding-3-small",
+            baseUrl: "http://127.0.0.1:4000/v1",
+          },
+        },
+      } as unknown as AssistantConfig),
+    ).toBeNull();
   });
 });
