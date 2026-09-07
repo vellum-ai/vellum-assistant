@@ -1,14 +1,11 @@
 /**
  * The personality page — drilled into from the assistant overview. Same
  * avatar-tinted stage (eyes peeking from the bottom) with the five trait
- * sliders from research onboarding; "Update personality" composes the
- * slider values into the personality system-message and runs it as an
- * identity rewrite turn, so the assistant rewrites its own identity files
- * in the new voice.
+ * sliders from research onboarding.
  *
- * The dial positions persist in a workspace sidecar
- * (`data/personality-sliders.json`): saved after a successful rewrite,
- * read back to seed the sliders so they reopen where the user left them.
+ * "Update personality" persists the dials to `data/personality-sliders.json`.
+ * Hosted Qwen reads that sidecar on the next chat turn. Other models still
+ * run an identity rewrite so IDENTITY.md / SOUL.md match the new voice.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";

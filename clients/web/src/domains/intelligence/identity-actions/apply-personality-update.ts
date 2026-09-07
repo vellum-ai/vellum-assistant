@@ -1,14 +1,16 @@
 /**
  * Applies the personality page's slider choices to the assistant.
  *
- * Reuses onboarding's `buildPersonalityMessage` — the five 0–100 trait
- * sliders become a system-message asking the assistant to rewrite its own
- * identity files in the matching voice — but runs it through
- * `runIdentityRewrite` so the page can show a saving state and report
- * success/failure, unlike onboarding's fire-and-forget flow.
+ * Hosted Qwen steers from the persisted sidecar on the next chat turn,
+ * so this path only needs to report success and let the page write the
+ * dials. Other models still go through `runIdentityRewrite`: the five
+ * 0-100 sliders become a system-message asking the assistant to rewrite
+ * its own identity files in the matching voice.
  */
 
+import { isHostedSteeringProfile } from "@/assistant/hosted-steering-profile";
 import { buildPersonalityMessage } from "@/assistant/personality-rewrite";
+import { resolveMainAgentProfile } from "@/assistant/resolve-main-agent-profile";
 import { t } from "@/i18n";
 
 import { runIdentityRewrite } from "./run-identity-rewrite";
@@ -25,14 +27,25 @@ export interface ApplyPersonalityUpdateOptions {
 }
 
 /**
- * Apply the personality on a throwaway side conversation. Resolves `true`
- * once the rewrite turn settled, `false` on any failure; never throws.
+ * Apply the personality. Resolves `true` when hosted Qwen can persist
+ * sliders without a rewrite, or when a rewrite turn settled. Resolves
+ * `false` on any failure; never throws.
  */
 export async function applyPersonalityUpdate({
   assistantId,
   values,
   assistantName,
 }: ApplyPersonalityUpdateOptions): Promise<boolean> {
+  let hostedQwen = false;
+  try {
+    const profile = await resolveMainAgentProfile(assistantId);
+    hostedQwen = isHostedSteeringProfile(profile?.provider, profile?.model);
+  } catch {
+    return false;
+  }
+  if (hostedQwen) {
+    return true;
+  }
   return runIdentityRewrite({
     assistantId,
     content: buildPersonalityMessage(values, undefined, assistantName),
