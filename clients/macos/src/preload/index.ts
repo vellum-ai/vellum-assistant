@@ -35,6 +35,8 @@ import type {
   HelperState,
   HotkeyEvent,
   HotkeySelection,
+  ChordBinding,
+  ChordRegistrationResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
@@ -67,6 +69,7 @@ import {
   HELPER_APPS_RUNNING,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
   HELPER_HOTKEY_READ_FRONT_SELECTION,
+  HELPER_HOTKEY_SET_CHORDS,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
   HELPER_INPUT_ACTIVITY_EVENT,
   HELPER_INPUT_SET_ACTIVITY_WATCH,
@@ -202,6 +205,11 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_MODIFIER_HOLD,
           hold,
         ) as Promise<ModifierHoldRegistrationResult>,
+      setChords: (binding: ChordBinding): Promise<ChordRegistrationResult> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_SET_CHORDS,
+          binding,
+        ) as Promise<ChordRegistrationResult>,
       readFrontSelection: (): Promise<HotkeySelection | null> =>
         ipcRenderer.invoke(
           HELPER_HOTKEY_READ_FRONT_SELECTION,
@@ -566,6 +574,9 @@ const bridge: VellumBridge = {
     },
     setAnnotating: (annotating: boolean): void => {
       ipcRenderer.send("vellum:companion:setAnnotating", annotating);
+    },
+    toggleAnnotating: (): void => {
+      ipcRenderer.send("vellum:companion:toggleAnnotating");
     },
     annotateShare: (
       phase: CompanionAnnotationPhase,

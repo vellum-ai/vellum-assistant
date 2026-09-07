@@ -2962,6 +2962,34 @@ describe("companion window: drawing on what is shared", () => {
   });
 
   /**
+   * The keyboard's press, which has no view of the mode and so cannot ask
+   * for a direction. Main holds it, so main turns it over.
+   */
+  test("a toggle turns the mode over in both directions", () => {
+    shareDisplay();
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(true);
+    expect(glow?.clickThrough).toBe(false);
+
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(false);
+    expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * A gesture made in the gap between a share ending and the surface hearing
+   * about it asks for a mode there is nothing to draw in. Refused the same
+   * way the press on the pill is, so the toggle cannot arm the mode ahead of
+   * a share by being pressed twice.
+   */
+  test("a toggle with nothing shared leaves the mode off", () => {
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(false);
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(false);
+  });
+
+  /**
    * The mode can never be armed ahead of a share, or it would take a
    * display's clicks the moment one started.
    */

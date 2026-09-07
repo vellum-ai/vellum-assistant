@@ -7,11 +7,15 @@ import IOKit.hid
 import MacHelperCore
 import Speech
 
-/// The keyboard tap's callback. Listen-only, so the event is always handed
-/// back untouched; what is read off it is the modifier flags and the fact of a
-/// key going down. A tap the system has switched off for taking too long is
-/// switched back on here, since a dead tap is a dead key with nothing to say
-/// so.
+/// The keyboard tap's callback. What is read off an event is the modifier
+/// flags and the fact of a key going down. A tap the system has switched off
+/// for taking too long is switched back on here, since a dead tap is a dead
+/// key with nothing to say so.
+///
+/// Every event is handed back as it came except one: a key the binding named
+/// as a chord, pressed inside a hold, is taken. That press is a gesture the
+/// user made at this app, and letting it through would type a letter into
+/// whatever they are working in on its way past.
 private func keyboardTapCallback(
     _ proxy: CGEventTapProxy,
     _ type: CGEventType,
@@ -26,7 +30,9 @@ private func keyboardTapCallback(
     case .flagsChanged:
         helper.handleFlagsChanged(event.flags)
     case .keyDown:
-        helper.handleRawKeyDown()
+        if helper.handleRawKeyDown(event) {
+            return nil
+        }
     case .leftMouseDown, .rightMouseDown, .otherMouseDown:
         helper.handleMouseDown()
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -48,7 +54,9 @@ final class MacHelper: @unchecked Sendable {
     /// key with an active session-level tap that swallows it, and a monitor
     /// downstream of that never hears the press at all. The HID point is
     /// upstream of every session tap, so the key is seen before anyone can
-    /// take it. Listen-only, since the helper only ever reads.
+    /// take it. Active, so the one press that is a gesture at this app can be
+    /// taken rather than passed on; every other event is handed back as it
+    /// came.
     private var keyboardTap: CFMachPort?
     private var keyboardTapSource: CFRunLoopSource?
     private var modifierHoldDetector = ModifierHoldDetector()
@@ -58,6 +66,13 @@ final class MacHelper: @unchecked Sendable {
     /// so "held" is per modifier rather than per bit.
     private var modifierHoldMasks: [UInt32] = []
     private var isModifierHoldDown = false
+    /// The chord binding: the modifiers that must be held, and the keys that
+    /// mean something with them. Its own binding rather than a mode of the
+    /// hold's, because it is a different question about the keyboard: the hold
+    /// asks what a bare set of modifiers is doing, and this asks which key was
+    /// pressed under one. Empty masks are a binding that is off.
+    private var chordModifierMasks: [UInt32] = []
+    private var chordKeys = ChordKeySet()
     /// Whether presses are reported as activity, and when the last was, so a
     /// burst of typing is one notification every so often rather than one per
     /// key.
@@ -125,6 +140,30 @@ final class MacHelper: @unchecked Sendable {
             }
             let modifiers = object["modifiers"] as? [String] ?? []
             return try self.setModifierHold(enable: enable, modifiers: modifiers)
+        }
+        // The chords a call answers: modifiers that must be held, and the
+        // keys that mean something under them. Armed while a session is
+        // running and cleared when it ends, so the keys are the user's own
+        // the rest of the time.
+        router.register("hotkey.chords") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.chords requires enable"
+                )
+            }
+            let modifiers = object["modifiers"] as? [String] ?? []
+            let keys = object["keys"] as? [String] ?? []
+            return try self.setChords(
+                enable: enable,
+                modifiers: modifiers,
+                keys: keys
+            )
         }
         // What is highlighted in the application in front, read when the app
         // asks rather than on every press: a hold that has outlasted the
@@ -410,14 +449,59 @@ final class MacHelper: @unchecked Sendable {
         return false
     }
 
-    /// A key went down somewhere while the tap is watching. Only its
-    /// existence is consumed, never its identity: the one fact needed is
-    /// that the current hold is a chord (Fn+Delete, Fn+arrow), not a hold.
-    func handleRawKeyDown() {
+    /// A key went down somewhere while the tap is watching.
+    ///
+    /// For the hold, only its existence is consumed, never its identity: the
+    /// one fact needed is that the current hold is a chord (Fn+Delete,
+    /// Fn+arrow) and not a hold.
+    ///
+    /// For the chord binding, which key it is has to be read, and is: only
+    /// while that binding is armed, and only once the modifiers under it
+    /// already match, so the question is asked of a press the app is owed an
+    /// answer about and of no other.
+    ///
+    /// Returns whether the press belongs to this app and should go no further.
+    func handleRawKeyDown(_ event: CGEvent) -> Bool {
         for edge in modifierHoldDetector.keyDown() {
             emitModifierHold(edge: edge)
         }
         reportInputActivity()
+        guard let key = chordKey(for: event) else {
+            return false
+        }
+        writeNotification(
+            method: "hotkey.event",
+            params: ["kind": "chord", "state": "down", "key": key]
+        )
+        return true
+    }
+
+    /// Which of the binding's keys `event` is, or nil when the binding is off,
+    /// the modifiers under it are not exactly the ones asked for, or the key
+    /// is not one of them.
+    ///
+    /// The modifiers are checked first because they are the cheap half and
+    /// because they are what makes reading the key legitimate. Exactly the
+    /// set: another modifier joining makes it somebody else's shortcut
+    /// (Option+Shift+S is not Option+S), and letting that through is what
+    /// keeps this binding out of the way of the ones the user already has.
+    private func chordKey(for event: CGEvent) -> String? {
+        guard !chordModifierMasks.isEmpty, !chordKeys.isEmpty else {
+            return nil
+        }
+        let modifiers = Self.carbonModifiers(event.flags)
+        let union = chordModifierMasks.reduce(UInt32(0)) { $0 | $1 }
+        guard
+            chordModifierMasks.allSatisfy({ (modifiers & $0) != 0 }),
+            (modifiers & Self.everyModifierMask & ~union) == 0
+        else {
+            return nil
+        }
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        guard let character = KeyboardLayout.unmodifiedCharacter(for: keyCode) else {
+            return nil
+        }
+        return chordKeys.match(character)
     }
 
     /// A mouse button went down somewhere. Only the fact is consumed, never
@@ -1005,6 +1089,51 @@ final class MacHelper: @unchecked Sendable {
         return ["enabled": true]
     }
 
+    private func setChords(
+        enable: Bool,
+        modifiers: [String],
+        keys: [String]
+    ) throws -> [String: Any] {
+        guard enable else {
+            chordModifierMasks = []
+            chordKeys = ChordKeySet()
+            releaseMonitorIfUnused()
+            return ["enabled": false]
+        }
+
+        let masks = try modifiers.map { name -> UInt32 in
+            guard let mask = Self.masks(forModifier: name) else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.chords does not know the modifier \(name)"
+                )
+            }
+            return mask
+        }
+        guard !masks.isEmpty else {
+            throw JsonRpcDispatchError.invalidParams(
+                "hotkey.chords requires at least one modifier"
+            )
+        }
+        let set = ChordKeySet(keys)
+        guard !set.isEmpty else {
+            throw JsonRpcDispatchError.invalidParams(
+                "hotkey.chords requires at least one key"
+            )
+        }
+
+        chordModifierMasks = masks
+        chordKeys = set
+        do {
+            try ensureMonitorInstalled()
+        } catch {
+            chordModifierMasks = []
+            chordKeys = ChordKeySet()
+            releaseMonitorIfUnused()
+            throw error
+        }
+        return ["enabled": true]
+    }
+
     /// Close an open hold, so a binding that goes away does not stand a
     /// microphone open with nothing left to close it.
     private func cancelModifierHold() {
@@ -1092,16 +1221,18 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func releaseMonitorIfUnused() {
-        guard modifierHoldMasks.isEmpty, !activityWatch else {
+        guard modifierHoldMasks.isEmpty, chordModifierMasks.isEmpty, !activityWatch
+        else {
             return
         }
         removeEventHandlers()
     }
 
     private func installEventHandlers() throws {
-        // Modifier changes carry the hold; key presses are observed only to
-        // disqualify a chord (`handleRawKeyDown`), and their contents are
-        // never read.
+        // Modifier changes carry the hold; key presses are observed to
+        // disqualify a chord (`handleRawKeyDown`). Which key one was is read
+        // only against the keys the binding named, and only for a press that
+        // closes a hold.
         // Mouse presses ride along only to report activity: a click moves the
         // cursor, and an offer to replace the last edit is void once it has
         // moved. Where the click landed is never read.
@@ -1113,15 +1244,31 @@ final class MacHelper: @unchecked Sendable {
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         // Creation fails without Input Monitoring, which is the one way the
         // grant shows itself here: the tap is silent rather than refused.
-        guard let tap = CGEvent.tapCreate(
+        //
+        // Active, because one press has to be taken rather than watched: a
+        // key the binding named, pressed inside a hold, is a gesture at this
+        // app and would otherwise also type itself into the app the user is
+        // working in. Everything else the callback sees is handed straight
+        // back. A tap that cannot be active is still worth having, since the
+        // hold itself only ever reads, so the fallback keeps the key working
+        // and lets a named chord through to the front app as well.
+        let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: keyboardTapCallback,
+            userInfo: userInfo
+        ) ?? CGEvent.tapCreate(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: CGEventMask(mask),
             callback: keyboardTapCallback,
             userInfo: userInfo
-        ) else {
-            throw HelperError.eventTap("CGEvent.tapCreate(HID, listenOnly)")
+        )
+        guard let tap else {
+            throw HelperError.eventTap("CGEvent.tapCreate(HID)")
         }
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
@@ -1154,6 +1301,8 @@ final class MacHelper: @unchecked Sendable {
         // down with the binding.
         cancelModifierHold()
         modifierHoldMasks = []
+        chordModifierMasks = []
+        chordKeys = ChordKeySet()
         activityWatch = false
         releaseMonitorIfUnused()
     }
