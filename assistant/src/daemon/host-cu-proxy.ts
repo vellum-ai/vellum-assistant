@@ -16,6 +16,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import type { HostProxyCapability } from "../channels/types.js";
 import { loadConfig } from "../config/loader.js";
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import type { ContentBlock } from "../providers/types.js";
@@ -261,24 +262,29 @@ export class HostCuProxy {
       });
     }
 
+    // The capability that answers this tool, which is not always the one this
+    // proxy is named for. Pointing rides the same wire so it arrives here,
+    // but only a client drawing the overlay can serve it: resolving it as
+    // plain host_cu would pick a helper-backed client that has no such action.
+    const capability: HostProxyCapability =
+      toolName === POINT_AT_PROXY_TOOL ? "host_cu_annotate" : "host_cu";
     let resolvedTargetClientId = targetClientId;
     if (resolvedTargetClientId == null) {
       const resolved = pickSameUserAutoResolve({
         hub: assistantEventHub,
-        capability: "host_cu",
+        capability,
         sourceActorPrincipalId,
       });
       if (resolved.kind === "ambiguous") {
-        return Promise.resolve(ambiguousSameUserError("host_cu"));
+        return Promise.resolve(ambiguousSameUserError(capability));
       }
       if (resolved.kind === "match") {
         resolvedTargetClientId = resolved.clientId;
       } else if (
-        assistantEventHub.listClientsByCapability("host_cu").length > 0
+        assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
         return Promise.resolve({
-          content:
-            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
+          content: `Computer use is not available for the current actor. Connect a ${capability}-capable client as the same user.`,
           isError: true,
         });
       }
@@ -288,13 +294,13 @@ export class HostCuProxy {
       const client = assistantEventHub.getClientById(resolvedTargetClientId);
       if (!client) {
         return Promise.resolve({
-          content: `No connected client with id '${resolvedTargetClientId}' supports host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          content: `No connected client with id '${resolvedTargetClientId}' supports ${capability}. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
           isError: true,
         });
       }
-      if (!client.capabilities.includes("host_cu")) {
+      if (!client.capabilities.includes(capability)) {
         return Promise.resolve({
-          content: `Client '${resolvedTargetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          content: `Client '${resolvedTargetClientId}' does not support ${capability}. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
           isError: true,
         });
       }
@@ -303,7 +309,7 @@ export class HostCuProxy {
         hub: assistantEventHub,
         sourceActorPrincipalId,
         targetClientId: resolvedTargetClientId,
-        op: "host_cu",
+        op: capability,
       });
       if (rejection) {
         return Promise.resolve(rejection);

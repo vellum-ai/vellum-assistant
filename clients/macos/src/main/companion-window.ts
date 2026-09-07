@@ -1904,23 +1904,37 @@ export const installCompanionWindow = (): void => {
   /**
    * One frame of what is being shared, for the renderer holding the session
    * to hand to it. Asked by that renderer on its own cadence, so this does
-   * little but reach the helper: the target is whatever the renderer was
+   * nothing but reach the helper: the target is whatever the renderer was
    * told it is sharing, and a refusal comes back as null rather than as an
    * error, since one missed frame is not something the call should notice.
-   *
-   * What the frame was of is kept ({@link capturedTarget}), because it is the
-   * picture the assistant measures its marks against and this is the only
-   * place main learns which surface that was.
    */
   handle(
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
-    async ([target]) => {
-      const frame = await captureTargetFrame(target);
-      if (frame !== null) {
-        capturedTarget = target;
-      }
-      return frame;
+    ([target]) => captureTargetFrame(target),
+  );
+
+  /**
+   * A frame of this surface reached the call, so the assistant has now been
+   * shown it ({@link capturedTarget}).
+   *
+   * Separate from the capture above, because taking a frame is not showing
+   * one. The renderer prepares, uploads and sends it afterwards, and an
+   * upload that fails or a reconnect that voids it means the call was shown
+   * nothing. Recorded on the capture, a share that moved would open
+   * {@link showCompanionCoachmarks} to the new surface while the only picture
+   * the assistant holds is still of the old one, which is the arrival that
+   * guard exists to refuse. A failure that never acknowledges simply leaves
+   * the gate shut, which is the safe direction.
+   *
+   * Only the window holding the session knows the frame landed, so this is
+   * told rather than settled here.
+   */
+  on(
+    "vellum:companion:sharedFrame",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => {
+      capturedTarget = target;
     },
   );
 

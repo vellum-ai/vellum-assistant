@@ -3148,12 +3148,23 @@ describe("companion window: pointing at what is shared", () => {
     await take([target]);
   };
 
+  /**
+   * The window holding the session saying a frame of `target` reached the
+   * call, which is the moment the assistant has actually been shown it.
+   */
+  const acknowledge = (
+    target: typeof DISPLAY | typeof WINDOW = DISPLAY,
+  ): void => {
+    send("vellum:companion:sharedFrame", target);
+  };
+
   /** A share with a frame of it already sent, which is the resting case. */
   const shareAndSee = async (
     target: typeof DISPLAY | typeof WINDOW = DISPLAY,
   ): Promise<void> => {
     shareOf(target);
     await capture(target);
+    acknowledge(target);
   };
 
   test("puts the marks on the state the frame reads", async () => {
@@ -3271,13 +3282,39 @@ describe("companion window: pointing at what is shared", () => {
     expect(state().coachmarks).toEqual([MARK]);
   });
 
-  /** A capture that came back with nothing is a surface never shown. */
+  /** A capture that came back with nothing is never acknowledged. */
   test("a frame that failed is not a frame the model saw", async () => {
     shareDisplay();
     const held = capturedFrame;
     capturedFrame = null;
     await capture();
     capturedFrame = held;
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+  });
+
+  /**
+   * **Taking a frame is not showing one.** The renderer still has to prepare,
+   * upload and send it, and a share that moves in that window would otherwise
+   * open the gate to the new surface while the only picture the assistant
+   * holds is of the old one. That is the arrival this guard exists to refuse,
+   * so the capture alone must not admit it.
+   */
+  test("a capture that has not reached the call opens nothing", async () => {
+    shareOf(DISPLAY);
+    await capture(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    acknowledge(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+  });
+
+  /**
+   * The move lands between the capture and its acknowledgement, which is the
+   * exact interval a capture-time record would have admitted.
+   */
+  test("a share that moved after the capture is still refused", async () => {
+    await shareAndSee(DISPLAY);
+    await capture(WINDOW);
+    shareOf(WINDOW);
     expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
   });
 

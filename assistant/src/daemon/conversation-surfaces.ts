@@ -27,6 +27,7 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
+import type { HostProxyCapability } from "../channels/types.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -3001,17 +3002,26 @@ export async function surfaceProxyResolver(
       ctx.currentTurnSourceActorPrincipalId ??
       ctx.currentTurnAuthContext?.actorPrincipalId ??
       ctx.authContext?.actorPrincipalId;
+    // Which capability answers this tool. Pointing rides the `computer_use_`
+    // wire so it reaches the same proxy, but only a client that draws the
+    // overlay can serve it, and the clients that merely forward to a native
+    // helper cannot. Selecting on the transport instead would call a lone
+    // annotation-capable client ambiguous against a helper client that could
+    // never have answered, and would accept an explicit target that forwards
+    // the request as an action its helper does not have.
+    const capability: HostProxyCapability =
+      toolName === POINT_AT_PROXY_TOOL ? "host_cu_annotate" : "host_cu";
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
         return {
-          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
           isError: true,
         };
       }
-      if (!client.capabilities.includes("host_cu")) {
+      if (!client.capabilities.includes(capability)) {
         return {
-          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          content: `Client '${targetClientId}' does not support ${capability}. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
           isError: true,
         };
       }
@@ -3019,7 +3029,7 @@ export async function surfaceProxyResolver(
         hub: assistantEventHub,
         sourceActorPrincipalId,
         targetClientId,
-        op: "host_cu",
+        op: capability,
       });
       if (rejection) {
         return rejection;
@@ -3032,20 +3042,19 @@ export async function surfaceProxyResolver(
     if (targetClientId == null) {
       const resolved = pickSameUserAutoResolve({
         hub: assistantEventHub,
-        capability: "host_cu",
+        capability,
         sourceActorPrincipalId,
       });
       if (resolved.kind === "ambiguous") {
-        return ambiguousSameUserError("host_cu");
+        return ambiguousSameUserError(capability);
       }
       if (resolved.kind === "match") {
         targetClientId = resolved.clientId;
       } else if (
-        assistantEventHub.listClientsByCapability("host_cu").length > 0
+        assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
         return {
-          content:
-            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
+          content: `Computer use is not available for the current actor. Connect a ${capability}-capable client as the same user.`,
           isError: true,
         };
       }
