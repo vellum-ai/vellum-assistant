@@ -4,7 +4,7 @@
  * Drawn in its own click-through window, which the macOS shell opens for a
  * watch session or a call's screen share, sizes to whatever is being read (a
  * display, or the one window or tab the user picked), moves with it, and
- * closes after it (`clients/macos/src/main/companion-window.ts`). The surface
+ * closes after it (`packages/electron-desktop/src/companion-window.ts`). The surface
  * being read says so on its own edge, the way a shared screen is framed, so a
  * capture is never something only a ring on a creature in one corner admits
  * to.

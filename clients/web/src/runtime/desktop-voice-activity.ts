@@ -1,7 +1,7 @@
 /**
  * Runtime wrapper for the desktop's live-voice session surface: the companion
  * surface the Electron main process keeps on screen
- * (`clients/macos/src/main/companion-window.ts`), which holds its expanded call
+ * (`packages/electron-desktop/src/companion-window.ts`), which holds its expanded call
  * state for as long as a session runs.
  *
  * The desktop counterpart to `native-live-activity.ts`. That module speaks to

@@ -36,9 +36,36 @@ import type {
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
-import { runAppleScript } from "./appleScriptExecutor";
-import log from "./logger";
-import { getSharedCuHelper } from "./sidecar/shared-cu-helper";
+import log from "./app-logger";
+import { createModuleConfiguration } from "./module-configuration";
+
+/**
+ * The desktop-specific half of the picker: the capture backend the shell
+ * talks to, and the browser step in front of a tab.
+ */
+export interface CompanionCapturePlatform {
+  /**
+   * The capture backend's JSON-RPC surface: `captureSources.list`,
+   * `captureSources.raise` and `capture.frame`.
+   */
+  call: (method: string, params?: unknown) => Promise<unknown>;
+  /**
+   * Run one AppleScript against Chrome and answer its stdout, or null on a
+   * desktop with no scripting interface to offer tabs through. The scripts
+   * live here with the parsers that read them back.
+   */
+  runChromeAppleScript: ((script: string) => Promise<string>) | null;
+}
+
+const configuration = createModuleConfiguration<CompanionCapturePlatform>(
+  "companion capture sources",
+);
+
+export const configureCompanionCaptureSources = configuration.configure;
+
+/** Ask the capture backend. */
+const call = (method: string, params?: unknown): Promise<unknown> =>
+  configuration.get().call(method, params);
 
 /** Chrome, as `NSRunningApplication` names it and as AppleScript addresses it. */
 export const CHROME_BUNDLE_ID = "com.google.Chrome";
@@ -269,7 +296,7 @@ const readIcon = (appPath: string): Promise<string | undefined> => {
 export const defaultCaptureSourceDeps: CaptureSourceDeps = {
   listWindows: async (includeOffscreen = false) =>
     parseHelperWindows(
-      await getSharedCuHelper().call(
+      await call(
         "captureSources.list",
         includeOffscreen ? { includeOffscreen: true } : undefined,
       ),
@@ -282,16 +309,22 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
       primary: display.id === primaryId,
     }));
   },
-  listChromeTabs: async () =>
-    parseChromeTabs(await runAppleScript(LIST_CHROME_TABS_SCRIPT)),
-  activateChromeTab: async (chromeWindowId, tabIndex) =>
-    parseChromeWindowPlacement(
-      await runAppleScript(activateChromeTabScript(chromeWindowId, tabIndex)),
-    ),
+  listChromeTabs: async () => {
+    const run = configuration.get().runChromeAppleScript;
+    return run === null
+      ? []
+      : parseChromeTabs(await run(LIST_CHROME_TABS_SCRIPT));
+  },
+  activateChromeTab: async (chromeWindowId, tabIndex) => {
+    const run = configuration.get().runChromeAppleScript;
+    return run === null
+      ? null
+      : parseChromeWindowPlacement(
+          await run(activateChromeTabScript(chromeWindowId, tabIndex)),
+        );
+  },
   raiseWindow: async (windowId) => {
-    const answer = await getSharedCuHelper().call("captureSources.raise", {
-      windowId,
-    });
+    const answer = await call("captureSources.raise", { windowId });
     const { raised, reason } =
       typeof answer === "object" && answer !== null
         ? (answer as { raised?: unknown; reason?: unknown })
@@ -631,7 +664,7 @@ async function frameOf(
       : { windowId: target.windowId };
   try {
     return capturedFrameSchema.parse(
-      await getSharedCuHelper().call("capture.frame", {
+      await call("capture.frame", {
         ...params,
         maxWidth,
         maxHeight,

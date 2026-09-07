@@ -62,7 +62,7 @@ const DRAG_SLOP = 3;
 
 /**
  * The companion surface inside its Electron canvas
- * (`clients/macos/src/main/companion-window.ts`).
+ * (`packages/electron-desktop/src/companion-window.ts`).
  *
  * Standalone (no auth, no RootLayout) like the dictation overlay and Quick
  * Input, so it paints as soon as the window opens. The canvas is transparent

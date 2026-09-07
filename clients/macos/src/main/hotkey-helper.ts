@@ -39,7 +39,7 @@ import type {
   ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
 
-import { isPointerOnCompanion } from "./companion-pointer";
+import { isPointerOnCompanion } from "@vellumai/electron-desktop/companion-pointer";
 import { handle } from "./ipc";
 import log from "./logger";
 import {

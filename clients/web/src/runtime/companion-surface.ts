@@ -1,6 +1,6 @@
 /**
  * Runtime wrapper for the always-present companion surface
- * (`clients/macos/src/main/companion-window.ts`).
+ * (`packages/electron-desktop/src/companion-window.ts`).
  *
  * **Skew contract, as with every bridge surface here.** Every call no-ops off
  * Electron and on a shell that predates the channel, and nothing throws. The
