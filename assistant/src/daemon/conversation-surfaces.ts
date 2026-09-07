@@ -3051,8 +3051,13 @@ export async function surfaceProxyResolver(
       if (resolved.kind === "match") {
         targetClientId = resolved.clientId;
       } else if (
+        capability === "host_cu_annotate" ||
         assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
+        // Annotation refuses on every unresolved target, for the reason it
+        // does in `host-cu-proxy.ts`: an untargeted point-at has no client
+        // that could answer it, and letting it broadcast hands it to a
+        // host_cu client with no overlay to draw on.
         return {
           content: `Computer use is not available for the current actor. Connect a ${capability}-capable client as the same user.`,
           isError: true,

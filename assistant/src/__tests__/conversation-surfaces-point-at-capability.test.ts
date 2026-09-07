@@ -110,6 +110,34 @@ describe("resolving a point-at request", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  /**
+   * The annotation-capable client went away after the skill was already on the
+   * surface. Nothing left can draw, so the request is refused rather than
+   * broadcast: an untargeted point-at would otherwise be handed to whatever
+   * host_cu client was listening, which is the mis-routing this capability
+   * exists to prevent.
+   */
+  test("refuses rather than broadcasting when nothing can draw", async () => {
+    const { proxy, request } = proxyDouble();
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "win",
+      interfaceId: "windows",
+      capabilities: ["host_cu"],
+      actorPrincipalId: ACTOR,
+    });
+
+    const result = await surfaceProxyResolver(
+      context(proxy),
+      POINT_AT_PROXY_TOOL,
+      MARKS,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("host_cu_annotate");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   /** An ordinary action still resolves on the transport it always did. */
   test("leaves an ordinary computer-use action on host_cu", async () => {
     const { proxy, request } = proxyDouble();

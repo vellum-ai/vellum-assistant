@@ -3318,6 +3318,20 @@ describe("companion window: pointing at what is shared", () => {
     expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
   });
 
+  /**
+   * The surface was unshared for a stretch and the user kept working on it,
+   * so the picture from before the detour is as stale as one from before a
+   * stop. Coming back to it must not resurrect what was acknowledged then.
+   */
+  test("a share that leaves a surface and returns forgets its frame", async () => {
+    await shareAndSee(DISPLAY);
+    shareOf(WINDOW);
+    shareOf(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    acknowledge(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+  });
+
   test("a share that ends takes the marks with it", async () => {
     await shareAndSee();
     showCompanionCoachmarks([MARK], CALL);

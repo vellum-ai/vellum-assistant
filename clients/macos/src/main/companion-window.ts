@@ -1195,16 +1195,20 @@ const syncCoachmarks = (): void => {
 };
 
 /**
- * Forget the picture the assistant was last shown when there is no share for
- * it to be of.
+ * Forget the picture the assistant was last shown the moment the share stops
+ * being of that surface.
  *
- * A share that stops and starts again on the same display is a new share, and
- * what the model is holding from before the stop is as old as the gap. Kept
- * across it, that picture would let the first mark of the new share through
- * measured against a screen the user has since worked on.
+ * Any change counts, not just a share ending. A share that stops and starts
+ * again on the same display is a new share, and what the model is holding
+ * from before the stop is as old as the gap. So is a share that moves to
+ * another surface and comes back: the user was working on the first one all
+ * the while it was not being shown, and a picture kept across that round trip
+ * would let the first mark through measured against a screen that has since
+ * moved on. Clearing on the way out is what makes the return safe, since by
+ * then there is nothing left to match.
  */
 const syncCapturedTarget = (): void => {
-  if (context.screenShare === undefined) {
+  if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
     capturedTarget = undefined;
   }
 };

@@ -281,8 +281,16 @@ export class HostCuProxy {
       if (resolved.kind === "match") {
         resolvedTargetClientId = resolved.clientId;
       } else if (
+        capability === "host_cu_annotate" ||
         assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
+        // Annotation refuses on every unresolved target, where an action
+        // falls through to the untargeted broadcast it always had. Nothing
+        // downstream would answer a broadcast point-at: only a client that
+        // draws the overlay can, and the absence of one is the whole reason
+        // there is no target. Falling through would send it to whatever
+        // host_cu client happened to be listening, which is the mis-routing
+        // this capability exists to prevent.
         return Promise.resolve({
           content: `Computer use is not available for the current actor. Connect a ${capability}-capable client as the same user.`,
           isError: true,
