@@ -78,19 +78,23 @@ const recordDeliveredChannelPostMock = mock(
   async (_post: Record<string, unknown>) => ({ messageId: "row-1" }),
 );
 
-const mockOutlookCreateDraft = mock(async () => ({
-  id: "outlook-draft-1",
-  conversationId: "conv-draft",
-  subject: "Docs",
-  webLink: "https://outlook.office.com/mail/drafts/id/outlook-draft-1",
-}));
+const mockOutlookCreateDraft = mock(
+  async (_conn: OAuthConnection, _draft: Record<string, unknown>) => ({
+    id: "outlook-draft-1",
+    conversationId: "conv-draft",
+    subject: "Docs",
+    webLink: "https://outlook.office.com/mail/drafts/id/outlook-draft-1",
+  }),
+);
 
-const mockOutlookCreateReplyDraft = mock(async () => ({
-  id: "outlook-reply-draft-1",
-  conversationId: "conv-reply",
-  subject: "Re: Hello",
-  webLink: "https://outlook.office.com/mail/drafts/id/outlook-reply-draft-1",
-}));
+const mockOutlookCreateReplyDraft = mock(
+  async (_conn: OAuthConnection, _messageId: string, _comment?: string) => ({
+    id: "outlook-reply-draft-1",
+    conversationId: "conv-reply",
+    subject: "Re: Hello",
+    webLink: "https://outlook.office.com/mail/drafts/id/outlook-reply-draft-1",
+  }),
+);
 
 mock.module("../messaging/providers/outlook/client.js", () => ({
   createDraft: mockOutlookCreateDraft,
@@ -261,22 +265,17 @@ describe("messaging-send tool", () => {
       expect(result.content).toContain("Draft ID: outlook-draft-1");
       expect(sendMessageMock).not.toHaveBeenCalled();
       expect(mockOutlookCreateDraft).toHaveBeenCalledTimes(1);
-      const draftArg = mockOutlookCreateDraft.mock.calls[0]![1] as {
-        subject: string;
-        body: { contentType: string; content: string };
-        toRecipients?: Array<{ emailAddress: { address: string } }>;
-        attachments?: Array<{ name: string; contentType: string }>;
-      };
-      expect(draftArg.subject).toBe("Docs");
-      expect(draftArg.body).toEqual({
-        contentType: "text",
-        content: "see attached",
-      });
-      expect(draftArg.toRecipients).toEqual([
-        { emailAddress: { address: "user@example.com" } },
-      ]);
-      expect(draftArg.attachments).toHaveLength(1);
-      expect(draftArg.attachments?.[0]?.name).toBe("report.pdf");
+      expect(mockOutlookCreateDraft).toHaveBeenCalledWith(
+        connection,
+        expect.objectContaining({
+          subject: "Docs",
+          body: { contentType: "text", content: "see attached" },
+          toRecipients: [
+            { emailAddress: { address: "user@example.com" } },
+          ],
+          attachments: [expect.objectContaining({ name: "report.pdf" })],
+        }),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -402,12 +401,18 @@ describe("messaging-send tool", () => {
     expect(result.content).toContain("No recipient set");
     expect(result.content).toContain("Open it:");
     expect(sendMessageMock).not.toHaveBeenCalled();
-    const draftArg = mockOutlookCreateDraft.mock.calls[0]![1] as {
-      toRecipients?: unknown;
-      subject: string;
-    };
+    expect(mockOutlookCreateDraft).toHaveBeenCalledWith(
+      connection,
+      expect.objectContaining({
+        subject: "Team update",
+        body: {
+          contentType: "text",
+          content: "Hey team, here is the update.",
+        },
+      }),
+    );
+    const draftArg = mockOutlookCreateDraft.mock.calls[0][1];
     expect(draftArg.toRecipients).toBeUndefined();
-    expect(draftArg.subject).toBe("Team update");
   });
 
   test("creates an Outlook reply draft instead of sending when in_reply_to is set", async () => {
