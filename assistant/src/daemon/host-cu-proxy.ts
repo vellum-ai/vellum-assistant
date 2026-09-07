@@ -16,7 +16,6 @@
 
 import { v4 as uuid } from "uuid";
 
-import type { HostProxyCapability } from "../channels/types.js";
 import { loadConfig } from "../config/loader.js";
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import type { ContentBlock } from "../providers/types.js";
@@ -24,16 +23,12 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import {
-  ambiguousSameUserError,
-  enforceSameActorOrErrorResult,
-  pickSameUserAutoResolve,
-} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { resolveHostCuTarget } from "./host-cu-target.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -262,67 +257,15 @@ export class HostCuProxy {
       });
     }
 
-    // The capability that answers this tool, which is not always the one this
-    // proxy is named for. Pointing rides the same wire so it arrives here,
-    // but only a client drawing the overlay can serve it: resolving it as
-    // plain host_cu would pick a helper-backed client that has no such action.
-    const capability: HostProxyCapability =
-      toolName === POINT_AT_PROXY_TOOL ? "host_cu_annotate" : "host_cu";
-    let resolvedTargetClientId = targetClientId;
-    if (resolvedTargetClientId == null) {
-      const resolved = pickSameUserAutoResolve({
-        hub: assistantEventHub,
-        capability,
-        sourceActorPrincipalId,
-      });
-      if (resolved.kind === "ambiguous") {
-        return Promise.resolve(ambiguousSameUserError(capability));
-      }
-      if (resolved.kind === "match") {
-        resolvedTargetClientId = resolved.clientId;
-      } else if (
-        capability === "host_cu_annotate" ||
-        assistantEventHub.listClientsByCapability(capability).length > 0
-      ) {
-        // Annotation refuses on every unresolved target, where an action
-        // falls through to the untargeted broadcast it always had. Nothing
-        // downstream would answer a broadcast point-at: only a client that
-        // draws the overlay can, and the absence of one is the whole reason
-        // there is no target. Falling through would send it to whatever
-        // host_cu client happened to be listening, which is the mis-routing
-        // this capability exists to prevent.
-        return Promise.resolve({
-          content: `Computer use is not available for the current actor. Connect a ${capability}-capable client as the same user.`,
-          isError: true,
-        });
-      }
+    const target = resolveHostCuTarget({
+      toolName,
+      targetClientId,
+      sourceActorPrincipalId,
+    });
+    if (target.kind === "error") {
+      return Promise.resolve(target.result);
     }
-
-    if (resolvedTargetClientId != null) {
-      const client = assistantEventHub.getClientById(resolvedTargetClientId);
-      if (!client) {
-        return Promise.resolve({
-          content: `No connected client with id '${resolvedTargetClientId}' supports ${capability}. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
-          isError: true,
-        });
-      }
-      if (!client.capabilities.includes(capability)) {
-        return Promise.resolve({
-          content: `Client '${resolvedTargetClientId}' does not support ${capability}. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
-          isError: true,
-        });
-      }
-
-      const rejection = enforceSameActorOrErrorResult({
-        hub: assistantEventHub,
-        sourceActorPrincipalId,
-        targetClientId: resolvedTargetClientId,
-        op: capability,
-      });
-      if (rejection) {
-        return Promise.resolve(rejection);
-      }
-    }
+    const resolvedTargetClientId = target.targetClientId;
 
     const hasWindowTarget = Object.hasOwn(input, "capture_window_id");
     if (hasWindowTarget) {

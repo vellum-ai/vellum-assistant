@@ -27,7 +27,6 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
-import type { HostProxyCapability } from "../channels/types.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -70,6 +69,7 @@ import {
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
+import { resolveHostCuTarget } from "./host-cu-target.js";
 import type {
   AnySurfaceData,
   CardSurfaceData,
@@ -3002,68 +3002,15 @@ export async function surfaceProxyResolver(
       ctx.currentTurnSourceActorPrincipalId ??
       ctx.currentTurnAuthContext?.actorPrincipalId ??
       ctx.authContext?.actorPrincipalId;
-    // Which capability answers this tool. Pointing rides the `computer_use_`
-    // wire so it reaches the same proxy, but only a client that draws the
-    // overlay can serve it, and the clients that merely forward to a native
-    // helper cannot. Selecting on the transport instead would call a lone
-    // annotation-capable client ambiguous against a helper client that could
-    // never have answered, and would accept an explicit target that forwards
-    // the request as an action its helper does not have.
-    const capability: HostProxyCapability =
-      toolName === POINT_AT_PROXY_TOOL ? "host_cu_annotate" : "host_cu";
-    if (targetClientId != null) {
-      const client = assistantEventHub.getClientById(targetClientId);
-      if (!client) {
-        return {
-          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
-          isError: true,
-        };
-      }
-      if (!client.capabilities.includes(capability)) {
-        return {
-          content: `Client '${targetClientId}' does not support ${capability}. Run \`assistant clients list --capability ${capability}\` to see available clients.`,
-          isError: true,
-        };
-      }
-      const rejection = enforceSameActorOrErrorResult({
-        hub: assistantEventHub,
-        sourceActorPrincipalId,
-        targetClientId,
-        op: capability,
-      });
-      if (rejection) {
-        return rejection;
-      }
+    const target = resolveHostCuTarget({
+      toolName,
+      targetClientId,
+      sourceActorPrincipalId,
+    });
+    if (target.kind === "error") {
+      return target.result;
     }
-
-    // Untargeted CU must resolve to exactly one same-user capable client
-    // before dispatch. Otherwise the proxy would broadcast without a target
-    // actor binding, which is unsafe in shared runtimes.
-    if (targetClientId == null) {
-      const resolved = pickSameUserAutoResolve({
-        hub: assistantEventHub,
-        capability,
-        sourceActorPrincipalId,
-      });
-      if (resolved.kind === "ambiguous") {
-        return ambiguousSameUserError(capability);
-      }
-      if (resolved.kind === "match") {
-        targetClientId = resolved.clientId;
-      } else if (
-        capability === "host_cu_annotate" ||
-        assistantEventHub.listClientsByCapability(capability).length > 0
-      ) {
-        // Annotation refuses on every unresolved target, for the reason it
-        // does in `host-cu-proxy.ts`: an untargeted point-at has no client
-        // that could answer it, and letting it broadcast hands it to a
-        // host_cu client with no overlay to draw on.
-        return {
-          content: `Computer use is not available for the current actor. Connect a ${capability}-capable client as the same user.`,
-          isError: true,
-        };
-      }
-    }
+    targetClientId = target.targetClientId;
 
     // Pointing at the screen is not a computer-use step. It drives nothing
     // and the user does the acting, so counting it against
