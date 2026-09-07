@@ -761,6 +761,22 @@ export function cutFrontDoorContentAtVerdict(
   return { blocks: kept, spokenText };
 }
 
+/**
+ * Which turn's actor stamp a conversation currently carries.
+ *
+ * Every other per-turn value `restoreTurnState` handles is an object, so a
+ * concurrent winner's is told from this turn's by reference. The actor
+ * principal is a string, and two turns for the same guardian carry the
+ * identical one, so the field itself cannot answer who wrote it. A loser
+ * comparing values would put its snapshot back over a live winner: either
+ * `undefined`, taking the winner's identity away, or a principal left
+ * resident by an earlier ordinary turn, which is worse, since automatic
+ * client resolution would then pick that other principal's desktop.
+ *
+ * Weak on the conversation so a finished one is collectable.
+ */
+const actorStampOwner = new WeakMap<object, symbol>();
+
 // ---------------------------------------------------------------------------
 // startVoiceTurn
 // ---------------------------------------------------------------------------
@@ -1073,6 +1089,7 @@ export async function startVoiceTurn(
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
     conversation.currentTurnSourceActorPrincipalId = undefined;
+    actorStampOwner.delete(conversation);
     conversation.setCommandIntent(null);
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
@@ -1173,6 +1190,8 @@ export async function startVoiceTurn(
   // The exact values this turn installs, computed once: `restoreTurnState`
   // recognizes by identity whether a field still holds THIS turn's value —
   // a field a concurrent winner overwrote is the winner's to keep.
+  // This turn's claim on the actor stamp. See `actorStampOwner`.
+  const actorStampToken = Symbol("voice-turn-actor-stamp");
   const voiceTurnValues = {
     assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     callSessionId: voiceSessionId,
@@ -1204,6 +1223,7 @@ export async function startVoiceTurn(
     conversation.setTrustContext(voiceTurnValues.trustContext);
     conversation.currentTurnSourceActorPrincipalId =
       voiceTurnValues.actorPrincipalId ?? undefined;
+    actorStampOwner.set(conversation, actorStampToken);
     conversation.setCommandIntent(null);
     conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
     conversation.setTurnInterfaceContext?.(
@@ -1263,23 +1283,12 @@ export async function startVoiceTurn(
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
     }
-    // Ownership is not readable off this field the way it is off the others.
-    // Every other value here is an object compared by reference, so a winner
-    // that installed its own is told apart from this turn's by identity. The
-    // actor principal is a string, and two turns for the same guardian hold
-    // the identical one, so a match proves nothing about who wrote it.
-    // Clearing on that match would take a live winner's identity away
-    // mid-run and get its host-proxy calls refused, which is the exact
-    // failure this field was added to prevent. So only a real prior
-    // principal is ever put back, and dropping the stamp is left to
-    // `cleanup`, which runs on the paths where this turn did own the
-    // conversation.
-    if (
-      snap.actorPrincipalId !== undefined &&
-      (conversation.currentTurnSourceActorPrincipalId ?? null) ===
-        (voiceTurnValues.actorPrincipalId ?? null)
-    ) {
-      conversation.currentTurnSourceActorPrincipalId = snap.actorPrincipalId;
+    // By ownership rather than by value, for the reason `actorStampOwner`
+    // gives: this field's value cannot say who wrote it.
+    if (actorStampOwner.get(conversation) === actorStampToken) {
+      conversation.currentTurnSourceActorPrincipalId =
+        snap.actorPrincipalId ?? undefined;
+      actorStampOwner.delete(conversation);
     }
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);
