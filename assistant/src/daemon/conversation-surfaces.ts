@@ -69,6 +69,7 @@ import {
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
+import { resolveHostCuTarget } from "./host-cu-target.js";
 import type {
   AnySurfaceData,
   CardSurfaceData,
@@ -3001,55 +3002,15 @@ export async function surfaceProxyResolver(
       ctx.currentTurnSourceActorPrincipalId ??
       ctx.currentTurnAuthContext?.actorPrincipalId ??
       ctx.authContext?.actorPrincipalId;
-    if (targetClientId != null) {
-      const client = assistantEventHub.getClientById(targetClientId);
-      if (!client) {
-        return {
-          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        };
-      }
-      if (!client.capabilities.includes("host_cu")) {
-        return {
-          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        };
-      }
-      const rejection = enforceSameActorOrErrorResult({
-        hub: assistantEventHub,
-        sourceActorPrincipalId,
-        targetClientId,
-        op: "host_cu",
-      });
-      if (rejection) {
-        return rejection;
-      }
+    const target = resolveHostCuTarget({
+      toolName,
+      targetClientId,
+      sourceActorPrincipalId,
+    });
+    if (target.kind === "error") {
+      return target.result;
     }
-
-    // Untargeted CU must resolve to exactly one same-user capable client
-    // before dispatch. Otherwise the proxy would broadcast without a target
-    // actor binding, which is unsafe in shared runtimes.
-    if (targetClientId == null) {
-      const resolved = pickSameUserAutoResolve({
-        hub: assistantEventHub,
-        capability: "host_cu",
-        sourceActorPrincipalId,
-      });
-      if (resolved.kind === "ambiguous") {
-        return ambiguousSameUserError("host_cu");
-      }
-      if (resolved.kind === "match") {
-        targetClientId = resolved.clientId;
-      } else if (
-        assistantEventHub.listClientsByCapability("host_cu").length > 0
-      ) {
-        return {
-          content:
-            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
-          isError: true,
-        };
-      }
-    }
+    targetClientId = target.targetClientId;
 
     // Pointing at the screen is not a computer-use step. It drives nothing
     // and the user does the acting, so counting it against

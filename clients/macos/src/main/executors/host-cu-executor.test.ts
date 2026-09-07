@@ -30,11 +30,15 @@ mock.module("../sidecar/shared-cu-helper", () => ({
 }));
 
 // What draws the marks, handed to the executor the way the app hands it the
-// real one. Only the answer matters here: whether the marks stood.
-let marksStand = true;
-const showCoachmarks = mock((_marks: readonly unknown[]) => marksStand);
+// real one. Only the answer matters here: why the marks did not stand, or
+// null for marks that did.
+let refusal: CoachmarkRefusal | null = null;
+const showCoachmarks = mock(
+  (_marks: readonly unknown[], _conversationId?: string) => refusal,
+);
 
 import { createHostCuExecutor, POINT_AT_TOOL } from "./host-cu-executor";
+import type { CoachmarkRefusal } from "@vellumai/ipc-contract";
 import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 
@@ -177,7 +181,7 @@ describe("pointing at the shared surface", () => {
   });
 
   beforeEach(() => {
-    marksStand = true;
+    refusal = null;
     showCoachmarks.mockClear();
   });
 
@@ -192,6 +196,7 @@ describe("pointing at the shared surface", () => {
     expect(helper.call).not.toHaveBeenCalled();
     expect(showCoachmarks).toHaveBeenCalledTimes(1);
     expect(showCoachmarks.mock.calls[0]?.[0]).toEqual(marks);
+    expect(showCoachmarks.mock.calls[0]?.[1]).toBe("conv-1");
     expect(postCuResult.mock.calls[0]?.[0]).toMatchObject({
       requestId: "req-1",
       executionResult: "Drew 1 mark on the shared surface.",
@@ -213,13 +218,9 @@ describe("pointing at the shared surface", () => {
     });
   });
 
-  /**
-   * The assistant is not looking at the screen it asked to draw on. A refusal
-   * it could not read would have it talking the user through a ring that is
-   * not there.
-   */
-  test("reports a refusal rather than a silent success", async () => {
-    marksStand = false;
+  /** What the assistant is told, for one refusal. */
+  const refusedWith = async (reason: CoachmarkRefusal): Promise<string> => {
+    refusal = reason;
     const executor = createHostCuExecutor({
       helper: helperReturning({}),
       showCoachmarks,
@@ -234,7 +235,34 @@ describe("pointing at the shared surface", () => {
       executionResult?: string;
     };
     expect(posted.executionResult).toBeUndefined();
-    expect(posted.executionError).toContain("Nothing is being shared");
+    return posted.executionError ?? "";
+  };
+
+  /**
+   * The assistant is not looking at the screen it asked to draw on. A refusal
+   * it could not read would have it talking the user through a ring that is
+   * not there.
+   */
+  test("reports a refusal rather than a silent success", async () => {
+    expect(await refusedWith("unshared")).toContain("Nothing is being shared");
+  });
+
+  /**
+   * Each refusal has its own answer, so the assistant can act on which one it
+   * got: one asks the user to share, one is not answerable at all, and one
+   * asks for another look. A single wording would have it asking for a share
+   * that is already running.
+   */
+  test("tells a turn that does not own the call so", async () => {
+    expect(await refusedWith("not-this-call")).toContain(
+      "belongs to another conversation",
+    );
+  });
+
+  test("tells a turn holding an old picture to look again", async () => {
+    const told = await refusedWith("stale-surface");
+    expect(told).toContain("moved the share");
+    expect(told).not.toContain("Ask the user to share");
   });
 
   test("refuses coordinates measured against some other surface", async () => {

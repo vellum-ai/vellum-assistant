@@ -135,6 +135,10 @@ function currentContext(): CompanionContext {
     // on only once that session is one that takes them.
     screenShare: screenShareTarget(),
     screenShareEnabled: screenShareEnabled(),
+    // Who owns the call the share belongs to, so main can refuse marks that
+    // came from anywhere else. Read through the same gate as the target: a
+    // share that cannot flow has no conversation worth naming.
+    callConversationId: callConversationId(),
     // What a keyboard dictation has got to. Published from here for the reason
     // `watching` is: the recording runs in this window, and while it runs the
     // surface is the only thing on screen to say so.
@@ -189,6 +193,20 @@ function screenShareTarget(): CompanionContext["screenShare"] {
 }
 
 /**
+ * The conversation the running call belongs to, or nothing.
+ *
+ * Withheld unless the share can flow, the way the target is: the id exists to
+ * say which conversation may point at this surface, and with no surface there
+ * is nothing for one to own.
+ */
+function callConversationId(): CompanionContext["callConversationId"] {
+  if (!screenShareEnabled()) {
+    return undefined;
+  }
+  return useLiveVoiceStore.getState().conversationId ?? undefined;
+}
+
+/**
  * The dictation the surface should be drawing, or nothing.
  *
  * Only a dictation the keyboard started: one begun from a control in the app is
@@ -233,7 +251,7 @@ function dictationTail(): string {
 function screenShareKey(): string {
   const target = screenShareTarget();
   const enabled = screenShareEnabled();
-  return `${enabled ? "on" : "off"}:${target === undefined ? "" : `${target.kind}:${target.kind === "display" ? target.displayId : target.windowId}`}`;
+  return `${enabled ? "on" : "off"}:${callConversationId() ?? ""}:${target === undefined ? "" : `${target.kind}:${target.kind === "display" ? target.displayId : target.windowId}`}`;
 }
 
 /** Whether two targets name the same display or window, absence included. */
@@ -272,6 +290,7 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.watchTargets === b.watchTargets &&
     sameTarget(a.screenShare, b.screenShare) &&
     a.screenShareEnabled === b.screenShareEnabled &&
+    a.callConversationId === b.callConversationId &&
     a.dictating === b.dictating &&
     a.dictationText === b.dictationText &&
     a.dictationOffer?.id === b.dictationOffer?.id &&

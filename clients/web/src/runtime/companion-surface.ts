@@ -13,7 +13,6 @@ import type {
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
   CompanionCapturePick,
-  CompanionCoachmark,
   CompanionCaptureSources,
   CompanionContext,
   CompanionDictating,
@@ -166,21 +165,6 @@ export function annotateCompanionShare(
 }
 
 /**
- * Point at things on the surface a call is being shown, or take down what is
- * pointed at by asking for none.
- *
- * The whole set each time: what is being pointed at is one thought, and a
- * call that added to it would leave the caller owing a call to take the rest
- * down. The answer comes back as `coachmarks` on the pushed state, which main
- * empties when the share the marks were measured against ends.
- */
-export function setCompanionCoachmarks(
-  marks: readonly CompanionCoachmark[],
-): void {
-  bridge()?.setCoachmarks?.(marks);
-}
-
-/**
  * One frame of what the user is sharing, as the helper takes it.
  *
  * The one call in this module made from the app's own window on a cadence
@@ -189,6 +173,21 @@ export function setCompanionCoachmarks(
  * predates the share, and whenever the helper could not take one, and the
  * caller reads every one of those as a frame to skip.
  */
+/**
+ * Tell the shell a frame of `target` reached the call.
+ *
+ * Sent on the acknowledgement rather than on the capture, because those are
+ * different moments: a frame is taken here, then uploaded and sent, and a
+ * reconnect or a failed upload can void it in between. Main gates the
+ * assistant's own marks on having shown the current surface, so counting a
+ * capture as a showing would open that gate for a picture the call never got.
+ *
+ * A no-op off the desktop shell, the bargain every call in this module makes.
+ */
+export function reportCompanionSharedFrame(target: WatchCaptureTarget): void {
+  bridge()?.sharedFrame?.(target);
+}
+
 export function captureCompanionScreen(
   target: WatchCaptureTarget,
 ): Promise<ScreenCaptureFrame | null> {

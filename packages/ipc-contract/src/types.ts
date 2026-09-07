@@ -1471,6 +1471,22 @@ export const COMPANION_COACHMARK_MAX = 4;
 export const COMPANION_COACHMARK_CAPTION_MAX = 80;
 
 /**
+ * Why a set of marks did not go up, or `null` for marks that did.
+ *
+ * Named refusals rather than one boolean, because the assistant can act on
+ * the difference and each one has its own answer: nothing shared is answered
+ * by asking the user to share, a surface owned by another conversation is not
+ * answered at all, and a surface that moved is answered by looking again.
+ * Told only that it failed, an assistant would ask for a share that is
+ * already running.
+ *
+ * Here rather than beside either end of the call. The window layer decides it
+ * and the host-proxy executor words it, and the file that words it says in as
+ * many words that it must not reach into the windows for anything.
+ */
+export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+
+/**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
  * with the size it was encoded at. Base64 rather than bytes because it
  * crosses the bridge as JSON.
@@ -1633,6 +1649,19 @@ export interface CompanionContext {
    * the share as on only once frames can flow to a session that takes them.
    */
   screenShare?: WatchCaptureTarget;
+  /**
+   * Which conversation the running call belongs to, while one is sharing.
+   *
+   * The marks the assistant places are addressed to a surface and say nothing
+   * about who asked for them, so without this main cannot tell the call's own
+   * conversation from any other the same user has running. A background turn
+   * would otherwise draw on a call it has no part in and be told it worked.
+   *
+   * Published with `screenShare` and withheld with it: a share that cannot
+   * flow is one nothing can be pointed at, so an id beside it would name a
+   * conversation with nothing to own.
+   */
+  callConversationId?: string;
   /**
    * Whether the call in this window can be shown the screen at all: a session
    * is running and its assistant understands the frame. The surface offers

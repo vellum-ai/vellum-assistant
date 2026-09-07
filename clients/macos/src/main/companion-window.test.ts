@@ -492,6 +492,7 @@ const {
   introOnAdvance,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
+  showCompanionCoachmarks,
   installCompanionWindow,
 } = await import("./companion-window");
 
@@ -3105,33 +3106,79 @@ describe("companion window: drawing on what is shared", () => {
  */
 describe("companion window: pointing at what is shared", () => {
   const MARK = { x: 0.1, y: 0.2, width: 0.3, height: 0.1, caption: "Press" };
+  /** The conversation the shared call belongs to. */
+  const CALL = "conv-abc";
+  /** Any other conversation the same user has running. */
+  const OTHER = "conv-xyz";
+  const DISPLAY = { kind: "display", displayId: 2 } as const;
+  const WINDOW = { kind: "window", windowId: 9 } as const;
 
   beforeEach(() => {
     send("vellum:companion:setContext", context());
   });
 
-  const shareDisplay = (): void => {
+  const shareOf = (
+    target: typeof DISPLAY | typeof WINDOW,
+    over: Record<string, unknown> = {},
+  ): void => {
     send(
       "vellum:companion:setContext",
       context({
         screenShareEnabled: true,
-        screenShare: { kind: "display", displayId: 2 },
+        screenShare: target,
+        callConversationId: CALL,
+        ...over,
       }),
     );
   };
 
-  test("puts the marks on the state the frame reads", () => {
-    shareDisplay();
-    send("vellum:companion:setCoachmarks", [MARK]);
+  const shareDisplay = (): void => shareOf(DISPLAY);
+
+  /**
+   * A frame of `target` served to the window holding the session, which is
+   * how main learns which surface the assistant is measuring against.
+   */
+  const capture = async (
+    target: typeof DISPLAY | typeof WINDOW = DISPLAY,
+  ): Promise<void> => {
+    const take = invocable.get("vellum:companion:captureScreen");
+    if (!take) {
+      throw new Error("No handler registered for captureScreen");
+    }
+    await take([target]);
+  };
+
+  /**
+   * The window holding the session saying a frame of `target` reached the
+   * call, which is the moment the assistant has actually been shown it.
+   */
+  const acknowledge = (
+    target: typeof DISPLAY | typeof WINDOW = DISPLAY,
+  ): void => {
+    send("vellum:companion:sharedFrame", target);
+  };
+
+  /** A share with a frame of it already sent, which is the resting case. */
+  const shareAndSee = async (
+    target: typeof DISPLAY | typeof WINDOW = DISPLAY,
+  ): Promise<void> => {
+    shareOf(target);
+    await capture(target);
+    acknowledge(target);
+  };
+
+  test("puts the marks on the state the frame reads", async () => {
+    await shareAndSee();
+    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
     expect(state().coachmarks).toEqual([MARK]);
   });
 
   /** Nothing pointed at is absence, so a frame reads one shape for it. */
-  test("says nothing rather than nothing-in-a-list", () => {
-    shareDisplay();
+  test("says nothing rather than nothing-in-a-list", async () => {
+    await shareAndSee();
     expect(state().coachmarks).toBeUndefined();
-    send("vellum:companion:setCoachmarks", [MARK]);
-    send("vellum:companion:setCoachmarks", []);
+    showCompanionCoachmarks([MARK], CALL);
+    showCompanionCoachmarks([], CALL);
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3141,7 +3188,7 @@ describe("companion window: pointing at what is shared", () => {
    * coordinates.
    */
   test("refuses marks with nothing shared", () => {
-    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("unshared");
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3150,35 +3197,158 @@ describe("companion window: pointing at what is shared", () => {
    * would be drawn around the surface being read while they describe the one
    * being shared.
    */
-  test("refuses marks while a watch session owns the frame", () => {
+  test("refuses marks while a watch session owns the frame", async () => {
+    await capture();
     send(
       "vellum:companion:setContext",
       context({
         watching: true,
         screenShareEnabled: true,
-        screenShare: { kind: "display", displayId: 2 },
+        screenShare: DISPLAY,
+        callConversationId: CALL,
       }),
     );
-    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("unshared");
     expect(state().coachmarks).toBeUndefined();
   });
 
-  test("a share that ends takes the marks with it", () => {
+  /**
+   * A mark names a rectangle and nothing else, so a turn from any other
+   * conversation the user has running would otherwise draw on this call's
+   * surface and be told it worked.
+   */
+  test("refuses marks from another conversation", async () => {
+    await shareAndSee();
+    expect(showCompanionCoachmarks([MARK], OTHER)).toBe("not-this-call");
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /** What the call put up is not another conversation's to replace. */
+  test("a refused mark leaves the call's own marks standing", async () => {
+    await shareAndSee();
+    showCompanionCoachmarks([MARK], CALL);
+    expect(
+      showCompanionCoachmarks([{ ...MARK, caption: "Elsewhere" }], OTHER),
+    ).toBe("not-this-call");
+    expect(state().coachmarks).toEqual([MARK]);
+  });
+
+  /** A claim that cannot be checked is not a claim that passed. */
+  test("refuses marks when the surface names no conversation", async () => {
+    shareOf(DISPLAY, { callConversationId: undefined });
+    await capture();
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("not-this-call");
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * Taking marks down is the one direction that must always work: a ring
+   * nothing can reach is worse than one taken down by the wrong caller.
+   */
+  test("takes marks down for any conversation", async () => {
+    await shareAndSee();
+    showCompanionCoachmarks([MARK], CALL);
+    expect(showCompanionCoachmarks([], OTHER)).toBeNull();
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * The assistant measures against the picture it was last shown. Before any
+   * frame of the shared surface has gone out there is no such picture, so
+   * whatever it is holding is of something else.
+   */
+  test("refuses marks before a frame of the share has been served", () => {
     shareDisplay();
-    send("vellum:companion:setCoachmarks", [MARK]);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * `syncCoachmarks` takes down marks already up when the target changes and
+   * cannot reach one that arrives after it, so the arrival is refused.
+   */
+  test("refuses marks measured against the surface before a move", async () => {
+    await shareAndSee(DISPLAY);
+    shareOf(WINDOW);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /** Once the model has seen the surface it moved to, a mark is about that. */
+  test("takes marks once a frame of the new surface has been served", async () => {
+    await shareAndSee(DISPLAY);
+    await shareAndSee(WINDOW);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+    expect(state().coachmarks).toEqual([MARK]);
+  });
+
+  /** A capture that came back with nothing is never acknowledged. */
+  test("a frame that failed is not a frame the model saw", async () => {
+    shareDisplay();
+    const held = capturedFrame;
+    capturedFrame = null;
+    await capture();
+    capturedFrame = held;
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+  });
+
+  /**
+   * **Taking a frame is not showing one.** The renderer still has to prepare,
+   * upload and send it, and a share that moves in that window would otherwise
+   * open the gate to the new surface while the only picture the assistant
+   * holds is of the old one. That is the arrival this guard exists to refuse,
+   * so the capture alone must not admit it.
+   */
+  test("a capture that has not reached the call opens nothing", async () => {
+    shareOf(DISPLAY);
+    await capture(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    acknowledge(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+  });
+
+  /**
+   * The move lands between the capture and its acknowledgement, which is the
+   * exact interval a capture-time record would have admitted.
+   */
+  test("a share that moved after the capture is still refused", async () => {
+    await shareAndSee(DISPLAY);
+    await capture(WINDOW);
+    shareOf(WINDOW);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+  });
+
+  /**
+   * The surface was unshared for a stretch and the user kept working on it,
+   * so the picture from before the detour is as stale as one from before a
+   * stop. Coming back to it must not resurrect what was acknowledged then.
+   */
+  test("a share that leaves a surface and returns forgets its frame", async () => {
+    await shareAndSee(DISPLAY);
+    shareOf(WINDOW);
+    shareOf(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    acknowledge(DISPLAY);
+    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+  });
+
+  test("a share that ends takes the marks with it", async () => {
+    await shareAndSee();
+    showCompanionCoachmarks([MARK], CALL);
     send("vellum:companion:setContext", context());
     expect(state().coachmarks).toBeUndefined();
   });
 
-  test("a watch session starting takes the marks with it", () => {
-    shareDisplay();
-    send("vellum:companion:setCoachmarks", [MARK]);
+  test("a watch session starting takes the marks with it", async () => {
+    await shareAndSee();
+    showCompanionCoachmarks([MARK], CALL);
     send(
       "vellum:companion:setContext",
       context({
         watching: true,
         screenShareEnabled: true,
-        screenShare: { kind: "display", displayId: 2 },
+        screenShare: DISPLAY,
+        callConversationId: CALL,
       }),
     );
     expect(state().coachmarks).toBeUndefined();
@@ -3189,37 +3359,25 @@ describe("companion window: pointing at what is shared", () => {
    * describe that surface instead, so the marks come down with the surface
    * they were measured against rather than with the share as a whole.
    */
-  test("a share moving to another surface takes the marks with it", () => {
-    shareDisplay();
-    send("vellum:companion:setCoachmarks", [MARK]);
-    send(
-      "vellum:companion:setContext",
-      context({
-        screenShareEnabled: true,
-        screenShare: { kind: "window", windowId: 9 },
-      }),
-    );
+  test("a share moving to another surface takes the marks with it", async () => {
+    await shareAndSee(DISPLAY);
+    showCompanionCoachmarks([MARK], CALL);
+    shareOf(WINDOW);
     expect(state().coachmarks).toBeUndefined();
   });
 
-  test("marks placed on the surface it moved to stand", () => {
-    shareDisplay();
-    send("vellum:companion:setCoachmarks", [MARK]);
-    send(
-      "vellum:companion:setContext",
-      context({
-        screenShareEnabled: true,
-        screenShare: { kind: "window", windowId: 9 },
-      }),
-    );
-    send("vellum:companion:setCoachmarks", [MARK]);
+  test("marks placed on the surface it moved to stand", async () => {
+    await shareAndSee(DISPLAY);
+    showCompanionCoachmarks([MARK], CALL);
+    await shareAndSee(WINDOW);
+    showCompanionCoachmarks([MARK], CALL);
     expect(state().coachmarks).toEqual([MARK]);
   });
 
   /** A context republished unchanged is not a surface that moved. */
-  test("holds the marks while the share stays where it is", () => {
-    shareDisplay();
-    send("vellum:companion:setCoachmarks", [MARK]);
+  test("holds the marks while the share stays where it is", async () => {
+    await shareAndSee();
+    showCompanionCoachmarks([MARK], CALL);
     shareDisplay();
     expect(state().coachmarks).toEqual([MARK]);
   });
@@ -3230,20 +3388,28 @@ describe("companion window: pointing at what is shared", () => {
    * mark placed while it is on would ring a control and then swallow the
    * click on it.
    */
-  test("gives the mouse back to the desktop when marks go up", () => {
-    shareDisplay();
+  test("gives the mouse back to the desktop when marks go up", async () => {
+    await shareAndSee();
     send("vellum:companion:setAnnotating", true);
     expect(state().annotating).toBe(true);
-    send("vellum:companion:setCoachmarks", [MARK]);
+    showCompanionCoachmarks([MARK], CALL);
     expect(state().annotating).toBe(false);
     expect(glow?.clickThrough).toBe(true);
   });
 
   /** Taking marks down is not a reason to touch a mode the user set. */
-  test("leaves the drawing mode alone when marks come down", () => {
-    shareDisplay();
+  test("leaves the drawing mode alone when marks come down", async () => {
+    await shareAndSee();
     send("vellum:companion:setAnnotating", true);
-    send("vellum:companion:setCoachmarks", []);
+    showCompanionCoachmarks([], CALL);
+    expect(state().annotating).toBe(true);
+  });
+
+  /** A refusal is not a reason to touch it either. */
+  test("leaves the drawing mode alone when marks are refused", async () => {
+    await shareAndSee();
+    send("vellum:companion:setAnnotating", true);
+    expect(showCompanionCoachmarks([MARK], OTHER)).toBe("not-this-call");
     expect(state().annotating).toBe(true);
   });
 
@@ -3253,9 +3419,9 @@ describe("companion window: pointing at what is shared", () => {
    * handler, and the two are indistinguishable from here.
    */
   test("the wire refuses a mark measured against another surface", () => {
-    expect(
-      companionCoachmarkSchema.safeParse({ ...MARK, x: 1.5 }).success,
-    ).toBe(false);
+    expect(companionCoachmarkSchema.safeParse({ ...MARK, x: 1.5 }).success).toBe(
+      false,
+    );
     expect(companionCoachmarkSchema.safeParse(MARK).success).toBe(true);
   });
 
@@ -3268,11 +3434,20 @@ describe("companion window: pointing at what is shared", () => {
     ).toBe(false);
   });
 
+  /**
+   * Counted against the schema rather than through this entrance. The bound
+   * belongs to the executor that answers the assistant
+   * (`executors/host-cu-executor.ts`), and what it refuses never reaches main
+   * at all.
+   */
   test("the wire refuses more marks than there are places to look", () => {
     const many = Array.from(
       { length: COMPANION_COACHMARK_MAX + 1 },
       () => MARK,
     );
-    expect(() => send("vellum:companion:setCoachmarks", many)).toThrow();
+    expect(many.length).toBeGreaterThan(COMPANION_COACHMARK_MAX);
+    expect(
+      many.every((m) => companionCoachmarkSchema.safeParse(m).success),
+    ).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/
 import {
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
+  type CoachmarkRefusal,
   type CompanionCoachmark,
 } from "@vellumai/ipc-contract";
 import { z } from "zod";
@@ -53,8 +54,35 @@ const PLACED = (count: number): string =>
     ? "Marks cleared."
     : `Drew ${count} mark${count === 1 ? "" : "s"} on the shared surface.`;
 
-const REFUSED =
+const UNSHARED =
   "Nothing is being shared, so there is no surface to point at. Ask the user to share their screen from the call first.";
+
+/**
+ * What a turn that does not own the call is told.
+ *
+ * Named as the boundary it is rather than as a fault: the surface belongs to
+ * another conversation, which is not a thing this one can fix by trying
+ * again, and an assistant told merely that it failed would.
+ */
+const NOT_THIS_CALL =
+  "The shared screen belongs to another conversation, so this one cannot point at it. Only the call being shown the screen can draw on it.";
+
+/**
+ * What a turn holding a picture of the wrong surface is told.
+ *
+ * Actionable on its own: the user is still sharing, so asking them to share
+ * again would be asking for something they already did. What this turn needs
+ * is another look at what they are showing now.
+ */
+const STALE_SURFACE =
+  "The user has moved the share to another screen or window since the picture you measured against, so those coordinates no longer describe what they are showing. Wait for a fresh frame of the new surface and point again.";
+
+/** What the assistant is told for each way a set of marks can be refused. */
+const REFUSALS: Record<CoachmarkRefusal, string> = {
+  unshared: UNSHARED,
+  "not-this-call": NOT_THIS_CALL,
+  "stale-surface": STALE_SURFACE,
+};
 
 /**
  * What draws the marks, handed in rather than reached for.
@@ -65,11 +93,15 @@ const REFUSED =
  * together (`host-proxy-adapter.ts`), which is also what lets these paths be
  * exercised without a window server.
  *
- * The boolean is whether the marks stand. See `showCompanionCoachmarks`.
+ * The conversation goes with the marks because a mark carries no identity of
+ * its own: it names a rectangle, and the surface it would land on belongs to
+ * whichever call is being shown the screen. See `showCompanionCoachmarks`,
+ * which answers `null` for marks that stand and names its refusal otherwise.
  */
 export type CoachmarkPainter = (
   marks: readonly CompanionCoachmark[],
-) => boolean;
+  conversationId?: string,
+) => CoachmarkRefusal | null;
 
 const UNWIRED =
   "This client cannot draw on the screen: no coachmark painter is wired.";
@@ -110,12 +142,20 @@ class PointAtExecutor implements HostProxyExecutor {
       return;
     }
     const { marks } = parsed.data;
-    const placed = this.paint(marks);
+    // The conversation the daemon addressed this request to, which is what
+    // lets the window layer tell the call's own turn from any other running
+    // for the same user. Absent on a daemon too old to send it, which the
+    // painter reads as a claim it cannot check.
+    const conversationId = message.conversationId;
+    const refusal = this.paint(
+      marks,
+      typeof conversationId === "string" ? conversationId : undefined,
+    );
     void poster.postCuResult({
       requestId,
-      ...(placed
+      ...(refusal === null
         ? { executionResult: PLACED(marks.length) }
-        : { executionError: REFUSED }),
+        : { executionError: REFUSALS[refusal] }),
     });
   }
 
