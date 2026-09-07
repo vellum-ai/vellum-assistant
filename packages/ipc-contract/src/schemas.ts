@@ -218,6 +218,10 @@ export const companionContextSchema = z.object({
   // shape it can hold names something being shared, and absence is the only
   // way to say nothing is.
   screenShare: watchCaptureTargetSchema.optional(),
+  // Optional for the reason `screenShare` is, and it travels with it: an id
+  // with no share names a conversation that owns nothing, and a share with no
+  // id is a surface no conversation can claim.
+  callConversationId: z.string().optional(),
   // Defaulted for the reason `watchTargets` is: a publisher that does not say
   // whether its call can be shown the screen is one whose call cannot.
   screenShareEnabled: z.boolean().default(false),

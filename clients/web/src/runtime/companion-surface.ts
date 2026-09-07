@@ -13,7 +13,6 @@ import type {
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
   CompanionCapturePick,
-  CompanionCoachmark,
   CompanionCaptureSources,
   CompanionContext,
   CompanionDictating,
@@ -163,21 +162,6 @@ export function annotateCompanionShare(
   ink: string,
 ): void {
   bridge()?.annotateShare?.(phase, strokes, ink);
-}
-
-/**
- * Point at things on the surface a call is being shown, or take down what is
- * pointed at by asking for none.
- *
- * The whole set each time: what is being pointed at is one thought, and a
- * call that added to it would leave the caller owing a call to take the rest
- * down. The answer comes back as `coachmarks` on the pushed state, which main
- * empties when the share the marks were measured against ends.
- */
-export function setCompanionCoachmarks(
-  marks: readonly CompanionCoachmark[],
-): void {
-  bridge()?.setCoachmarks?.(marks);
 }
 
 /**

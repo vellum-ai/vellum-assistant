@@ -79,7 +79,12 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
   skillId: string;
 }> = [
   { capability: "host_cu", skillId: "computer-use" },
-  { capability: "host_cu", skillId: "screen-annotation" },
+  // Not `host_cu`: the marks are drawn in a window the client opens for
+  // itself, and only a client advertising that window can answer the request.
+  // Offered from the transport alone, the skill reaches Windows and Linux
+  // turns whose executors forward it to a native helper that has no such
+  // action.
+  { capability: "host_cu_annotate", skillId: "screen-annotation" },
   { capability: "host_app_control", skillId: "app-control" },
 ];
 

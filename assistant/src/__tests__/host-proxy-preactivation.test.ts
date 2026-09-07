@@ -366,6 +366,7 @@ describe("preactivateHostProxySkills logging", () => {
     expect(fields.sourceInterface).toBe("macos");
     expect(fields.decisions).toEqual({
       host_cu: { shouldAttach: true, reason: "native_support" },
+      host_cu_annotate: { shouldAttach: true, reason: "native_support" },
       host_app_control: { shouldAttach: true, reason: "native_support" },
     });
     expect(fields.preactivatedSkillIds).toEqual([
@@ -385,6 +386,10 @@ describe("preactivateHostProxySkills logging", () => {
     expect(fields.sourceInterface).toBeUndefined();
     expect(fields.decisions).toEqual({
       host_cu: { shouldAttach: false, reason: "denied_no_interface" },
+      host_cu_annotate: {
+        shouldAttach: false,
+        reason: "denied_no_interface",
+      },
       host_app_control: { shouldAttach: false, reason: "denied_no_interface" },
     });
     expect(fields.preactivatedSkillIds).toEqual([]);
@@ -409,6 +414,34 @@ describe("preactivateHostProxySkills logging", () => {
       shouldAttach: false,
       reason: "denied_no_clients",
       clientCount: 0,
+    });
+    // Computer use and nothing else. The marks are drawn in a window the
+    // client opens for itself, and a client advertising only the transport
+    // has no such window to draw in.
+    expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([
+      "computer-use",
+    ]);
+  });
+
+  /**
+   * The case the annotation capability exists for: a web turn is routed to a
+   * desktop client, and only a client that says it can draw is offered the
+   * skill that draws.
+   */
+  test("offers screen annotation to a web source once a client advertises it", () => {
+    setCapableClient("host_cu", true);
+    setCapableClient("host_cu_annotate", true);
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "web", "user-1");
+
+    const decisions = loggedInfoCalls[0].fields.decisions as Record<
+      string,
+      unknown
+    >;
+    expect(decisions.host_cu_annotate).toEqual({
+      shouldAttach: true,
+      reason: "cross_client",
+      clientCount: 1,
     });
     expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([
       "computer-use",

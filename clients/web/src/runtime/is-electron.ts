@@ -25,7 +25,6 @@ import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCharacter,
-  CompanionCoachmark,
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
@@ -412,7 +411,6 @@ declare global {
           strokes: readonly CompanionAnnotationStroke[],
           ink: string,
         ): void;
-        setCoachmarks?(marks: readonly CompanionCoachmark[]): void;
         captureScreen?(
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;
