@@ -9,28 +9,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const PERSONALITY_SLIDERS_PATH = "data/personality-sliders.json";
-export const HOSTED_STEERING_MODEL = "qwen/qwen3-8b";
+import {
+  PERSONALITY_DIRECTION_AXES,
+  PERSONALITY_SLIDERS_PATH,
+} from "@vellumai/personality-sliders";
 
-export const PERSONALITY_DIRECTION_AXES = [
-  {
-    sliderId: "companion-coworker",
-    left: "companion",
-    right: "coworker",
-  },
-  { sliderId: "genz-boomer", left: "genz", right: "boomer" },
-  {
-    sliderId: "execute-collaborate",
-    left: "independent",
-    right: "collaborative",
-  },
-  { sliderId: "playful-serious", left: "playful", right: "serious" },
-  {
-    sliderId: "polite-unfiltered",
-    left: "polite",
-    right: "unfiltered",
-  },
-] as const;
+export {
+  PERSONALITY_DIRECTION_AXES,
+  PERSONALITY_SLIDERS_PATH,
+} from "@vellumai/personality-sliders";
+
+export const HOSTED_STEERING_MODEL = "qwen/qwen3-8b";
 
 export type PersonalityDirections = Record<string, number>;
 

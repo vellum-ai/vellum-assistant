@@ -23,6 +23,7 @@
     "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
+    "@vellumai/personality-sliders",
     "@vellumai/service-contracts",
     "@vellumai/slack-text",
     "@vellumai/twilio-client",

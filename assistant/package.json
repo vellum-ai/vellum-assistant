@@ -51,6 +51,7 @@
     "@vellumai/environments": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
+    "@vellumai/personality-sliders": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",
     "@vellumai/slack-text": "workspace:*",
     "@vellumai/twilio-client": "workspace:*",
@@ -97,6 +98,7 @@
     "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
+    "@vellumai/personality-sliders",
     "@vellumai/slack-text",
     "@vellumai/twilio-client"
   ],
