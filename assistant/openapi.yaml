@@ -5102,7 +5102,7 @@ paths:
     put:
       operationId: config_embeddings_put
       summary: Set embedding config
-      description: Change the embedding provider and optionally model.
+      description: Change the embedding provider, model, and optional custom endpoint.
       tags:
         - config
       requestBody:
@@ -5116,6 +5116,14 @@ paths:
                   type: string
                 model:
                   type: string
+                baseUrl:
+                  type: string
+                dimensions:
+                  anyOf:
+                    - type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    - type: "null"
               required:
                 - provider
       responses:
@@ -20081,6 +20089,7 @@ paths:
                               - openai
                               - gemini
                               - ollama
+                              - custom
                           - type: "null"
                       model:
                         anyOf:

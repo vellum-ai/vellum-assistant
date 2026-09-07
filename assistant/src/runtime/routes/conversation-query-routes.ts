@@ -6,7 +6,7 @@
  * GET    /v1/model                      — current model info
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
- * PUT    /v1/config/embeddings          — set embedding provider/model
+ * PUT    /v1/config/embeddings          - set embedding provider/model/baseUrl
  * GET    /v1/config                     — full raw workspace config
  * PATCH  /v1/config                     — deep-merge partial config
  * PUT    /v1/config/llm/profiles/:name  — replace an inference profile
@@ -97,6 +97,7 @@ import {
 } from "../../persistence/conversation-types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { resolveOpenAICompatibleBaseUrl } from "../../persistence/embeddings/embedding-openai.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
@@ -457,9 +458,11 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
-  const { provider, model } = body as {
+  const { provider, model, baseUrl, dimensions } = body as {
     provider?: string;
     model?: string;
+    baseUrl?: string;
+    dimensions?: number | null;
   };
   if (!provider || typeof provider !== "string") {
     throw new BadRequestError("Missing required field: provider");
@@ -472,8 +475,32 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
   if (model !== undefined && typeof model !== "string") {
     throw new BadRequestError("Field 'model' must be a string");
   }
+  if (baseUrl !== undefined && typeof baseUrl !== "string") {
+    throw new BadRequestError("Field 'baseUrl' must be a string");
+  }
+  if (
+    typeof baseUrl === "string" &&
+    baseUrl !== "" &&
+    !resolveOpenAICompatibleBaseUrl(baseUrl)
+  ) {
+    throw new BadRequestError("Field 'baseUrl' must be an http(s) URL");
+  }
+  if (
+    dimensions !== undefined &&
+    dimensions !== null &&
+    (typeof dimensions !== "number" ||
+      !Number.isInteger(dimensions) ||
+      dimensions <= 0)
+  ) {
+    throw new BadRequestError(
+      "Field 'dimensions' must be a positive integer or null",
+    );
+  }
   try {
-    return await setEmbeddingConfig(provider, model, getModelSetContext());
+    return await setEmbeddingConfig(provider, model, getModelSetContext(), {
+      baseUrl,
+      dimensions,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to set embedding config: ${message}`);
@@ -2344,11 +2371,14 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Set embedding config",
-    description: "Change the embedding provider and optionally model.",
+    description:
+      "Change the embedding provider, model, and optional custom endpoint.",
     tags: ["config"],
     requestBody: z.object({
       provider: z.string(),
       model: z.string().optional(),
+      baseUrl: z.string().optional(),
+      dimensions: z.number().int().positive().nullable().optional(),
     }),
     handler: handleSetEmbeddingConfig,
   },
