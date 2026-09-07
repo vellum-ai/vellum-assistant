@@ -16,6 +16,9 @@ import { BulkOverrideSwapModal } from "@/domains/settings/ai/bulk-override-swap-
 import {
   CUSTOM_SENTINEL,
   effectiveCallSiteProfile,
+  getCallSiteDescription,
+  getCallSiteDisplayName,
+  getDomainDisplayName,
 } from "@/domains/settings/ai/call-site-helpers";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import {
@@ -207,7 +210,15 @@ export function OverridesDetailPanel({
   // copy rather than falling out of `filteredCallSites`.
   const advisorMatchesSearch = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q === "" || "advisor".includes(q) || "second opinion".includes(q);
+    return (
+      q === "" ||
+      "advisor".includes(q) ||
+      "second opinion".includes(q) ||
+      "顾问".includes(q) ||
+      "第二意见".includes(q) ||
+      "顧問".includes(q) ||
+      "第二意見".includes(q)
+    );
   }, [search]);
 
   // The bulk swap needs at least one action currently running on a named
@@ -252,13 +263,30 @@ export function OverridesDetailPanel({
       return gatedCallSites;
     }
     const q = search.toLowerCase();
-    return gatedCallSites.filter(
-      (cs) =>
+    return gatedCallSites.filter((cs) => {
+      const localizedName = getCallSiteDisplayName(
+        cs.id,
+        cs.displayName,
+        t,
+      ).toLowerCase();
+      const localizedDesc = (
+        getCallSiteDescription(cs.id, cs.description, t) ?? ""
+      ).toLowerCase();
+      const localizedDomain = getDomainDisplayName(
+        cs.domain,
+        cs.domain,
+        t,
+      ).toLowerCase();
+      return (
         (cs.displayName ?? "").toLowerCase().includes(q) ||
         (cs.description ?? "").toLowerCase().includes(q) ||
-        (cs.domain ?? "").toLowerCase().includes(q),
-    );
-  }, [gatedCallSites, search]);
+        (cs.domain ?? "").toLowerCase().includes(q) ||
+        localizedName.includes(q) ||
+        localizedDesc.includes(q) ||
+        localizedDomain.includes(q)
+      );
+    });
+  }, [gatedCallSites, search, t]);
 
   const groupedCallSites = useMemo(() => {
     if (!catalog) {

@@ -187,7 +187,9 @@
     "talk": "交谈",
     "teach": "教学",
     "unmuteAssistant": "取消助手静音",
-    "unmuteMicrophone": "取消麦克风静音"
+    "unmuteMicrophone": "取消麦克风静音",
+    "dictating": "正在聆听",
+    "dictatingTranscribing": "正在思考"
   },
   "contentActionBar": {
     "copiedAria": "已复制",
@@ -883,5 +885,10 @@
       "label": "完全访问",
       "description": "自动批准所有操作，包括高风险和无法识别的命令。助手将绝不请求权限确认。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小时",
+    "everyMinutes": "每 {count} 分钟",
+    "retrospectiveSubtitle": "在对话活动后触发"
   }
 }

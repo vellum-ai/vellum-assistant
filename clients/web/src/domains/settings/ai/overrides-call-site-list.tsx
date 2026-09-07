@@ -1,5 +1,8 @@
 import {
   CUSTOM_SENTINEL,
+  getCallSiteDescription,
+  getCallSiteDisplayName,
+  getDomainDisplayName,
   isDraftActive,
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
@@ -79,7 +82,7 @@ export function OverridesCallSiteList({
           <div key={domain.id}>
             {/* typography: off-scale. Domain section label uses semibold+tracking for visual grouping */}
             <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-              {domain.displayName}
+              {getDomainDisplayName(domain.id, domain.displayName, t)}
             </p>
             <div className="space-y-1">
               {sites.map((cs) => {
@@ -107,8 +110,8 @@ export function OverridesCallSiteList({
                   <CallSiteOverrideRow
                     key={cs.id}
                     id={cs.id}
-                    displayName={cs.displayName}
-                    description={cs.description}
+                    displayName={getCallSiteDisplayName(cs.id, cs.displayName, t)}
+                    description={getCallSiteDescription(cs.id, cs.description, t)}
                     defaultProfileLabel={defaultProfileLabel}
                     draft={drafts[cs.id] ?? null}
                     profileOptions={buildProfileOptionsForRow(
