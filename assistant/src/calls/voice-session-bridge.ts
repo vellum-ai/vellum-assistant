@@ -761,22 +761,6 @@ export function cutFrontDoorContentAtVerdict(
   return { blocks: kept, spokenText };
 }
 
-/**
- * Which turn's actor stamp a conversation currently carries.
- *
- * Every other per-turn value `restoreTurnState` handles is an object, so a
- * concurrent winner's is told from this turn's by reference. The actor
- * principal is a string, and two turns for the same guardian carry the
- * identical one, so the field itself cannot answer who wrote it. A loser
- * comparing values would put its snapshot back over a live winner: either
- * `undefined`, taking the winner's identity away, or a principal left
- * resident by an earlier ordinary turn, which is worse, since automatic
- * client resolution would then pick that other principal's desktop.
- *
- * Weak on the conversation so a finished one is collectable.
- */
-const actorStampOwner = new WeakMap<object, symbol>();
-
 // ---------------------------------------------------------------------------
 // startVoiceTurn
 // ---------------------------------------------------------------------------
@@ -1089,7 +1073,7 @@ export async function startVoiceTurn(
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
     conversation.currentTurnSourceActorPrincipalId = undefined;
-    actorStampOwner.delete(conversation);
+    installedActorStampGeneration = null;
     conversation.setCommandIntent(null);
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
@@ -1190,8 +1174,21 @@ export async function startVoiceTurn(
   // The exact values this turn installs, computed once: `restoreTurnState`
   // recognizes by identity whether a field still holds THIS turn's value —
   // a field a concurrent winner overwrote is the winner's to keep.
-  // This turn's claim on the actor stamp. See `actorStampOwner`.
-  const actorStampToken = Symbol("voice-turn-actor-stamp");
+  /**
+   * The actor-stamp generation this turn's own install left behind, or null
+   * before it has installed one.
+   *
+   * `restoreTurnState` reverts the other per-turn values by identity, which
+   * separates a concurrent winner's from this turn's only because they are
+   * objects. The actor principal is a string and two turns for the same
+   * guardian write the identical one, so the field cannot say who wrote it.
+   * The conversation counts every write to it (see
+   * `currentTurnActorStampGeneration`), including the direct ones ordinary
+   * message turns make in `conversation-routes` and `conversation-process`,
+   * so a count that has not moved is the proof this turn's stamp is still
+   * the one standing.
+   */
+  let installedActorStampGeneration: number | null = null;
   const voiceTurnValues = {
     assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     callSessionId: voiceSessionId,
@@ -1223,7 +1220,8 @@ export async function startVoiceTurn(
     conversation.setTrustContext(voiceTurnValues.trustContext);
     conversation.currentTurnSourceActorPrincipalId =
       voiceTurnValues.actorPrincipalId ?? undefined;
-    actorStampOwner.set(conversation, actorStampToken);
+    installedActorStampGeneration =
+      conversation.currentTurnActorStampGeneration;
     conversation.setCommandIntent(null);
     conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
     conversation.setTurnInterfaceContext?.(
@@ -1283,12 +1281,17 @@ export async function startVoiceTurn(
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
     }
-    // By ownership rather than by value, for the reason `actorStampOwner`
-    // gives: this field's value cannot say who wrote it.
-    if (actorStampOwner.get(conversation) === actorStampToken) {
+    // By the write count rather than by the value, for the reason
+    // `installedActorStampGeneration` gives. A turn that never installed has
+    // nothing of its own standing to take back.
+    if (
+      installedActorStampGeneration !== null &&
+      conversation.currentTurnActorStampGeneration ===
+        installedActorStampGeneration
+    ) {
       conversation.currentTurnSourceActorPrincipalId =
         snap.actorPrincipalId ?? undefined;
-      actorStampOwner.delete(conversation);
+      installedActorStampGeneration = null;
     }
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);

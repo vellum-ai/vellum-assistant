@@ -334,6 +334,7 @@ function wireTurnState(
     assistantId?: string;
     trustContext?: unknown;
     currentTurnSourceActorPrincipalId?: string;
+    currentTurnActorStampGeneration?: number;
     commandIntent?: unknown;
     channelCapabilities?: unknown;
     voiceCallControlPrompt?: string;
@@ -343,7 +344,22 @@ function wireTurnState(
   conv.assistantId = initial.assistantId;
   conv.callSessionId = initial.callSessionId;
   conv.trustContext = initial.trustContext;
-  conv.currentTurnSourceActorPrincipalId = initial.actorPrincipalId;
+  // The real Conversation counts every write to the actor stamp behind an
+  // accessor (see `currentTurnActorStampGeneration`), which is what lets a
+  // turn tell its own stamp from a concurrent writer's. The fake counts them
+  // the same way, so the bridge's check is exercised here rather than being
+  // trivially true against a plain property.
+  let actorPrincipal = initial.actorPrincipalId;
+  conv.currentTurnActorStampGeneration = 0;
+  Object.defineProperty(conv, "currentTurnSourceActorPrincipalId", {
+    configurable: true,
+    get: () => actorPrincipal,
+    set: (value: string | undefined) => {
+      actorPrincipal = value;
+      conv.currentTurnActorStampGeneration =
+        (conv.currentTurnActorStampGeneration ?? 0) + 1;
+    },
+  });
   conv.commandIntent = initial.commandIntent;
   conv.channelCapabilities = initial.channelCapabilities;
   conv.voiceCallControlPrompt = initial.voiceCallControlPrompt;
@@ -1615,6 +1631,54 @@ describe("startVoiceTurn race-loss state restore", () => {
       assistantMessageInterface: "phone",
     });
     expect(retryState.voiceCallControlPrompt).toContain("voice_call_control");
+  });
+
+  /**
+   * The winner here is an ordinary message turn, which stamps the actor
+   * directly (`conversation-routes`, `conversation-process`) rather than
+   * through this bridge. It shares the guardian, so it writes the identical
+   * string this turn did and the field cannot say which of them wrote it.
+   * Reverting on that would hand the winner a principal from an earlier turn,
+   * and automatic host-client resolution would then go looking for that other
+   * principal's desktop.
+   */
+  test("an ordinary turn's actor stamp is not reverted by a losing voice turn", async () => {
+    const statesDuringWait: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          // The winner takes the conversation and stamps the same guardian,
+          // the way an ordinary turn does: a direct write, counted but
+          // otherwise invisible to this bridge.
+          (
+            fake.conversation as { currentTurnSourceActorPrincipalId?: string }
+          ).currentTurnSourceActorPrincipalId = "principal-guardian";
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    // What an earlier turn left resident, and what a value-based revert would
+    // wrongly put back.
+    const readState = wireTurnState(fake.conversation, {
+      actorPrincipalId: "principal-other",
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-ordinary-winner"),
+      callSessionId: "session-voice-loser",
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesDuringWait.length).toBe(1);
+    expect(statesDuringWait[0]!.actorPrincipalId).toBe("principal-guardian");
   });
 
   test("a busy persist whose retry wait exhausts the budget leaves the winner's values in place", async () => {

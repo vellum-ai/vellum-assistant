@@ -577,7 +577,33 @@ export class Conversation {
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
-  /** @internal */ currentTurnSourceActorPrincipalId?: string;
+  /** @internal */ private _currentTurnSourceActorPrincipalId?: string;
+  /**
+   * How many times the actor stamp has been written on this conversation.
+   *
+   * A turn that stamped the actor and later needs to know whether its own
+   * stamp is still the one standing cannot ask the value: two turns for the
+   * same guardian write the identical string, so the field cannot say who
+   * wrote it. Every write moves this counter, whoever makes it, so a reader
+   * that remembers the count at its own write can tell "still mine" from
+   * "someone stamped after me" without every writer having to cooperate.
+   *
+   * Behind the accessor below rather than bumped at the call sites, because
+   * the writers are spread across the routes and the turn pipeline and a
+   * counter they had to remember to move is one they would eventually not.
+   *
+   * @internal
+   */
+  currentTurnActorStampGeneration = 0;
+  /** @internal */
+  get currentTurnSourceActorPrincipalId(): string | undefined {
+    return this._currentTurnSourceActorPrincipalId;
+  }
+  /** @internal */
+  set currentTurnSourceActorPrincipalId(value: string | undefined) {
+    this._currentTurnSourceActorPrincipalId = value;
+    this.currentTurnActorStampGeneration += 1;
+  }
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ loadedHistoryStale = false;
