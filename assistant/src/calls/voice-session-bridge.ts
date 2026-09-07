@@ -350,6 +350,21 @@ export interface VoiceTurnOptions {
   assistantId?: string;
   /** Guardian trust context for the caller. */
   trustContext?: TrustContext;
+  /**
+   * The actor principal this turn runs as, for host-proxy same-user binding.
+   *
+   * Host proxies resolve a target client by matching the turn's actor against
+   * the actor each client registered its SSE subscription under
+   * (`pickSameUserAutoResolve`). A turn with no actor matches nothing, so
+   * every `computer_use_*` / `host_bash` / `host_file` call it makes is
+   * refused however healthy the connected client is.
+   *
+   * Set only by the local live-voice path, whose upgrade the gateway pins to
+   * the bound guardian. A phone call leaves it unset: the caller is whoever
+   * dialled in, and an inbound caller must never resolve to a client on the
+   * owner's machine.
+   */
+  actorPrincipalId?: string;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -1057,6 +1072,7 @@ export async function startVoiceTurn(
     pendingVoiceApprovals.clear();
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
+    conversation.currentTurnSourceActorPrincipalId = undefined;
     conversation.setCommandIntent(null);
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
@@ -1161,6 +1177,7 @@ export async function startVoiceTurn(
     assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     callSessionId: voiceSessionId,
     trustContext: opts.trustContext ?? null,
+    actorPrincipalId: opts.actorPrincipalId ?? null,
     turnChannelContext,
     turnInterfaceContext,
     // Resolved from the channel, with no voice-specific override.
@@ -1185,6 +1202,8 @@ export async function startVoiceTurn(
     conversation.setAssistantId(voiceTurnValues.assistantId);
     conversation.callSessionId = voiceTurnValues.callSessionId;
     conversation.setTrustContext(voiceTurnValues.trustContext);
+    conversation.currentTurnSourceActorPrincipalId =
+      voiceTurnValues.actorPrincipalId ?? undefined;
     conversation.setCommandIntent(null);
     conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
     conversation.setTurnInterfaceContext?.(
@@ -1204,6 +1223,7 @@ export async function startVoiceTurn(
     assistantId: conversation.assistantId,
     callSessionId: conversation.callSessionId,
     trustContext: conversation.trustContext,
+    actorPrincipalId: conversation.currentTurnSourceActorPrincipalId,
     commandIntent: conversation.commandIntent,
     turnChannelContext: conversation.getTurnChannelContext?.() ?? null,
     turnInterfaceContext: conversation.getTurnInterfaceContext?.() ?? null,
@@ -1242,6 +1262,13 @@ export async function startVoiceTurn(
       (voiceTurnValues.trustContext ?? null)
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
+    }
+    if (
+      (conversation.currentTurnSourceActorPrincipalId ?? null) ===
+      (voiceTurnValues.actorPrincipalId ?? null)
+    ) {
+      conversation.currentTurnSourceActorPrincipalId =
+        snap.actorPrincipalId ?? undefined;
     }
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);

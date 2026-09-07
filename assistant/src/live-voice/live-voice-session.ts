@@ -7022,7 +7022,7 @@ export async function defaultSpawnBackgroundContinuation(args: {
   // trust the foreground turn ran under and pass it explicitly (resolution
   // itself stays fail-closed: on a miss the continuation runs as `unknown`,
   // exactly as an unstamped turn does).
-  const trustContext = await resolveLocalLiveVoiceTrustContext(
+  const { trustContext } = await resolveLocalLiveVoiceIdentity(
     args.parentConversationId,
   );
   // getOrCreateConversation (not a raw registry read): it rebuilds a stale
@@ -7143,8 +7143,8 @@ async function defaultStartVoiceTurn(
   // exists (idempotent) before persisting. Lives in the production wiring, not
   // the session state machine, so session unit tests stay DB-free.
   // Native: this is the local live-voice session, which adopts a conversation
-  // id the app supplied. Its trust context resolves through
-  // `resolveLocalLiveVoiceTrustContext`, and a phone call reaches the assistant
+  // id the app supplied. Its guardian identity resolves through
+  // `resolveLocalLiveVoiceIdentity`, and a phone call reaches the assistant
   // through the telephony path rather than here.
   const createdConversation = ensureConversationExists(
     options.conversationId,
@@ -7160,18 +7160,19 @@ async function defaultStartVoiceTurn(
       options.conversationId,
     );
   }
-  // Stamp the turn with the guardian's trust context — the same resolution the
-  // text-send route runs for a local vellum principal. A local live-voice
-  // session only exists for the guardian's own authenticated client (the
-  // gateway pins the `/v1/live-voice` upgrade to the bound guardian), but the
-  // live-voice ingress bypasses the send-message route, so without this stamp
-  // the turn resolved to the fail-closed `unknown` trust class and every
-  // sensitive tool was denied. Resolution stays fail-closed: a gateway miss /
-  // missing binding leaves the context unset (`unknown`), never a blind grant.
+  // Stamp the turn with the guardian's identity: the trust context that says
+  // what it may do, and the actor principal that says whose machine it may
+  // reach. A local live-voice session only exists for the guardian's own
+  // authenticated client (the gateway pins the `/v1/live-voice` upgrade to the
+  // bound guardian), but the live-voice ingress bypasses the send-message
+  // route, which is where both are normally established. Without the trust
+  // stamp the turn runs fail-closed as `unknown` and every sensitive tool is
+  // denied; without the actor stamp it matches no connected client and every
+  // host-proxy call is refused. Resolution stays fail-closed on both: a
+  // gateway miss or missing binding leaves them unset, never a blind grant.
   const trustStartedAt = performance.now();
-  const trustContext = await resolveLocalLiveVoiceTrustContext(
-    options.conversationId,
-  );
+  const { actorPrincipalId, trustContext } =
+    await resolveLocalLiveVoiceIdentity(options.conversationId);
   const trustMs = Math.round(performance.now() - trustStartedAt);
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
   log.info(
@@ -7185,35 +7186,49 @@ async function defaultStartVoiceTurn(
   );
   return startVoiceTurn({
     ...options,
+    ...(actorPrincipalId ? { actorPrincipalId } : {}),
     ...(trustContext ? { trustContext } : {}),
   });
 }
 
 /**
- * Resolve the local guardian's {@link TrustContext} for a live-voice turn, or
- * `undefined` when it cannot be established (no vellum guardian binding, or
- * the gateway is unreachable) — the turn then runs under the fail-closed
- * `unknown` capability set, exactly as an unstamped turn does.
+ * Who a live-voice turn runs as: the local guardian's actor principal, and the
+ * {@link TrustContext} resolved for it.
+ *
+ * Both are empty when no vellum guardian binding exists or the gateway is
+ * unreachable, and the turn then runs exactly as an unstamped one does.
+ *
+ * The two are reported separately because they answer different questions and
+ * fail independently. The principal is the identity the binding names, and the
+ * host proxies match connected clients against it. The trust class is a policy
+ * answer about that principal, so a binding that resolves to something other
+ * than `guardian` still names the actor the turn belongs to: withholding the
+ * principal there would refuse the owner access to their own machine over a
+ * question about what they are allowed to do once they have it.
  */
-async function resolveLocalLiveVoiceTrustContext(
-  conversationId: string,
-): Promise<TrustContext | undefined> {
+async function resolveLocalLiveVoiceIdentity(conversationId: string): Promise<{
+  actorPrincipalId?: string;
+  trustContext?: TrustContext;
+}> {
   const { findLocalGuardianPrincipalId } =
     await import("../runtime/local-actor-identity.js");
   const { resolveLocalPrincipalTrustContext } =
     await import("../runtime/local-principal-trust.js");
   const guardianPrincipalId = await findLocalGuardianPrincipalId();
   if (!guardianPrincipalId) {
-    return undefined;
+    return {};
   }
   const trustContext = await resolveLocalPrincipalTrustContext({
     actorPrincipalId: guardianPrincipalId,
     sourceChannel: "vellum",
     conversationExternalId: conversationId,
   });
-  // Only stamp a positive guardian resolution; the resolver's own
-  // fail-closed `unknown` carries no more information than no stamp.
-  return trustContext.trustClass === "guardian" ? trustContext : undefined;
+  return {
+    actorPrincipalId: guardianPrincipalId,
+    // Only stamp a positive guardian resolution; the resolver's own
+    // fail-closed `unknown` carries no more information than no stamp.
+    ...(trustContext.trustClass === "guardian" ? { trustContext } : {}),
+  };
 }
 
 async function defaultStreamLiveVoiceTtsAudio(

@@ -310,6 +310,7 @@ interface FakeTurnState {
   assistantId: string | undefined;
   callSessionId: string | undefined;
   trustContext: unknown;
+  actorPrincipalId: string | undefined;
   commandIntent: unknown;
   turnChannelContext: unknown;
   turnInterfaceContext: unknown;
@@ -332,6 +333,7 @@ function wireTurnState(
   const conv = fake as FakeConversation & {
     assistantId?: string;
     trustContext?: unknown;
+    currentTurnSourceActorPrincipalId?: string;
     commandIntent?: unknown;
     channelCapabilities?: unknown;
     voiceCallControlPrompt?: string;
@@ -341,6 +343,7 @@ function wireTurnState(
   conv.assistantId = initial.assistantId;
   conv.callSessionId = initial.callSessionId;
   conv.trustContext = initial.trustContext;
+  conv.currentTurnSourceActorPrincipalId = initial.actorPrincipalId;
   conv.commandIntent = initial.commandIntent;
   conv.channelCapabilities = initial.channelCapabilities;
   conv.voiceCallControlPrompt = initial.voiceCallControlPrompt;
@@ -374,6 +377,7 @@ function wireTurnState(
     assistantId: conv.assistantId,
     callSessionId: conv.callSessionId,
     trustContext: conv.trustContext,
+    actorPrincipalId: conv.currentTurnSourceActorPrincipalId,
     commandIntent: conv.commandIntent,
     turnChannelContext,
     turnInterfaceContext,
@@ -393,6 +397,7 @@ function makeWinnerState(): FakeTurnState {
     assistantId: "assistant-winner",
     callSessionId: "session-winner",
     trustContext: { sourceChannel: "imessage", trustClass: "trusted_contact" },
+    actorPrincipalId: "principal-winner",
     commandIntent: undefined,
     turnChannelContext: {
       userMessageChannel: "imessage",
@@ -1486,6 +1491,71 @@ describe("startVoiceTurn queued-message drain race", () => {
       "Turn aborted while waiting for conversation",
     );
     expect(fake.persistCount()).toBe(1);
+  });
+});
+
+describe("startVoiceTurn actor principal", () => {
+  // The turn's actor is what host proxies match connected desktop clients
+  // against (`pickSameUserAutoResolve`). A turn that carries none matches no
+  // client, so every computer-use call it makes is refused however healthy
+  // the connected client is.
+
+  test("stamps the caller's actor for the duration of the turn", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-stamp"),
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBe("principal-guardian");
+  });
+
+  /**
+   * A phone caller is whoever dialled in. Resolving them to a desktop client
+   * would hand an inbound caller the owner's machine, so the telephony path
+   * passes no actor and the turn must not invent one.
+   */
+  test("a turn with no caller actor leaves the conversation without one", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-actor-absent"));
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBeUndefined();
+  });
+
+  /** The stamp is the turn's, so it goes when the turn does. */
+  test("releases the actor when the turn ends", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBeUndefined();
   });
 });
 
