@@ -271,7 +271,7 @@ const RESTING_PILL = {
    */
   closing: AVATAR_IMAGE,
   /** The lit line's thickness, at every size and every setting. */
-  rim: 2.5,
+  rim: 2,
   /** How far that line throws light, as the nearer of its two blooms. */
   bloom: 4,
 };
