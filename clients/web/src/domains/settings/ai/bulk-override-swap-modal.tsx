@@ -15,6 +15,8 @@ import {
 } from "@/assistant/profile-pickers";
 import {
   effectiveCallSiteProfile,
+  getCallSiteDisplayName,
+  getDomainDisplayName,
   type CallSiteEffectiveProfile,
 } from "@/domains/settings/ai/call-site-helpers";
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
@@ -119,9 +121,14 @@ export function BulkOverrideSwapModal({
   const [applying, setApplying] = useState(false);
 
   const domainLabelFor = useMemo(() => {
-    const map = new Map(domains.map((d) => [d.id, d.displayName]));
+    const map = new Map(
+      domains.map((d) => [
+        d.id,
+        getDomainDisplayName(d.id, d.displayName, t),
+      ]),
+    );
     return (id: string) => map.get(id) ?? id;
-  }, [domains]);
+  }, [domains, t]);
 
   const affected = useMemo(
     () =>
@@ -299,7 +306,7 @@ export function BulkOverrideSwapModal({
                       toggleCallSite(cs.id, checked === true)
                     }
                     disabled={applying}
-                    label={cs.displayName}
+                    label={getCallSiteDisplayName(cs.id, cs.displayName, t)}
                     helperText={domainLabelFor(cs.domain)}
                   />
                   <span className="shrink-0 text-body-small-default text-[color:var(--content-tertiary)]">

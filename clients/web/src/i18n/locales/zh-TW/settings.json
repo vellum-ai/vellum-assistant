@@ -2375,5 +2375,207 @@
       "doctor": "診斷",
       "conversations": "對話"
     }
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "新增 API 金鑰",
+    "cancelConnect": "取消設定",
+    "chooseFromList": "從清單中選取",
+    "connectedTag": "已連線",
+    "customModelAriaLabel": "自訂模型 ID",
+    "customModelHint": "輸入提供商所需的精確模型識別碼。該識別碼將按原樣發送至連線。",
+    "customModelOption": "輸入自訂模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "無相符的模型",
+    "modelPlaceholder": "搜尋模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 個可用模型} other {# 個可用模型}}。使用上下方向鍵瀏覽，按 Enter 鍵選取。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推薦",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "設定",
+    "signInTag": "登入",
+    "soleProviderHint": "僅 {name} 提供此模型。"
+  },
+  "callSiteCatalog": {
+    "domains": {
+      "agentLoop": "Agent 循環",
+      "memory": "記憶",
+      "workspace": "工作區",
+      "ui": "介面與互動",
+      "notifications": "通知",
+      "skills": "技能"
+    },
+    "sites": {
+      "mainAgent": {
+        "displayName": "主 Agent",
+        "description": "處理使用者訊息的主要對話 Agent。"
+      },
+      "subagentSpawn": {
+        "displayName": "衍生子 Agent",
+        "description": "衍生子 Agent 以處理委派的子任務。"
+      },
+      "heartbeatAgent": {
+        "displayName": "心跳 Agent",
+        "description": "按排程定期執行後台任務和主動檢查。"
+      },
+      "filingAgent": {
+        "displayName": "歸檔 Agent",
+        "description": "在對話結束後歸檔記憶並更新知識庫。"
+      },
+      "compactionAgent": {
+        "displayName": "壓縮 Agent",
+        "description": "壓縮對話上下文歷史以保持在上下文限制內。"
+      },
+      "callAgent": {
+        "displayName": "通話 Agent",
+        "description": "處理語音通話與即時語音互動。"
+      },
+      "workflowLeaf": {
+        "displayName": "工作流程分支",
+        "description": "執行由工作流程編排引擎分發出來的臨時分葉節點 Agent。"
+      },
+      "voiceProgressNarration": {
+        "displayName": "語音進度播報",
+        "description": "在長時間運行的即時語音對話中生成簡短口頭進度回報。"
+      },
+      "voiceFrontDoor": {
+        "displayName": "語音前置分流",
+        "description": "即時語音前置快速回應階段：首 Token 決策、等待提示詞或直接回答。"
+      },
+      "memoryExtraction": {
+        "displayName": "記憶擷取",
+        "description": "從對話輪次中擷取值得記錄的事實與關鍵細節。"
+      },
+      "memoryConsolidation": {
+        "displayName": "記憶整合",
+        "description": "合併、去重並整理相關的記憶記錄。"
+      },
+      "memoryRetrieval": {
+        "displayName": "記憶檢索",
+        "description": "檢索與當前對話相關的記憶以增強 Agent 上下文。"
+      },
+      "memoryV2Migration": {
+        "displayName": "記憶 V2 遷移",
+        "description": "將記憶一次性遷移至 V2 儲存格式。"
+      },
+      "memoryV2Sweep": {
+        "displayName": "記憶 V2 清理",
+        "description": "執行 V2 記憶日常維護的後台清理檢查。"
+      },
+      "memoryRouter": {
+        "displayName": "記憶路由",
+        "description": "透過快取的頁面索引路由，選取下一輪 Agent 要注入的概念頁面。"
+      },
+      "memoryV3SelectL2": {
+        "displayName": "記憶 V3 二級選取器",
+        "description": "在開啟的主題樹分支中篩選出下一輪 Agent 相關的頁面。"
+      },
+      "memoryV2Consolidation": {
+        "displayName": "記憶 V2 整合",
+        "description": "在 V2 記憶維護期間將累積的緩衝區項目整理至概念頁並重寫近期摘要。"
+      },
+      "memoryRetrospective": {
+        "displayName": "記憶回顧",
+        "description": "後台重新閱讀近期對話訊息並透過呼叫 remember 工具補全遺漏事實的 Agent。"
+      },
+      "recall": {
+        "displayName": "主動回憶",
+        "description": "在對話輪次中搜尋記憶庫以回答特定的事實問題。"
+      },
+      "narrativeRefinement": {
+        "displayName": "敘事潤色",
+        "description": "潤色並更新儲存在記憶中的自傳體敘述。"
+      },
+      "patternScan": {
+        "displayName": "模式掃描",
+        "description": "掃描記憶以識別反覆出現的行為模式與習慣。"
+      },
+      "conversationSummarization": {
+        "displayName": "對話摘要",
+        "description": "為已完成的對話生成簡明摘要。"
+      },
+      "commitMessage": {
+        "displayName": "提交訊息生成",
+        "description": "為工作區暫存的 Git 變更自動生成規範的提交訊息。"
+      },
+      "conversationStarters": {
+        "displayName": "對話開篇建議",
+        "description": "在空對話介面生成個人化的快速開始建議卡片。"
+      },
+      "replySuggestion": {
+        "displayName": "回覆建議",
+        "description": "在每輪助手回覆後，在聊天輸入框生成按 Tab 快速採納的候選建議。"
+      },
+      "conversationTitle": {
+        "displayName": "對話標題生成",
+        "description": "根據對話內容自動生成簡明準確的標題。"
+      },
+      "identityIntro": {
+        "displayName": "身分介紹生成",
+        "description": "生成助手的自我介紹與身分說明文字。"
+      },
+      "emptyStateGreeting": {
+        "displayName": "空狀態問候語",
+        "description": "在空會話螢幕上生成個人化的歡迎問候。"
+      },
+      "guardianQuestionCopy": {
+        "displayName": "守護者提問文案",
+        "description": "生成守護者引導和提問環節的文案。"
+      },
+      "approvalCopy": {
+        "displayName": "操作審批文案",
+        "description": "為向使用者展示的工具權限審批提示生成文案。"
+      },
+      "approvalConversation": {
+        "displayName": "審批對話互動",
+        "description": "透過自然語言對話處理工具審批與授權流程。"
+      },
+      "trustRuleSuggestion": {
+        "displayName": "信任規則建議",
+        "description": "當使用者建立新規則時推薦合適的信任規則模式。"
+      },
+      "homeGreeting": {
+        "displayName": "首頁問候語",
+        "description": "以助手的語氣和人設生成首頁展示的個人化問候語。"
+      },
+      "homeSuggestedPrompts": {
+        "displayName": "首頁推薦提示詞",
+        "description": "為首頁生成符合當前上下文的對話開篇提示詞。"
+      },
+      "notificationDecision": {
+        "displayName": "通知決策",
+        "description": "判斷後台事件是否具備足夠重要性以發送系統通知。"
+      },
+      "preferenceExtraction": {
+        "displayName": "偏好擷取",
+        "description": "從使用者訊息中擷取通知習慣與溝通偏好。"
+      },
+      "interactionClassifier": {
+        "displayName": "互動意圖分類",
+        "description": "分類互動類型以便正確路由與分發。"
+      },
+      "styleAnalyzer": {
+        "displayName": "風格分析",
+        "description": "分析使用者的溝通風格以實現個人化適配。"
+      },
+      "inviteInstructionGenerator": {
+        "displayName": "邀請指引生成",
+        "description": "為新技能的邀請與接入生成配置指引。"
+      },
+      "skillCategoryInference": {
+        "displayName": "技能分類推斷",
+        "description": "根據技能描述推斷其所屬的功能類別。"
+      },
+      "inference": {
+        "displayName": "通用推理",
+        "description": "供技能使用的通用 LLM 推理呼叫點。"
+      },
+      "vision": {
+        "displayName": "視覺描述",
+        "description": "透過具備視覺能力的模型為純文字模型回退生成影像描述。"
+      }
+    }
   }
 }
