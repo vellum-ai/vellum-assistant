@@ -936,6 +936,18 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
     });
   });
 
+  it("toggle treats the same conversation id under another assistant as a new target", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, assistantId: "a2" });
+    const state = getState();
+    expect(state.mainView).toBe("chat-info");
+    expect(state.activeChatInfo).toEqual({
+      assistantId: "a2",
+      conversationId: "c1",
+      category: null,
+    });
+  });
+
   it("setChatInfoCategory drills in and back out on the open payload", () => {
     getState().openChatInfo(SAMPLE_CHAT_INFO);
     getState().setChatInfoCategory("frames");

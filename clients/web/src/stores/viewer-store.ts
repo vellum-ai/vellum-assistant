@@ -1270,9 +1270,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   toggleChatInfo: (target) => {
     const state = get();
+    // Conversation ids are assistant-scoped, so both halves name the target.
     const isSameTarget =
       state.mainView === "chat-info" &&
-      state.activeChatInfo?.conversationId === target.conversationId;
+      state.activeChatInfo?.assistantId === target.assistantId &&
+      state.activeChatInfo.conversationId === target.conversationId;
     if (isSameTarget) {
       get().closeChatInfo();
     } else {
