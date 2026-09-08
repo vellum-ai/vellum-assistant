@@ -140,6 +140,34 @@ describe("useConversationAttachments", () => {
     expect(new Set(result.current.entries.map((entry) => entry.key)).size).toBe(
       2,
     );
+    // The donor's file was appended last, so it is the newer of the two.
+    expect(
+      result.current.entries.map((entry) => entry.attachment.filename),
+    ).toEqual(["b.pdf", "a.pdf"]);
+  });
+
+  test("skips a channel-deleted row's files", () => {
+    messagesRef.value = [
+      makeMessage({
+        id: "msg-gone",
+        deletedAt: 3_000,
+        attachments: [
+          makeDisplayAttachment({ id: "gone", filename: "gone.pdf" }),
+        ],
+      }),
+      makeMessage({
+        id: "msg-kept",
+        attachments: [
+          makeDisplayAttachment({ id: "kept", filename: "kept.pdf" }),
+        ],
+      }),
+    ];
+
+    const { result } = renderHook(() => useConversationAttachments(TARGET));
+
+    expect(result.current.entries.map((entry) => entry.attachment.id)).toEqual([
+      "kept",
+    ]);
   });
 
   test("reports a null capture time for a row with no timestamp", () => {
