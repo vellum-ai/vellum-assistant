@@ -11,12 +11,10 @@ name: Deploy Web SPA (reusable)
 # a $GITHUB_ENV/$GITHUB_PATH/BASH_ENV hook (or a fake `gcloud`) that would fire
 # in the post-auth publish step and exfiltrate the short-lived GCP credentials.
 #
-# The default `stable` channel overwrites the root index.html. Any other channel
-# writes `<channel>/index.html` beside an untouched root index and uploads its
-# assets with --no-clobber, so a channel publish adds objects but never replaces
-# what the last stable release put in the bucket. The `environment:` binding only
-# resolves that environment's secrets and vars; no environment gates on required
-# reviewers.
+# The `stable` channel overwrites the root index.html. Any other channel writes
+# `<channel>/index.html` and uploads assets with --no-clobber, leaving the stable
+# release untouched. `environment:` only resolves secrets and vars; none gate on
+# required reviewers.
 on:
   workflow_call:
     inputs:
@@ -85,9 +83,7 @@ jobs:
       #                              or the live-voice WS upgrade 503s "offline".
       #   - VITE_APP_VERSION         commit SHA baked into the browser bundle
       #                              for Sentry event release tagging.
-      #   - VITE_CHANNEL             the publish channel this bundle was built
-      #                              for, so the running app can identify itself
-      #                              as stable or as a preview build.
+      #   - VITE_CHANNEL             publish channel baked into the bundle.
       #   - SENTRY_UPLOAD_SOURCE_MAPS  deploy-only opt-in for source-map upload
       #                              and Sentry release side effects.
       #   - SENTRY_AUTH_TOKEN        repo-level secret; unprefixed, so Vite never
@@ -163,10 +159,8 @@ jobs:
             exit 1
           fi
 
-          # A non-stable channel gets its own entrypoint and must leave the
-          # stable release alone, so its assets upload with --no-clobber. New
-          # hashed chunks are added, and the unhashed public/ files at the bucket
-          # root stay whatever the last stable release put there.
+          # A non-stable channel gets its own entrypoint and never overwrites
+          # objects the stable release put in the bucket.
           INDEX_DEST="index.html"
           RSYNC_EXTRA=""
           if [ "${CHANNEL}" != "stable" ]; then
@@ -188,8 +182,6 @@ jobs:
 
           # 2. Upload the HTML entrypoint last, with no-cache, so the new release
           #    only goes live once its assets exist and is always revalidated.
-          #    This stays a plain overwrite, so each publish replaces its own
-          #    channel's entrypoint.
           gcloud storage cp \
             --cache-control="no-cache, max-age=0, must-revalidate" \
             dist/index.html "gs://${BUCKET}/${INDEX_DEST}"

@@ -835,19 +835,11 @@ jobs:
     secrets: inherit
 
   # ── Web SPA (production preview channel) ─────────────────────────────
-  # Internal devs run their assistants on preview releases, so the UI they load
-  # from production has to move at the same hourly cadence. This publishes that
-  # preview UI into the PRODUCTION bucket under `/preview/`, leaving the root
-  # index.html of the live stable release untouched. The bundle self-identifies
-  # through the baked VITE_CHANNEL=preview, and its version stays the commit SHA
-  # like every other dev-lane build.
-  #
-  # Gating follows deploy-web-spa above: ci-web is the only hard gate, and
-  # register-preview-release sits in `needs` for ordering alone, so a failed
-  # backend preview registration does not strand green web commits. The ref
-  # guard mirrors publish-production-preview-image-tags and
-  # register-preview-release, so a manual dispatch on a release branch cannot
-  # publish that branch's UI to production.
+  # Publishes the preview UI into the PRODUCTION bucket under `/preview/` on
+  # every hourly dev release, leaving the stable root index.html untouched. The
+  # bundle self-identifies via VITE_CHANNEL=preview; its version is the commit
+  # SHA. Gating matches deploy-web-spa above. The ref guard matches the other
+  # production-preview jobs so a release-branch dispatch cannot publish here.
   deploy-web-spa-preview:
     name: Deploy Web SPA (production /preview)
     needs: [ci-web, register-preview-release]
@@ -1524,8 +1516,8 @@ jobs:
             SPA_WARNING=""
           fi
 
-          # `skipped` stays quiet: the job skips off main by design, and when
-          # ci-web fails the dev SPA warning above already says so.
+          # `skipped` is quiet: the job skips off main, and a ci-web failure is
+          # already covered by the dev SPA warning above.
           if [ "${PREVIEW_SPA_RESULT}" != "success" ] && [ "${PREVIEW_SPA_RESULT}" != "skipped" ]; then
             HEADER_EMOJI="⚠️"
             PREVIEW_SPA_WARNING=$(jq -n --arg result "$PREVIEW_SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Preview web SPA was not published* (result: " + $result + "). The dev release shipped but prod `/preview/` is unchanged. See the workflow run for details.") } }')
