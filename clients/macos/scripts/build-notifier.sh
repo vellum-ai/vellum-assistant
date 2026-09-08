@@ -54,6 +54,10 @@ if [ ! -f "$BUILT" ]; then
   exit 1
 fi
 
+# One build produces one architecture, and electron-builder packs whatever is
+# under resources/notifier, so a previous build for another arch is cleared
+# rather than shipped alongside this one.
+rm -rf "$ROOT_DIR/resources/notifier"
 OUTPUT_DIR="$ROOT_DIR/resources/notifier/$ARCH"
 mkdir -p "$OUTPUT_DIR"
 cp "$BUILT" "$OUTPUT_DIR/vellum-notifier.node"

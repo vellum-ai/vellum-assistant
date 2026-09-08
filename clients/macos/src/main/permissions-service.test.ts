@@ -75,7 +75,8 @@ const { PermissionsService } = await import("./permissions-service");
 const nativeNotifier = (isSupported = true): Notifier => ({
   isSupported: () => isSupported,
   requestAuthorization: () => undefined,
-  reassertDelegate: () => undefined,
+  registerCategories: () => undefined,
+  restoreDelegate: () => undefined,
   show: () => undefined,
 });
 

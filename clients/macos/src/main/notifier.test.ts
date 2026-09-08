@@ -1,18 +1,30 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { Notifier, NotifierAuthorizationResult } from "./notifier";
+import type {
+  Notifier,
+  NotifierAuthorizationResult,
+  NotifierCategory,
+} from "./notifier";
 
 const appPath = mkdtempSync(path.join(tmpdir(), "vellum-notifier-"));
 
-mock.module("electron", () => ({
-  app: {
-    isPackaged: false,
-    getAppPath: () => appPath,
-  },
-}));
+const electronApp = {
+  isPackaged: false,
+  getAppPath: () => appPath,
+};
+
+mock.module("electron", () => ({ app: electronApp }));
 
 const warnings: unknown[][] = [];
 const infos: unknown[][] = [];
@@ -27,37 +39,38 @@ const {
   __resetNotifierForTesting,
   __setNotifierForTesting,
   getNotifier,
-  isNotifierAvailable,
-  reassertNotifierDelegate,
+  registerNotifierCategories,
   requestNotifierAuthorization,
-  startNotifierDelegateGuard,
+  restoreNotifierDelegate,
 } = await import("./notifier");
 
 interface FakeNotifier extends Notifier {
   authorizationCalls: number;
-  reassertCalls: number;
+  restoreCalls: number;
+  registered: NotifierCategory[][];
 }
 
 const fakeNotifier = (overrides: Partial<Notifier> = {}): FakeNotifier => {
   const fake: FakeNotifier = {
     authorizationCalls: 0,
-    reassertCalls: 0,
+    restoreCalls: 0,
+    registered: [],
     isSupported: () => true,
     requestAuthorization: (callback) => {
       fake.authorizationCalls += 1;
       callback?.({ granted: true });
     },
-    reassertDelegate: () => {
-      fake.reassertCalls += 1;
+    registerCategories: (categories) => {
+      fake.registered.push(categories);
+    },
+    restoreDelegate: () => {
+      fake.restoreCalls += 1;
     },
     show: () => undefined,
     ...overrides,
   };
   return fake;
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 const addonPath = path.join(
   appPath,
@@ -66,6 +79,11 @@ const addonPath = path.join(
   process.arch,
   "vellum-notifier.node",
 );
+
+const writeFakeAddon = (): void => {
+  mkdirSync(path.dirname(addonPath), { recursive: true });
+  writeFileSync(addonPath, "not a mach-o dylib");
+};
 
 afterAll(() => {
   rmSync(appPath, { recursive: true, force: true });
@@ -80,29 +98,102 @@ describe("notifier addon loading", () => {
   });
 
   test("reports unavailable without throwing when the addon is missing", () => {
-    expect(isNotifierAvailable()).toBe(false);
     expect(getNotifier()).toBeNull();
     expect(infos.length).toBe(1);
   });
 
   test("resolves the addon under resources/notifier/<arch> in a dev build", () => {
-    isNotifierAvailable();
+    getNotifier();
     expect(String(infos[0]?.[0])).toContain(addonPath);
   });
 
   test("reports unavailable without throwing when the file is not an addon", () => {
-    mkdirSync(path.dirname(addonPath), { recursive: true });
-    writeFileSync(addonPath, "not a mach-o dylib");
+    writeFakeAddon();
 
-    expect(isNotifierAvailable()).toBe(false);
+    expect(getNotifier()).toBeNull();
     expect(warnings.length).toBe(1);
   });
 
   test("caches the load result so a failure is not retried per call", () => {
-    isNotifierAvailable();
-    isNotifierAvailable();
-    isNotifierAvailable();
+    getNotifier();
+    getNotifier();
+    getNotifier();
     expect(infos.length).toBe(1);
+  });
+});
+
+describe("notifier addon path in a packaged app", () => {
+  const resourcesPath = path.join(appPath, "packaged-resources");
+  const processWithResources = process as unknown as {
+    resourcesPath?: string;
+  };
+  const originalResourcesPath = processWithResources.resourcesPath;
+
+  beforeEach(() => {
+    __resetNotifierForTesting();
+    infos.length = 0;
+    electronApp.isPackaged = true;
+    processWithResources.resourcesPath = resourcesPath;
+  });
+
+  afterEach(() => {
+    electronApp.isPackaged = false;
+    if (originalResourcesPath === undefined) {
+      delete processWithResources.resourcesPath;
+    } else {
+      processWithResources.resourcesPath = originalResourcesPath;
+    }
+  });
+
+  // electron-builder.config.cjs packs resources/notifier to `bin/notifier`, so
+  // a change to either side has to move with the other.
+  test("resolves the addon under the packed bin/notifier/<arch>", () => {
+    getNotifier();
+
+    expect(String(infos[0]?.[0])).toContain(
+      path.join(
+        resourcesPath,
+        "bin",
+        "notifier",
+        process.arch,
+        "vellum-notifier.node",
+      ),
+    );
+  });
+});
+
+describe("native notifier kill switch", () => {
+  const originalValue = process.env.VELLUM_DISABLE_NATIVE_NOTIFIER;
+
+  beforeEach(() => {
+    __resetNotifierForTesting();
+    infos.length = 0;
+    warnings.length = 0;
+    writeFakeAddon();
+  });
+
+  afterEach(() => {
+    if (originalValue === undefined) {
+      delete process.env.VELLUM_DISABLE_NATIVE_NOTIFIER;
+    } else {
+      process.env.VELLUM_DISABLE_NATIVE_NOTIFIER = originalValue;
+    }
+    rmSync(path.join(appPath, "resources"), { recursive: true, force: true });
+  });
+
+  test("reports unavailable without touching the addon on disk", () => {
+    process.env.VELLUM_DISABLE_NATIVE_NOTIFIER = "1";
+
+    expect(getNotifier()).toBeNull();
+    expect(warnings.length).toBe(0);
+    expect(String(infos[0]?.[0])).toContain("VELLUM_DISABLE_NATIVE_NOTIFIER=1");
+  });
+
+  test("leaves the addon alone for any other value", () => {
+    process.env.VELLUM_DISABLE_NATIVE_NOTIFIER = "0";
+
+    expect(getNotifier()).toBeNull();
+    expect(warnings.length).toBe(1);
   });
 });
 
@@ -165,45 +256,46 @@ describe("notifier authorization", () => {
   });
 });
 
-describe("notifier delegate guard", () => {
+describe("notifier categories and delegate handback", () => {
   beforeEach(() => {
     __resetNotifierForTesting();
     warnings.length = 0;
   });
 
-  test("does nothing when the addon is unavailable", () => {
-    const stop = startNotifierDelegateGuard(1);
+  test("do nothing when the addon is unavailable", () => {
     expect(() => {
-      reassertNotifierDelegate();
+      registerNotifierCategories([{ categoryId: "a", actions: [] }]);
+      restoreNotifierDelegate();
     }).not.toThrow();
-    stop();
   });
 
-  test("reclaims the delegate immediately and then on the interval", async () => {
+  test("pass the categories through and hand the delegate back", () => {
     const notifier = fakeNotifier();
     __setNotifierForTesting(notifier);
 
-    const stop = startNotifierDelegateGuard(1);
-    expect(notifier.reassertCalls).toBe(1);
-    await sleep(20);
-    expect(notifier.reassertCalls).toBeGreaterThan(1);
+    registerNotifierCategories([{ categoryId: "a", actions: ["Allow"] }]);
+    restoreNotifierDelegate();
 
-    stop();
-    const afterStop = notifier.reassertCalls;
-    await sleep(20);
-    expect(notifier.reassertCalls).toBe(afterStop);
+    expect(notifier.registered).toEqual([
+      [{ categoryId: "a", actions: ["Allow"] }],
+    ]);
+    expect(notifier.restoreCalls).toBe(1);
   });
 
-  test("swallows an addon that throws on reassert", () => {
+  test("swallow an addon that throws", () => {
     __setNotifierForTesting(
       fakeNotifier({
-        reassertDelegate: () => {
+        registerCategories: () => {
+          throw new Error("addon exploded");
+        },
+        restoreDelegate: () => {
           throw new Error("addon exploded");
         },
       }),
     );
 
-    reassertNotifierDelegate();
-    expect(warnings.length).toBe(1);
+    registerNotifierCategories([]);
+    restoreNotifierDelegate();
+    expect(warnings.length).toBe(2);
   });
 });

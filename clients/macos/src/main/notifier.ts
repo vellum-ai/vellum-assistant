@@ -16,6 +16,12 @@ import log from "./logger";
 
 const ADDON_FILENAME = "vellum-notifier.node";
 
+/**
+ * Kill switch for a build where the addon misbehaves: the loader reports
+ * unavailable and every notification goes back through Electron.
+ */
+const DISABLE_ENV_VAR = "VELLUM_DISABLE_NATIVE_NOTIFIER";
+
 export interface NotifierSender {
   id: string;
   name: string;
@@ -33,10 +39,21 @@ export interface NotifierRequest {
   sender?: NotifierSender;
 }
 
+export interface NotifierCategory {
+  categoryId: string;
+  actions: string[];
+}
+
 export interface NotifierEvent {
-  kind: "shown" | "failed" | "click" | "action" | "dismiss";
+  kind: "shown" | "failed" | "click" | "action";
   actionIndex?: number;
   error?: string;
+  /**
+   * Present on `shown` when the notification posted without the Communication
+   * Notification treatment, naming why. The notification itself is fine, so
+   * this is diagnostic rather than a failure.
+   */
+  degraded?: string;
 }
 
 export interface NotifierAuthorizationResult {
@@ -50,8 +67,13 @@ export interface Notifier {
   requestAuthorization(
     callback?: (result: NotifierAuthorizationResult) => void,
   ): void;
-  /** Reclaims the notification center's delegate. Idempotent. */
-  reassertDelegate(): void;
+  /**
+   * Registers notification categories with the notification center, unioned
+   * with whatever is already registered.
+   */
+  registerCategories(categories: NotifierCategory[]): void;
+  /** Hands the notification center's delegate back to whoever held it. */
+  restoreDelegate(): void;
   show(
     request: NotifierRequest,
     callback: (event: NotifierEvent) => void,
@@ -73,7 +95,8 @@ const isNotifier = (value: unknown): value is Notifier => {
   return (
     typeof candidate.isSupported === "function" &&
     typeof candidate.requestAuthorization === "function" &&
-    typeof candidate.reassertDelegate === "function" &&
+    typeof candidate.registerCategories === "function" &&
+    typeof candidate.restoreDelegate === "function" &&
     typeof candidate.show === "function"
   );
 };
@@ -86,6 +109,10 @@ const loadNotifier = (): Notifier | null => {
     return cached;
   }
   cached = null;
+  if (process.env[DISABLE_ENV_VAR] === "1") {
+    log.info(`[notifier] ${DISABLE_ENV_VAR}=1; using Electron notifications`);
+    return cached;
+  }
   const addonPath = resolveAddonPath();
   if (!existsSync(addonPath)) {
     log.info(
@@ -108,8 +135,6 @@ const loadNotifier = (): Notifier | null => {
 };
 
 export const getNotifier = (): Notifier | null => loadNotifier();
-
-export const isNotifierAvailable = (): boolean => loadNotifier() !== null;
 
 /**
  * Prompts for notification authorization through the addon, which keeps the
@@ -140,41 +165,35 @@ export const requestNotifierAuthorization =
     });
   };
 
-export const reassertNotifierDelegate = (): void => {
+/** Registers every notification category the app can post, once, at startup. */
+export const registerNotifierCategories = (
+  categories: NotifierCategory[],
+): void => {
   const notifier = loadNotifier();
   if (!notifier) {
     return;
   }
   try {
-    notifier.reassertDelegate();
+    notifier.registerCategories(categories);
   } catch (error) {
-    log.warn("[notifier] reassertDelegate failed:", error);
+    log.warn("[notifier] registerCategories failed:", error);
   }
 };
 
-const DELEGATE_GUARD_INTERVAL_MS = 30_000;
-
 /**
- * Takes the notification center's delegate back on a timer.
- *
- * Nothing in the main process constructs `electron.Notification` while the
- * addon is loaded, so this is insurance rather than the mechanism: a presenter
- * built by some other path would otherwise hold the delegate until the next
- * native post, and clicks on notifications already on screen would be dropped.
- * Reclaiming is a delegate comparison and an assignment.
+ * Returns the notification center's delegate to whoever held it before the
+ * addon installed its own, so the app quits leaving the seat as it found it.
  */
-export const startNotifierDelegateGuard = (
-  intervalMs: number = DELEGATE_GUARD_INTERVAL_MS,
-): (() => void) => {
-  if (!isNotifierAvailable()) {
-    return () => undefined;
+export const restoreNotifierDelegate = (): void => {
+  const notifier = loadNotifier();
+  if (!notifier) {
+    return;
   }
-  reassertNotifierDelegate();
-  const timer = setInterval(reassertNotifierDelegate, intervalMs);
-  timer.unref?.();
-  return () => {
-    clearInterval(timer);
-  };
+  try {
+    notifier.restoreDelegate();
+  } catch (error) {
+    log.warn("[notifier] restoreDelegate failed:", error);
+  }
 };
 
 // Test seam: clears the one-shot load result so a test can point the loader

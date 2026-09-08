@@ -2139,6 +2139,9 @@ jobs:
           fi
           PROFILE_PATH="$RUNNER_TEMP/vellum-communication.provisionprofile"
           echo "$MAC_PROVISIONING_PROFILE" | base64 -D > "$PROFILE_PATH"
+          # A truncated or mis-encoded secret decodes to a file that codesign
+          # accepts and macOS then rejects at launch, so prove it parses here.
+          security cms -D -i "$PROFILE_PATH" > /dev/null
           echo "VELLUM_MAC_PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
 
       - name: Build and package Electron app

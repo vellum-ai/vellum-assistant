@@ -106,8 +106,11 @@ import {
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
-import { createNativeNotificationFactory } from "./native-notifications";
-import { isNotifierAvailable, startNotifierDelegateGuard } from "./notifier";
+import {
+  createNativeNotificationFactory,
+  registerNativeNotificationCategories,
+} from "./native-notifications";
+import { getNotifier, restoreNotifierDelegate } from "./notifier";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -459,12 +462,13 @@ app
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads({ handle });
     installPowerEvents();
-    // The native addon owns the notification center when it is present, which
-    // is what lets a notification carry the assistant's avatar. `isSupported`
-    // ships with `create`: without it the shared module falls back to
-    // `electron.Notification.isSupported()`, and that call alone constructs
-    // Electron's presenter, which claims the center's delegate.
-    const nativeNotifications = isNotifierAvailable()
+    // The addon owns the notification center only when it says it can have it:
+    // an unbundled run loads it fine and then reports unsupported, because
+    // UNUserNotificationCenter raises there. `isSupported` ships with `create`
+    // rather than being left to the shared module's default; see the delegate
+    // rule in README.md.
+    const notifier = getNotifier();
+    const nativeNotifications = notifier?.isSupported()
       ? createNativeNotificationFactory()
       : null;
     configureNotifications({
@@ -473,13 +477,11 @@ app
       logger: log,
       ...(nativeNotifications ?? {}),
     });
+    if (nativeNotifications) {
+      registerNativeNotificationCategories();
+      app.on("before-quit", restoreNotifierDelegate);
+    }
     installNotifications();
-    // Insurance for the delegate the addon installs: no main-process path
-    // builds Electron's presenter while the addon is loaded, but one that
-    // appeared some other way would hold the notification center's delegate
-    // until the next native post and swallow clicks in the meantime.
-    const stopNotifierDelegateGuard = startNotifierDelegateGuard();
-    app.on("before-quit", stopNotifierDelegateGuard);
     installWindowAttentionFeature();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during

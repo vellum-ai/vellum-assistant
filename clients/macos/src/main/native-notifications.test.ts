@@ -1,17 +1,15 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { NotificationCreateOptions } from "@vellumai/electron-desktop/notifications";
 
-import type { NotifierEvent, NotifierRequest } from "./notifier";
+import type {
+  NotifierCategory,
+  NotifierEvent,
+  NotifierRequest,
+} from "./notifier";
 
 const userDataDir = mkdtempSync(path.join(tmpdir(), "vellum-notif-avatars-"));
 
@@ -21,8 +19,12 @@ mock.module("electron", () => ({
   },
 }));
 
+const warnings: unknown[][] = [];
 mock.module("./logger", () => ({
-  default: { info: () => undefined, warn: () => undefined },
+  default: {
+    info: () => undefined,
+    warn: (...args: unknown[]) => warnings.push(args),
+  },
 }));
 
 interface Call {
@@ -31,17 +33,22 @@ interface Call {
 }
 
 const calls: Call[] = [];
+const registered: NotifierCategory[][] = [];
 let notifierSupported = true;
 let notifierPresent = true;
 let showThrows = false;
 
 mock.module("./notifier", () => ({
+  registerNotifierCategories: (categories: NotifierCategory[]) => {
+    registered.push(categories);
+  },
   getNotifier: () =>
     notifierPresent
       ? {
           isSupported: () => notifierSupported,
           requestAuthorization: () => undefined,
-          reassertDelegate: () => undefined,
+          registerCategories: () => undefined,
+          restoreDelegate: () => undefined,
           show: (
             request: NotifierRequest,
             callback: (event: NotifierEvent) => void,
@@ -55,8 +62,10 @@ mock.module("./notifier", () => ({
       : null,
 }));
 
-const { createNativeNotificationFactory } =
-  await import("./native-notifications");
+const {
+  createNativeNotificationFactory,
+  registerNativeNotificationCategories,
+} = await import("./native-notifications");
 
 const avatarPng = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
@@ -77,7 +86,8 @@ const sender = {
   id: "assistant-1",
   name: "Ada",
   avatarPng,
-  avatarHash: "abc123",
+  avatarHash:
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 };
 
 afterAll(() => {
@@ -86,12 +96,43 @@ afterAll(() => {
 
 beforeEach(() => {
   calls.length = 0;
+  registered.length = 0;
+  warnings.length = 0;
   notifierSupported = true;
   notifierPresent = true;
   showThrows = false;
   rmSync(path.join(userDataDir, "notification-avatars"), {
     recursive: true,
     force: true,
+  });
+});
+
+describe("registerNativeNotificationCategories", () => {
+  test("registers every action set once, up front", () => {
+    registerNativeNotificationCategories();
+
+    expect(registered.length).toBe(1);
+    const categories = registered[0]!;
+    expect(categories.map((category) => category.actions)).toEqual([
+      ["View Results"],
+      ["Allow", "Deny"],
+      ["View Response"],
+      ["View"],
+    ]);
+    for (const category of categories) {
+      expect(category.categoryId).toMatch(/^vellum\.actions\.[0-9a-f]{16}$/);
+    }
+    expect(
+      new Set(categories.map((category) => category.categoryId)).size,
+    ).toBe(4);
+  });
+
+  test("registers the id a notification with those actions will post under", () => {
+    registerNativeNotificationCategories();
+    createNativeNotificationFactory().create(options()).show();
+
+    const registeredIds = registered[0]!.map((category) => category.categoryId);
+    expect(registeredIds).toContain(calls[0]!.request.categoryId);
   });
 });
 
@@ -162,49 +203,30 @@ describe("createNativeNotificationFactory", () => {
     expect(request.sender?.conversationId).toBe("assistant-1");
   });
 
-  test("writes the avatar under the user data directory keyed by its hash", () => {
+  test("stages the avatar through the shared cache", () => {
     createNativeNotificationFactory().create(options({ sender })).show();
 
     const avatarPath = calls[0]!.request.sender!.avatarPngPath;
     expect(avatarPath).toBe(
-      path.join(userDataDir, "notification-avatars", "abc123.png"),
+      path.join(
+        userDataDir,
+        "notification-avatars",
+        `${sender.avatarHash}.png`,
+      ),
     );
     expect(readFileSync(avatarPath)).toEqual(avatarPng);
   });
 
-  test("prunes the avatar cache to the eight newest files", () => {
-    const factory = createNativeNotificationFactory();
-    for (let index = 0; index < 12; index++) {
-      factory
-        .create(options({ sender: { ...sender, avatarHash: `hash${index}` } }))
-        .show();
-    }
-
-    const dir = path.join(userDataDir, "notification-avatars");
-    expect(readdirSync(dir).length).toBe(8);
-    expect(existsSync(path.join(dir, "hash11.png"))).toBe(true);
-  });
-
-  test("rejects a hash that would escape the avatar directory", () => {
-    createNativeNotificationFactory()
-      .create(options({ sender: { ...sender, avatarHash: "../../escape" } }))
-      .show();
-
-    const { request } = calls[0]!;
-    expect(request.sender!.avatarPngPath).toBe(
-      path.join(userDataDir, "notification-avatars", "______escape.png"),
-    );
-  });
-
   test("falls back to the plain layout when the avatar cannot be staged", () => {
     createNativeNotificationFactory()
-      .create(options({ sender: { ...sender, avatarHash: "" } }))
+      .create(options({ sender: { ...sender, avatarHash: "../../escape" } }))
       .show();
 
     const { request } = calls[0]!;
     expect(request.sender).toBeUndefined();
     expect(request.title).toBe("Weekly plan");
     expect(request.subtitle).toBeUndefined();
+    expect(warnings.length).toBe(1);
   });
 
   test("maps addon events onto the notification listeners", () => {
@@ -225,10 +247,27 @@ describe("createNativeNotificationFactory", () => {
     emit({ kind: "click" });
     emit({ kind: "action", actionIndex: 1 });
     emit({ kind: "action" });
-    emit({ kind: "dismiss" });
+    // The addon evicts a dismissed notification itself, so "dismiss" is not in
+    // the JS event union and anything outside it is ignored.
+    emit({ kind: "dismiss" } as unknown as NotifierEvent);
     emit({ kind: "failed", error: "denied" });
 
     expect(events).toEqual(["show", "click", "action:1", "failed:denied"]);
+  });
+
+  test("shows a degraded notification and logs why", () => {
+    const events: string[] = [];
+    const notification = createNativeNotificationFactory().create(options());
+    notification.on("show", () => events.push("show"));
+    notification.show();
+
+    calls[0]!.emit({
+      kind: "shown",
+      degraded: "the avatar file could not be read",
+    });
+
+    expect(events).toEqual(["show"]);
+    expect(String(warnings[0]?.[1])).toBe("the avatar file could not be read");
   });
 
   test("acks a failure when the addon is gone", () => {

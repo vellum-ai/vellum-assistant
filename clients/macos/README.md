@@ -202,7 +202,18 @@ exposes no intent API, so this is the only path to that layout.
 and `src/main/native-notifications.ts` adapts it to the `create` /
 `isSupported` seams of `@vellumai/electron-desktop/notifications`. A checkout
 with no built addon reports unavailable and the app falls back to Electron's
-own notifications.
+own notifications, and so does an addon that loads but answers
+`isSupported()` with false, which is what an unbundled run does because
+`UNUserNotificationCenter` raises there. Set
+`VELLUM_DISABLE_NATIVE_NOTIFIER=1` to force that fallback in a build that
+would otherwise use the addon.
+
+Notification categories carry the action buttons, and
+`setNotificationCategories:` applies asynchronously, so a category first
+registered in the runloop turn its notification is posted can miss it and the
+buttons never render. `src/main/index.ts` registers every action set through
+`registerCategories` at startup instead, and the addon unions its own set with
+whatever the notification center already holds rather than replacing it.
 
 **Delegate rule.** Electron's `NotificationPresenterMac` claims
 `UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it is
@@ -217,11 +228,12 @@ renderer's Web Notification API all do. Three consequences:
   through the addon's `requestAuthorization()` whenever the addon is loaded.
   Constructing an `electron.Notification` there hands the presenter the
   delegate and strands clicks on notifications already on screen.
-- The addon installs its own delegate, remembers the previous one, forwards
-  every response it does not own to it, and re-asserts itself before each post
-  and each permission prompt. `reassertDelegate()` exposes the same reclaim to
-  JavaScript, and `startNotifierDelegateGuard()` calls it on a timer as
-  insurance against a presenter built by some path not listed here.
+- The addon installs its own delegate, holds a strong reference to the one it
+  displaced, forwards every response it does not own there, and re-asserts
+  itself on the way into `show` and `requestAuthorization`. Those two entry
+  points plus the permission probe above are every path in the app that
+  touches the notification center, which is why no periodic reclaim is needed.
+  `restoreDelegate()` hands the seat back at `before-quit`.
 
 **Rebuild:**
 
@@ -238,15 +250,22 @@ re-signs with `inherit.plist`.
 is a restricted entitlement: an app declaring it without an authorizing
 provisioning profile is killed at launch. `electron-builder.config.cjs` sets
 `mac.provisioningProfile` only when `VELLUM_MAC_PROVISIONING_PROFILE` names a
-profile on disk; the release workflows decode one there from the
-`MAC_PROVISIONING_PROFILE` secret. That build signs with an entitlements plist
-derived at pack time by `scripts/entitlements/derive-communication-entitlements.js`,
-which reads `scripts/entitlements/app.plist`, adds the one restricted key, and
-writes `build/entitlements/app-communication.plist` (gitignored, and rederived
-by `scripts/afterSign.js` for the outer re-sign), so `app.plist` stays the only
-place the entitlement set is edited. Every other build signs with `app.plist`
-itself, the intent path fails closed inside `contentByUpdatingWithProvider:`,
-and notifications post plainly.
+profile that exists on disk, and throws when the variable is set to a file that
+is not there rather than quietly signing the plain entitlements under a name
+that says otherwise. The release workflows decode one there from the
+`MAC_PROVISIONING_PROFILE` secret and prove it parses with `security cms -D`
+before exporting the variable.
+
+That build signs with an entitlements plist derived at pack time by
+`scripts/entitlements/derive-communication-entitlements.js`, which reads
+`scripts/entitlements/app.plist`, adds the one restricted key, and writes
+`build/entitlements/app-communication.plist` (gitignored), so `app.plist` stays
+the only place the entitlement set is edited. `scripts/afterSign.js` re-signs
+the outer app with whatever electron-builder was configured with, read back off
+`context.packager.platformSpecificBuildOptions`, so the two passes cannot
+disagree. Every other build signs with `app.plist` itself, the intent path
+fails closed inside `contentByUpdatingWithProvider:`, and notifications post
+plainly.
 
 ## Scripts
 
