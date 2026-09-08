@@ -7151,13 +7151,13 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
  * The default turn starter, bound to the guardian this session was admitted
  * for.
  *
- * **The identity is the gateway's, not one resolved here.** The gateway makes
- * the admission decision against its own binding and hands the principal down
- * on the upstream dial; the daemon is reached through a service token, so any
- * answer it worked out for itself would be a second, later reading of a
- * binding that can change in between, and a session admitted for one guardian
- * could run as another. Resolving it here at all is what kept reintroducing
- * that gap, so nothing here resolves it.
+ * **The gateway's principal is authoritative and nothing here re-resolves
+ * it.** The admission decision is made against the gateway's own binding and
+ * the principal travels down on the upstream dial. The daemon is reached
+ * through a service token, so every socket arrives as the same caller and any
+ * identity worked out here would be a separate, later reading of a binding
+ * that can change in between, leaving a session admitted for one guardian
+ * running as another.
  *
  * Absent when the gateway named nobody, and the session's turns then run with
  * no actor.
