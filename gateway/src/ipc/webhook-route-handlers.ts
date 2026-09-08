@@ -24,6 +24,8 @@ import {
   registerWebhookIngressRoute,
   unregisterWebhookIngressRoute,
 } from "../db/webhook-ingress-route-store.js";
+import { markPluginWebhookRoutesDirty } from "../channels/plugin-webhook-route-sync.js";
+import { PLUGIN_WEBHOOK_PATH_PREFIX } from "../velay/path-utils.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { ipcRoute, type IpcRoute } from "./server.js";
 
@@ -62,9 +64,16 @@ export function createWebhookRouteRoutes(): IpcRoute[] {
     ipcRoute({
       method: "unregister_webhook_route",
       schema: UnregisterWebhookRouteIpcParamsSchema,
-      handler: (params): UnregisterWebhookRouteIpcResponse => ({
-        removed: unregisterWebhookIngressRoute(params.path),
-      }),
+      handler: (params): UnregisterWebhookRouteIpcResponse => {
+        const removed = unregisterWebhookIngressRoute(params.path);
+        // A removed row inside the plugin namespace may have been the only
+        // entry admitting a still-servable plugin route, so the reconcile
+        // poll is asked to settle the namespace again.
+        if (removed && params.path.startsWith(PLUGIN_WEBHOOK_PATH_PREFIX)) {
+          markPluginWebhookRoutesDirty();
+        }
+        return { removed };
+      },
     }),
     {
       method: "list_webhook_routes",
