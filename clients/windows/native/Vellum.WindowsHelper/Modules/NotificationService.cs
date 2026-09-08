@@ -67,8 +67,10 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
     public sealed record ShowRequest(
         string Token,
         string Title,
+        string? Subtitle,
         string Body,
-        IReadOnlyList<string> Actions);
+        IReadOnlyList<string> Actions,
+        string? AvatarPath);
 
     public sealed record ShowResponse(
         [property: JsonPropertyName("success")] bool Success,
@@ -76,7 +78,13 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         string? ErrorMessage);
 
-    private sealed record RawShow(string? Token, string? Title, string? Body, List<RawAction>? Actions);
+    private sealed record RawShow(
+        string? Token,
+        string? Title,
+        string? Subtitle,
+        string? Body,
+        List<RawAction>? Actions,
+        string? AvatarPath);
 
     private sealed record RawAction(string? Text);
 
@@ -88,7 +96,7 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
         out ShowRequest request,
         out string error)
     {
-        request = new ShowRequest(string.Empty, string.Empty, string.Empty, []);
+        request = new ShowRequest(string.Empty, string.Empty, null, string.Empty, [], null);
         error = "params must carry token, title, body, and action text strings";
         RawShow? raw;
         try
@@ -102,17 +110,35 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
             return false;
         }
         var actions = raw?.Actions ?? [];
-        if (raw is not { Token: { } token, Title: { } title, Body: { } body } ||
+        if (raw is not
+            {
+                Token: { } token,
+                Title: { } title,
+                Body: { } body,
+                Subtitle: var subtitle,
+                AvatarPath: var avatarPath,
+            } ||
             actions.Any(action => action?.Text is null))
         {
             return false;
         }
-        request = new ShowRequest(token, title, body, [.. actions.Select(action => action!.Text!)]);
+        request = new ShowRequest(
+            token,
+            title,
+            NullIfEmpty(subtitle),
+            body,
+            [.. actions.Select(action => action!.Text!)],
+            NullIfEmpty(avatarPath));
         error = string.Empty;
         return true;
     }
 
-    /// <summary>Toast XML: body text plus one foreground button per action.
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>Toast XML: title, an optional subtitle, body text, an optional
+    /// circular sender image in the app-logo slot (Windows keeps the app name
+    /// in the attribution line below), and one foreground button per action.
     /// Arguments carry only the interaction kind and button index; the caller
     /// token stays in the activation handler's closure.</summary>
     public static string BuildToastXml(ShowRequest request)
@@ -121,9 +147,20 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
             .Append("<toast activationType=\"foreground\" launch=\"kind=click\">")
             .Append("<visual><binding template=\"ToastGeneric\"><text>")
             .Append(SecurityElement.Escape(request.Title))
-            .Append("</text><text>")
-            .Append(SecurityElement.Escape(request.Body))
-            .Append("</text></binding></visual>");
+            .Append("</text>");
+        if (request.Subtitle is { } subtitle)
+        {
+            builder.Append("<text>").Append(SecurityElement.Escape(subtitle)).Append("</text>");
+        }
+        builder.Append("<text>").Append(SecurityElement.Escape(request.Body)).Append("</text>");
+        if (ToFileUri(request.AvatarPath) is { } avatarUri)
+        {
+            builder
+                .Append("<image placement=\"appLogoOverride\" hint-crop=\"circle\" src=\"")
+                .Append(SecurityElement.Escape(avatarUri))
+                .Append("\"/>");
+        }
+        builder.Append("</binding></visual>");
         if (request.Actions.Count > 0)
         {
             builder.Append("<actions>");
@@ -138,6 +175,14 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
         }
         return builder.Append("</toast>").ToString();
     }
+
+    /// <summary>The `file:///` form of an absolute local path, with separators
+    /// flipped and reserved characters percent-encoded, or null for anything a
+    /// toast image cannot load.</summary>
+    private static string? ToFileUri(string? avatarPath) =>
+        Uri.TryCreate(avatarPath, UriKind.Absolute, out var uri) && uri.IsFile
+            ? uri.AbsoluteUri
+            : null;
 
     public static (string Kind, int Index) ParseActivationArguments(string arguments)
     {
