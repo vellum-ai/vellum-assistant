@@ -728,7 +728,49 @@ once every extension row is complete.
 
 The appex's own entitlements file stays App Group-only, the same file the
 other two extensions use: the extension reads cached avatars out of the
-shared container and needs nothing more.
+shared container and needs nothing more. The capability is an app-target one.
+Apple's [Implementing communication
+notifications](https://developer.apple.com/documentation/usernotifications/implementing-communication-notifications)
+says to "Enable the Communication Notifications capability in your app target",
+and [WWDC21 session 10091](https://developer.apple.com/videos/play/wwdc2021/10091/)
+splits the two halves the same way: "enable the communication capability via
+Xcode for your application" against "start donating incoming StartCall and
+SendMessage intents in your service extension". Vendor integration guides that
+walk the same setup, such as [Smartsupp's Communication
+Notifications](https://docs.smartsupp.com/mobile-sdk/ios/communication-notifications/)
+page, add the capability once at the project's app target and give the
+extension only its Info.plist and code. Do not add the entitlement to the appex
+speculatively: a target declaring an entitlement its profile does not grant
+fails to sign, so it would break every environment's release until the NSE App
+IDs carried the capability too.
+
+#### The push payload the extension reads
+
+APNs carries JSON, so the sender arrives as a nested object beside `aps`:
+
+```json
+{
+  "aps": {
+    "alert": { "title": "<conversation title>", "body": "<message>" },
+    "mutable-content": 1
+  },
+  "sender": {
+    "id": "<assistant id>",
+    "name": "<assistant name>",
+    "avatar_url": "https://.../avatar.png",
+    "avatar_hash": "<sha-256 hex of the bytes at avatar_url>"
+  }
+}
+```
+
+`mutable-content: 1` is what makes iOS run the extension at all. `id`, `name`,
+and `avatar_hash` must all be non-empty or the push is delivered untouched.
+`avatar_url` is optional: it is the first field the platform drops when a
+payload nears the APNs size limit, and the hash alone still hits a warm cache.
+The thread is the assistant id, so every conversation with one assistant
+threads together. Android reads the same four fields as flat `sender_*` entries
+in the FCM data map, which is a string map rather than JSON: the two consumers
+differ by transport, not by contract.
 
 ### Manual Apple Developer portal setup
 
@@ -877,21 +919,38 @@ codesign -d --entitlements - "Payload/App Dev.app" 2>&1 | grep usernotifications
 Then check the notification avatar itself on a device: send a push while the
 app is killed, backgrounded, and foregrounded; send a second push for the same
 avatar and confirm Console shows no network fetch; change the avatar on the
-daemon and confirm the next push picks it up; tap through to the conversation.
-Every path that gives up logs one `nse.` prefix
+assistant and confirm the next push picks it up; tap through to the
+conversation. Every path that gives up logs one `nse.` prefix
 (`nse.no_sender`, `nse.no_app_group`, `nse.avatar_unavailable`,
 `nse.intent_failed`, `nse.expired`), so filter Console on `nse.` before
 guessing.
 
-If the avatar never appears, the first thing to **check** is whether the appex
-needs `com.apple.developer.usernotifications.communication` too. It is on the
-app alone today, following Apple's Notification Service Extension guide, and
-`updating(from:)` fails closed when the entitlement is missing from whichever
-bundle iOS looks at, which lands in `nse.intent_failed`. The first thing to
-**restore** is the `NSExtensionAttributes` / `IntentsSupported` dict in
-`App/NotificationService/Info.plist`: it was removed because `IntentsSupported`
-belongs to the Intents extension point rather than the notification-service
-one, and it is the cheapest change to undo.
+`nse.avatar_unavailable` carries a `reason=` token naming the cause, so one
+line is enough to tell a trimmed payload from a rejected download:
+
+| `reason=` | What it means |
+|-----------|---------------|
+| `no_url` | Cache miss and the payload carried no `avatar_url` (usually a payload trimmed for size). |
+| `bad_hash` | `avatar_hash` is not 64 lowercase hex characters. |
+| `insecure_url` | `avatar_url` is not `https`. |
+| `request_failed` | The request never produced a response (offline, DNS, TLS). |
+| `bad_status` | The response was not an HTTP 200. |
+| `declared_too_large` | The response declared a `Content-Length` past 512 KB. |
+| `body_too_large` | The body crossed 512 KB while streaming, declared or not. |
+| `read_failed` | The body stopped mid-transfer, including on extension expiry. |
+| `digest_mismatch` | The bytes did not hash to `avatar_hash`. |
+
+A banner with no avatar and no `nse.` line at all is the entitlement and
+profile case rather than a code one. `updating(from:)` may throw, which lands
+in `nse.intent_failed`, or return the content unchanged, which logs nothing at
+all, so check both: a plain banner without `nse.intent_failed` still points at
+Communication Notifications on the app's App ID and the profile that has to
+grant it. The extension's `Info.plist` carries no `IntentsSupported` (that key
+belongs to the Intents extension point, not to
+`com.apple.usernotifications.service`); the app's `Info.plist` carries
+`NSUserActivityTypes: [INSendMessageIntent]`, which is the declaration the
+rewrite needs. `clients/ios/scripts/__tests__/notification-service-bundle-ids.test.ts`
+pins both.
 
 > **Profiles expire after one year.** Renewal is the same loop:
 > regenerate in the portal under the identical name, re-encode, update

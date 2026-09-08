@@ -20,8 +20,23 @@ struct AvatarCache {
     /// recently, in a container shared with the app's own data.
     static let maxEntries = 8
     static let maxBytes = 512 * 1024
-    static let defaultTimeout: TimeInterval = 8
+    static let requestTimeout: TimeInterval = 8
     static let readChunkSize = 16 * 1024
+
+    /// Why no avatar reached the notification. Every cause has its own stable
+    /// token, so the Console line names which one it was instead of standing
+    /// for any of them.
+    enum UnavailableReason: String, Error {
+        case missingURL = "no_url"
+        case badHash = "bad_hash"
+        case insecureURL = "insecure_url"
+        case requestFailed = "request_failed"
+        case badStatus = "bad_status"
+        case declaredTooLarge = "declared_too_large"
+        case bodyTooLarge = "body_too_large"
+        case readFailed = "read_failed"
+        case digestMismatch = "digest_mismatch"
+    }
 
     let rootURL: URL
 
@@ -43,14 +58,26 @@ struct AvatarCache {
 
     /// The cached bytes for `hash`, or `nil` when nothing is stored under it.
     ///
-    /// The bytes are re-hashed on the way out, not only on the way in: the
-    /// container is shared with the app, and a file that no longer matches its
-    /// own name is deleted rather than rendered.
+    /// The container is shared with the app, so a stored file is held to the
+    /// same bounds a download is: its size is read before its bytes, anything
+    /// past ``maxBytes`` is deleted unread, and a file that no longer matches
+    /// its own name is deleted rather than rendered.
     ///
     /// A hit stamps the file with the current time so eviction, which ranks by
     /// modification date, treats a recently used avatar as recent.
     func data(forHash hash: String) -> Data? {
-        guard let url = fileURL(forHash: hash), let data = try? Data(contentsOf: url) else {
+        guard let url = fileURL(forHash: hash) else {
+            return nil
+        }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        guard let size = attributes?[.size] as? Int else {
+            return nil
+        }
+        guard size <= Self.maxBytes else {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+        guard let data = try? Data(contentsOf: url) else {
             return nil
         }
         guard Self.sha256Hex(data) == hash else {
@@ -83,71 +110,100 @@ struct AvatarCache {
     }
 
     /// Download the avatar at `url`, verify it against `hash`, cache it, and
-    /// return the bytes. Any failure returns `nil` and the caller delivers the
-    /// notification unchanged.
+    /// return the bytes. Any failure returns the reason it gave up instead, and
+    /// the caller delivers the notification unchanged.
     ///
     /// The URL arrives in the push payload, so only `https` is followed and only
-    /// bytes that hash to `hash` are used. A response that declares no length or
-    /// one past ``maxBytes`` is dropped before its body is read, and the body
-    /// itself is abandoned the moment it goes past the same cap, which keeps an
-    /// oversized or malformed response from filling the extension's memory
-    /// budget. `timeout` bounds how long the read may take.
-    func fetch(url: URL, hash: String, timeout: TimeInterval = defaultTimeout) async -> Data? {
-        guard Self.isValidHash(hash), url.scheme == "https" else {
-            return nil
+    /// bytes that hash to `hash` are used. A response declaring a length past
+    /// ``maxBytes`` is dropped before its body is read; a response declaring no
+    /// length at all, as a chunked one does, is read under the same cap and
+    /// abandoned the moment it crosses it. The streaming cap, not the declared
+    /// length, is what keeps an oversized or malformed response out of the
+    /// extension's memory budget.
+    ///
+    /// ``requestTimeout`` is the request's idle timeout: it bounds how long the
+    /// transfer may stall without new bytes, not how long it may run in total.
+    /// The total bound is the extension's own budget, whose expiry cancels the
+    /// task this runs in.
+    func fetch(url: URL, hash: String) async -> Result<Data, UnavailableReason> {
+        guard Self.isValidHash(hash) else {
+            return .failure(.badHash)
+        }
+        guard url.scheme == "https" else {
+            return .failure(.insecureURL)
         }
         let request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalCacheData,
-            timeoutInterval: timeout
+            timeoutInterval: Self.requestTimeout
         )
         guard let (bytes, response) = try? await URLSession.shared.bytes(for: request) else {
-            return nil
+            return .failure(.requestFailed)
         }
-        guard let http = response as? HTTPURLResponse,
-              http.statusCode == 200,
-              http.expectedContentLength >= 0,
-              http.expectedContentLength <= Int64(Self.maxBytes)
-        else {
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             bytes.task.cancel()
-            return nil
+            return .failure(.badStatus)
         }
-        guard let data = try? await Self.readAtMost(Self.maxBytes, from: bytes),
-              Self.sha256Hex(data) == hash
-        else {
+        // A response that declares no length reports NSURLResponseUnknownLength,
+        // which is negative and so passes this cap on its way to the streaming
+        // one.
+        let declared = http.expectedContentLength
+        guard declared <= Int64(Self.maxBytes) else {
             bytes.task.cancel()
-            return nil
+            return .failure(.declaredTooLarge)
+        }
+        let body: Data?
+        do {
+            body = try await Self.readAtMost(
+                Self.maxBytes,
+                from: bytes,
+                expecting: declared >= 0 ? Int(declared) : nil
+            )
+        } catch {
+            bytes.task.cancel()
+            return .failure(.readFailed)
+        }
+        guard let data = body else {
+            bytes.task.cancel()
+            return .failure(.bodyTooLarge)
+        }
+        guard Self.sha256Hex(data) == hash else {
+            return .failure(.digestMismatch)
         }
         store(data, hash: hash)
-        return data
+        return .success(data)
     }
 
     /// Collect `bytes` until the sequence ends, or return `nil` as soon as more
     /// than `limit` bytes arrive so an oversized body is never held whole.
     ///
-    /// Bytes land in an array first and reach the `Data` a chunk at a time:
-    /// appending each byte to `Data` individually costs a bounds check and a
-    /// possible reallocation per byte, which is the whole of the extension's
-    /// CPU budget on a 512 KB avatar.
+    /// `expectedCount` is the length the response declared, when it declared
+    /// one, so a known-size body is reserved for once instead of growing into
+    /// place. Bytes land in a preallocated buffer and reach the `Data` a chunk
+    /// at a time: appending each byte to `Data` on its own costs a bounds check
+    /// and a possible reallocation per byte, which is the whole of the
+    /// extension's CPU budget on a 512 KB avatar.
     static func readAtMost<Bytes: AsyncSequence>(
         _ limit: Int,
-        from bytes: Bytes
+        from bytes: Bytes,
+        expecting expectedCount: Int? = nil
     ) async throws -> Data? where Bytes.Element == UInt8 {
         var data = Data()
-        data.reserveCapacity(min(limit, readChunkSize))
-        var chunk = [UInt8]()
-        chunk.reserveCapacity(min(limit, readChunkSize))
+        data.reserveCapacity(min(limit, expectedCount ?? readChunkSize))
+        var chunk = [UInt8](repeating: 0, count: min(limit, readChunkSize))
+        var filled = 0
         for try await byte in bytes {
-            if data.count + chunk.count >= limit {
+            if data.count + filled >= limit {
                 return nil
             }
-            chunk.append(byte)
-            if chunk.count == readChunkSize {
+            chunk[filled] = byte
+            filled += 1
+            if filled == chunk.count {
                 data.append(contentsOf: chunk)
-                chunk.removeAll(keepingCapacity: true)
+                filled = 0
             }
         }
-        data.append(contentsOf: chunk)
+        data.append(contentsOf: chunk[0..<filled])
         return data
     }
 

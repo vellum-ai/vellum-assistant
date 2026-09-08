@@ -179,9 +179,9 @@ targetTemplates:
       configs:
         Debug:
           OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG NOTIFICATION_SERVICE_EXTENSION
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
         Release:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: NOTIFICATION_SERVICE_EXTENSION
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
     preBuildScripts: *projectSpecFreshnessGuard
 
   # Share Sheet extension. One per environment for the same prefix rule as

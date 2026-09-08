@@ -197,6 +197,8 @@ jobs:
           IOS_PROVISIONING_PROFILE_NSE_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_NSE_STAGING }}
           IOS_PROVISIONING_PROFILE_NSE_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_NSE_DEV }}
         run: |
+          set -o pipefail
+
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
 
@@ -205,15 +207,44 @@ jobs:
           # as an opaque export error.
           #
           # Returns non-zero when the secret is empty, leaving how fatal that
-          # is to the caller.
+          # is to the caller. A secret that is present but not base64 is a
+          # different fault with a different fix, so it exits here rather than
+          # returning the "empty" status a caller may choose to tolerate.
           install_profile() {
             local key="$1" filename="$2"
             local b64="${!key}"
             if [ -z "$b64" ]; then
               return 1
             fi
-            echo "$b64" | base64 -D > "$PROFILE_DIR/$filename"
+            if ! echo "$b64" | base64 -D > "$PROFILE_DIR/$filename"; then
+              echo "::error::Provisioning profile secret $key is not valid base64. Re-encode the downloaded .mobileprovision with 'base64 -i <file>' and replace the secret."
+              exit 1
+            fi
             echo "Provisioning profile installed from $key"
+          }
+
+          # Fails the run when an installed profile does not grant $key.
+          #
+          # Decoding and checking are separate steps on purpose: a profile that
+          # is not CMS-signed at all (a mis-encoded secret, a truncated
+          # download) fails the decode, and folding that into the entitlement
+          # test would report a missing capability and send the operator to the
+          # portal for a fault that is in the secret. The decoded plist is read
+          # by key path rather than grepped, so the check is anchored to
+          # Entitlements and asserts the value is true.
+          require_entitlement() {
+            local filename="$1" key="$2" secret="$3" remedy="$4"
+            local plist="$RUNNER_TEMP/$filename.plist"
+            if ! security cms -D -i "$PROFILE_DIR/$filename" > "$plist"; then
+              echo "::error::Could not decode the profile installed from $secret with 'security cms -D'. The secret does not hold a CMS-signed .mobileprovision: re-download the profile from the Apple Developer portal, re-encode it with 'base64 -i <file>', and replace $secret."
+              exit 1
+            fi
+            local granted
+            granted=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$plist" 2>/dev/null || true)
+            if [ "$granted" != "true" ]; then
+              echo "::error::$remedy"
+              exit 1
+            fi
           }
 
           # The app profile is non-negotiable: without it there is no build to
@@ -230,10 +261,12 @@ jobs:
           # does not grant it. Xcode only notices at Archive, long after the
           # build has started, with an error that names neither the entitlement
           # nor the fix, so the profile is decoded and checked here instead.
-          if ! security cms -D -i "$PROFILE_DIR/ios_distribution.mobileprovision" | grep -q usernotifications.communication; then
-            echo "::error::Provisioning profile $APP_PROFILE_KEY does not grant com.apple.developer.usernotifications.communication, which App.entitlements and App-Dev.entitlements declare. Archive would fail while signing the app target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md, steps 2 and 4 for this environment's app row: tick Communication Notifications on the app App ID, reissue its distribution profile under the identical name, then replace $APP_PROFILE_KEY."
-            exit 1
-          fi
+          # The appexes carry no entitlement of their own beyond the App Group,
+          # so this check belongs to the app profile alone.
+          require_entitlement ios_distribution.mobileprovision \
+            com.apple.developer.usernotifications.communication \
+            "$APP_PROFILE_KEY" \
+            "Provisioning profile $APP_PROFILE_KEY does not grant com.apple.developer.usernotifications.communication, which App.entitlements and App-Dev.entitlements declare. Archive would fail while signing the app target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md, steps 2 and 4 for this environment's app row: tick Communication Notifications on the app App ID, reissue its distribution profile under the identical name, then replace $APP_PROFILE_KEY."
 
           # A missing extension profile is tolerated: the App IDs and profiles
           # behind IOS_PROVISIONING_PROFILE_EXT* do not exist in the Apple
