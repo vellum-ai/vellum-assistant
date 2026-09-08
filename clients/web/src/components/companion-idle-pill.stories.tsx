@@ -435,8 +435,8 @@ const HOLLOW = {
   // Thick enough to be a band rather than a hairline, which is what holds the
   // shape together once there is no fill inside it. Backed off from 3.5, where
   // the band starts reading as a frame around the creature rather than as the
-  // creature's own outline.
-  rimWidth: 2.5,
+  // creature's own outline, and again to 2.
+  rimWidth: 2,
   accentHex: "#5EEAD4",
   content: "creature",
 } satisfies IdlePillProps;

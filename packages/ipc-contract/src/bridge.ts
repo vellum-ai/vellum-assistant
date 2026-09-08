@@ -662,20 +662,6 @@ export interface VellumBridge {
       ink: string,
     ): void;
     /**
-     * Point at things on the surface a call is being shown, or take down
-     * whatever is being pointed at by sending none.
-     *
-     * Main's own state for the reason `setAnnotating` is, and with the same
-     * consequence: the marks are fractions of the surface the frame is drawn
-     * around, so only main can say whether they still describe anything.
-     * What comes back is `coachmarks` on `onState`, which the frame's window
-     * draws.
-     *
-     * Absent on a shell that predates the marks, the bargain
-     * `setScreenShare` makes.
-     */
-    setCoachmarks?(marks: readonly CompanionCoachmark[]): void;
-    /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame
      * could be taken: the window has gone, the display was unplugged, or
@@ -684,6 +670,21 @@ export interface VellumBridge {
     captureScreen?(
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * A frame of `target` has reached the call, so the assistant has now been
+     * shown that surface.
+     *
+     * Told rather than inferred, and told here rather than at the capture.
+     * Taking a frame is not showing it: it is prepared, uploaded and sent
+     * afterwards, and any of those can fail or be voided by a reconnect. Main
+     * refuses marks measured against a surface the call has not been shown
+     * ({@link CompanionSurfaceState.coachmarks}), and a capture counted as a
+     * showing would open that gate for a picture nobody received.
+     *
+     * Only the window holding the session knows the frame arrived, which is
+     * why this comes from the renderer rather than being settled in main.
+     */
+    sharedFrame?(target: WatchCaptureTarget): void;
     /**
      * A preview of one row of the picker, as a JPEG data URL, for the tile
      * that row is drawn as.

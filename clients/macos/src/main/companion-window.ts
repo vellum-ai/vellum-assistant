@@ -22,8 +22,6 @@ import {
   companionAnnotationPhaseSchema,
   companionAnnotationStrokeSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
-  companionCoachmarkSchema,
-  COMPANION_COACHMARK_MAX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
@@ -36,6 +34,7 @@ import {
   companionScaleFor,
   WATCH_FLAG,
   companionLowerReachFor,
+  type CoachmarkRefusal,
   type CompanionCardGrowth,
   type CompanionCoachmark,
   type CompanionGrowth,
@@ -1125,6 +1124,23 @@ let coachmarks: readonly CompanionCoachmark[] = NO_COACHMARKS;
  */
 let coachmarkTarget: WatchCaptureTarget | undefined;
 
+/**
+ * The surface of the last frame this process handed to the window holding the
+ * session, or nothing before it has served one.
+ *
+ * The assistant measures a mark against the picture it was last shown, and
+ * that picture came through here. When the share moves, the frames the model
+ * is holding are still of the surface before the move, so its fractions
+ * describe that one: painting them now would ring whatever happens to lie at
+ * those coordinates on the new surface. Comparing this against the current
+ * share is how main tells a mark the model could have measured from a mark it
+ * could not.
+ *
+ * Recorded only for a frame that came back, since a capture that failed is
+ * one the model was never shown.
+ */
+let capturedTarget: WatchCaptureTarget | undefined;
+
 /** Whether two picks name the one surface. */
 const sameCaptureTarget = (
   a: WatchCaptureTarget | undefined,
@@ -1179,6 +1195,25 @@ const syncCoachmarks = (): void => {
 };
 
 /**
+ * Forget the picture the assistant was last shown the moment the share stops
+ * being of that surface.
+ *
+ * Any change counts, not just a share ending. A share that stops and starts
+ * again on the same display is a new share, and what the model is holding
+ * from before the stop is as old as the gap. So is a share that moves to
+ * another surface and comes back: the user was working on the first one all
+ * the while it was not being shown, and a picture kept across that round trip
+ * would let the first mark through measured against a screen that has since
+ * moved on. Clearing on the way out is what makes the return safe, since by
+ * then there is nothing left to match.
+ */
+const syncCapturedTarget = (): void => {
+  if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
+    capturedTarget = undefined;
+  }
+};
+
+/**
  * Point at things on the shared surface on the assistant's behalf, and say
  * whether the marks stand.
  *
@@ -1188,14 +1223,52 @@ const syncCoachmarks = (): void => {
  * about a ring the user cannot see. So a refusal comes back as one rather
  * than as silence.
  *
- * Taking them down always succeeds: whatever the frame is around, marks that
- * are gone are gone.
+ * **Marks are the asking conversation's or they are nobody's.** A mark names
+ * a rectangle and nothing else, so without the caller's own conversation
+ * beside it main cannot tell the call's turn from any other the same user has
+ * running, and a background turn would draw on a call it has no part in and
+ * be told it worked. The surface publishes whose call it is
+ * (`callConversationId`); anything that does not match it is refused, an
+ * unclaimed surface included, since a claim that cannot be checked is not a
+ * claim that passed.
+ *
+ * **Marks are measured against a picture, so the picture has to be of this
+ * surface.** A share that moved between the last frame and this request
+ * leaves the model holding a view of the surface before the move, and
+ * fractions off that view land somewhere arbitrary on the one now shared.
+ * {@link syncCoachmarks} takes down marks that are already up when the target
+ * changes and cannot reach one that arrives afterwards, so the arrival is
+ * refused here instead.
+ *
+ * **Taking them down always succeeds**, whoever asks and whatever the frame is
+ * around. The two directions are not the same risk: a mark placed by the
+ * wrong conversation is a ring on a stranger's screen reported as a success,
+ * where a clear by the wrong conversation costs a ring that was going to come
+ * down anyway. Refusing those would leave marks standing that nothing could
+ * reach, which is the failure this whole entrance exists to avoid.
  */
 export const showCompanionCoachmarks = (
   marks: readonly CompanionCoachmark[],
-): boolean => {
+  conversationId?: string,
+): CoachmarkRefusal | null => {
+  if (marks.length === 0) {
+    setCoachmarks(NO_COACHMARKS);
+    return null;
+  }
+  if (!framesTheShare()) {
+    return "unshared";
+  }
+  if (
+    context.callConversationId === undefined ||
+    conversationId !== context.callConversationId
+  ) {
+    return "not-this-call";
+  }
+  if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
+    return "stale-surface";
+  }
   setCoachmarks(marks);
-  return marks.length === 0 || framesTheShare();
+  return null;
 };
 
 /**
@@ -1363,6 +1436,7 @@ const syncWatchFrame = (): void => {
   // every fact at once.
   setAnnotating(annotating);
   syncCoachmarks();
+  syncCapturedTarget();
   const framed = framedTarget();
   if (framed === null) {
     stopFollowingWindow();
@@ -1832,30 +1906,6 @@ export const installCompanionWindow = (): void => {
   );
 
   /**
-   * Point at things on the shared surface, from the window holding the
-   * session: what the assistant is pointing at now, or an empty list for
-   * nothing.
-   *
-   * Handled here rather than forwarded, the way the drawing mode's press is,
-   * and for the same reason: the marks are drawn on a window main opened,
-   * around a surface only main knows the frame is still on. An ask made with
-   * nothing shared is refused rather than remembered
-   * ({@link framesTheShare}), so marks can never be armed ahead of a share
-   * and land on a surface nobody chose.
-   *
-   * The whole set every time rather than one mark added or removed. What is
-   * being pointed at is one thought, and a caller that could add to it would
-   * be a caller whose earlier marks it has to remember to take down.
-   */
-  on(
-    "vellum:companion:setCoachmarks",
-    z.tuple([z.array(companionCoachmarkSchema).max(COMPANION_COACHMARK_MAX)]),
-    ([marks]) => {
-      setCoachmarks(marks);
-    },
-  );
-
-  /**
    * One frame of what is being shared, for the renderer holding the session
    * to hand to it. Asked by that renderer on its own cadence, so this does
    * nothing but reach the helper: the target is whatever the renderer was
@@ -1866,6 +1916,30 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
     ([target]) => captureTargetFrame(target),
+  );
+
+  /**
+   * A frame of this surface reached the call, so the assistant has now been
+   * shown it ({@link capturedTarget}).
+   *
+   * Separate from the capture above, because taking a frame is not showing
+   * one. The renderer prepares, uploads and sends it afterwards, and an
+   * upload that fails or a reconnect that voids it means the call was shown
+   * nothing. Recorded on the capture, a share that moved would open
+   * {@link showCompanionCoachmarks} to the new surface while the only picture
+   * the assistant holds is still of the old one, which is the arrival that
+   * guard exists to refuse. A failure that never acknowledges simply leaves
+   * the gate shut, which is the safe direction.
+   *
+   * Only the window holding the session knows the frame landed, so this is
+   * told rather than settled here.
+   */
+  on(
+    "vellum:companion:sharedFrame",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => {
+      capturedTarget = target;
+    },
   );
 
   /**

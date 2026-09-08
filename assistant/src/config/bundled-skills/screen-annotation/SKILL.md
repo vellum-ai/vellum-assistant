@@ -45,6 +45,11 @@ Your picture is only as fresh as the last frame you were sent. If the user has
 scrolled or moved a window since, say what you are pointing at as well as
 drawing it, so a mark that has drifted is still recoverable in words.
 
+Moving the share is the one kind of drift that is caught for you. A mark
+measured against the surface before the move is refused rather than drawn,
+because those fractions land somewhere arbitrary on the surface that replaced
+it. Wait for a frame of the new one and point again.
+
 ## How to point
 
 **One thing at a time.** A mark is where to look next. A screen with four

@@ -143,6 +143,13 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
   // -- Stripe --
   { label: "Stripe Secret Key", regex: /sk_live_[A-Za-z0-9]{24,}/ },
   { label: "Stripe Restricted Key", regex: /rk_live_[A-Za-z0-9]{24,}/ },
+  // Link (Stripe's wallet) issues prefixed OAuth tokens rather than opaque
+  // ones, and its own docs tell users to export the access token as
+  // LINK_ACCESS_TOKEN to drive link-cli, so these do get pasted by hand. A
+  // leaked one can spend from the wallet. The `lwlpk_` client id is public
+  // (it ships in the CLI bundle) and is deliberately not matched here.
+  { label: "Link Access Token", regex: /liwltoken_[A-Za-z0-9]{16,}/ },
+  { label: "Link Refresh Token", regex: /liwlrefresh_[A-Za-z0-9]{16,}/ },
 
   // -- Slack --
   {

@@ -23,16 +23,12 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import {
-  ambiguousSameUserError,
-  enforceSameActorOrErrorResult,
-  pickSameUserAutoResolve,
-} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { resolveHostCuTarget } from "./host-cu-target.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -261,54 +257,15 @@ export class HostCuProxy {
       });
     }
 
-    let resolvedTargetClientId = targetClientId;
-    if (resolvedTargetClientId == null) {
-      const resolved = pickSameUserAutoResolve({
-        hub: assistantEventHub,
-        capability: "host_cu",
-        sourceActorPrincipalId,
-      });
-      if (resolved.kind === "ambiguous") {
-        return Promise.resolve(ambiguousSameUserError("host_cu"));
-      }
-      if (resolved.kind === "match") {
-        resolvedTargetClientId = resolved.clientId;
-      } else if (
-        assistantEventHub.listClientsByCapability("host_cu").length > 0
-      ) {
-        return Promise.resolve({
-          content:
-            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
-          isError: true,
-        });
-      }
+    const target = resolveHostCuTarget({
+      toolName,
+      targetClientId,
+      sourceActorPrincipalId,
+    });
+    if (target.kind === "error") {
+      return Promise.resolve(target.result);
     }
-
-    if (resolvedTargetClientId != null) {
-      const client = assistantEventHub.getClientById(resolvedTargetClientId);
-      if (!client) {
-        return Promise.resolve({
-          content: `No connected client with id '${resolvedTargetClientId}' supports host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        });
-      }
-      if (!client.capabilities.includes("host_cu")) {
-        return Promise.resolve({
-          content: `Client '${resolvedTargetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        });
-      }
-
-      const rejection = enforceSameActorOrErrorResult({
-        hub: assistantEventHub,
-        sourceActorPrincipalId,
-        targetClientId: resolvedTargetClientId,
-        op: "host_cu",
-      });
-      if (rejection) {
-        return Promise.resolve(rejection);
-      }
-    }
+    const resolvedTargetClientId = target.targetClientId;
 
     const hasWindowTarget = Object.hasOwn(input, "capture_window_id");
     if (hasWindowTarget) {

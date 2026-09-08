@@ -12,17 +12,15 @@
     "clearAll": "Очистить всё"
   },
   "category": {
-    "security": "Безопасность",
-    "email": "Почта",
-    "scheduling": "Расписания",
-    "background": "Фон",
-    "system": "Система",
-    "guardianAction": "Требуется действие опекуна",
+    "guardianAction": "Нужно ваше одобрение",
+    "guardianAnswer": "Нужен ваш ответ",
     "guardianQuestion": "Вопрос опекуну",
     "guardianRequest": "Запрос опекуна"
   },
   "homeRecapRow": {
-    "actionsTitle": "Действия по обновлению"
+    "actionsTitle": "Действия по обновлению",
+    "approve": "Одобрить",
+    "reject": "Отклонить"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Не хватает разрешений",
@@ -40,7 +38,10 @@
     "ariaLabelUnread": "Уведомления (непрочитанные)",
     "heading": "Уведомления",
     "loadFailed": "Не удалось загрузить уведомления.",
-    "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
+    "actionFailed": "Не удалось начать этот диалог. Повторите попытку.",
+    "decisionNotPermitted": "У вас нет прав принимать решение по этому запросу.",
+    "decisionNotApplied": "Не удалось применить это решение.",
+    "decisionFollowThroughFailed": "Ваше решение записано, но следующий шаг не удался."
   },
   "notificationsBellDetail": {
     "back": "Назад к уведомлениям"

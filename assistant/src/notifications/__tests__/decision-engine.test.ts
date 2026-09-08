@@ -570,14 +570,15 @@ describe("decision tool title field specification", () => {
       tool.input_schema.properties.renderedCopy.properties.vellum.properties
         .title.description;
 
-    expect(description).toContain("2 to 5 words");
+    expect(description).toContain("2 to 6 words");
     expect(description).toContain("40 characters");
-    expect(description).toContain("noun phrase");
-    expect(description).toContain(
-      "Do NOT restate, summarize, or echo the body",
-    );
+    // The title carries a bell row on its own, so it states the outcome
+    // rather than naming a topic the body then explains.
+    expect(description).toContain("WHAT HAPPENED or WHAT IS NEEDED");
+    expect(description).toContain("Lead with the outcome");
+    expect(description).toContain("Do NOT restate the body word for word");
     expect(description).toContain("no markdown");
-    expect(description).toContain("Missing Context");
+    expect(description).toContain("Missing context");
     expect(description.match(/NOT '/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 });
@@ -661,5 +662,77 @@ describe("title normalization", () => {
     ] as NotificationChannel[]);
 
     expect(decision.renderedCopy.vellum?.title).toBe("Backup finished.");
+  });
+});
+
+function makeScheduleResultSignal(
+  overrides?: Partial<NotificationSignal>,
+): NotificationSignal {
+  return {
+    signalId: "sig-schedule-result-test-1",
+    createdAt: Date.now(),
+    sourceChannel: "scheduler",
+    sourceContextId: "conv-schedule-run",
+    sourceEventName: "schedule.result",
+    contextPayload: {
+      requestedMessage: "- **3 new emails**\n- `deploy.sh` failed overnight",
+      requestedTitle: "Morning briefing",
+      scheduleName: "Morning briefing",
+      scheduleId: "sched-1",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+    ...overrides,
+  };
+}
+
+describe("schedule.result pass-through in notification decision engine", () => {
+  beforeEach(() => {
+    persistedDecisions = [];
+  });
+
+  test("carries the run's own output verbatim rather than rewriting it", async () => {
+    // The whole value of this notification is the digest itself. The
+    // classifier compresses a signal into a short alert, which would throw
+    // away the content the user set the schedule up to receive.
+    const decision = await evaluateSignal(makeScheduleResultSignal(), [
+      "vellum",
+      "platform",
+    ] as NotificationChannel[]);
+
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "- **3 new emails**\n- `deploy.sh` failed overnight",
+    );
+    expect(decision.renderedCopy.vellum?.title).toBe("Morning briefing");
+    expect(decision.reasoningSummary).toBe("schedule_result pass-through");
+    expect(decision.verbatimCopy).toBe(true);
+    expect(decision.fallbackUsed).toBe(false);
+  });
+
+  test("delivers to the notification center as well as push", async () => {
+    // Unlike an unseen chat reply, a scheduled run's output has no
+    // conversation the user is already in. `vellum` is where it persists.
+    const decision = await evaluateSignal(makeScheduleResultSignal(), [
+      "vellum",
+      "telegram",
+      "platform",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["vellum", "platform"]);
+    expect(decision.shouldNotify).toBe(true);
+  });
+
+  test("still reaches the inbox when push is unavailable", async () => {
+    const decision = await evaluateSignal(makeScheduleResultSignal(), [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["vellum"]);
+    expect(decision.shouldNotify).toBe(true);
   });
 });

@@ -31,6 +31,11 @@ const SLOT_BY_DETECTION_LABEL: Record<string, CredentialSlot> = {
   "GitLab Token": { service: "gitlab", field: "token" },
   "Stripe Secret Key": { service: "stripe", field: "secret_key" },
   "Stripe Restricted Key": { service: "stripe", field: "restricted_key" },
+  // Link's OAuth tokens normally live on the connection, not here. They are
+  // mapped anyway because Link documents driving link-cli from a hand-exported
+  // LINK_ACCESS_TOKEN, so one can reach the composer as a pasted string.
+  "Link Access Token": { service: "stripe_link", field: "access_token" },
+  "Link Refresh Token": { service: "stripe_link", field: "refresh_token" },
   // Slack channel credentials live under `slack_channel`; the bare `slack`
   // provider is the OAuth integration, whose token is held on its connection
   // rather than in the credential store.

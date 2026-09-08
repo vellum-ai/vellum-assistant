@@ -6,10 +6,14 @@
  * and context payload. Decision/delivery records are tracked separately.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, or } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { notificationEvents } from "../persistence/schema/index.js";
+import {
+  notificationDecisions,
+  notificationDeliveries,
+  notificationEvents,
+} from "../persistence/schema/index.js";
 import type { AttentionHints } from "./signal.js";
 
 export interface NotificationEventRow {
@@ -137,4 +141,66 @@ export function listEvents(
     .all();
 
   return rows.map(rowToEvent);
+}
+
+/**
+ * True when a notification emitted against `sourceContextId` at or after
+ * `sinceMs` reached a verdict the user can be said to have received.
+ *
+ * The schedule-result producer's "did this run already speak for itself?"
+ * probe. A run's conversation id is the `sourceContextId` every notification
+ * the run emits carries — `assistant notifications send` resolves it from
+ * `__CONVERSATION_ID` — so a hit means the agent notified on its own and the
+ * fallback must stay quiet.
+ *
+ * An event row alone is not a hit. `emitNotificationSignal` persists the event
+ * first and the pipeline can still fail after that, leaving an audit row for a
+ * notification nobody received; counting it would suppress the fallback in
+ * exactly the case it exists for. A hit therefore needs one of:
+ *
+ * - a decision **not** to notify. The engine ruled on the run's own signal
+ *   (preferences, quiet hours, its own judgment), and the fallback exists to
+ *   cover runs that never asked, not to appeal verdicts the user's settings
+ *   produced; or
+ * - a delivery row that is `sent` or still `pending` — something went out, or
+ *   is about to. An event whose every delivery `failed`, or that never got a
+ *   decision row at all, does not count.
+ *
+ * The `sinceMs` bound is load-bearing rather than an optimization: a recurring
+ * schedule with `reuseConversation` runs every firing in the same conversation,
+ * so an unbounded probe would see last week's notification and silence every
+ * run after the first.
+ */
+export function hasNotifiedSourceContextSince(
+  sourceContextId: string,
+  sinceMs: number,
+): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: notificationEvents.id })
+    .from(notificationEvents)
+    .innerJoin(
+      notificationDecisions,
+      eq(notificationDecisions.notificationEventId, notificationEvents.id),
+    )
+    .leftJoin(
+      notificationDeliveries,
+      eq(
+        notificationDeliveries.notificationDecisionId,
+        notificationDecisions.id,
+      ),
+    )
+    .where(
+      and(
+        eq(notificationEvents.sourceContextId, sourceContextId),
+        gte(notificationEvents.createdAt, sinceMs),
+        or(
+          eq(notificationDecisions.shouldNotify, 0),
+          inArray(notificationDeliveries.status, ["pending", "sent"]),
+        ),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
 }

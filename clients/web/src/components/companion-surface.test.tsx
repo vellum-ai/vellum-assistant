@@ -1875,7 +1875,7 @@ describe("the pill the surface rests in", () => {
 
     const shadow = restingPillOf(container).style.boxShadow;
     expect(shadow).toContain("#ff8800");
-    expect(shadow).toContain("inset 0 0 0 2.5px");
+    expect(shadow).toContain("inset 0 0 0 2px");
   });
 
   /**
@@ -1928,7 +1928,7 @@ describe("the pill the surface rests in", () => {
     const pill = restingPillOf(container);
     expect(pill.style.width).toBe("64px");
     expect(pill.style.height).toBe("14px");
-    expect(pill.style.boxShadow).toContain("inset 0 0 0 2.5px");
+    expect(pill.style.boxShadow).toContain("inset 0 0 0 2px");
   });
 
   /**
