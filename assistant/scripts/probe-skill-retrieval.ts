@@ -5,13 +5,17 @@
 // the concept-page collection and retrieving against it. The card is built from
 // SKILL.md frontmatter only (`description` + `activation-hints` + `avoid-when`),
 // never the body, and is hard-truncated to a character budget. This script
-// builds the same cards from SKILL.md on disk, embeds them with the same local
-// backend, and prints the ranking, so frontmatter wording can be validated
-// without a running assistant.
+// builds the same cards from SKILL.md on disk, embeds them with the assistant's
+// local backend, and prints the ranking, so frontmatter wording can be validated
+// without a running assistant. `--provider configured` ranks in the workspace's
+// own embedding space instead, which needs a host that can reach its provider.
 //
-// The dense lane is one of several retrieval lanes and its pool is handed to an
-// LLM selector. A skill ranking well here is necessary for it to be surfaced,
-// not sufficient.
+// Two limits on what a run proves. The dense lane is one of several retrieval
+// lanes and its pool is handed to an LLM selector, so a skill ranking well here
+// is necessary for it to be surfaced, not sufficient. And the pool is every
+// SKILL.md on disk that this platform can run, where a real workspace also
+// resolves feature flags, plugin ownership, and per-skill enabled state, so a
+// host with skills disabled sees a slightly smaller field than this.
 //
 // Usage (from assistant/):
 //   bun run scripts/probe-skill-retrieval.ts -q "help me connect stripe link"
@@ -30,13 +34,14 @@ import {
   type ParsedFrontmatter,
   parseFrontmatter,
 } from "../src/config/skills.js";
-import { LocalEmbeddingBackend } from "../src/persistence/embeddings/embedding-local.js";
 import {
   ALWAYS_CANDIDATE_CARD_CHARS,
+  augmentMcpSetupDescription,
   buildSkillContent,
   DEFAULT_CARD_CHARS,
   renderSkillCard,
 } from "../src/plugins/defaults/memory/substrate/skill-content.js";
+import { filterSkillsByPlatform } from "../src/skills/platform-compatibility.js";
 
 interface ProbeOptions {
   queries: string[];
@@ -45,9 +50,18 @@ interface ProbeOptions {
   only?: string;
   json: boolean;
   truncationReport: boolean;
+  platform: NodeJS.Platform;
+  useConfiguredProvider: boolean;
   save?: string;
   baseline?: string;
 }
+
+/** `--platform` takes the skill-facing names, not node's `process.platform`. */
+const PLATFORM_ALIASES: Record<string, NodeJS.Platform> = {
+  macos: "darwin",
+  windows: "win32",
+  linux: "linux",
+};
 
 interface Card {
   name: string;
@@ -61,6 +75,12 @@ interface Ranked {
   name: string;
   score: number;
   rank: number;
+}
+
+/** An embedding backend plus the teardown that lets the process exit. */
+interface Embedder {
+  embed: (texts: string[]) => Promise<number[][]>;
+  dispose: () => Promise<void> | void;
 }
 
 /** Score deltas below this are rounding, not signal, and are not reported. */
@@ -87,6 +107,8 @@ function usage(): never {
       "      --baseline <file>   Compare against a saved baseline",
       "      --json              Emit JSON instead of a table",
       "      --truncation-report List every card the budget truncates",
+      "      --platform <name>   Rank as macos | windows | linux (default: this host)",
+      "      --provider <name>   local (default, no daemon) | configured (workspace provider)",
     ].join("\n"),
   );
   process.exit(1);
@@ -99,6 +121,8 @@ function parseArgs(argv: string[]): ProbeOptions {
   let only: string | undefined;
   let json = false;
   let truncationReport = false;
+  let platform: NodeJS.Platform = process.platform;
+  let useConfiguredProvider = false;
   let save: string | undefined;
   let baseline: string | undefined;
 
@@ -140,6 +164,29 @@ function parseArgs(argv: string[]): ProbeOptions {
       case "--truncation-report":
         truncationReport = true;
         break;
+      case "--provider": {
+        const value = next();
+        if (value !== "local" && value !== "configured") {
+          console.error(
+            `Unknown --provider "${value}". Expected "local" or "configured".`,
+          );
+          process.exit(1);
+        }
+        useConfiguredProvider = value === "configured";
+        break;
+      }
+      case "--platform": {
+        const value = next();
+        const resolved = PLATFORM_ALIASES[value];
+        if (!resolved) {
+          console.error(
+            `Unknown --platform "${value}". Expected one of: ${Object.keys(PLATFORM_ALIASES).join(", ")}`,
+          );
+          process.exit(1);
+        }
+        platform = resolved;
+        break;
+      }
       default:
         usage();
     }
@@ -156,6 +203,8 @@ function parseArgs(argv: string[]): ProbeOptions {
     only,
     json,
     truncationReport,
+    platform,
+    useConfiguredProvider,
     save,
     baseline,
   };
@@ -177,7 +226,10 @@ function readQueryFile(path: string): string[] {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
-function loadSkills(dirs: string[]): ParsedFrontmatter[] {
+function loadSkills(
+  dirs: string[],
+  platform: NodeJS.Platform,
+): ParsedFrontmatter[] {
   const byName = new Map<string, ParsedFrontmatter>();
   for (const dir of dirs) {
     let entries: string[];
@@ -205,20 +257,26 @@ function loadSkills(dirs: string[]): ParsedFrontmatter[] {
       }
     }
   }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  // Production never seeds a card for a skill the host cannot run, so leaving
+  // the other platforms' skills in would put candidates in the pool that no
+  // real retrieval could return, shifting every rank below them.
+  const eligible = filterSkillsByPlatform([...byName.values()], platform);
+  return eligible.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function buildCard(skill: ParsedFrontmatter): Card {
   const budget = skill.alwaysCandidate
     ? ALWAYS_CANDIDATE_CARD_CHARS
     : DEFAULT_CARD_CHARS;
-  const input = {
+  // Mirrors `buildInstalledSkillCards`: mcp-setup's card carries the configured
+  // server names, so a query naming a server has to score against them here too.
+  const input = augmentMcpSetupDescription({
     id: skill.name,
     displayName: skill.displayName,
     description: skill.description,
     activationHints: skill.activationHints,
     avoidWhen: skill.avoidWhen,
-  };
+  });
   const text = buildSkillContent(input, budget);
   // A card at exactly the budget was not truncated, so compare against the
   // untruncated render rather than testing `length >= budget`.
@@ -276,9 +334,73 @@ function formatDelta(
   return `  (${delta > 0 ? "+" : ""}${delta.toFixed(4)})`;
 }
 
+/**
+ * Embed through the provider the workspace config selects, which is what
+ * production ranks in, and fall back to the in-process local backend when that
+ * provider is unreachable (no key, no network, billing breaker open). Scores
+ * are not comparable across embedding models, so the provider actually used is
+ * always reported rather than assumed.
+ */
+/**
+ * Pick the embedding space the ranking is measured in.
+ *
+ * Local is the default because it is the only backend that runs with no
+ * daemon: `embedWithBackend` resolves provider credentials through the
+ * credential store, which blocks when no assistant is running. `--provider
+ * configured` opts into the full production path on a host that has one.
+ *
+ * Scores are not comparable across embedding models, so the provider actually
+ * used is reported rather than assumed, and a saved baseline should only be
+ * diffed against a run that used the same one.
+ */
+async function resolveEmbedder(
+  config: ReturnType<typeof getConfig>,
+  useConfiguredProvider: boolean,
+  quiet: boolean,
+): Promise<Embedder> {
+  const announce = (message: string): void => {
+    if (!quiet) {
+      console.error(message);
+    }
+  };
+  if (useConfiguredProvider) {
+    // Imported here rather than at module scope: the memory embeddings module
+    // pulls in the Qdrant client, whose import-time setup stalls with no
+    // assistant running, which would hang the local path too.
+    const { embedWithBackend } =
+      await import("../src/plugins/defaults/memory/embeddings.js");
+    const probe = await embedWithBackend(config, ["probe"]);
+    announce(`Embedding with ${probe.provider} / ${probe.model}`);
+    const { shutdownEmbeddingBackends } =
+      await import("../src/persistence/embeddings/embedding-backend.js");
+    return {
+      embed: async (texts) => (await embedWithBackend(config, texts)).vectors,
+      dispose: () => shutdownEmbeddingBackends(),
+    };
+  }
+  const localModel = config.memory.embeddings.localModel;
+  announce(
+    `Embedding with local / ${localModel}. Pass --provider configured to rank in the workspace's own embedding space.`,
+  );
+  const { LocalEmbeddingBackend } =
+    await import("../src/persistence/embeddings/embedding-local.js");
+  const backend = new LocalEmbeddingBackend(localModel);
+  return {
+    embed: (texts) => backend.embed(texts),
+    // The backend is constructed here rather than handed out by
+    // `selectEmbeddingBackend`, so the shared shutdown path does not know about
+    // it. A one-shot script has nothing to drain, so the worker is killed
+    // outright: `dispose()` only closes it once idle, which leaves it running
+    // and the process alive.
+    dispose: () => {
+      backend.terminateNow();
+    },
+  };
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const skills = loadSkills(options.skillDirs);
+  const skills = loadSkills(options.skillDirs, options.platform);
   if (skills.length === 0) {
     throw new Error(
       `No SKILL.md files found under: ${options.skillDirs.join(", ")}`,
@@ -310,14 +432,23 @@ async function main(): Promise<void> {
       ? JSON.parse(readFileSync(options.baseline, "utf8"))
       : undefined;
 
-  const model = getConfig().memory.embeddings.localModel;
-  const backend = new LocalEmbeddingBackend(model);
+  // Embed through the same entry point production uses, so the provider the
+  // workspace config selects is the provider the ranking is measured in.
+  // Scores are not comparable across embedding models, which is why the
+  // provider and model are reported alongside them.
+  const config = getConfig();
+  const embedder = await resolveEmbedder(
+    config,
+    options.useConfiguredProvider,
+    options.json,
+  );
+  const embed = embedder.embed;
   const results: Record<string, Record<string, number>> = {};
 
   try {
-    const cardVecs = await backend.embed(cards.map((card) => card.text));
+    const cardVecs = await embed(cards.map((card) => card.text));
     for (const query of options.queries) {
-      const [queryVec] = await backend.embed([query]);
+      const [queryVec] = await embed([query]);
       const ranked = rank(queryVec, cards, cardVecs);
       results[query] = Object.fromEntries(
         ranked.map((row) => [row.name, row.score]),
@@ -346,7 +477,9 @@ async function main(): Promise<void> {
       }
     }
   } finally {
-    backend.dispose();
+    const { shutdownEmbeddingBackends } =
+      await import("../src/persistence/embeddings/embedding-backend.js");
+    await shutdownEmbeddingBackends();
   }
 
   if (options.json) {
@@ -359,3 +492,7 @@ async function main(): Promise<void> {
 }
 
 await main();
+
+// The embedding worker leaves handles the runtime still counts as live work, so
+// a one-shot run would otherwise sit at an idle event loop after printing.
+process.exit(0);
