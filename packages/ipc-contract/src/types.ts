@@ -675,6 +675,25 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
+/**
+ * The assistant a notification is from, for the platforms that render a sender
+ * rather than the app: its name goes on the first line and its notification
+ * avatar becomes the icon.
+ */
+export interface NotificationSender {
+  id: string;
+  name: string;
+  /**
+   * The notification avatar as a base64 PNG with no data prefix, the same
+   * shape {@link VoiceActivityStart.avatarBase64} travels in. The renderer
+   * composites it (avatar on an accent-tinted disc) because main has no
+   * canvas.
+   */
+  avatarBase64: string;
+  /** Content hash of the PNG, so a host can name a cache file by it. */
+  avatarHash: string;
+}
+
 /** Renderer → main payload for posting a native notification. */
 export interface ShowNotificationPayload {
   category: NotificationCategory;
@@ -684,6 +703,11 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * Absent unless the renderer has a notification avatar to send, which leaves
+   * the notification with the app icon and the title on line one.
+   */
+  sender?: NotificationSender;
 }
 
 export type TextInsertionResult =

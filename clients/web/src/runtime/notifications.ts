@@ -28,6 +28,7 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
+import type { NotificationSender } from "@vellumai/ipc-contract";
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
@@ -38,11 +39,14 @@ import {
 } from "@/runtime/android-notification-channels";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { getNotificationAvatar } from "@/runtime/notification-avatar";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import {
   extractPushConversationId,
   hasSessionConfirmedRemotePushRegistration,
 } from "@/runtime/push-registration";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -447,6 +451,36 @@ export async function sendNotificationIntentAck(
 }
 
 /**
+ * The assistant to post the Electron notification as, when there is one to
+ * post as: `useNotificationAvatarSync` holds an avatar only on Electron with
+ * `push-avatar-sender` on, so an empty holder is what keeps the payload
+ * unchanged everywhere else.
+ *
+ * The name, the id and the avatar all describe the active assistant, and all
+ * three are read from the stores that own it rather than from the caller, so
+ * the sender cannot name one assistant while wearing another's face. The
+ * avatar carries the assistant it was drawn for and is refused when that is
+ * not the active one, which is what closes the window between an assistant
+ * switch and the replacement avatar finishing.
+ */
+function senderPayload(): { sender?: NotificationSender } {
+  const avatar = getNotificationAvatar();
+  const name = useAssistantIdentityStore.getState().name;
+  const id = useResolvedAssistantsStore.getState().activeAssistantId;
+  if (!avatar || !name || !id || avatar.assistantId !== id) {
+    return {};
+  }
+  return {
+    sender: {
+      id,
+      name,
+      avatarBase64: avatar.avatarBase64,
+      avatarHash: avatar.avatarHash,
+    },
+  };
+}
+
+/**
  * Display a native notification. On Capacitor iOS this schedules via
  * `UNUserNotificationCenter`; on desktop browsers it calls the Web
  * Notification API. No-ops silently when notifications are unsupported or
@@ -482,6 +516,7 @@ export async function postLocalNotification(
         deliveryId: args.deliveryId,
         conversationId: extractConversationId(args.deepLinkMetadata),
         deepLinkMetadata: args.deepLinkMetadata,
+        ...senderPayload(),
       });
       success = result.success;
       errorMessage = result.errorMessage;
