@@ -42,6 +42,7 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
 // mocking `use-is-mobile`, so a test says which signal the composer actually
@@ -3206,5 +3207,67 @@ describe("ChatComposer — text area during a live-voice session", () => {
 
     // THEN the ghost paints as it would without a session
     expect(container.textContent).toContain("ghost completion text");
+  });
+});
+
+describe("ChatComposer — VoiceFirstRunCard gating", () => {
+  test("a voice-less instance never opens the modal from the global flag", () => {
+    // GIVEN the global first-run flag is open (as another, voice-enabled
+    // instance mounted alongside this one might have set it)
+    useLiveVoiceStore.getState().setFirstRunCardOpen(true);
+
+    // WHEN a composer with no voice wiring renders (the document composer's
+    // shape: no `voiceInputRef`/`onVoiceTranscript`)
+    const { queryByTestId } = renderComposerView();
+
+    // THEN it does not render the modal — only an instance that offers
+    // dictation at all may open it.
+    expect(queryByTestId("first-run-card")).toBeNull();
+  });
+
+  test("a voice-enabled instance opens the modal from the global flag", () => {
+    // GIVEN the global first-run flag is open
+    useLiveVoiceStore.getState().setFirstRunCardOpen(true);
+
+    // WHEN a voice-enabled composer renders
+    const { queryByTestId } = renderVoiceComposer();
+
+    // THEN it renders the modal
+    expect(queryByTestId("first-run-card")).not.toBeNull();
+  });
+});
+
+describe("ChatComposer — slot-scoped focus", () => {
+  test("a non-main instance registers its textarea against its own slot", () => {
+    // GIVEN a composer mounted for the "document" slot
+    const { container } = renderComposerView({ slot: "document" });
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.blur();
+    expect(document.activeElement).not.toBe(textarea);
+
+    // WHEN a picker opened from that slot asks for its focus back
+    act(() => {
+      requestComposerFocus("document");
+    });
+
+    // THEN this instance's own textarea receives it, not the main composer's
+    // window-event mechanism.
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  test("the main instance does not register through the slot seam", () => {
+    // GIVEN a default ("main") composer instance
+    const { container } = renderComposerView();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.blur();
+
+    // WHEN something asks the document slot's handler for focus
+    act(() => {
+      requestComposerFocus("document");
+    });
+
+    // THEN the main instance is unaffected — it never registered for
+    // "document", and it keeps its existing window-event mechanism instead.
+    expect(document.activeElement).not.toBe(textarea);
   });
 });

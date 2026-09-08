@@ -11,6 +11,7 @@ import {
 import {
   isTextEntryFocused,
   requestComposerFocus,
+  type NonMainComposerFocusSlot,
 } from "@/domains/chat/composer-focus";
 import { holdVisibleViewport } from "@/hooks/use-visible-viewport";
 import { hideNativeKeyboard } from "@/runtime/native-keyboard";
@@ -34,6 +35,11 @@ interface UseAttachmentFilePickerOptions {
    * returns today.
    */
   alwaysRestoreFocus?: boolean;
+  /**
+   * Which composer instance owns this picker, so the refocus on close lands
+   * back on that composer instead of the main one. Defaults to `"main"`.
+   */
+  focusSlot?: NonMainComposerFocusSlot | "main";
 }
 
 interface UseAttachmentFilePickerResult {
@@ -97,6 +103,7 @@ export function useAttachmentFilePicker({
   accept,
   capture,
   alwaysRestoreFocus = false,
+  focusSlot = "main",
 }: UseAttachmentFilePickerOptions): UseAttachmentFilePickerResult {
   const inputRef = useRef<HTMLInputElement | null>(null);
   // The picker's own lifetime, which outlives the composer's focus: presenting
@@ -131,12 +138,12 @@ export function useAttachmentFilePicker({
     // Asked for before the hold ends, so a keyboard that is coming back is
     // already on its way when the shell follows the measurement again.
     if (shouldRestoreFocusRef.current) {
-      requestComposerFocus();
+      requestComposerFocus(focusSlot);
     }
     setPickerOpen(false);
     releaseViewportHoldRef.current?.();
     releaseViewportHoldRef.current = null;
-  }, []);
+  }, [focusSlot]);
 
   const openPicker = useCallback(() => {
     // Fallback for iOS 15 through 16.3 WKWebViews that don't fire the input

@@ -519,7 +519,10 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       .resetAll({ assistantChanged: isAssistantSwitch });
     if (isAssistantSwitch) {
       // Assistant changed — old message bubbles leave the DOM, revoke blob URLs.
+      // Both slots: the document composer's attachments were uploaded against
+      // the outgoing assistant too, and are just as dead as the main slot's.
       useComposerStore.getState().fullReset();
+      useComposerStore.getState().fullReset("document");
     } else {
       // Same assistant, different conversation — keep blob URLs for sent messages.
       useComposerStore.getState().resetAttachments();

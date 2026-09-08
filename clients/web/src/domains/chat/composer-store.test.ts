@@ -5,7 +5,15 @@
  * draft persistence to localStorage, blob URL revocation, and edge cases
  * around empty/whitespace input.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 // Mock local-settings so we can observe localStorage reads/writes without
 // touching the real localStorage (happy-dom doesn't persist across tests).
@@ -712,7 +720,7 @@ describe("restoreFailedDraft", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ComposerSlot ("main" vs "document") isolation — LUM-3384
+// ComposerSlot ("main" vs "document") isolation
 // ---------------------------------------------------------------------------
 
 describe("ComposerSlot isolation", () => {
@@ -854,7 +862,7 @@ describe("ComposerSlot isolation", () => {
     expect(getStore().attachmentLastError).toBe("main error");
   });
 
-  test("fullReset is a main-slot-only concern and leaves the document slot untouched", () => {
+  test("fullReset() defaults to the main slot and leaves the document slot's own state untouched", () => {
     useComposerStore.setState({
       documentAttachments: [
         {
@@ -874,5 +882,88 @@ describe("ComposerSlot isolation", () => {
 
     expect(getStore().documentAttachments).toHaveLength(1);
     expect(getStore().documentAttachmentLastError).toBe("doc error");
+  });
+
+  test("fullReset('document') clears only the document slot", () => {
+    useComposerStore.setState({
+      attachments: [
+        {
+          kind: "uploaded",
+          localId: "main-att",
+          id: "srv-main",
+          filename: "main.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      attachmentLastError: "main error",
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "doc-att",
+          id: "srv-doc",
+          filename: "doc.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      documentAttachmentLastError: "doc error",
+    });
+
+    getStore().fullReset("document");
+
+    expect(getStore().documentAttachments).toHaveLength(0);
+    expect(getStore().documentAttachmentLastError).toBeNull();
+    expect(getStore().attachments).toHaveLength(1);
+    expect(getStore().attachmentLastError).toBe("main error");
+  });
+
+  test("fullReset only revokes the preview URLs belonging to the slot being reset", async () => {
+    const revokeSpy = spyOn(URL, "revokeObjectURL");
+    try {
+      getStore().addFiles(
+        [fileWithHeader(PNG_HEADER, "main.png", "image/png")],
+        "assistant-1",
+      );
+      getStore().addFiles(
+        [fileWithHeader(PNG_HEADER, "doc.png", "image/png")],
+        "assistant-1",
+        "document",
+      );
+      await waitForUploadsSettled(1);
+      for (let i = 0; i < 100; i++) {
+        if (
+          getStore().documentAttachments.every((a) => a.kind !== "uploading")
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      const mainAtt = getStore().attachments[0];
+      const docAtt = getStore().documentAttachments[0];
+      if (mainAtt?.kind !== "uploaded" || docAtt?.kind !== "uploaded") {
+        throw new Error("expected both attachments to have uploaded");
+      }
+      const mainPreviewUrl = mainAtt.previewUrl;
+      const docPreviewUrl = docAtt.previewUrl;
+      expect(mainPreviewUrl).toBeTruthy();
+      expect(docPreviewUrl).toBeTruthy();
+
+      getStore().fullReset();
+
+      // The main slot's own URL is revoked and its attachment cleared...
+      expect(revokeSpy).toHaveBeenCalledWith(mainPreviewUrl);
+      expect(getStore().attachments).toHaveLength(0);
+      // ...but the document slot keeps its attachment AND that attachment's
+      // preview URL is left alive, not revoked out from under it.
+      expect(revokeSpy).not.toHaveBeenCalledWith(docPreviewUrl);
+      expect(getStore().documentAttachments).toHaveLength(1);
+      expect(getStore().documentAttachments[0]).toBe(docAtt);
+    } finally {
+      revokeSpy.mockRestore();
+    }
   });
 });

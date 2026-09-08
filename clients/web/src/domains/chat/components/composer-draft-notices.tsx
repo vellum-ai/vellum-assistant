@@ -27,7 +27,7 @@ export interface ComposerDraftNoticesProps {
  * Owns the restored-draft notice lifecycle: it auto-dismisses after a few
  * seconds and clears when the active conversation no longer matches the
  * conversation whose draft was restored. That lifecycle is a "main"-slot-only
- * concern — the document composer has no draft persistence (see
+ * concern: the document composer has no draft persistence (see
  * `ComposerSlot`), so a `"document"` instance never shows the restored-draft
  * notice.
  */

@@ -1,9 +1,10 @@
 /**
- * Tests for `resolveDocumentConversationId` / `linkDocumentConversationIfNeeded`
- * — the conversation-id fallback shared by `document-viewer-page.tsx`'s
- * "Submit Feedback" and `use-document-composer-submit.ts` (LUM-3384). Uses the
- * real `edit-chat-session` (sessionStorage) and conversation-selection
- * modules; only the daemon POST is mocked.
+ * Tests for `resolveDocumentConversationId` / `persistDocumentConversationId` /
+ * `linkDocumentConversationIfNeeded`, the conversation-id fallback shared by
+ * `document-viewer-page.tsx`'s "Submit Feedback" and
+ * `use-document-composer-submit.ts`. Uses the real `edit-chat-session`
+ * (sessionStorage) and conversation-selection modules; only the daemon POST is
+ * mocked.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -22,8 +23,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 const { getEditChatConversationId } = await import("@/utils/edit-chat-session");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { linkDocumentConversationIfNeeded, resolveDocumentConversationId } =
-  await import("@/domains/chat/utils/document-conversation");
+const {
+  linkDocumentConversationIfNeeded,
+  persistDocumentConversationId,
+  resolveDocumentConversationId,
+} = await import("@/domains/chat/utils/document-conversation");
 
 const ASSISTANT_ID = "assistant-1";
 const SURFACE_ID = "surf-1";
@@ -47,9 +51,10 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("falls back to the session-cached id when the document has none", () => {
-    resolveDocumentConversationId(
-      { surfaceId: SURFACE_ID, conversationId: "conv-cached" },
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
+      "conv-cached",
     );
 
     const id = resolveDocumentConversationId(
@@ -59,19 +64,22 @@ describe("resolveDocumentConversationId", () => {
     expect(id).toBe("conv-cached");
   });
 
-  test("mints a fresh id and persists it when nothing is linked or cached", () => {
+  test("mints a fresh id without persisting it", () => {
     const id = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
     );
     expect(id).toBeTruthy();
-    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBe(id);
     expect(useConversationStore.getState().draftConversationIds.has(id)).toBe(
       true,
     );
+    // Not cached: a caller that never confirms this id is good (see
+    // `persistDocumentConversationId`) must not leave it recoverable from
+    // session storage, or the next resolution would reuse a dead draft.
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBeNull();
   });
 
-  test("a repeat resolution for the same document reuses the freshly minted id", () => {
+  test("an unpersisted resolution mints a new id every time, never reusing the last draft", () => {
     const first = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
@@ -80,7 +88,40 @@ describe("resolveDocumentConversationId", () => {
       { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
     );
+    // Nothing persisted the first id, so it left no trace to be reused: a
+    // retry after a failed send must not resend a dead cached draft id.
+    expect(second).not.toBe(first);
+  });
+
+  test("a repeat resolution reuses a minted id once it has been persisted", () => {
+    const doc = { surfaceId: SURFACE_ID, conversationId: "" };
+    const first = resolveDocumentConversationId(doc, ASSISTANT_ID);
+    persistDocumentConversationId(doc, ASSISTANT_ID, first);
+
+    const second = resolveDocumentConversationId(doc, ASSISTANT_ID);
     expect(second).toBe(first);
+  });
+});
+
+describe("persistDocumentConversationId", () => {
+  test("caches a fresh or reused id for the next resolution", () => {
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-minted",
+    );
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBe(
+      "conv-minted",
+    );
+  });
+
+  test("no-ops when the id matches the document's own conversation id", () => {
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "conv-1" },
+      ASSISTANT_ID,
+      "conv-1",
+    );
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBeNull();
   });
 });
 

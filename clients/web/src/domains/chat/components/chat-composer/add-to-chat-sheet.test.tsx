@@ -453,6 +453,23 @@ describe("AddToChatSheet: native pickers", () => {
     expect(captureErrorSpy).not.toHaveBeenCalled();
   });
 
+  test("a cancelled pick refocuses the slot the sheet was opened for", async () => {
+    // GIVEN a sheet opened from the document composer
+    mockNativePickersAvailable = true;
+    mockPickFiles = async () => {
+      throw new Error("User cancelled");
+    };
+    renderSheet({ slot: "document" });
+
+    // WHEN the files row is tapped and dismissed
+    await act(async () => {
+      fireEvent.click(screen.getByText("Files"));
+    });
+
+    // THEN focus is requested for that composer, not the default main one.
+    expect(requestComposerFocusSpy).toHaveBeenCalledWith("document");
+  });
+
   test("a failed pick is reported rather than read as a dismissal", async () => {
     // GIVEN a picker that fails for a real reason, which on iOS covers a
     // temporary-copy or unsupported-type error and here stands for any of them

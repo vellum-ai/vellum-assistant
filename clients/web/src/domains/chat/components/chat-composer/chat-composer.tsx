@@ -21,6 +21,7 @@ import {
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useCameraDeepLink } from "@/domains/chat/components/chat-attachments/use-camera-deep-link";
+import { registerComposerFocusHandler } from "@/domains/chat/composer-focus";
 import {
   type ComposerSlot,
   selectPathReferencePaths,
@@ -397,14 +398,27 @@ export function ChatComposer({
     (localId: string) => removeAttachmentAction(localId, slot),
     [removeAttachmentAction, slot],
   );
+  // A non-main instance (the document composer) registers its own textarea as
+  // that slot's focus target: a picker or sheet it opens routes its refocus
+  // through `requestComposerFocus(slot)`, and without this registration that
+  // request would have nowhere to land. The main composer keeps its existing
+  // window-event mechanism (see `composer-focus.ts`) and never registers here.
+  useEffect(() => {
+    if (slot === "main") {
+      return;
+    }
+    return registerComposerFocusHandler(slot, () => {
+      inputRef.current?.focus();
+    });
+  }, [slot, inputRef]);
   const attachmentsUploadingCount = selectUploadingCount(attachments);
   const canSendAttachments =
     attachmentsUploadingCount === 0 &&
     (selectUploadedIds(attachments).length > 0 ||
       selectPathReferencePaths(attachments).length > 0);
 
-  // Whether this composer instance offers dictation at all — the document
-  // composer (v1) omits voice wiring entirely by never passing these props.
+  // Whether this composer instance offers dictation at all: the document
+  // composer omits voice wiring entirely by never passing these props.
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
   const voicePhase = useVoiceRecordingStore.use.phase();
@@ -840,7 +854,7 @@ export function ChatComposer({
   // "is there something to send" from the same state.
   //
   // Both stores are global and un-scoped by conversation, same as
-  // `useVoiceRecordingStore` above — quoting a transcript message or pinning a
+  // `useVoiceRecordingStore` above: quoting a transcript message or pinning a
   // channel reference are chat-transcript concepts the document composer has
   // no UI to trigger, so its own read is always gated to `slot === "main"`.
   // Without the gate, a quote staged for the main composer would leak into
@@ -985,6 +999,7 @@ export function ChatComposer({
   } = useAttachmentFilePicker({
     onFiles: onAddAttachmentFiles,
     multiple: true,
+    focusSlot: slot,
   });
 
   // The camera a Home Screen widget's button asks for. Owned here for the same
@@ -1171,6 +1186,7 @@ export function ChatComposer({
     <AttachFileButton
       disabled={attachDisabled}
       onFilesSelected={onAddAttachmentFiles}
+      focusSlot={slot}
     />
   ) : (
     <AddToChatButton
@@ -1553,13 +1569,17 @@ export function ChatComposer({
 
   return (
     <>
-      {firstRunCardOpen && (
+      {showVoiceInput && firstRunCardOpen && (
         // First voice-mode entry only — the card commits prefs + starts via
         // `handleFirstRunStart`; a plain dismiss cancels without consuming the
         // first run, so it returns on the next entry. Dismissible on every
         // platform, Capacitor iOS included: the card precedes the live-voice
         // `getUserMedia` alert, and `docs/CAPACITOR.md` § OS permission requests
         // allows a pre-prompt whose decline path never reaches the gated API.
+        //
+        // `firstRunCardOpen` is a single global flag (see `isVoiceActive`
+        // above for why), so this gate is what keeps a second, voice-less
+        // composer instance from also popping the modal.
         <VoiceFirstRunCard
           assistantId={assistantId}
           onStart={handleFirstRunStart}
@@ -1908,6 +1928,7 @@ export function ChatComposer({
               onOpenChange={handleAddSheetOpenChange}
               onAttachFiles={onAddAttachmentFiles}
               onPickerOpenChange={setAddSheetPickerOpen}
+              slot={slot}
             />
           )}
         </ComposerCompactProvider>

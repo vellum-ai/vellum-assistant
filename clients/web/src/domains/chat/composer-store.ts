@@ -83,11 +83,11 @@ export type ChatAttachment =
 
 /**
  * Which composer instance a draft/attachment action targets. `"main"` is the
- * chat route's composer (the only slot that existed before LUM-3384) and is
- * the default for every action, so call sites that never pass `slot` keep
- * reading/writing exactly the state they always have. `"document"` is the
- * independent draft/attachment bucket for the composer pinned to the mobile
- * document editor (`MobileDocumentOverlay`) — a separate slot rather than a
+ * chat route's composer and is the default for every action, so call sites
+ * that never pass `slot` keep reading/writing exactly the state they always
+ * have. `"document"` is the independent draft/attachment bucket for the
+ * composer pinned to a document editor (`MobileDocumentOverlay`, and on
+ * mobile, the standalone document route): a separate slot rather than a
  * shared one, since the document composer targets a different conversation
  * than whatever the main composer is pointed at, and sharing state between
  * them would let typing in one clobber the other's in-progress draft.
@@ -223,7 +223,7 @@ function basenameOf(path: string): string {
 // ---------------------------------------------------------------------------
 
 export interface ComposerState {
-  // --- Draft input ("main" slot — the chat route composer) ---
+  // --- Draft input (the "main" slot: the chat route composer) ---
   input: string;
   /** Which conversation's draft was most recently restored (for the "Draft restored" notice). */
   restoredDraftConversationId: string | null;
@@ -232,7 +232,7 @@ export interface ComposerState {
   attachments: ChatAttachment[];
   attachmentLastError: string | null;
 
-  // --- "document" slot — the composer pinned to the mobile document editor.
+  // --- "document" slot: the composer pinned to the mobile document editor.
   // No draft persistence (`draftsMap`), no restored-draft notice: those are
   // main-composer-only concerns (see `ComposerSlot`).
   documentInput: string;
@@ -242,7 +242,7 @@ export interface ComposerState {
 
 export interface ComposerActions {
   // --- Draft input actions ---
-  /** `slot` defaults to `"main"` — every existing call site is unaffected. */
+  /** `slot` defaults to `"main"`: every existing call site is unaffected. */
   setInput: (
     value: string | ((prev: string) => string),
     slot?: ComposerSlot,
@@ -328,9 +328,11 @@ export interface ComposerActions {
   /** Clear all attachments (e.g. after successful send). Does NOT revoke
    * preview URLs — sent message bubbles still need them. */
   resetAttachments: (slot?: ComposerSlot) => void;
-  /** Clear all attachments AND revoke preview URLs (e.g. on assistant switch).
-   * "main" slot only — see `ComposerSlot`. */
-  fullReset: () => void;
+  /** Clear `slot`'s attachments AND revoke their preview URLs (e.g. on
+   * assistant switch). Only revokes URLs belonging to `slot`'s own
+   * attachments, so resetting one slot never leaves the other holding
+   * references to blob URLs that were just freed out from under it. */
+  fullReset: (slot?: ComposerSlot) => void;
   dismissAttachmentError: (slot?: ComposerSlot) => void;
 }
 
@@ -702,17 +704,19 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     setAttachmentError(set, slot, null);
   },
 
-  fullReset: () => {
+  fullReset: (slot = "main") => {
     set((s) => {
-      for (const att of s.attachments) {
+      const atts = slot === "document" ? s.documentAttachments : s.attachments;
+      for (const att of atts) {
         if (att.kind === "uploading") {
           cancelledUploads.add(att.localId);
         }
+        revokePreview(att.localId);
       }
-      return { attachments: [], attachmentLastError: null };
+      return slot === "document"
+        ? { documentAttachments: [], documentAttachmentLastError: null }
+        : { attachments: [], attachmentLastError: null };
     });
-    previewUrls.forEach((url) => URL.revokeObjectURL(url));
-    previewUrls.clear();
   },
 
   dismissAttachmentError: (slot = "main") => {

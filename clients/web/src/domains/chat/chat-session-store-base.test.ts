@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import {
   pushSseEvent,
@@ -552,5 +553,62 @@ describe("chat-session-store: switch telemetry gate", () => {
     });
 
     expect(switchAbandonReasons).toEqual([]);
+  });
+});
+
+describe("chat-session-store: composer reset on assistant switch", () => {
+  beforeEach(() => {
+    useChatSessionStore.setState({
+      previousConversationId: null,
+      previousAssistantId: null,
+      draftConversationIdResolution: false,
+    });
+    useComposerStore.setState({
+      attachments: [],
+      attachmentLastError: null,
+      documentAttachments: [],
+      documentAttachmentLastError: null,
+    });
+  });
+
+  test("an assistant switch fully resets both composer slots, not just main", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    useComposerStore.setState({
+      attachments: [
+        {
+          kind: "uploaded",
+          localId: "main-att",
+          id: "srv-main",
+          filename: "main.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "doc-att",
+          id: "srv-doc",
+          filename: "doc.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+    });
+
+    // A move to a different assistant: both slots' attachments were uploaded
+    // against the outgoing assistant and are equally dead now.
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+
+    expect(useComposerStore.getState().attachments).toHaveLength(0);
+    expect(useComposerStore.getState().documentAttachments).toHaveLength(0);
   });
 });

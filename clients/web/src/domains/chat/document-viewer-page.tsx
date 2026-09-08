@@ -19,9 +19,11 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
+import { DocumentComposerPanel } from "@/domains/chat/components/document-composer-panel";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   linkDocumentConversationIfNeeded,
+  persistDocumentConversationId,
   resolveDocumentConversationId,
 } from "@/domains/chat/utils/document-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -132,10 +134,16 @@ export function DocumentViewerPage() {
       return;
     }
 
-    // Prefer the document's original conversation — the document is already
-    // linked there, so the injector will surface the comments automatically.
-    // Fall back to session-cached conversation id for repeated feedback.
+    // Prefer the document's original conversation: it is already linked
+    // there, so the injector will surface the comments automatically. Fall
+    // back to session-cached conversation id for repeated feedback.
+    //
+    // Persisted immediately, ahead of the send this navigates into: unlike
+    // `useDocumentComposerSubmit`, this action's own job ends at navigation,
+    // with nothing here to observe whether the eventual send that materializes
+    // a fresh draft actually succeeds.
     const conversationId = resolveDocumentConversationId(doc, assistantId);
+    persistDocumentConversationId(doc, assistantId, conversationId);
     await linkDocumentConversationIfNeeded(doc, assistantId, conversationId);
 
     useViewerStore.getState().openDocument();
@@ -193,23 +201,39 @@ export function DocumentViewerPage() {
     );
   }
 
+  const viewer = (
+    <DocumentViewerContainer
+      source="document"
+      surfaceId={doc.surfaceId}
+      assistantId={assistantId}
+      conversationId={doc.conversationId}
+      documentName={doc.title}
+      content={doc.content}
+      onClose={handleClose}
+      onRenamed={(title) =>
+        setDoc((prev) => (prev ? { ...prev, title } : prev))
+      }
+      onExport={handleExport}
+      onSubmitFeedback={handleSubmitFeedback}
+      handleRef={viewerRef}
+    />
+  );
+
   return (
     <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">
-      <DocumentViewerContainer
-        source="document"
-        surfaceId={doc.surfaceId}
-        assistantId={assistantId}
-        conversationId={doc.conversationId}
-        documentName={doc.title}
-        content={doc.content}
-        onClose={handleClose}
-        onRenamed={(title) =>
-          setDoc((prev) => (prev ? { ...prev, title } : prev))
-        }
-        onExport={handleExport}
-        onSubmitFeedback={handleSubmitFeedback}
-        handleRef={viewerRef}
-      />
+      {isMobile ? (
+        <>
+          <div className="min-h-0 flex-1">{viewer}</div>
+          <DocumentComposerPanel
+            assistantId={assistantId}
+            doc={{ surfaceId: doc.surfaceId, conversationId: doc.conversationId }}
+            // eslint-disable-next-line local/no-untranslated-strings -- CSS value, not copy: the raw safe-area env() fallback for a non-overlay (plain flow) layout
+            bottomInset="env(safe-area-inset-bottom, 0px)"
+          />
+        </>
+      ) : (
+        viewer
+      )}
     </div>
   );
 }

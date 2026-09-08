@@ -76,6 +76,7 @@ function PickerProbe(props: {
   multiple?: boolean;
   accept?: string;
   capture?: boolean | "user" | "environment";
+  focusSlot?: "main" | "document";
 }) {
   const { openPicker, inputNode, pickerOpen } = useAttachmentFilePicker(props);
   return (
@@ -123,6 +124,25 @@ describe("useAttachmentFilePicker", () => {
 
     expect(onFiles).toHaveBeenCalledTimes(1);
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("defaults the refocus request to the main slot", () => {
+    const { input } = renderPicker({ onFiles: () => {} });
+
+    selectFile(input);
+
+    expect(requestComposerFocusMock).toHaveBeenCalledWith("main");
+  });
+
+  test("refocuses the slot the picker was opened for", () => {
+    const { input } = renderPicker({
+      onFiles: () => {},
+      focusSlot: "document",
+    });
+
+    selectFile(input);
+
+    expect(requestComposerFocusMock).toHaveBeenCalledWith("document");
   });
 
   test("refocuses without delivering when change carries no files", () => {

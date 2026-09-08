@@ -22,7 +22,46 @@ export const COMPOSER_FOCUS_EVENT = "vellum:focus-composer";
 
 let pending = false;
 
-export function requestComposerFocus(): void {
+/**
+ * A composer instance other than the main chat route composer (e.g. the
+ * document composer pinned to `MobileDocumentOverlay`). Registered by that
+ * instance via `registerComposerFocusHandler` so a picker/sheet it opened can
+ * route focus back to it instead of the main composer.
+ */
+export type NonMainComposerFocusSlot = "document";
+
+const slotFocusHandlers = new Map<NonMainComposerFocusSlot, () => void>();
+
+/**
+ * Register `slot`'s own focus handler (typically `() =>
+ * inputRef.current?.focus()`). Returns an unregister function, to be called
+ * on unmount or when the handler identity changes.
+ */
+export function registerComposerFocusHandler(
+  slot: NonMainComposerFocusSlot,
+  handler: () => void,
+): () => void {
+  slotFocusHandlers.set(slot, handler);
+  return () => {
+    if (slotFocusHandlers.get(slot) === handler) {
+      slotFocusHandlers.delete(slot);
+    }
+  };
+}
+
+/**
+ * Request that `slot`'s composer regain focus. Defaults to `"main"`, which
+ * keeps the existing window-event + pending-flag mechanism aimed at the chat
+ * route's composer (see the module docstring). Any other slot dispatches to
+ * its own registered handler instead, and no-ops if that slot isn't mounted.
+ */
+export function requestComposerFocus(
+  slot: NonMainComposerFocusSlot | "main" = "main",
+): void {
+  if (slot !== "main") {
+    slotFocusHandlers.get(slot)?.();
+    return;
+  }
   pending = true;
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(COMPOSER_FOCUS_EVENT));

@@ -1,16 +1,11 @@
-import { Check } from "lucide-react";
-import { useRef } from "react";
+import { useEffect } from "react";
 
-import { Typography } from "@vellumai/design-library";
-
-import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
+import { DocumentComposerPanel } from "@/domains/chat/components/document-composer-panel";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { useDocumentComposerSubmit } from "@/domains/chat/hooks/use-document-composer-submit";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
-import { useTranslation } from "@/i18n";
 import {
   useViewerStore,
   type OpenedDocumentState,
@@ -34,12 +29,13 @@ interface MobileDocumentOverlayProps {
  * **Mounting constraint**: must render inside `RootLayout`'s
  * `#viewport-overlays` portal, outside the main content wrapper.
  *
- * A db-backed document gets a `ChatComposer` pinned below the editor, wired
- * to `useDocumentComposerSubmit` and the composer store's `"document"` slot —
- * see LUM-3384. This component stays mounted for the whole chat session (its
- * parent, `MobileChatOverlays`, renders it unconditionally and it just
- * returns `null` between documents), so the submit hook's reply-toast watcher
- * survives the user closing the document before the assistant answers.
+ * A db-backed document gets a `DocumentComposerPanel` pinned below the editor
+ * (wired to the composer store's `"document"` slot; shared with the
+ * standalone document route's mobile composer). This component stays mounted
+ * for the whole chat session (its parent, `MobileChatOverlays`, renders it
+ * unconditionally and it just returns `null` between documents), so the
+ * submit hook's reply-toast watcher survives the user closing the document
+ * before the assistant answers.
  */
 export function MobileDocumentOverlay({
   openedDocumentState,
@@ -47,11 +43,9 @@ export function MobileDocumentOverlay({
   onClose,
   onSubmitFeedback,
 }: MobileDocumentOverlayProps) {
-  const { t } = useTranslation("chat");
   const shellStyle = useMobileOverlayViewportStyle();
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Called before any early return (Rules of Hooks) — narrowed to `null` for
+  // Called before any early return (Rules of Hooks): narrowed to `null` for
   // the workspace-file-preview branch, which has no `conversationId` to send
   // a message against.
   const docRef: DocumentConversationRef | null =
@@ -61,10 +55,18 @@ export function MobileDocumentOverlay({
           conversationId: openedDocumentState.conversationId,
         }
       : null;
-  const { status, submit } = useDocumentComposerSubmit({
-    assistantId,
-    doc: docRef,
-  });
+  const surfaceId = docRef?.surfaceId ?? null;
+
+  // Clear the document slot's staged text/attachments whenever the opened
+  // document changes or the overlay closes, so a draft typed for one document
+  // never carries into the next: this component stays mounted across
+  // documents (see the docstring above), so nothing else would clear it.
+  useEffect(() => {
+    return () => {
+      useComposerStore.getState().setInput("", "document");
+      useComposerStore.getState().fullReset("document");
+    };
+  }, [surfaceId]);
 
   if (!openedDocumentState || !assistantId) {
     return null;
@@ -84,8 +86,6 @@ export function MobileDocumentOverlay({
       </div>
     );
   }
-
-  const sending = status === "sending";
 
   return (
     <div className="fixed inset-x-0 z-30 flex flex-col" style={shellStyle}>
@@ -112,40 +112,11 @@ export function MobileDocumentOverlay({
           onSubmitFeedback={onSubmitFeedback}
         />
       </div>
-      <div
-        className="shrink-0 px-3 pt-2"
-        style={{ paddingBottom: "var(--overlay-safe-area-bottom)" }}
-      >
-        {status === "sent" && (
-          <div className="flex items-center justify-center gap-1 pb-1 text-[var(--content-tertiary)]">
-            <Check size={12} className="shrink-0" />
-            <Typography
-              variant="label-small-default"
-              className="text-[var(--content-tertiary)]"
-            >
-              {t("documentComposer.sent")}
-            </Typography>
-          </div>
-        )}
-        <ChatComposer
-          slot="document"
-          assistantId={assistantId}
-          inputRef={inputRef}
-          typingDisabled={sending}
-          sendDisabled={sending}
-          isAssistantBusy={false}
-          onStopGenerating={() => {}}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-          onAddAttachmentFiles={(files) => {
-            useComposerStore
-              .getState()
-              .addFiles(files, assistantId, "document");
-          }}
-        />
-      </div>
+      <DocumentComposerPanel
+        key={`document-composer:${openedDocumentState.surfaceId}`}
+        assistantId={assistantId}
+        doc={docRef}
+      />
     </div>
   );
 }

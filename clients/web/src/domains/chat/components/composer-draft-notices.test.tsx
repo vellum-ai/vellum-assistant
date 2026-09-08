@@ -87,7 +87,7 @@ describe("ComposerDraftNotices", () => {
   describe("document slot", () => {
     test("reads text/attachment state from the document slot, not main", () => {
       useComposerStore.setState({
-        // Main slot has text + an uploading attachment — must not leak in.
+        // Main slot has text + an uploading attachment: must not leak in.
         input: "main draft",
         attachments: [
           {
@@ -112,7 +112,7 @@ describe("ComposerDraftNotices", () => {
       expect(renderNotices("document")).toContain("Document attachment failed");
     });
 
-    test("never shows the restored-draft notice — no draft persistence for this slot", () => {
+    test("never shows the restored-draft notice: no draft persistence for this slot", () => {
       useConversationStore.setState({ activeConversationId: "c1" });
       useComposerStore.setState({ restoredDraftConversationId: "c1" });
       expect(renderNotices("document")).not.toContain("Draft restored");

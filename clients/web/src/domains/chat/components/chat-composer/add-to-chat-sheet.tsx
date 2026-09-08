@@ -8,7 +8,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import {
+  requestComposerFocus,
+  type NonMainComposerFocusSlot,
+} from "@/domains/chat/composer-focus";
 import {
   isPickerDismissal,
   nativeAttachmentPickersAvailable,
@@ -82,6 +85,12 @@ interface AddToChatSheetProps {
    * and snaps back as the picker dismisses.
    */
   onPickerOpenChange: (open: boolean) => void;
+  /**
+   * Which composer instance opened this sheet, so a native pick's refocus
+   * lands back on that composer instead of always the main one. Defaults to
+   * `"main"`.
+   */
+  slot?: NonMainComposerFocusSlot | "main";
 }
 
 /**
@@ -107,23 +116,27 @@ export function AddToChatSheet({
   onOpenChange,
   onAttachFiles,
   onPickerOpenChange,
+  slot = "main",
 }: AddToChatSheetProps) {
   const { t } = useTranslation("chat");
   const camera = useAttachmentFilePicker({
     onFiles: onAttachFiles,
     accept: "image/*",
     capture: "environment",
+    focusSlot: slot,
     ...RESTORE_FOCUS,
   });
   const gallery = useAttachmentFilePicker({
     onFiles: onAttachFiles,
     accept: "image/*,video/*",
     multiple: true,
+    focusSlot: slot,
     ...RESTORE_FOCUS,
   });
   const files = useAttachmentFilePicker({
     onFiles: onAttachFiles,
     multiple: true,
+    focusSlot: slot,
     ...RESTORE_FOCUS,
   });
 
@@ -237,12 +250,12 @@ export function AddToChatSheet({
           // Both are owed to a sheet that is still standing. A departed one has
           // no keyboard to take back and no row left to hold up.
           if (mountedRef.current) {
-            requestComposerFocus();
+            requestComposerFocus(slot);
             setNativePickInFlight(false);
           }
         }
       },
-    [attachPickedFile, onOpenChange, t],
+    [attachPickedFile, onOpenChange, slot, t],
   );
 
   const pickerUp =

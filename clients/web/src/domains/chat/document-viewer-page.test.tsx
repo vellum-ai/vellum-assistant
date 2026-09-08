@@ -32,6 +32,19 @@ mock.module("./components/document-viewer-container", () => ({
   DocumentViewerContainer: () => <div data-testid="viewer" />,
 }));
 
+let mockIsMobile = false;
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => mockIsMobile,
+}));
+
+let composerPanelProps: Record<string, unknown> | null = null;
+mock.module("@/domains/chat/components/document-composer-panel", () => ({
+  DocumentComposerPanel: (props: Record<string, unknown>) => {
+    composerPanelProps = props;
+    return <div data-testid="doc-composer-panel" />;
+  },
+}));
+
 const { DocumentViewerPage } = await import(
   "@/domains/chat/document-viewer-page"
 );
@@ -73,6 +86,8 @@ function unseenFor(conversationId: string): string[] {
 
 beforeEach(() => {
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
+  mockIsMobile = false;
+  composerPanelProps = null;
 });
 
 afterEach(() => {
@@ -126,6 +141,33 @@ describe("DocumentViewerPage", () => {
     renderPage("surf-1");
     await waitFor(() => {
       expect(unseenFor("conv-1")).toEqual(["surf-1"]);
+    });
+  });
+});
+
+describe("DocumentViewerPage: mobile composer", () => {
+  test("renders no document composer on desktop", async () => {
+    mockIsMobile = false;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId, queryByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+
+    expect(queryByTestId("doc-composer-panel")).toBeNull();
+  });
+
+  test("pins a document composer below the viewer on mobile", async () => {
+    mockIsMobile = true;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+    await findByTestId("doc-composer-panel");
+
+    expect(composerPanelProps?.assistantId).toBe("asst-1");
+    expect(composerPanelProps?.doc).toEqual({
+      surfaceId: "surf-1",
+      conversationId: "conv-1",
     });
   });
 });

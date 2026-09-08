@@ -9,6 +9,7 @@ import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attac
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentTile } from "@/domains/chat/components/chat-attachments/attachment-tile";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
+import type { NonMainComposerFocusSlot } from "@/domains/chat/composer-focus";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { useFailedPreviewIds } from "@/domains/chat/components/chat-attachments/use-failed-preview-ids";
 import type {
@@ -220,6 +221,12 @@ interface AttachFileButtonProps {
   onFilesSelected: (files: FileList) => void;
   /** Tooltip override; defaults to "Attach file" when unset. */
   title?: string;
+  /**
+   * Which composer instance this button's picker belongs to, so the refocus
+   * on close lands back on that composer instead of always the main one.
+   * Defaults to `"main"`.
+   */
+  focusSlot?: NonMainComposerFocusSlot | "main";
 }
 
 /**
@@ -232,12 +239,14 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   disabled = false,
   onFilesSelected,
   title,
+  focusSlot = "main",
 }) => {
   const { t } = useTranslation("chat");
   const resolvedTitle = title ?? t("chatAttachments.attachFileAria");
   const { openPicker, inputNode } = useAttachmentFilePicker({
     onFiles: onFilesSelected,
     multiple: true,
+    focusSlot,
   });
 
   return (

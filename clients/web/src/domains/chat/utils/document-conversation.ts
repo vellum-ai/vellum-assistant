@@ -4,7 +4,7 @@
  * `/documents/:surfaceId` route's "Submit Feedback" action
  * (`document-viewer-page.tsx`) and the mobile pinned document composer
  * (`use-document-composer-submit.ts`). Both need the same answer to "which
- * conversation does this document's assistant traffic belong to" — extracted
+ * conversation does this document's assistant traffic belong to": extracted
  * here so the fallback chain has exactly one owner.
  */
 import { documentsByIdConversationsPost } from "@/generated/daemon/sdk.gen";
@@ -22,25 +22,48 @@ export interface DocumentConversationRef {
 
 /**
  * Resolve the conversation a document's assistant-facing actions should
- * target, and persist the resolution so the next call for this document
- * (same assistant, same tab) reuses the same id.
+ * target.
  *
  * Fallback order: the document's own linked conversation, then the
  * session-cached id from a previous resolution (4h TTL, see
  * `edit-chat-session.ts`), then a freshly minted draft id.
+ *
+ * Deliberately does not persist the result: a caller that resolves a fresh or
+ * reused id but never successfully sends against it must not leave that id
+ * cached, or the next resolution would reuse an id the server has never heard
+ * of for the rest of the cache's TTL. Callers persist explicitly, once they
+ * know the id is good, via {@link persistDocumentConversationId}.
  */
 export function resolveDocumentConversationId(
   doc: DocumentConversationRef,
   assistantId: string,
 ): string {
-  const conversationId =
+  return (
     doc.conversationId ||
     getEditChatConversationId(assistantId, doc.surfaceId) ||
-    createDraftConversationId();
+    createDraftConversationId()
+  );
+}
 
+/**
+ * Cache a resolved conversation id for reuse by a later resolution for the
+ * same document. Call only once the id is known good: a pre-existing or
+ * previously-cached id that a send just succeeded against, or the id an
+ * assistant actually minted for a fresh draft, never speculatively.
+ *
+ * No-ops when `conversationId` matches the document's own `conversationId`:
+ * that id is already recoverable straight from the document, with nothing to
+ * cache.
+ */
+export function persistDocumentConversationId(
+  doc: DocumentConversationRef,
+  assistantId: string,
+  conversationId: string,
+): void {
+  if (conversationId === doc.conversationId) {
+    return;
+  }
   setEditChatConversationId(assistantId, doc.surfaceId, conversationId);
-
-  return conversationId;
 }
 
 /**
@@ -65,6 +88,6 @@ export async function linkDocumentConversationIfNeeded(
       throwOnError: true,
     });
   } catch {
-    // Best-effort — fails if the daemon doesn't have the route yet.
+    // Best-effort: fails if the daemon doesn't have the route yet.
   }
 }
