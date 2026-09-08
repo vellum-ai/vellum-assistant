@@ -196,6 +196,34 @@ describe("watchPluginIngressForWebhookRoutes", () => {
     unwatch();
   });
 
+  it("retries a settle that failed outside the watcher", async () => {
+    // An approval handler reconciles directly after persisting the grant. If
+    // that settle fails, the poll owns the retry even though no declaration
+    // change ever reaches the watcher.
+    writePlugin("meeting-bot");
+    let calls = 0;
+    const resolve = () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("transient");
+      }
+      return resolvePluginIngress({ workspaceDir });
+    };
+    expect(reconcilePluginWebhookRoutes(resolve)).toBe(false);
+    expect(listWebhookIngressRoutes()).toEqual([]);
+
+    const unwatch = watchPluginIngressForWebhookRoutes({
+      subscribe: () => () => {},
+      resolve,
+      refresh: () => {},
+      pollIntervalMs: 10,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(listWebhookIngressRoutes()).toHaveLength(2);
+    unwatch();
+  });
+
   it("stops reconciling once unsubscribed", async () => {
     const cache = new PluginIngressCache({ workspaceDir, ttlMs: 0 });
     watch(cache)();

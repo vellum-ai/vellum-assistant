@@ -22,6 +22,12 @@ const log = getLogger("plugin-webhook-route-sync");
  */
 const DISCOVERY_POLL_INTERVAL_MS = 60_000;
 
+// Armed by any reconcile failure or discovery change and cleared only by a
+// settle that succeeded, so the poll retries failures from every call site,
+// including an approval whose rows failed to settle after the grant was
+// already persisted.
+let routesDirty = false;
+
 /**
  * Recompute the registry's plugin rows from what `resolve` reports as
  * servable.
@@ -50,12 +56,14 @@ export function reconcilePluginWebhookRoutes(
         "Declared paths the webhook registry will not claim were skipped",
       );
     }
+    routesDirty = false;
     return true;
   } catch (err) {
     log.warn(
       { err },
       "Failed to reconcile webhook routes against plugin ingress declarations",
     );
+    routesDirty = true;
     return false;
   }
 }
@@ -88,10 +96,6 @@ export function watchPluginIngressForWebhookRoutes(opts?: {
     });
   const pollIntervalMs = opts?.pollIntervalMs ?? DISCOVERY_POLL_INTERVAL_MS;
   let pending: ReturnType<typeof setTimeout> | undefined;
-  // Set by every change notification and cleared only by a settle that
-  // succeeded, so a failed settle is retried by the poll even though the
-  // discovery fingerprint has already moved on.
-  let dirty = false;
 
   const scheduleSettle = () => {
     if (pending !== undefined) {
@@ -99,13 +103,13 @@ export function watchPluginIngressForWebhookRoutes(opts?: {
     }
     pending = setTimeout(() => {
       pending = undefined;
-      dirty = !reconcilePluginWebhookRoutes(resolve);
+      reconcilePluginWebhookRoutes(resolve);
     }, 0);
     pending.unref?.();
   };
 
   const unsubscribe = subscribe(() => {
-    dirty = true;
+    routesDirty = true;
     scheduleSettle();
   });
 
@@ -115,7 +119,7 @@ export function watchPluginIngressForWebhookRoutes(opts?: {
     } catch (err) {
       log.warn({ err }, "Failed to refresh plugin ingress discovery");
     }
-    if (dirty) {
+    if (routesDirty) {
       scheduleSettle();
     }
   }, pollIntervalMs);
