@@ -23,6 +23,7 @@ import {
 
 import type { AvatarState } from "../avatar/avatar-manifest.js";
 import * as realEnsureRaster from "../avatar/ensure-raster.js";
+import * as realResvgLazy from "../avatar/resvg-lazy.js";
 
 // Captured before mock.module swaps the module so the real, fd-validated
 // read path is what the sync exercises.
@@ -63,6 +64,8 @@ mock.module("../avatar/ensure-raster.js", () => ({
 
 mock.module("../avatar/resvg-lazy.js", () => ({
   isResvgAvailable: () => mockResvgAvailable,
+  isResvgDecodableType: realResvgLazy.isResvgDecodableType,
+  RESVG_DECODABLE_TYPES: realResvgLazy.RESVG_DECODABLE_TYPES,
   getResvg: () =>
     class {
       constructor(svg: string) {

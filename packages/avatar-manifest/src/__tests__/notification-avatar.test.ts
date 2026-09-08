@@ -119,6 +119,18 @@ describe("notificationAvatarSvg", () => {
     });
   });
 
+  test("carries a non-PNG inner raster with its own media type", () => {
+    const svg = notificationAvatarSvg({
+      innerPngBase64: PNG_BASE64,
+      innerMediaType: "image/jpeg",
+      accentHex: "#E9642F",
+    });
+
+    const image = attributes("image", svg);
+    expect(image.href).toBe(`data:image/jpeg;base64,${PNG_BASE64}`);
+    expect(image["xlink:href"]).toBe(image.href);
+  });
+
   test("paints the fallback disc when there is no accent", () => {
     const svg = notificationAvatarSvg({
       innerPngBase64: PNG_BASE64,
