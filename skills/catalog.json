@@ -1060,7 +1060,9 @@
           "display-name": "Vellum Client Capabilities",
           "activation-hints": [
             "asked to use the user's current location, GPS, or device position",
-            "whether the app can access a device sensor, permission, or hardware feature"
+            "whether the app can access a device sensor, permission, or hardware feature",
+            "browsing failed, timed out, or could not reach a page that needs a login",
+            "whether to install the desktop app or Chrome extension"
           ],
           "avoid-when": [
             "the user already gave a location as text (just use it)"
