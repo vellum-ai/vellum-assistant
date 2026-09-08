@@ -19,6 +19,12 @@ import {
 } from "./hotkey-helper";
 import { handle } from "./ipc";
 import log from "./logger";
+import {
+  getNotifier,
+  requestNotifierAuthorization,
+  type Notifier,
+  type NotifierAuthorizationResult,
+} from "./notifier";
 
 export const PERMISSION_KINDS = [
   "accessibility",
@@ -121,13 +127,26 @@ const settingsPaneUrl = (kind: PermissionKind): string => {
   )}`;
 };
 
+// A permission prompt waits on the user, so give them time to answer before
+// the outcome is called unknown.
+const NOTIFICATION_PROMPT_TIMEOUT_MS = 30_000;
+
+// The native notifier owns the notification center whenever it is loaded, and
+// `electron.Notification.isSupported()` alone builds Electron's presenter,
+// which takes the center's delegate. Ask the addon instead.
+const initialNotificationStatus = (): PermissionStatus => {
+  const notifier = getNotifier();
+  const supported = notifier
+    ? notifier.isSupported()
+    : Notification.isSupported();
+  return supported ? "unknown" : "restricted";
+};
+
 export class PermissionsService {
   private lastStateJson: string | null = null;
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
   private automationStatus: PermissionStatus = "unknown";
-  private notificationStatus: PermissionStatus = Notification.isSupported()
-    ? "unknown"
-    : "restricted";
+  private notificationStatus: PermissionStatus = initialNotificationStatus();
 
   async state(sender?: WebContents): Promise<PermissionsState> {
     const entries = await Promise.all(
@@ -289,6 +308,42 @@ export class PermissionsService {
   }
 
   private requestNotifications(_sender?: WebContents): Promise<void> {
+    const notifier = getNotifier();
+    if (notifier) {
+      return this.requestNativeNotifications(notifier);
+    }
+    return this.requestElectronNotifications();
+  }
+
+  // The addon prompts through UNUserNotificationCenter directly. Probing with
+  // `electron.Notification` here would build Electron's presenter, which takes
+  // the notification center's delegate, and clicks on notifications the addon
+  // already delivered would stop reaching the app.
+  private async requestNativeNotifications(notifier: Notifier): Promise<void> {
+    if (!notifier.isSupported()) {
+      this.notificationStatus = "restricted";
+      return;
+    }
+    const result = await new Promise<NotifierAuthorizationResult | null>(
+      (resolve) => {
+        const timeout = setTimeout(() => {
+          resolve(null);
+        }, NOTIFICATION_PROMPT_TIMEOUT_MS);
+        timeout.unref?.();
+        void requestNotifierAuthorization().then((value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        });
+      },
+    );
+    if (result === null) {
+      this.notificationStatus = "unknown";
+      return;
+    }
+    this.notificationStatus = result.granted ? "granted" : "denied";
+  }
+
+  private requestElectronNotifications(): Promise<void> {
     if (!Notification.isSupported()) {
       this.notificationStatus = "restricted";
       return Promise.resolve();
@@ -313,7 +368,7 @@ export class PermissionsService {
 
       timeout = setTimeout(() => {
         settle("unknown");
-      }, 30_000);
+      }, NOTIFICATION_PROMPT_TIMEOUT_MS);
       timeout.unref?.();
 
       notification.once("show", () => settle("granted"));

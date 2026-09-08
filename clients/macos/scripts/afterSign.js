@@ -9,13 +9,18 @@ const fs = require("fs");
 const path = require("path");
 const { Arch } = require("builder-util");
 const { findIdentity } = require("app-builder-lib/out/codeSign/macCodeSign");
+const {
+  deriveCommunicationEntitlements,
+} = require("./entitlements/derive-communication-entitlements");
 
 function getConfiguredQualifier(options) {
   if (options.identity !== undefined) {
     return options.identity;
   }
 
-  return process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || undefined;
+  return (
+    process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || undefined
+  );
 }
 
 function getCertificateTypes(isDevelopment) {
@@ -64,7 +69,7 @@ async function resolveSigningIdentity(context) {
 
   if (identity == null) {
     throw new Error(
-      "afterSign: unable to resolve the macOS signing identity that electron-builder used"
+      "afterSign: unable to resolve the macOS signing identity that electron-builder used",
     );
   }
 
@@ -136,6 +141,31 @@ exports.default = async function afterSign(context) {
     ? path.join(binDir, `${helperAppName}.app`)
     : path.join(binDir, "vellum-mac-helper.app");
 
+  // The notifier addon is packed per architecture under bin/notifier/<arch>/,
+  // so collect whatever architectures this build shipped.
+  const notifierAddons = [];
+  const notifierDir = path.join(binDir, "notifier");
+  if (fs.existsSync(notifierDir)) {
+    for (const archEntry of fs.readdirSync(notifierDir, {
+      withFileTypes: true,
+    })) {
+      if (!archEntry.isDirectory()) {
+        continue;
+      }
+      const archDir = path.join(notifierDir, archEntry.name);
+      for (const file of fs.readdirSync(archDir)) {
+        if (!file.endsWith(".node")) {
+          continue;
+        }
+        notifierAddons.push({
+          name: `notifier/${archEntry.name}/${file}`,
+          path: path.join(archDir, file),
+          entitlements: path.join(entitlementsDir, "inherit.plist"),
+        });
+      }
+    }
+  }
+
   const executables = [
     {
       name: "bun",
@@ -147,26 +177,34 @@ exports.default = async function afterSign(context) {
       path: helperAppPath,
       entitlements: path.join(entitlementsDir, "helper.plist"),
     },
+    ...notifierAddons,
   ];
 
   for (const executable of executables) {
     if (!fs.existsSync(executable.path)) {
       console.warn(
-        `afterSign: ${executable.name} not found at ${executable.path}, skipping codesign`
+        `afterSign: ${executable.name} not found at ${executable.path}, skipping codesign`,
       );
       continue;
     }
 
     console.log(
-      `afterSign: codesigning ${executable.name} with identity="${identity.name}"`
+      `afterSign: codesigning ${executable.name} with identity="${identity.name}"`,
     );
     codesign(executable.path, executable.entitlements, identity);
   }
 
   console.log(
-    `afterSign: re-signing ${productName}.app with identity="${identity.name}"`
+    `afterSign: re-signing ${productName}.app with identity="${identity.name}"`,
   );
-  codesign(appDir, path.join(entitlementsDir, "app.plist"), identity);
+  // Mirrors electron-builder.config.cjs: a build with a provisioning profile
+  // carries the restricted Communication Notifications entitlement, and every
+  // other build must not. Deriving here rather than reading a checked-in copy
+  // keeps this pass on the same entitlement set electron-builder signed with.
+  const appEntitlements = process.env.VELLUM_MAC_PROVISIONING_PROFILE
+    ? deriveCommunicationEntitlements()
+    : path.join(entitlementsDir, "app.plist");
+  codesign(appDir, appEntitlements, identity);
 };
 
 exports.__resolveSigningIdentityForTesting = resolveSigningIdentity;

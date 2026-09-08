@@ -211,6 +211,8 @@
         "electron": "42.2.0",
         "electron-builder": "26.8.1",
         "electron-vite": "5.0.0",
+        "node-addon-api": "8.9.0",
+        "node-gyp": "12.4.0",
         "typescript": "5.9.3",
         "vite": "7.3.3",
       },
