@@ -4,9 +4,11 @@ import {
   NOTIFICATION_AVATAR_FALLBACK_DISC_HEX,
   NOTIFICATION_AVATAR_INSET,
   NOTIFICATION_AVATAR_MAX_BYTES,
+  NOTIFICATION_AVATAR_MAX_LOCAL_BYTES,
   NOTIFICATION_AVATAR_SIZE,
   NOTIFICATION_AVATAR_SPEC_VERSION,
   notificationAvatarDiscHex,
+  notificationAvatarGeometry,
   notificationAvatarSvg,
 } from "../notification-avatar.js";
 
@@ -161,9 +163,54 @@ describe("notificationAvatarSvg", () => {
   });
 });
 
+describe("notificationAvatarGeometry", () => {
+  test("derives the disc, the border and the avatar edge from the size", () => {
+    expect(notificationAvatarGeometry(100)).toEqual({
+      radius: 50,
+      offset: 11,
+      inner: 78,
+    });
+  });
+
+  test("measures the default size when given none", () => {
+    expect(notificationAvatarGeometry()).toEqual(
+      notificationAvatarGeometry(NOTIFICATION_AVATAR_SIZE),
+    );
+  });
+
+  test("is the geometry the SVG is drawn with", () => {
+    const size = 100;
+    const { radius, offset, inner } = notificationAvatarGeometry(size);
+    const svg = notificationAvatarSvg({
+      innerPngBase64: PNG_BASE64,
+      accentHex: null,
+      size,
+    });
+
+    expect(attributes("circle", svg)).toMatchObject({
+      cx: String(radius),
+      cy: String(radius),
+      r: String(radius),
+    });
+    expect(attributes("image", svg)).toMatchObject({
+      x: String(offset),
+      y: String(offset),
+      width: String(inner),
+      height: String(inner),
+    });
+  });
+});
+
 describe("the transport contract", () => {
-  test("caps a notification PNG at 128 KB", () => {
+  test("caps a notification PNG at 128 KB for the platform sync", () => {
     expect(NOTIFICATION_AVATAR_MAX_BYTES).toBe(128 * 1024);
+  });
+
+  test("gives the local desktop path a looser cap of its own", () => {
+    expect(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES).toBe(512 * 1024);
+    expect(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES).toBeGreaterThan(
+      NOTIFICATION_AVATAR_MAX_BYTES,
+    );
   });
 
   test("stamps the drawing with a spec version", () => {

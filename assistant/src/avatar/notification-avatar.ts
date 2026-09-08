@@ -15,8 +15,10 @@
  * Best-effort throughout: a missing raster, an undecodable upload, a missing
  * native rasterizer, or a render too heavy to fit the cap yields null so
  * callers keep whatever the platform already holds rather than blanking it.
+ * A WebP upload is transcoded to PNG first, since resvg has no decoder for it.
  */
 
+import type { NotificationAvatarMediaType } from "@vellumai/avatar-manifest/notification-avatar";
 import {
   NOTIFICATION_AVATAR_MAX_BYTES,
   NOTIFICATION_AVATAR_SIZE,
@@ -52,14 +54,43 @@ export function resolveNotificationAccentHex(
   return null;
 }
 
+async function importSharp() {
+  const { default: sharp } = await import("sharp");
+  return sharp;
+}
+
+type SharpFactory = Awaited<ReturnType<typeof importSharp>>;
+
+let sharpFactory: SharpFactory | null | undefined;
+
+/**
+ * The image codec, or null where the optional native dependency is missing.
+ * Loaded lazily and remembered, so the availability check the sync's dedupe
+ * key asks for costs one import at most.
+ */
+async function getSharp(): Promise<SharpFactory | null> {
+  if (sharpFactory === undefined) {
+    try {
+      sharpFactory = await importSharp();
+    } catch (err) {
+      log.warn({ err }, "sharp is unavailable; avatar transcoding is off");
+      sharpFactory = null;
+    }
+  }
+  return sharpFactory;
+}
+
 /**
  * Re-encodes an oversized render as a 256-colour palette PNG. A photographic
  * upload is the only thing that reaches the cap, and quantising it is far
- * cheaper for the wire than the ~200 KB of noise a truecolour PNG keeps.
+ * cheaper for the wire than the truecolour PNG's per-pixel noise.
  */
 async function quantize(png: Buffer): Promise<Buffer | null> {
+  const sharp = await getSharp();
+  if (!sharp) {
+    return null;
+  }
   try {
-    const { default: sharp } = await import("sharp");
     return await sharp(png, { failOn: "error" })
       .png({ palette: true, quality: 80 })
       .toBuffer();
@@ -70,11 +101,83 @@ async function quantize(png: Buffer): Promise<Buffer | null> {
 }
 
 /**
+ * How a sniffed raster reaches resvg. resvg has no WebP decoder and renders
+ * such an `<image>` href blank, so a WebP upload (which the upload route
+ * accepts) has to go through sharp first; anything else it cannot decode has
+ * nowhere to go.
+ */
+type ResvgRoute =
+  | { via: "href"; mediaType: NotificationAvatarMediaType }
+  | { via: "transcode" }
+  | { via: "none"; mediaType: string | null };
+
+function routeRaster(bytes: Buffer): ResvgRoute {
+  const mediaType = detectMediaType(bytes);
+  if (isResvgDecodableType(mediaType)) {
+    return { via: "href", mediaType };
+  }
+  if (mediaType === "image/webp") {
+    return { via: "transcode" };
+  }
+  return { via: "none", mediaType };
+}
+
+interface ResvgSource {
+  bytes: Buffer;
+  mediaType: NotificationAvatarMediaType;
+}
+
+/** The raster in a form resvg can draw, or null when there is none. */
+async function toResvgSource(bytes: Buffer): Promise<ResvgSource | null> {
+  const route = routeRaster(bytes);
+  if (route.via === "href") {
+    return { bytes, mediaType: route.mediaType };
+  }
+  if (route.via === "none") {
+    log.warn(
+      { mediaType: route.mediaType },
+      "Avatar raster format is not decodable by resvg; skipping the notification avatar",
+    );
+    return null;
+  }
+  const sharp = await getSharp();
+  if (!sharp) {
+    return null;
+  }
+  try {
+    const png = await sharp(bytes, { failOn: "error" }).png().toBuffer();
+    return { bytes: png, mediaType: "image/png" };
+  } catch (err) {
+    log.warn({ err }, "Could not transcode the WebP avatar to PNG");
+    return null;
+  }
+}
+
+/**
+ * Whether a disc can be drawn for `raster` right now: the native rasterizer is
+ * present and the source is one it can decode, directly or through a
+ * transcode. Answered without rendering, so the platform sync can fold it into
+ * a dedupe key and re-upload once a missing rasterizer or codec appears
+ * instead of latching the sync that shipped no disc.
+ */
+export async function canRenderNotificationAvatar(
+  raster: Buffer,
+): Promise<boolean> {
+  if (!isResvgAvailable()) {
+    return false;
+  }
+  const route = routeRaster(raster);
+  if (route.via === "href") {
+    return true;
+  }
+  return route.via === "transcode" && (await getSharp()) !== null;
+}
+
+/**
  * Renders the current avatar as a 256x256 notification PNG whose corners are
  * transparent by design, or null when there is no avatar, its raster is
- * unreadable or in a format resvg cannot decode (a WebP upload), the native
- * rasterizer is unavailable, or the result will not fit
- * `NOTIFICATION_AVATAR_MAX_BYTES`.
+ * unreadable or in a format nothing here can decode, the native rasterizer is
+ * unavailable, or the result will not fit `NOTIFICATION_AVATAR_MAX_BYTES`.
  *
  * `raster` short-circuits the avatar-raster lookup for a caller that already
  * holds the bytes; without it the raster is resolved from `state`.
@@ -90,12 +193,8 @@ export async function renderNotificationAvatarPng(
   if (!bytes) {
     return null;
   }
-  const mediaType = detectMediaType(bytes);
-  if (!isResvgDecodableType(mediaType)) {
-    log.warn(
-      { mediaType },
-      "Avatar raster format is not decodable by resvg; skipping the notification avatar",
-    );
+  const source = await toResvgSource(bytes);
+  if (!source) {
     return null;
   }
 
@@ -104,8 +203,8 @@ export async function renderNotificationAvatarPng(
     const Resvg = getResvg();
     const resvg = new Resvg(
       notificationAvatarSvg({
-        innerPngBase64: bytes.toString("base64"),
-        innerMediaType: mediaType,
+        innerPngBase64: source.bytes.toString("base64"),
+        innerMediaType: source.mediaType,
         accentHex: resolveNotificationAccentHex(state),
       }),
       { fitTo: { mode: "width", value: NOTIFICATION_AVATAR_SIZE } },

@@ -19,11 +19,15 @@
  * re-render unavailable) is skipped so the platform keeps the last synced
  * copy.
  * The same PATCH carries `notification_avatar_base64`, the disc render the
- * push pipeline shows as the sender. The dedup key carries the accent and
- * `NOTIFICATION_AVATAR_SPEC_VERSION` rather than the render's digest, so a
- * change to the disc spec still re-uploads an unchanged raster without the
- * key costing a render on every enqueue; the render itself happens inside the
- * lazy body, only for a payload that is actually going out.
+ * push pipeline shows as the sender. The dedup key carries the accent,
+ * `NOTIFICATION_AVATAR_SPEC_VERSION` and whether a disc can be drawn at all,
+ * rather than the render's digest, so a change to the disc spec still
+ * re-uploads an unchanged raster without the key costing a render on every
+ * enqueue; the render itself happens inside the lazy body, only for a payload
+ * that is actually going out. Folding in the render availability is what
+ * keeps a sync that shipped only `avatar_base64` (no native rasterizer, no
+ * codec for the source) from latching for the key's whole lifetime: the key
+ * changes the moment the cause clears, so the disc goes up on the next sync.
  * When the render is unavailable the key is omitted rather than nulled, so
  * the platform keeps the copy it holds.
  */
@@ -32,10 +36,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import {
-  NOTIFICATION_AVATAR_MAX_BYTES,
-  NOTIFICATION_AVATAR_SPEC_VERSION,
-} from "@vellumai/avatar-manifest/notification-avatar";
+import { NOTIFICATION_AVATAR_SPEC_VERSION } from "@vellumai/avatar-manifest/notification-avatar";
 
 import { readAvatarState } from "../avatar/avatar-manifest.js";
 import {
@@ -43,6 +44,7 @@ import {
   readContainedAvatarRaster,
 } from "../avatar/ensure-raster.js";
 import {
+  canRenderNotificationAvatar,
   renderNotificationAvatarPng,
   resolveNotificationAccentHex,
 } from "../avatar/notification-avatar.js";
@@ -154,8 +156,9 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   // Keyed on content so a same-size, same-mtime rewrite still re-syncs.
   const digest = sha256(bytes);
   const accentHex = resolveNotificationAccentHex(state);
+  const disc = (await canRenderNotificationAvatar(bytes)) ? "disc" : NONE_KEY;
   return {
-    key: `${state.kind}:${digest}:${NOTIFICATION_AVATAR_SPEC_VERSION}:${accentHex ?? NONE_KEY}`,
+    key: `${state.kind}:${digest}:${NOTIFICATION_AVATAR_SPEC_VERSION}:${accentHex ?? NONE_KEY}:${disc}`,
     body: async () => {
       const encoded = encodeForUpload(bytes);
       if (encoded === undefined) {
@@ -167,13 +170,6 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
       }
       const notification = await renderNotificationAvatarPng(state, bytes);
       if (!notification) {
-        return { avatar_base64: encoded };
-      }
-      if (notification.length > NOTIFICATION_AVATAR_MAX_BYTES) {
-        log.warn(
-          { bytes: notification.length, cap: NOTIFICATION_AVATAR_MAX_BYTES },
-          "Notification avatar exceeds the contract cap; omitting it from the sync",
-        );
         return { avatar_base64: encoded };
       }
       return {

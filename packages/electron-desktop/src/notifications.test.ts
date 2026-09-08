@@ -165,6 +165,12 @@ const showHandler = (): HandleRegistration => {
 const show = (payload: Record<string, unknown>): Promise<ShowResult> =>
   showHandler().fn([payload]) as Promise<ShowResult>;
 
+/** What the boundary hands the handler, for asserting on what survived it. */
+const parseShowPayload = (
+  payload: Record<string, unknown>,
+): Record<string, unknown> =>
+  showHandler().schema.parse([payload])[0] as Record<string, unknown>;
+
 const BASE_TIME = new Date("2026-06-05T12:00:00.000Z").getTime();
 const at = (msOffset: number) => setSystemTime(new Date(BASE_TIME + msOffset));
 
@@ -434,45 +440,49 @@ describe("sender", () => {
     setPlatform(realPlatform);
   });
 
-  test("the captured schema accepts a sender and rejects a partial one", () => {
-    const { schema } = showHandler();
-    expect(() =>
-      schema.parse([
-        { category: "notificationIntent", title: "t", body: "b", sender },
-      ]),
-    ).not.toThrow();
-    expect(() =>
-      schema.parse([
-        {
-          category: "notificationIntent",
-          title: "t",
-          body: "b",
-          sender: { id: "assistant-1", name: "Aria" },
-        },
-      ]),
-    ).toThrow();
+  test("the captured schema accepts a sender and drops a partial one", () => {
+    expect(
+      parseShowPayload({
+        category: "notificationIntent",
+        title: "t",
+        body: "b",
+        sender,
+      }).sender,
+    ).toEqual(sender);
+    // The banner is worth more than its decoration, and `handle()` rejects the
+    // renderer's call on a parse failure, so a malformed sender is dropped and
+    // the notification posts with the app icon.
+    expect(
+      parseShowPayload({
+        category: "notificationIntent",
+        title: "t",
+        body: "b",
+        sender: { id: "assistant-1", name: "Aria" },
+      }),
+    ).toEqual({
+      category: "notificationIntent",
+      title: "t",
+      body: "b",
+      sender: undefined,
+    });
   });
 
-  test("the captured schema rejects a hash that is not a SHA-256", () => {
+  test("the captured schema drops a hash that is not a SHA-256", () => {
     // The hash names the avatar's cache file, so a value that is not 64
-    // lowercase hex characters has to be refused here rather than reaching the
-    // file the host writes.
-    const { schema } = showHandler();
+    // lowercase hex characters must never reach the file the host writes.
     for (const avatarHash of [
       "sha256-abc",
       "../escape",
       AVATAR_HASH.toUpperCase(),
     ]) {
-      expect(() =>
-        schema.parse([
-          {
-            category: "notificationIntent",
-            title: "t",
-            body: "b",
-            sender: { ...sender, avatarHash },
-          },
-        ]),
-      ).toThrow();
+      expect(
+        parseShowPayload({
+          category: "notificationIntent",
+          title: "t",
+          body: "b",
+          sender: { ...sender, avatarHash },
+        }).sender,
+      ).toBeUndefined();
     }
   });
 

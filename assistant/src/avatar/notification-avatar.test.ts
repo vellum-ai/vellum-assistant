@@ -17,7 +17,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { NOTIFICATION_AVATAR_MAX_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
 import sharp from "sharp";
 
-import { renderNotificationAvatarPng } from "./notification-avatar.js";
+import {
+  canRenderNotificationAvatar,
+  renderNotificationAvatarPng,
+} from "./notification-avatar.js";
 import { renderCharacterPng } from "./png-renderer.js";
 import {
   __resetResvgCacheForTests,
@@ -245,14 +248,44 @@ describe("renderNotificationAvatarPng", () => {
   );
 
   nativeTest(
-    "returns null for an upload resvg cannot decode",
+    "transcodes a WebP upload, which resvg cannot decode on its own",
     async () => {
       await writeUpload("webp", null);
 
-      expect(await renderNotificationAvatarPng()).toBeNull();
+      const png = await renderNotificationAvatarPng();
+      expect(png).not.toBeNull();
+
+      const image = await pixels(png!);
+      expect(image.at(CORNER.x, CORNER.y).a).toBe(0);
+      expect(image.at(DISC_SAMPLE.x, DISC_SAMPLE.y)).toEqual({
+        ...FALLBACK_DISC,
+        a: 255,
+      });
+      // WebP is lossy, so the transcode moves the flat fill by a channel step
+      // or two; what matters is that the avatar is drawn at all.
+      const centre = image.at(128, 128);
+      expect(centre.a).toBe(255);
+      for (const [actual, expected] of [
+        [centre.r, 0x20],
+        [centre.g, 0x60],
+        [centre.b, 0xc0],
+      ]) {
+        expect(Math.abs(actual! - expected!)).toBeLessThanOrEqual(4);
+      }
     },
     NATIVE_RENDER_TEST_TIMEOUT_MS,
   );
+
+  test("returns null for a raster in no image format at all", async () => {
+    writeUploadManifest(null);
+
+    expect(
+      await renderNotificationAvatarPng(
+        undefined,
+        Buffer.from("not an image at all, just some bytes"),
+      ),
+    ).toBeNull();
+  });
 
   nativeTest(
     "keeps a photographic upload inside the byte cap or gives up",
@@ -326,5 +359,62 @@ describe("renderNotificationAvatarPng", () => {
     });
 
     expect(await renderNotificationAvatarPng()).toBeNull();
+  });
+});
+
+/**
+ * The platform sync folds this answer into its dedup key, so it has to be
+ * true exactly when a disc would come out, and it has to say so without
+ * rendering one.
+ */
+describe("canRenderNotificationAvatar", () => {
+  const webp = async () =>
+    sharp({
+      create: {
+        width: 8,
+        height: 8,
+        channels: 4,
+        background: { r: 0x20, g: 0x60, b: 0xc0, alpha: 1 },
+      },
+    })
+      .webp()
+      .toBuffer();
+
+  afterEach(() => {
+    __resetResvgCacheForTests();
+  });
+
+  nativeTest("says yes for a PNG resvg draws directly", async () => {
+    expect(
+      await canRenderNotificationAvatar(
+        renderCharacterPng(TRAITS.bodyShape, TRAITS.eyeStyle, TRAITS.color),
+      ),
+    ).toBe(true);
+  });
+
+  nativeTest("says yes for a WebP, which sharp transcodes", async () => {
+    expect(await canRenderNotificationAvatar(await webp())).toBe(true);
+  });
+
+  // The raster is drawn before the cache is forced, since drawing it needs the
+  // same binding this case takes away.
+  nativeTest("says no without the native rasterizer", async () => {
+    const raster = renderCharacterPng(
+      TRAITS.bodyShape,
+      TRAITS.eyeStyle,
+      TRAITS.color,
+    );
+    __setResvgCacheForTests({
+      available: false,
+      error: new Error("Cannot require module @resvg/resvg-js-darwin-x64"),
+    });
+
+    expect(await canRenderNotificationAvatar(raster)).toBe(false);
+  });
+
+  nativeTest("says no for bytes in no image format at all", async () => {
+    expect(
+      await canRenderNotificationAvatar(Buffer.from("just some bytes here")),
+    ).toBe(false);
   });
 });

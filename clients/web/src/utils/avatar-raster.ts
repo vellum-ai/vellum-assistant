@@ -14,9 +14,9 @@
  */
 
 import {
-  NOTIFICATION_AVATAR_INSET,
   NOTIFICATION_AVATAR_SIZE,
   notificationAvatarDiscHex,
+  notificationAvatarGeometry,
 } from "@vellumai/avatar-manifest/notification-avatar";
 
 /**
@@ -189,7 +189,7 @@ export async function rasterizeNotificationAvatar(
   }
   const { canvas, ctx } = surface;
 
-  const radius = size / 2;
+  const { radius, offset, inner } = notificationAvatarGeometry(size);
   const discPath = (): void => {
     ctx.beginPath();
     ctx.arc(radius, radius, radius, 0, Math.PI * 2);
@@ -205,8 +205,7 @@ export async function rasterizeNotificationAvatar(
   ctx.save();
   discPath();
   ctx.clip();
-  const inset = size * NOTIFICATION_AVATAR_INSET;
-  drawCoverSquare(ctx, image, inset, inset, size - 2 * inset);
+  drawCoverSquare(ctx, image, offset, offset, inner);
   ctx.restore();
 
   return encodeCanvas(canvas, "image/png");

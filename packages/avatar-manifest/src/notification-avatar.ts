@@ -26,10 +26,22 @@ export const NOTIFICATION_AVATAR_INSET = 0.11;
 export const NOTIFICATION_AVATAR_FALLBACK_DISC_HEX = "#ECEFEA";
 
 /** How much of the accent survives the mix into white. */
-export const NOTIFICATION_AVATAR_ACCENT_MIX = 0.14;
+const ACCENT_MIX = 0.14;
 
-/** Largest notification PNG any consumer accepts, in bytes. */
+/**
+ * Largest notification PNG the platform sync ships, in bytes. It bounds the
+ * push transports: an APNs payload and an FCM message both carry the disc, and
+ * a photographic avatar is quantised (or dropped) to fit.
+ */
 export const NOTIFICATION_AVATAR_MAX_BYTES = 128 * 1024;
+
+/**
+ * Largest notification PNG the local desktop path carries, in bytes. The
+ * renderer composites the disc, hands it to the Electron host over IPC and the
+ * host caches it on disk, so nothing crosses a push transport and a
+ * photographic avatar that renders past the sync cap still shows.
+ */
+export const NOTIFICATION_AVATAR_MAX_LOCAL_BYTES = 512 * 1024;
 
 /**
  * Bumped whenever the drawing above changes, so a sync keyed on it re-uploads
@@ -52,7 +64,7 @@ export function notificationAvatarDiscHex(accentHex: string | null): string {
   const rgb = parseInt(accentHex.slice(1), 16);
   const mixed = (shift: number) => {
     const channel = (rgb >> shift) & 0xff;
-    return Math.round(255 + (channel - 255) * NOTIFICATION_AVATAR_ACCENT_MIX)
+    return Math.round(255 + (channel - 255) * ACCENT_MIX)
       .toString(16)
       .padStart(2, "0");
   };
@@ -64,6 +76,19 @@ export type NotificationAvatarMediaType =
   | "image/png"
   | "image/jpeg"
   | "image/gif";
+
+/**
+ * The three measurements the drawing derives from the edge: the disc's radius,
+ * which is also its centre; the free border around the avatar; and the
+ * avatar's own edge. Every rasterizer reads them from here, so the daemon's
+ * SVG and the desktop canvas cannot drift.
+ */
+export function notificationAvatarGeometry(
+  size: number = NOTIFICATION_AVATAR_SIZE,
+): { radius: number; offset: number; inner: number } {
+  const offset = size * NOTIFICATION_AVATAR_INSET;
+  return { radius: size / 2, offset, inner: size - 2 * offset };
+}
 
 export interface NotificationAvatarSvgOptions {
   /** The avatar raster to draw inside the disc, base64 with no data prefix. */
@@ -98,9 +123,7 @@ export function notificationAvatarSvg({
   accentHex,
   size = NOTIFICATION_AVATAR_SIZE,
 }: NotificationAvatarSvgOptions): string {
-  const offset = size * NOTIFICATION_AVATAR_INSET;
-  const inner = size - 2 * offset;
-  const radius = size / 2;
+  const { radius, offset, inner } = notificationAvatarGeometry(size);
   const href = `data:${innerMediaType};base64,${innerPngBase64}`;
   const disc = `cx="${px(radius)}" cy="${px(radius)}" r="${px(radius)}"`;
   return (
