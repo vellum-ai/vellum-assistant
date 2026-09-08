@@ -7,21 +7,16 @@
  * `calendar.events`, the minimum to create an event, instead of the full
  * Gmail+Calendar+Drive bundle) and an `onConnect(scopes)` callback.
  *
- * The popup lifecycle, the three completion channels (postMessage, storage,
- * native deep link), the native `SFSafariViewController` path and the
- * connection reconciliation all live in `connectManagedOAuthProvider`, which
- * every entry point shares.
+ * The connect flow itself lives in `useManagedOAuthConnect`, which every entry
+ * point shares. This hook adds only what the check-in page needs: a narrowed
+ * scope set and a callback carrying the scopes actually granted.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
-import { connectManagedOAuthProvider } from "@/lib/auth/managed-oauth";
-import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
-import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
 import { t } from "@/i18n";
-import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
 const GOOGLE_PROVIDER_KEY = "google";
 
@@ -63,6 +58,11 @@ interface UseGoogleCalendarConnectOptions {
 
 interface UseGoogleCalendarConnectResult {
   handleConnect: () => void;
+  /**
+   * Abandon an authorization in progress. The window cannot be observed, so
+   * this is the only way an attempt ends short of completing.
+   */
+  cancelConnect: () => void;
   oauthInProgress: boolean;
 }
 
@@ -71,8 +71,13 @@ export function useGoogleCalendarConnect({
   requestedScopes = GOOGLE_CALENDAR_CONNECT_SCOPES,
   onConnect,
 }: UseGoogleCalendarConnectOptions): UseGoogleCalendarConnectResult {
-  const queryClient = useQueryClient();
-  const [oauthInProgress, setOAuthInProgress] = useState(false);
+  const providerLabel = t("googleCalendar.providerLabel", { ns: "onboarding" });
+  const connect = useManagedOAuthConnect({
+    assistantId,
+    providerKey: GOOGLE_PROVIDER_KEY,
+    providerLabel,
+    requestedScopes,
+  });
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -82,56 +87,25 @@ export function useGoogleCalendarConnect({
     };
   }, []);
 
-  const handleConnect = useCallback(() => {
-    setOAuthInProgress(true);
-    const providerLabel = t("googleCalendar.providerLabel", {
-      ns: "onboarding",
-    });
+  // A connection can land after the user has moved on through the top nav,
+  // and `onConnect` schedules the check-in and navigates, so it runs only
+  // while this screen is mounted.
+  const { status, connection, errorMessage } = connect;
+  useEffect(() => {
+    if (status === "connected" && mountedRef.current) {
+      onConnect(connection?.scopes_granted ?? []);
+    }
+  }, [connection, onConnect, status]);
 
-    const releaseBusyState = () => {
-      if (mountedRef.current) {
-        setOAuthInProgress(false);
-      }
-    };
+  useEffect(() => {
+    if (errorMessage && mountedRef.current) {
+      toast.error(errorMessage);
+    }
+  }, [errorMessage]);
 
-    void connectManagedOAuthProvider({
-      assistantId,
-      providerKey: GOOGLE_PROVIDER_KEY,
-      providerLabel,
-      requestedScopes,
-      onDetached: releaseBusyState,
-    }).then((result) => {
-      releaseBusyState();
-
-      if (result.status === "connected") {
-        // Refresh the connections cache the onboarding screens read. Safe after
-        // unmount: it only marks a query stale.
-        void resolveLocalAssistantPlatformIdentity(assistantId)
-          .then((platformAssistantId) =>
-            queryClient.invalidateQueries({
-              queryKey: assistantsOauthConnectionsListQueryKey({
-                path: { assistant_id: platformAssistantId },
-              }),
-            }),
-          )
-          .catch(() => {});
-        // The engine now outlives this screen (a detached flow stays armed for
-        // minutes), so a late completion can arrive after the user moved on
-        // through the top nav. `onConnect` schedules the check-in and
-        // navigates, which would drag them back; only run it while mounted.
-        if (mountedRef.current) {
-          onConnect(result.connection?.scopes_granted ?? []);
-        }
-        return;
-      }
-
-      // A cancelled connect is the user's own choice; onboarding stays quiet
-      // and leaves the button ready for another try.
-      if (result.status === "error" && mountedRef.current) {
-        toast.error(managedOAuthErrorMessage(result, providerLabel));
-      }
-    });
-  }, [assistantId, onConnect, queryClient, requestedScopes]);
-
-  return { handleConnect, oauthInProgress };
+  return {
+    handleConnect: connect.connect,
+    cancelConnect: connect.dismiss,
+    oauthInProgress: status === "attempting",
+  };
 }

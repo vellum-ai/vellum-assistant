@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // it with an arbitrary scope set, and spy on the connect trigger.
 let capturedOnConnect: ((scopes: string[]) => void) | null = null;
 const handleConnectMock = mock(() => {});
+const cancelConnectMock = mock(() => {});
 
 mock.module("@/domains/onboarding/hooks/use-google-calendar-connect", () => ({
   useGoogleCalendarConnect: ({
@@ -20,7 +21,11 @@ mock.module("@/domains/onboarding/hooks/use-google-calendar-connect", () => ({
     onConnect: (scopes: string[]) => void;
   }) => {
     capturedOnConnect = onConnect;
-    return { handleConnect: handleConnectMock, oauthInProgress: false };
+    return {
+      handleConnect: handleConnectMock,
+      cancelConnect: cancelConnectMock,
+      oauthInProgress: false,
+    };
   },
 }));
 
@@ -59,6 +64,7 @@ describe("LetsChatTomorrowStep", () => {
   beforeEach(() => {
     capturedOnConnect = null;
     handleConnectMock.mockClear();
+    cancelConnectMock.mockClear();
   });
   afterEach(cleanup);
 

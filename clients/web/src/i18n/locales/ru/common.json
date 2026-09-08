@@ -205,12 +205,9 @@
   },
   "useOauthConnect": {
     "accountConnected": "Аккаунт {name} подключён.",
-    "authPopupClosed": "Не удалось подключить {name}: окно авторизации закрыто.",
     "authorizationError": "Ошибка {name}: {code}",
     "authorizationFailed": "Авторизация {name} не удалась",
-    "connectionNotFound": "Авторизация {name} завершена, но подключённый аккаунт не найден.",
     "popupBlocked": "Всплывающее окно заблокировано. Разрешите всплывающие окна и повторите попытку.",
-    "scopeConflict": "Другое подключение {name} уже выполняется с другими разрешениями. Завершите или закройте его и повторите попытку.",
     "startFailed": "Не удалось начать авторизацию {name}.",
     "startFailedWithReason": "Не удалось начать авторизацию {name}: {reason}"
   },

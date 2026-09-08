@@ -1,5 +1,4 @@
 import { Tooltip } from "@vellumai/design-library";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   ExternalLink,
@@ -12,19 +11,16 @@ import { useEffect, useRef, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
-  defaultManagedOAuthConnectClient,
-  type ManagedOAuthConnectClient,
+  fetchManagedOAuthProvider,
   type ManagedOAuthProviderSummary,
 } from "@/lib/auth/managed-oauth";
-import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
 import {
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
 } from "@vellumai/assistant-api";
 
 import type { Surface } from "@/domains/chat/types/types";
-import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
+import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
 import { useTranslation } from "@/i18n";
 
 interface OAuthConnectSurfaceProps {
@@ -36,10 +32,14 @@ interface OAuthConnectSurfaceProps {
   ) => void;
   assistantId?: string | null;
   assistantDisplayName?: string | null;
-  oauthClient?: ManagedOAuthConnectClient;
+  /** Injectable connect flow, so tests and stories can drive the card. */
+  useConnect?: typeof useManagedOAuthConnect;
+  /** Injectable provider lookup, for the same reason. */
+  fetchProvider?: (
+    assistantId: string,
+    providerKey: string,
+  ) => Promise<ManagedOAuthProviderSummary | null>;
 }
-
-type ConnectState = "idle" | "connecting" | "connected" | "error";
 
 function titleizeProviderKey(providerKey: string): string {
   return providerKey
@@ -102,15 +102,30 @@ function OAuthApprovalInfo({
   );
 }
 
+/**
+ * Surfaces whose connection has already been reported.
+ *
+ * One `oauth_connect` surface can be mounted twice at once: the transcript
+ * keeps its card while the voice room renders its own copy of the same
+ * surface. Both read the one provider-keyed attempt, so both observe the
+ * connection, and a per-instance guard would let each of them submit. Keyed by
+ * surface id, which is what the daemon dedupes on.
+ *
+ * The claim is released when the reporting card unmounts. A completed surface
+ * renders as a static summary rather than this card, so a later mount means
+ * the submission never took, and reporting again is the point.
+ */
+const reportedSurfaceIds = new Set<string>();
+
 export function OAuthConnectSurface({
   surface,
   onAction,
   assistantId,
   assistantDisplayName,
-  oauthClient = defaultManagedOAuthConnectClient,
+  useConnect = useManagedOAuthConnect,
+  fetchProvider = fetchManagedOAuthProvider,
 }: OAuthConnectSurfaceProps) {
   const { t } = useTranslation("chat");
-  const queryClient = useQueryClient();
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -122,33 +137,24 @@ export function OAuthConnectSurface({
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
     null,
   );
-  const [state, setState] = useState<ConnectState>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // A remounted card can share one in-flight OAuth promise (see the module-level
-  // dedupe in `connectManagedOAuthProvider`). Only the still-mounted instance
-  // reports the shared result, so one completed authorization submits one
-  // surface action — not one per instance that awaited the promise.
   const mountedRef = useRef(true);
+  const claimedSurfaceRef = useRef<string | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (claimedSurfaceRef.current) {
+        reportedSurfaceIds.delete(claimedSurfaceRef.current);
+      }
     };
   }, []);
-  /**
-   * Which connect attempt owns the card. A detached attempt stays armed in the
-   * background and can report minutes later, by which time the user may have
-   * started another one; without this its late result would overwrite the newer
-   * attempt's state or dismiss the card out from under it.
-   */
-  const attemptRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     if (!assistantId || !providerKey) {
       return;
     }
-    void oauthClient.fetchProvider(assistantId, providerKey).then((result) => {
+    void fetchProvider(assistantId, providerKey).then((result) => {
       if (!cancelled) {
         setProvider(result);
       }
@@ -156,7 +162,7 @@ export function OAuthConnectSurface({
     return () => {
       cancelled = true;
     };
-  }, [assistantId, oauthClient, providerKey]);
+  }, [assistantId, fetchProvider, providerKey]);
 
   const providerLabel = getProviderLabel(
     data,
@@ -169,7 +175,45 @@ export function OAuthConnectSurface({
     provider?.description ??
     t("oauthConnectSurface.defaultDescription", { name: providerLabel });
 
+  const connect = useConnect({
+    assistantId: assistantId ?? "",
+    providerKey,
+    providerLabel,
+    requestedScopes: data.requestedScopes,
+  });
+
+  // The connection the platform reports is the outcome, whenever and wherever
+  // it lands: this card, the settings integrations tab, or another device.
+  useEffect(() => {
+    if (
+      connect.status !== "connected" ||
+      reportedSurfaceIds.has(surface.surfaceId)
+    ) {
+      return;
+    }
+    reportedSurfaceIds.add(surface.surfaceId);
+    claimedSurfaceRef.current = surface.surfaceId;
+    onAction(surface.surfaceId, "connect", {
+      status: "connected",
+      providerKey,
+      providerLabel,
+      connectionId: connect.connection?.id,
+      accountLabel: connect.connection?.account_label,
+      scopesGranted: connect.connection?.scopes_granted ?? [],
+    });
+  }, [
+    connect.status,
+    connect.connection,
+    onAction,
+    providerKey,
+    providerLabel,
+    surface.surfaceId,
+  ]);
+
+  // Dismissing is the only thing that cancels. An authorization window that
+  // stops reporting says nothing about what the user decided.
   const submitCancel = () => {
+    connect.dismiss();
     onAction(surface.surfaceId, "cancel", {
       status: "cancelled",
       providerKey,
@@ -177,81 +221,17 @@ export function OAuthConnectSurface({
     });
   };
 
-  const handleConnect = async () => {
-    if (!assistantId || !providerKey || state === "connecting") {
+  const handleConnect = () => {
+    if (!assistantId || !providerKey) {
       return;
     }
-    setState("connecting");
-    setErrorMessage(null);
-    attemptRef.current += 1;
-    const attempt = attemptRef.current;
-    const isCurrentAttempt = () =>
-      mountedRef.current && attemptRef.current === attempt;
-
-    const result = await oauthClient.connect({
-      assistantId,
-      providerKey,
-      providerLabel,
-      requestedScopes: data.requestedScopes,
-      // A COOP-disowned popup keeps the flow armed in the background for
-      // minutes. Returning the card to `idle` keeps Connect and Dismiss usable
-      // meanwhile; the flow still reports here if the user finishes it.
-      onDetached: () => {
-        if (isCurrentAttempt()) {
-          setState("idle");
-        }
-      },
-    });
-
-    // Skip if this instance unmounted while the (possibly shared) OAuth flow was
-    // in flight (a still-mounted sibling reports the result instead, so the
-    // surface action is submitted exactly once), or if a detached attempt is
-    // reporting after the user already started a newer one.
-    if (!isCurrentAttempt()) {
-      return;
-    }
-
-    if (result.status === "connected") {
-      setState("connected");
-      // Refresh any mounted connections list (e.g. Settings integrations) so a
-      // just-connected account no longer reads as unconnected. Best-effort: the
-      // platform-id resolution can throw and must not block the surface action.
-      void resolveLocalAssistantPlatformIdentity(assistantId)
-        .then((platformAssistantId) =>
-          queryClient.invalidateQueries({
-            queryKey: assistantsOauthConnectionsListQueryKey({
-              path: { assistant_id: platformAssistantId },
-            }),
-          }),
-        )
-        .catch(() => {});
-      onAction(surface.surfaceId, "connect", {
-        status: "connected",
-        providerKey,
-        providerLabel,
-        connectionId: result.connection?.id,
-        accountLabel: result.connection?.account_label,
-        scopesGranted: result.connection?.scopes_granted ?? [],
-      });
-      return;
-    }
-
-    if (result.status === "cancelled") {
-      onAction(surface.surfaceId, "cancel", {
-        status: "cancelled",
-        providerKey,
-        providerLabel,
-      });
-      return;
-    }
-
-    setState("error");
-    setErrorMessage(managedOAuthErrorMessage(result, providerLabel));
+    connect.connect();
   };
 
   const missingConfiguration = !assistantId || !providerKey;
-  const connectDisabled =
-    missingConfiguration || state === "connecting" || state === "connected";
+  const isAttempting = connect.status === "attempting";
+  const isConnected = connect.status === "connected";
+  const connectDisabled = missingConfiguration || isAttempting || isConnected;
 
   return (
     <div className="rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-4">
@@ -287,14 +267,14 @@ export function OAuthConnectSurface({
               </div>
             )}
 
-            {state === "error" && errorMessage && (
+            {connect.errorMessage && (
               <div className="mt-3 flex items-start gap-2 text-body-small-default text-[var(--system-negative-strong)]">
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{errorMessage}</span>
+                <span>{connect.errorMessage}</span>
               </div>
             )}
 
-            {state === "connected" && (
+            {isConnected && (
               <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-positive-strong)]">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 {t("oauthConnectSurface.connected")}
@@ -309,7 +289,6 @@ export function OAuthConnectSurface({
             aria-label={t("oauthConnectSurface.dismiss")}
             title={t("oauthConnectSurface.dismiss")}
             onClick={submitCancel}
-            disabled={state === "connecting"}
             className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] disabled:opacity-50"
           >
             <X className="h-4 w-4" />
@@ -320,12 +299,12 @@ export function OAuthConnectSurface({
             disabled={connectDisabled}
             className="inline-flex items-center gap-2 rounded-md bg-[var(--primary-base)] px-3 py-2 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {state === "connecting" ? (
+            {isAttempting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <ExternalLink className="h-4 w-4" />
             )}
-            {state === "connecting"
+            {isAttempting
               ? t("oauthConnectSurface.waiting")
               : t("oauthConnectSurface.connect")}
           </button>

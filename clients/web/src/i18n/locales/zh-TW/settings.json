@@ -998,6 +998,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 帳號",
+    "cancel": "取消",
     "connectAccount": "連接帳號",
     "connectAccountLower": "連接帳號",
     "connectToContinue": "連接帳號以繼續",
