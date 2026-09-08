@@ -3068,34 +3068,80 @@ test("a gateway OPTIONS response is not daemon readiness", async () => {
   }
 });
 
-test.each([true, false])("a resume presence POST (recorded=%s) supersedes a stale sleep report", async (recorded) => {
-  resetAssistantRequestActivity("123");
-  setCsrfCookie("test-csrf-token");
-  try {
-    const statusRequest = await requestInterceptor(
-      new Request(
-        "https://app.example.test/v1/assistants/123/operational/status/",
-      ),
-    );
-    assistantActivityResponseInterceptor(
-      Response.json({ state: "sleeping" }),
-      statusRequest,
-    );
-    const sleepObservation = useAssistantRequestActivity.getState().lastStatus;
-    expect(sleepObservation).toBeGreaterThan(0);
-    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
-    await daemonClient.post({
-      url: "https://app.example.test/v1/assistants/123/clients/web-presence",
-      body: { visible: true, focusedConversationId: null },
-      fetch: Object.assign(async () => Response.json({ recorded }), {
-        preconnect: () => {},
-      }),
-    });
-    expect(useAssistantRequestActivity.getState().lastSuccess).toBeGreaterThan(
-      sleepObservation,
-    );
-  } finally {
-    resetAssistantRequestActivity(null);
-    clearCsrfCookie();
-  }
-});
+test.each([true, false])(
+  "a resume presence POST (recorded=%s) supersedes a stale sleep report",
+  async (recorded) => {
+    resetAssistantRequestActivity("123");
+    setCsrfCookie("test-csrf-token");
+    try {
+      const statusRequest = await requestInterceptor(
+        new Request(
+          "https://app.example.test/v1/assistants/123/operational/status/",
+        ),
+      );
+      assistantActivityResponseInterceptor(
+        Response.json({ state: "sleeping" }),
+        statusRequest,
+      );
+      const sleepObservation =
+        useAssistantRequestActivity.getState().lastStatus;
+      expect(sleepObservation).toBeGreaterThan(0);
+      expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+      await daemonClient.post({
+        url: "https://app.example.test/v1/assistants/123/clients/web-presence",
+        body: { visible: true, focusedConversationId: null },
+        fetch: Object.assign(async () => Response.json({ recorded }), {
+          preconnect: () => {},
+        }),
+      });
+      expect(
+        useAssistantRequestActivity.getState().lastSuccess,
+      ).toBeGreaterThan(sleepObservation);
+    } finally {
+      resetAssistantRequestActivity(null);
+      clearCsrfCookie();
+    }
+  },
+);
+
+test.each([
+  "skills",
+  "plugins",
+  "memory-items",
+  "documents",
+  "schedules",
+  "search",
+  "identity",
+  "tools",
+  "workflows",
+  "workspace-files",
+])(
+  "a successful %s request clears stale sleep through the daemon SDK",
+  async (resource) => {
+    resetAssistantRequestActivity("123");
+    try {
+      const statusRequest = await requestInterceptor(
+        new Request(
+          "https://app.example.test/v1/assistants/123/operational/status/",
+        ),
+      );
+      assistantActivityResponseInterceptor(
+        Response.json({ state: "sleeping" }),
+        statusRequest,
+      );
+      const sleepObservation =
+        useAssistantRequestActivity.getState().lastStatus;
+      await daemonClient.get({
+        url: `https://app.example.test/v1/assistants/123/${resource}`,
+        fetch: Object.assign(async () => Response.json({ results: [] }), {
+          preconnect: () => {},
+        }),
+      });
+      expect(
+        useAssistantRequestActivity.getState().lastSuccess,
+      ).toBeGreaterThan(sleepObservation);
+    } finally {
+      resetAssistantRequestActivity(null);
+    }
+  },
+);
