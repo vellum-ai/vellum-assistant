@@ -162,10 +162,9 @@ export interface PluginWebhookRouteReconciliation {
  *
  * These rows are a mirror, not a record of events: a path is claimed for
  * exactly as long as the ingress gate would serve it. Deriving them from that
- * set rather than from approve and revoke callbacks is what lets an approval
- * granted before any of this existed, a plugin uninstalled while the gateway
- * was down, and a manifest edited into a different digest all settle correctly
- * on the next reconcile.
+ * set rather than from approve and revoke callbacks lets any drift, such as a
+ * plugin uninstalled while the gateway was down or a manifest edited into a
+ * different digest, settle on the next reconcile.
  *
  * Only plugin rows are removed, so a claim another subsystem registered is
  * never withdrawn, whatever its source name.
