@@ -45,6 +45,27 @@ export function isChatTemplateFailureError(message: string): boolean {
   return CHAT_TEMPLATE_FAILURE_PATTERNS.some((re) => re.test(message));
 }
 
+// Provider prose that indicates the selected model id is unknown to the
+// endpoint. OpenCode returns this as HTTP 401 with `type=ModelError` and
+// "Model <id> is not supported"; treating that as a rejected key sends
+// users to update credentials instead of switching models.
+export const MODEL_NOT_FOUND_PATTERNS = [
+  /model .*(?:not found|does not exist)/i,
+  /model_not_found/i,
+  /model .+ is not supported/i,
+  /\bModelError\b/,
+];
+
+/**
+ * Whether a provider error message indicates the selected model is unknown
+ * to the endpoint. Providers wrap raw upstream rejections in their own
+ * prose, so the classifier matches the full {@link MODEL_NOT_FOUND_PATTERNS}
+ * set rather than any single normalized phrase.
+ */
+export function isModelNotFoundError(message: string): boolean {
+  return MODEL_NOT_FOUND_PATTERNS.some((re) => re.test(message));
+}
+
 // Vendor-neutral (OpenRouter/Anthropic-style) credit-exhaustion prose. Also
 // covers per-key spend caps: OpenRouter returns 403 "Key limit exceeded" when a
 // key's configured credit limit is reached — a billing/budget condition that

@@ -5,6 +5,7 @@ import {
   DAILY_LIMIT_PATTERNS,
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
+  isModelNotFoundError,
   VISION_NOT_SUPPORTED_PATTERNS,
 } from "../../util/provider-error-patterns.js";
 
@@ -52,8 +53,8 @@ export function normalizedErrorText(n: NormalizedOpenAIAPIError): string {
 
 /**
  * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
- * Order matters — the model-restriction check precedes the generic 401/403
- * credential branch, and billing precedes credentials.
+ * Order matters: model restriction and model-not-found precede the generic
+ * 401/403 credential branch, and billing precedes credentials.
  */
 export function deriveReason(
   n: NormalizedOpenAIAPIError,
@@ -72,8 +73,10 @@ export function deriveReason(
   }
 
   if (
-    /model .*(?:not found|does not exist)/i.test(haystack) ||
-    /model_not_found/i.test(`${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`)
+    isModelNotFoundError(haystack) ||
+    /model_not_found|ModelError/i.test(
+      `${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`,
+    )
   ) {
     return "model_not_found";
   }
