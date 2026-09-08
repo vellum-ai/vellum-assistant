@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 
 import {
   linkAttachmentToMessage,
+  setAttachmentThumbnail,
   uploadAttachment,
 } from "../../persistence/attachments-store.js";
 import {
@@ -36,6 +37,7 @@ interface ListedAttachment {
   createdAt: number;
   sightFrame: boolean;
   ambientKeep: boolean;
+  thumbnailData?: string;
 }
 
 interface ListResult {
@@ -80,6 +82,15 @@ const PNG_BASE64 = "iVBORw0K";
 
 async function newAttachment(filename: string): Promise<string> {
   const uploaded = await uploadAttachment(filename, "image/png", PNG_BASE64);
+  return uploaded.id;
+}
+
+async function newVideoAttachment(
+  filename: string,
+  thumbnail: string,
+): Promise<string> {
+  const uploaded = await uploadAttachment(filename, "video/mp4", PNG_BASE64);
+  setAttachmentThumbnail(uploaded.id, thumbnail);
   return uploaded.id;
 }
 
@@ -266,6 +277,58 @@ describe("GET /v1/attachments", () => {
 
   test("rejects a request without a conversation", () => {
     expect(() => listAttachments({})).toThrow(BadRequestError);
+  });
+
+  test("rejects a non-numeric limit", async () => {
+    const seeded = await seedConversation();
+
+    expect(() =>
+      listAttachments({ conversationId: seeded.conversationId, limit: "abc" }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects a non-numeric offset", async () => {
+    const seeded = await seedConversation();
+
+    expect(() =>
+      listAttachments({ conversationId: seeded.conversationId, offset: "abc" }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("hydrates the thumbnail for the returned page only", async () => {
+    const conversation = createConversation("Clips");
+
+    const olderClip = await newVideoAttachment("older.mp4", "OLDER_THUMB");
+    const older = await addMessage(conversation.id, "user", "older clip", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(older.id, olderClip, 0);
+    setCreatedAt(older.id, 1000);
+
+    const newerClip = await newVideoAttachment("newer.mp4", "NEWER_THUMB");
+    const newer = await addMessage(conversation.id, "user", "newer clip", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(newer.id, newerClip, 0);
+    setCreatedAt(newer.id, 2000);
+
+    const first = listAttachments({
+      conversationId: conversation.id,
+      limit: "1",
+    });
+    expect(first.attachments.map((a) => a.id)).toEqual([newerClip]);
+    expect(first.attachments[0]?.thumbnailData).toBe("NEWER_THUMB");
+    expect(first.attachments.map((a) => a.thumbnailData)).not.toContain(
+      "OLDER_THUMB",
+    );
+
+    const second = listAttachments({
+      conversationId: conversation.id,
+      limit: "1",
+      offset: "1",
+    });
+    expect(second.attachments.map((a) => a.id)).toEqual([olderClip]);
+    expect(second.attachments[0]?.thumbnailData).toBe("OLDER_THUMB");
   });
 
   test("rejects an unknown sightFrames value", async () => {

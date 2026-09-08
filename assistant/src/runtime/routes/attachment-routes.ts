@@ -746,6 +746,21 @@ function handleAttachmentLookup({ body = {} }: RouteHandlerArgs) {
 const DEFAULT_ATTACHMENT_LIST_LIMIT = 200;
 const MAX_ATTACHMENT_LIST_LIMIT = 1000;
 
+/** Reject a non-numeric page bound outright: clamping `NaN` would silently serve the wrong page. */
+function parsePagingParam(
+  raw: string | undefined,
+  name: string,
+): number | undefined {
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+  const parsed = Math.trunc(Number(raw));
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    throw new BadRequestError(`${name} must be an integer`);
+  }
+  return parsed;
+}
+
 function handleListAttachmentsRoute({ queryParams }: RouteHandlerArgs) {
   const conversationId = queryParams?.conversationId;
   if (!conversationId) {
@@ -760,15 +775,13 @@ function handleListAttachmentsRoute({ queryParams }: RouteHandlerArgs) {
     throw new BadRequestError("sightFrames must be 'only' or 'exclude'");
   }
 
-  const limitRaw = queryParams?.limit;
-  const limit = limitRaw
-    ? Math.min(
-        Math.max(Math.floor(Number(limitRaw)), 1),
-        MAX_ATTACHMENT_LIST_LIMIT,
-      )
-    : DEFAULT_ATTACHMENT_LIST_LIMIT;
-  const offsetRaw = queryParams?.offset;
-  const offset = offsetRaw ? Math.max(Math.floor(Number(offsetRaw)), 0) : 0;
+  const limitRaw = parsePagingParam(queryParams?.limit, "limit");
+  const limit =
+    limitRaw === undefined
+      ? DEFAULT_ATTACHMENT_LIST_LIMIT
+      : Math.min(Math.max(limitRaw, 1), MAX_ATTACHMENT_LIST_LIMIT);
+  const offsetRaw = parsePagingParam(queryParams?.offset, "offset");
+  const offset = offsetRaw === undefined ? 0 : Math.max(offsetRaw, 0);
 
   const { attachments: rows, total } = listConversationAttachments(
     conversationId,

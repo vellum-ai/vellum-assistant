@@ -2729,11 +2729,15 @@ export interface ConversationAttachmentListing {
  * Every attachment linked to a conversation's messages, newest first, across
  * fork lineage. Metadata only: `data_base64` is never selected, so a page of
  * listings costs no bytes. Callers fetch content from the attachment content
- * route.
+ * route. Thumbnails are read in a second query, for the returned page only.
  *
  * Driven from `messages` so the lineage predicate rides
  * `idx_messages_conversation_created_at`. An attachment linked to more than
  * one row is listed once, on the newest row that carries it.
+ *
+ * The lineage-wide select still reads every linked row: an exact `total` and
+ * the metadata-derived flags are only known after the role/hidden filter and
+ * the dedupe, so that whole-lineage scan is the cost the exact count carries.
  */
 export function listConversationAttachments(
   conversationId: string,
@@ -2746,7 +2750,6 @@ export function listConversationAttachments(
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
-      thumbnailBase64: attachments.thumbnailBase64,
       filePath: attachments.filePath,
       messageId: messages.id,
       messageCreatedAt: messages.createdAt,
@@ -2794,7 +2797,7 @@ export function listConversationAttachments(
       mimeType: row.mimeType,
       sizeBytes: row.sizeBytes,
       kind: row.kind,
-      thumbnailBase64: row.thumbnailBase64 ?? null,
+      thumbnailBase64: null,
       fileBacked: row.filePath != null,
       messageId: row.messageId,
       createdAt: row.messageCreatedAt,
@@ -2803,8 +2806,33 @@ export function listConversationAttachments(
     });
   }
 
+  const page = listings.slice(options.offset, options.offset + options.limit);
+  // Separate read so the lineage-wide select never pulls a thumbnail blob for
+  // a row outside the page being returned.
+  if (page.length > 0) {
+    const thumbnailRows = getDb()
+      .select({
+        id: attachments.id,
+        thumbnailBase64: attachments.thumbnailBase64,
+      })
+      .from(attachments)
+      .where(
+        inArray(
+          attachments.id,
+          page.map((listing) => listing.id),
+        ),
+      )
+      .all();
+    const thumbnailById = new Map(
+      thumbnailRows.map((row) => [row.id, row.thumbnailBase64 ?? null]),
+    );
+    for (const listing of page) {
+      listing.thumbnailBase64 = thumbnailById.get(listing.id) ?? null;
+    }
+  }
+
   return {
-    attachments: listings.slice(options.offset, options.offset + options.limit),
+    attachments: page,
     total: listings.length,
   };
 }
