@@ -227,7 +227,6 @@ export function HomeRecapRow({
       data-needs-attention={needsAttention ? "" : undefined}
       className={cn(
         "group relative flex w-full flex-col gap-[var(--app-spacing-xs)]",
-        "border-b border-[var(--border-subtle)] pb-[var(--app-spacing-md)]",
         "transition-[background-color] duration-150",
         isActive && "bg-[var(--surface-active)]",
       )}
@@ -240,10 +239,10 @@ export function HomeRecapRow({
         aria-label={title}
         onClick={() => onSelect(item)}
         {...cardLinkProps}
-        // Bleeds past the text on every side but stops short of the divider,
-        // so the hover wash reads as the row's own and never paints over the
-        // rule between rows.
-        className="absolute -inset-x-[var(--app-spacing-sm)] -top-[var(--app-spacing-xs)] bottom-[var(--app-spacing-sm)] cursor-pointer rounded-[var(--radius-md)] hover:bg-[var(--surface-hover)]"
+        // Bleeds a little past the text on every side, so the hover wash
+        // reads as the row's own; the list keeps the rule between rows
+        // outside this box.
+        className="absolute -inset-x-[var(--app-spacing-sm)] -inset-y-[var(--app-spacing-xs)] cursor-pointer rounded-[var(--radius-md)] hover:bg-[var(--surface-hover)]"
       />
 
       <div className="pointer-events-none relative flex items-center gap-[var(--app-spacing-sm)]">
