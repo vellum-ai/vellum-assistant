@@ -6,15 +6,16 @@ import android.graphics.BitmapFactory;
 import androidx.annotation.Nullable;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Locale;
+import java.util.List;
 import java.util.function.Function;
 import javax.net.ssl.HttpsURLConnection;
 
@@ -27,47 +28,50 @@ import javax.net.ssl.HttpsURLConnection;
 public final class AvatarCache {
     private static final String DIRECTORY = "notification-avatars";
     private static final String EXTENSION = ".png";
+    private static final String TEMPORARY_EXTENSION = ".tmp";
     private static final int MAX_BYTES = 512 * 1024;
     // The timeouts run inside onMessageReceived, whose window is far shorter
     // than the 8 s an iOS notification-service extension gets, and a cached
     // avatar is a handful of kilobytes, so a stalled host has to give up fast.
     private static final int CONNECT_TIMEOUT_MILLIS = 3_000;
     private static final int READ_TIMEOUT_MILLIS = 3_000;
+    // The read timeout restarts on every chunk, so the body also gets a total
+    // deadline: a host trickling bytes must not cost the whole notification.
+    private static final long READ_BUDGET_MILLIS = 4_000;
     private static final int MAX_FILES = 8;
+    // A write that never finished belongs to a call that is long gone.
+    private static final long TEMPORARY_MAX_AGE_MILLIS = 60_000;
     // A notification large icon is displayed at well under 512 px, and a
     // decoded bitmap this size costs a megabyte of the Firebase callback's heap.
     private static final int MAX_PIXELS = 512;
-    private static final int MAX_BITMAP_BYTES = 4 * 1024 * 1024;
 
     private final File directory;
 
     public AvatarCache(Context context) {
-        directory = new File(context.getCacheDir(), DIRECTORY);
+        this(new File(context.getCacheDir(), DIRECTORY));
+    }
+
+    AvatarCache(File directory) {
+        this.directory = directory;
     }
 
     @Nullable
     public Bitmap load(@Nullable String hash) {
-        String normalized = normalized(hash);
-        if (normalized == null) {
+        byte[] bytes = verified(hash);
+        if (bytes == null) {
             return null;
         }
-        File file = new File(directory, normalized + EXTENSION);
-        Bitmap bitmap = decode(options -> BitmapFactory.decodeFile(file.getPath(), options));
-        if (bitmap != null) {
-            // Eviction reads the modified time, so a hit is also a touch.
-            file.setLastModified(System.currentTimeMillis());
-        }
-        return bitmap;
+        return decode(options -> BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
     }
 
     @Nullable
     public Bitmap fetch(@Nullable String url, @Nullable String hash) {
-        String normalized = normalized(hash);
-        if (normalized == null || url == null || url.isEmpty()) {
+        String name = validated(hash);
+        if (name == null || url == null || url.isEmpty()) {
             return null;
         }
         byte[] bytes = download(url);
-        if (bytes == null || !normalized.equals(sha256Hex(bytes))) {
+        if (bytes == null || !name.equals(sha256Hex(bytes))) {
             return null;
         }
         Bitmap bitmap = decode(options ->
@@ -76,8 +80,32 @@ public final class AvatarCache {
         if (bitmap == null) {
             return null;
         }
-        store(normalized, bytes);
+        store(name, bytes);
         return bitmap;
+    }
+
+    /**
+     * Cached bytes whose digest still matches the name they are filed under, so
+     * a truncated or tampered file is dropped rather than drawn. A hit is also
+     * an eviction touch.
+     */
+    @Nullable
+    byte[] verified(@Nullable String hash) {
+        String name = validated(hash);
+        if (name == null) {
+            return null;
+        }
+        File file = new File(directory, name + EXTENSION);
+        byte[] bytes = read(file);
+        if (bytes == null) {
+            return null;
+        }
+        if (!name.equals(sha256Hex(bytes))) {
+            file.delete();
+            return null;
+        }
+        file.setLastModified(System.currentTimeMillis());
+        return bytes;
     }
 
     /**
@@ -91,7 +119,7 @@ public final class AvatarCache {
         decoder.apply(bounds);
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight);
-        return bounded(decoder.apply(options));
+        return decoder.apply(options);
     }
 
     /** Halvings that bring the longest edge down to {@link #MAX_PIXELS}. */
@@ -104,44 +132,63 @@ public final class AvatarCache {
         return size;
     }
 
-    /** Downsampling alone still leaves room for an allocation the callback cannot afford. */
-    @Nullable
-    private static Bitmap bounded(@Nullable Bitmap bitmap) {
-        if (bitmap == null) {
-            return null;
-        }
-        if (bitmap.getByteCount() > MAX_BITMAP_BYTES) {
-            bitmap.recycle();
-            return null;
-        }
-        return bitmap;
-    }
-
-    private void store(String hash, byte[] bytes) {
+    private void store(String name, byte[] bytes) {
         directory.mkdirs();
-        File temporary = new File(directory, hash + EXTENSION + ".tmp");
+        // A unique staging name so two callers writing one hash cannot truncate
+        // each other's file mid-write.
+        File temporary = new File(
+            directory,
+            name + "." + System.nanoTime() + TEMPORARY_EXTENSION
+        );
         try (FileOutputStream output = new FileOutputStream(temporary)) {
             output.write(bytes);
         } catch (IOException exception) {
             temporary.delete();
             return;
         }
-        if (!temporary.renameTo(new File(directory, hash + EXTENSION))) {
+        if (!temporary.renameTo(new File(directory, name + EXTENSION))) {
             temporary.delete();
             return;
         }
         prune();
     }
 
-    /** Keeps the {@link #MAX_FILES} most recently used avatars. */
-    private void prune() {
-        File[] files = directory.listFiles((unused, name) -> name.endsWith(EXTENSION));
-        if (files == null || files.length <= MAX_FILES) {
+    /**
+     * Keeps the {@link #MAX_FILES} most recently used avatars and sweeps the
+     * staging files left behind by a write that never reached its rename.
+     */
+    void prune() {
+        File[] files = directory.listFiles();
+        if (files == null) {
             return;
         }
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
-        for (int index = MAX_FILES; index < files.length; index++) {
-            files[index].delete();
+        long abandonedBefore = System.currentTimeMillis() - TEMPORARY_MAX_AGE_MILLIS;
+        List<File> cached = new ArrayList<>();
+        for (File file : files) {
+            String name = file.getName();
+            if (name.endsWith(EXTENSION)) {
+                cached.add(file);
+            } else if (
+                name.endsWith(TEMPORARY_EXTENSION) && file.lastModified() < abandonedBefore
+            ) {
+                file.delete();
+            }
+        }
+        if (cached.size() <= MAX_FILES) {
+            return;
+        }
+        cached.sort(Comparator.comparingLong(File::lastModified).reversed());
+        for (File file : cached.subList(MAX_FILES, cached.size())) {
+            file.delete();
+        }
+    }
+
+    @Nullable
+    private static byte[] read(File file) {
+        try (FileInputStream input = new FileInputStream(file)) {
+            return readCapped(input, READ_BUDGET_MILLIS);
+        } catch (IOException exception) {
+            return null;
         }
     }
 
@@ -160,7 +207,7 @@ public final class AvatarCache {
                 return null;
             }
             try (InputStream stream = connection.getInputStream()) {
-                return readCapped(stream);
+                return readCapped(stream, READ_BUDGET_MILLIS);
             }
         } catch (IOException | RuntimeException exception) {
             return null;
@@ -172,12 +219,13 @@ public final class AvatarCache {
     }
 
     @Nullable
-    static byte[] readCapped(InputStream stream) throws IOException {
+    static byte[] readCapped(InputStream stream, long budgetMillis) throws IOException {
+        long deadline = System.nanoTime() + budgetMillis * 1_000_000L;
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         int read = stream.read(chunk);
         while (read != -1) {
-            if (buffer.size() + read > MAX_BYTES) {
+            if (buffer.size() + read > MAX_BYTES || System.nanoTime() - deadline >= 0) {
                 return null;
             }
             buffer.write(chunk, 0, read);
@@ -201,12 +249,13 @@ public final class AvatarCache {
         return hex.toString();
     }
 
-    /** Lowercased sha256 hex, which is also a filename that cannot escape the cache. */
+    /**
+     * Lowercase sha256 hex, which is also a filename that cannot escape the
+     * cache. Uppercase is rejected rather than folded so one avatar has one
+     * name here, on iOS, and on the desktop.
+     */
     @Nullable
-    static String normalized(@Nullable String hash) {
-        if (hash == null || !hash.matches("[0-9a-fA-F]{64}")) {
-            return null;
-        }
-        return hash.toLowerCase(Locale.ROOT);
+    static String validated(@Nullable String hash) {
+        return hash != null && hash.matches("[0-9a-f]{64}") ? hash : null;
     }
 }

@@ -17,6 +17,16 @@ let androidCapabilities: unknown = {
   capabilities: ["native-notification-render"],
 };
 const androidGetCapabilitiesMock = mock(async () => androidCapabilities);
+let androidSetForegroundHandlerError: Error | null = null;
+const foregroundHandlerStates: boolean[] = [];
+const androidSetForegroundHandlerMock = mock(
+  async ({ active }: { active: boolean }) => {
+    if (androidSetForegroundHandlerError) {
+      throw androidSetForegroundHandlerError;
+    }
+    foregroundHandlerStates.push(active);
+  },
+);
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
@@ -36,6 +46,7 @@ mock.module("@capacitor/core", () => ({
       register: androidRegisterMock,
       unregister: androidUnregisterMock,
       getCapabilities: androidGetCapabilitiesMock,
+      setForegroundHandler: androidSetForegroundHandlerMock,
     };
   },
 }));
@@ -243,6 +254,9 @@ beforeEach(() => {
   androidUnregisterMock.mockClear();
   androidCapabilities = { capabilities: ["native-notification-render"] };
   androidGetCapabilitiesMock.mockClear();
+  androidSetForegroundHandlerMock.mockClear();
+  androidSetForegroundHandlerError = null;
+  foregroundHandlerStates.length = 0;
   ensureAndroidAlertsChannelMock.mockClear();
   callOrder.length = 0;
   getInfoMock.mockClear();
@@ -724,5 +738,41 @@ describe("unregisterFromRemotePush", () => {
   test("no-ops when no token was registered", async () => {
     await unregisterFromRemotePush();
     expect(deleteMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setForegroundPushHandler", () => {
+  test("tells the Android shell when a handler is live and when it is gone", () => {
+    platform = "android";
+
+    setForegroundPushHandler(() => {});
+    setForegroundPushHandler(null);
+
+    expect(foregroundHandlerStates).toEqual([true, false]);
+  });
+
+  test("says nothing on iOS, which has no native renderer to hand back to", () => {
+    setForegroundPushHandler(() => {});
+
+    expect(androidSetForegroundHandlerMock).not.toHaveBeenCalled();
+  });
+
+  test("says nothing to an Android shell without the guarded plugin", () => {
+    platform = "android";
+    androidPushRegistrationAvailable = false;
+
+    setForegroundPushHandler(() => {});
+
+    expect(androidSetForegroundHandlerMock).not.toHaveBeenCalled();
+  });
+
+  test("swallows a rejection from a shell whose plugin lacks the method", async () => {
+    platform = "android";
+    androidSetForegroundHandlerError = new Error("not implemented");
+
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(2);
+
+    expect(androidSetForegroundHandlerMock).toHaveBeenCalledTimes(1);
   });
 });
