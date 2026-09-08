@@ -1323,6 +1323,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // older one is simply out of date. Consumed (and cleared) when a turn
   // launches, handed back if that turn is rolled back, and cleared on close.
   private pendingTurnAttachmentId: string | null = null;
+  // When `speech_started` last went to the client, for the sight-frame log:
+  // the distance from it to a keep arriving is the client leg of the frame the
+  // onset asked for, measured from the daemon's own clock.
+  private lastSpeechStartedAtMs: number | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1719,11 +1723,32 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * same fact.
    */
   private persistSightFrame(frame: LiveVoiceClientSightFrameFrame): void {
+    const receivedAtMs = Date.now();
+    // One line per keep, written when the row lands, carrying the whole
+    // timeline: the client leg the frame reported, the daemon leg the persist
+    // measured, and the distance from the speech onset the frame may have
+    // been asked for. Together with the turn's own "Voice turn dispatch
+    // timing" line this says whether a frame missed its turn and where.
+    const sinceSpeechStartedMs =
+      this.lastSpeechStartedAtMs === null
+        ? null
+        : receivedAtMs - this.lastSpeechStartedAtMs;
     void persistAmbientSightFrame(
       this.conversationId,
       frame.attachmentId,
       "voice",
     ).then((result) => {
+      log.info(
+        {
+          attachmentId: frame.attachmentId,
+          persisted: result.ok,
+          sinceSpeechStartedMs,
+          client: frame.timing ?? null,
+          daemon: result.timing ?? null,
+          daemonTotalMs: Date.now() - receivedAtMs,
+        },
+        "Sight frame timing",
+      );
       if (!result.ok && !this.isClosed) {
         void this.sendFrame({
           type: "error",
@@ -2790,10 +2815,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
-    void this.sendFrame({ type: "speech_started" });
+    this.sendSpeechStarted();
     if (bargeableTurn) {
       this.bargeIn(bargeableTurn);
     }
+  }
+
+  /**
+   * Tell the client the caller started speaking, and remember when, so a
+   * camera frame that follows can be logged against the onset it answers.
+   */
+  private sendSpeechStarted(): void {
+    this.lastSpeechStartedAtMs = Date.now();
+    void this.sendFrame({ type: "speech_started" });
   }
 
   // Advance the sustained-speech barge-in guard by one server-VAD chunk.
@@ -2841,7 +2875,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
-    void this.sendFrame({ type: "speech_started" });
+    this.sendSpeechStarted();
     const { turn } = guard;
     if (turn && turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);

@@ -29,6 +29,7 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
+  newestPersistedSightFrame,
   pendingStandaloneImagePersist,
   SIGHT_FRAME_TURN_HOLD_MS,
 } from "../live-voice/live-voice-photo.js";
@@ -803,6 +804,10 @@ export async function startVoiceTurn(
     conversationReadyAt: 0,
     admissionClearAt: 0,
     sightHoldMs: 0,
+    // The camera frame this turn will read as the current view, and how old it
+    // was when the turn went past the sight hold. Null when the conversation
+    // carries no frame.
+    newestSightFrame: null as { attachmentId: string; ageMs: number } | null,
     persistDoneAt: 0,
   };
   const eventSink: VoiceRunEventSink = {
@@ -1042,6 +1047,15 @@ export async function startVoiceTurn(
     ]);
     clearTimeout(holdTimer);
     dispatch.sightHoldMs = Date.now() - holdStartedAt;
+  }
+  // Read after the hold, so a frame the hold waited for is the one reported.
+  // One indexed query, which a conversation with no camera answers empty.
+  const newestFrame = newestPersistedSightFrame(opts.conversationId);
+  if (newestFrame) {
+    dispatch.newestSightFrame = {
+      attachmentId: newestFrame.attachmentId,
+      ageMs: Date.now() - newestFrame.capturedAt,
+    };
   }
 
   // Releases the per-turn state of a voice turn that OWNED the conversation,
@@ -1851,6 +1865,7 @@ export async function startVoiceTurn(
         admissionWaitMs:
           dispatch.admissionClearAt - dispatch.conversationReadyAt,
         sightHoldMs: dispatch.sightHoldMs,
+        newestSightFrame: dispatch.newestSightFrame,
         persistMs:
           dispatch.persistDoneAt -
           dispatch.admissionClearAt -
