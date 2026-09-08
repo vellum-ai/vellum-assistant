@@ -26,17 +26,45 @@ import {
   pluginWebhookPath,
   type IngressRoute,
 } from "../../channels/plugin-ingress.js";
+import { markPluginWebhookRoutesDirty } from "../../channels/plugin-webhook-route-sync.js";
 import { credentialKey } from "../../credential-key.js";
 import {
   approvePluginIngress,
   listPluginIngressApprovals,
   revokePluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
-import { reconcilePluginWebhookIngressRoutes } from "../../db/webhook-ingress-route-store.js";
+import {
+  reconcilePluginWebhookIngressRoutes,
+  type PluginWebhookRouteReconciliation,
+} from "../../db/webhook-ingress-route-store.js";
 import { getLogger } from "../../logger.js";
 import { ApproveChannelIngressRequestSchema } from "./channel-ingress-routes.js";
 
 const log = getLogger("channel-ingress");
+
+/**
+ * Settle the registry's plugin rows against what is servable now, and arm the
+ * watcher's retry if that fails.
+ *
+ * The handlers reconcile directly rather than through
+ * `reconcilePluginWebhookRoutes` because they report the reconciliation result
+ * to their caller. The failure is still rethrown, so the handler answers with
+ * its own error, and the retry flag is what gets the rows settled on a later
+ * poll instead of leaving a persisted decision unreflected until the next
+ * declaration change.
+ */
+function settleServableWebhookRoutes(
+  resolve: () => PluginIngressResolution,
+): PluginWebhookRouteReconciliation {
+  try {
+    return reconcilePluginWebhookIngressRoutes(
+      listServablePluginWebhookPaths(resolve()),
+    );
+  } catch (err) {
+    markPluginWebhookRoutesDirty();
+    throw err;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -259,9 +287,7 @@ export function createChannelIngressApproveHandler(
       // rather than left as an approval that reaches nothing. Reconciling the
       // whole set rather than this source's paths costs one more declaration
       // scan and settles anything else that has drifted since the last one.
-      const claimed = reconcilePluginWebhookIngressRoutes(
-        listServablePluginWebhookPaths(resolve()),
-      );
+      const claimed = settleServableWebhookRoutes(resolve);
       if (claimed.rejected.length > 0) {
         log.warn(
           { source, rejected: claimed.rejected },
@@ -312,9 +338,7 @@ export function createChannelIngressRevokeHandler(
   return async (_req: Request, source: string): Promise<Response> => {
     try {
       const revoked = revokePluginIngressApproval(source);
-      const claimed = reconcilePluginWebhookIngressRoutes(
-        listServablePluginWebhookPaths(resolve()),
-      );
+      const claimed = settleServableWebhookRoutes(resolve);
       if (revoked) {
         log.info(
           { source, releasedPaths: claimed.removed.length },

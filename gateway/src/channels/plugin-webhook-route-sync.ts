@@ -29,6 +29,19 @@ const DISCOVERY_POLL_INTERVAL_MS = 60_000;
 let routesDirty = false;
 
 /**
+ * Arm the retry for a settle that ran outside this module and failed.
+ *
+ * The approval and revocation handlers reconcile through the store directly,
+ * because they report the reconciliation result to their caller. Marking the
+ * routes dirty is how such a failure reaches the poll, so a grant that was
+ * already persisted settles on a later tick rather than waiting for a
+ * declaration change or a restart.
+ */
+export function markPluginWebhookRoutesDirty(): void {
+  routesDirty = true;
+}
+
+/**
  * Recompute the registry's plugin rows from what `resolve` reports as
  * servable.
  *

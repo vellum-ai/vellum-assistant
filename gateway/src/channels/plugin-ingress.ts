@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
+  isValidWebhookIngressPath,
   MAX_WEBHOOK_INGRESS_PATH_LENGTH,
   PLUGIN_WEBHOOK_PATH_PREFIX,
 } from "../velay/path-utils.js";
@@ -247,27 +248,39 @@ export function pluginWebhookPath(plugin: string, path: string): string {
 }
 
 /**
- * Refuse routes whose composed public path is longer than the webhook registry
- * stores, measured in the longest spelling the gateway serves: the composed
- * path with a trailing slash.
+ * Refuse routes whose composed public path is not one the webhook registry
+ * will claim, in either spelling the gateway serves: the composed path and the
+ * same path with a trailing slash.
  *
- * The plugin's directory name is part of that length, so the check belongs
+ * The plugin's directory name is part of the composition, so the check belongs
  * here, where the name is known, rather than in the schema, which sees only the
- * declared half and would have to assume the longest name a directory entry can
- * carry. A path the registry has no room for would otherwise be a route the
- * ingress resolver reports servable and the registry holds no row for, so an
- * oversized composition is a declaration problem for its plugin instead.
+ * declared half. The schema admits shapes the registry still refuses, such as a
+ * backslash or a character URL parsing rewrites, and length depends on a
+ * directory name the schema would have to assume the longest form of. A path
+ * the registry will not claim would otherwise be a route the ingress resolver
+ * reports servable and the registry holds no row for, so an uncomposable path
+ * is a declaration problem for its plugin instead.
  */
 function assertComposablePaths(
   plugin: string,
   routes: readonly IngressRoute[],
 ): void {
   for (const route of routes) {
-    const composed = `${pluginWebhookPath(plugin, route.path)}/`;
-    if (composed.length > MAX_WEBHOOK_INGRESS_PATH_LENGTH) {
+    const composed = pluginWebhookPath(plugin, route.path);
+    const withTrailingSlash = `${composed}/`;
+    // Length is reported on its own because the count is what an author needs
+    // in order to shorten the path.
+    if (withTrailingSlash.length > MAX_WEBHOOK_INGRESS_PATH_LENGTH) {
       throw new Error(
-        `route ${route.path}: composed public path is ${composed.length} characters, over the ${MAX_WEBHOOK_INGRESS_PATH_LENGTH} the webhook registry stores`,
+        `route ${route.path}: composed public path is ${withTrailingSlash.length} characters, over the ${MAX_WEBHOOK_INGRESS_PATH_LENGTH} the webhook registry stores`,
       );
+    }
+    for (const spelling of [composed, withTrailingSlash]) {
+      if (!isValidWebhookIngressPath(spelling)) {
+        throw new Error(
+          `route ${route.path}: composed public path ${spelling} is not a shape the webhook registry claims`,
+        );
+      }
     }
   }
 }

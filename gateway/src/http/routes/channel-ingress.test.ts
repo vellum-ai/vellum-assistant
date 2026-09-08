@@ -14,6 +14,10 @@ import {
   type IngressRoute,
 } from "../../channels/plugin-ingress.js";
 import {
+  reconcilePluginWebhookRoutes,
+  watchPluginIngressForWebhookRoutes,
+} from "../../channels/plugin-webhook-route-sync.js";
+import {
   getGatewayDb,
   initGatewayDb,
   resetGatewayDb,
@@ -232,6 +236,53 @@ describe("approve", () => {
       "/webhooks/plugins/meeting-bot/realtime/",
       "/webhooks/plugins/notes/realtime",
       "/webhooks/plugins/notes/realtime/",
+    ]);
+  });
+
+  it("leaves a settle that failed for the watcher to retry", async () => {
+    // The grant is persisted before its rows are claimed, and no declaration
+    // change follows an approval, so a settle that throws would strand the
+    // approved routes unless the failure arms the poll's retry.
+    writePlugin("meeting-bot");
+    const resolve = () => resolvePluginIngress({ workspaceDir });
+    // Start from a settled registry, so the retry below is this failure's.
+    expect(reconcilePluginWebhookRoutes(resolve)).toBe(true);
+
+    let calls = 0;
+    const approveThenFail = createChannelIngressApproveHandler(() => {
+      calls += 1;
+      if (calls > 1) {
+        throw new Error("transient");
+      }
+      return resolve();
+    });
+
+    const res = await approveThenFail(
+      approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
+      "meeting-bot",
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Internal server error" });
+    expect(getPluginIngressApproval("meeting-bot")).toBeDefined();
+    expect(listWebhookIngressRoutes()).toEqual([]);
+
+    const unwatch = watchPluginIngressForWebhookRoutes({
+      subscribe: () => () => {},
+      resolve,
+      refresh: () => {},
+      pollIntervalMs: 10,
+    });
+    await new Promise((done) => setTimeout(done, 40));
+    unwatch();
+
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual([
+      "/webhooks/plugins/meeting-bot/realtime",
+      "/webhooks/plugins/meeting-bot/realtime/",
     ]);
   });
 

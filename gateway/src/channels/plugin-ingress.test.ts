@@ -708,6 +708,27 @@ describe("discoverPluginIngress", () => {
     expect(problems[0]?.plugin).toBe(plugin);
     expect(problems[0]?.reason).toContain("composed public path");
   });
+
+  it("reports a composition the registry would not claim as a declaration problem", () => {
+    // The schema admits both of these and the composition is short enough, but
+    // a URL parser rewrites the non-ASCII one and treats the backslash as a
+    // separator, so the registry refuses both. Discovery has to refuse them
+    // too, or the resolver reports a route servable that no row can back.
+    for (const path of ["hooks\\admin", "café"]) {
+      const workspaceDir = makeWorkspace();
+      writeManifest(
+        workspaceDir,
+        "meeting-bot",
+        JSON.stringify({ routes: [{ path, kind: "http", description: "d" }] }),
+      );
+
+      const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+      expect(plugins).toEqual([]);
+      expect(problems).toHaveLength(1);
+      expect(problems[0]?.plugin).toBe("meeting-bot");
+      expect(problems[0]?.reason).toContain("webhook registry claims");
+    }
+  });
 });
 
 describe("PluginIngressCache", () => {

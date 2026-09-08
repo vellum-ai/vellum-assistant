@@ -4,10 +4,8 @@ import type { WebhookIngressRoute } from "@vellumai/gateway-client/gateway-ipc-c
 import { and, eq, inArray } from "drizzle-orm";
 
 import {
-  isSafeOriginRelativePath,
-  MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+  isValidWebhookIngressPath,
   PLUGIN_WEBHOOK_PATH_PREFIX,
-  WEBHOOK_PATH_PREFIX,
 } from "../velay/path-utils.js";
 import { getGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
@@ -40,38 +38,6 @@ function notifyChanged(): void {
   for (const cb of changeListeners) {
     cb();
   }
-}
-
-/**
- * Consecutive dots inside a segment are part of a name, so only a segment that
- * is exactly `..` is traversal. The path is percent-decoded first because a
- * consumer downstream may decode before it splits the path on slashes. A
- * decoded backslash is refused outright because a URL parser treats it as a
- * separator, which would turn `/webhooks/foo%5c..%5cadmin` into `/webhooks/admin`.
- */
-function hasTraversalSegment(path: string): boolean {
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(path);
-  } catch {
-    return true;
-  }
-  return decoded.includes("\\") || decoded.split("/").includes("..");
-}
-
-/**
- * Paths are stored verbatim and compared byte for byte, so the only shapes
- * refused are the ones that would not survive that: anything outside the
- * webhook namespace, anything a URL parser would rewrite, and traversal.
- */
-function isValidWebhookIngressPath(path: string): boolean {
-  return (
-    path.length <= MAX_WEBHOOK_INGRESS_PATH_LENGTH &&
-    path.startsWith(WEBHOOK_PATH_PREFIX) &&
-    !hasTraversalSegment(path) &&
-    !/\s/.test(path) &&
-    isSafeOriginRelativePath(path)
-  );
 }
 
 export interface RegisterWebhookIngressRouteInput {
