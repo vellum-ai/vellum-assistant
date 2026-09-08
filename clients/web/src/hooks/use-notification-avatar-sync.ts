@@ -1,0 +1,80 @@
+import { useEffect } from "react";
+
+import { isElectron } from "@/runtime/is-electron";
+import {
+  clearNotificationAvatar,
+  setNotificationAvatar,
+  sha256Hex,
+} from "@/runtime/notification-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { rasterizeNotificationAvatar } from "@/utils/avatar-raster";
+import { resolveAvatarRender } from "@/utils/avatar-render";
+import { NOTIFICATION_AVATAR_SIZE } from "@vellumai/avatar-manifest/notification-avatar";
+
+/**
+ * Composite the assistant's avatar onto its accent disc and hold the result for
+ * the desktop notifications that post it as the sender's icon.
+ *
+ * Shaped like `useElectronIconSync` and mounted beside it, off the same avatar
+ * query, so the notification icon can never show a different assistant than the
+ * one on screen. The canvas work is gated behind Electron and
+ * `push-avatar-sender`: no other host reads the holder, and with the flag off
+ * the IPC payload must be byte-for-byte what it is today.
+ *
+ * Clears on every outcome that is not a stored avatar. The holder outlives this
+ * effect, so a flag turned off, an assistant with no avatar, or a failed
+ * rasterization all have to take back what an earlier run put there.
+ */
+export function useNotificationAvatarSync(
+  customImageUrl: string | null,
+  components: CharacterComponents | null,
+  traits: CharacterTraits | null,
+  accentHex: string | null,
+): void {
+  const enabled = useClientFeatureFlagStore.use.pushAvatarSender();
+
+  useEffect(() => {
+    if (!isElectron() || !enabled) {
+      clearNotificationAvatar();
+      return;
+    }
+
+    const render = resolveAvatarRender(
+      customImageUrl,
+      components,
+      traits,
+      NOTIFICATION_AVATAR_SIZE,
+    );
+    if (render.kind === "none") {
+      clearNotificationAvatar();
+      return;
+    }
+
+    let cancelled = false;
+    const src = render.kind === "character" ? render.dataUri : render.url;
+    void rasterizeNotificationAvatar(src, accentHex)
+      .then(async (png) => {
+        if (cancelled) {
+          return;
+        }
+        if (!png) {
+          clearNotificationAvatar();
+          return;
+        }
+        const hash = await sha256Hex(png);
+        if (!cancelled) {
+          setNotificationAvatar(png, hash);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearNotificationAvatar();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, customImageUrl, components, traits, accentHex]);
+}

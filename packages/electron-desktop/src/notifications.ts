@@ -1,4 +1,4 @@
-import { BrowserWindow, Notification } from "electron";
+import { BrowserWindow, nativeImage, Notification } from "electron";
 import { z } from "zod";
 
 import {
@@ -59,11 +59,27 @@ export interface NotificationLike {
   show(): void;
 }
 
+/**
+ * The assistant a notification is from, decoded once at the IPC boundary so
+ * every factory works from bytes rather than re-decoding the base64 payload.
+ */
+export interface NotificationSenderImage {
+  id: string;
+  name: string;
+  avatarPng: Buffer;
+  avatarHash: string;
+}
+
 export interface NotificationCreateOptions {
   title: string;
   body: string;
   silent: boolean;
   actions: CategoryAction[];
+  /**
+   * Absent when the renderer sent no notification avatar, which every factory
+   * renders as today's app-icon notification.
+   */
+  sender?: NotificationSenderImage;
 }
 
 export interface NotificationsRuntime {
@@ -240,6 +256,30 @@ interface ShowResult {
   errorMessage?: string;
 }
 
+/**
+ * The `electron.Notification` path, which can show the sender's avatar on
+ * exactly one platform.
+ *
+ * libnotify draws `icon` as the notification's image and takes the app icon
+ * from the desktop entry, which is the treatment the feature asks for. macOS
+ * draws it as a right-side thumbnail beside the app icon instead, so the
+ * avatar must never reach it here (the native addon posts macOS notifications
+ * through Apple's Communication Notifications API). Windows toasts have no
+ * icon slot on this path at all.
+ */
+const createElectronNotification = (
+  options: NotificationCreateOptions,
+): NotificationLike => {
+  const { sender, ...constructorOptions } = options;
+  if (sender && process.platform === "linux") {
+    return new Notification({
+      ...constructorOptions,
+      icon: nativeImage.createFromBuffer(sender.avatarPng),
+    });
+  }
+  return new Notification(constructorOptions);
+};
+
 const showNotification = (
   payload: ShowNotificationPayload,
 ): Promise<ShowResult> => {
@@ -259,14 +299,23 @@ const showNotification = (
   }
 
   const actions = CATEGORY_ACTIONS[payload.category];
+  const sender = payload.sender;
 
-  const notif: NotificationLike = (
-    create ?? ((options) => new Notification(options))
-  )({
+  const notif: NotificationLike = (create ?? createElectronNotification)({
     title: payload.title,
     body: payload.body,
     silent: false,
     actions,
+    ...(sender
+      ? {
+          sender: {
+            id: sender.id,
+            name: sender.name,
+            avatarPng: Buffer.from(sender.avatarBase64, "base64"),
+            avatarHash: sender.avatarHash,
+          },
+        }
+      : {}),
   });
 
   // Build the metadata forwarded on every interaction so the renderer

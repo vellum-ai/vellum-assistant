@@ -35,6 +35,7 @@ interface MockNotificationOptions {
   body: string;
   silent: boolean;
   actions: Array<{ type: "button"; text: string }>;
+  icon?: unknown;
 }
 
 /**
@@ -87,8 +88,14 @@ class MockNotification {
 
 const sentMessages: Array<{ channel: string; payload: unknown }> = [];
 
+/** Tagged stand-in for a decoded `NativeImage`, so a test can read its bytes. */
+const createFromBufferMock = mock((buffer: Buffer) => ({
+  nativeImageOf: buffer,
+}));
+
 mock.module("electron", () => ({
   Notification: MockNotification,
+  nativeImage: { createFromBuffer: createFromBufferMock },
   BrowserWindow: {
     getAllWindows: () => [
       {
@@ -134,6 +141,10 @@ const {
   __setDeliveryTimeoutForTesting,
 } = await import("./notifications");
 
+type NotificationCreateOptions =
+  import("./notifications").NotificationCreateOptions;
+type NotificationLike = import("./notifications").NotificationLike;
+
 // --- Helpers ---------------------------------------------------------------
 
 const SHOW_CHANNEL = "vellum:notifications:show";
@@ -166,6 +177,7 @@ beforeEach(() => {
   handleRegistrations.length = 0;
   handleMock.mockClear();
   ensureVisibleMock.mockClear();
+  createFromBufferMock.mockClear();
   at(0);
   configureNotifications({
     ipc,
@@ -394,5 +406,135 @@ describe("interaction broadcast", () => {
       actionText: "Deny",
       deliveryId: "del-9",
     });
+  });
+});
+
+// --- Sender (assistant name + notification avatar) -------------------------
+
+describe("sender", () => {
+  const AVATAR_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+  const sender = {
+    id: "assistant-1",
+    name: "Aria",
+    avatarBase64: AVATAR_PNG.toString("base64"),
+    avatarHash: "sha256-abc",
+  };
+
+  const realPlatform = process.platform;
+  const setPlatform = (value: string): void => {
+    Object.defineProperty(process, "platform", {
+      value,
+      configurable: true,
+    });
+  };
+
+  afterEach(() => {
+    setPlatform(realPlatform);
+  });
+
+  test("the captured schema accepts a sender and rejects a partial one", () => {
+    const { schema } = showHandler();
+    expect(() =>
+      schema.parse([
+        { category: "notificationIntent", title: "t", body: "b", sender },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      schema.parse([
+        {
+          category: "notificationIntent",
+          title: "t",
+          body: "b",
+          sender: { id: "assistant-1", name: "Aria" },
+        },
+      ]),
+    ).toThrow();
+  });
+
+  test("hands the factory the decoded avatar bytes", async () => {
+    const created: NotificationCreateOptions[] = [];
+    configureNotifications({
+      ipc,
+      ensureVisible: ensureVisibleMock,
+      logger: quietLogger,
+      create: (options) => {
+        created.push(options);
+        return new MockNotification(options) as unknown as NotificationLike;
+      },
+    });
+
+    await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "sender-1",
+      sender,
+    });
+
+    expect(created).toHaveLength(1);
+    expect(created[0]!.sender).toEqual({
+      id: "assistant-1",
+      name: "Aria",
+      avatarPng: AVATAR_PNG,
+      avatarHash: "sha256-abc",
+    });
+  });
+
+  test("omits the sender from the factory options when the payload carries none", async () => {
+    const created: NotificationCreateOptions[] = [];
+    configureNotifications({
+      ipc,
+      ensureVisible: ensureVisibleMock,
+      logger: quietLogger,
+      create: (options) => {
+        created.push(options);
+        return new MockNotification(options) as unknown as NotificationLike;
+      },
+    });
+
+    await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "sender-2",
+    });
+
+    expect(created[0]!.sender).toBeUndefined();
+  });
+
+  test("the default factory gives Linux the avatar as the notification icon", async () => {
+    setPlatform("linux");
+
+    await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "linux-1",
+      sender,
+    });
+
+    expect(createFromBufferMock).toHaveBeenCalledTimes(1);
+    expect(createFromBufferMock.mock.calls[0]![0]).toEqual(AVATAR_PNG);
+    expect(constructed[0]!.options.icon).toEqual({
+      nativeImageOf: AVATAR_PNG,
+    });
+  });
+
+  test("the default factory leaves macOS without an icon, where it would render as a thumbnail", async () => {
+    setPlatform("darwin");
+
+    await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "darwin-1",
+      sender,
+    });
+
+    expect(createFromBufferMock).not.toHaveBeenCalled();
+    expect(constructed[0]!.options.icon).toBeUndefined();
+    expect(
+      (constructed[0]!.options as { sender?: unknown }).sender,
+    ).toBeUndefined();
   });
 });

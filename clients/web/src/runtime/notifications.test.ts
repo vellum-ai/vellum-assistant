@@ -7,7 +7,9 @@
  * intent arrived (the APNs banner covers that case).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { ShowNotificationPayload } from "@vellumai/ipc-contract";
 
 // ── host platform guards ─────────────────────────────────────────────────────
 //
@@ -15,8 +17,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // under happy-dom, and the Electron branch would return before reaching
 // the code under test.
 
+let electronHost = false;
 mock.module("@/runtime/is-electron", () => ({
-  isElectron: () => false,
+  isElectron: () => electronHost,
 }));
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => true,
@@ -103,6 +106,12 @@ const {
   postLocalNotification,
   __resetNotificationsStateForTests,
 } = await import("@/runtime/notifications");
+const { clearNotificationAvatar, setNotificationAvatar } =
+  await import("@/runtime/notification-avatar");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 const setVisibility = (state: "visible" | "hidden") => {
   Object.defineProperty(document, "visibilityState", {
@@ -120,6 +129,7 @@ const baseArgs = {
 };
 
 beforeEach(() => {
+  electronHost = false;
   nativeAndroid = false;
   sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
@@ -341,5 +351,61 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(
       scheduleMock.mock.calls[0]?.[0].notifications[0]?.actionTypeId,
     ).toBeUndefined();
+  });
+});
+
+// ── Electron branch: the assistant as the notification's sender ─────────────
+
+describe("postLocalNotification sender (Electron branch)", () => {
+  const AVATAR = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const showMock = mock(async (_payload: ShowNotificationPayload) => ({
+    success: true,
+  }));
+
+  beforeEach(() => {
+    electronHost = true;
+    showMock.mockClear();
+    clearNotificationAvatar();
+    useAssistantIdentityStore.getState().setIdentity("Aria", "1.0.0");
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    (window as unknown as { vellum?: unknown }).vellum = {
+      notifications: { show: showMock },
+    };
+  });
+
+  afterEach(() => {
+    clearNotificationAvatar();
+    useAssistantIdentityStore.getState().clearIdentity();
+    delete (window as unknown as { vellum?: unknown }).vellum;
+  });
+
+  test("attaches the held avatar, the assistant's name and its id", async () => {
+    setNotificationAvatar(AVATAR, "sha256-abc");
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock).toHaveBeenCalledTimes(1);
+    expect(showMock.mock.calls[0]?.[0].sender).toEqual({
+      id: "assistant-1",
+      name: "Aria",
+      avatarBase64: "iVBORw==",
+      avatarHash: "sha256-abc",
+    });
+  });
+
+  test("sends no sender key at all when no avatar is held", async () => {
+    await postLocalNotification(baseArgs);
+
+    const payload = showMock.mock.calls[0]?.[0] ?? {};
+    expect("sender" in payload).toBe(false);
+  });
+
+  test("sends no sender when the assistant has no name yet", async () => {
+    setNotificationAvatar(AVATAR, "sha256-abc");
+    useAssistantIdentityStore.getState().clearIdentity();
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
   });
 });

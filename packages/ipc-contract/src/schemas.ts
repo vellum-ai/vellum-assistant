@@ -38,6 +38,13 @@ export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
 
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 
+export const notificationSenderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  avatarBase64: z.string(),
+  avatarHash: z.string(),
+});
+
 export const showNotificationPayloadSchema = z.object({
   category: notificationCategorySchema,
   title: z.string(),
@@ -46,6 +53,7 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+  sender: notificationSenderSchema.optional(),
 });
 
 // ---------------------------------------------------------------------------
