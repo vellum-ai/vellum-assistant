@@ -106,6 +106,8 @@ import {
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
+import { createNativeNotificationFactory } from "./native-notifications";
+import { isNotifierAvailable } from "./notifier";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -457,10 +459,19 @@ app
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads({ handle });
     installPowerEvents();
+    // The native addon owns the notification center when it is present, which
+    // is what lets a notification carry the assistant's avatar. `isSupported`
+    // ships with `create`: without it the shared module falls back to
+    // `electron.Notification.isSupported()`, and that call alone constructs
+    // Electron's presenter, which claims the center's delegate.
+    const nativeNotifications = isNotifierAvailable()
+      ? createNativeNotificationFactory()
+      : null;
     configureNotifications({
       ipc: { handle },
       ensureVisible: ensureMainWindowVisible,
       logger: log,
+      ...(nativeNotifications ?? {}),
     });
     installNotifications();
     installWindowAttentionFeature();

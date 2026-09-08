@@ -188,6 +188,55 @@ whichever Swift channel you have around.
   elsewhere in the main process. Any failure (unwritable directory, no free
   name) simply skips `setSavePath` and lets Electron's Save panel take over.
 
+## Native notifier
+
+**What:** `native/notifier/` is an Objective-C++ Node addon that posts
+notifications through `UNUserNotificationCenter` directly. When a notification
+carries a sender avatar it donates an `INSendMessageIntent` and updates the
+content with it, so macOS renders the Communication Notification treatment: the
+assistant's avatar as the icon with the app icon badged in the corner, the
+assistant's name on line one, the conversation title on line two. Electron
+exposes no intent API, so this is the only path to that layout.
+
+`src/main/notifier.ts` loads the addon (`process.dlopen`, inside a try/catch)
+and `src/main/native-notifications.ts` adapts it to the `create` /
+`isSupported` seams of `@vellumai/electron-desktop/notifications`. A checkout
+with no built addon reports unavailable and the app falls back to Electron's
+own notifications.
+
+**Delegate rule.** Electron's `NotificationPresenterMac` claims
+`UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it is
+constructed, which `new Notification()`, `Notification.isSupported()`, and the
+renderer's Web Notification API all do. Two consequences:
+
+- The client must pass `isSupported` to `configureNotifications` alongside
+  `create`. The shared module otherwise falls back to
+  `electron.Notification.isSupported()`, and that call alone builds the
+  presenter.
+- The addon installs its own delegate, remembers the previous one, forwards
+  every response it does not own to it, and re-asserts itself before each post.
+
+**Rebuild:**
+
+```sh
+bash scripts/build-notifier.sh   # also runs as part of `bun run setup` and `bun run pack`
+```
+
+It compiles against the headers for the Electron version pinned in
+`package.json` and writes `resources/notifier/<arch>/vellum-notifier.node`,
+which `electron-builder` packs to `bin/notifier/` and `scripts/afterSign.js`
+re-signs with `inherit.plist`.
+
+**Provisioning profile switch.** `com.apple.developer.usernotifications.communication`
+is a restricted entitlement: an app declaring it without an authorizing
+provisioning profile is killed at launch. `electron-builder.config.cjs` signs
+with `scripts/entitlements/app-communication.plist` and sets
+`mac.provisioningProfile` only when `VELLUM_MAC_PROVISIONING_PROFILE` names a
+profile on disk; the release workflows decode one there from the
+`MAC_PROVISIONING_PROFILE` secret. Every other build signs with
+`scripts/entitlements/app.plist`, the intent path fails closed inside
+`contentByUpdatingWithProvider:`, and notifications post plainly.
+
 ## Scripts
 
 ```sh
