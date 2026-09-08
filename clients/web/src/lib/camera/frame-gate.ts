@@ -94,6 +94,8 @@ export type FrameGateReason =
   | "warmup"
   /** The view is moving, so this frame is likely smeared. */
   | "moving"
+  /** The view has stopped, but not for long enough yet to count as a pause. */
+  | "settling"
   /** The view has almost no structure: a blank wall, or a hand over the lens. */
   | "featureless"
   /** Settled, recent enough, and materially the same as the last keep. */
@@ -141,6 +143,19 @@ export interface FrameGateOptions {
    * smaller number.
    */
   readonly settleThreshold: number;
+  /**
+   * How long the view must stay below {@link settleThreshold}, without a
+   * break, before a frame of it counts as settled.
+   *
+   * A stop is not a pause. A person shifting in their chair in front of a
+   * fixed camera stops for two or three frames between moves, and each stop
+   * is a settled, novel frame by the other two numbers alone. Someone holding
+   * something up to be looked at holds it for longer than this, so the dwell
+   * is what tells the two apart. Resets on every moving frame, and is waived
+   * once {@link settleGraceMs} runs out, for the camera that never holds
+   * still at all.
+   */
+  readonly settleDwellMs: number;
   /**
    * Novelty at or above which a frame a caller asked for is kept.
    *
@@ -245,10 +260,17 @@ export interface FrameGateOptions {
  * 0.09 for a phone held still) and the same-subject-new-angle band (0.35 to
  * 0.60), so a question about the view the last keep already shows spends
  * nothing, and a question about a different part of it gets its own frame.
+ *
+ * `settleDwellMs` came from the same desk-bound call once the floor was gone:
+ * a person shifting in their chair produced a keep at every brief stop, five
+ * in a row of the same person in slightly different places. Two or three
+ * frames of stillness is a stop; 400ms is a pause, and shorter than any
+ * question, so a keep asked for still lands ahead of the turn.
  */
 export const DEFAULT_FRAME_GATE_OPTIONS: FrameGateOptions = {
   noveltyThreshold: 0.6,
   settleThreshold: 0.08,
+  settleDwellMs: 400,
   forcedNoveltyThreshold: 0.2,
   maxIntervalMs: 30_000,
   settleGraceMs: 5_000,
@@ -418,6 +440,7 @@ const FIRST_KEEP_PATH = [
   "warmup",
   "featureless",
   "moving",
+  "settling",
   "forced",
   "first",
 ] as const satisfies readonly FrameGateReason[];
@@ -427,6 +450,7 @@ const BASELINE_PATH = [
   "warmup",
   "featureless",
   "moving",
+  "settling",
   "answered",
   "forced",
   "heartbeat",
@@ -439,7 +463,7 @@ const BASELINE_PATH = [
  * runs them, ending at the one that could not be got past.
  *
  * `offer` is not a single list of checks: it branches on whether a kept frame
- * exists, and the two branches share only their first three steps. A reader
+ * exists, and the two branches share only their first four steps. A reader
  * needs the branch that was actually taken, because "the checks above the
  * highlighted one all passed" is the whole value of seeing the order, and a
  * flattened list makes that claim about checks the frame never reached.
@@ -481,6 +505,9 @@ export function createFrameGate(
   // The first offer that got past warmup, which is the moment the very first
   // keep became possible and where the settle grace runs from until then.
   let firstEligibleAtMs: number | null = null;
+  // When the current run of still frames began, or null while the view is
+  // moving. The settle dwell is measured from it.
+  let stillSinceMs: number | null = null;
   // An unspent arm from `armForcedKeep`, or null when nothing is armed.
   // `sinceMs` is when it was made, and only a frame whose capture lower bound
   // reaches it may spend it: an offer can carry a capture from before the
@@ -545,6 +572,17 @@ export function createFrameGate(
           : null;
       const novelty = hasKept ? meanAbsoluteDifference(current, kept) : null;
 
+      // Tracked on every offer, ahead of the vetoes, so the dwell measures how
+      // long the camera has physically held still rather than how long the
+      // gate has been looking. A frame too old to judge motion on counts as
+      // still, as it does for the settle check itself.
+      const moving = motion !== null && motion >= options.settleThreshold;
+      if (moving) {
+        stillSinceMs = null;
+      } else if (stillSinceMs === null) {
+        stillSinceMs = nowMs;
+      }
+
       // Ahead of the vetoes below, so an arm that ran out while the camera had
       // nothing worth keeping is dropped rather than spent on the first frame
       // past them: it was asked for a scene a whole window ago.
@@ -568,7 +606,6 @@ export function createFrameGate(
       if (firstEligibleAtMs === null) {
         firstEligibleAtMs = nowMs;
       }
-      const moving = motion !== null && motion >= options.settleThreshold;
       // The settle grace runs from the moment a keep became possible: the
       // first post-warmup offer until something is kept, and the last keep
       // from then on. Each keep restarts it, which is what bounds a camera
@@ -583,6 +620,15 @@ export function createFrameGate(
       // the view to settle rather than spending itself on the blur.
       if (moving && !graceExpired) {
         return skipFrame(nowMs, "moving", motion, novelty);
+      }
+      // A stop is not a pause: the view has to hold still for the dwell before
+      // a frame of it is settled. Waived with the settle check once the grace
+      // runs out, for the same reason.
+      if (
+        !graceExpired &&
+        (stillSinceMs === null || nowMs - stillSinceMs < options.settleDwellMs)
+      ) {
+        return skipFrame(nowMs, "settling", motion, novelty);
       }
 
       // Only a frame whose picture provably postdates the arm may spend it: a
@@ -647,6 +693,7 @@ export function createFrameGate(
       previousAtMs = 0;
       forcedArm = null;
       keptAtMs = Number.NEGATIVE_INFINITY;
+      stillSinceMs = null;
       warmupUntilMs = nowMs + options.warmupMs;
       firstEligibleAtMs = null;
     },

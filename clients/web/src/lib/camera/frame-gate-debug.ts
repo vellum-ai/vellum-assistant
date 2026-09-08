@@ -58,6 +58,7 @@ function emptyReasonCounts(): Record<FrameGateReason, number> {
     featureless: 0,
     first: 0,
     moving: 0,
+    settling: 0,
     heartbeat: 0,
     novel: 0,
     unchanged: 0,

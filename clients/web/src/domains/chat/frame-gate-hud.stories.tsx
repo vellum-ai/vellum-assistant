@@ -80,6 +80,7 @@ const SNAPSHOT: FrameGateDebugSnapshot = {
     featureless: 0,
     first: 1,
     moving: 4,
+    settling: 5,
     heartbeat: 0,
     novel: 2,
     unchanged: 11,

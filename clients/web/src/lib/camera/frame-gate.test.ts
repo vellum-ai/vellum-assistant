@@ -45,6 +45,9 @@ const TEST_OPTIONS: FrameGateOptions = {
   noveltyThreshold: 0.35,
   maxIntervalMs: 1_000,
   settleGraceMs: 200,
+  // Off, so a settled frame is judged the moment it arrives. The dwell has
+  // its own suite below.
+  settleDwellMs: 0,
   warmupMs: 0,
 };
 
@@ -168,6 +171,15 @@ describe("shipped frame gate defaults", () => {
     );
     expect(DEFAULT_FRAME_GATE_OPTIONS.forcedNoveltyThreshold).toBeLessThan(
       DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
+    );
+  });
+
+  test("the dwell fits inside an ask's window, so a pause can still answer it", () => {
+    expect(DEFAULT_FRAME_GATE_OPTIONS.settleDwellMs).toBeLessThan(
+      FRAME_GATE_FORCED_KEEP_TTL_MS,
+    );
+    expect(DEFAULT_FRAME_GATE_OPTIONS.settleDwellMs).toBeLessThan(
+      DEFAULT_FRAME_GATE_OPTIONS.settleGraceMs,
     );
   });
 });
@@ -513,6 +525,7 @@ describe("frame gate decision path", () => {
     featureless: true,
     first: true,
     moving: true,
+    settling: true,
     heartbeat: true,
     novel: true,
     unchanged: true,
@@ -533,7 +546,8 @@ describe("frame gate decision path", () => {
    * The timings are chosen against {@link TEST_OPTIONS} to walk the gate
    * through warmup, a wall, a swing, a settle, a repeat view, a new view, a
    * long idle, a second swing, an ask answered by a fresh frame and one the
-   * last keep already answers, then a flip that drops the baseline.
+   * last keep already answers, then a flip that drops the baseline, and a
+   * view that has stopped but not yet paused.
    */
   function collectDecisions(): FrameGateDecision[] {
     const wall = flatWall(makeRandom(7));
@@ -561,6 +575,11 @@ describe("frame gate decision path", () => {
     decisions.push(flipped.offer(scene({ seed: 1 }), 0));
     flipped.reset(10);
     decisions.push(flipped.offer(scene({ seed: 1 }), 50));
+
+    // A gate with a dwell, offered a view that has only just stopped.
+    const dwelling = createFrameGate({ ...TEST_OPTIONS, settleDwellMs: 100 });
+    dwelling.reset(0);
+    decisions.push(dwelling.offer(scene({ seed: 1 }), 0));
 
     return decisions;
   }
@@ -998,5 +1017,119 @@ describe("frame gate forced keep", () => {
     for (const decision of [first, later]) {
       expect(frameGateDecisionPath(decision)).toContain("forced");
     }
+  });
+});
+
+/**
+ * The settle dwell: a stop is not a pause. Everything here uses a gate with a
+ * dwell, since the rest of the suite runs with it at zero so the mechanism
+ * under each other test is the one named.
+ */
+describe("frame gate settle dwell", () => {
+  const DWELL_OPTIONS: FrameGateOptions = {
+    ...TEST_OPTIONS,
+    settleDwellMs: 100,
+    // Out of reach, so the dwell and not the grace decides every frame here.
+    settleGraceMs: 10_000,
+  };
+
+  test("a first keep waits out the dwell like any other", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("first");
+  });
+
+  test("a momentary stop between moves is not a pause", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("first");
+
+    // A person shifting in their chair: a new position, two still frames,
+    // another position. Each stop is settled and novel by the other numbers
+    // alone, and without the dwell each would be a keep.
+    expect(gate.offer(scene({ seed: 9 }), 133).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 166).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 9 }), 199).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 3 }), 232).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 3 }), 265).reason).toBe("settling");
+
+    // Holding the last position is a pause, and the dwell runs from the
+    // first still frame of it rather than from the last keep.
+    expect(gate.offer(scene({ seed: 3 }), 298).reason).toBe("settling");
+    const held = gate.offer(scene({ seed: 3 }), 365);
+    expect(held.keep).toBe(true);
+    expect(held.reason).toBe("novel");
+  });
+
+  test("a keep asked for waits out the dwell too", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    gate.offer(scene({ seed: 1 }), 100);
+
+    // The ask lands as a new view arrives. The arm stands through the dwell,
+    // and a smeared or barely-stopped frame is not what it is spent on.
+    gate.armForcedKeep(120);
+    expect(gate.offer(scene({ seed: 9 }), 133).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 166).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 9 }), 233).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 9 }), 266).reason).toBe("forced");
+  });
+
+  test("a move mid-dwell starts the dwell over", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    gate.offer(scene({ seed: 1 }), 100);
+
+    expect(gate.offer(scene({ seed: 9 }), 133).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 200).reason).toBe("settling");
+    // A twitch at 220 resets the clock, so 300 is not 100ms of stillness
+    // even though the view stopped at 166; 340 is, measured from 233.
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 220).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 233).reason).toBe(
+      "settling",
+    );
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 300).reason).toBe(
+      "settling",
+    );
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 340).reason).toBe("novel");
+  });
+
+  test("the grace waives the dwell for a camera that never holds still", () => {
+    const gate = createFrameGate({ ...DWELL_OPTIONS, settleGraceMs: 200 });
+    gate.reset(0);
+
+    // A view that stops for one frame in every two: still frames arrive, but
+    // never two in a row, so the dwell never accrues. The grace is what keeps
+    // this camera from going silent.
+    let firstKeepAtMs: number | null = null;
+    for (let step = 0; step < 20; step++) {
+      const time = step * 33;
+      const frame = scene({ seed: 40 + Math.floor(step / 2) });
+      if (gate.offer(frame, time).keep) {
+        firstKeepAtMs = time;
+        break;
+      }
+    }
+    expect(firstKeepAtMs).not.toBeNull();
+    expect(firstKeepAtMs!).toBeGreaterThanOrEqual(200);
+    expect(firstKeepAtMs!).toBeLessThan(300);
+  });
+
+  test("a reset forgets how long the view had been still", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("first");
+
+    // A flip is a new camera, and its first frame has held still for no time
+    // at all whatever the old one was doing.
+    gate.reset(110);
+    expect(gate.offer(scene({ seed: 1 }), 120).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 1 }), 220).reason).toBe("first");
   });
 });

@@ -239,6 +239,7 @@ describe("FrameGateHud decision order", () => {
       "warmup",
       "featureless",
       "moving",
+      "settling",
       "answered",
       "forced",
       "heartbeat",
@@ -258,6 +259,7 @@ describe("FrameGateHud decision order", () => {
       "warmup",
       "featureless",
       "moving",
+      "settling",
       "forced",
       "first",
     ]);
@@ -276,6 +278,7 @@ describe("FrameGateHud decision order", () => {
       "warmup",
       "featureless",
       "moving",
+      "settling",
       "forced",
       "first",
     ]);
