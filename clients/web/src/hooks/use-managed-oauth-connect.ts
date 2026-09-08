@@ -11,7 +11,6 @@ import {
   oauthCompletionStorageKey,
 } from "@/lib/auth/oauth-popup";
 import {
-  listOAuthConnections,
   startManagedOAuth,
   type ManagedOAuthError,
 } from "@/lib/auth/managed-oauth";
@@ -96,6 +95,7 @@ export function useManagedOAuthConnect({
   const key = oauthConnectAttemptKey(assistantId, providerKey);
   const attempt = useOAuthConnectAttemptStore.use.attempts()[key];
   const startAttempt = useOAuthConnectAttemptStore.use.startAttempt();
+  const readyAttempt = useOAuthConnectAttemptStore.use.readyAttempt();
   const clearAttempt = useOAuthConnectAttemptStore.use.clearAttempt();
 
   const [connection, setConnection] = useState<OAuthConnection | null>(null);
@@ -104,12 +104,14 @@ export function useManagedOAuthConnect({
   const platformAssistantId = attempt?.platformAssistantId;
 
   const invalidateConnections = useCallback(
-    (forAssistantId: string) =>
-      queryClient.invalidateQueries({
-        queryKey: assistantsOauthConnectionsListQueryKey({
-          path: { assistant_id: forAssistantId },
-        }),
-      }),
+    (forAssistantId: string | undefined) =>
+      forAssistantId === undefined
+        ? Promise.resolve()
+        : queryClient.invalidateQueries({
+            queryKey: assistantsOauthConnectionsListQueryKey({
+              path: { assistant_id: forAssistantId },
+            }),
+          }),
     [queryClient],
   );
 
@@ -133,7 +135,7 @@ export function useManagedOAuthConnect({
   // second account reads as new and re-opening an already-connected account
   // does not.
   useEffect(() => {
-    if (!attempt || !connections) {
+    if (!attempt?.baselineSignatures || !connections) {
       return;
     }
     const granted = findNewOrChangedProviderConnection(
@@ -252,15 +254,29 @@ export function useManagedOAuthConnect({
         return;
       }
 
+      // Claimed before the setup requests run, so a double click or a remount
+      // during them cannot open a second authorization into the same slot.
+      startAttempt(key, { requestId, startedAt: Date.now() });
+
       void (async () => {
         try {
           const resolvedAssistantId =
             await resolveLocalAssistantPlatformIdentity(assistantId);
-          // A failed baseline fetch is not an empty baseline: every existing row
-          // would read as new, and an account the user connected last week would
-          // be reported as the one they just authorized. Let it throw.
+          // Read through the query cache, so the snapshot compared against is
+          // the same one the list will serve. A separately fetched baseline can
+          // disagree with cached data by a token refresh alone, and that
+          // difference reads as a brand new grant.
+          //
+          // A failure is not an empty baseline either: every existing row would
+          // look new, and an account connected last week would be reported as
+          // the one just authorized. Let it throw.
           const baselineSignatures = getProviderConnectionSignatures(
-            await listOAuthConnections(resolvedAssistantId),
+            await queryClient.fetchQuery({
+              ...assistantsOauthConnectionsListOptions({
+                path: { assistant_id: resolvedAssistantId },
+              }),
+              staleTime: 0,
+            }),
             providerKey,
           );
           const connectUrl = await startManagedOAuth(
@@ -271,11 +287,9 @@ export function useManagedOAuthConnect({
             overrideScopes ?? requestedScopes,
           );
 
-          startAttempt(key, {
-            requestId,
+          readyAttempt(key, requestId, {
             platformAssistantId: resolvedAssistantId,
             baselineSignatures,
-            startedAt: Date.now(),
           });
 
           if (native) {
@@ -294,7 +308,16 @@ export function useManagedOAuthConnect({
         }
       })();
     },
-    [assistantId, failAttempt, key, providerKey, requestedScopes, startAttempt],
+    [
+      assistantId,
+      failAttempt,
+      key,
+      providerKey,
+      queryClient,
+      readyAttempt,
+      requestedScopes,
+      startAttempt,
+    ],
   );
 
   const dismiss = useCallback(() => {

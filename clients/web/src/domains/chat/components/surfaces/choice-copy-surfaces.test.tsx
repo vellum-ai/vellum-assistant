@@ -303,7 +303,7 @@ describe("OAuthConnectSurface", () => {
     // dependencies, which is what a resubmission guard has to survive.
     const card = () => (
       <OAuthConnectSurface
-        surface={makeSurface(OAUTH_SURFACE)}
+        surface={makeSurface({ ...OAUTH_SURFACE, surfaceId: "surface-once" })}
         assistantId="assistant-1"
         useConnect={stub.useConnect}
         fetchProvider={async () => null}
@@ -313,7 +313,7 @@ describe("OAuthConnectSurface", () => {
     const { rerender, wrap } = renderWithQueryClient(card());
 
     await waitFor(() => {
-      expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
+      expect(onAction).toHaveBeenCalledWith("surface-once", "connect", {
         status: "connected",
         providerKey: "google",
         providerLabel: "Google",
@@ -325,6 +325,36 @@ describe("OAuthConnectSurface", () => {
 
     // A re-render must not resubmit: one authorization is one surface action.
     rerender(wrap(card()));
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  test("two mounted copies of one surface report the connection once", async () => {
+    // The transcript keeps its card while the voice room renders its own copy
+    // of the same surface, and both read the one provider-keyed attempt.
+    const onAction = mock(() => {});
+    const stub = stubConnect({ status: "connected", connection: CONNECTION });
+    const surface = makeSurface({ ...OAUTH_SURFACE, surfaceId: "surface-two" });
+
+    renderWithQueryClient(
+      <>
+        <OAuthConnectSurface
+          surface={surface}
+          assistantId="assistant-1"
+          useConnect={stub.useConnect}
+          fetchProvider={async () => null}
+          onAction={onAction}
+        />
+        <OAuthConnectSurface
+          surface={surface}
+          assistantId="assistant-1"
+          useConnect={stub.useConnect}
+          fetchProvider={async () => null}
+          onAction={onAction}
+        />
+      </>,
+    );
+
+    await waitFor(() => expect(onAction).toHaveBeenCalled());
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 

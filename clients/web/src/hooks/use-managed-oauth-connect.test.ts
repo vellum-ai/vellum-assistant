@@ -74,7 +74,15 @@ const actualReactQuery = await import("@tanstack/react-query");
 const invalidateQueries = mock(() => Promise.resolve());
 mock.module("@tanstack/react-query", () => ({
   ...actualReactQuery,
-  useQueryClient: () => ({ invalidateQueries }),
+  useQueryClient: () => ({
+    invalidateQueries,
+    fetchQuery: async () => {
+      if (connectionsListFails) {
+        throw new Error("boom");
+      }
+      return connectionRows;
+    },
+  }),
   useQuery: ({ enabled }: { enabled?: boolean }) => ({
     data: enabled ? connectionRows : undefined,
   }),
@@ -255,6 +263,29 @@ describe("useManagedOAuthConnect", () => {
     expect(second.result.current.status).toBe("attempting");
     act(() => second.result.current.connect());
     expect(openSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("a second click during setup does not open a second authorization", async () => {
+    // Identity resolution, the baseline read and the start request all happen
+    // after the click. The slot has to be claimed before them, or a double
+    // click races two authorizations into one attempt.
+    let releaseResolve: (() => void) | undefined;
+    resolveMock.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseResolve = () => resolve("assistant-1");
+        }),
+    );
+
+    const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
+
+    act(() => result.current.connect());
+    act(() => result.current.connect());
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+
+    act(() => releaseResolve?.());
+    await waitFor(() => expect(startCreateMock).toHaveBeenCalledTimes(1));
   });
 
   test("dismiss is what ends an attempt", async () => {

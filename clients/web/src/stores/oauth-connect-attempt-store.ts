@@ -25,16 +25,21 @@ import { createSelectors } from "@/utils/create-selectors";
 export interface OAuthConnectAttempt {
   /** Correlates the popup's completion payload with this attempt. */
   requestId: string;
-  /** The id the PLATFORM knows this assistant by, resolved before starting. */
-  platformAssistantId: string;
+  /** When the authorization opened, used to stop polling for a stale attempt. */
+  startedAt: number;
+  /**
+   * The id the PLATFORM knows this assistant by. Absent until the identity
+   * resolves: the attempt is recorded before that, so the setup requests
+   * cannot race a second authorization into the same slot.
+   */
+  platformAssistantId?: string;
   /**
    * Connection signatures captured before authorization. A grant is only new
    * when it differs from these, which is what keeps an account the user
-   * already connected from reading as the one they just authorized.
+   * already connected from reading as the one they just authorized. Absent
+   * for the same reason as `platformAssistantId`.
    */
-  baselineSignatures: ReadonlyMap<string, string>;
-  /** When the authorization opened, used to stop polling for a stale attempt. */
-  startedAt: number;
+  baselineSignatures?: ReadonlyMap<string, string>;
 }
 
 /** Attempts keyed by `${assistantId}::${providerKey}`. */
@@ -44,6 +49,18 @@ interface OAuthConnectAttemptState {
 
 interface OAuthConnectAttemptActions {
   startAttempt: (key: string, attempt: OAuthConnectAttempt) => void;
+  /**
+   * Fill in what the setup requests resolved. Ignored when the slot no longer
+   * holds `requestId`, so a dismissed and restarted attempt is not overwritten
+   * by the one it replaced.
+   */
+  readyAttempt: (
+    key: string,
+    requestId: string,
+    resolved: Required<
+      Pick<OAuthConnectAttempt, "platformAssistantId" | "baselineSignatures">
+    >,
+  ) => void;
   clearAttempt: (key: string) => void;
 }
 
@@ -61,6 +78,17 @@ const useOAuthConnectAttemptStoreBase = create<
 
   startAttempt: (key, attempt) =>
     set((state) => ({ attempts: { ...state.attempts, [key]: attempt } })),
+
+  readyAttempt: (key, requestId, resolved) =>
+    set((state) => {
+      const current = state.attempts[key];
+      if (!current || current.requestId !== requestId) {
+        return state;
+      }
+      return {
+        attempts: { ...state.attempts, [key]: { ...current, ...resolved } },
+      };
+    }),
 
   clearAttempt: (key) =>
     set((state) => {

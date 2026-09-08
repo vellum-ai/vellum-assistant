@@ -1,8 +1,4 @@
-import {
-  assistantsOauthConnectionsList,
-  assistantsOauthStartCreate,
-} from "@/generated/api/sdk.gen";
-import type { OAuthConnection } from "@/generated/api/types.gen";
+import { assistantsOauthStartCreate } from "@/generated/api/sdk.gen";
 import { oauthProvidersGet } from "@/generated/daemon/sdk.gen";
 import type { OauthProvidersGetResponses } from "@/generated/daemon/types.gen";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -37,21 +33,6 @@ export interface ManagedOAuthError {
    * frame instead of using it as the sentence.
    */
   detail?: string;
-}
-
-export async function listOAuthConnections(
-  assistantId: string,
-): Promise<OAuthConnection[]> {
-  const { data, error, response } = await assistantsOauthConnectionsList({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-  if (error || !data) {
-    throw new Error(
-      extractErrorMessage(error, response, "Failed to load OAuth connections."),
-    );
-  }
-  return data;
 }
 
 export async function fetchManagedOAuthProvider(

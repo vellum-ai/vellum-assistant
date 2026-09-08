@@ -102,6 +102,17 @@ function OAuthApprovalInfo({
   );
 }
 
+/**
+ * Surfaces whose connection has already been reported.
+ *
+ * One `oauth_connect` surface can be mounted twice at once: the transcript
+ * keeps its card while the voice room renders its own copy of the same
+ * surface. Both read the one provider-keyed attempt, so both observe the
+ * connection, and a per-instance guard would let each of them submit. Keyed by
+ * surface id, which is what the daemon dedupes on.
+ */
+const reportedSurfaceIds = new Set<string>();
+
 export function OAuthConnectSurface({
   surface,
   onAction,
@@ -122,10 +133,6 @@ export function OAuthConnectSurface({
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
     null,
   );
-  // One `connect` action per surface. The attempt lives in a module-scope
-  // store, so a remount finds the same open attempt and the connection it
-  // produces is reported once rather than once per mounted instance.
-  const reportedRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -170,10 +177,13 @@ export function OAuthConnectSurface({
   // The connection the platform reports is the outcome, whenever and wherever
   // it lands: this card, the settings integrations tab, or another device.
   useEffect(() => {
-    if (connect.status !== "connected" || reportedRef.current) {
+    if (
+      connect.status !== "connected" ||
+      reportedSurfaceIds.has(surface.surfaceId)
+    ) {
       return;
     }
-    reportedRef.current = true;
+    reportedSurfaceIds.add(surface.surfaceId);
     onAction(surface.surfaceId, "connect", {
       status: "connected",
       providerKey,
