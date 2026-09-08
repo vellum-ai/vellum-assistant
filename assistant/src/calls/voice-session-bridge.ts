@@ -804,8 +804,8 @@ export async function startVoiceTurn(
     conversationReadyAt: 0,
     admissionClearAt: 0,
     sightHoldMs: 0,
-    // The camera frame this turn will read as the current view, and how old it
-    // was when the turn went past the sight hold. Null when the conversation
+    // The camera frame this turn reads as the current view, and how old it
+    // was when the turn's own message landed. Null when the conversation
     // carries no frame.
     newestSightFrame: null as { attachmentId: string; ageMs: number } | null,
     persistDoneAt: 0,
@@ -1047,15 +1047,6 @@ export async function startVoiceTurn(
     ]);
     clearTimeout(holdTimer);
     dispatch.sightHoldMs = Date.now() - holdStartedAt;
-  }
-  // Read after the hold, so a frame the hold waited for is the one reported.
-  // One indexed query, which a conversation with no camera answers empty.
-  const newestFrame = newestPersistedSightFrame(opts.conversationId);
-  if (newestFrame) {
-    dispatch.newestSightFrame = {
-      attachmentId: newestFrame.attachmentId,
-      ageMs: Date.now() - newestFrame.capturedAt,
-    };
   }
 
   // Releases the per-turn state of a voice turn that OWNED the conversation,
@@ -1439,6 +1430,26 @@ export async function startVoiceTurn(
     }
   }
   dispatch.persistDoneAt = Date.now();
+  // Read now, under the flag this turn holds, rather than after the sight
+  // hold: a frame can still land between the hold and the persist, when its
+  // acquire beats this turn's and the turn retries behind it. What the loop
+  // below reads is what the rows hold at this moment, so this is the frame the
+  // answer is about. One indexed row; a log-only read that fails must not
+  // take the turn down with it.
+  try {
+    const newestFrame = newestPersistedSightFrame(opts.conversationId);
+    if (newestFrame) {
+      dispatch.newestSightFrame = {
+        attachmentId: newestFrame.attachmentId,
+        ageMs: dispatch.persistDoneAt - newestFrame.capturedAt,
+      };
+    }
+  } catch (err) {
+    log.warn(
+      { err, turnId, conversationId: opts.conversationId },
+      "Could not read the newest camera frame for the dispatch timing log",
+    );
+  }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {

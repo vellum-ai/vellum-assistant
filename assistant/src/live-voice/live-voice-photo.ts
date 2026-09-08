@@ -90,7 +90,7 @@ import {
   getMessageById,
   MessageInsertPreconditionError,
   recordConversationPersistedSeq,
-  selectSightFrameCaptureTimes,
+  selectNewestSightFrameCapture,
 } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -304,21 +304,17 @@ export interface NewestSightFrame {
  * For the turn's own log: which frame the answer is about is otherwise
  * invisible, and the failure this instruments is exactly a turn reading the
  * frame before the one the question was asked about. Read from the rows, the
- * same source retention ranks frames by, so a frame the hold above waited for
- * is counted and a frame still in flight is not.
+ * same source retention ranks frames by, so a frame that landed is counted
+ * and a frame still in flight is not. One indexed row, since it runs on every
+ * voice turn.
  */
 export function newestPersistedSightFrame(
   conversationId: string,
 ): NewestSightFrame | null {
-  let newest: NewestSightFrame | null = null;
-  for (const [attachmentId, capturedAt] of selectSightFrameCaptureTimes(
-    conversationId,
-  )) {
-    if (newest === null || capturedAt > newest.capturedAt) {
-      newest = { attachmentId, capturedAt };
-    }
-  }
-  return newest;
+  const newest = selectNewestSightFrameCapture(conversationId);
+  return newest === null
+    ? null
+    : { attachmentId: newest.attachmentId, capturedAt: newest.createdAt };
 }
 
 export function pendingStandaloneImagePersist(
