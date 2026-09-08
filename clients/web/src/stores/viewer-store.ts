@@ -1307,6 +1307,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeMessageFiles: null,
       activeActivitySteps: null,
       activeToolDetail: null,
+      activeChatInfo: null,
     });
   },
 

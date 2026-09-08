@@ -26,9 +26,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsByIdGet: () => documentResult(),
 }));
 
-const { isAppNotFoundError, useViewerStore } = await import(
-  "@/stores/viewer-store"
-);
+const { isAppNotFoundError, useViewerStore } =
+  await import("@/stores/viewer-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -934,6 +933,12 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
       conversationId: "c2",
       category: null,
     });
+  });
+
+  it("clearTranscriptPanelPayloads drops the chat-info payload on a conversation switch", () => {
+    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+    getState().clearTranscriptPanelPayloads();
+    expect(getState().activeChatInfo).toBeNull();
   });
 
   it("toggle treats the same conversation id under another assistant as a new target", () => {
