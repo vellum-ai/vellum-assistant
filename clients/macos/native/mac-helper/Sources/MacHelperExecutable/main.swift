@@ -603,23 +603,19 @@ final class MacHelper: @unchecked Sendable {
                 return
             }
 
-            // Anything named and actually on screen is a thing that can be
-            // pointed at, interactive or not: a value someone is reading is as
-            // legitimate a target as a button they are about to press.
-            let elements = AccessibilityTreeEnumerator.flattenElements(tree.elements)
-                .filter { element in
-                    guard let title = element.title, !title.isEmpty else { return false }
-                    return element.frame.width > 0 && element.frame.height > 0
-                }
+            let flattened = AccessibilityTreeEnumerator.flattenElements(tree.elements)
 
             // Focus is one thing across every monitor, so the window it names
             // can be standing on a different screen from the one asked about.
             // The caller normalises what comes back against that screen's
             // bounds, so a frame from elsewhere resolves to somewhere
             // arbitrary on it: a tree that is not on the display is no tree.
+            // Read off the whole tree rather than the candidates below, since
+            // where a window is and what it has worth pointing at are two
+            // questions.
             if let displayId,
                !AXDisplayMatch.tree(
-                   at: elements.map(\.frame),
+                   at: flattened.map(\.frame),
                    standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
                ) {
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
@@ -627,6 +623,14 @@ final class MacHelper: @unchecked Sendable {
                     "reason": "no-tree",
                 ]))
                 return
+            }
+
+            // Anything named and actually on screen is a thing that can be
+            // pointed at, interactive or not: a value someone is reading is as
+            // legitimate a target as a button they are about to press.
+            let elements = flattened.filter { element in
+                guard let title = element.title, !title.isEmpty else { return false }
+                return element.frame.width > 0 && element.frame.height > 0
             }
             let outcome = AXTargetMatch.locate(
                 query: query,
