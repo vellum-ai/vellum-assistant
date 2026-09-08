@@ -129,6 +129,11 @@ export function IntegrationDetailModal({
     }
   }, [connectStatus, displayName, t]);
 
+  // Closing the modal abandons an authorization still in flight, so reopening
+  // this provider offers Connect rather than a wait nothing will end.
+  const dismissConnect = managedConnect.dismiss;
+  useEffect(() => dismissConnect, [dismissConnect]);
+
   const connectError = managedConnect.errorMessage;
   useEffect(() => {
     if (connectError) {
@@ -269,6 +274,7 @@ export function IntegrationDetailModal({
                 connections={providerConnections}
                 connectionsLoading={connectionsLoading}
                 oauthInProgress={managedConnect.status === "attempting"}
+                onCancelConnect={managedConnect.dismiss}
                 disconnectingId={
                   disconnectOAuth.isPending ? pendingDisconnectId : null
                 }

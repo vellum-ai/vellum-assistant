@@ -11,6 +11,7 @@ import {
   oauthCompletionStorageKey,
   parseOAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+
 import {
   startManagedOAuth,
   type ManagedOAuthError,
@@ -49,6 +50,27 @@ import {
  * caller's dismiss control. Closing the window, switching tabs and walking away
  * say nothing, and are read as nothing.
  */
+
+/**
+ * `localStorage` throws where a privacy or cookie policy blocks site data, and
+ * the completion page already treats writing it as best effort. The event
+ * transports and the connections poll carry the flow without it.
+ */
+function readStoredCompletion(requestId: string): string | null {
+  try {
+    return window.localStorage.getItem(oauthCompletionStorageKey(requestId));
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredCompletion(requestId: string): void {
+  try {
+    window.localStorage.removeItem(oauthCompletionStorageKey(requestId));
+  } catch {
+    // Nothing to clean up when storage is unavailable.
+  }
+}
 
 /** Backstop poll while an authorization is open. */
 const CONNECTION_POLL_INTERVAL_MS = 3000;
@@ -191,9 +213,7 @@ export function useManagedOAuthConnect({
       if (!payload) {
         return;
       }
-      window.localStorage.removeItem(
-        oauthCompletionStorageKey(attempt.requestId),
-      );
+      clearStoredCompletion(attempt.requestId);
       handleCompletion(payload.oauthStatus, payload.oauthCode);
     };
     const handleDeepLink = (
@@ -208,14 +228,10 @@ export function useManagedOAuthConnect({
     // moment. A connect started from a modal that closed before the callback
     // page wrote its result leaves the payload sitting there, so claim it on
     // subscribe rather than waiting for an event that has already passed.
-    const stored = window.localStorage.getItem(
-      oauthCompletionStorageKey(attempt.requestId),
-    );
+    const stored = readStoredCompletion(attempt.requestId);
     const storedPayload = stored ? parseOAuthCompletePayload(stored) : null;
     if (storedPayload && storedPayload.requestId === attempt.requestId) {
-      window.localStorage.removeItem(
-        oauthCompletionStorageKey(attempt.requestId),
-      );
+      clearStoredCompletion(attempt.requestId);
       handleCompletion(storedPayload.oauthStatus, storedPayload.oauthCode);
     }
 

@@ -358,6 +358,33 @@ describe("OAuthConnectSurface", () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 
+  test("a card that unmounts releases its report claim", async () => {
+    // A completed surface renders as a static summary, so this card mounting
+    // again means the submission never took and reporting is the point.
+    const onAction = mock(() => {});
+    const stub = stubConnect({ status: "connected", connection: CONNECTION });
+    const surface = makeSurface({
+      ...OAUTH_SURFACE,
+      surfaceId: "surface-retry",
+    });
+    const card = (
+      <OAuthConnectSurface
+        surface={surface}
+        assistantId="assistant-1"
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
+        onAction={onAction}
+      />
+    );
+
+    const first = renderWithQueryClient(card);
+    await waitFor(() => expect(onAction).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    renderWithQueryClient(card);
+    await waitFor(() => expect(onAction).toHaveBeenCalledTimes(2));
+  });
+
   test("dismiss stays available while an authorization is open", () => {
     const onAction = mock(() => {});
     const stub = stubConnect({ status: "attempting" });

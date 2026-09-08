@@ -356,6 +356,40 @@ describe("useManagedOAuthConnect", () => {
     expect(attemptFor()).toBeUndefined();
   });
 
+  test("blocked site storage does not break the flow", async () => {
+    // A privacy or cookie policy can make localStorage throw outright. The
+    // event transports and the connections poll carry the flow without it.
+    const realStorage = window.localStorage;
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError");
+      },
+    });
+
+    try {
+      const { result, rerender } = renderHook(() =>
+        useManagedOAuthConnect(OPTS),
+      );
+      act(() => result.current.connect());
+      await waitFor(() =>
+        expect(attemptFor()?.platformAssistantId).toBeTruthy(),
+      );
+
+      expect(result.current.status).toBe("attempting");
+      expect(result.current.errorMessage).toBeNull();
+
+      connectionRows = [CONNECTED_ROW];
+      rerender();
+      await waitFor(() => expect(result.current.status).toBe("connected"));
+    } finally {
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        value: realStorage,
+      });
+    }
+  });
+
   test("dismiss is what ends an attempt", async () => {
     const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
     act(() => result.current.connect());

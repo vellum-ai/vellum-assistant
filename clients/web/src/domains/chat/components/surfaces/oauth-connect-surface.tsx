@@ -110,6 +110,10 @@ function OAuthApprovalInfo({
  * surface. Both read the one provider-keyed attempt, so both observe the
  * connection, and a per-instance guard would let each of them submit. Keyed by
  * surface id, which is what the daemon dedupes on.
+ *
+ * The claim is released when the reporting card unmounts. A completed surface
+ * renders as a static summary rather than this card, so a later mount means
+ * the submission never took, and reporting again is the point.
  */
 const reportedSurfaceIds = new Set<string>();
 
@@ -134,10 +138,14 @@ export function OAuthConnectSurface({
     null,
   );
   const mountedRef = useRef(true);
+  const claimedSurfaceRef = useRef<string | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (claimedSurfaceRef.current) {
+        reportedSurfaceIds.delete(claimedSurfaceRef.current);
+      }
     };
   }, []);
 
@@ -184,6 +192,7 @@ export function OAuthConnectSurface({
       return;
     }
     reportedSurfaceIds.add(surface.surfaceId);
+    claimedSurfaceRef.current = surface.surfaceId;
     onAction(surface.surfaceId, "connect", {
       status: "connected",
       providerKey,

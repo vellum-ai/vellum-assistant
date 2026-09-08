@@ -19,6 +19,8 @@ export interface ManagedTabProps {
   connections: OAuthConnection[];
   connectionsLoading: boolean;
   oauthInProgress: boolean;
+  /** Abandon an authorization in progress. */
+  onCancelConnect: () => void;
   disconnectingId: string | null;
   /** Pass `requestedScopes` to request a scoped subset; omit for full default. */
   onConnect: (requestedScopes?: string[]) => void;
@@ -34,6 +36,7 @@ export function ManagedTab({
   connections,
   connectionsLoading,
   oauthInProgress,
+  onCancelConnect,
   disconnectingId,
   onConnect,
   onDisconnect,
@@ -61,6 +64,9 @@ export function ManagedTab({
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t("managedOauthTab.waitingForAuthorization")}
+            <Button variant="ghost" size="compact" onClick={onCancelConnect}>
+              {t("managedOauthTab.cancel")}
+            </Button>
           </div>
         </div>
       );
@@ -150,6 +156,9 @@ export function ManagedTab({
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t("managedOauthTab.waitingForAuthorization")}
+            <Button variant="ghost" size="compact" onClick={onCancelConnect}>
+              {t("managedOauthTab.cancel")}
+            </Button>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">

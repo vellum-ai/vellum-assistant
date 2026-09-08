@@ -1008,6 +1008,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} Account",
+    "cancel": "Cancel",
     "connectAccount": "Connect Account",
     "connectAccountLower": "Connect account",
     "connectToContinue": "Connect Account to continue",
