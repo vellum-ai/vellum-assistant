@@ -74,8 +74,8 @@ import { rawRun } from "../persistence/raw-query.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   BadRequestError,
+  ConflictError,
   NotFoundError,
-  ServiceUnavailableError,
 } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
@@ -1690,9 +1690,7 @@ describe("plugin-sourced schedules over routes", () => {
 
       setLifecycleQuiesce();
       try {
-        await expect(runNow(imperative.id)).rejects.toThrow(
-          ServiceUnavailableError,
-        );
+        await expect(runNow(imperative.id)).rejects.toThrow(ConflictError);
         await expect(runNow(imperative.id)).rejects.toThrow(
           "The assistant is shutting down and is not starting new schedule runs.",
         );

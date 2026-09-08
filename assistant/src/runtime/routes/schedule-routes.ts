@@ -63,10 +63,10 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import {
   BadRequestError,
+  ConflictError,
   ForbiddenError,
   InternalError,
   NotFoundError,
-  ServiceUnavailableError,
 } from "./errors.js";
 import {
   paginateRuns,
@@ -1304,13 +1304,13 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Run schedule now",
     description:
-      "Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its plugin is disabled or no longer declares it. Returns 503 while a drain quiesce lease is active so run-now cannot start work the shutdown snapshot would miss.",
+      "Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its plugin is disabled or no longer declares it. Returns 409 while a drain quiesce lease is active so run-now cannot start work the shutdown snapshot would miss.",
     tags: ["schedules"],
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     additionalResponses: {
-      "503": {
+      "409": {
         description:
           "A drain quiesce lease is active, so run-now is not starting new work.",
       },
@@ -1330,7 +1330,7 @@ async function handleRunScheduleNow(
   }
 
   if (isLifecycleQuiesced()) {
-    throw new ServiceUnavailableError(
+    throw new ConflictError(
       "The assistant is shutting down and is not starting new schedule runs.",
     );
   }
