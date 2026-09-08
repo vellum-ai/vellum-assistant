@@ -219,8 +219,11 @@ export function reconcilePluginWebhookIngressRoutes(
     }
   }
 
+  const allRows = new Map(
+    listWebhookIngressRoutes().map((route) => [route.path, route] as const),
+  );
   const existing = new Map(
-    listWebhookIngressRoutes()
+    [...allRows.values()]
       .filter(isReconcileOwned)
       .map((route) => [route.path, route] as const),
   );
@@ -229,6 +232,14 @@ export function reconcilePluginWebhookIngressRoutes(
   const now = Date.now();
   const writes: WebhookIngressRoute[] = [];
   for (const [path, source] of desired) {
+    // A row of another type at a desired path already admits it, and its
+    // lifecycle belongs to whoever wrote it. Overwriting its ownership here
+    // would hand it to the reconcile, and the two writers would then trade
+    // the row back and forth, each swing forcing a tunnel reconnect.
+    const foreign = allRows.get(path);
+    if (foreign && foreign.type !== PLUGIN_WEBHOOK_ROUTE_TYPE) {
+      continue;
+    }
     const row = existing.get(path);
     if (row?.source === source) {
       continue;

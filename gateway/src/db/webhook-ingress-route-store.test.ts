@@ -217,6 +217,29 @@ describe("reconcilePluginWebhookIngressRoutes", () => {
       .sort();
   }
 
+  it("leaves a row of another type at a desired path with its owner", () => {
+    // The daemon claims plugin webhook paths under its own per-route types.
+    // Such a row already admits the path, so the reconcile neither rewrites
+    // its ownership nor removes it when the path leaves the servable set.
+    registerWebhookIngressRoute({
+      path: REALTIME,
+      type: "plugin_meeting-bot_realtime_ab12cd34",
+      source: "meeting-bot",
+    });
+
+    const first = reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+    ]);
+    expect(first.added).toEqual([]);
+    expect(first.removed).toEqual([]);
+
+    const second = reconcilePluginWebhookIngressRoutes([]);
+    expect(second.removed).toEqual([]);
+    expect(listWebhookIngressRoutes().map((r) => [r.path, r.type])).toEqual([
+      [REALTIME, "plugin_meeting-bot_realtime_ab12cd34"],
+    ]);
+  });
+
   it("claims every path in the set, attributed to its plugin", () => {
     // The empty-registry case is the one that matters: a persisted grant holds
     // no row of its own, so a reconcile is what populates the registry from it.
