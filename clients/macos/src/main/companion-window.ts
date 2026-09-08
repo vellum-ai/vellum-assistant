@@ -1273,7 +1273,10 @@ export const showCompanionCoachmarks = async (
   const marks: PlacedCoachmark[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
-      marks.push(request);
+      // Bounds given outright are an extent someone means, so they keep the
+      // ring. The kind is added here rather than asked for: what the caller
+      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      marks.push({ kind: "region", ...request });
       continue;
     }
     const placed = await placeOnNamedTarget(share, request);
@@ -1343,11 +1346,16 @@ const placeOnNamedTarget = async (
   if (bounds === null) {
     return { target: request.target, reason: "no-tree", candidates: [] };
   }
+  // The centre, not the frame. An element's frame is its hit area, which is
+  // routinely a good deal larger than the thing drawn inside it, and it can
+  // belong to the small triangle that discloses a row rather than the row.
+  // Measured on 8 Sep: every frame that misled about size was right about
+  // position. So the arrow is aimed at the middle of it and nothing claims an
+  // extent that was never trustworthy.
   return {
-    x: (located.x - bounds.x) / bounds.width,
-    y: (located.y - bounds.y) / bounds.height,
-    width: located.width / bounds.width,
-    height: located.height / bounds.height,
+    kind: "point",
+    x: (located.x + located.width / 2 - bounds.x) / bounds.width,
+    y: (located.y + located.height / 2 - bounds.y) / bounds.height,
     ...(request.caption === undefined ? {} : { caption: request.caption }),
     matched: located.label,
   };

@@ -21,7 +21,10 @@
 import { Fragment } from "react";
 
 import { useWindowBox } from "@/components/companion-window-box";
-import type { CompanionCoachmark } from "@vellumai/ipc-contract";
+import type {
+  CompanionCoachmark,
+  CompanionCoachmarkPoint,
+} from "@vellumai/ipc-contract";
 
 /**
  * Which side of its mark a caption hangs from, across the surface.
@@ -50,6 +53,34 @@ export const CAPTION_MAX_WIDTH = 0.4;
 export const CAPTION_BUDGET_PX = 58;
 const CAPTION_GAP_PX = 10;
 
+/**
+ * How far an arrow reaches back from the point it indicates, in the window's
+ * pixels.
+ *
+ * Pixels for the same reason the caption budget is: what it has to clear is
+ * the caption, which is sized by its text. Long enough to read as an arrow
+ * rather than a tick, short enough that its tail stays near the thing it
+ * came from, so the eye travels the shortest distance from the words to the
+ * control.
+ */
+const POINTER_LENGTH_PX = 52;
+
+/** How wide the arrowhead is drawn, in the same pixels. */
+const POINTER_WIDTH_PX = 22;
+
+/**
+ * How far short of the point the tip stops.
+ *
+ * The ring is drawn outside the bounds it is given so the control stays as
+ * visible as it was; an arrow keeps the same promise by not landing on the
+ * thing. It also reads better: a person pointing at something on a screen
+ * does not touch it either.
+ */
+const POINTER_GAP_PX = 10;
+
+/** Everything an arrow occupies on the side its tail hangs from. */
+const POINTER_REACH_PX = POINTER_LENGTH_PX + POINTER_GAP_PX;
+
 /** Which side of a mark its caption hangs from. */
 export interface CaptionPlacement {
   above: boolean;
@@ -71,11 +102,17 @@ export function captionPlacement(
   mark: CompanionCoachmark,
   windowHeight: number,
 ): CaptionPlacement {
-  const below = (1 - (mark.y + mark.height)) * windowHeight;
-  const above = mark.y * windowHeight;
+  // An arrow occupies the side its caption hangs from, so what has to fit
+  // below a point is the arrow and then the caption. A region occupies only
+  // itself.
+  const reach = mark.kind === "point" ? POINTER_REACH_PX : 0;
+  const far = mark.kind === "point" ? mark.y : mark.y + mark.height;
+  const width = mark.kind === "point" ? 0 : mark.width;
+  const below = (1 - far) * windowHeight - reach;
+  const above = mark.y * windowHeight - reach;
   return {
     above: below < CAPTION_BUDGET_PX && above > below,
-    trailing: mark.x + mark.width > CAPTION_FLIP_X,
+    trailing: mark.x + width > CAPTION_FLIP_X,
   };
 }
 
@@ -94,12 +131,21 @@ export function captionOffset(
   windowHeight: number,
   above: boolean,
 ): number {
-  const edge = above ? 1 - mark.y : mark.y + mark.height;
+  const edge = above
+    ? 1 - mark.y
+    : mark.kind === "point"
+      ? mark.y
+      : mark.y + mark.height;
   const room = Math.max(windowHeight - CAPTION_BUDGET_PX, 0);
+  // Past the arrow, when there is one: the caption sits at its tail, so the
+  // words and the arrow read as one gesture rather than two marks.
+  const reach = mark.kind === "point" ? POINTER_LENGTH_PX : 0;
   // Whole pixels, for the reason {@link percent} rounds: the offset is a
   // fraction of a measured height, and the tail of that has nowhere to land
   // on a screen.
-  return Math.round(Math.min(edge * windowHeight + CAPTION_GAP_PX, room));
+  return Math.round(
+    Math.min(edge * windowHeight + reach + CAPTION_GAP_PX, room),
+  );
 }
 
 /**
@@ -123,8 +169,68 @@ function percent(fraction: number): string {
  * had already found rather than putting one where they have not looked yet.
  */
 function markKey(mark: CompanionCoachmark): string {
-  return `${mark.x},${mark.y},${mark.width},${mark.height},${mark.caption ?? ""}`;
+  const extent =
+    mark.kind === "region" ? `${mark.width},${mark.height}` : "point";
+  return `${mark.kind},${mark.x},${mark.y},${extent},${mark.caption ?? ""}`;
 }
+
+/**
+ * The arrow, with its tip on the point and its tail on the caption's side.
+ *
+ * Drawn in the window's own pixels rather than as fractions of it: a head
+ * shaped by percentages of a surface is a different shape on every surface,
+ * and the one thing an arrow has to stay is recognisable. Only the tip is
+ * placed by fraction, which is the part that has to be exact.
+ *
+ * The shaft is drawn once and turned, so the two directions cannot drift
+ * apart.
+ */
+function Pointer({
+  mark,
+  above,
+  box,
+}: {
+  mark: CompanionCoachmarkPoint;
+  above: boolean;
+  box: { width: number; height: number };
+}) {
+  return (
+    <svg
+      className="companion-coachmark-pointer"
+      data-testid="companion-coachmark-pointer"
+      data-above={above ? "" : undefined}
+      aria-hidden="true"
+      viewBox={`0 0 ${POINTER_WIDTH_PX} ${POINTER_LENGTH_PX}`}
+      width={POINTER_WIDTH_PX}
+      height={POINTER_LENGTH_PX}
+      style={{
+        // Half a head to the left of the tip, so the shaft runs through it.
+        left: Math.round(mark.x * box.width - POINTER_WIDTH_PX / 2),
+        // Below the point when the tail hangs below, above it when above, so
+        // the tip is on the point either way.
+        top: Math.round(
+          mark.y * box.height + (above ? -POINTER_REACH_PX : POINTER_GAP_PX),
+        ),
+        transform: above ? "rotate(180deg)" : undefined,
+      }}
+    >
+      <path className="companion-coachmark-pointer-halo" d={POINTER_PATH} />
+      <path className="companion-coachmark-pointer-ink" d={POINTER_PATH} />
+    </svg>
+  );
+}
+
+/**
+ * An arrow pointing at the top of its box: a shaft up the middle and a head
+ * on the end, as one stroked outline so the halo beneath it is one shape.
+ */
+const POINTER_PATH = [
+  `M ${POINTER_WIDTH_PX / 2} ${POINTER_LENGTH_PX}`,
+  `L ${POINTER_WIDTH_PX / 2} 6`,
+  `M 3 15`,
+  `L ${POINTER_WIDTH_PX / 2} 3`,
+  `L ${POINTER_WIDTH_PX - 3} 15`,
+].join(" ");
 
 export function CompanionCoachmarks({
   marks,
@@ -149,16 +255,20 @@ export function CompanionCoachmarks({
           // against this layer, and a wrapper that positioned neither would
           // still be a node between them and the surface they measure from.
           <Fragment key={markKey(mark)}>
-            <div
-              className="companion-coachmark"
-              data-testid="companion-coachmark"
-              style={{
-                left: percent(mark.x),
-                top: percent(mark.y),
-                width: percent(mark.width),
-                height: percent(mark.height),
-              }}
-            />
+            {mark.kind === "region" ? (
+              <div
+                className="companion-coachmark"
+                data-testid="companion-coachmark"
+                style={{
+                  left: percent(mark.x),
+                  top: percent(mark.y),
+                  width: percent(mark.width),
+                  height: percent(mark.height),
+                }}
+              />
+            ) : (
+              <Pointer mark={mark} above={above} box={box} />
+            )}
             {mark.caption !== undefined && mark.caption !== "" && (
               <div
                 className="companion-coachmark-caption"
@@ -166,8 +276,17 @@ export function CompanionCoachmarks({
                 data-above={above ? "" : undefined}
                 data-trailing={trailing ? "" : undefined}
                 style={{
+                  // Anchored to the mark's far side when it hangs back the
+                  // other way. A point's far side is the point.
                   ...(trailing
-                    ? { right: percent(1 - (mark.x + mark.width)) }
+                    ? {
+                        right: percent(
+                          1 -
+                            (mark.kind === "region"
+                              ? mark.x + mark.width
+                              : mark.x),
+                        ),
+                      }
                     : { left: percent(mark.x) }),
                   ...(above ? { bottom: offset } : { top: offset }),
                   maxWidth: percent(CAPTION_MAX_WIDTH),

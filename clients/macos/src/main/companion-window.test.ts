@@ -3136,6 +3136,8 @@ describe("companion window: drawing on what is shared", () => {
  */
 describe("companion window: pointing at what is shared", () => {
   const MARK = { x: 0.1, y: 0.2, width: 0.3, height: 0.1, caption: "Press" };
+  /** The same rectangle as it travels once the surface has tagged it. */
+  const DRAWN_MARK = { kind: "region" as const, ...MARK };
   /** The conversation the shared call belongs to. */
   const CALL = "conv-abc";
   /** Any other conversation the same user has running. */
@@ -3212,7 +3214,7 @@ describe("companion window: pointing at what is shared", () => {
     expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
       kind: "placed",
     });
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** Nothing pointed at is absence, so a frame reads one shape for it. */
@@ -3230,7 +3232,7 @@ describe("companion window: pointing at what is shared", () => {
    * rather than estimated. A window at (100,50) 1000x500 with the control at
    * (120,80) 60x20 puts it 2% in and 6% down, 6% wide and 4% tall.
    */
-  test("resolves a named control against the shared window's bounds", async () => {
+  test("aims at the middle of a named control, not its bounds", async () => {
     windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
     await shareAndSee(WINDOW);
     const result = await showCompanionCoachmarks(
@@ -3241,23 +3243,25 @@ describe("companion window: pointing at what is shared", () => {
     expect(locatesAsked).toEqual([
       { target: WINDOW, query: "the share button" },
     ]);
+    // The control is at (120,80) 60x20, so its middle is (150,90): a twentieth
+    // of the way across the window and two twenty-fifths down it. No width or
+    // height travels, because the frame's extent is the part that misleads.
     expect(result).toEqual({
       kind: "placed",
       marks: [
         {
-          x: 0.02,
-          y: 0.06,
-          width: 0.06,
-          height: 0.04,
+          kind: "point",
+          x: 0.05,
+          y: 0.08,
           caption: "Press",
           matched: "Share",
         },
       ],
     });
-    // What is drawn is the rectangle alone: the name it resolved from is for
-    // the caller to say out loud, not for the frame to hold.
+    // What is drawn is the place alone: the name it resolved from is for the
+    // caller to say out loud, not for the frame to hold.
     expect(state().coachmarks).toEqual([
-      { x: 0.02, y: 0.06, width: 0.06, height: 0.04, caption: "Press" },
+      { kind: "point", x: 0.05, y: 0.08, caption: "Press" },
     ]);
   });
 
@@ -3281,9 +3285,7 @@ describe("companion window: pointing at what is shared", () => {
 
     expect(result).toEqual({
       kind: "placed",
-      marks: [
-        { x: 0.0625, y: 0.1, width: 0.05, height: 0.05, matched: "Share" },
-      ],
+      marks: [{ kind: "point", x: 0.0875, y: 0.125, matched: "Share" }],
     });
   });
 
@@ -3351,12 +3353,16 @@ describe("companion window: pointing at what is shared", () => {
   });
 
   /** Bounds still go up untouched, for what the tree cannot name. */
-  test("a mark given as bounds is drawn without asking the tree", async () => {
+  test("a mark given as bounds keeps its ring and never asks the tree", async () => {
     await shareAndSee();
     const result = await showCompanionCoachmarks([MARK], CALL);
 
     expect(locatesAsked).toEqual([]);
-    expect(result).toEqual({ kind: "placed", marks: [MARK] });
+    // An extent someone gave outright is an extent they mean.
+    expect(result).toEqual({
+      kind: "placed",
+      marks: [{ kind: "region", ...MARK }],
+    });
   });
 
   /**
@@ -3419,7 +3425,7 @@ describe("companion window: pointing at what is shared", () => {
       kind: "refused",
       refusal: "not-this-call",
     });
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** A claim that cannot be checked is not a claim that passed. */
@@ -3481,7 +3487,7 @@ describe("companion window: pointing at what is shared", () => {
     expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
       kind: "placed",
     });
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** A capture that came back with nothing is never acknowledged. */
@@ -3589,7 +3595,7 @@ describe("companion window: pointing at what is shared", () => {
     await showCompanionCoachmarks([MARK], CALL);
     await shareAndSee(WINDOW);
     await showCompanionCoachmarks([MARK], CALL);
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** A context republished unchanged is not a surface that moved. */
@@ -3597,7 +3603,7 @@ describe("companion window: pointing at what is shared", () => {
     await shareAndSee();
     await showCompanionCoachmarks([MARK], CALL);
     shareDisplay();
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /**
@@ -3641,15 +3647,32 @@ describe("companion window: pointing at what is shared", () => {
    */
   test("the wire refuses a mark measured against another surface", () => {
     expect(
-      companionCoachmarkSchema.safeParse({ ...MARK, x: 1.5 }).success,
+      companionCoachmarkSchema.safeParse({ ...DRAWN_MARK, x: 1.5 }).success,
     ).toBe(false);
-    expect(companionCoachmarkSchema.safeParse(MARK).success).toBe(true);
+    expect(companionCoachmarkSchema.safeParse(DRAWN_MARK).success).toBe(true);
+    expect(
+      companionCoachmarkSchema.safeParse({ kind: "point", x: 0.5, y: 1.5 })
+        .success,
+    ).toBe(false);
+    expect(
+      companionCoachmarkSchema.safeParse({ kind: "point", x: 0.5, y: 0.5 })
+        .success,
+    ).toBe(true);
+  });
+
+  /**
+   * What `x` and `y` mean is decided by the kind, so a mark that names no kind
+   * is a mark a reader would have to guess about. A place and a corner half a
+   * mark apart is exactly the guess JARVIS-1759 was.
+   */
+  test("the wire refuses a mark that does not say what it is", () => {
+    expect(companionCoachmarkSchema.safeParse(MARK).success).toBe(false);
   });
 
   test("the wire refuses a caption longer than a caption", () => {
     expect(
       companionCoachmarkSchema.safeParse({
-        ...MARK,
+        ...DRAWN_MARK,
         caption: "a".repeat(400),
       }).success,
     ).toBe(false);
@@ -3664,7 +3687,7 @@ describe("companion window: pointing at what is shared", () => {
   test("the wire refuses more marks than there are places to look", () => {
     const many = Array.from(
       { length: COMPANION_COACHMARK_MAX + 1 },
-      () => MARK,
+      () => DRAWN_MARK,
     );
     expect(many.length).toBeGreaterThan(COMPANION_COACHMARK_MAX);
     expect(

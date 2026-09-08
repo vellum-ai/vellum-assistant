@@ -451,6 +451,29 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: companion-coachmark-in 260ms ease-out 1;
 }
 
+/* The arrow, for a mark that indicates a place rather than an extent. Same
+ * accent over the same dark halo as the ring, for the same reason: it has to
+ * be found over a white document and a dark editor alike. Rounded ends so the
+ * shaft and the head read as one stroke rather than three. */
+.companion-coachmark-pointer {
+  position: absolute;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: companion-coachmark-in 260ms ease-out 1;
+}
+
+.companion-coachmark-pointer-halo {
+  stroke: color-mix(in srgb, black 30%, transparent);
+  stroke-width: 9;
+}
+
+.companion-coachmark-pointer-ink {
+  stroke: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 90%, transparent);
+  stroke-width: 5;
+}
+
 /* The line about what to do with it, hung off whichever corner of the mark
  * keeps it on the surface. Dark with an accent rim rather than filled with the
  * accent: the colour has to tie the caption to its ring across every palette

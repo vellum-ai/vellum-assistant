@@ -60,7 +60,13 @@ const marksOf = (container: HTMLElement): HTMLElement[] =>
     ),
   );
 
-const MARK = { x: 0.1, y: 0.2, width: 0.2, height: 0.1 };
+const MARK = {
+  kind: "region" as const,
+  x: 0.1,
+  y: 0.2,
+  width: 0.2,
+  height: 0.1,
+};
 
 const LISTENING_CALL = {
   phase: "listening" as const,

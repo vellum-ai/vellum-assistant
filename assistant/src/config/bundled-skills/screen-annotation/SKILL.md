@@ -35,26 +35,31 @@ fails saying so. Ask them to share their screen from the call, then point.
 
 **Name the thing.** `{"target": "color balance", "caption": "Click this"}`.
 The name is looked up on the surface itself, which knows where its controls
-actually are, so the ring lands on the thing rather than near it. Use the
-label as it appears, or a phrase containing it: "the Send button", "the
-stabilization toggle", "search filmstrip".
+actually are, and an arrow is drawn at it. Use the label as it appears, or a
+phrase containing it: "the Send button", "the stabilization toggle", "search
+filmstrip".
+
+The arrow points at the middle of the control and stops just short, so what
+you are sending someone to stays visible the whole time.
 
 You are answered with what was drawn and the name it resolved to, which is not
 always the name you asked for. Say the resolved one out loud: it is the word
 the user can see.
 
 A name that is not on the surface draws nothing and comes back with the names
-that are. That is the answer, not a setback — point at one of those, or say
-where the thing is in words. Do not fall back to guessing coordinates for
-something that simply is not there. What the user calls something and what the
+that are. That is the answer, not a setback: point at one of those, or say
+where the thing is in words. **Never fall back to coordinates for a control
+you could not find.** A mark drawn at a guess is worse than no mark, because
+someone follows it; the words you say are the better tool for a thing you
+cannot point at. What the user calls something and what the
 surface calls it often differ: they may say "white balance" where the control
 reads `color balance`.
 
-## Coordinates, for what has no name
+## Coordinates, for an extent
 
-Only for something the surface cannot name: a region of an image, a spot on a
-canvas, a control a plugin draws itself. You will know, because naming it
-comes back saying so.
+For when the size of the thing is the message rather than where it is: a
+region of an image, an area of a canvas, a panel spoken of as a whole. These
+draw a ring around the bounds instead of an arrow at a place.
 
 Fractions of the shared surface, `0` to `1`, measured against **the picture of
 that surface you were last shown**. `x` and `y` are the top-left corner,
@@ -97,7 +102,8 @@ work out is stale.
 
 ## Shapes
 
-Today a mark is a rectangle, drawn as a ring around whatever it encloses. To
-point at something that is not rectangular, give the bounds of the area it
-sits in rather than trying to trace it: a ring around a slider's track, or
-around the corner of a canvas where a handle lives.
+A mark is either an arrow at a place or a ring around an extent, and naming a
+control gives you the arrow. Reach for the ring only when the extent is the
+thing being said: "this whole panel", "this part of the picture". A ring
+around one button says something about where that button ends, which is
+rarely what you mean and is the part most likely to be wrong.
