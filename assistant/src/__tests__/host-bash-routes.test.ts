@@ -381,7 +381,7 @@ describe("handleHostBashResult", () => {
 
   // ── Untargeted-request behavior (regression for new check) ─────────
 
-  describe("untargeted request — source actor still binds when recorded", () => {
+  describe("untargeted request: source actor still binds when recorded", () => {
     test("accepts even when submitting actor is absent and no target client is set", async () => {
       const requestId = "req-untargeted-no-actor";
       registerPending(requestId);
