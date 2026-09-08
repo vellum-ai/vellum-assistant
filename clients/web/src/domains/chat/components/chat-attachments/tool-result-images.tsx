@@ -1,14 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { FC, MouseEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
-import {
-  downloadAttachment,
-  fetchAttachmentContentBlob,
-} from "@/domains/chat/components/chat-attachments/download-attachment";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
+import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { sniffMimeType } from "@/domains/chat/utils/mime-sniff";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -331,50 +328,22 @@ const ToolResultImageThumb: FC<{
 };
 
 /**
- * Lazily fetches a workspace-referenced tool-result image by attachment id and
- * renders it from an object URL, revoked on unmount. Uses the same fetch/cache
- * key as the preview modal, so opening the modal reuses the already-fetched
- * blob. Until the fetch resolves (or when no assistant id is available to fetch
- * with), a spinner placeholder holds the slot.
+ * Renders a workspace-referenced tool-result image from the object URL
+ * {@link useAttachmentObjectUrl} fetches for it, which shares its cache entry
+ * with the preview modal. Until that resolves (or when no assistant id is
+ * available to fetch with), a spinner placeholder holds the slot.
  */
 const ReferencedToolResultImage: FC<{
   attachment: DisplayAttachment;
   assistantId?: string | null;
 }> = ({ attachment, assistantId }) => {
-  const shouldFetch = !!assistantId && !!attachment.id;
+  const { url, isError } = useAttachmentObjectUrl(
+    assistantId,
+    attachment,
+    true,
+  );
 
-  const { data: blob, isError } = useQuery({
-    queryKey: ["attachmentContent", assistantId, attachment.id],
-    queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(
-        assistantId!,
-        attachment.id,
-      );
-      if (!data) {
-        throw new Error("Failed to load image");
-      }
-      return data;
-    },
-    enabled: shouldFetch,
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setObjectUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-      setObjectUrl(null);
-    };
-  }, [blob]);
-
-  if (!objectUrl) {
+  if (!url) {
     return (
       <div
         data-testid="tool-result-image-placeholder"
@@ -390,7 +359,7 @@ const ReferencedToolResultImage: FC<{
   return (
     <img
       data-testid="tool-result-image"
-      src={objectUrl}
+      src={url}
       alt={attachment.filename}
       className={IMAGE_CLASS}
     />
