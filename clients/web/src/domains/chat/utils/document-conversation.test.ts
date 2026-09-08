@@ -10,7 +10,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const documentsByIdConversationsPostMock = mock(async () => ({
   data: { success: true },
 }));
+// Spread the real SDK so unrelated exports (e.g. soundsAvailableGet, imported
+// by other modules in this graph) survive the partial mock instead of
+// vanishing at link time.
+const daemonSdk = await import("@/generated/daemon/sdk.gen");
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
   documentsByIdConversationsPost: (...args: unknown[]) =>
     documentsByIdConversationsPostMock(...(args as [])),
 }));
