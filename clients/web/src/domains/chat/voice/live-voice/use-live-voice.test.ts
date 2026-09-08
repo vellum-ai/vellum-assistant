@@ -73,6 +73,7 @@ function renderController(
     reconnectBackoffMs?: number[];
     heldPlaybackTimeoutMs?: number;
     endAfterSeedReplyQuietMs?: number;
+    reserveMicrophone?: () => Promise<MediaStream>;
     /**
      * Configure each FakeCapture at creation — before the controller calls
      * `capture.start()`, which happens synchronously at connect time (so
@@ -158,12 +159,22 @@ afterEach(() => {
   useLiveVoiceStore.getState().reset();
 });
 
-describe("playback prewarm", () => {
+/** A stand-in for the stream `getUserMedia` resolves, with stoppable tracks. */
+function fakeMicrophone() {
+  const track = { stopped: false, stop: () => {} };
+  track.stop = () => {
+    track.stopped = true;
+  };
+  const stream = { getTracks: () => [track] } as unknown as MediaStream;
+  return { stream, track };
+}
+
+describe("prewarm", () => {
   test("reserves playback before start and reuses it for the session", async () => {
     const h = renderController();
 
     act(() => {
-      h.view.result.current.prewarmPlayback();
+      h.view.result.current.prewarm();
     });
 
     expect(h.getPlayerCreateCount()).toBe(1);
@@ -181,11 +192,99 @@ describe("playback prewarm", () => {
   test("canceling a prewarm releases the reserved player", () => {
     const h = renderController();
     act(() => {
-      h.view.result.current.prewarmPlayback();
-      h.view.result.current.cancelPrewarmedPlayback();
+      h.view.result.current.prewarm();
+      h.view.result.current.cancelPrewarm();
     });
 
     expect(h.player.disposeCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+  });
+
+  test("asks for the microphone from the gesture, once, and the session's capture adopts it", async () => {
+    // WebKit refuses a `getUserMedia` made after the composer's readiness
+    // await has spent the gesture, so the reservation has to be made by
+    // `prewarm()` and reach the capture unchanged.
+    const reserved = Promise.resolve(fakeMicrophone().stream);
+    let reserveCount = 0;
+    const h = renderController({
+      reserveMicrophone: () => {
+        reserveCount += 1;
+        return reserved;
+      },
+    });
+
+    act(() => {
+      h.view.result.current.prewarm();
+      // A second prewarm inside the same gesture (the reclaim path prewarms,
+      // then the composer's start prewarms again) must not ask twice.
+      h.view.result.current.prewarm();
+    });
+    expect(reserveCount).toBe(1);
+
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(h.getCapture().reservedMicrophone).toBe(reserved);
+    expect(reserveCount).toBe(1);
+  });
+
+  test("a start with no reservation leaves the capture to ask for itself", async () => {
+    const h = renderController({
+      reserveMicrophone: () => Promise.resolve(fakeMicrophone().stream),
+    });
+
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(h.getCapture().reservedMicrophone).toBeNull();
+  });
+
+  test("canceling a prewarm stops the reserved microphone's tracks", async () => {
+    const mic = fakeMicrophone();
+    const h = renderController({
+      reserveMicrophone: () => Promise.resolve(mic.stream),
+    });
+
+    act(() => {
+      h.view.result.current.prewarm();
+      h.view.result.current.cancelPrewarm();
+    });
+    await flushMicrotasks();
+
+    expect(mic.track.stopped).toBe(true);
+    expect(h.view.result.current.state).toBe("idle");
+  });
+
+  test("unmounting releases a reserved microphone nobody adopted", async () => {
+    const mic = fakeMicrophone();
+    const h = renderController({
+      reserveMicrophone: () => Promise.resolve(mic.stream),
+    });
+
+    act(() => {
+      h.view.result.current.prewarm();
+    });
+    h.view.unmount();
+    await flushMicrotasks();
+
+    expect(mic.track.stopped).toBe(true);
+  });
+
+  test("a refused reservation does not surface as an unhandled rejection", async () => {
+    const h = renderController({
+      reserveMicrophone: () =>
+        Promise.reject(new DOMException("denied", "NotAllowedError")),
+    });
+
+    act(() => {
+      h.view.result.current.prewarm();
+      h.view.result.current.cancelPrewarm();
+    });
+    // Bun fails the test on an unhandled rejection reaching the event loop.
+    await flushMicrotasks();
+
     expect(h.view.result.current.state).toBe("idle");
   });
 });
@@ -2129,7 +2228,8 @@ describe("failure", () => {
       await h.view.result.current.start("assistant-1");
     });
     // The denial resolved pre-`ready`; the failure surfaces when `ready`
-    // processes the capture result (same user-facing error as before).
+    // processes the capture result, and says it was a denial rather than a
+    // missing device, so a "no prompt" report can be told apart.
     expect(h.view.result.current.state).toBe("connecting");
     await act(async () => {
       h.client.emit("ready", {
@@ -2143,7 +2243,7 @@ describe("failure", () => {
 
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe(
-      "Microphone capture could not start.",
+      "Microphone access is blocked. Allow it for this site and try again.",
     );
     expect(h.client.closed).toBe(true);
     // No audio frame was ever sent on the failed session.
@@ -2263,7 +2363,7 @@ describe("concurrent mic acquisition", () => {
     });
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe(
-      "Microphone capture could not start.",
+      "Microphone access is blocked. Allow it for this site and try again.",
     );
     expect(h.client.closed).toBe(true);
     expect(h.client.sentAudio).toHaveLength(0);

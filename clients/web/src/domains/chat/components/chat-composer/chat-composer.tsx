@@ -530,9 +530,11 @@ export function ChatComposer({
     if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
     }
-    // WebKit's media-element playback permission is transient. Reserve and
-    // prewarm the controller-owned player synchronously from this gesture,
-    // before the readiness request yields to the event loop.
+    // WebKit's media-element playback permission is transient, and so is its
+    // willingness to show the microphone prompt: a `getUserMedia` made after
+    // the readiness await below is refused without ever asking. Reserve both
+    // synchronously from this gesture, before the request yields to the
+    // event loop.
     const starter = useLiveVoiceStore.getState().starter;
     starter?.prewarm();
     // Gate the open on the daemon's readiness verdict BEFORE starting, so the

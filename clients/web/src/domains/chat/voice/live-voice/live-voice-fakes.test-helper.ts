@@ -147,6 +147,11 @@ export class FakeCapture {
    * since the controller starts the capture at connect time).
    */
   deferStart = false;
+  /**
+   * The reservation the controller handed to the latest `start()`, so tests
+   * can assert a microphone asked for in the gesture reached the capture.
+   */
+  reservedMicrophone: Promise<MediaStream> | null = null;
   private startResolvers: Array<(result: LiveVoiceCaptureResult) => void> = [];
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
@@ -154,8 +159,11 @@ export class FakeCapture {
     this.onAmplitude = options.onAmplitude;
   }
 
-  async start(): Promise<LiveVoiceCaptureResult> {
+  async start(
+    reserved?: Promise<MediaStream>,
+  ): Promise<LiveVoiceCaptureResult> {
     this.startCount++;
+    this.reservedMicrophone = reserved ?? null;
     if (this.deferStart) {
       return new Promise((resolve) => this.startResolvers.push(resolve));
     }

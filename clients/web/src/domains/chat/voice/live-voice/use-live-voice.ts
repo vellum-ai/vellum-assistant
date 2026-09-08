@@ -52,10 +52,13 @@
  * `idle`/`failed`.
  *
  * ## Mic forwarding
- * The mic is *acquired* at connect time — `capture.start()` (getUserMedia +
- * worklet load) is kicked off inside the mic-button gesture, concurrently with
- * the token mint / WS connect / server `ready` chain, so permission and device
- * spin-up overlap the network handshake instead of serializing after it. The
+ * The mic is *asked for* inside the mic-button gesture: `prewarm()` reserves
+ * it (getUserMedia) synchronously from the click, before the composer's
+ * readiness preflight, because WebKit refuses a `getUserMedia` made after
+ * the gesture has been spent and never shows the prompt. `capture.start()`
+ * then adopts the reservation at connect time (or asks itself, for a start
+ * with no reservation, such as a reconnect) and loads the worklet
+ * concurrently with the token mint / WS connect / server `ready` chain. The
  * `ready` handler awaits that acquisition before flipping forwarding on, so no
  * audio is ever sent pre-`ready`. Once running, the capture graph stays open
  * for the entire active session so amplitude keeps flowing for barge-in even
@@ -88,8 +91,11 @@ import {
   type LiveVoiceClientError,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
+  isSupported as isCaptureSupported,
   LiveVoiceAudioCapture,
   LIVE_VOICE_AUDIO_FORMAT,
+  releaseReservedMicrophone,
+  reserveLiveVoiceMicrophone,
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 import {
@@ -177,10 +183,14 @@ export interface UseLiveVoiceResult {
   inputAmplitude: number;
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
-  /** Unlock assistant playback synchronously from the initiating user gesture. */
-  prewarmPlayback: () => void;
-  /** Release playback reserved by a readiness check that will not start. */
-  cancelPrewarmedPlayback: () => void;
+  /**
+   * Reserve what the session needs from the initiating user gesture, before
+   * any await spends it: unlock assistant playback, and ask for the
+   * microphone so the browser's prompt belongs to the gesture.
+   */
+  prewarm: () => void;
+  /** Release what `prewarm` reserved for a start that will not happen. */
+  cancelPrewarm: () => void;
   /** Start a session for `assistantId`, optionally attaching a conversation. */
   start: (
     assistantId: string,
@@ -257,6 +267,11 @@ export interface UseLiveVoiceOptions {
   ) => LiveVoiceAudioCapture;
   createPlayer?: () => LiveVoiceAudioPlayer;
   /**
+   * How `prewarm()` asks for the microphone. Defaults to the real
+   * `getUserMedia` reservation; tests hand back a fake stream.
+   */
+  reserveMicrophone?: () => Promise<MediaStream>;
+  /**
    * When `false`, this hook instance does not subscribe to the high-frequency
    * audio/transcript store fields — `inputAmplitude` (updated on every mic
    * amplitude sample), `partialTranscript`, `finalTranscript`, and
@@ -322,6 +337,13 @@ interface SessionContext {
    * `forwardingAudio` on, so no audio is ever sent pre-`ready`.
    */
   capturePromise: Promise<LiveVoiceCaptureResult>;
+  /**
+   * The microphone `prewarm()` asked for inside the user's gesture, for
+   * {@link beginCaptureStartup} to hand to the capture. Null for a start
+   * with no reservation (a reconnect, or a caller with no gesture to spend),
+   * where the capture asks for itself.
+   */
+  reservedMicrophone: Promise<MediaStream> | null;
   /** Whether the mic capture graph is running (open for the whole session). */
   captureRunning: boolean;
   /**
@@ -479,6 +501,11 @@ export function useLiveVoice(
   // backoff. Keeping its MediaStream element alive preserves the user
   // activation that started iOS voice-processing playback.
   const standbyPlayerRef = useRef<LiveVoiceAudioPlayer | null>(null);
+  // The microphone `prewarm()` asked for inside the user's gesture, held
+  // until the session adopts it or `cancelPrewarm()` lets it go. Pending
+  // rather than resolved: the browser's prompt is up while the composer's
+  // readiness preflight runs, and the session adopts whatever it settles to.
+  const standbyMicrophoneRef = useRef<Promise<MediaStream> | null>(null);
   // The player currently rendering audio, so the assistant-mute control can
   // reach its gain stage mid-session. `standbyPlayerRef` cannot serve: it is
   // deliberately emptied the moment a session adopts the player.
@@ -534,10 +561,19 @@ export function useLiveVoice(
     }
   }, []);
 
+  const releaseStandbyMicrophone = useCallback(() => {
+    const reserved = standbyMicrophoneRef.current;
+    standbyMicrophoneRef.current = null;
+    if (reserved) {
+      releaseReservedMicrophone(reserved);
+    }
+  }, []);
+
   const cancelPendingConnection = useCallback(() => {
     clearReconnectTimer();
     disposeStandbyPlayer();
-  }, [clearReconnectTimer, disposeStandbyPlayer]);
+    releaseStandbyMicrophone();
+  }, [clearReconnectTimer, disposeStandbyPlayer, releaseStandbyMicrophone]);
 
   /**
    * Tear down the active session's primitives, clear the ref, and reset the
@@ -735,25 +771,40 @@ export function useLiveVoice(
     [],
   );
 
-  const prewarmPlayback = useCallback(() => {
+  const prewarm = useCallback(() => {
     if (
       sessionRef.current ||
-      standbyPlayerRef.current ||
       isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)
     ) {
       return;
     }
-    const player = createPlayer();
-    standbyPlayerRef.current = player;
-    player.prewarm();
+    if (!standbyPlayerRef.current) {
+      const player = createPlayer();
+      standbyPlayerRef.current = player;
+      player.prewarm();
+    }
+    // The microphone has to be asked for here, inside the gesture: WebKit
+    // refuses a `getUserMedia` made after an await has spent it, and never
+    // shows the prompt. A refusal is kept as the rejection it is, for the
+    // session's capture to classify; the handler here only keeps a refusal
+    // nobody adopted from surfacing as an unhandled rejection.
+    if (!standbyMicrophoneRef.current) {
+      const reserve = optionsRef.current.reserveMicrophone;
+      if (reserve || isCaptureSupported()) {
+        const reserved = reserve ? reserve() : reserveLiveVoiceMicrophone();
+        reserved.catch(() => {});
+        standbyMicrophoneRef.current = reserved;
+      }
+    }
   }, [createPlayer]);
 
-  const cancelPrewarmedPlayback = useCallback(() => {
+  const cancelPrewarm = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       return;
     }
     disposeStandbyPlayer();
-  }, [disposeStandbyPlayer]);
+    releaseStandbyMicrophone();
+  }, [disposeStandbyPlayer, releaseStandbyMicrophone]);
 
   // The connect flow, shared by the user-facing `start()` and the hands-free
   // reconnect path. `start()` owns the "already active" guard and resets the
@@ -766,6 +817,12 @@ export function useLiveVoice(
       conversationId: string | undefined,
       startOptions: LiveVoiceStartOptions,
     ) => {
+      // The microphone reserved from the gesture, taken before anything
+      // below can release it (a teardown of a stale session drops standby
+      // reservations). A reconnect finds none and the capture asks for
+      // itself; by then the permission is on record and no gesture is needed.
+      const reservedMicrophone = standbyMicrophoneRef.current;
+      standbyMicrophoneRef.current = null;
       if (sessionRef.current) {
         teardown();
       }
@@ -860,6 +917,7 @@ export function useLiveVoice(
         client,
         capture: undefined as unknown as LiveVoiceAudioCapture,
         capturePromise: undefined as unknown as Promise<LiveVoiceCaptureResult>,
+        reservedMicrophone,
         player,
         unsubscribes: [],
         generation: 0,
@@ -1623,8 +1681,8 @@ export function useLiveVoice(
     assistantTranscript,
     inputAmplitude,
     error,
-    prewarmPlayback,
-    cancelPrewarmedPlayback,
+    prewarm,
+    cancelPrewarm,
     start,
     stop,
     sendText,
@@ -1678,16 +1736,22 @@ function disposeSessionPrimitives(
  */
 function beginCaptureStartup(session: SessionContext): void {
   const generation = session.generation;
-  session.capturePromise = session.capture.start().then((result) => {
-    if (result.ok) {
-      if (session.generation !== generation) {
-        void session.capture.stop();
-      } else {
-        useLiveVoiceStore.getState().setMicrophoneActive(true);
+  const reserved = session.reservedMicrophone;
+  // The capture owns the reservation from here: it stops the tracks on a
+  // cancelled or failed start, as it would for a stream it opened itself.
+  session.reservedMicrophone = null;
+  session.capturePromise = session.capture
+    .start(reserved ?? undefined)
+    .then((result) => {
+      if (result.ok) {
+        if (session.generation !== generation) {
+          void session.capture.stop();
+        } else {
+          useLiveVoiceStore.getState().setMicrophoneActive(true);
+        }
       }
-    }
-    return result;
-  });
+      return result;
+    });
 }
 
 /**
@@ -1707,7 +1771,16 @@ async function finishCaptureStartup(
     return;
   }
   if (!result.ok) {
-    finishWithError(session, teardown, "Microphone capture could not start.");
+    // Named in the log so a report of "no prompt, can't talk" can be told
+    // apart from a missing device; the copy says which of the two it was.
+    console.warn(`live-voice: microphone capture failed: ${result.error}`);
+    finishWithError(
+      session,
+      teardown,
+      result.error === "permission-denied"
+        ? fixedT("chat")("liveVoiceStatus.microphoneDenied")
+        : "Microphone capture could not start.",
+    );
     return;
   }
   session.captureRunning = true;

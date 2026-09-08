@@ -861,6 +861,7 @@
     "connecting": "Conectando…",
     "ending": "Finalizando…",
     "listening": "Escuchando…",
+    "microphoneDenied": "El acceso al micrófono está bloqueado. Permítelo para este sitio e inténtalo de nuevo.",
     "muted": "Silenciado",
     "reconnecting": "Reconectando…",
     "speaking": "Hablando…",

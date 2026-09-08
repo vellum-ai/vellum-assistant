@@ -459,14 +459,21 @@ the destination stream. Automatic reconnects must reuse the already-started
 player and MediaStream element: creating a replacement from a backoff timer
 loses the original user activation and can make `play()` fail.
 
+Ask for the microphone from that same gesture. WebKit refuses a `getUserMedia`
+made after an await has spent the activation, with `NotAllowedError` and no
+prompt, and the readiness preflight is such an await. `prewarm()` reserves the
+microphone synchronously from the click and the session adopts the pending
+stream at connect time (`reserveLiveVoiceMicrophone` in `pcm-capture.ts`).
+
 **Re-render the track once the microphone is live.** WebKit binds a MediaStream
 renderer to whichever capture unit is active when the renderer starts, and the
 echo reference belongs to that unit. Starting the element in the entry gesture
-is therefore necessary but not sufficient: at that moment `getUserMedia` has not
-run, so the renderer can come up bound to a plain output unit and never acquire
-a reference. `LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the
-element, and the session calls it once capture reports running. The queue is
-silent at that point, so the restart is inaudible.
+is therefore necessary but not sufficient: at that moment the `getUserMedia`
+reserved in the same gesture has not resolved, so the renderer can come up bound
+to a plain output unit and never acquire a reference.
+`LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the element, and
+the session calls it once capture reports running. The queue is silent at that
+point, so the restart is inaudible.
 
 It also **rebuilds a route that has already fallen back**, which is what the
 gesture-less entry points depend on. A session started from Siri, the Action

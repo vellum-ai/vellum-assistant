@@ -19,6 +19,15 @@
  * first-run card complies by rendering locked (no ✕ / backdrop / Escape, a
  * single "Start talking" that leads straight here) on iOS — see
  * `chat-composer.tsx`'s `handleLiveVoiceStart` and `VoiceFirstRunCard`.
+ *
+ * The `getUserMedia` call has to happen inside the user's gesture. WebKit
+ * refuses one made after the gesture has been spent, with `NotAllowedError`
+ * and without ever showing the prompt, and an `await` on anything else (a
+ * readiness round trip, a token mint) is enough to spend it. A caller that
+ * has such an await between the gesture and `start()` reserves the
+ * microphone first with {@link reserveLiveVoiceMicrophone}, synchronously
+ * from the gesture, and hands the pending stream to `start()`, which adopts
+ * it instead of asking again.
  */
 
 // Import the worklet as a Vite-bundled, *transpiled* classic script asset and
@@ -101,6 +110,33 @@ export function isSupported(): boolean {
   );
 }
 
+/**
+ * Ask for the microphone now, from inside a user gesture, so the browser's
+ * permission prompt belongs to that gesture. The pending stream goes to
+ * {@link LiveVoiceAudioCapture.start} once the caller is ready to build the
+ * graph; a caller that will not start after all stops the tracks with
+ * {@link releaseReservedMicrophone}.
+ *
+ * The promise is left unhandled on purpose. A refusal must reach `start()`
+ * as the rejection it is, so it classifies as `permission-denied` there
+ * rather than being swallowed at reservation time; callers that hold it
+ * without starting attach their own no-op rejection handler.
+ */
+export function reserveLiveVoiceMicrophone(): Promise<MediaStream> {
+  return getVoiceInputMediaStream();
+}
+
+/**
+ * Stop the tracks of a reservation that no session will adopt. Settles the
+ * pending prompt either way: a stream that arrives after the caller moved on
+ * is released on arrival, and a refusal is absorbed.
+ */
+export function releaseReservedMicrophone(
+  reserved: Promise<MediaStream>,
+): void {
+  void reserved.then(stopTracks, () => {});
+}
+
 function classifyError(cause: unknown): LiveVoiceCaptureError {
   if (cause instanceof DOMException) {
     switch (cause.name) {
@@ -154,15 +190,32 @@ export class LiveVoiceAudioCapture {
    * Requests mic access, builds the audio graph, and begins emitting chunks.
    * Permission/device failures are returned as a typed result — they never
    * throw. Calling `start()` while already running is a no-op success.
+   *
+   * With `reserved` (from {@link reserveLiveVoiceMicrophone}) the capture
+   * adopts that stream instead of asking the browser again. The reservation
+   * is owned from here on, whatever happens: a start that is cancelled or
+   * fails stops its tracks like any stream it opened itself, and a capture
+   * that cannot use it (already running, disposed, unsupported) releases it.
    */
-  async start(): Promise<LiveVoiceCaptureResult> {
+  async start(
+    reserved?: Promise<MediaStream>,
+  ): Promise<LiveVoiceCaptureResult> {
     if (this.disposed) {
+      if (reserved) {
+        releaseReservedMicrophone(reserved);
+      }
       return { ok: false, error: "unsupported" };
     }
     if (this.context) {
+      if (reserved) {
+        releaseReservedMicrophone(reserved);
+      }
       return { ok: true };
     }
     if (!isSupported()) {
+      if (reserved) {
+        releaseReservedMicrophone(reserved);
+      }
       return { ok: false, error: "unsupported" };
     }
 
@@ -174,7 +227,7 @@ export class LiveVoiceAudioCapture {
 
     let stream: MediaStream;
     try {
-      stream = await getVoiceInputMediaStream();
+      stream = await (reserved ?? getVoiceInputMediaStream());
     } catch (cause) {
       return { ok: false, error: classifyError(cause), cause };
     }

@@ -260,16 +260,23 @@ export interface LiveVoiceEntryOrigin {
 
 /**
  * Mount-scoped entry points for starting live voice. The composer prewarms
- * playback synchronously from the user's gesture, before its async readiness
- * preflight, then either starts with that player or cancels the reservation.
+ * synchronously from the user's gesture, before its async readiness
+ * preflight, then either starts with what was reserved or cancels the
+ * reservation.
  */
 export interface LiveVoiceSessionStarter {
-  /** Unlock playback while the initiating user gesture is still active. */
+  /**
+   * Unlock playback and ask for the microphone while the initiating user
+   * gesture is still active. The microphone in particular cannot wait:
+   * WebKit refuses a `getUserMedia` made after the gesture has been spent,
+   * and never shows the prompt.
+   */
   prewarm(): void;
-  /** Release playback reserved by a preflight that will not start a session. */
+  /** Release what a preflight reserved when it will not start a session. */
   cancelPrewarm(): void;
   /**
-   * Start a session, consuming the prewarmed player when one exists.
+   * Start a session, consuming the prewarmed player and microphone when they
+   * exist.
    *
    * `seedText` takes a first turn on the session's behalf once the microphone
    * is live, so the assistant speaks without waiting for the user. It becomes

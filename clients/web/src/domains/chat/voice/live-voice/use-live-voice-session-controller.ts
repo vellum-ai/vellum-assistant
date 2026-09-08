@@ -179,11 +179,10 @@ export function useLiveVoiceSessionController(
   // `observeAudioState: false` — the controller consumes nothing reactive
   // beyond the low-frequency `state`/`error` fields, so high-frequency
   // amplitude/transcript updates must not re-render the mounting layout.
-  const { start, sendText, prewarmPlayback, cancelPrewarmedPlayback } =
-    useLiveVoice({
-      ...options,
-      observeAudioState: false,
-    });
+  const { start, sendText, prewarm, cancelPrewarm } = useLiveVoice({
+    ...options,
+    observeAudioState: false,
+  });
 
   // A parked start-voice request is drained here, and the drain lands on the
   // conversation it mints for the session (see `start-voice-request.ts`). Held
@@ -197,8 +196,8 @@ export function useLiveVoiceSessionController(
 
   useEffect(() => {
     useLiveVoiceStore.getState().setStarter({
-      prewarm: prewarmPlayback,
-      cancelPrewarm: cancelPrewarmedPlayback,
+      prewarm,
+      cancelPrewarm,
       start: (assistantId, conversationId, options) =>
         // Hands-free (server-side turn detection) is the only mode the voice
         // button starts — it keeps one socket open across turns so the
@@ -223,7 +222,7 @@ export function useLiveVoiceSessionController(
     return () => {
       useLiveVoiceStore.getState().setStarter(null);
     };
-  }, [start, sendText, prewarmPlayback, cancelPrewarmedPlayback]);
+  }, [start, sendText, prewarm, cancelPrewarm]);
 
   // The drain's second trigger, and the only one a parked request has once the
   // starter is registered: the effect above runs on the starter's identity, not

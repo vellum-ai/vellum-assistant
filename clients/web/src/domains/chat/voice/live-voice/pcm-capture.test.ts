@@ -4,6 +4,8 @@ import {
   isSupported,
   LIVE_VOICE_AUDIO_FORMAT,
   LiveVoiceAudioCapture,
+  releaseReservedMicrophone,
+  reserveLiveVoiceMicrophone,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 
 // ---------------------------------------------------------------------------
@@ -246,6 +248,76 @@ describe("permission handling", () => {
     if (!result.ok) {
       expect(result.error).toBe("no-device");
     }
+  });
+});
+
+describe("microphone reservation", () => {
+  test("start adopts a reserved stream instead of asking the browser again", async () => {
+    let getUserMediaCalls = 0;
+    const stream = new FakeMediaStream();
+    getUserMediaImpl = () => {
+      getUserMediaCalls += 1;
+      return Promise.resolve(stream);
+    };
+
+    // Asked for inside the gesture.
+    const reserved = reserveLiveVoiceMicrophone();
+    expect(getUserMediaCalls).toBe(1);
+
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    const result = await capture.start(reserved);
+
+    expect(result.ok).toBe(true);
+    expect(getUserMediaCalls).toBe(1);
+    // The adopted stream is the one the graph was built on, and stop()
+    // releases it like any stream the capture opened itself.
+    await capture.stop();
+    expect(stream.tracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  test("a refused reservation surfaces at start as permission-denied", async () => {
+    getUserMediaImpl = () =>
+      Promise.reject(new DOMException("denied", "NotAllowedError"));
+    const reserved = reserveLiveVoiceMicrophone();
+    // The holder's no-op handler, as the controller attaches while it waits.
+    reserved.catch(() => {});
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+
+    const result = await capture.start(reserved);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe("permission-denied");
+    }
+    expect(FakeAudioContext.lastInstance).toBeNull();
+  });
+
+  test("releasing a reservation stops its tracks once the stream arrives", async () => {
+    const stream = new FakeMediaStream();
+    let resolveGum: (s: FakeMediaStream) => void = () => {};
+    getUserMediaImpl = () =>
+      new Promise<FakeMediaStream>((resolve) => {
+        resolveGum = resolve;
+      });
+
+    const reserved = reserveLiveVoiceMicrophone();
+    // Released while the prompt is still up (a preflight said not-ready).
+    releaseReservedMicrophone(reserved);
+    expect(stream.tracks.every((t) => t.stopped)).toBe(false);
+
+    resolveGum(stream);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stream.tracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  test("releasing a refused reservation absorbs the rejection", async () => {
+    getUserMediaImpl = () =>
+      Promise.reject(new DOMException("denied", "NotAllowedError"));
+
+    releaseReservedMicrophone(reserveLiveVoiceMicrophone());
+    // Bun fails the test on an unhandled rejection reaching the event loop.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
 
