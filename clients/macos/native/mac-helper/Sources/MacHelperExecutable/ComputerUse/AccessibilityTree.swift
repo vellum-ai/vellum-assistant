@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "AXTree")
@@ -511,8 +512,14 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         guard depth < maxDepth else { return [] }
 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
-        let title = getStringAttribute(element, kAXTitleAttribute as CFString)
-            ?? getStringAttribute(element, kAXDescriptionAttribute as CFString)
+        // Emptiness, not nil, is what makes an attribute worth falling past:
+        // icon-only controls routinely carry `AXTitle` as "" and keep the name
+        // a user would say in `AXDescription` or the tooltip. See `AXLabel`.
+        let title = AXLabel.firstMeaningful(
+            getStringAttribute(element, kAXTitleAttribute as CFString),
+            getStringAttribute(element, kAXDescriptionAttribute as CFString),
+            getStringAttribute(element, kAXHelpAttribute as CFString)
+        )
         let value = getValueAttribute(element)
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
@@ -717,16 +724,15 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 let centerY = Int(element.frame.midY)
                 var line = "[\(element.id)] \(cleanedRole)"
                 if let title = element.title, !title.isEmpty {
-                    line += " \"\(title)\""
+                    line += " \"\(AXLabel.singleLine(title))\""
                 }
                 line += " at (\(centerX), \(centerY))"
                 if element.isFocused { line += " FOCUSED" }
                 if !element.isEnabled { line += " disabled" }
                 if let value = element.value, !value.isEmpty {
-                    let truncated = value.count > 50 ? String(value.prefix(50)) + "..." : value
-                    line += " value: \"\(truncated)\""
+                    line += " value: \"\(AXLabel.singleLine(value, max: 50))\""
                 } else if let placeholder = element.placeholderValue, !placeholder.isEmpty {
-                    line += " placeholder: \"\(placeholder)\""
+                    line += " placeholder: \"\(AXLabel.singleLine(placeholder))\""
                 }
                 if let url = element.url, !url.isEmpty {
                     line += " → \(url)"
@@ -734,9 +740,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 interactive.append(line)
             } else if isText {
                 if let title = element.title, !title.isEmpty {
-                    staticTexts.append(title)
+                    staticTexts.append(AXLabel.singleLine(title))
                 } else if let value = element.value, !value.isEmpty {
-                    staticTexts.append(value)
+                    staticTexts.append(AXLabel.singleLine(value))
                 }
             }
 
