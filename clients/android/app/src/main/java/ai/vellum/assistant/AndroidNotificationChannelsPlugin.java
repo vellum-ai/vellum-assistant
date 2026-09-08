@@ -38,25 +38,30 @@ public class AndroidNotificationChannelsPlugin extends Plugin {
      * The channel a natively rendered push posts on. A push can arrive before
      * the web runtime has ever asked for the alerts channel, and from API 26
      * posting to a channel that does not exist is a silent no-op, so the
-     * channel is created here and stands in for any other channel a payload
-     * names.
+     * channel is created here and stands in for any channel a payload names
+     * that is not one of ours to alert on.
      */
     public static String resolveChannelId(Context context, String requestedChannelId) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return requestedChannelId;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            createAlertsChannel(context);
         }
-        createAlertsChannel(context);
-        if (
-            ALERTS_CHANNEL_ID.equals(requestedChannelId)
-                || channelExists(context, requestedChannelId)
-        ) {
+        if (isAlertChannelId(requestedChannelId)) {
             return requestedChannelId;
         }
         NativeFailureGuard.record(
-            "Android push named a notification channel that does not exist",
+            "Android push named a channel that does not alert",
             new IllegalStateException(requestedChannelId)
         );
         return ALERTS_CHANNEL_ID;
+    }
+
+    /**
+     * Existing is not enough: the voice session channel and Firebase's own
+     * fallback both exist and both post silently and without a badge, so a
+     * payload can only name a channel this app alerts on.
+     */
+    static boolean isAlertChannelId(@Nullable String channelId) {
+        return ALERTS_CHANNEL_ID.equals(channelId);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.O)
@@ -73,12 +78,6 @@ public class AndroidNotificationChannelsPlugin extends Plugin {
             )
         );
         return true;
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    private static boolean channelExists(Context context, String channelId) {
-        NotificationManager manager = manager(context);
-        return manager != null && manager.getNotificationChannel(channelId) != null;
     }
 
     @Nullable

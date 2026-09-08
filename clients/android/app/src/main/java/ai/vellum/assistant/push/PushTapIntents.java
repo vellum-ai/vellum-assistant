@@ -1,8 +1,12 @@
 package ai.vellum.assistant.push;
 
+import ai.vellum.assistant.AndroidAppLink;
+import ai.vellum.assistant.MainActivity;
+import ai.vellum.assistant.R;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import androidx.annotation.Nullable;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.LinkedHashMap;
@@ -36,20 +40,28 @@ public final class PushTapIntents {
 
     /**
      * Tap target for a conversation shortcut, which outlives the push that
-     * created it. It names the conversation and nothing else: carrying the
-     * push's identifiers would make a shortcut tap replay a delivery the user
-     * has already read.
+     * created it. It is the conversation's own app link, the same URL a browser
+     * hands {@link MainActivity}, so the tap opens the thread from a cold or a
+     * warm start. Carrying the push's identifiers instead would make a shortcut
+     * tap replay a delivery the user has already read.
      */
     @Nullable
     public static Intent shortcutIntent(Context context, @Nullable String conversationId) {
-        Intent intent = launcherIntent(context);
-        if (intent == null) {
+        String url = AndroidAppLink.conversationUrl(
+            context.getString(R.string.vellum_auth_host),
+            conversationId
+        );
+        if (url == null) {
             return null;
         }
-        if (conversationId != null) {
-            intent.putExtra(PushDataMessage.KEY_CONVERSATION_ID, conversationId);
-        }
-        return intent;
+        return new Intent(context, MainActivity.class)
+            .setAction(Intent.ACTION_VIEW)
+            .setData(Uri.parse(url))
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+            );
     }
 
     public static PendingIntent pendingIntent(Context context, Intent intent, int requestCode) {

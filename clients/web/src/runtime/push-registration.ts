@@ -68,6 +68,7 @@ interface AndroidPushRegistrationPlugin {
   register(): Promise<void>;
   unregister(): Promise<void>;
   getCapabilities(): Promise<{ capabilities: string[] }>;
+  setForegroundHandler(options: { active: boolean }): Promise<void>;
 }
 
 const ANDROID_PUSH_REGISTRATION_PLUGIN = "AndroidPushRegistration";
@@ -165,8 +166,9 @@ export function isRemotePushSupported(): boolean {
 }
 
 /**
- * What this Android build can do with a push, advertised on the token row as
- * `DevicePushToken.capabilities`, which the Android upsert serializer accepts.
+ * What this Android build can do with a push, sent on the Android upsert as
+ * `capabilities` and stored on the token row once the platform's schema
+ * carries the field; until then the platform drops it as an unknown field.
  *
  * The platform sends data-only FCM messages only to tokens claiming
  * `native-notification-render`, so an older shell whose plugin lacks the
@@ -207,8 +209,8 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     const { id: bundleId } = await App.getInfo();
     const platform = Capacitor.getPlatform();
     // Annotated so a change to the generated contract is a compile error here.
-    // `capabilities` is not in it yet, and the assertion is what admits that
-    // one field without loosening the rest of the row.
+    // The generated Android body has no `capabilities` field, so the assertion
+    // is what admits that one field without loosening the rest of the row.
     const body: AssistantsPushTokensUpsertData["body"] =
       platform === "android"
         ? ({
@@ -315,10 +317,28 @@ async function deleteRegisteredToken(
   }
 }
 
+/**
+ * Install or clear the handler for pushes that arrive while the app is on
+ * screen, and tell the Android shell which it is. The native renderer posts a
+ * data-only push itself whenever no handler is live, so a push arriving on a
+ * route that has torn this down reaches the user instead of a no-op.
+ */
 export function setForegroundPushHandler(
   handler: ((push: PushNotificationSchema) => void) | null,
 ): void {
   foregroundPushHandler = handler;
+  if (
+    Capacitor.getPlatform() !== "android" ||
+    !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
+  ) {
+    return;
+  }
+  void AndroidPushRegistration.setForegroundHandler({
+    active: handler !== null,
+  }).catch(() => {
+    // An older shell has no such method, and its renderer already treats every
+    // data-only push as its own.
+  });
 }
 
 /**

@@ -44,6 +44,20 @@ public final class NativeFailureGuard {
         }
     }
 
+    /**
+     * {@link #get} widened to {@link Throwable} for work that can exhaust the
+     * heap, such as decoding a bitmap: the fallback is a notification without
+     * an avatar, while an escaping OutOfMemoryError loses the push entirely.
+     */
+    public static <T> T getAllocating(String logMessage, Supplier<T> operation, T fallback) {
+        try {
+            return operation.get();
+        } catch (Throwable throwable) {
+            record(logMessage, throwable);
+            return fallback;
+        }
+    }
+
     public static void record(String logMessage, Throwable exception) {
         Logger.error(logMessage, exception);
         Context context = applicationContext;

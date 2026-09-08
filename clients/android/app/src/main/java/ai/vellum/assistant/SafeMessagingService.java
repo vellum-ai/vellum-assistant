@@ -3,17 +3,19 @@ package ai.vellum.assistant;
 import ai.vellum.assistant.push.AvatarCache;
 import ai.vellum.assistant.push.NativePushRenderer;
 import ai.vellum.assistant.push.PushDataMessage;
-import android.app.ActivityManager;
-import android.content.Context;
 import android.graphics.Bitmap;
-import android.os.Process;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
-import java.util.List;
 
+/**
+ * Routes each push to exactly one renderer. A data-only push this process owns
+ * gets the conversation treatment with the sender's avatar; everything else,
+ * including a data-only push the web layer will render while the app is on
+ * screen, goes to the Capacitor plugin and shows without an avatar.
+ */
 public class SafeMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
@@ -28,8 +30,7 @@ public class SafeMessagingService extends FirebaseMessagingService {
                 // pushNotificationReceived at a live bridge or stash the
                 // message for replay on the next load, and the web handler
                 // posts its own banner from either.
-                if (message.rendersNatively(webWillRender())) {
-                    render(remoteMessage, message);
+                if (message.rendersNatively(webWillRender()) && render(remoteMessage, message)) {
                     return;
                 }
                 PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
@@ -50,12 +51,25 @@ public class SafeMessagingService extends FirebaseMessagingService {
      * Resolves the avatar before posting rather than posting twice: a second
      * post on the same id flickers the banner and can land after the user has
      * already dismissed the first. The download runs on the Firebase message
-     * thread inside onMessageReceived, so {@link AvatarCache}'s timeouts are
-     * the whole budget it gets.
+     * thread inside onMessageReceived under {@link AvatarCache}'s own total
+     * deadline, and only once the renderer says a notification can be posted at
+     * all.
+     *
+     * @return false only when this path threw, leaving the push for the web
+     *     layer rather than dropping it.
      */
-    private void render(RemoteMessage remoteMessage, PushDataMessage message) {
-        AvatarCache cache = new AvatarCache(this);
-        NativePushRenderer.show(this, remoteMessage, message, avatar(message, cache));
+    private boolean render(RemoteMessage remoteMessage, PushDataMessage message) {
+        return NativeFailureGuard.getAllocating(
+            "Unable to render the Android push notification",
+            () -> {
+                if (NativePushRenderer.canPost(this)) {
+                    AvatarCache cache = new AvatarCache(this);
+                    NativePushRenderer.show(this, remoteMessage, message, avatar(message, cache));
+                }
+                return true;
+            },
+            false
+        );
     }
 
     /** Runs on the Firebase message thread, so the cache read and fetch may block. */
@@ -65,7 +79,7 @@ public class SafeMessagingService extends FirebaseMessagingService {
         if (sender == null) {
             return null;
         }
-        return NativeFailureGuard.get(
+        return NativeFailureGuard.getAllocating(
             "Unable to load the Android push notification avatar",
             () -> {
                 Bitmap cached = cache.load(sender.avatarHash);
@@ -76,35 +90,13 @@ public class SafeMessagingService extends FirebaseMessagingService {
     }
 
     /**
-     * The web layer renders only a push it can actually receive, which takes a
-     * screen in front of the user and a bridge that is already up. A push
-     * arriving during a cold start, or while the app sits on a route that has
-     * not registered the handler, is rendered natively instead of lost.
+     * The web layer renders only a push it can actually receive, which takes an
+     * activity in front of the user and a foreground handler the web runtime
+     * asserts for as long as it is registered. A push arriving during a cold
+     * start, on a route that has torn the handler down, or while only the Quick
+     * Settings tile holds the process up, is rendered natively instead of lost.
      */
     private boolean webWillRender() {
-        return isOnScreen() && PushNotificationsPlugin.getPushNotificationsInstance() != null;
-    }
-
-    private boolean isOnScreen() {
-        ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        if (manager == null) {
-            return false;
-        }
-        List<ActivityManager.RunningAppProcessInfo> processes = manager.getRunningAppProcesses();
-        if (processes == null) {
-            return false;
-        }
-        int pid = Process.myPid();
-        for (ActivityManager.RunningAppProcessInfo process : processes) {
-            if (process.pid != pid) {
-                continue;
-            }
-            // A partly covered activity still shows the web layer's own banner.
-            return process.importance
-                == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-                || process.importance
-                    == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE;
-        }
-        return false;
+        return MainActivity.isResumed() && AndroidPushRegistrationPlugin.hasForegroundHandler();
     }
 }

@@ -4,6 +4,7 @@ import ai.vellum.assistant.AndroidNotificationChannelsPlugin;
 import ai.vellum.assistant.NativeFailureGuard;
 import ai.vellum.assistant.R;
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -20,6 +21,7 @@ import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -33,31 +35,44 @@ import java.util.List;
  */
 public final class NativePushRenderer {
     /**
-     * The launcher gives one app a small shortcut budget shared with the static
-     * New chat and Start voice entries, so only the two most recent
-     * conversations keep a shortcut.
+     * How many conversations keep a launcher shortcut. Two is a product choice
+     * about how much of the launcher's shortcut list a notification may claim,
+     * not a budget the static New chat and Start voice entries share: those are
+     * manifest shortcuts, which a dynamic push can never evict.
      */
     private static final int MAX_CONVERSATION_SHORTCUTS = 2;
 
     private NativePushRenderer() {}
 
+    /**
+     * Whether a notification would reach the user at all. Checked before the
+     * avatar is resolved so a device that denied notifications pays for no
+     * download.
+     */
+    public static boolean canPost(Context context) {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false;
+        }
+        return NotificationManagerCompat.from(context).areNotificationsEnabled();
+    }
+
+    // canPost is the POST_NOTIFICATIONS check, which lint cannot follow across
+    // a method boundary.
+    @SuppressLint("MissingPermission")
     public static void show(
         Context context,
         RemoteMessage remoteMessage,
         PushDataMessage message,
         @Nullable Bitmap avatar
     ) {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!canPost(context)) {
             return;
         }
         NotificationManagerCompat manager = NotificationManagerCompat.from(context);
-        if (!manager.areNotificationsEnabled()) {
-            return;
-        }
 
         int notificationId = message.notificationId();
         Intent launchIntent = PushTapIntents.launchIntent(context, remoteMessage);
@@ -73,7 +88,8 @@ public final class NativePushRenderer {
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setColor(ContextCompat.getColor(context, R.color.notification_icon_color))
             .setContentIntent(contentIntent)
-            .setAutoCancel(true);
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             // From API 26 the channel owns the sound. Before it, a notification
             // that asks for nothing arrives silently.
@@ -105,7 +121,6 @@ public final class NativePushRenderer {
         Person person = personBuilder.build();
         builder
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setOnlyAlertOnce(true)
             .setStyle(
                 new NotificationCompat.MessagingStyle(
                     new Person.Builder()
@@ -124,6 +139,14 @@ public final class NativePushRenderer {
         manager.notify(notificationId, builder.build());
     }
 
+    /** Forgets every conversation shortcut this renderer owns. */
+    public static void clearConversationShortcuts(Context context) {
+        List<String> ours = ownedShortcutIds(dynamicShortcutIds(context), null);
+        if (!ours.isEmpty()) {
+            ShortcutManagerCompat.removeLongLivedShortcuts(context, ours);
+        }
+    }
+
     /** The shortcut id once it is live, which is what lets the notification claim it. */
     @Nullable
     private static String pushShortcut(
@@ -138,15 +161,20 @@ public final class NativePushRenderer {
             return null;
         }
         String shortcutId = PushDataMessage.shortcutId(sender.id, message.conversationId);
+        // Trimming is housekeeping: a failure there must not cost this
+        // notification the shortcut that gives it the conversation treatment.
+        NativeFailureGuard.run(
+            "Unable to trim the Android conversation shortcuts",
+            () -> trimConversationShortcuts(context, shortcutId)
+        );
         boolean pushed = NativeFailureGuard.get(
             "Unable to publish the Android conversation shortcut",
             () -> {
-                trimConversationShortcuts(context, shortcutId);
                 ShortcutInfoCompat.Builder shortcut =
                     new ShortcutInfoCompat.Builder(context, shortcutId)
                         .setLongLived(true)
                         .setPerson(person)
-                        .setShortLabel(PushDataMessage.shortcutLabel(message.title, sender.name))
+                        .setShortLabel(message.title)
                         .setIntent(intent);
                 if (icon != null) {
                     shortcut.setIcon(icon);
@@ -160,22 +188,39 @@ public final class NativePushRenderer {
 
     /** Drops our oldest conversation shortcuts so the new one fits within the cap. */
     private static void trimConversationShortcuts(Context context, String keptId) {
-        List<ShortcutInfoCompat> ours = new ArrayList<>();
-        for (ShortcutInfoCompat shortcut : ShortcutManagerCompat.getDynamicShortcuts(context)) {
-            String id = shortcut.getId();
+        List<String> stale = staleShortcutIds(dynamicShortcutIds(context), keptId);
+        if (!stale.isEmpty()) {
+            ShortcutManagerCompat.removeLongLivedShortcuts(context, stale);
+        }
+    }
+
+    private static List<String> dynamicShortcutIds(Context context) {
+        List<ShortcutInfoCompat> shortcuts = new ArrayList<>(
+            ShortcutManagerCompat.getDynamicShortcuts(context)
+        );
+        shortcuts.sort(Comparator.comparingLong(ShortcutInfoCompat::getLastChangedTimestamp));
+        List<String> ids = new ArrayList<>();
+        for (ShortcutInfoCompat shortcut : shortcuts) {
+            ids.add(shortcut.getId());
+        }
+        return ids;
+    }
+
+    /** Ours out of the launcher's, oldest first, minus the one being claimed. */
+    static List<String> ownedShortcutIds(List<String> oldestFirst, @Nullable String keptId) {
+        List<String> ours = new ArrayList<>();
+        for (String id : oldestFirst) {
             if (id.startsWith(PushDataMessage.SHORTCUT_ID_PREFIX) && !id.equals(keptId)) {
-                ours.add(shortcut);
+                ours.add(id);
             }
         }
+        return ours;
+    }
+
+    /** The oldest of ours to drop so the claimed id lands within the cap. */
+    static List<String> staleShortcutIds(List<String> oldestFirst, String keptId) {
+        List<String> ours = ownedShortcutIds(oldestFirst, keptId);
         int surplus = ours.size() - (MAX_CONVERSATION_SHORTCUTS - 1);
-        if (surplus <= 0) {
-            return;
-        }
-        ours.sort(Comparator.comparingLong(ShortcutInfoCompat::getLastChangedTimestamp));
-        List<String> stale = new ArrayList<>();
-        for (ShortcutInfoCompat oldest : ours.subList(0, surplus)) {
-            stale.add(oldest.getId());
-        }
-        ShortcutManagerCompat.removeLongLivedShortcuts(context, stale);
+        return surplus <= 0 ? Collections.emptyList() : ours.subList(0, surplus);
     }
 }

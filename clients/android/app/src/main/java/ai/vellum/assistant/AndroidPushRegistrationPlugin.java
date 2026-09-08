@@ -1,5 +1,6 @@
 package ai.vellum.assistant;
 
+import ai.vellum.assistant.push.NativePushRenderer;
 import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -18,6 +19,13 @@ public class AndroidPushRegistrationPlugin extends Plugin {
      */
     static final String NATIVE_NOTIFICATION_RENDER = "native-notification-render";
 
+    /**
+     * Whether the web runtime currently holds a handler for foreground pushes.
+     * The plugin instance outlives that handler, so the renderer asks this
+     * instead: a push handed to a torn-down handler is simply lost.
+     */
+    private static volatile boolean foregroundHandler;
+
     @PluginMethod
     public void register(PluginCall call) {
         invokeSafely(call, plugin -> plugin.register(call));
@@ -25,12 +33,33 @@ public class AndroidPushRegistrationPlugin extends Plugin {
 
     @PluginMethod
     public void unregister(PluginCall call) {
+        // The conversation shortcuts carry the previous account's titles and
+        // avatars, so they leave with its token.
+        NativeFailureGuard.run(
+            "Unable to remove the Android conversation shortcuts",
+            () -> NativePushRenderer.clearConversationShortcuts(getContext())
+        );
         invokeSafely(call, plugin -> plugin.unregister(call));
     }
 
     @PluginMethod
     public void getCapabilities(PluginCall call) {
         call.resolve(capabilitiesPayload());
+    }
+
+    @PluginMethod
+    public void setForegroundHandler(PluginCall call) {
+        foregroundHandler = Boolean.TRUE.equals(call.getBoolean("active", false));
+        call.resolve();
+    }
+
+    public static boolean hasForegroundHandler() {
+        return foregroundHandler;
+    }
+
+    /** A page load takes the handler with it without running its own teardown. */
+    public static void clearForegroundHandler() {
+        foregroundHandler = false;
     }
 
     static JSObject capabilitiesPayload() {

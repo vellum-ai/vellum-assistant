@@ -35,14 +35,17 @@ public class PushDataMessageTest {
         return data;
     }
 
+    private static PushDataMessage message(Map<String, String> data) {
+        return PushDataMessage.of(data, false, null);
+    }
+
     @Test
     public void readsTheAlertFieldsFromTheDataBlock() {
-        PushDataMessage message = PushDataMessage.of(alertData(), false);
+        PushDataMessage message = message(alertData());
 
         assertEquals("Weekly review", message.title);
         assertEquals("Ready when you are.", message.body);
         assertEquals("vellum-alerts", message.channelId);
-        assertEquals("delivery-1", message.deliveryId);
         assertEquals("conversation-1", message.conversationId);
         assertEquals(Integer.valueOf(3), message.unreadCount);
         assertNull(message.sender);
@@ -50,7 +53,7 @@ public class PushDataMessageTest {
 
     @Test
     public void readsTheSenderWhenIdNameAndHashAreAllPresent() {
-        PushDataMessage.Sender sender = PushDataMessage.of(senderData(), false).sender;
+        PushDataMessage.Sender sender = message(senderData()).sender;
 
         assertNotNull(sender);
         assertEquals("assistant-1", sender.id);
@@ -65,7 +68,7 @@ public class PushDataMessageTest {
         Map<String, String> data = senderData();
         data.remove("sender_avatar_url");
 
-        PushDataMessage.Sender sender = PushDataMessage.of(data, false).sender;
+        PushDataMessage.Sender sender = message(data).sender;
 
         assertNotNull(sender);
         assertNull(sender.avatarUrl);
@@ -76,7 +79,7 @@ public class PushDataMessageTest {
         for (String key : new String[] { "sender_id", "sender_name", "sender_avatar_hash" }) {
             Map<String, String> data = senderData();
             data.put(key, "  ");
-            assertNull(key, PushDataMessage.of(data, false).sender);
+            assertNull(key, message(data).sender);
         }
     }
 
@@ -86,7 +89,7 @@ public class PushDataMessageTest {
         data.remove("channel_id");
         data.put("unread_count", "many");
 
-        PushDataMessage message = PushDataMessage.of(data, false);
+        PushDataMessage message = message(data);
 
         assertEquals("vellum-alerts", message.channelId);
         assertNull(message.unreadCount);
@@ -94,30 +97,27 @@ public class PushDataMessageTest {
 
     @Test
     public void onlyATitledPayloadWithoutANotificationBlockIsDataOnly() {
-        assertTrue(PushDataMessage.of(alertData(), false).isDataOnly());
-        assertFalse(PushDataMessage.of(alertData(), true).isDataOnly());
+        assertTrue(message(alertData()).isDataOnly());
+        assertFalse(PushDataMessage.of(alertData(), true, null).isDataOnly());
 
         Map<String, String> untitled = alertData();
         untitled.remove("title");
-        assertFalse(PushDataMessage.of(untitled, false).isDataOnly());
-        assertFalse(PushDataMessage.of(null, false).isDataOnly());
+        assertFalse(message(untitled).isDataOnly());
+        assertFalse(message(null).isDataOnly());
     }
 
     @Test
     public void onlyADataOnlyPushTheWebLayerCannotRenderIsRenderedNatively() {
-        assertTrue(PushDataMessage.of(alertData(), false).rendersNatively(false));
-        assertFalse(
-            "web layer renders it",
-            PushDataMessage.of(alertData(), false).rendersNatively(true)
-        );
+        assertTrue(message(alertData()).rendersNatively(false));
+        assertFalse("web layer renders it", message(alertData()).rendersNatively(true));
         assertFalse(
             "notification block",
-            PushDataMessage.of(alertData(), true).rendersNatively(false)
+            PushDataMessage.of(alertData(), true, null).rendersNatively(false)
         );
 
         Map<String, String> untitled = alertData();
         untitled.remove("title");
-        assertFalse("untitled", PushDataMessage.of(untitled, false).rendersNatively(false));
+        assertFalse("untitled", message(untitled).rendersNatively(false));
     }
 
     @Test
@@ -137,7 +137,7 @@ public class PushDataMessageTest {
         Map<String, String> data = alertData();
         data.remove("conversationId");
 
-        PushDataMessage message = PushDataMessage.of(data, false);
+        PushDataMessage message = message(data);
 
         assertNull(message.conversationId);
         assertEquals(
@@ -156,20 +156,13 @@ public class PushDataMessageTest {
     }
 
     @Test
-    public void theShortcutLabelPrefersTheConversationTitle() {
-        assertEquals("Weekly review", PushDataMessage.shortcutLabel("Weekly review", "Vellum"));
-        assertEquals("Vellum", PushDataMessage.shortcutLabel(null, "Vellum"));
-        assertEquals("Vellum", PushDataMessage.shortcutLabel("   ", "Vellum"));
-    }
-
-    @Test
     public void theNotificationIdIsStablePerDelivery() {
-        int first = PushDataMessage.of(alertData(), false).notificationId();
+        int first = message(alertData()).notificationId();
         Map<String, String> other = alertData();
         other.put("delivery_id", "delivery-2");
 
-        assertEquals(first, PushDataMessage.of(alertData(), false).notificationId());
-        assertNotEquals(first, PushDataMessage.of(other, false).notificationId());
+        assertEquals(first, message(alertData()).notificationId());
+        assertNotEquals(first, message(other).notificationId());
     }
 
     /**
@@ -182,21 +175,48 @@ public class PushDataMessageTest {
         assertEquals(1077802136, PushDataMessage.notificationId("delivery-1"));
         assertEquals("negative hash", 1676096153, PushDataMessage.notificationId("conversation-1"));
         assertEquals("Integer.MIN_VALUE", 1, PushDataMessage.notificationId("delivery-4b*42%$"));
+        assertEquals(1440014357, PushDataMessage.notificationId("message-1"));
+        assertEquals(
+            126856326,
+            PushDataMessage.notificationId("remote_push:Weekly review:Ready when you are.")
+        );
     }
 
+    /**
+     * postForegroundRemotePush seeds toNotificationId with the delivery id,
+     * then the Firebase message id it reads as notification.id, then the source
+     * event with the copy. The conversation id is not a rung of that chain.
+     */
     @Test
-    public void theNotificationIdSeedFallsBackThroughConversationToMessageId() {
+    public void theNotificationIdSeedWalksTheSameChainAsTheWebLayer() {
+        assertEquals(
+            PushDataMessage.notificationId("delivery-1"),
+            PushDataMessage.of(alertData(), false, "message-1").notificationId()
+        );
+
         Map<String, String> data = alertData();
         data.remove("delivery_id");
         assertEquals(
+            PushDataMessage.notificationId("message-1"),
+            PushDataMessage.of(data, false, "message-1").notificationId()
+        );
+        assertNotEquals(
+            "the conversation id is not a seed",
             PushDataMessage.notificationId("conversation-1"),
             PushDataMessage.of(data, false, "message-1").notificationId()
         );
 
-        data.remove("conversationId");
         assertEquals(
-            PushDataMessage.notificationId("message-1"),
-            PushDataMessage.of(data, false, "message-1").notificationId()
+            PushDataMessage.notificationId("remote_push:Weekly review:Ready when you are."),
+            message(data).notificationId()
+        );
+
+        data.put("source_event_name", "chat.assistant_turn_complete");
+        assertEquals(
+            PushDataMessage.notificationId(
+                "chat.assistant_turn_complete:Weekly review:Ready when you are."
+            ),
+            message(data).notificationId()
         );
     }
 }
