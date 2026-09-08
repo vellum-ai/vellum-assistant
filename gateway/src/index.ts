@@ -898,22 +898,27 @@ async function main() {
     },
 
     // ── Vercel control plane ──
+    // The dedicated proxy mints a gateway service token, so the daemon
+    // never sees the caller's scopes. Edge-scoped auth is the check.
     {
       path: "/v1/integrations/vercel/config",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => vercelControlPlaneProxy.handleGetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleSetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleDeleteVercelConfig(req),
     },
 
