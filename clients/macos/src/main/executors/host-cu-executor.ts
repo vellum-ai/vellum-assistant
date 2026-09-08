@@ -34,9 +34,9 @@ export const POINT_AT_TOOL = "computer_use_point_at";
 /**
  * How long a name may be.
  *
- * Generous next to any real control's label, because what arrives is a phrase
- * rather than a label ("the stabilization button") and the matching is what
- * narrows it. Bounded at all so a paragraph cannot be sent as a name.
+ * Generous next to any real control's label, since a label is free to be a
+ * sentence and some are. Bounded at all so a paragraph cannot be sent as a
+ * name.
  */
 const TARGET_MAX = 120;
 
