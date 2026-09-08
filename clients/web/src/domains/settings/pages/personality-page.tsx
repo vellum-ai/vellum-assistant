@@ -12,7 +12,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { PERSONALITY_AXIS_IDS } from "@/assistant/personality-rewrite";
+import { PERSONALITY_AXIS_IDS } from "@vellumai/assistant-api";
+
 import {
   completeSliderValues,
   fetchPersonalitySliders,

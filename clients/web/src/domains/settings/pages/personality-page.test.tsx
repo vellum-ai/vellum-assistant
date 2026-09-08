@@ -10,8 +10,10 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 
-import { PERSONALITY_AXIS_IDS } from "@/assistant/personality-rewrite";
-import { PERSONALITY_SLIDER_DEFAULT } from "@/assistant/personality-sliders";
+import {
+  PERSONALITY_AXIS_IDS,
+  PERSONALITY_SLIDER_DEFAULT,
+} from "@vellumai/assistant-api";
 
 const fetchPersonalitySliders = mock(async () => {
   return Object.fromEntries(
