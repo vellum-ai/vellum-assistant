@@ -71,6 +71,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// attribute reads can momentarily take upwards of 1s.
     static let axMessagingTimeoutSeconds: Float = 3.0
 
+    /// Roles whose content is the text itself rather than a name for a thing.
+    static let textRoles: Set<String> = ["AXStaticText", "AXHeading"]
+
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
         "AXPopUpButton", "AXComboBox", "AXSlider", "AXLink", "AXMenuItem",
@@ -399,8 +402,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // a window elsewhere still names one window here.
         let candidates = framed.isEmpty ? windows : framed
         let titles = candidates.map { getStringAttribute($0, kAXTitleAttribute as CFString) }
-        return AXWindowMatch.uniqueTitle(serverName: window.name, titles: titles)
-            .map { candidates[$0] }
+        return AXWindowMatch.uniqueTitle(
+            serverName: window.name,
+            titles: titles,
+            candidates: framed.isEmpty ? .everyWindow : .sharingOneFrame
+        ).map { candidates[$0] }
     }
 
     private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
@@ -518,9 +524,16 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // a user would say in `AXDescription` or the tooltip. Chained through
         // `??` so an element that answers on its title costs one read: each of
         // these is synchronous IPC into the target app, run per element.
+        //
+        // Only for a control. Text on screen is read out of its value, and a
+        // description or a tooltip standing in as its title would be reported
+        // in place of the words the user is actually looking at.
+        let namesAControl = !Self.textRoles.contains(role)
         let title = AXLabel.nonBlank(getStringAttribute(element, kAXTitleAttribute as CFString))
-            ?? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
-            ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
+            ?? (namesAControl
+                ? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
+                    ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
+                : nil)
         let value = getValueAttribute(element)
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
@@ -533,7 +546,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let isInteractive = Self.interactiveRoles.contains(role)
         let isContainer = Self.containerRoles.contains(role)
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
-        let isStaticText = role == "AXStaticText" || role == "AXHeading"
+        let isStaticText = Self.textRoles.contains(role)
 
         // Enumerate children with safety checks
         var childElements: [AXElement] = []
@@ -704,7 +717,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
-            let isText = element.role == "AXStaticText" || element.role == "AXHeading"
+            let isText = textRoles.contains(element.role)
 
             if isInteractiveRole {
                 // Skip unlabeled non-text elements — the model can't meaningfully target

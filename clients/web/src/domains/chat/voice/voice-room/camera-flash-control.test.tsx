@@ -12,7 +12,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
-import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
+import {
+  CameraFlashControl,
+  liveFlashMode,
+  nextFlashMode,
+  nextLiveFlashMode,
+} from "./camera-flash-control";
 
 afterEach(() => {
   cleanup();
@@ -30,6 +35,30 @@ describe("nextFlashMode", () => {
     for (const start of modes) {
       expect(nextFlashMode(nextFlashMode(nextFlashMode(start)))).toBe(start);
     }
+  });
+});
+
+describe("liveFlashMode", () => {
+  test("reads a stored auto as off", () => {
+    // A lamp is on or it is not: there is no scene brightness for it to answer
+    // to. The stored preference is untouched, so the next photo still fires the
+    // mode the user chose for one.
+    expect(liveFlashMode("auto")).toBe("off");
+    expect(liveFlashMode("off")).toBe("off");
+    expect(liveFlashMode("on")).toBe("on");
+  });
+});
+
+describe("nextLiveFlashMode", () => {
+  test("cycles two states rather than three", () => {
+    expect(nextLiveFlashMode("off")).toBe("on");
+    expect(nextLiveFlashMode("on")).toBe("off");
+  });
+
+  test("takes a stored auto on, the way an off would", () => {
+    // What the control shows is what the next press has to answer, or the
+    // first press on a stored auto does nothing the user can see.
+    expect(nextLiveFlashMode("auto")).toBe("on");
   });
 });
 

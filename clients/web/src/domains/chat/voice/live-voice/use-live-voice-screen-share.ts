@@ -163,6 +163,9 @@ export function useLiveVoiceScreenShare(): void {
       void sight
         .capture({
           assistantId,
+          // No gate here; the word says which of this hook's own occasions
+          // took the frame.
+          keep: { reason: drawing === null ? "screen" : "drawing" },
           produceFrame: async (filename) => {
             const frame = await produceSharedFrame(target, filename, drawing);
             missed = frame === null;

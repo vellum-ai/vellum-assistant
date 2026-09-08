@@ -8,6 +8,7 @@ import { canonicalInbound } from "./ingress-inbound.js";
 import { canonicalVerification } from "./ingress-verification.js";
 import {
   discoverPluginIngress,
+  pluginWebhookPath,
   PluginIngressCache,
   type DiscoveredPluginIngress,
   type DiscoverPluginIngressOptions,
@@ -123,6 +124,19 @@ export function resolveCachedPluginIngress(): PluginIngressResolution {
   return resolveDiscoveredPluginIngress(ingressCache.get());
 }
 
+/**
+ * Register a callback for when the shared cache picks up different plugin
+ * declarations than it last held. Returns an unsubscribe function.
+ *
+ * Approvals are not part of this: they change only through a guardian decision
+ * the handler already reports on. What this catches is the half nothing else
+ * announces, a plugin installed, removed, toggled or edited while the gateway
+ * runs.
+ */
+export function subscribeToPluginIngressChanges(cb: () => void): () => void {
+  return ingressCache.onChange(cb);
+}
+
 /** Split an already-performed discovery by approval. */
 function resolveDiscoveredPluginIngress(
   discovery: PluginIngressDiscovery,
@@ -194,6 +208,76 @@ export function findServableRoute(
   return match?.servable ? match.route : undefined;
 }
 
+/**
+ * Whether the gate opens a declared route.
+ *
+ * `approved` says the route came out of a declaration a guardian has granted,
+ * which is the general case. The exception is `signer: "vellum"`, served
+ * without a grant for the reason {@link findServableRoute} gives.
+ *
+ * This is the whole rule, in one place, because two things decide it: the
+ * per-request lookup, and {@link listServablePluginWebhookPaths}, which tells
+ * the outside world which paths to forward. Were those to disagree, the
+ * forwarder would either block a route the gateway serves or advertise one it
+ * refuses.
+ */
+function isRouteServable(route: IngressRoute, approved: boolean): boolean {
+  return approved || route.signer === "vellum";
+}
+
+/** A public webhook path the gateway would serve right now. */
+export interface ServablePluginWebhookPath {
+  /**
+   * Absolute public path, as {@link pluginWebhookPath} composes it or with one
+   * trailing slash appended.
+   */
+  path: string;
+  /** Declaring plugin's name, which is what a plugin route row carries. */
+  source: string;
+}
+
+/**
+ * Every public plugin webhook path the gateway would currently serve.
+ *
+ * An approved declaration contributes all of its routes; one still awaiting a
+ * decision contributes only the routes approval does not gate. Both halves ask
+ * {@link isRouteServable}, so this cannot come to describe a different surface
+ * than the one requests are matched against.
+ *
+ * Each servable route contributes both spellings the gateway answers, with and
+ * without the trailing slash {@link findServableRoute} ignores. Every consumer
+ * of this set matches a path exactly, so a spelling absent here is refused
+ * before the handler that would have accepted it ever runs. The pair is
+ * unambiguous for the reason {@link findServableRoute} gives: a declared path
+ * may not end in a slash, so `<declared>/` names that route and no other.
+ *
+ * Declarations that failed validation are in `problems` and appear nowhere
+ * here, and a plugin that is uninstalled or disabled is not discovered at all,
+ * so its paths drop out on their own.
+ */
+export function listServablePluginWebhookPaths(
+  resolution: PluginIngressResolution,
+): ServablePluginWebhookPath[] {
+  const paths: ServablePluginWebhookPath[] = [];
+  const collect = (
+    declarations: readonly DiscoveredPluginIngress[],
+    approved: boolean,
+  ): void => {
+    for (const declaration of declarations) {
+      for (const route of declaration.routes) {
+        if (isRouteServable(route, approved)) {
+          const path = pluginWebhookPath(declaration.plugin, route.path);
+          paths.push({ path, source: declaration.plugin });
+          paths.push({ path: `${path}/`, source: declaration.plugin });
+        }
+      }
+    }
+  };
+  collect(resolution.approved, true);
+  collect(resolution.pending, false);
+  return paths;
+}
+
 /** A declaration matching the request, and whether the gate opens it. */
 export interface DeclaredRouteMatch {
   route: IngressRoute;
@@ -226,12 +310,15 @@ export function findDeclaredRoute(
   const approved = resolution.approved.find((d) => d.plugin === plugin);
   const fromApproved = approved && matches(approved.routes);
   if (fromApproved) {
-    return { route: fromApproved, servable: true };
+    return {
+      route: fromApproved,
+      servable: isRouteServable(fromApproved, true),
+    };
   }
 
   const pending = resolution.pending.find((d) => d.plugin === plugin);
   const fromPending = pending && matches(pending.routes);
   return fromPending
-    ? { route: fromPending, servable: fromPending.signer === "vellum" }
+    ? { route: fromPending, servable: isRouteServable(fromPending, false) }
     : undefined;
 }

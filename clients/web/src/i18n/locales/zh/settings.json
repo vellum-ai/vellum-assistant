@@ -1532,6 +1532,18 @@
     "selectModelPlaceholder": "选择模型",
     "selectProviderPlaceholder": "选择提供商…"
   },
+  "profileModalitiesSection": {
+    "audio": "音频",
+    "enableAria": "启用{modality}",
+    "enabledColumn": "启用",
+    "helper": "仅当模态已启用且标记为模型支持时，才会发送给模型。未按此方式发送的图片会生成文字说明。",
+    "image": "图片",
+    "resolvedOff": "不发送给模型",
+    "resolvedOn": "发送给模型",
+    "supportedAria": "模型支持{modality}",
+    "supportedColumn": "模型支持",
+    "title": "模态"
+  },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的操作",
     "defaultTag": "默认",
@@ -2363,5 +2375,27 @@
       "doctor": "诊断",
       "conversations": "会话"
     }
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "添加 API 密钥",
+    "cancelConnect": "取消设置",
+    "chooseFromList": "从列表中选择",
+    "connectedTag": "已连接",
+    "customModelAriaLabel": "自定义模型 ID",
+    "customModelHint": "输入提供商所需的精确模型标识符。该标识符将按原样发送至连接。",
+    "customModelOption": "输入自定义模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "无匹配的模型",
+    "modelPlaceholder": "搜索模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 个可用模型} other {# 个可用模型}}。使用上下方向键浏览，按回车键选择。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推荐",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "设置",
+    "signInTag": "登录",
+    "soleProviderHint": "仅 {name} 提供此模型。"
   }
 }

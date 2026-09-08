@@ -510,6 +510,7 @@ const {
   dialOnTalk,
   glideProgress,
   introOnAdvance,
+  resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
   showCompanionCoachmarks,
@@ -1142,6 +1143,65 @@ describe("the surface a call takes", () => {
     send("vellum:voiceActivity:start", START);
     expect(centre()).toEqual(bottomCentre);
     send("vellum:voiceActivity:end");
+  });
+});
+
+/**
+ * The menu's "Reset Position": the pill goes back to where the surface opens,
+ * the bottom centre of its display, from wherever the user dragged it.
+ *
+ * Under "Reduce motion", as the call's cases are, so each reset lands in the
+ * beat it is asked for; the reset moves the surface the way the call does,
+ * and the glide has its own cases below.
+ */
+describe("resetCompanionSurfacePosition", () => {
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + GEOMETRY.canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
+  });
+  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
+  const park = (): { x: number; y: number } => {
+    send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
+    return centre();
+  };
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    send("vellum:voiceActivity:end");
+    send("vellum:voiceActivity:control", { action: "endSession" });
+  });
+
+  test("takes a parked pill back to the bottom centre of its display", () => {
+    park();
+    expect(centre()).not.toEqual(bottomCentre);
+    resetCompanionSurfacePosition();
+    expect(centre()).toEqual(bottomCentre);
+  });
+
+  test("leaves a pill already there where it is", () => {
+    resetCompanionSurfacePosition();
+    const before = centre();
+    resetCompanionSurfacePosition();
+    expect(centre()).toEqual(before);
+    expect(centre()).toEqual(bottomCentre);
+  });
+
+  /**
+   * A call holds the place the pill goes back to when it ends. A reset during
+   * the call is the user saying where the surface belongs, so the call's end
+   * leaves it there rather than sending it back to where it was parked.
+   */
+  test("mid-call, is where the call ends too", () => {
+    park();
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:start", START);
+    send("vellum:companion:moveBy", -200, -100);
+    expect(centre()).not.toEqual(bottomCentre);
+    resetCompanionSurfacePosition();
+    expect(centre()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(bottomCentre);
   });
 });
 
@@ -2069,13 +2129,14 @@ describe("geometryFor with the two axes apart", () => {
 
 /**
  * The menu a right-click on the surface pops, which is where a user actually
- * reaches for the two things a floating avatar offers: a different size, and
- * making it go away.
+ * reaches for the three things a floating avatar offers: a different size,
+ * its place on the screen back, and making it go away.
  *
  * The template rather than the menu: a menu is a native window, and what is
  * worth stating is what this menu adds to the size pickers it shares with the
- * tray, which is where they sit and the item that takes the surface away. The
- * pickers themselves have their own suite in `companion-menu.test.ts`.
+ * tray, which is where they sit and the items that put the surface back and
+ * take it away. The pickers themselves have their own suite in
+ * `companion-menu.test.ts`.
  */
 describe("companionContextMenuTemplate", () => {
   /** Only what a menu item is read for here. */
@@ -2093,16 +2154,25 @@ describe("companionContextMenuTemplate", () => {
   ) => {
     let hidden = false;
     let opened = false;
+    let reset = false;
     const items = companionContextMenuTemplate(current, {
       open: () => {
         opened = true;
       },
       setSize: () => {},
+      resetPosition: () => {
+        reset = true;
+      },
       hide: () => {
         hidden = true;
       },
     }) as MenuItem[];
-    return { items, wasHidden: () => hidden, wasOpened: () => opened };
+    return {
+      items,
+      wasHidden: () => hidden,
+      wasOpened: () => opened,
+      wasReset: () => reset,
+    };
   };
 
   /**
@@ -2123,8 +2193,19 @@ describe("companionContextMenuTemplate", () => {
     expect(
       build()
         .items.map((item) => item.label ?? item.type)
-        .slice(4),
+        .slice(5),
     ).toEqual(["separator", "Hide Companion"]);
+  });
+
+  /**
+   * In the group with the sizes rather than beside the way out: it is about
+   * how the surface sits on the screen, which is what the headings are about.
+   */
+  test("offers the surface's place back, right after the headings", () => {
+    const { items, wasReset } = build();
+    expect(items[4]?.label).toBe("Reset Position");
+    items[4]?.click?.();
+    expect(wasReset()).toBe(true);
   });
 
   /**
@@ -2141,7 +2222,7 @@ describe("companionContextMenuTemplate", () => {
 
   test("the last item takes the surface away", () => {
     const menu = build();
-    menu.items[5]?.click?.();
+    menu.items[6]?.click?.();
     expect(menu.wasHidden()).toBe(true);
   });
 });
@@ -2991,6 +3072,34 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:setAnnotating", true);
     send("vellum:companion:setAnnotating", false);
     expect(glow?.clickThrough).toBe(true);
+    expect(state().annotating).toBe(false);
+  });
+
+  /**
+   * The keyboard's press, which has no view of the mode and so cannot ask
+   * for a direction. Main holds it, so main turns it over.
+   */
+  test("a toggle turns the mode over in both directions", () => {
+    shareDisplay();
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(true);
+    expect(glow?.clickThrough).toBe(false);
+
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(false);
+    expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * A gesture made in the gap between a share ending and the surface hearing
+   * about it asks for a mode there is nothing to draw in. Refused the same
+   * way the press on the pill is, so the toggle cannot arm the mode ahead of
+   * a share by being pressed twice.
+   */
+  test("a toggle with nothing shared leaves the mode off", () => {
+    send("vellum:companion:toggleAnnotating");
+    expect(state().annotating).toBe(false);
+    send("vellum:companion:toggleAnnotating");
     expect(state().annotating).toBe(false);
   });
 

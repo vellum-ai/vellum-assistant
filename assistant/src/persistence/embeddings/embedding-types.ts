@@ -70,12 +70,36 @@ export function embeddingInputContentHash(input: EmbeddingInput): string {
   return hash.digest("hex");
 }
 
+/**
+ * Durable cache identity for an embedding input. Folds provider extras
+ * (Gemini task type / dimensions, custom endpoint URL / dimensions) into the
+ * bare content hash so a change that alters the vector for identical text is
+ * a cache miss. With no extras this is the bare {@link embeddingInputContentHash}.
+ */
+export function embeddingContentHashWithExtras(
+  input: EmbeddingInput,
+  extras: string[] = [],
+): string {
+  const base = embeddingInputContentHash(input);
+  if (extras.length === 0) {
+    return base;
+  }
+  return createHash("sha256")
+    .update(`${base}\0${extras.join("\0")}`)
+    .digest("hex");
+}
+
 // ---------------------------------------------------------------------------
 // Backend interface types (extracted from embedding-backend.ts to break
 // circular imports between the factory and provider implementations)
 // ---------------------------------------------------------------------------
 
-export type EmbeddingProviderName = "local" | "openai" | "gemini" | "ollama";
+export type EmbeddingProviderName =
+  | "local"
+  | "openai"
+  | "gemini"
+  | "ollama"
+  | "custom";
 
 export interface EmbeddingRequestOptions {
   signal?: AbortSignal;

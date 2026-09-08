@@ -18,6 +18,7 @@ import {
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
   HELPER_HOTKEY_READ_FRONT_SELECTION,
+  HELPER_HOTKEY_SET_CHORDS,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
@@ -28,6 +29,8 @@ import {
   toAudioBuffer,
 } from "@vellumai/electron-desktop/dictation-routing";
 import type {
+  ChordBinding,
+  ChordRegistrationResult,
   DictationPartialEvent,
   DictationPartialsResult,
   HelperRestartResult,
@@ -53,6 +56,8 @@ import {
 } from "./sidecar/mac-helper-path";
 
 export type {
+  ChordBinding,
+  ChordRegistrationResult,
   DictationPartialEvent,
   DictationPartialsResult,
   HelperRestartResult,
@@ -72,11 +77,18 @@ export type MacHelperPermissionStatus =
   | "not-determined"
   | "granted";
 
-const HOTKEY_EVENT_SCHEMA = z.object({
-  kind: z.literal("modifierHold"),
-  state: z.enum(["down", "up"]),
-  reason: z.enum(["released", "chord", "cancelled"]).optional(),
-});
+const HOTKEY_EVENT_SCHEMA = z.union([
+  z.object({
+    kind: z.literal("modifierHold"),
+    state: z.enum(["down", "up"]),
+    reason: z.enum(["released", "chord", "cancelled"]).optional(),
+  }),
+  z.object({
+    kind: z.literal("chord"),
+    state: z.literal("down"),
+    key: z.string().length(1),
+  }),
+]);
 
 const FRONT_SELECTION_SCHEMA = z.object({
   selection: z
@@ -204,6 +216,76 @@ const setModifierHold = async (
     }
   });
   return call;
+};
+
+/**
+ * The chord binding the helper is holding, and the window that asked for it.
+ *
+ * Its own owner rather than the hold's: the hold's edges go to whichever
+ * window the user last focused, because a hold is a microphone and the user
+ * pointed it somewhere. A chord is armed by the one window that can answer it
+ * (the one holding the call), so it goes back there whatever is focused, and
+ * a pop-out in front cannot swallow a press meant for the session.
+ */
+let chordBinding: ChordBinding = { kind: "off" };
+let chordOwner: WebContents | null = null;
+/** Stops watching the owner for the window closing under the binding. */
+let releaseChordOwner: (() => void) | null = null;
+/** Whether the helper that comes back next is owed the chords it died with. */
+let restoreChordsAfterRestart = false;
+
+const sendChords = async (
+  binding: ChordBinding,
+): Promise<ChordRegistrationResult> => {
+  try {
+    const result = await client.call(
+      "hotkey.chords",
+      binding.kind === "off"
+        ? { enable: false }
+        : { enable: true, modifiers: binding.modifiers, keys: binding.keys },
+    );
+    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      return { ok: false, reason: "mac helper returned invalid hotkey result" };
+    }
+    return { ok: true, enabled: parsed.data.enabled };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+const setChords = async (
+  binding: ChordBinding,
+  owner: WebContents | null,
+): Promise<ChordRegistrationResult> => {
+  releaseChordOwner?.();
+  releaseChordOwner = null;
+  chordBinding = binding;
+  chordOwner = binding.kind === "off" ? null : owner;
+
+  // A window that arms chords is watched for going away on its own account,
+  // rather than through the hold's ownership: it may hold no hold at all, and
+  // a binding left armed with nothing to answer it would go on taking presses
+  // that are the user's own again.
+  if (chordOwner !== null) {
+    const closing = chordOwner;
+    const onDestroyed = () => {
+      if (chordOwner === closing) {
+        void setChords({ kind: "off" }, null);
+      }
+    };
+    closing.once("destroyed", onDestroyed);
+    releaseChordOwner = () => {
+      closing.off("destroyed", onDestroyed);
+    };
+  }
+
+  const result = await sendChords(binding);
+  restoreChordsAfterRestart = false;
+  return result;
 };
 
 const applyModifierHold = async (
@@ -493,6 +575,25 @@ const MODIFIER_HOLD_SCHEMA = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/**
+ * Bounded on both arms: a binding names a shortcut, and one asking for a
+ * dozen keys under four modifiers is asking to take a share of the keyboard
+ * rather than to bind a gesture.
+ */
+const CHORD_BINDING_SCHEMA = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("off") }),
+  z.object({
+    kind: z.literal("chord"),
+    modifiers: z
+      .array(z.enum(["function", "control", "shift", "option", "command"]))
+      .min(1)
+      .max(3),
+    // Single characters: a key is named by the character on its cap, and the
+    // helper resolves a press through the layout before matching.
+    keys: z.array(z.string().length(1)).min(1).max(8),
+  }),
+]);
+
 const dictationOwners = new DictationOwnerRouter();
 
 // The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
@@ -667,6 +768,16 @@ const hotkeyOwnerTarget = (): WebContents | null => {
 };
 
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
+  // A chord belongs to the window that armed it, and to no other. Dropped
+  // rather than redirected when that window has gone: the press asked
+  // something of a session that went with it.
+  if (event.kind === "chord") {
+    if (chordOwner === null || chordOwner.isDestroyed()) {
+      return;
+    }
+    chordOwner.send("vellum:helper:hotkey:event", event);
+    return;
+  }
   holdIsOpen = event.state === "down";
   hotkeyOwnerTarget()?.send("vellum:helper:hotkey:event", event);
 };
@@ -731,10 +842,27 @@ const restoreModifierHoldIfNeeded = async (): Promise<void> => {
   }
 };
 
+const restoreChordsIfNeeded = async (): Promise<void> => {
+  if (
+    !restoreChordsAfterRestart ||
+    chordBinding.kind === "off" ||
+    chordOwner === null ||
+    chordOwner.isDestroyed()
+  ) {
+    return;
+  }
+  const result = await sendChords(chordBinding);
+  if (result.ok && result.enabled) {
+    restoreChordsAfterRestart = false;
+    log.info("[mac-helper] restored the call's chords after helper restart");
+  }
+};
+
 const handleHelperState = (state: MacHelperState): void => {
   sendHelperStateToRenderers(state);
   if (state.status === "running") {
     void restoreModifierHoldIfNeeded();
+    void restoreChordsIfNeeded();
     // The watch went down with the helper the binding did, and the renderer
     // asks for neither again. Restored beside the binding rather than behind
     // it: they are two registrations, and an offer outliving the edit it
@@ -748,6 +876,9 @@ const handleHelperState = (state: MacHelperState): void => {
   if (helperHoldsBinding) {
     helperHoldsBinding = false;
     restoreHoldAfterRestart = true;
+  }
+  if (chordBinding.kind !== "off") {
+    restoreChordsAfterRestart = true;
   }
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
@@ -851,6 +982,17 @@ export const installHotkeyHelper = (): void => {
     },
   );
 
+  handle(
+    HELPER_HOTKEY_SET_CHORDS,
+    z.tuple([CHORD_BINDING_SCHEMA]),
+    ([binding], event) => {
+      // Registered by the window that can answer them, which is where the
+      // events go. A clear from any window clears the binding, since the only
+      // window that arms it is the one that would.
+      return setChords(binding, binding.kind === "off" ? null : event.sender);
+    },
+  );
+
   handle(HELPER_HOTKEY_READ_FRONT_SELECTION, z.tuple([]), () =>
     readFrontSelection(),
   );
@@ -931,6 +1073,11 @@ export const __resetForTesting = (): void => {
   modifierHoldInFlight = null;
   helperHoldsBinding = false;
   restoreHoldAfterRestart = false;
+  releaseChordOwner?.();
+  releaseChordOwner = null;
+  chordBinding = { kind: "off" };
+  chordOwner = null;
+  restoreChordsAfterRestart = false;
   restoreHoldInFlight = false;
   desiredInputActivityWatch = false;
   holdIsOpen = false;

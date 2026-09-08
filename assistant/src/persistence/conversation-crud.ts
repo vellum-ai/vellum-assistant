@@ -2706,6 +2706,44 @@ export function selectSightFrameCaptureTimes(
 }
 
 /**
+ * The newest camera frame in the conversation, by the `createdAt` of the row
+ * that carries it, or null when no row carries one.
+ *
+ * The one-row form of {@link selectSightFrameCaptureTimes}, for a caller that
+ * wants only the latest and runs on every voice turn: every stored frame stays
+ * a row for the life of the conversation, so the full scan grows with the
+ * call. Same narrowing and the same validation, so the two agree on what a
+ * frame is. A row carrying several frames answers with the last attached.
+ */
+export function selectNewestSightFrameCapture(
+  conversationId: string,
+): { attachmentId: string; createdAt: number } | null {
+  const db = getDb();
+  const row = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  if (!row) {
+    return null;
+  }
+  const ids = sightFrameAttachmentIdsFromMetadata(
+    parseMessageMetadata(row.metadata),
+  );
+  const attachmentId = ids.at(-1);
+  return attachmentId === undefined
+    ? null
+    : { attachmentId, createdAt: row.createdAt };
+}
+
+/**
  * Count messages in a conversation that were created strictly after the
  * `afterMessageId` reference message. If `afterMessageId` is `null` or empty,
  * counts all messages in the conversation. If the referenced message no

@@ -885,5 +885,10 @@
       "label": "Full access",
       "description": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "Every {count, plural, one {# hr} other {# hrs}}",
+    "everyMinutes": "Every {count, plural, one {# min} other {# mins}}",
+    "retrospectiveSubtitle": "After conversation activity"
   }
 }
