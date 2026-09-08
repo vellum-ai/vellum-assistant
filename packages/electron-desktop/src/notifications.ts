@@ -76,8 +76,8 @@ export interface NotificationCreateOptions {
   silent: boolean;
   actions: CategoryAction[];
   /**
-   * Absent when the renderer sent no notification avatar, which every factory
-   * renders as today's app-icon notification.
+   * Absent when the renderer sent no notification avatar; a factory then
+   * renders the plain app-icon notification.
    */
   sender?: NotificationSenderImage;
 }
@@ -263,9 +263,9 @@ interface ShowResult {
  * libnotify draws `icon` as the notification's image and takes the app icon
  * from the desktop entry, which is the treatment the feature asks for. macOS
  * draws it as a right-side thumbnail beside the app icon instead, so the
- * avatar must never reach it here (the native addon posts macOS notifications
- * through Apple's Communication Notifications API). Windows toasts have no
- * icon slot on this path at all.
+ * avatar never reaches this path there: a client that renders the sender on
+ * macOS or Windows supplies its own `create` factory, and this path ignores
+ * `sender` on both. Windows toasts have no icon slot on this path at all.
  */
 const createElectronNotification = (
   options: NotificationCreateOptions,

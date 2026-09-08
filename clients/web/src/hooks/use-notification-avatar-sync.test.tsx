@@ -1,8 +1,8 @@
 /**
  * The gate this hook exists to hold: the notification avatar is composited and
  * held only on Electron with `push-avatar-sender` on. Every other host, and the
- * flag off, must leave the holder empty so the IPC payload stays what it is
- * today, and a flag that turns off has to take back what an earlier run stored.
+ * flag off, must leave the holder empty so the IPC payload carries no `sender`
+ * field, and a flag that turns off has to take back what an earlier run stored.
  * What is held is stamped with the assistant it was drawn for, and a
  * replacement render empties the holder before it starts drawing.
  */
