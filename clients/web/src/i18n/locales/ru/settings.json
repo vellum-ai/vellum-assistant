@@ -2306,5 +2306,37 @@
     "redirectHint": "Этот URL: в настройки перенаправления OAuth-приложения.",
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Ожидание авторизации..."
+  },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Компаньон",
+        "right": "Коллега"
+      },
+      "executeCollaborate": {
+        "left": "Самостоятельный",
+        "right": "Совместный"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Игривый",
+        "right": "Серьёзный"
+      },
+      "politeUnfiltered": {
+        "left": "Вежливый",
+        "right": "Без фильтра"
+      }
+    },
+    "loadError": "Не удалось загрузить ползунки личности.",
+    "rangeAriaLabel": "{left} до {right}",
+    "save": "Сохранить",
+    "saveErrorToast": "Не удалось сохранить ползунки личности. Повторите попытку.",
+    "saveSuccessToast": "Ползунки личности сохранены.",
+    "saving": "Сохранение…",
+    "subtitle": "Сохраняет значения ползунков у этого ассистента. Файлы идентичности не переписываются.",
+    "title": "Личность"
   }
 }

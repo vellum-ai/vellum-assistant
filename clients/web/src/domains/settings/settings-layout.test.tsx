@@ -173,6 +173,25 @@ describe("SettingsLayout", () => {
     expect(screen.getByRole("link", { name: "Credentials" })).not.toBeNull();
   });
 
+  test("renders Personality only when developer nav is on", () => {
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("link", { name: "Personality" })).toBeNull();
+    cleanup();
+
+    assistantFlags.settingsDeveloperNav = true;
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Personality" })).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Developer" })).not.toBeNull();
+  });
+
   test("renders Notifications only in the native Android app", () => {
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>

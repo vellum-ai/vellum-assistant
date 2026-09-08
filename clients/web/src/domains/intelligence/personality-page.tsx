@@ -1,12 +1,14 @@
 /**
  * The personality page — drilled into from the assistant overview. Same
  * avatar-tinted stage (eyes peeking from the bottom) with the five trait
- * sliders from research onboarding.
+ * sliders from research onboarding; "Update personality" composes the
+ * slider values into the personality system-message and runs it as an
+ * identity rewrite turn, so the assistant rewrites its own identity files
+ * in the new voice.
  *
- * "Update personality" persists the dials to `data/personality-sliders.json`.
- * A steering-capable hosted Qwen assistant reads that sidecar on the next
- * chat turn. Other models, and older Qwen assistants, still run an identity
- * rewrite so IDENTITY.md / SOUL.md match the new voice.
+ * The dial positions persist in a workspace sidecar
+ * (`data/personality-sliders.json`): saved after a successful rewrite,
+ * read back to seed the sliders so they reopen where the user left them.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +22,7 @@ import {
   completeSliderValues,
   fetchPersonalitySliders,
   personalitySlidersQueryKey,
+  savePersonalitySliders,
 } from "@/assistant/personality-sliders";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -72,9 +75,10 @@ export function PersonalityPage() {
       assistantId,
       values: complete,
       assistantName: identityQuery.data?.identity?.name,
-    }).then((ok) => {
+    }).then(async (ok) => {
       setApplying(false);
       if (ok) {
+        await savePersonalitySliders(assistantId, complete);
         void queryClient.invalidateQueries({
           queryKey: personalitySlidersQueryKey(assistantId),
         });
