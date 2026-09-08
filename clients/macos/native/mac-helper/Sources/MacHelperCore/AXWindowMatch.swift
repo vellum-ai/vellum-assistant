@@ -5,9 +5,9 @@ import Foundation
 /// **This exists because an app's AX title is not always the window server's
 /// name for the same window.** Chromium appends its own suffix, so a Chrome
 /// window the server calls `Some Page` reports an AX title of `Some Page -
-/// Google Chrome - Alex (vellum.ai)`. An equality test never fits, and since
-/// every maximised window of an app shares one frame, the frame test cannot
-/// separate them either: the window ends up resolving to nothing at all.
+/// Google Chrome - Alice (example.com)`. An equality test never fits, and
+/// since every maximised window of an app shares one frame, the frame test
+/// cannot separate them either: the window resolves to nothing at all.
 ///
 /// The rule stays "exactly one or none". Naming more than one window is the
 /// case the caller must refuse, because reading or raising the wrong window
