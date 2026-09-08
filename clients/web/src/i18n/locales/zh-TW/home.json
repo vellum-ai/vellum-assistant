@@ -12,17 +12,15 @@
     "clearAll": "全部清除"
   },
   "category": {
-    "security": "安全性",
-    "email": "電子郵件",
-    "scheduling": "排程",
-    "background": "背景",
-    "system": "系統",
-    "guardianAction": "需要監護人操作",
+    "guardianAction": "需要您的核准",
+    "guardianAnswer": "需要您的回答",
     "guardianQuestion": "監護人問題",
     "guardianRequest": "監護人請求"
   },
   "homeRecapRow": {
-    "actionsTitle": "更新動作"
+    "actionsTitle": "更新動作",
+    "approve": "核准",
+    "reject": "拒絕"
   },
   "homeToolPermissionCard": {
     "missingScopes": "缺少範圍",

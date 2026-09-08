@@ -219,11 +219,29 @@ mock.module("@/utils/schedules", () => ({
   }),
 }));
 
+interface DecisionVars {
+  path?: { assistant_id?: string };
+  body?: { requestId?: string; action?: string };
+}
+
+/** What the rows' inline Approve and Reject submit to the decision route. */
+const decisionCalls: DecisionVars[] = [];
+
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   skillsGetOptions: (options: { query?: { kind?: string } }) => ({
     queryKey: ["skills", options.query?.kind ?? ""],
     queryFn: () => Promise.resolve({ skills: skillsRef.list }),
   }),
+  useGuardianactionsDecisionPostMutation: () => ({
+    mutate: (vars: DecisionVars) => {
+      decisionCalls.push(vars);
+    },
+    isPending: false,
+  }),
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: () => {},
 }));
 
 // The entity-link resolver is the only part of this tree that reads a TanStack
@@ -369,6 +387,7 @@ beforeEach(() => {
   activeAssistantIdRef.value = "assistant-1";
   localStorage.clear();
   updateStatusCalls.length = 0;
+  decisionCalls.length = 0;
   triggerActionCalls.length = 0;
   triggerActionRef.outcome = "pending";
   navigateMock.mockClear();
@@ -433,7 +452,7 @@ describe("NotificationsBell unread dot", () => {
 });
 
 describe("NotificationsBell panel", () => {
-  test("renders each row with title, timestamp, and preview", async () => {
+  test("renders each row with its title and timestamp, and no preview", async () => {
     feedRef.items = [
       bellItem({
         category: "background",
@@ -446,16 +465,64 @@ describe("NotificationsBell panel", () => {
 
     expect(screen.getByText("Watcher job failed")).toBeTruthy();
     expect(screen.getByText("3h ago")).toBeTruthy();
+    // A row that only reports is carried by its title; the body waits in
+    // the detail.
     expect(
-      screen.getByText("The watcher job could not reach the upstream service."),
-    ).toBeTruthy();
+      screen.queryByText(
+        "The watcher job could not reach the upstream service.",
+      ),
+    ).toBeNull();
   });
 
-  test("rows drop the category chip and the source label", async () => {
+  test("names the thread a notification came from", async () => {
+    conversationListsRef.foreground = [
+      { conversationId: "conv-1", title: "Weekly report" } as Conversation,
+    ];
+    feedRef.items = [
+      bellItem({ title: "Watcher job failed", conversationId: "conv-1" }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByTestId("home-recap-row-thread").textContent).toBe(
+      "Weekly report",
+    );
+  });
+
+  test("falls back to the source label when the conversation is unknown", async () => {
+    feedRef.items = [
+      bellItem({
+        title: "Watcher job failed",
+        conversationId: "conv-gone",
+        sourceLabel: "Heartbeat",
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByTestId("home-recap-row-thread").textContent).toBe(
+      "Heartbeat",
+    );
+  });
+
+  test("counts the visible notifications in the header", async () => {
+    feedRef.items = [
+      bellItem({ id: "item-1" }),
+      bellItem({ id: "item-2" }),
+      bellItem({ id: "item-3", status: "dismissed" }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByTestId("notifications-bell-count").textContent).toBe(
+      "2",
+    );
+  });
+
+  test("rows carry no category chip", async () => {
     feedRef.items = [
       bellItem({
         category: "background",
-        sourceLabel: "Heartbeat",
         title: "Watcher job failed",
       }),
     ];
@@ -463,7 +530,6 @@ describe("NotificationsBell panel", () => {
     await openBell();
 
     expect(screen.queryByText("Background")).toBeNull();
-    expect(screen.queryByText("Heartbeat")).toBeNull();
   });
 
   test("keeps its own unread dot distinct from the rows'", async () => {
@@ -530,7 +596,7 @@ describe("NotificationsBell guardian rows", () => {
       .map((node) => node.textContent);
     // Named by what it asks of the user, never by the daemon's generic
     // "Guardian Question", with the ask itself on the line below.
-    expect(titles[0]).toBe("Guardian action needed");
+    expect(titles[0]).toBe("Needs your approval");
     expect(titles[1]).toBe("Watcher job failed");
     expect(
       screen.getByText("Alice asked the assistant to look up an issue"),
@@ -579,12 +645,59 @@ describe("NotificationsBell guardian rows", () => {
     await openBell();
 
     expect(document.querySelectorAll("[data-needs-attention]").length).toBe(0);
-    // A settled receipt keeps its source context, and reads by its own
-    // title and summary like any other notification.
+    // A settled receipt reads by its own title like any other notification,
+    // with the ask it carried left to the detail.
     expect(screen.getByText("Guardian Question")).toBeTruthy();
     expect(
-      screen.getByText("Alice asked the assistant to look up an issue"),
-    ).toBeTruthy();
+      screen.queryByText("Alice asked the assistant to look up an issue"),
+    ).toBeNull();
+    expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+  });
+
+  test("a waiting question quotes the ask and offers no buttons", async () => {
+    feedRef.items = [
+      guardianBellItem({
+        guardianRequest: {
+          requestId: "req-q",
+          kind: "pending_question",
+          intent: "question",
+          status: "pending",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByText("Needs your answer")).toBeTruthy();
+    expect(screen.getByTestId("home-recap-row-question").textContent).toContain(
+      "Alice asked the assistant to look up an issue",
+    );
+    expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+  });
+
+  test("a waiting approval is decided from its row", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(decisionCalls).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        body: { requestId: "req-1", action: "approve_once" },
+      },
+    ]);
+    // Deciding is not opening: the list stays where it is.
+    expect(
+      screen.queryByRole("button", { name: "Back to notifications" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(decisionCalls.at(-1)?.body).toEqual({
+      requestId: "req-1",
+      action: "reject",
+    });
   });
 });
 
@@ -1199,17 +1312,25 @@ describe("NotificationsBell detail", () => {
     expect(shortHeight).toBe(longHeight);
   });
 
-  test("loads the conversation and entity-link lists only once a detail is open", async () => {
+  test("loads the conversation lists once the panel opens, and the entity-link lists only once a detail is open", async () => {
     feedRef.items = [FIRST];
 
-    await openBell();
+    render(<NotificationsBell />);
 
-    // The list view has no use for conversation, schedule, or skill ids, and
-    // the bell renders on every route, so nothing may be fetched to show it.
+    // The bell renders on every route, so a closed panel fetches nothing.
     expect(enabledCalls.foreground.length).toBeGreaterThan(0);
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
+
+    await clickTrigger();
+
+    // The rows name their threads, so opening the panel reads the
+    // conversation lists. Schedule and skill ids matter only to a detail's
+    // links, so those lists stay untouched.
+    expect(enabledCalls.foreground.at(-1)).toBe(true);
+    expect(enabledCalls.background.at(-1)).toBe(true);
+    expect(enabledCalls.scheduled.at(-1)).toBe(true);
     expect(skillsEnabledCalls.length).toBeGreaterThan(0);
     expect(skillsEnabledCalls.some((enabled) => enabled)).toBe(false);
     // The recipe gate reads the same list, but only for an empty feed, and
@@ -1220,9 +1341,6 @@ describe("NotificationsBell detail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
 
-    expect(enabledCalls.foreground.at(-1)).toBe(true);
-    expect(enabledCalls.background.at(-1)).toBe(true);
-    expect(enabledCalls.scheduled.at(-1)).toBe(true);
     expect(skillsEnabledCalls.at(-1)).toBe(true);
     expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(true);
   });

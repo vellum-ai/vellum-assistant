@@ -12,17 +12,15 @@
     "clearAll": "Borrar todas"
   },
   "category": {
-    "security": "Seguridad",
-    "email": "Correo",
-    "scheduling": "Programación",
-    "background": "Segundo plano",
-    "system": "Sistema",
-    "guardianAction": "Acción del guardián requerida",
+    "guardianAction": "Necesita tu aprobación",
+    "guardianAnswer": "Necesita tu respuesta",
     "guardianQuestion": "Pregunta del guardián",
     "guardianRequest": "Solicitud del guardián"
   },
   "homeRecapRow": {
-    "actionsTitle": "Acciones de la actualización"
+    "actionsTitle": "Acciones de la actualización",
+    "approve": "Aprobar",
+    "reject": "Rechazar"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",

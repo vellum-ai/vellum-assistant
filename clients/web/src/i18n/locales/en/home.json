@@ -12,17 +12,15 @@
     "clearAll": "Clear all"
   },
   "category": {
-    "security": "Security",
-    "email": "Email",
-    "scheduling": "Scheduling",
-    "background": "Background",
-    "system": "System",
-    "guardianAction": "Guardian action needed",
+    "guardianAction": "Needs your approval",
+    "guardianAnswer": "Needs your answer",
     "guardianQuestion": "Guardian question",
     "guardianRequest": "Guardian request"
   },
   "homeRecapRow": {
-    "actionsTitle": "Update Actions"
+    "actionsTitle": "Update Actions",
+    "approve": "Approve",
+    "reject": "Reject"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Missing scopes",
