@@ -91,13 +91,13 @@ export function clampPauseBeforeReplyMs(ms: number): number {
 }
 
 /**
- * Camera flash for a photo taken from the voice room: `auto` fires it when the
- * scene is dark enough, `on` fires it always, `off` never.
+ * Camera flash for the voice room's camera: `auto` fires it when the scene is
+ * dark enough, `on` fires it always, `off` never.
  *
- * Capture flash only. A torch (the lamp held on continuously) is deliberately
- * not one of these: iOS models it as a separate mode that the photo flash then
- * has to turn back off, so offering both in one control gives the user two ways
- * to light a scene that disagree with each other.
+ * One preference for both lights rather than one per light. The lamp Live holds
+ * on is not a value here: it is what `on` means while Live runs, and `auto`
+ * means no lamp, since a lamp has no scene brightness to answer to. A second
+ * stored mode would be two ways to light one scene that can disagree.
  */
 export type FlashMode = "off" | "auto" | "on";
 
@@ -133,7 +133,9 @@ export interface VoicePrefsState {
    * Their CHOICE, never what the hardware could do with it. Flipping to a
    * front camera with no flash hides the control instead of writing `off` here,
    * so flipping back restores the mode they set rather than one the device
-   * silently picked for them.
+   * silently picked for them. Entering Live writes nothing here for the same
+   * reason: a stored `auto` reads as off while a lamp is what the control
+   * drives, and is still `auto` for the next photo.
    */
   flashMode: FlashMode;
   /**

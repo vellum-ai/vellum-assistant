@@ -19,8 +19,6 @@
 // shared Qdrant client; the read side (`dense.ts`) reuses that client to query
 // this collection.
 
-import { createHash } from "node:crypto";
-
 import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
@@ -31,14 +29,14 @@ import {
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
 import {
-  geminiCacheExtras,
+  durableEmbeddingCacheExtras,
   getMemoryBackendStatus,
 } from "../../../../persistence/embeddings/embedding-backend.js";
 import {
   readEmbeddingCache,
   writeEmbeddingCache,
 } from "../../../../persistence/embeddings/embedding-cache.js";
-import { embeddingInputContentHash } from "../../../../persistence/embeddings/embedding-types.js";
+import { embeddingContentHashWithExtras } from "../../../../persistence/embeddings/embedding-types.js";
 import { embedWithBackend, resolveQdrantUrl } from "../embeddings.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
@@ -515,24 +513,6 @@ function sectionCacheId(article: string, ordinal: number): string {
 }
 
 /**
- * Content hash a section's cached vector is keyed by. Folds the provider's
- * embedding-option extras (Gemini task type / output dimensions) into the base
- * text hash, so changing an option that alters the vector for identical text is
- * a cache miss that re-embeds. With no extras the bare text hash is returned
- * unchanged, keeping existing rows valid for non-Gemini and default-Gemini
- * configs.
- */
-function sectionContentHash(text: string, extras: string[]): string {
-  const base = embeddingInputContentHash({ type: "text", text });
-  if (extras.length === 0) {
-    return base;
-  }
-  return createHash("sha256")
-    .update(`${base}\0${extras.join("\0")}`)
-    .digest("hex");
-}
-
-/**
  * Embed each section's `text` and upsert one point per section, keyed by a
  * deterministic `(article, ordinal)`-derived ID. Stable IDs mean re-upserting
  * the same sections overwrites in place rather than accumulating duplicates,
@@ -641,11 +621,13 @@ async function embedSectionsCached(
   const status = await getMemoryBackendStatus(config);
   const mem = memoryDbOrNull("embedSectionsCached");
 
-  // Only Gemini's options change the vector for identical text, so fold the
-  // extras into the cache identity only when Gemini is the resolved provider;
-  // other backends keep the bare text hash. See {@link sectionContentHash}.
-  const extras = status.provider === "gemini" ? geminiCacheExtras(config) : [];
-  const hashes = sections.map((s) => sectionContentHash(s.text, extras));
+  // Fold provider extras that change the vector for identical text (Gemini
+  // task type / dimensions, custom endpoint URL / dimensions) into the
+  // durable cache identity. Other backends keep the bare text hash.
+  const extras = durableEmbeddingCacheExtras(config, status.provider);
+  const hashes = sections.map((s) =>
+    embeddingContentHashWithExtras({ type: "text", text: s.text }, extras),
+  );
 
   const result: Array<number[] | undefined> = new Array(sections.length);
   const missIndices: number[] = [];

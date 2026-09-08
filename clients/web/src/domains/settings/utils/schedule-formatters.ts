@@ -196,15 +196,22 @@ export function systemTaskKindFromUrlId(
   }
 }
 
-export function heartbeatSubtitle(config: HeartbeatConfigGetResponse): string {
+export function heartbeatSubtitle(
+  config: HeartbeatConfigGetResponse,
+  fallbackTimezone?: string | null,
+): string {
+  const timezone =
+    config.effectiveTimezone || config.timezone || fallbackTimezone || null;
   if (config.cronExpression) {
-    return config.timezone
-      ? `Cron: ${config.cronExpression} (${config.timezone})`
+    return timezone
+      ? `Cron: ${config.cronExpression} (${timezone})`
       : `Cron: ${config.cronExpression}`;
   }
   let subtitle = formatInterval(config.intervalMs);
   if (config.activeHoursStart != null && config.activeHoursEnd != null) {
-    subtitle += ` (${config.activeHoursStart}:00–${config.activeHoursEnd}:00)`;
+    subtitle += timezone
+      ? ` (${config.activeHoursStart}:00–${config.activeHoursEnd}:00 ${timezone})`
+      : ` (${config.activeHoursStart}:00–${config.activeHoursEnd}:00)`;
   }
   return subtitle;
 }

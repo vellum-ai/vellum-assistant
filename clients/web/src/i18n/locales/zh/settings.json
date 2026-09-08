@@ -1523,6 +1523,18 @@
     "selectModelPlaceholder": "选择模型",
     "selectProviderPlaceholder": "选择提供商…"
   },
+  "profileModalitiesSection": {
+    "audio": "音频",
+    "enableAria": "启用{modality}",
+    "enabledColumn": "启用",
+    "helper": "仅当模态已启用且标记为模型支持时，才会发送给模型。未按此方式发送的图片会生成文字说明。",
+    "image": "图片",
+    "resolvedOff": "不发送给模型",
+    "resolvedOn": "发送给模型",
+    "supportedAria": "模型支持{modality}",
+    "supportedColumn": "模型支持",
+    "title": "模态"
+  },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的操作",
     "defaultTag": "默认",

@@ -1545,6 +1545,18 @@
     "selectModelPlaceholder": "Select a model",
     "selectProviderPlaceholder": "Select a provider…"
   },
+  "profileModalitiesSection": {
+    "audio": "Audio",
+    "enableAria": "Enable {modality}",
+    "enabledColumn": "Enabled",
+    "helper": "The model receives a modality only when it is enabled and marked as supported. Images that are not sent this way are captioned.",
+    "image": "Image",
+    "resolvedOff": "Not sent to the model",
+    "resolvedOn": "Sent to the model",
+    "supportedAria": "Model supports {modality}",
+    "supportedColumn": "Model supports it",
+    "title": "Modalities"
+  },
   "profileRow": {
     "actionsAriaLabel": "Actions for {displayName}",
     "defaultTag": "Default",

@@ -79,6 +79,11 @@ export interface HomeRecapRowProps {
   onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
   /** True while a decision is in flight, holding every row's buttons inert. */
   isDecisionPending?: boolean;
+  /**
+   * True once this request was decided this session, so the buttons stay
+   * down while the feed still projects it as pending.
+   */
+  isDecided?: boolean;
   trailingAction?: HomeRecapRowTrailingAction;
 }
 
@@ -113,6 +118,7 @@ export function HomeRecapRow({
   onGoToThread,
   onDecide,
   isDecisionPending = false,
+  isDecided = false,
   trailingAction = "dismiss",
 }: HomeRecapRowProps) {
   const { t } = useTranslation("home");
@@ -191,7 +197,7 @@ export function HomeRecapRow({
   );
 
   const decisionButtons =
-    isPendingApproval && onDecide ? (
+    isPendingApproval && onDecide && !isDecided ? (
       /* The buttons stand above the stretched link and take their own
          clicks, so deciding a request does not also open it. */
       <div
@@ -227,7 +233,6 @@ export function HomeRecapRow({
       data-needs-attention={needsAttention ? "" : undefined}
       className={cn(
         "group relative flex w-full flex-col gap-[var(--app-spacing-xs)]",
-        "border-b border-[var(--border-subtle)] pb-[var(--app-spacing-md)]",
         "transition-[background-color] duration-150",
         isActive && "bg-[var(--surface-active)]",
       )}
@@ -240,10 +245,10 @@ export function HomeRecapRow({
         aria-label={title}
         onClick={() => onSelect(item)}
         {...cardLinkProps}
-        // Bleeds past the text on every side but stops short of the divider,
-        // so the hover wash reads as the row's own and never paints over the
-        // rule between rows.
-        className="absolute -inset-x-[var(--app-spacing-sm)] -top-[var(--app-spacing-xs)] bottom-[var(--app-spacing-sm)] cursor-pointer rounded-[var(--radius-md)] hover:bg-[var(--surface-hover)]"
+        // Bleeds a little past the text on every side, so the hover wash
+        // reads as the row's own; the list keeps the rule between rows
+        // outside this box.
+        className="absolute -inset-x-[var(--app-spacing-sm)] -inset-y-[var(--app-spacing-xs)] cursor-pointer rounded-[var(--radius-md)] hover:bg-[var(--surface-hover)]"
       />
 
       <div className="pointer-events-none relative flex items-center gap-[var(--app-spacing-sm)]">

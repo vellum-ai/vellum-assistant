@@ -55,6 +55,7 @@ export const HELPER_HOTKEY_SET_VOICE_MODE_CHORD =
   "vellum:helper:hotkey:setVoiceModeChord";
 export const HELPER_HOTKEY_SET_MODIFIER_HOLD =
   "vellum:helper:hotkey:setModifierHold";
+export const HELPER_HOTKEY_SET_CHORDS = "vellum:helper:hotkey:setChords";
 export const HELPER_HOTKEY_READ_FRONT_SELECTION =
   "vellum:helper:hotkey:readFrontSelection";
 export const HELPER_APPS_RUNNING = "vellum:helper:apps:running";
@@ -200,6 +201,7 @@ export const COMPANION_LIST_CAPTURE_SOURCES =
   "vellum:companion:listCaptureSources";
 export const COMPANION_SET_SCREEN_SHARE = "vellum:companion:setScreenShare";
 export const COMPANION_SET_ANNOTATING = "vellum:companion:setAnnotating";
+export const COMPANION_TOGGLE_ANNOTATING = "vellum:companion:toggleAnnotating";
 export const COMPANION_ANNOTATE_SHARE = "vellum:companion:annotateShare";
 export const COMPANION_CAPTURE_SCREEN = "vellum:companion:captureScreen";
 export const COMPANION_SHARED_FRAME = "vellum:companion:sharedFrame";

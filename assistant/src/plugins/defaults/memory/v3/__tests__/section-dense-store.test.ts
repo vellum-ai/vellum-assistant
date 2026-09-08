@@ -33,6 +33,8 @@ const embedState = {
   // the section cache treats it as a miss.
   geminiTaskType: undefined as string | undefined,
   geminiDimensions: undefined as number | undefined,
+  customBaseUrl: undefined as string | undefined,
+  customDimensions: undefined as number | undefined,
 };
 mock.module(
   "../../../../../persistence/embeddings/embedding-backend.js",
@@ -63,6 +65,42 @@ mock.module(
         extras.push(`dim=${embedState.geminiDimensions}`);
       }
       return extras;
+    },
+    customCacheExtras: () => {
+      const extras: string[] = [];
+      if (embedState.customBaseUrl) {
+        extras.push(`url=${embedState.customBaseUrl}`);
+      }
+      if (embedState.customDimensions != null) {
+        extras.push(`dim=${embedState.customDimensions}`);
+      }
+      return extras;
+    },
+    durableEmbeddingCacheExtras: (
+      _config: unknown,
+      provider: string | null,
+    ) => {
+      if (provider === "gemini") {
+        const extras: string[] = [];
+        if (embedState.geminiTaskType) {
+          extras.push(`task=${embedState.geminiTaskType}`);
+        }
+        if (embedState.geminiDimensions != null) {
+          extras.push(`dim=${embedState.geminiDimensions}`);
+        }
+        return extras;
+      }
+      if (provider === "custom") {
+        const extras: string[] = [];
+        if (embedState.customBaseUrl) {
+          extras.push(`url=${embedState.customBaseUrl}`);
+        }
+        if (embedState.customDimensions != null) {
+          extras.push(`dim=${embedState.customDimensions}`);
+        }
+        return extras;
+      }
+      return [];
     },
   }),
 );
@@ -320,6 +358,8 @@ function resetState(): void {
   embedState.embedModel = "test-model";
   embedState.geminiTaskType = undefined;
   embedState.geminiDimensions = undefined;
+  embedState.customBaseUrl = undefined;
+  embedState.customDimensions = undefined;
   cacheState.store.clear();
   cacheState.reads.length = 0;
   checkpointState.deletes.length = 0;
@@ -764,6 +804,48 @@ describe("memory v3 section-dense-store — embedding cache", () => {
 
     // Folding the extras into the hash must not break ordinary hits: with the
     // task type unchanged the second pass reuses the cached vector.
+    expect(embedState.calls).toHaveLength(1);
+    expect(state.upsertCalls).toHaveLength(2);
+  });
+
+  test("a custom endpoint change re-embeds unchanged text (cache miss)", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = "custom";
+    embedState.statusModel = "text-embedding-3-small";
+    embedState.embedProvider = "custom";
+    embedState.embedModel = "text-embedding-3-small";
+    embedState.customBaseUrl = "http://127.0.0.1:4000/v1";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "alice lead text"),
+    ]);
+    expect(embedState.calls).toHaveLength(1);
+
+    embedState.customBaseUrl = "http://127.0.0.1:4001/v1";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "alice lead text"),
+    ]);
+
+    expect(embedState.calls).toEqual([
+      ["alice lead text"],
+      ["alice lead text"],
+    ]);
+  });
+
+  test("an unchanged custom endpoint still serves from cache", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = "custom";
+    embedState.statusModel = "text-embedding-3-small";
+    embedState.embedProvider = "custom";
+    embedState.embedModel = "text-embedding-3-small";
+    embedState.customBaseUrl = "http://127.0.0.1:4000/v1";
+
+    const sections = [section("people/alice", 0, "alice lead text")];
+
+    await upsertSections(CONFIG, sections);
+    await upsertSections(CONFIG, sections);
+
     expect(embedState.calls).toHaveLength(1);
     expect(state.upsertCalls).toHaveLength(2);
   });

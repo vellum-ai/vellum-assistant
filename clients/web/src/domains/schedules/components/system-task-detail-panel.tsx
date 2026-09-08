@@ -89,6 +89,8 @@ export function SystemTaskDetailPanel({
   const navigate = useNavigate();
   const { heartbeatConfig, consolidationConfig, retrospectiveConfig } =
     systemTasks;
+  const heartbeatTimezone =
+    heartbeatConfig?.effectiveTimezone || heartbeatConfig?.timezone || null;
 
   let name: string;
   let subtitle: string;
@@ -100,7 +102,9 @@ export function SystemTaskDetailPanel({
 
   if (kind === "heartbeat") {
     name = t("systemTaskDetail.nameHeartbeat");
-    subtitle = heartbeatConfig ? heartbeatSubtitle(heartbeatConfig) : "";
+    subtitle = heartbeatConfig
+      ? heartbeatSubtitle(heartbeatConfig, heartbeatTimezone)
+      : "";
     enabled = heartbeatConfig?.enabled ?? false;
     nextRunAt = heartbeatConfig?.nextRunAt ?? null;
     lastRunAt = heartbeatConfig?.lastRunAt ?? null;
@@ -241,6 +245,12 @@ export function SystemTaskDetailPanel({
                 <InfoRow
                   label={t("systemTaskDetail.repeats")}
                   value={<span className="truncate">{subtitle}</span>}
+                />
+              ) : null}
+              {kind === "heartbeat" && heartbeatTimezone ? (
+                <InfoRow
+                  label={t("scheduleDetail.timezone")}
+                  value={<span className="truncate">{heartbeatTimezone}</span>}
                 />
               ) : null}
               {!isRetrospective ? (

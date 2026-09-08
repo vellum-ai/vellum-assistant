@@ -160,7 +160,12 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
-import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
+import {
+  CameraFlashControl,
+  liveFlashMode,
+  nextFlashMode,
+  nextLiveFlashMode,
+} from "./camera-flash-control";
 import {
   CAMERA_MEDIA_GLASS_CLASS,
   CAMERA_SCRIM_BOTTOM,
@@ -250,6 +255,18 @@ const FLASH_LABEL_KEYS = {
   off: "voiceRoom.flashOff",
   auto: "voiceRoom.flashAuto",
   on: "voiceRoom.flashOn",
+} as const;
+
+/**
+ * The same control's names while Live runs, where what it drives is a lamp held
+ * on rather than a flash fired for one photo.
+ *
+ * Two entries because Live has two states; `auto` is mapped onto them by
+ * {@link liveFlashMode} before this is read.
+ */
+const LIGHT_LABEL_KEYS = {
+  off: "voiceRoom.lightOff",
+  on: "voiceRoom.lightOn",
 } as const;
 
 /** Placement variant. See the module docstring. */
@@ -703,6 +720,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       facing: camera.facing,
       nativePreview: camera.native,
     });
+  // Live is what asks for the lamp, and every way Live ends comes back through
+  // this one value, so this is the single place the ask is raised and dropped.
+  // What the camera then does with it is `voice-camera.ts`'s: a camera with no
+  // lamp, and a flash preference that is not `on`, both answer no.
+  const setTorch = camera.setTorch;
+  useEffect(() => {
+    setTorch(live);
+  }, [live, setTorch]);
   // The thumbnail the room draws, which the view options can stand down. Only
   // the drawing: the frame behind it was sampled, sent and recorded in the
   // transcript before this is read, and the hook goes on holding it either way
@@ -797,6 +822,21 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // cameras.
   const flashMode = useVoicePrefsStore.use.flashMode();
   const setFlashMode = useVoicePrefsStore.use.setFlashMode();
+  // What the one button stands for right now. Live drives a lamp, so it shows
+  // two states and names them as a light; photo mode cycles all three states.
+  // The preference underneath is the same either way: a
+  // stored `auto` reads as off here and stays `auto` on disk, so the photo
+  // taken after Live still fires the mode the user chose for one.
+  const shownFlashMode = live ? liveFlashMode(flashMode) : flashMode;
+  const flashLabel = live
+    ? t(LIGHT_LABEL_KEYS[liveFlashMode(flashMode)])
+    : t(FLASH_LABEL_KEYS[flashMode]);
+  // Offered only where it does something. The browser fallback can fire no
+  // flash at all, a native camera with no flash unit reports none, and in Live
+  // a camera that can fire a flash but cannot hold a lamp has nothing left for
+  // this control to drive.
+  const flashOffered =
+    camera.flashAvailable && (!live || camera.torchSupported);
 
   // Resolve the assistant's look. A character avatar hands over its palette
   // color and its eyes; an uploaded image hands over pixels, so the field color
@@ -1405,17 +1445,22 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   either side of the one that takes it, and neither can be hit
                   by a thumb reaching for the middle.
 
-                  Present only where it does something. The browser fallback
-                  path cannot fire a flash at all, and a native camera with no
-                  flash unit reports none, so on both this is absent rather
-                  than a dead control the user has to discover is dead. */}
-              {camera.flashAvailable ? (
-                <Tooltip content={t(FLASH_LABEL_KEYS[flashMode])}>
+                  Present only where it does something, which `flashOffered`
+                  above decides: absent rather than a dead control the user has
+                  to discover is dead. */}
+              {flashOffered ? (
+                <Tooltip content={flashLabel}>
                   <CameraFlashControl
-                    mode={flashMode}
-                    ariaLabel={t(FLASH_LABEL_KEYS[flashMode])}
+                    mode={shownFlashMode}
+                    ariaLabel={flashLabel}
                     autoBadge={t("voiceRoom.flashAutoBadge")}
-                    onClick={() => setFlashMode(nextFlashMode(flashMode))}
+                    onClick={() =>
+                      setFlashMode(
+                        live
+                          ? nextLiveFlashMode(flashMode)
+                          : nextFlashMode(flashMode),
+                      )
+                    }
                     // The design's own offset. It is not flip's on the other
                     // side: the design places the two flanks independently, so
                     // matching them to each other is a departure from it.

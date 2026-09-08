@@ -262,8 +262,13 @@ export type VoiceModeChord =
  * keys are still down and `up` when they are not, so the two edges are a
  * span, and something that has to run for exactly as long as the keys are
  * held can run across it.
+ *
+ * `chord` is a modifier set and a key pressed together, reported once as a
+ * `down` and never bracketed: a chord is over the moment it happens, and what
+ * it asks for takes no time. The host takes the press, so it reaches nothing
+ * else.
  */
-export type HotkeyEventKind = "voiceModeChord" | "modifierHold";
+export type HotkeyEventKind = "voiceModeChord" | "modifierHold" | "chord";
 
 /**
  * Why a `modifierHold` closed.
@@ -301,6 +306,11 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
   /** Only on a `modifierHold` `up`. */
   reason?: ModifierHoldUpReason;
+  /**
+   * Which key was pressed. Only on a `chord`, as the character the key
+   * carries unmodified on the user's own layout.
+   */
+  key?: string;
 }
 
 /** Whether a helper took a binding, or why it did not. */
@@ -319,6 +329,30 @@ export type ModifierHold =
   | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
+
+/**
+ * The chords a host watches for: every modifier of the set held together, and
+ * one of `keys` pressed under them. `off` is a binding nothing is asking for.
+ *
+ * Keys are the characters on their keycaps, so the letter the user sees is the
+ * letter that answers on every layout, and the host resolves a press through
+ * the layout rather than through what the key would have typed (Option+S types
+ * "ß" and is still the S key).
+ *
+ * A press that matches belongs to the app, so the host takes it rather than
+ * letting it reach whatever is in front. That is why a binding is armed for
+ * exactly as long as something can answer it: outside that, the keys are the
+ * user's own and their application's.
+ *
+ * Exactly the modifiers named, too. Another one joining makes it a different
+ * shortcut, which is what keeps this out of the way of the ones the user
+ * already has.
+ */
+export type ChordBinding =
+  | { kind: "off" }
+  | { kind: "chord"; modifiers: KeyboardModifier[]; keys: readonly string[] };
+
+export type ChordRegistrationResult = HotkeyRegistrationResult;
 
 // ---------------------------------------------------------------------------
 // System permissions
@@ -1547,13 +1581,21 @@ export interface CompanionCaptureSources {
 }
 
 /**
- * The press on one row of the picker: the source with its decoration removed.
+ * What to capture, as the side asking for it can say it.
  *
- * What the surface hands back to main. A tab is still a tab here, since only
- * main can turn one into a window; the other two are already targets.
+ * Three of these are a press on one row of the picker: the source with its
+ * decoration removed. A tab is still a tab here, since only main can turn one
+ * into a window; the other two are already targets.
+ *
+ * `pointerDisplay` is the fourth and comes from no row at all. It is what a
+ * keyboard gesture means by "this screen", named as the question rather than
+ * as an answer because the answer is the pointer's, and the pointer is main's
+ * to read at the moment the press lands. A renderer that resolved it first
+ * would be handing over where the mouse was a round trip ago.
  */
 export type CompanionCapturePick =
   | { kind: "display"; displayId: number }
+  | { kind: "pointerDisplay" }
   | { kind: "window"; windowId: number }
   | { kind: "tab"; chromeWindowId: number; tabIndex: number };
 

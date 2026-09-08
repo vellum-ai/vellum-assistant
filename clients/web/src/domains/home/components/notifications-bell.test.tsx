@@ -240,10 +240,15 @@ interface DecisionVars {
 
 interface DecisionCallbacks {
   onSuccess?: (
-    data: { applied: boolean; reason?: string },
+    data: { applied: boolean; reason?: string; committed?: boolean },
     variables: DecisionVars,
   ) => void;
   onError?: (error: Error, variables: DecisionVars) => void;
+  onSettled?: (
+    data: unknown,
+    error: Error | null,
+    variables: DecisionVars,
+  ) => void;
 }
 
 /** What the rows' inline Approve and Reject submit to the decision route. */
@@ -257,6 +262,8 @@ const decisionCalls: DecisionVars[] = [];
 const decisionRef: {
   outcome: "pending" | "applied" | "not-applied" | "gone" | "failed";
   reason?: string;
+  /** The daemon's `committed` field; absent on daemons that predate it. */
+  committed?: boolean;
 } = { outcome: "pending" };
 
 /** Feed refreshes the bell asked for, one per decision outcome. */
@@ -277,7 +284,13 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
         options?.onSuccess?.({ applied: true }, vars);
       } else if (decisionRef.outcome === "not-applied") {
         options?.onSuccess?.(
-          { applied: false, reason: decisionRef.reason },
+          {
+            applied: false,
+            reason: decisionRef.reason,
+            ...(decisionRef.committed !== undefined
+              ? { committed: decisionRef.committed }
+              : {}),
+          },
           vars,
         );
       } else if (decisionRef.outcome === "gone") {
@@ -289,6 +302,11 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
         );
       } else if (decisionRef.outcome === "failed") {
         options?.onError?.(new ApiError(500, "boom"), vars);
+      }
+      // "pending" leaves the decision in flight, which is the state the
+      // shared in-flight guard has to hold under.
+      if (decisionRef.outcome !== "pending") {
+        options?.onSettled?.(undefined, null, vars);
       }
     },
     isPending: false,
@@ -352,6 +370,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
 });
 
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
+import { useGuardianDecisionStore } from "@/domains/home/guardian-decision-store";
 
 // The dot element itself, matched by a styling-independent test hook so the
 // assertions survive restyling. The accessible name is a separate concern, so
@@ -445,6 +464,8 @@ beforeEach(() => {
   decisionCalls.length = 0;
   decisionRef.outcome = "pending";
   decisionRef.reason = undefined;
+  decisionRef.committed = undefined;
+  useGuardianDecisionStore.getState().reset();
   feedInvalidateCalls.length = 0;
   toastCalls.length = 0;
   triggerActionCalls.length = 0;
@@ -751,6 +772,21 @@ describe("NotificationsBell guardian rows", () => {
       screen.queryByRole("button", { name: "Back to notifications" }),
     ).toBeNull();
 
+    // The decision is still in flight, so the row's other button is held
+    // and cannot send a conflicting decision on the same request.
+    await act(async () => {});
+    const reject = screen.getByRole("button", {
+      name: "Reject",
+    }) as HTMLButtonElement;
+    expect(reject.disabled).toBe(true);
+    fireEvent.click(reject);
+    expect(decisionCalls.length).toBe(1);
+  });
+
+  test("a waiting approval can be rejected from its row", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
 
     expect(decisionCalls.at(-1)?.body).toEqual({
@@ -776,22 +812,48 @@ describe("NotificationsBell guardian rows", () => {
   // was settled elsewhere reads as such and one this actor may not decide is
   // not retried as if it might succeed next time.
   test.each([
-    ["already_resolved", "info", "Already resolved"],
-    ["not_found", "info", "Already resolved"],
-    ["expired", "info", "Request expired"],
+    ["already_resolved", undefined, "info", "Already resolved"],
+    ["not_found", undefined, "info", "Already resolved"],
+    ["expired", undefined, "info", "Request expired"],
     [
       "identity_mismatch",
+      undefined,
       "error",
       "You don't have permission to decide this request.",
     ],
-    ["request_misconfigured", "error", "That decision couldn't be applied."],
-    ["resolver_failed", "error", "That decision couldn't be applied."],
-    [undefined, "error", "That decision couldn't be applied."],
+    [
+      "request_misconfigured",
+      undefined,
+      "error",
+      "That decision couldn't be applied.",
+    ],
+    [
+      "resolver_failed",
+      true,
+      "error",
+      "Your decision was recorded, but the step after it failed.",
+    ],
+    // An older daemon reports a failed persist under the same reason and
+    // without the `committed` field, so nothing is claimed to be recorded.
+    [
+      "resolver_failed",
+      undefined,
+      "error",
+      "That decision couldn't be applied.",
+    ],
+    [
+      "decision_not_persisted",
+      false,
+      "error",
+      "That decision couldn't be applied.",
+    ],
+    [undefined, undefined, "error", "That decision couldn't be applied."],
   ] as const)(
-    "a decision declined for %s says so and refreshes the feed",
-    async (reason, tone, message) => {
+    "a decision declined for %s (committed: %s) says so and refreshes the feed",
+    async (reason, committed, tone, message) => {
       decisionRef.outcome = "not-applied";
       decisionRef.reason = reason;
+      decisionRef.committed = committed;
       feedRef.items = [guardianBellItem()];
 
       await openBell();
@@ -801,6 +863,101 @@ describe("NotificationsBell guardian rows", () => {
       expect(toastCalls).toEqual([[tone, message]]);
     },
   );
+
+  // The feed can keep projecting a settled request as pending for a while: an
+  // expiry is only written by a periodic sweep, and a resolver failure lands
+  // after the decision itself. The row's buttons stay down regardless, so a
+  // request decided once cannot be decided again in the meantime.
+  test.each([
+    ["applied", undefined, undefined],
+    ["not-applied", "expired", undefined],
+    ["not-applied", "resolver_failed", true],
+    ["not-applied", "already_resolved", undefined],
+  ] as const)(
+    "a %s decision (%s) keeps the row's buttons down until the feed catches up",
+    async (outcome, reason, committed) => {
+      decisionRef.outcome = outcome;
+      decisionRef.reason = reason;
+      decisionRef.committed = committed;
+      feedRef.items = [guardianBellItem()];
+
+      await openBell();
+      fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+      await act(async () => {});
+
+      expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+    },
+  );
+
+  test("a decision made from the row reads as decided in its detail", async () => {
+    decisionRef.outcome = "applied";
+    // The canonical guardian item, whose detail is the request card.
+    feedRef.items = [
+      guardianBellItem({ detailPanel: { kind: "permissionChat" } }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Needs your approval" }),
+    );
+    await act(async () => {});
+
+    // The feed still projects the request as pending, but the outcome is
+    // shared, so the detail shows the receipt rather than offering the
+    // decision again.
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.getByText("Request approved")).toBeTruthy();
+  });
+
+  test.each([
+    ["identity_mismatch", undefined],
+    ["request_misconfigured", undefined],
+    ["decision_not_persisted", false],
+    // The undifferentiated `resolver_failed` of an older daemon: it may be
+    // a failed persist, so the request has to stay decidable.
+    ["resolver_failed", undefined],
+  ] as const)(
+    "a decision declined for %s (committed: %s) leaves the row's buttons in place",
+    async (reason, committed) => {
+      decisionRef.outcome = "not-applied";
+      decisionRef.reason = reason;
+      decisionRef.committed = committed;
+      feedRef.items = [guardianBellItem()];
+
+      await openBell();
+      fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+      await act(async () => {});
+
+      expect(screen.getByTestId("home-recap-row-decision")).toBeTruthy();
+    },
+  );
+
+  test("a decision in flight from the row holds the detail's buttons too", async () => {
+    // "pending" leaves the decision in flight.
+    feedRef.items = [
+      guardianBellItem({ detailPanel: { kind: "permissionChat" } }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Needs your approval" }),
+    );
+    await act(async () => {});
+
+    // The detail's card has its own mutation, whose own pending bit is
+    // false; the in-flight request is shared, so its buttons are held all
+    // the same and no second decision can be sent.
+    const approve = screen.getByRole("button", {
+      name: "Approve",
+    }) as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    fireEvent.click(approve);
+    expect(decisionCalls.length).toBe(1);
+  });
 
   test("a request that no longer exists is retired like one already resolved", async () => {
     decisionRef.outcome = "gone";

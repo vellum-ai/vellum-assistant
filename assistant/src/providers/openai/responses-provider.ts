@@ -8,7 +8,11 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { clampProviderString } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
-import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
+import {
+  modelEffortCeilings,
+  modelSupportedEfforts,
+  PROMPT_CACHE_BREAKPOINT_MODEL_IDS,
+} from "../model-catalog.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
@@ -26,7 +30,12 @@ import {
   formatNormalizedOpenAIAPIError,
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
-import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+import {
+  clampReasoningEffort,
+  detectOpenAICompatibleContextOverflow,
+  type ReasoningEffortWire,
+  snapReasoningEffortToSupported,
+} from "./chat-completions-provider.js";
 import { serializeToolResult } from "./orphaned-tool-result.js";
 
 const log = getLogger("openai-responses");
@@ -46,21 +55,62 @@ export interface OpenAIResponsesProviderOptions {
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
- *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". `"none"` is
- *  passed through explicitly because OpenAI defaults `reasoning.effort` to
- *  "medium" when the field is omitted — the user's opt-out is only honored
- *  when we send it on the wire. */
-const EFFORT_TO_REASONING_EFFORT: Record<
-  string,
-  "none" | "low" | "medium" | "high" | "xhigh"
-> = {
+ *  `"max"` is emitted raw and then clamped to the model's catalog ceiling
+ *  ({@link mapResponsesReasoningEffort}); models that omit `maxEffort`
+ *  inherit OpenAI's historical `xhigh` cap. `"none"` is passed through
+ *  explicitly because OpenAI defaults `reasoning.effort` to "medium" when
+ *  the field is omitted, except on models whose `supportedEfforts` omit
+ *  `none` (those snap to the lowest accepted value). */
+const EFFORT_TO_REASONING_EFFORT: Record<string, ReasoningEffortWire> = {
   none: "none",
   low: "low",
   medium: "medium",
   high: "high",
   xhigh: "xhigh",
-  max: "xhigh",
+  max: "max",
 };
+
+const OPENAI_EFFORT_CEILINGS = modelEffortCeilings("openai");
+const OPENROUTER_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
+const OPENAI_SUPPORTED_EFFORTS = modelSupportedEfforts("openai");
+const OPENROUTER_SUPPORTED_EFFORTS = modelSupportedEfforts("openrouter");
+
+function effortCeilingForModel(model: string): "high" | "xhigh" | "max" {
+  return (
+    OPENAI_EFFORT_CEILINGS.get(model) ??
+    OPENROUTER_EFFORT_CEILINGS.get(model) ??
+    "xhigh"
+  );
+}
+
+function supportedEffortsForModel(
+  model: string,
+): readonly ("low" | "medium" | "high" | "xhigh" | "max")[] | undefined {
+  return (
+    OPENAI_SUPPORTED_EFFORTS.get(model) ??
+    OPENROUTER_SUPPORTED_EFFORTS.get(model)
+  );
+}
+
+/** Translate a Vellum effort value onto the Responses wire for `model`. */
+function mapResponsesReasoningEffort(
+  effort: string,
+  model: string,
+): ReasoningEffortWire | undefined {
+  const raw = EFFORT_TO_REASONING_EFFORT[effort];
+  if (!raw) {
+    return undefined;
+  }
+  const supported = supportedEffortsForModel(model);
+  if (raw === "none") {
+    if (supported && supported.length > 0) {
+      return supported[0];
+    }
+    return "none";
+  }
+  const clamped = clampReasoningEffort(raw, effortCeilingForModel(model));
+  return supported ? snapReasoningEffortToSupported(clamped, supported) : clamped;
+}
 
 /** Values accepted by the Responses API `text.verbosity` parameter. */
 const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
@@ -102,15 +152,15 @@ export function mapNeutralToolChoiceForResponses(
   }
 }
 
-/** `text.verbosity` is a GPT-5-series-only parameter. Older models on the
+/** `text.verbosity` is a GPT-5/GPT-6-series parameter. Older models on the
  *  Responses API (o-series, etc.) reject unknown wire fields with HTTP 400, so
  *  gate forwarding by model name here. The retry layer can't make this call
  *  because verbosity defaults to "medium" in the LLM schema, so every
  *  callSite-resolved request would otherwise carry it regardless of model.
  *  Also matches OpenAI fine-tune IDs of the form `ft:gpt-5.x:org::id` so users
- *  on GPT-5 fine-tunes keep explicit verbosity control. */
+ *  on GPT-5/GPT-6 fine-tunes keep explicit verbosity control. */
 function modelSupportsVerbosity(model: string): boolean {
-  return /^(ft:)?gpt-5(\b|[-.])/i.test(model);
+  return /^(ft:)?gpt-[56](\b|[-.])/i.test(model);
 }
 
 /** Loosely-typed Responses stream event to avoid `any` while the SDK types settle. */
@@ -295,7 +345,7 @@ export class OpenAIResponsesProvider implements Provider {
       }
 
       const reasoningEffort = effort
-        ? EFFORT_TO_REASONING_EFFORT[effort]
+        ? mapResponsesReasoningEffort(effort, effectiveModel)
         : undefined;
       if (reasoningEffort) {
         // Request a human-readable reasoning summary whenever the model will

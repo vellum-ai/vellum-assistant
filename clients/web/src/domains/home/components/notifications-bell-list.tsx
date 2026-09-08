@@ -33,7 +33,19 @@ export interface NotificationsBellListProps {
   /** Decides a pending approval from its row; see `HomeRecapRow`. */
   onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
   isDecisionPending?: boolean;
+  /**
+   * Requests with a decision in flight from any surface, whose rows hold
+   * their buttons inert until it lands.
+   */
+  pendingRequestIds?: ReadonlySet<string>;
+  /**
+   * Requests already decided this session, whose rows keep their buttons
+   * down until the feed projects the settled request.
+   */
+  decidedRequestIds?: ReadonlySet<string>;
 }
+
+const NO_REQUESTS: ReadonlySet<string> = new Set();
 
 /**
  * The notifications the bell shows before one is opened: a scrolling stack
@@ -54,6 +66,8 @@ export function NotificationsBellList({
   onToggleRead,
   onDecide,
   isDecisionPending = false,
+  pendingRequestIds = NO_REQUESTS,
+  decidedRequestIds = NO_REQUESTS,
 }: NotificationsBellListProps) {
   return (
     <div
@@ -63,17 +77,32 @@ export function NotificationsBellList({
       style={{ maxHeight }}
       className="flex flex-col gap-[var(--app-spacing-md)] overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]"
     >
+      {/* The rule between rows lives here rather than on the row, so the
+          last row can drop it: the panel's footer draws its own rule right
+          underneath, and two would double up. */}
       {items.map((item) => (
-        <HomeRecapRow
+        <div
           key={item.id}
-          item={item}
-          threadName={resolveThreadName(item, conversationTitles)}
-          onSelect={onSelect}
-          onDismiss={onDismiss}
-          onToggleRead={onToggleRead}
-          onDecide={onDecide}
-          isDecisionPending={isDecisionPending}
-        />
+          className="border-b border-[var(--border-subtle)] pb-[var(--app-spacing-md)] last:border-b-0"
+        >
+          <HomeRecapRow
+            item={item}
+            threadName={resolveThreadName(item, conversationTitles)}
+            onSelect={onSelect}
+            onDismiss={onDismiss}
+            onToggleRead={onToggleRead}
+            onDecide={onDecide}
+            isDecisionPending={
+              isDecisionPending ||
+              (item.guardianRequest !== undefined &&
+                pendingRequestIds.has(item.guardianRequest.requestId))
+            }
+            isDecided={
+              item.guardianRequest !== undefined &&
+              decidedRequestIds.has(item.guardianRequest.requestId)
+            }
+          />
+        </div>
       ))}
     </div>
   );

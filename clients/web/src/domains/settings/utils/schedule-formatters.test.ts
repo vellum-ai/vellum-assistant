@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { ScheduleUsageSummary } from "@/domains/settings/types/schedules";
 
-import { systemTaskUsageCost, totalUsageCost } from "./schedule-formatters";
+import {
+  heartbeatSubtitle,
+  systemTaskUsageCost,
+  totalUsageCost,
+} from "./schedule-formatters";
 
 function summary(
   scheduleId: string,
@@ -63,5 +67,64 @@ describe("systemTaskUsageCost", () => {
     expect(
       systemTaskUsageCost({ status: "ready", summary: summary("a", 0) }),
     ).toBe(0);
+  });
+});
+
+describe("heartbeatSubtitle", () => {
+  test("appends active hours without a zone when none is known", () => {
+    expect(
+      heartbeatSubtitle({
+        enabled: true,
+        intervalMs: 3_600_000,
+        activeHoursStart: 8,
+        activeHoursEnd: 22,
+        cronExpression: null,
+        timezone: null,
+        effectiveTimezone: null,
+        nextRunAt: null,
+        lastRunAt: null,
+        success: true,
+      }),
+    ).toBe("Every 1 hr (8:00–22:00)");
+  });
+
+  test("appends the fallback timezone to interval active hours", () => {
+    expect(
+      heartbeatSubtitle(
+        {
+          enabled: true,
+          intervalMs: 3_600_000,
+          activeHoursStart: 8,
+          activeHoursEnd: 22,
+          cronExpression: null,
+          timezone: null,
+          effectiveTimezone: null,
+          nextRunAt: null,
+          lastRunAt: null,
+          success: true,
+        },
+        "America/Los_Angeles",
+      ),
+    ).toBe("Every 1 hr (8:00–22:00 America/Los_Angeles)");
+  });
+
+  test("prefers effectiveTimezone over the stored override and fallback", () => {
+    expect(
+      heartbeatSubtitle(
+        {
+          enabled: true,
+          intervalMs: 3_600_000,
+          activeHoursStart: 8,
+          activeHoursEnd: 22,
+          cronExpression: null,
+          timezone: "America/New_York",
+          effectiveTimezone: "America/Chicago",
+          nextRunAt: null,
+          lastRunAt: null,
+          success: true,
+        },
+        "America/Los_Angeles",
+      ),
+    ).toBe("Every 1 hr (8:00–22:00 America/Chicago)");
   });
 });

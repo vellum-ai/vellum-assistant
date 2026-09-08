@@ -92,16 +92,13 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare, SCREEN_SHARE_MIN_FRAME_GAP_MS } = await import(
-  "./use-live-voice-screen-share"
-);
+const { useLiveVoiceScreenShare, SCREEN_SHARE_MIN_FRAME_GAP_MS } =
+  await import("./use-live-voice-screen-share");
 const { useLiveVoiceStore } = await import("./live-voice-store");
-const { makeControlsSpies, seedLiveVoiceSession } = await import(
-  "./live-voice-fakes.test-helper"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { makeControlsSpies, seedLiveVoiceSession } =
+  await import("./live-voice-fakes.test-helper");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 const ASSISTANT_ID = "asst_share";
 /** A dev build off `main` published after the `sight_frame` handler merged. */
@@ -207,7 +204,10 @@ describe("useLiveVoiceScreenShare: starting", () => {
     const file = uploadChatAttachment.mock.calls[0]?.[1];
     expect(file?.type).toBe("image/jpeg");
     expect(await file?.text()).toBe("jpeg");
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "screen" }),
+    );
   });
 
   /**
@@ -220,7 +220,10 @@ describe("useLiveVoiceScreenShare: starting", () => {
     share(WINDOW);
     await flush();
 
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "screen" }),
+    );
     expect(sharedFrames).toEqual([WINDOW]);
   });
 
@@ -385,7 +388,12 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     release();
     await flush();
     expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith("att-2");
+    // And the frame says it was the mark's, so the daemon's log can tell a
+    // drawn frame from the cadence's.
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "drawing" }),
+    );
   });
 
   /**
@@ -609,6 +617,9 @@ describe("useLiveVoiceScreenShare: the boundary a frame in flight can cross", ()
     });
     speak(true);
     await flush();
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-2");
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "screen" }),
+    );
   });
 });

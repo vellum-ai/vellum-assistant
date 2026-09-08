@@ -1120,6 +1120,7 @@ export const PROVIDER_SEED_DATA: Record<
     // `id` is the stable account identifier; email is the friendlier label
     // with handle as the fallback.
     identityResponsePaths: ["email", "handle"],
+    featureFlag: "figma-oauth",
   },
 
   outlook: {

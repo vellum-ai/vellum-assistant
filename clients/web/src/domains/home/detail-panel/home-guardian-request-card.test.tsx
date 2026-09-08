@@ -56,6 +56,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 const { HomeGuardianRequestCard } =
   await import("./home-guardian-request-card");
+const { useGuardianDecisionStore } = await import("../guardian-decision-store");
 
 function guardianItem(
   projection: Partial<FeedItemGuardianRequest>,
@@ -79,6 +80,7 @@ function guardianItem(
 
 beforeEach(() => {
   mutateCalls.length = 0;
+  useGuardianDecisionStore.getState().reset();
 });
 
 describe("HomeGuardianRequestCard", () => {

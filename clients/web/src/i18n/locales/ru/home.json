@@ -40,7 +40,8 @@
     "loadFailed": "Не удалось загрузить уведомления.",
     "actionFailed": "Не удалось начать этот диалог. Повторите попытку.",
     "decisionNotPermitted": "У вас нет прав принимать решение по этому запросу.",
-    "decisionNotApplied": "Не удалось применить это решение."
+    "decisionNotApplied": "Не удалось применить это решение.",
+    "decisionFollowThroughFailed": "Ваше решение записано, но следующий шаг не удался."
   },
   "notificationsBellDetail": {
     "back": "Назад к уведомлениям"

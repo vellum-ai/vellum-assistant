@@ -579,7 +579,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-09-02T21:36:48.000Z"
+      "updatedAt": "2026-08-27T04:20:00.000Z"
     },
     {
       "id": "meme-generator",
@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-09-08T15:12:58.000Z"
     },
     {
       "id": "notion",
@@ -715,7 +715,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T18:19:51.000Z"
+      "updatedAt": "2026-09-07T16:38:32.000Z"
     },
     {
       "id": "outlook-calendar",
@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-08T14:24:20.000Z"
+      "updatedAt": "2026-09-08T15:29:43.000Z"
     },
     {
       "id": "public-ingress",
@@ -1119,7 +1119,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-21T15:06:32.000Z"
+      "updatedAt": "2026-09-08T13:22:55.000Z"
     },
     {
       "id": "vellum-memory-v2-migration",
@@ -1196,7 +1196,7 @@
             "its current config or settings",
             "what it can do or which skills/tools exist",
             "whether a service is connected, and in which sense",
-            "its credit balance, plan, spend, or daily limit",
+            "its credits, plan allowance, spend, or daily limit",
             "how to self-host or use your own model API key"
           ],
           "avoid-when": [
@@ -1205,7 +1205,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T18:19:51.000Z"
+      "updatedAt": "2026-09-03T14:44:21.000Z"
     },
     {
       "id": "vellum-skills-catalog",

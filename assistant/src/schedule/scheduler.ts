@@ -10,6 +10,7 @@ import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitBackgroundFailureSignal } from "../notifications/background-failure-signal.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { emitScheduleResultNotification } from "../notifications/schedule-result-producer.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
@@ -963,6 +964,11 @@ export async function runDueSchedulesOnce(
     let failedTurn: TurnFailure | undefined;
     const conversationReused = reusedConversationId != null;
     let runConversationId = reusedConversationId;
+    // Captured before the run so the post-run "did this run notify?" probe has
+    // a lower bound. A reused conversation carries every prior run's
+    // notifications, and without this bound the first run to notify would
+    // silence the fallback for every run after it.
+    const runStartedAt = Date.now();
     const runId = await createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
@@ -1067,6 +1073,19 @@ export async function runDueSchedulesOnce(
 
     if (ok) {
       await completeScheduleRun(runId, { status: "ok" });
+      // The run succeeded; make sure it was not invisible. No-ops when the run
+      // already notified or produced nothing user-facing, so a schedule whose
+      // prompt ends in an explicit `assistant notifications send` is unaffected.
+      // Awaited rather than fired and forgotten: the schedule worker can exit
+      // once the tick's loop drains, and a detached emit would race that exit.
+      await emitScheduleResultNotification({
+        scheduleId: job.id,
+        scheduleName: job.name,
+        conversationId,
+        runId,
+        runStartedAt,
+        rlog: log,
+      });
       if (isOneShot) {
         await completeOneShot(job.id);
       }

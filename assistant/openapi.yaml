@@ -5102,7 +5102,7 @@ paths:
     put:
       operationId: config_embeddings_put
       summary: Set embedding config
-      description: Change the embedding provider and optionally model.
+      description: Change the embedding provider, model, and optional custom endpoint.
       tags:
         - config
       requestBody:
@@ -5116,6 +5116,14 @@ paths:
                   type: string
                 model:
                   type: string
+                baseUrl:
+                  type: string
+                dimensions:
+                  anyOf:
+                    - type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    - type: "null"
               required:
                 - provider
       responses:
@@ -5421,6 +5429,10 @@ paths:
                   minLength: 1
                 allowUnlisted:
                   type: boolean
+                inputModalities:
+                  anyOf:
+                    - $ref: "#/components/schemas/InputModalities"
+                    - type: "null"
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -8373,54 +8385,6 @@ paths:
           description: The assistant is currently responding
         "422":
           description: No user message exists to retry from
-  /v1/conversations/{id}/sight-frame:
-    post:
-      operationId: conversations_by_id_sightframe_post
-      summary: Persist an ambient camera frame
-      description:
-        Add an already-uploaded camera frame to a conversation as its own message, tagged so retention can age the
-        image out of the model's context while the transcript keeps it. No reply is generated. Returns persisted=false
-        when the frame was dropped, in which case the assistant owns the upload and there is nothing to clean up.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                attachmentId:
-                  type: string
-                  description: Id of the uploaded attachment holding the frame.
-              required:
-                - attachmentId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  persisted:
-                    type: boolean
-                  messageId:
-                    description: The message the frame landed on, when one was written.
-                    type: string
-                required:
-                  - persisted
-                additionalProperties: false
-        "400":
-          description: Missing or empty attachmentId
-        "404":
-          description: Conversation not found
   /v1/conversations/{id}/slash:
     post:
       operationId: conversations_by_id_slash_post
@@ -13242,6 +13206,13 @@ paths:
                   reason:
                     description: Decline reason (present only when applied is false)
                     type: string
+                  committed:
+                    description:
+                      "Whether the decision was recorded before the decline. Present only for a resolver failure: true under
+                      resolver_failed (the decision committed and its follow-through failed), false under
+                      decision_not_persisted (nothing was written; retry is safe). Absent on daemons that report both
+                      under resolver_failed."
+                    type: boolean
                   replyText:
                     description: Resolver reply text for the guardian (e.g. verification code)
                     type: string
@@ -13782,6 +13753,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13799,6 +13777,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -13838,7 +13817,7 @@ paths:
                     - type: string
                     - type: "null"
                 timezone:
-                  description: Timezone for cron evaluation
+                  description: Timezone for cron and active-hours evaluation
                   anyOf:
                     - type: string
                     - type: "null"
@@ -13870,6 +13849,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13887,6 +13873,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -20045,6 +20032,7 @@ paths:
                               - openai
                               - gemini
                               - ollama
+                              - custom
                           - type: "null"
                       model:
                         anyOf:
@@ -24669,12 +24657,13 @@ paths:
   /v1/platform/credits:
     get:
       operationId: platform_credits_get
-      summary: Get the organization's remaining credit balance and daily-limit state
+      summary: Get the organization's credit balance, plan-credit usage, and daily-limit state
       description:
         "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
-        billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which
-        excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the
-        low-balance warning state."
+        billing summary, plus plan-included credit usage (remaining, total, and the used fraction shown by the in-app
+        usage meter), extra credit bought or earned on top, credit expiring within 30 days, and the daily-limit state:
+        today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so
+        it is not total spend), the limit itself, and the low-balance warning state."
       tags:
         - platform
       responses:
@@ -24725,6 +24714,56 @@ paths:
                   low_balance_warning:
                     type: boolean
                     description: True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.
+                  plan_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unused credit (USD) remaining on the unexpired plan-included grants (initial credit, Pro credit bundle).
+                      Null when the platform did not report grant figures.
+                  plan_credit_total:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Total credit (USD) those plan-included grants were worth, net of refunds. Null when the platform did not
+                      report grant figures.
+                  plan_credit_used_fraction:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter. A
+                      Pro subscription whose unexpired grants total nothing reads as 1 (everything granted is used or
+                      expired). Null when there is no usable reading: grant figures missing, or a zero total on a base
+                      or unknown plan."
+                  plan_credits_spent:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      True when the plan-included credit is used up or expired. Whether further managed usage is funded is
+                      extra_credit_remaining (zero means the organization is out of credit). Null when there is no
+                      plan-credit reading.
+                  extra_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Credit (USD) bought or earned on top of the plan-included grants: remaining minus plan_credit_remaining,
+                      floored at zero. Null when grant figures are missing."
+                  credits_expiring_soon:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unexpired credit (USD) on grants that expire within the next 30 days. Null when the platform did not report
+                      it.
+                  next_credit_expiry_at:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Earliest upcoming expiry (ISO 8601) across grants that still hold credit, or null when none is scheduled.
                 required:
                   - remaining
                   - settled
@@ -24738,6 +24777,13 @@ paths:
                   - daily_limit_snoozed
                   - low_balance_threshold
                   - low_balance_warning
+                  - plan_credit_remaining
+                  - plan_credit_total
+                  - plan_credit_used_fraction
+                  - plan_credits_spent
+                  - extra_credit_remaining
+                  - credits_expiring_soon
+                  - next_credit_expiry_at
                 additionalProperties: false
   /v1/platform/disconnect:
     post:
@@ -36376,6 +36422,12 @@ components:
           anyOf:
             - type: boolean
             - type: "null"
+        inputModalities:
+          anyOf:
+            - anyOf:
+                - $ref: "#/components/schemas/InputModalities"
+                - type: "null"
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -36406,6 +36458,24 @@ components:
               minLength: 1
             - type: "null"
       additionalProperties: {}
+    InputModalities:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverride"
+        image:
+          $ref: "#/components/schemas/ModalityOverride"
+        audio:
+          $ref: "#/components/schemas/ModalityOverride"
+        video:
+          $ref: "#/components/schemas/ModalityOverride"
+    ModalityOverride:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
     ProfileStatus:
       type: string
       enum:
@@ -37157,6 +37227,10 @@ components:
           minLength: 1
         allowUnlisted:
           type: boolean
+        inputModalities:
+          anyOf:
+            - $ref: "#/components/schemas/InputModalitiesOutput"
+            - type: "null"
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -37698,6 +37772,26 @@ components:
         - name
         - status
         - origin
+      additionalProperties: false
+    InputModalitiesOutput:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        image:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        audio:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        video:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+      additionalProperties: false
+    ModalityOverrideOutput:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
       additionalProperties: false
     AuthOutput:
       oneOf:

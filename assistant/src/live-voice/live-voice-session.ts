@@ -1215,6 +1215,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private receivedAudio = false;
   private detectedSpeech = false;
   private dispatchedTurn = false;
+  // Loudest server-VAD chunk not attributed to assistant playback, on the
+  // gate's own scale. Logged with a silent session's end so `no_speech` can
+  // be told apart: a peak under the gate is a user who talked and was not
+  // heard, a peak near the floor is a user who said nothing.
+  private peakChunkAmplitude = 0;
   // The client declared a text input affordance on the start frame, so it can
   // take a turn without the microphone. Governs one thing only: whether a
   // missing speech-to-text leg is fatal to startup (see start()).
@@ -1318,6 +1323,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // older one is simply out of date. Consumed (and cleared) when a turn
   // launches, handed back if that turn is rolled back, and cleared on close.
   private pendingTurnAttachmentId: string | null = null;
+  // When `speech_started` last went to the client, for the sight-frame log:
+  // the distance from it to a keep arriving is the client leg of the frame the
+  // onset asked for, measured from the daemon's own clock.
+  private lastSpeechStartedAtMs: number | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1714,11 +1723,32 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * same fact.
    */
   private persistSightFrame(frame: LiveVoiceClientSightFrameFrame): void {
+    const receivedAtMs = Date.now();
+    // One line per keep, written when the row lands, carrying the whole
+    // timeline: the client leg the frame reported, the daemon leg the persist
+    // measured, and the distance from the speech onset the frame may have
+    // been asked for. Together with the turn's own "Voice turn dispatch
+    // timing" line this says whether a frame missed its turn and where.
+    const sinceSpeechStartedMs =
+      this.lastSpeechStartedAtMs === null
+        ? null
+        : receivedAtMs - this.lastSpeechStartedAtMs;
     void persistAmbientSightFrame(
       this.conversationId,
       frame.attachmentId,
       "voice",
     ).then((result) => {
+      log.info(
+        {
+          attachmentId: frame.attachmentId,
+          persisted: result.ok,
+          sinceSpeechStartedMs,
+          client: frame.timing ?? null,
+          daemon: result.timing ?? null,
+          daemonTotalMs: Date.now() - receivedAtMs,
+        },
+        "Sight frame timing",
+      );
       if (!result.ok && !this.isClosed) {
         void this.sendFrame({
           type: "error",
@@ -1883,6 +1913,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ),
       outcome: failed ? "failed" : "completed",
     });
+    if (silenceReason !== null) {
+      // The levels behind a silent session, on the gate's scale, since the
+      // end event carries only the classification. A peak below `speechGate`
+      // on a `no_speech` session is a microphone the gate could not hear.
+      log.info(
+        {
+          sessionId: this.context.sessionId,
+          reason,
+          silenceReason,
+          peakChunkAmplitude: Math.round(this.peakChunkAmplitude),
+          noiseFloor:
+            this.roomNoiseFloor.floor === null
+              ? null
+              : Math.round(this.roomNoiseFloor.floor),
+          speechGate: Math.round(this.effectiveBaseThreshold()),
+        },
+        "Live-voice session ended without a turn",
+      );
+    }
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
@@ -2293,6 +2342,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // follow-up turn.
     if (energyClassification === "echo") {
       return;
+    }
+    // Measured past the echo gate, so a greeting heard through the speaker
+    // cannot stand in for the user on a silent close.
+    const meanAmplitude = pcm16MeanAmplitude(chunk);
+    if (meanAmplitude > this.peakChunkAmplitude) {
+      this.peakChunkAmplitude = meanAmplitude;
     }
 
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
@@ -2760,10 +2815,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
-    void this.sendFrame({ type: "speech_started" });
+    this.sendSpeechStarted();
     if (bargeableTurn) {
       this.bargeIn(bargeableTurn);
     }
+  }
+
+  /**
+   * Tell the client the caller started speaking, and remember when, so a
+   * camera frame that follows can be logged against the onset it answers.
+   */
+  private sendSpeechStarted(): void {
+    this.lastSpeechStartedAtMs = Date.now();
+    void this.sendFrame({ type: "speech_started" });
   }
 
   // Advance the sustained-speech barge-in guard by one server-VAD chunk.
@@ -2811,7 +2875,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
-    void this.sendFrame({ type: "speech_started" });
+    this.sendSpeechStarted();
     const { turn } = guard;
     if (turn && turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);
