@@ -17,7 +17,6 @@ import {
 import {
   type ConversationAttachmentEntry,
   useConversationAttachments,
-  conversationAttachmentKey,
 } from "@/domains/chat/hooks/use-conversation-attachments";
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
@@ -75,7 +74,7 @@ export function toConversationFileAssets(
     if (entry.sightFrame) {
       frames.push({
         kind: "frame",
-        id: `frame-${conversationAttachmentKey(entry.messageId, entry.attachment.id)}`,
+        id: `frame-${entry.key}`,
         title: entry.attachment.filename,
         attachment: entry.attachment,
         capturedAt: entry.capturedAt,
@@ -83,7 +82,7 @@ export function toConversationFileAssets(
     } else {
       files.push({
         kind: "attachment",
-        id: `att-${conversationAttachmentKey(entry.messageId, entry.attachment.id)}`,
+        id: `att-${entry.key}`,
         title: entry.attachment.filename,
         attachment: entry.attachment,
       });

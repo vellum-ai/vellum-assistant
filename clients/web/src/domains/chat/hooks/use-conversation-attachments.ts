@@ -17,6 +17,13 @@ import type { DisplayAttachment } from "@/types/attachment-types";
 export const ATTACHMENT_PAGE_SIZE = 200;
 
 export interface ConversationAttachmentEntry {
+  /**
+   * Unique within the conversation. The attachment id, except for a legacy row
+   * without structured metadata, whose `rehydrated:N` ids restart per row and
+   * can repeat inside one row once adjacent assistant rows are folded, so
+   * those are keyed by row and position instead.
+   */
+  key: string;
   attachment: DisplayAttachment;
   /** Carrying transcript row. */
   messageId: string;
@@ -43,18 +50,13 @@ const NO_ENTRIES: ConversationAttachmentEntry[] = [];
 
 const NOOP = () => {};
 
-/**
- * The identity an attachment has across the whole conversation. A legacy row
- * without structured metadata gets `rehydrated:N` ids that restart per
- * message, so those are only unique within their own row; real attachment ids
- * are unique on their own.
- */
-export function conversationAttachmentKey(
+function entryKey(
   messageId: string,
   attachmentId: string,
+  position: number,
 ): string {
   return attachmentId.startsWith("rehydrated:")
-    ? `${messageId}:${attachmentId}`
+    ? `${messageId}:${position}`
     : attachmentId;
 }
 
@@ -75,13 +77,16 @@ export function useConversationAttachments(target: {
     // same attachment ids, so the first sighting wins.
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]!;
-      for (const attachment of message.attachments ?? []) {
-        const key = conversationAttachmentKey(message.id, attachment.id);
+      for (const [position, attachment] of (
+        message.attachments ?? []
+      ).entries()) {
+        const key = entryKey(message.id, attachment.id, position);
         if (seen.has(key)) {
           continue;
         }
         seen.add(key);
         collected.push({
+          key,
           attachment,
           messageId: message.id,
           capturedAt: message.timestamp ?? null,

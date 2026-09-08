@@ -120,6 +120,28 @@ describe("useConversationAttachments", () => {
     expect(result.current.totalFiles).toBe(2);
   });
 
+  test("keeps two rehydrated ids inside one folded row apart", () => {
+    // Adjacent assistant rows fold across a page boundary and concatenate
+    // their attachments under one message id.
+    messagesRef.value = [
+      makeMessage({
+        id: "msg-folded",
+        role: "assistant",
+        attachments: [
+          makeDisplayAttachment({ id: "rehydrated:0", filename: "a.pdf" }),
+          makeDisplayAttachment({ id: "rehydrated:0", filename: "b.pdf" }),
+        ],
+      }),
+    ];
+
+    const { result } = renderHook(() => useConversationAttachments(TARGET));
+
+    expect(result.current.entries).toHaveLength(2);
+    expect(new Set(result.current.entries.map((entry) => entry.key)).size).toBe(
+      2,
+    );
+  });
+
   test("reports a null capture time for a row with no timestamp", () => {
     messagesRef.value = [
       makeMessage({ attachments: [makeDisplayAttachment({ id: "att-1" })] }),

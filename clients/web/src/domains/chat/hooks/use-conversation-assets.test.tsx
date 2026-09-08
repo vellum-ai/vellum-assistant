@@ -216,6 +216,7 @@ describe("toConversationFileAssets", () => {
             id: "rehydrated:0",
             filename: "old.pdf",
           }),
+          key: "msg-old:0",
           messageId: "msg-old",
           capturedAt: null,
           sightFrame: false,
@@ -225,6 +226,7 @@ describe("toConversationFileAssets", () => {
             id: "rehydrated:0",
             filename: "new.pdf",
           }),
+          key: "msg-new:0",
           messageId: "msg-new",
           capturedAt: null,
           sightFrame: false,
@@ -245,12 +247,14 @@ describe("toConversationFileAssets", () => {
       [makeDocument("shot", 1_000)],
       [
         {
+          key: "shot",
           attachment: frame,
           messageId: "msg-1",
           capturedAt: 5_000,
           sightFrame: true,
         },
         {
+          key: "shot",
           attachment: upload,
           messageId: "msg-2",
           capturedAt: null,
