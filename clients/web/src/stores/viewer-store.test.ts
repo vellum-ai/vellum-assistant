@@ -615,6 +615,15 @@ describe("closeActiveOverlay", () => {
     expect(getState().activeMessageFiles).toBeNull();
   });
 
+  it("closes the chat-info overlay and restores its prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeChatInfo).toBeNull();
+  });
+
   it("returns false without changing a non-overlay view", () => {
     useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
 
@@ -871,6 +880,83 @@ describe("openMessageFiles / toggleMessageFiles / closeMessageFiles", () => {
     expect(state.activeActivitySteps).toBeNull();
     expect(state.activeToolDetail).toBeNull();
     expect(state.mainView).toBe("message-files");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chat info panel
+// ---------------------------------------------------------------------------
+
+const SAMPLE_CHAT_INFO = { assistantId: "a1", conversationId: "c1" };
+
+describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", () => {
+  it("opens the panel at the top level and records the prior view", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    const state = getState();
+    expect(state.mainView).toBe("chat-info");
+    expect(state.activeChatInfo).toEqual({
+      ...SAMPLE_CHAT_INFO,
+      category: null,
+    });
+    expect(state.viewBeforeChatInfo).toBe("chat");
+  });
+
+  it("opens the panel drilled into a category", () => {
+    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+    expect(getState().activeChatInfo?.category).toBe("apps");
+  });
+
+  it("close restores the prior view and clears the payload", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    expect(getState().viewBeforeChatInfo).toBe("app");
+    getState().closeChatInfo();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeChatInfo).toBeNull();
+  });
+
+  it("toggle closes the panel when targeting the SAME conversation", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeChatInfo).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT conversation at the top level", () => {
+    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "files" });
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, conversationId: "c2" });
+    const state = getState();
+    expect(state.mainView).toBe("chat-info");
+    expect(state.activeChatInfo).toEqual({
+      assistantId: "a1",
+      conversationId: "c2",
+      category: null,
+    });
+  });
+
+  it("setChatInfoCategory drills in and back out on the open payload", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("frames");
+    expect(getState().activeChatInfo?.category).toBe("frames");
+    getState().setChatInfoCategory(null);
+    expect(getState().activeChatInfo?.category).toBeNull();
+  });
+
+  it("setChatInfoCategory does not notify when the category is unchanged", () => {
+    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+    const before = getState().activeChatInfo;
+    getState().setChatInfoCategory("apps");
+    expect(getState().activeChatInfo).toBe(before);
+  });
+
+  it("setChatInfoCategory does nothing while the panel is closed", () => {
+    useViewerStore.setState({ mainView: "chat" });
+    getState().setChatInfoCategory("apps");
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeChatInfo).toBeNull();
   });
 });
 

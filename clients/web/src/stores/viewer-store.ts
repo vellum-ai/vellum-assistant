@@ -62,7 +62,8 @@ type OverlayView =
   | "background-task-detail"
   | "skill-detail"
   | "channel-setup"
-  | "channel-transcript";
+  | "channel-transcript"
+  | "chat-info";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -135,7 +136,8 @@ function resolveViewBefore(
     | "viewBeforeBackgroundTaskDetail"
     | "viewBeforeSkillDetail"
     | "viewBeforeChannelSetup"
-    | "viewBeforeChannelTranscript",
+    | "viewBeforeChannelTranscript"
+    | "viewBeforeChatInfo",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -149,7 +151,8 @@ function resolveViewBefore(
     mv === "background-task-detail" ||
     mv === "skill-detail" ||
     mv === "channel-setup" ||
-    mv === "channel-transcript"
+    mv === "channel-transcript" ||
+    mv === "chat-info"
   ) {
     return state[field];
   }
@@ -174,7 +177,8 @@ export type MainView =
   | "background-task-detail"
   | "skill-detail"
   | "channel-setup"
-  | "channel-transcript";
+  | "channel-transcript"
+  | "chat-info";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -456,6 +460,20 @@ export function sameMessageFilesTarget(
   return a.messageId === b.messageId;
 }
 
+/** The asset categories the chat-info panel groups a conversation into. */
+export type ChatInfoCategory = "apps" | "files" | "frames";
+
+/** What the chat-info panel is showing: one conversation, at one level. */
+export interface ChatInfoPayload {
+  assistantId: string;
+  conversationId: string;
+  /**
+   * The category drilled into through See All. `null` is the top level, where
+   * every category shows one truncated row.
+   */
+  category: ChatInfoCategory | null;
+}
+
 /** The identity fields a thinking drawer target is matched on. */
 type ThinkingTarget = Pick<
   ToolDetailPayload,
@@ -506,6 +524,8 @@ export interface ViewerState {
   viewBeforeActivitySteps: Exclude<MainView, OverlayView>;
   activeMessageFiles: MessageFilesPayload | null;
   viewBeforeMessageFiles: Exclude<MainView, OverlayView>;
+  activeChatInfo: ChatInfoPayload | null;
+  viewBeforeChatInfo: Exclude<MainView, OverlayView>;
   activeWorkflowRunId: string | null;
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
@@ -621,6 +641,25 @@ export interface ViewerActions {
   toggleMessageFiles: (payload: MessageFilesPayload) => void;
   closeMessageFiles: () => void;
 
+  // --- Chat info panel ---
+  openChatInfo: (target: {
+    assistantId: string;
+    conversationId: string;
+    category?: ChatInfoCategory | null;
+  }) => void;
+  /**
+   * Open the chat-info panel for `target`, or close it when it is already
+   * showing the SAME conversation. Powers the header trigger, where clicking
+   * the already-active control dismisses the panel.
+   */
+  toggleChatInfo: (target: {
+    assistantId: string;
+    conversationId: string;
+  }) => void;
+  closeChatInfo: () => void;
+  /** Drill into a category (See All) or back out (`null`). No-op unless the panel is open. */
+  setChatInfoCategory: (category: ChatInfoCategory | null) => void;
+
   /**
    * Drop the payloads of the panels whose content is scoped to one
    * conversation's transcript. Called on conversation switch: overlay
@@ -723,6 +762,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeActivitySteps: "chat",
   activeMessageFiles: null,
   viewBeforeMessageFiles: "chat",
+  activeChatInfo: null,
+  viewBeforeChatInfo: "chat",
   activeWorkflowRunId: null,
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
@@ -1013,6 +1054,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       case "channel-transcript":
         get().closeChannelTranscript();
         return true;
+      case "chat-info":
+        get().closeChatInfo();
+        return true;
       default:
         return false;
     }
@@ -1208,6 +1252,52 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       mainView: get().viewBeforeMessageFiles,
       activeMessageFiles: null,
     });
+  },
+
+  // --- Chat info panel ---
+
+  openChatInfo: (target) => {
+    set({
+      mainView: "chat-info",
+      activeChatInfo: {
+        assistantId: target.assistantId,
+        conversationId: target.conversationId,
+        category: target.category ?? null,
+      },
+      viewBeforeChatInfo: resolveViewBefore(get(), "viewBeforeChatInfo"),
+    });
+  },
+
+  toggleChatInfo: (target) => {
+    const state = get();
+    const isSameTarget =
+      state.mainView === "chat-info" &&
+      state.activeChatInfo?.conversationId === target.conversationId;
+    if (isSameTarget) {
+      get().closeChatInfo();
+    } else {
+      get().openChatInfo(target);
+    }
+  },
+
+  closeChatInfo: () => {
+    set({
+      mainView: get().viewBeforeChatInfo,
+      activeChatInfo: null,
+    });
+  },
+
+  setChatInfoCategory: (category) => {
+    const state = get();
+    const active = state.activeChatInfo;
+    if (
+      state.mainView !== "chat-info" ||
+      active == null ||
+      active.category === category
+    ) {
+      return;
+    }
+    set({ activeChatInfo: { ...active, category } });
   },
 
   clearTranscriptPanelPayloads: () => {
