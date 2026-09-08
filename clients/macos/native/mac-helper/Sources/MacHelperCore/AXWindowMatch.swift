@@ -68,7 +68,7 @@ public enum AXWindowMatch {
     /// ellipsis, so neither equality nor a prefix can ever fit: what is left is
     /// the beginning and the end of the real title with a hole between them.
     /// A candidate fits when it starts with the part before the hole and still
-    /// contains the part after it.
+    /// contains the part after it, past the head rather than anywhere in it.
     ///
     /// Names the server did not shorten match nothing here, so the caller's
     /// other comparisons decide them.
@@ -84,7 +84,13 @@ public enum AXWindowMatch {
             return { _ in false }
         }
         return { title in
-            title.hasPrefix(head) && (tail.isEmpty || title.contains(tail))
+            guard title.hasPrefix(head) else { return false }
+            guard !tail.isEmpty else { return true }
+            // Past the head, never inside it. The two ends of a shortened name
+            // can repeat ("2026 Report...2026"), and a tail satisfied by the
+            // head would fit a window whose real tail is something else.
+            return title[title.index(title.startIndex, offsetBy: head.count)...]
+                .contains(tail)
         }
     }
 

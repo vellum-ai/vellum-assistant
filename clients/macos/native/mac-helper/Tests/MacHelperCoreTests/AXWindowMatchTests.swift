@@ -4,7 +4,8 @@ import Testing
 
 @Suite("AXWindowMatch")
 struct AXWindowMatchTests {
-    /// The five Chrome windows that produced JARVIS-1765, all at one frame.
+    /// Stacked Chrome windows, all reporting the same frame, each titled by
+    /// its page plus the suffix Chromium appends.
     private static let chrome = [
         "Weekly Planning / User Stories | Notes - Google Chrome - Alice (example.com)",
         "Example Assistant - Google Chrome - Alice",
@@ -132,6 +133,25 @@ struct AXWindowMatchElidedTests {
                 titles: [Self.longTitle],
                 candidates: .sharingOneFrame
             ) == nil
+        )
+    }
+
+    @Test("a tail is only matched after the head, never inside it")
+    func tailAfterHeadOnly() {
+        // Both ends of a shortened name can carry the same text.
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "2026 Report\u{2026}2026",
+                titles: ["2026 Report draft - Chrome"],
+                candidates: .sharingOneFrame
+            ) == nil
+        )
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "2026 Report\u{2026}2026",
+                titles: ["2026 Report for the year 2026 - Chrome"],
+                candidates: .sharingOneFrame
+            ) == 0
         )
     }
 
