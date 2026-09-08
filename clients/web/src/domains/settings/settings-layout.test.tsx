@@ -80,9 +80,15 @@ mock.module("@/components/sidebar-shell", () => ({
 }));
 
 mock.module("@/components/sidebar-tree", () => ({
-  SidebarTree: ({ items }: { items: SidebarItem[] }) => (
+  SidebarTree: ({
+    items,
+    bottomItems = [],
+  }: {
+    items: SidebarItem[];
+    bottomItems?: SidebarItem[];
+  }) => (
     <nav aria-label="Settings navigation">
-      {items.map((item) => (
+      {[...items, ...bottomItems].map((item) => (
         <a key={item.id} href={item.href}>
           {item.label}
         </a>

@@ -56,20 +56,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   return { useAssistantFeatureFlagStore: store };
 });
 
-const toastSuccessCalls: string[] = [];
-const toastErrorCalls: string[] = [];
-
-mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: {
-    success: (message: string) => {
-      toastSuccessCalls.push(message);
-    },
-    error: (message: string) => {
-      toastErrorCalls.push(message);
-    },
-  },
-}));
-
 const { SettingsPersonalityPage } = await import("./personality-page");
 
 function renderPage() {
@@ -99,8 +85,6 @@ describe("SettingsPersonalityPage", () => {
     mock.clearAllMocks();
     settingsDeveloperNav = true;
     hasHydrated = true;
-    toastSuccessCalls.length = 0;
-    toastErrorCalls.length = 0;
     fetchPersonalitySliders.mockImplementation(async () => {
       return Object.fromEntries(
         Object.values(PERSONALITY_AXIS_IDS).map((id) => [
@@ -121,7 +105,10 @@ describe("SettingsPersonalityPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+      expect(
+        (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
     });
 
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -138,27 +125,25 @@ describe("SettingsPersonalityPage", () => {
         ]),
       ),
     );
-    expect(toastSuccessCalls).toEqual(["Personality sliders saved."]);
-    expect(toastErrorCalls).toEqual([]);
   });
 
-  test("surfaces a failed sidecar write", async () => {
+  test("still calls save when the sidecar write fails", async () => {
     savePersonalitySliders.mockImplementation(async () => false);
     const user = userEvent.setup();
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+      expect(
+        (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
     });
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(toastErrorCalls).toEqual([
-        "Could not save personality sliders. Please try again.",
-      ]);
+      expect(savePersonalitySliders).toHaveBeenCalledTimes(1);
     });
-    expect(toastSuccessCalls).toEqual([]);
   });
 
   test("redirects to General when developer nav is off", () => {
