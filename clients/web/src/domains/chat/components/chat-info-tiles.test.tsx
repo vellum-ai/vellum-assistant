@@ -278,6 +278,24 @@ describe("ChatInfoFileTile attachments", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  test("falls back to the image glyph for a legacy image it can never fetch", () => {
+    // A row reloaded from a summary line carries a synthetic id and no bytes.
+    const file = attachmentAsset(
+      makeDisplayAttachment({ id: "rehydrated:0", filename: "legacy.png" }),
+    );
+    const { container } = renderTile(
+      <ChatInfoFileTile
+        file={file}
+        assistantId={ASSISTANT_ID}
+        onOpen={() => {}}
+      />,
+    );
+
+    expect(container.querySelector(".lucide-file-image")).toBeTruthy();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(fetchAttachmentContentBlob).not.toHaveBeenCalled();
+  });
+
   test("renders the PDF glyph without fetching", () => {
     const file = attachmentAsset(
       makeDisplayAttachment({

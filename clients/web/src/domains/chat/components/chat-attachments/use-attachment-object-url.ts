@@ -19,6 +19,7 @@ import type { DisplayAttachment } from "@/types/attachment-types";
 export interface AttachmentObjectUrl {
   /** The inline preview URL, the fetched object URL, or null until one exists. */
   url: string | null;
+  /** The bytes failed to load, or can never be fetched (no assistant, no resolvable id). */
   isError: boolean;
 }
 
@@ -31,12 +32,11 @@ export function useAttachmentObjectUrl(
   const { id, previewUrl } = attachment;
   // Synthetic `rehydrated:` ids from the text-parsing history fallback can
   // never resolve against the content endpoint, so they are never fetched.
-  const shouldFetch =
-    enabled &&
-    !previewUrl &&
-    !!assistantId &&
-    !!id &&
-    !id.startsWith("rehydrated:");
+  const canFetch = !!assistantId && !!id && !id.startsWith("rehydrated:");
+  const shouldFetch = enabled && !previewUrl && canFetch;
+  // No inline bytes and no way to fetch them is a settled answer, not a
+  // pending one, so callers can fall back instead of waiting.
+  const unavailable = !previewUrl && !canFetch;
 
   const { data: blob, isError } = useQuery({
     queryKey: ["attachmentContent", assistantId, id],
@@ -66,5 +66,5 @@ export function useAttachmentObjectUrl(
     };
   }, [blob]);
 
-  return { url: previewUrl ?? objectUrl, isError };
+  return { url: previewUrl ?? objectUrl, isError: isError || unavailable };
 }
