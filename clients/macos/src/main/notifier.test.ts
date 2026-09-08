@@ -39,6 +39,7 @@ const {
   __resetNotifierForTesting,
   __setNotifierForTesting,
   getNotifier,
+  isNotifierSupported,
   registerNotifierCategories,
   requestNotifierAuthorization,
   restoreNotifierDelegate,
@@ -242,7 +243,8 @@ describe("notifier authorization", () => {
     expect(warnings.length).toBe(1);
   });
 
-  test("ignores a second answer from the addon", async () => {
+  // `resolve` is idempotent, so the first answer stands on its own.
+  test("keeps the first answer when the addon answers twice", async () => {
     __setNotifierForTesting(
       fakeNotifier({
         requestAuthorization: (callback) => {
@@ -253,6 +255,40 @@ describe("notifier authorization", () => {
     );
 
     expect(await requestNotifierAuthorization()).toEqual({ granted: true });
+  });
+});
+
+describe("isNotifierSupported", () => {
+  beforeEach(() => {
+    __resetNotifierForTesting();
+    warnings.length = 0;
+  });
+
+  test("is false when the addon is unavailable", () => {
+    expect(isNotifierSupported()).toBe(false);
+  });
+
+  test("reports what the addon says", () => {
+    __setNotifierForTesting(fakeNotifier());
+    expect(isNotifierSupported()).toBe(true);
+
+    __setNotifierForTesting(fakeNotifier({ isSupported: () => false }));
+    expect(isNotifierSupported()).toBe(false);
+  });
+
+  // Called at boot, where a throw would skip every later install step and the
+  // app would come up with no window and no tray.
+  test("is false rather than a throw when the probe explodes", () => {
+    __setNotifierForTesting(
+      fakeNotifier({
+        isSupported: () => {
+          throw new Error("addon exploded");
+        },
+      }),
+    );
+
+    expect(isNotifierSupported()).toBe(false);
+    expect(warnings.length).toBe(1);
   });
 });
 

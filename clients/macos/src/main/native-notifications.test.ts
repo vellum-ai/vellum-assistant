@@ -13,10 +13,35 @@ import type {
 
 const userDataDir = mkdtempSync(path.join(tmpdir(), "vellum-notif-avatars-"));
 
+interface ElectronNotificationOptions {
+  title: string;
+  body: string;
+  silent: boolean;
+  actions: { type: "button"; text: string }[];
+  icon?: unknown;
+}
+
+const electronNotifications: ElectronNotificationOptions[] = [];
+
+class FakeElectronNotification {
+  constructor(readonly options: ElectronNotificationOptions) {
+    electronNotifications.push(options);
+  }
+
+  on(): this {
+    return this;
+  }
+
+  show(): void {}
+}
+
 mock.module("electron", () => ({
   app: {
     getPath: () => userDataDir,
   },
+  BrowserWindow: { getAllWindows: () => [] },
+  Notification: FakeElectronNotification,
+  nativeImage: { createFromBuffer: (buffer: Buffer) => buffer },
 }));
 
 const warnings: unknown[][] = [];
@@ -42,6 +67,7 @@ mock.module("./notifier", () => ({
   registerNotifierCategories: (categories: NotifierCategory[]) => {
     registered.push(categories);
   },
+  isNotifierSupported: () => notifierPresent && notifierSupported,
   getNotifier: () =>
     notifierPresent
       ? {
@@ -62,6 +88,8 @@ mock.module("./notifier", () => ({
       : null,
 }));
 
+const { CATEGORY_ACTIONS, NOTIFICATION_CATEGORIES } =
+  await import("@vellumai/electron-desktop/notifications");
 const {
   createNativeNotificationFactory,
   registerNativeNotificationCategories,
@@ -69,6 +97,16 @@ const {
 
 const avatarPng = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
+const sender = {
+  id: "assistant-1",
+  name: "Ada",
+  avatarPng,
+  avatarHash:
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+};
+
+// The addon only takes notifications that carry a sender, so every test that
+// exercises it supplies one.
 const options = (
   overrides: Partial<NotificationCreateOptions> = {},
 ): NotificationCreateOptions => ({
@@ -79,16 +117,9 @@ const options = (
     { type: "button", text: "Allow" },
     { type: "button", text: "Deny" },
   ],
+  sender,
   ...overrides,
 });
-
-const sender = {
-  id: "assistant-1",
-  name: "Ada",
-  avatarPng,
-  avatarHash:
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-};
 
 afterAll(() => {
   rmSync(userDataDir, { recursive: true, force: true });
@@ -98,6 +129,7 @@ beforeEach(() => {
   calls.length = 0;
   registered.length = 0;
   warnings.length = 0;
+  electronNotifications.length = 0;
   notifierSupported = true;
   notifierPresent = true;
   showThrows = false;
@@ -108,23 +140,22 @@ beforeEach(() => {
 });
 
 describe("registerNativeNotificationCategories", () => {
-  test("registers every action set once, up front", () => {
+  test("registers every action set the shared categories declare, once, up front", () => {
     registerNativeNotificationCategories();
 
     expect(registered.length).toBe(1);
     const categories = registered[0]!;
-    expect(categories.map((category) => category.actions)).toEqual([
-      ["View Results"],
-      ["Allow", "Deny"],
-      ["View Response"],
-      ["View"],
-    ]);
+    expect(categories.map((category) => category.actions)).toEqual(
+      NOTIFICATION_CATEGORIES.map((category) =>
+        CATEGORY_ACTIONS[category].map((action) => action.text),
+      ),
+    );
     for (const category of categories) {
       expect(category.categoryId).toMatch(/^vellum\.actions\.[0-9a-f]{16}$/);
     }
     expect(
       new Set(categories.map((category) => category.categoryId)).size,
-    ).toBe(4);
+    ).toBe(NOTIFICATION_CATEGORIES.length);
   });
 
   test("registers the id a notification with those actions will post under", () => {
@@ -149,18 +180,36 @@ describe("createNativeNotificationFactory", () => {
     expect(factory.isSupported()).toBe(false);
   });
 
-  test("posts a plain request without a sender", () => {
-    createNativeNotificationFactory().create(options()).show();
+  test("hands a notification without a sender to Electron's presenter", () => {
+    createNativeNotificationFactory()
+      .create(options({ sender: undefined }))
+      .show();
 
-    expect(calls.length).toBe(1);
-    const { request } = calls[0]!;
-    expect(request.title).toBe("Weekly plan");
-    expect(request.subtitle).toBeUndefined();
-    expect(request.body).toBe("Your draft is ready");
-    expect(request.categoryId).toMatch(/^vellum\.actions\.[0-9a-f]{16}$/);
-    expect(request.actions).toEqual(["Allow", "Deny"]);
-    expect(request.sender).toBeUndefined();
-    expect(request.id.length).toBeGreaterThan(0);
+    expect(calls.length).toBe(0);
+    expect(electronNotifications).toEqual([
+      {
+        title: "Weekly plan",
+        body: "Your draft is ready",
+        silent: false,
+        actions: [
+          { type: "button", text: "Allow" },
+          { type: "button", text: "Deny" },
+        ],
+      },
+    ]);
+  });
+
+  test("keeps a sender-less notification off the addon even when the addon is gone", () => {
+    notifierPresent = false;
+    const errors: string[] = [];
+    const notification = createNativeNotificationFactory().create(
+      options({ sender: undefined }),
+    );
+    notification.on("failed", (_event, error) => errors.push(error));
+    notification.show();
+
+    expect(errors).toEqual([]);
+    expect(electronNotifications.length).toBe(1);
   });
 
   test("gives every distinct action set its own category id", () => {
@@ -193,18 +242,20 @@ describe("createNativeNotificationFactory", () => {
   });
 
   test("swaps the sender name into the title and the title into the subtitle", () => {
-    createNativeNotificationFactory().create(options({ sender })).show();
+    createNativeNotificationFactory().create(options()).show();
 
     const { request } = calls[0]!;
     expect(request.title).toBe("Ada");
     expect(request.subtitle).toBe("Weekly plan");
+    expect(request.body).toBe("Your draft is ready");
     expect(request.sender?.id).toBe("assistant-1");
     expect(request.sender?.name).toBe("Ada");
     expect(request.sender?.conversationId).toBe("assistant-1");
+    expect(request.id.length).toBeGreaterThan(0);
   });
 
   test("stages the avatar through the shared cache", () => {
-    createNativeNotificationFactory().create(options({ sender })).show();
+    createNativeNotificationFactory().create(options()).show();
 
     const avatarPath = calls[0]!.request.sender!.avatarPngPath;
     expect(avatarPath).toBe(
@@ -247,9 +298,9 @@ describe("createNativeNotificationFactory", () => {
     emit({ kind: "click" });
     emit({ kind: "action", actionIndex: 1 });
     emit({ kind: "action" });
-    // The addon evicts a dismissed notification itself, so "dismiss" is not in
-    // the JS event union and anything outside it is ignored.
-    emit({ kind: "dismiss" } as unknown as NotifierEvent);
+    // The addon emits `dismiss` to release its own callback; nothing
+    // downstream acts on one.
+    emit({ kind: "dismiss" });
     emit({ kind: "failed", error: "denied" });
 
     expect(events).toEqual(["show", "click", "action:1", "failed:denied"]);

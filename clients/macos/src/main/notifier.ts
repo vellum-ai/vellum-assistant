@@ -22,7 +22,7 @@ const ADDON_FILENAME = "vellum-notifier.node";
  */
 const DISABLE_ENV_VAR = "VELLUM_DISABLE_NATIVE_NOTIFIER";
 
-export interface NotifierSender {
+interface NotifierSender {
   id: string;
   name: string;
   avatarPngPath: string;
@@ -45,13 +45,18 @@ export interface NotifierCategory {
 }
 
 export interface NotifierEvent {
-  kind: "shown" | "failed" | "click" | "action";
+  /**
+   * `dismiss` is a notification's final event: the addon emits it so it can
+   * release the callback, and nothing downstream acts on one.
+   */
+  kind: "shown" | "failed" | "click" | "action" | "dismiss";
   actionIndex?: number;
   error?: string;
   /**
-   * Present on `shown` when the notification posted without the Communication
-   * Notification treatment, naming why. The notification itself is fine, so
-   * this is diagnostic rather than a failure.
+   * Present on `shown` when the notification posted in a reduced form, naming
+   * why: no Communication Notification treatment, or an unregistered category
+   * and so no action buttons. The notification itself is fine, so this is
+   * diagnostic rather than a failure.
    */
   degraded?: string;
 }
@@ -137,6 +142,25 @@ const loadNotifier = (): Notifier | null => {
 export const getNotifier = (): Notifier | null => loadNotifier();
 
 /**
+ * Whether the addon is loaded and can own the notification center. False when
+ * the addon is absent, disabled, or reports unsupported (an unbundled run),
+ * and false rather than a throw when the probe itself fails, so a caller at
+ * boot cannot be taken down by it.
+ */
+export const isNotifierSupported = (): boolean => {
+  const notifier = loadNotifier();
+  if (!notifier) {
+    return false;
+  }
+  try {
+    return notifier.isSupported();
+  } catch (error) {
+    log.warn("[notifier] isSupported failed:", error);
+    return false;
+  }
+};
+
+/**
  * Prompts for notification authorization through the addon, which keeps the
  * notification center's delegate with the addon. Resolves `null` when the
  * addon is unavailable or the call throws, so callers can fall back.
@@ -148,19 +172,13 @@ export const requestNotifierAuthorization =
       return Promise.resolve(null);
     }
     return new Promise((resolve) => {
-      let settled = false;
-      const settle = (result: NotifierAuthorizationResult | null): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve(result);
-      };
       try {
-        notifier.requestAuthorization(settle);
+        // `resolve` is idempotent, so an addon that answers twice cannot
+        // change the outcome.
+        notifier.requestAuthorization(resolve);
       } catch (error) {
         log.warn("[notifier] requestAuthorization failed:", error);
-        settle(null);
+        resolve(null);
       }
     });
   };

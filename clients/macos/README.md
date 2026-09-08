@@ -208,12 +208,24 @@ own notifications, and so does an addon that loads but answers
 `VELLUM_DISABLE_NATIVE_NOTIFIER=1` to force that fallback in a build that
 would otherwise use the addon.
 
+**Which notifications the addon posts.** The addon posts only notifications
+that carry a sender; everything else uses Electron's presenter, through the
+shared `createElectronNotification`. The avatar is the one thing the addon
+renders that Electron cannot, and the renderer attaches a sender only under the
+`push-avatar-sender` flag, so turning that flag off restores Electron as the
+delivery path for every notification without shipping a new build.
+
 Notification categories carry the action buttons, and
 `setNotificationCategories:` applies asynchronously, so a category first
 registered in the runloop turn its notification is posted can miss it and the
 buttons never render. `src/main/index.ts` registers every action set through
-`registerCategories` at startup instead, and the addon unions its own set with
-whatever the notification center already holds rather than replacing it.
+`registerCategories` at startup instead, deriving the set from the shared
+`NOTIFICATION_CATEGORIES` and `CATEGORY_ACTIONS` pair so it covers every set
+the app can post, and the addon unions its own set with whatever the
+notification center already holds rather than replacing it. An identifier that
+is still unregistered when a notification is posted cannot be repaired in that
+same runloop turn, so the notification goes out with no category and the
+`shown` event carries the reason.
 
 **Delegate rule.** Electron's `NotificationPresenterMac` claims
 `UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it is
@@ -230,10 +242,11 @@ renderer's Web Notification API all do. Three consequences:
   delegate and strands clicks on notifications already on screen.
 - The addon installs its own delegate, holds a strong reference to the one it
   displaced, forwards every response it does not own there, and re-asserts
-  itself on the way into `show` and `requestAuthorization`. Those two entry
-  points plus the permission probe above are every path in the app that
-  touches the notification center, which is why no periodic reclaim is needed.
-  `restoreDelegate()` hands the seat back at `before-quit`.
+  itself on the way into `show` and `requestAuthorization`. Electron builds its
+  presenter at most once, so a sender-less notification moves the delegate a
+  single time and the addon's next post takes it back, keeping Electron's
+  presenter as the delegate it forwards to. `restoreDelegate()` hands the seat
+  back at `before-quit`.
 
 **Rebuild:**
 
@@ -244,7 +257,12 @@ bash scripts/build-notifier.sh   # also runs as part of `bun run setup` and `bun
 It compiles against the headers for the Electron version pinned in
 `package.json` and writes `resources/notifier/<arch>/vellum-notifier.node`,
 which `electron-builder` packs to `bin/notifier/` and `scripts/afterSign.js`
-re-signs with `inherit.plist`.
+re-signs with `inherit.plist`. `ELECTRON_TARGET_ARCH` picks the architecture
+(arm64 by default, the same default `pack.sh` and
+`electron-builder.config.cjs` use). The script fails when the compiled slice is
+not the one that was asked for, and `afterSign.js` fails again when the packed
+addon is not the architecture being packaged, because a mismatched addon does
+not load and the app quietly falls back to plain notifications.
 
 **Provisioning profile switch.** `com.apple.developer.usernotifications.communication`
 is a restricted entitlement: an app declaring it without an authorizing
@@ -253,8 +271,11 @@ provisioning profile is killed at launch. `electron-builder.config.cjs` sets
 profile that exists on disk, and throws when the variable is set to a file that
 is not there rather than quietly signing the plain entitlements under a name
 that says otherwise. The release workflows decode one there from the
-`MAC_PROVISIONING_PROFILE` secret and prove it parses with `security cms -D`
-before exporting the variable.
+`MAC_PROVISIONING_PROFILE` secret, then assert with `PlistBuddy` that its
+entitlements grant `com.apple.developer.usernotifications.communication` and
+that its `application-identifier` ends with the bundle id the environment
+packs, before exporting the variable. An unset secret is a warning saying the
+native notifier ships disabled.
 
 That build signs with an entitlements plist derived at pack time by
 `scripts/entitlements/derive-communication-entitlements.js`, which reads

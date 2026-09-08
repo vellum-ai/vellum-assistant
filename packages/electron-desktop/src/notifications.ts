@@ -134,16 +134,21 @@ export interface CategoryAction {
  * `toolConfirmation`      → "Allow" / "Deny"
  * `voiceResponseComplete` → "View Response"
  * `notificationIntent`    → "View" (follow the deep link)
+ *
+ * Exported because a client that posts through its own `create` factory has
+ * to register the same label sets with the OS ahead of time, and a second copy
+ * of them drifts.
  */
-const CATEGORY_ACTIONS: Record<NotificationCategory, CategoryAction[]> = {
-  activityComplete: [{ type: "button", text: "View Results" }],
-  toolConfirmation: [
-    { type: "button", text: "Allow" },
-    { type: "button", text: "Deny" },
-  ],
-  voiceResponseComplete: [{ type: "button", text: "View Response" }],
-  notificationIntent: [{ type: "button", text: "View" }],
-};
+export const CATEGORY_ACTIONS: Record<NotificationCategory, CategoryAction[]> =
+  {
+    activityComplete: [{ type: "button", text: "View Results" }],
+    toolConfirmation: [
+      { type: "button", text: "Allow" },
+      { type: "button", text: "Deny" },
+    ],
+    voiceResponseComplete: [{ type: "button", text: "View Response" }],
+    notificationIntent: [{ type: "button", text: "View" }],
+  };
 
 /**
  * Per-category cooldown thresholds (milliseconds). Suppresses duplicate
@@ -226,14 +231,14 @@ const pruneStaleEntries = (): void => {
  * Swift client, which acks only after `UNUserNotificationCenter.add(...)`'s
  * completion handler resolves.
  *
- * On the default `electron.Notification` path the very first notification
- * races the macOS permission prompt: neither event fires until the user
- * answers. A client whose `create` factory owns the notification center (the
- * macOS native addon) prompts for authorization up front instead, so its first
- * notification is posted against an answered prompt. The timeout is
- * deliberately generous so a user who takes a few seconds to click "Allow"
- * still acks as delivered; only a genuinely unanswered or dropped notification
- * falls through to the conservative "not confirmed" failure ack.
+ * The first notification races the macOS permission prompt on both delivery
+ * paths: `electron.Notification` posts against a prompt the user has yet to
+ * answer, and the macOS native addon requests authorization inside the post
+ * itself. Neither reports an outcome until the user answers, so the timeout
+ * has to cover the prompt. It is deliberately generous so a user who takes a
+ * few seconds to click "Allow" still acks as delivered; only a genuinely
+ * unanswered or dropped notification falls through to the conservative "not
+ * confirmed" failure ack.
  */
 const DELIVERY_TIMEOUT_MS = 30_000;
 
@@ -268,8 +273,11 @@ interface ShowResult {
  * avatar never reaches this path there: a client that renders the sender on
  * macOS or Windows supplies its own `create` factory, and this path ignores
  * `sender` on both. Windows toasts have no icon slot on this path at all.
+ *
+ * Exported so a `create` factory that only handles some notifications can hand
+ * the rest back to Electron's presenter.
  */
-const createElectronNotification = (
+export const createElectronNotification = (
   options: NotificationCreateOptions,
 ): NotificationLike => {
   const { sender, ...constructorOptions } = options;

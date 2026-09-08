@@ -110,7 +110,7 @@ import {
   createNativeNotificationFactory,
   registerNativeNotificationCategories,
 } from "./native-notifications";
-import { getNotifier, restoreNotifierDelegate } from "./notifier";
+import { isNotifierSupported, restoreNotifierDelegate } from "./notifier";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -462,13 +462,12 @@ app
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads({ handle });
     installPowerEvents();
-    // The addon owns the notification center only when it says it can have it:
-    // an unbundled run loads it fine and then reports unsupported, because
-    // UNUserNotificationCenter raises there. `isSupported` ships with `create`
-    // rather than being left to the shared module's default; see the delegate
-    // rule in README.md.
-    const notifier = getNotifier();
-    const nativeNotifications = notifier?.isSupported()
+    // The addon takes the notifications the assistant avatar can ride on only
+    // when it says it can have them: an unbundled run loads it fine and then
+    // reports unsupported, because UNUserNotificationCenter raises there.
+    // `isSupported` ships with `create` rather than being left to the shared
+    // module's default; see the delegate rule in README.md.
+    const nativeNotifications = isNotifierSupported()
       ? createNativeNotificationFactory()
       : null;
     configureNotifications({

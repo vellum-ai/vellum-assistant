@@ -131,9 +131,13 @@ jobs:
           console.log("vellum-notifier loaded; isSupported =", addon.exports.isSupported());
           process.exit(0);
           JS
+          # build-notifier.sh writes one architecture and clears the rest, so
+          # the addon is whatever it left behind. Resolving it that way keeps
+          # the smoke load honest about the arch the build actually produced.
+          ADDON="$(ls resources/notifier/*/vellum-notifier.node)"
           ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron \
             "$RUNNER_TEMP/smoke-notifier.js" \
-            "resources/notifier/$(node -p 'process.arch')/vellum-notifier.node"
+            "$ADDON"
 
   checks:
     name: Type Check, Build & Test
