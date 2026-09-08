@@ -143,6 +143,7 @@ describe("processGuardianDecision resolver failures", () => {
       ok: true,
       applied: false,
       reason: "resolver_failed",
+      committed: true,
       resolverFailureReason: "resolver_threw",
     });
   });
@@ -163,6 +164,7 @@ describe("processGuardianDecision resolver failures", () => {
       ok: true,
       applied: false,
       reason: "decision_not_persisted",
+      committed: false,
       resolverFailureReason: "gateway_unreachable",
     });
   });

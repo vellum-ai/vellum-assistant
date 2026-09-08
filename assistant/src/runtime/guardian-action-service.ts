@@ -64,6 +64,16 @@ export type ProcessGuardianDecisionResult =
       ok: true;
       applied: false;
       reason: string;
+      /**
+       * Whether the decision was recorded before the decline. Present only
+       * for the two resolver failures: `true` under `resolver_failed` (the
+       * decision committed and its follow-through failed), `false` under
+       * `decision_not_persisted` (nothing was written; the guardian can
+       * retry). A client reads this rather than the reason so an older
+       * daemon, which reports both under `resolver_failed` and omits the
+       * field, is not misread as having committed.
+       */
+      committed?: boolean;
       resolverFailureReason?: string;
       requestId?: string;
     }
@@ -150,6 +160,7 @@ export async function processGuardianDecision(
         ok: true,
         applied: false,
         reason: committed ? "resolver_failed" : "decision_not_persisted",
+        committed,
         resolverFailureReason: decisionResult.resolverFailureReason,
         requestId: decisionResult.requestId,
       };

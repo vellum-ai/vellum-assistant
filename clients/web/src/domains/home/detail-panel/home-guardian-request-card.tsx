@@ -81,8 +81,12 @@ export function HomeGuardianRequestCard({
   };
 
   // Only this request's outcome counts: the hook remembers every decision
-  // made this session, wherever it was made.
+  // made this session, wherever it was made. A decision in flight from the
+  // bell's row holds this card's buttons the same as one made from here.
   const outcome = decision.outcomes.get(guardianRequest.requestId) ?? null;
+  const isDecisionInFlight =
+    decision.isPending ||
+    decision.pendingRequestIds.has(guardianRequest.requestId);
   // A recorded decision shows as its receipt at once, even when the step
   // after it failed: the daemon has the decision, and another attempt could
   // only come back already resolved.
@@ -193,14 +197,14 @@ export function HomeGuardianRequestCard({
         <div className="flex flex-wrap gap-[var(--app-spacing-sm)]">
           <Button
             variant="primary"
-            disabled={decision.isPending || !decision.canDecide}
+            disabled={isDecisionInFlight || !decision.canDecide}
             onClick={() => decide("approve_once")}
           >
             {t("homeGuardianRequestCard.approve")}
           </Button>
           <Button
             variant="outlined"
-            disabled={decision.isPending || !decision.canDecide}
+            disabled={isDecisionInFlight || !decision.canDecide}
             onClick={() => decide("reject")}
           >
             {t("homeGuardianRequestCard.reject")}
