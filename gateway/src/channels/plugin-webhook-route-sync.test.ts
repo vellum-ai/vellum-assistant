@@ -167,6 +167,35 @@ describe("watchPluginIngressForWebhookRoutes", () => {
     unwatch();
   });
 
+  it("retries a failed settle on the next poll tick", async () => {
+    // The cache commits its fingerprint before the settle runs, so without a
+    // retained retry a reconcile that failed once would stay stale until the
+    // next declaration change or restart.
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 0 });
+    let fail = true;
+    const unwatch = watchPluginIngressForWebhookRoutes({
+      subscribe: (cb) => cache.onChange(cb),
+      resolve: () => {
+        if (fail) {
+          fail = false;
+          throw new Error("transient");
+        }
+        return resolvePluginIngress({ workspaceDir });
+      },
+      refresh: () => {},
+      pollIntervalMs: 10,
+    });
+
+    writePlugin("meeting-bot");
+    cache.get();
+    await settle();
+    expect(listWebhookIngressRoutes()).toEqual([]);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(listWebhookIngressRoutes()).toHaveLength(2);
+    unwatch();
+  });
+
   it("stops reconciling once unsubscribed", async () => {
     const cache = new PluginIngressCache({ workspaceDir, ttlMs: 0 });
     watch(cache)();

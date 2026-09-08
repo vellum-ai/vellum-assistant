@@ -33,7 +33,7 @@ const DISCOVERY_POLL_INTERVAL_MS = 60_000;
  */
 export function reconcilePluginWebhookRoutes(
   resolve: () => PluginIngressResolution = resolvePluginIngress,
-): void {
+): boolean {
   try {
     const { added, removed, rejected } = reconcilePluginWebhookIngressRoutes(
       listServablePluginWebhookPaths(resolve()),
@@ -50,11 +50,13 @@ export function reconcilePluginWebhookRoutes(
         "Declared paths the webhook registry will not claim were skipped",
       );
     }
+    return true;
   } catch (err) {
     log.warn(
       { err },
       "Failed to reconcile webhook routes against plugin ingress declarations",
     );
+    return false;
   }
 }
 
@@ -86,16 +88,25 @@ export function watchPluginIngressForWebhookRoutes(opts?: {
     });
   const pollIntervalMs = opts?.pollIntervalMs ?? DISCOVERY_POLL_INTERVAL_MS;
   let pending: ReturnType<typeof setTimeout> | undefined;
+  // Set by every change notification and cleared only by a settle that
+  // succeeded, so a failed settle is retried by the poll even though the
+  // discovery fingerprint has already moved on.
+  let dirty = false;
 
-  const unsubscribe = subscribe(() => {
+  const scheduleSettle = () => {
     if (pending !== undefined) {
       return;
     }
     pending = setTimeout(() => {
       pending = undefined;
-      reconcilePluginWebhookRoutes(resolve);
+      dirty = !reconcilePluginWebhookRoutes(resolve);
     }, 0);
     pending.unref?.();
+  };
+
+  const unsubscribe = subscribe(() => {
+    dirty = true;
+    scheduleSettle();
   });
 
   const poll = setInterval(() => {
@@ -103,6 +114,9 @@ export function watchPluginIngressForWebhookRoutes(opts?: {
       refresh();
     } catch (err) {
       log.warn({ err }, "Failed to refresh plugin ingress discovery");
+    }
+    if (dirty) {
+      scheduleSettle();
     }
   }, pollIntervalMs);
   poll.unref?.();
