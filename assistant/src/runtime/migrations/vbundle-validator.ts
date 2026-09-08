@@ -265,7 +265,10 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
 
     // File size in octal (bytes 124-135)
     const sizeStr = decodeNullTerminated(header, 124, 12);
-    const size = parseInt(sizeStr, 8) || 0;
+    const size = sizeStr ? Number.parseInt(sizeStr, 8) : 0;
+    if (!Number.isFinite(size) || size < 0) {
+      throw new Error("malformed tar size field");
+    }
 
     // Calculate data blocks
     const dataBlocks = Math.ceil(size / BLOCK_SIZE);

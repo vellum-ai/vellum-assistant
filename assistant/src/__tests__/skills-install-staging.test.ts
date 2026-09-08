@@ -103,6 +103,14 @@ describe("staged skill installs", () => {
       ),
     ).rejects.toThrow("dependency install failed");
 
+    expect(mockSpawn).toHaveBeenCalled();
+    expect(mockSpawn.mock.calls[0]?.[1]).toEqual([
+      "install",
+      "--omit=dev",
+      "--ignore-scripts",
+      "--no-save",
+    ]);
+
     expect(
       existsSync(join(workspaceDir, "skills", "demo-skill", "SKILL.md")),
     ).toBe(false);
