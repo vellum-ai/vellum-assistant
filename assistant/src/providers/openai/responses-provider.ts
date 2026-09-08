@@ -33,8 +33,8 @@ import {
 import {
   clampReasoningEffort,
   detectOpenAICompatibleContextOverflow,
-  snapReasoningEffortToSupported,
   type ReasoningEffortWire,
+  snapReasoningEffortToSupported,
 } from "./chat-completions-provider.js";
 import { serializeToolResult } from "./orphaned-tool-result.js";
 
