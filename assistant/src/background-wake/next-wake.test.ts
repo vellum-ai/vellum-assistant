@@ -80,6 +80,7 @@ describe("computeNextBackgroundWakeIntent", () => {
     heartbeatConsecutiveRunCapReached = false;
     schedules = [];
     computedCronNextRunAt = NOW + 3_600_000;
+    setConfig("ui", {});
   });
 
   test("returns heartbeat-only interval wake intent", () => {
@@ -107,6 +108,16 @@ describe("computeNextBackgroundWakeIntent", () => {
     expect(intent!.nextWakeAt).toBe(heartbeatNextRunAt);
     expect(intent!.actualNextDueAt).toBe(heartbeatNextRunAt);
     expect(intent!.reason).toBe("heartbeat");
+  });
+
+  test("resolves heartbeat timezone from the user zone when unset", () => {
+    setConfig("ui", { detectedTimezone: "America/Los_Angeles" });
+    const intent = computeWakeIntent(NOW);
+    expect(intent).not.toBeNull();
+    expect(intent!.sourcePayload.heartbeat!.timezone).toBe(
+      "America/Los_Angeles",
+    );
+    setConfig("ui", {});
   });
 
   test("returns heartbeat-only cron wake intent", () => {

@@ -258,7 +258,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .optional()
-        .describe("Timezone for cron evaluation"),
+        .describe("Timezone for cron and active-hours evaluation"),
     }),
     responseBody: z.object({
       enabled: z.boolean(),

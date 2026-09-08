@@ -21,7 +21,7 @@ Edit `config.json` using `file_edit`:
 
 1. **Enable heartbeat**: Set `heartbeat.enabled` to `true`.
 2. **Set interval**: Set `heartbeat.intervalMs` (milliseconds between runs, default: 3600000 = 1 hour).
-3. **Optional active hours**: Set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. Both must be set together.
+3. **Optional active hours**: Set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours in the heartbeat timezone. Hours use `heartbeat.timezone` when set, otherwise the user's configured or detected timezone (the host clock is last resort). Both must be set together.
 
 Example config.json heartbeat section:
 

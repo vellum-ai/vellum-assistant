@@ -24,6 +24,7 @@ import {
   retrospectiveRunsGetInfiniteOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -87,8 +88,11 @@ export function SystemTaskDetailPanel({
 }: SystemTaskDetailPanelProps) {
   const { t } = useTranslation("schedules");
   const navigate = useNavigate();
+  const effectiveTimezone = useEffectiveTimezone();
   const { heartbeatConfig, consolidationConfig, retrospectiveConfig } =
     systemTasks;
+  const heartbeatTimezone =
+    heartbeatConfig?.timezone || effectiveTimezone || null;
 
   let name: string;
   let subtitle: string;
@@ -100,7 +104,9 @@ export function SystemTaskDetailPanel({
 
   if (kind === "heartbeat") {
     name = t("systemTaskDetail.nameHeartbeat");
-    subtitle = heartbeatConfig ? heartbeatSubtitle(heartbeatConfig) : "";
+    subtitle = heartbeatConfig
+      ? heartbeatSubtitle(heartbeatConfig, heartbeatTimezone)
+      : "";
     enabled = heartbeatConfig?.enabled ?? false;
     nextRunAt = heartbeatConfig?.nextRunAt ?? null;
     lastRunAt = heartbeatConfig?.lastRunAt ?? null;
@@ -241,6 +247,12 @@ export function SystemTaskDetailPanel({
                 <InfoRow
                   label={t("systemTaskDetail.repeats")}
                   value={<span className="truncate">{subtitle}</span>}
+                />
+              ) : null}
+              {kind === "heartbeat" && heartbeatTimezone ? (
+                <InfoRow
+                  label={t("scheduleDetail.timezone")}
+                  value={<span className="truncate">{heartbeatTimezone}</span>}
                 />
               ) : null}
               {!isRetrospective ? (
