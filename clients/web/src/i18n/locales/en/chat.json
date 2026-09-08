@@ -1768,6 +1768,8 @@
     "flashOff": "Flash off",
     "flashOn": "Flash on",
     "flipCamera": "Flip camera",
+    "lightOff": "Light off",
+    "lightOn": "Light on",
     "minimizeAria": "Minimize voice room",
     "minimizeTooltip": "Minimize (session keeps going)",
     "muteAssistant": "Mute assistant",

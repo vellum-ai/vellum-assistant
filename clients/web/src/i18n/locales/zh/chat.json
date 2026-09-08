@@ -1694,6 +1694,8 @@
     "flashOff": "关闭闪光灯",
     "flashOn": "开启闪光灯",
     "flipCamera": "翻转摄像头",
+    "lightOff": "关闭补光灯",
+    "lightOn": "开启补光灯",
     "minimizeAria": "最小化语音房间",
     "minimizeTooltip": "最小化（会话仍在进行）",
     "muteAssistant": "静音助手",
