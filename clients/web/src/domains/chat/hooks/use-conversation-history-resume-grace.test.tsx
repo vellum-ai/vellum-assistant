@@ -52,7 +52,7 @@ const { useConversationHistory } = await import(
   "@/domains/chat/hooks/use-conversation-history"
 );
 
-const DEFAULT_RESUME_GRACE_MS = 15_000;
+const DEFAULT_RESUME_GRACE_MS = 30_000;
 const queryClient = new QueryClient();
 
 function Wrapper({ children }: { children: ReactNode }) {
