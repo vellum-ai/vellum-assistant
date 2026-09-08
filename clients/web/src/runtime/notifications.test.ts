@@ -110,8 +110,8 @@ const { clearNotificationAvatar, setNotificationAvatar } =
   await import("@/runtime/notification-avatar");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
-const { useResolvedAssistantsStore } =
-  await import("@/stores/resolved-assistants-store");
+const { useClientFeatureFlagStore } =
+  await import("@/stores/client-feature-flag-store");
 
 const setVisibility = (state: "visible" | "hidden") => {
   Object.defineProperty(document, "visibilityState", {
@@ -376,6 +376,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
 
 describe("postLocalNotification sender (Electron branch)", () => {
   const AVATAR = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const AVATAR_HASH = "b".repeat(64);
   const showMock = mock(async (_payload: ShowNotificationPayload) => ({
     success: true,
   }));
@@ -384,8 +385,10 @@ describe("postLocalNotification sender (Electron branch)", () => {
     electronHost = true;
     showMock.mockClear();
     clearNotificationAvatar();
-    useAssistantIdentityStore.getState().setIdentity("Aria", "1.0.0");
-    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Aria", "1.0.0", "assistant-1");
+    useClientFeatureFlagStore.setState({ pushAvatarSender: true });
     (window as unknown as { vellum?: unknown }).vellum = {
       notifications: { show: showMock },
     };
@@ -394,11 +397,12 @@ describe("postLocalNotification sender (Electron branch)", () => {
   afterEach(() => {
     clearNotificationAvatar();
     useAssistantIdentityStore.getState().clearIdentity();
+    useClientFeatureFlagStore.setState({ pushAvatarSender: false });
     delete (window as unknown as { vellum?: unknown }).vellum;
   });
 
   test("attaches the held avatar, the assistant's name and its id", async () => {
-    setNotificationAvatar("assistant-1", AVATAR, "sha256-abc");
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
 
     await postLocalNotification(baseArgs);
 
@@ -407,7 +411,7 @@ describe("postLocalNotification sender (Electron branch)", () => {
       id: "assistant-1",
       name: "Aria",
       avatarBase64: "iVBORw==",
-      avatarHash: "sha256-abc",
+      avatarHash: AVATAR_HASH,
     });
   });
 
@@ -419,7 +423,7 @@ describe("postLocalNotification sender (Electron branch)", () => {
   });
 
   test("sends no sender when the assistant has no name yet", async () => {
-    setNotificationAvatar("assistant-1", AVATAR, "sha256-abc");
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
     useAssistantIdentityStore.getState().clearIdentity();
 
     await postLocalNotification(baseArgs);
@@ -428,7 +432,40 @@ describe("postLocalNotification sender (Electron branch)", () => {
   });
 
   test("sends no sender when the held avatar belongs to another assistant", async () => {
-    setNotificationAvatar("assistant-2", AVATAR, "sha256-abc");
+    setNotificationAvatar("assistant-2", AVATAR, AVATAR_HASH);
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender when the hydrated identity belongs to another assistant", async () => {
+    // The name and the face come from stores written at different moments in
+    // an assistant switch, so a name that is not this assistant's is refused
+    // rather than paired with a face that is.
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Nova", "1.0.0", "assistant-2");
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender when the notification is for a different assistant", async () => {
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+
+    await postLocalNotification({ ...baseArgs, assistantId: "assistant-9" });
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender while push-avatar-sender is off", async () => {
+    // The holder outlives the flag, so the send path checks it again rather
+    // than trusting that the hook has emptied it.
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+    useClientFeatureFlagStore.setState({ pushAvatarSender: false });
 
     await postLocalNotification(baseArgs);
 

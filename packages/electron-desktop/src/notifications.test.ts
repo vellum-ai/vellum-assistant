@@ -413,11 +413,13 @@ describe("interaction broadcast", () => {
 
 describe("sender", () => {
   const AVATAR_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+  const AVATAR_HASH =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const sender = {
     id: "assistant-1",
     name: "Aria",
     avatarBase64: AVATAR_PNG.toString("base64"),
-    avatarHash: "sha256-abc",
+    avatarHash: AVATAR_HASH,
   };
 
   const realPlatform = process.platform;
@@ -451,6 +453,29 @@ describe("sender", () => {
     ).toThrow();
   });
 
+  test("the captured schema rejects a hash that is not a SHA-256", () => {
+    // The hash names the avatar's cache file, so a value that is not 64
+    // lowercase hex characters has to be refused here rather than reaching the
+    // file the host writes.
+    const { schema } = showHandler();
+    for (const avatarHash of [
+      "sha256-abc",
+      "../escape",
+      AVATAR_HASH.toUpperCase(),
+    ]) {
+      expect(() =>
+        schema.parse([
+          {
+            category: "notificationIntent",
+            title: "t",
+            body: "b",
+            sender: { ...sender, avatarHash },
+          },
+        ]),
+      ).toThrow();
+    }
+  });
+
   test("hands the factory the decoded avatar bytes", async () => {
     const created: NotificationCreateOptions[] = [];
     configureNotifications({
@@ -476,7 +501,7 @@ describe("sender", () => {
       id: "assistant-1",
       name: "Aria",
       avatarPng: AVATAR_PNG,
-      avatarHash: "sha256-abc",
+      avatarHash: AVATAR_HASH,
     });
   });
 

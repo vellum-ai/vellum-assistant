@@ -38,11 +38,16 @@ export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
 
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 
-export const notificationSenderSchema = z.object({
+/**
+ * The hash names the file a host writes the avatar to, so the boundary that
+ * accepts it is where "64 lowercase hex characters" has to be true: anything
+ * else could escape the cache directory.
+ */
+const notificationSenderSchema = z.object({
   id: z.string(),
   name: z.string(),
   avatarBase64: z.string(),
-  avatarHash: z.string(),
+  avatarHash: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
 export const showNotificationPayloadSchema = z.object({

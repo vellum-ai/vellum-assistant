@@ -16,10 +16,9 @@ import { encodeBase64Bytes } from "@/utils/base64";
  */
 export interface NotificationAvatar {
   /**
-   * The assistant this picture was drawn for. `senderPayload()` reads the
-   * active assistant itself, so a held avatar is usable only while the two
-   * agree: after a switch the new assistant's name would otherwise be sent
-   * with the old one's face.
+   * The assistant this picture was drawn for. `senderPayload()` refuses a face
+   * that was not drawn for the notification's own assistant, so after a switch
+   * the new assistant's name cannot be sent with the old one's face.
    */
   assistantId: string;
   /** The disc PNG as base64, with no data-URI prefix. */

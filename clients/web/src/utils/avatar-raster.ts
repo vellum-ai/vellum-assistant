@@ -190,13 +190,24 @@ export async function rasterizeNotificationAvatar(
   const { canvas, ctx } = surface;
 
   const radius = size / 2;
+  const discPath = (): void => {
+    ctx.beginPath();
+    ctx.arc(radius, radius, radius, 0, Math.PI * 2);
+  };
+
+  discPath();
   ctx.fillStyle = notificationAvatarDiscHex(accentHex);
-  ctx.beginPath();
-  ctx.arc(radius, radius, radius, 0, Math.PI * 2);
   ctx.fill();
 
+  // The avatar goes through the same disc, the one the SVG is clipped to, so a
+  // source whose subject runs to its own edges keeps the round silhouette
+  // instead of painting square corners over the fill.
+  ctx.save();
+  discPath();
+  ctx.clip();
   const inset = size * NOTIFICATION_AVATAR_INSET;
   drawCoverSquare(ctx, image, inset, inset, size - 2 * inset);
+  ctx.restore();
 
   return encodeCanvas(canvas, "image/png");
 }

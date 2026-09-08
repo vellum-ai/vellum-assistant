@@ -690,7 +690,11 @@ export interface NotificationSender {
    * canvas.
    */
   avatarBase64: string;
-  /** Content hash of the PNG, so a host can name a cache file by it. */
+  /**
+   * SHA-256 of the PNG, 64 lowercase hex characters, so a host can name a
+   * cache file by it. The schema enforces the shape, because the file name is
+   * what it becomes.
+   */
   avatarHash: string;
 }
 
