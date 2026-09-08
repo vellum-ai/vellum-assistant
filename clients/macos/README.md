@@ -207,14 +207,21 @@ own notifications.
 **Delegate rule.** Electron's `NotificationPresenterMac` claims
 `UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it is
 constructed, which `new Notification()`, `Notification.isSupported()`, and the
-renderer's Web Notification API all do. Two consequences:
+renderer's Web Notification API all do. Three consequences:
 
 - The client must pass `isSupported` to `configureNotifications` alongside
   `create`. The shared module otherwise falls back to
   `electron.Notification.isSupported()`, and that call alone builds the
   presenter.
+- The notifications permission probe in `src/main/permissions-service.ts` goes
+  through the addon's `requestAuthorization()` whenever the addon is loaded.
+  Constructing an `electron.Notification` there hands the presenter the
+  delegate and strands clicks on notifications already on screen.
 - The addon installs its own delegate, remembers the previous one, forwards
-  every response it does not own to it, and re-asserts itself before each post.
+  every response it does not own to it, and re-asserts itself before each post
+  and each permission prompt. `reassertDelegate()` exposes the same reclaim to
+  JavaScript, and `startNotifierDelegateGuard()` calls it on a timer as
+  insurance against a presenter built by some path not listed here.
 
 **Rebuild:**
 

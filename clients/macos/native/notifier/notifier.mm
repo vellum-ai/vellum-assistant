@@ -13,9 +13,11 @@
 // `UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it
 // is constructed (by `new Notification()`, by `Notification.isSupported()`, or
 // by the renderer's Web Notification API). This addon installs its own
-// delegate, remembers whichever delegate was installed before it, forwards
-// every response it does not own to that delegate, and re-asserts itself
-// before each post so a late Electron presenter cannot take the seat back.
+// delegate, remembers whichever delegate was installed before it, and forwards
+// every response it does not own to that delegate. Every entry point that
+// touches the notification center re-asserts the delegate first, and
+// `reassertDelegate()` lets JavaScript do the same between posts, so a late
+// Electron presenter cannot keep the seat.
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
@@ -417,16 +419,86 @@ Napi::Value IsSupported(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(info.Env(), IsBundled());
 }
 
+// Reclaims the notification center's delegate. Idempotent, and cheap enough to
+// call on a timer: the addon remembers whichever delegate it displaces and
+// keeps forwarding to it.
+Napi::Value ReassertDelegate(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (IsBundled()) {
+    EnsureDelegateInstalled();
+  }
+  return env.Undefined();
+}
+
+struct AuthorizationResult {
+  bool granted = false;
+  std::string error;
+};
+
+Napi::Object ToAuthorizationObject(Napi::Env env,
+                                   const AuthorizationResult &result) {
+  Napi::Object object = Napi::Object::New(env);
+  object.Set("granted", Napi::Boolean::New(env, result.granted));
+  if (!result.error.empty()) {
+    object.Set("error", Napi::String::New(env, result.error));
+  }
+  return object;
+}
+
+// Prompts for notification authorization and reports the answer to the
+// optional callback. This is the whole permission probe: going through
+// `electron.Notification` instead would build Electron's presenter, which
+// takes the delegate and strands responses to notifications already on screen.
 Napi::Value RequestAuthorization(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
+  const bool hasCallback = info.Length() > 0 && info[0].IsFunction();
   if (!IsBundled()) {
+    if (hasCallback) {
+      AuthorizationResult result;
+      result.error = "Notifications require a bundled app";
+      info[0].As<Napi::Function>().Call({ToAuthorizationObject(env, result)});
+    }
     return env.Undefined();
   }
+
+  EnsureDelegateInstalled();
+
+  Napi::ThreadSafeFunction *tsfn = nullptr;
+  if (hasCallback) {
+    Napi::ThreadSafeFunction created =
+        Napi::ThreadSafeFunction::New(env, info[0].As<Napi::Function>(),
+                                      "vellum-notifier-authorization", 0, 1);
+    // The prompt waits on the user, so it must not hold the process open.
+    created.Unref(env);
+    tsfn = new Napi::ThreadSafeFunction(created);
+  }
+
   [[UNUserNotificationCenter currentNotificationCenter]
       requestAuthorizationWithOptions:UNAuthorizationOptionAlert |
                                       UNAuthorizationOptionSound |
                                       UNAuthorizationOptionBadge
-                    completionHandler:^(BOOL granted, NSError *error){
+                    completionHandler:^(BOOL granted, NSError *error) {
+                      if (tsfn == nullptr) {
+                        return;
+                      }
+                      auto *payload = new AuthorizationResult();
+                      payload->granted = granted == YES;
+                      if (granted != YES && error != nil) {
+                        payload->error =
+                            ToStdString(error.localizedDescription);
+                      }
+                      const napi_status status = tsfn->BlockingCall(
+                          payload, [](Napi::Env env, Napi::Function jsCallback,
+                                      AuthorizationResult *value) {
+                            jsCallback.Call(
+                                {ToAuthorizationObject(env, *value)});
+                            delete value;
+                          });
+                      if (status != napi_ok) {
+                        delete payload;
+                      }
+                      tsfn->Release();
+                      delete tsfn;
                     }];
   return env.Undefined();
 }
@@ -533,6 +605,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
   exports.Set("requestAuthorization",
               Napi::Function::New(env, RequestAuthorization));
+  exports.Set("reassertDelegate", Napi::Function::New(env, ReassertDelegate));
   exports.Set("show", Napi::Function::New(env, Show));
   return exports;
 }

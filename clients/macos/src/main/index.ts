@@ -107,7 +107,7 @@ import {
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
 import { createNativeNotificationFactory } from "./native-notifications";
-import { isNotifierAvailable } from "./notifier";
+import { isNotifierAvailable, startNotifierDelegateGuard } from "./notifier";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -474,6 +474,12 @@ app
       ...(nativeNotifications ?? {}),
     });
     installNotifications();
+    // Insurance for the delegate the addon installs: no main-process path
+    // builds Electron's presenter while the addon is loaded, but one that
+    // appeared some other way would hold the notification center's delegate
+    // until the next native post and swallow clicks in the meantime.
+    const stopNotifierDelegateGuard = startNotifierDelegateGuard();
+    app.on("before-quit", stopNotifierDelegateGuard);
     installWindowAttentionFeature();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during

@@ -100,9 +100,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -124,7 +121,8 @@ jobs:
           cat > "$RUNNER_TEMP/smoke-notifier.js" <<'JS'
           const addon = { exports: {} };
           process.dlopen(addon, process.argv[2]);
-          for (const name of ["isSupported", "requestAuthorization", "show"]) {
+          const exported = ["isSupported", "requestAuthorization", "reassertDelegate", "show"];
+          for (const name of exported) {
             if (typeof addon.exports[name] !== "function") {
               console.error(`vellum-notifier: missing export ${name}`);
               process.exit(1);

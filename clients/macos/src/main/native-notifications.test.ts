@@ -41,6 +41,7 @@ mock.module("./notifier", () => ({
       ? {
           isSupported: () => notifierSupported,
           requestAuthorization: () => undefined,
+          reassertDelegate: () => undefined,
           show: (
             request: NotifierRequest,
             callback: (event: NotifierEvent) => void,

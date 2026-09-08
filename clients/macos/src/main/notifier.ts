@@ -39,10 +39,19 @@ export interface NotifierEvent {
   error?: string;
 }
 
+export interface NotifierAuthorizationResult {
+  granted: boolean;
+  error?: string;
+}
+
 export interface Notifier {
   /** False in an unbundled process, where UNUserNotificationCenter raises. */
   isSupported(): boolean;
-  requestAuthorization(): void;
+  requestAuthorization(
+    callback?: (result: NotifierAuthorizationResult) => void,
+  ): void;
+  /** Reclaims the notification center's delegate. Idempotent. */
+  reassertDelegate(): void;
   show(
     request: NotifierRequest,
     callback: (event: NotifierEvent) => void,
@@ -64,6 +73,7 @@ const isNotifier = (value: unknown): value is Notifier => {
   return (
     typeof candidate.isSupported === "function" &&
     typeof candidate.requestAuthorization === "function" &&
+    typeof candidate.reassertDelegate === "function" &&
     typeof candidate.show === "function"
   );
 };
@@ -101,8 +111,79 @@ export const getNotifier = (): Notifier | null => loadNotifier();
 
 export const isNotifierAvailable = (): boolean => loadNotifier() !== null;
 
+/**
+ * Prompts for notification authorization through the addon, which keeps the
+ * notification center's delegate with the addon. Resolves `null` when the
+ * addon is unavailable or the call throws, so callers can fall back.
+ */
+export const requestNotifierAuthorization =
+  (): Promise<NotifierAuthorizationResult | null> => {
+    const notifier = loadNotifier();
+    if (!notifier) {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (result: NotifierAuthorizationResult | null): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(result);
+      };
+      try {
+        notifier.requestAuthorization(settle);
+      } catch (error) {
+        log.warn("[notifier] requestAuthorization failed:", error);
+        settle(null);
+      }
+    });
+  };
+
+export const reassertNotifierDelegate = (): void => {
+  const notifier = loadNotifier();
+  if (!notifier) {
+    return;
+  }
+  try {
+    notifier.reassertDelegate();
+  } catch (error) {
+    log.warn("[notifier] reassertDelegate failed:", error);
+  }
+};
+
+const DELEGATE_GUARD_INTERVAL_MS = 30_000;
+
+/**
+ * Takes the notification center's delegate back on a timer.
+ *
+ * Nothing in the main process constructs `electron.Notification` while the
+ * addon is loaded, so this is insurance rather than the mechanism: a presenter
+ * built by some other path would otherwise hold the delegate until the next
+ * native post, and clicks on notifications already on screen would be dropped.
+ * Reclaiming is a delegate comparison and an assignment.
+ */
+export const startNotifierDelegateGuard = (
+  intervalMs: number = DELEGATE_GUARD_INTERVAL_MS,
+): (() => void) => {
+  if (!isNotifierAvailable()) {
+    return () => undefined;
+  }
+  reassertNotifierDelegate();
+  const timer = setInterval(reassertNotifierDelegate, intervalMs);
+  timer.unref?.();
+  return () => {
+    clearInterval(timer);
+  };
+};
+
 // Test seam: clears the one-shot load result so a test can point the loader
 // at a different path.
 export const __resetNotifierForTesting = (): void => {
   cached = undefined;
+};
+
+// Test seam: stands in for an addon that cannot be dlopened off macOS.
+export const __setNotifierForTesting = (notifier: Notifier | null): void => {
+  cached = notifier;
 };
