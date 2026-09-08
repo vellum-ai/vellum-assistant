@@ -754,8 +754,8 @@ function parsePagingParam(
   if (raw === undefined || raw === "") {
     return undefined;
   }
-  const parsed = Math.trunc(Number(raw));
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed)) {
     throw new BadRequestError(`${name} must be an integer`);
   }
   return parsed;

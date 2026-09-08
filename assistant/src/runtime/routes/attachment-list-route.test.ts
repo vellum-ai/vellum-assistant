@@ -295,6 +295,17 @@ describe("GET /v1/attachments", () => {
     ).toThrow(BadRequestError);
   });
 
+  test("rejects a fractional limit or offset", async () => {
+    const seeded = await seedConversation();
+
+    expect(() =>
+      listAttachments({ conversationId: seeded.conversationId, limit: "1.9" }),
+    ).toThrow(BadRequestError);
+    expect(() =>
+      listAttachments({ conversationId: seeded.conversationId, offset: "2.5" }),
+    ).toThrow(BadRequestError);
+  });
+
   test("hydrates the thumbnail for the returned page only", async () => {
     const conversation = createConversation("Clips");
 
