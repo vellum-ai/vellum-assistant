@@ -1537,6 +1537,18 @@
     "selectModelPlaceholder": "Выбор модели",
     "selectProviderPlaceholder": "Выбор провайдера…"
   },
+  "profileModalitiesSection": {
+    "audio": "Аудио",
+    "enableAria": "Включить {modality}",
+    "enabledColumn": "Включено",
+    "helper": "Модель получает модальность, только если она включена и отмечена как поддерживаемая. Изображения, которые не отправляются так, подписываются текстом.",
+    "image": "Изображение",
+    "resolvedOff": "Не отправляется модели",
+    "resolvedOn": "Отправляется модели",
+    "supportedAria": "Модель поддерживает {modality}",
+    "supportedColumn": "Модель поддерживает",
+    "title": "Модальности"
+  },
   "profileRow": {
     "actionsAriaLabel": "Действия для {displayName}",
     "defaultTag": "По умолчанию",

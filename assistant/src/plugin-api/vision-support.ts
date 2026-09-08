@@ -22,6 +22,12 @@
  */
 
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
+import {
+  catalogEntryFor,
+  type InputModalities,
+  modalitiesOf,
+  resolveModalityOverride,
+} from "../config/input-modalities.js";
 import { getConfig } from "../config/loader.js";
 import { resolveEntryProviderKind } from "../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
@@ -42,12 +48,50 @@ export function doesSupportVision(
   modelOrProfile: ModelProfileInfo | string,
 ): boolean {
   if (typeof modelOrProfile === "string") {
-    // Concrete model id first, then fall back to treating it as a profile key.
+    // Concrete catalog model id first, then a profile key, then any profile
+    // bound to that model id (so a free-text override is visible to callers
+    // that only have the provider-reported model, e.g. post-tool-use).
     return (
-      modelVision(modelOrProfile) ?? profileVision(modelOrProfile) ?? false
+      modelVision(modelOrProfile) ??
+      profileVision(modelOrProfile) ??
+      modelVisionFromBoundProfiles(modelOrProfile) ??
+      false
     );
   }
   return profileVision(modelOrProfile.key) ?? false;
+}
+
+/**
+ * Vision from a profile whose `model` field matches `model`. Used when the
+ * catalog does not know the id (openai-compatible / free-text). Any bound
+ * profile that declares image support wins so tool-result images are not
+ * captioned for a model the user marked as vision-capable.
+ */
+function modelVisionFromBoundProfiles(model: string): boolean | undefined {
+  const profiles = getConfig().llm.profiles ?? {};
+  let sawUnknown = false;
+  let sawFalse = false;
+  for (const entry of Object.values(profiles)) {
+    if (entry?.model !== model || entry.mix != null) {
+      continue;
+    }
+    const vision = resolveEntryVision(entry);
+    if (vision === true) {
+      return true;
+    }
+    if (vision === false) {
+      sawFalse = true;
+    } else {
+      sawUnknown = true;
+    }
+  }
+  if (sawUnknown) {
+    return undefined;
+  }
+  if (sawFalse) {
+    return false;
+  }
+  return undefined;
 }
 
 /**
@@ -110,13 +154,16 @@ function profileVision(profileKey: string): boolean | undefined {
 /**
  * Resolve whether a concrete (non-mix) profile entry supports vision from its
  * own `(provider, model)`, inferring the provider from the catalog when only
- * the model is set. Returns `undefined` when the effective `(provider, model)`
- * can't be determined or isn't in the catalog — an entry that omits its model
- * is not a usable resolution target, so it fails safe to "caption".
+ * the model is set. A profile `inputModalities.image` override wins over the
+ * catalog. Returns `undefined` when the effective `(provider, model)` can't
+ * be determined or isn't in the catalog and no override is set — an entry
+ * that omits its model is not a usable resolution target, so it fails safe
+ * to "caption".
  */
 function resolveEntryVision(entry: {
   provider?: string;
   model?: string;
+  inputModalities?: InputModalities | null;
 }): boolean | undefined {
   // Routing identities ("vellum"/"chatgpt") are not catalog providers; the
   // model's catalog owner is the capability source for them.
@@ -142,12 +189,12 @@ function resolveEntryVision(entry: {
     (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);
 
   if (typeof effectiveProvider !== "string" || typeof model !== "string") {
-    return undefined;
+    return resolveModalityOverride(modalitiesOf(entry)?.image, undefined);
   }
 
-  const catalogProvider = PROVIDER_CATALOG.find(
-    (p) => p.id === effectiveProvider,
+  const catalogModel = catalogEntryFor(effectiveProvider, model);
+  return resolveModalityOverride(
+    modalitiesOf(entry)?.image,
+    catalogModel?.supportsVision,
   );
-  const catalogModel = catalogProvider?.models.find((m) => m.id === model);
-  return catalogModel?.supportsVision;
 }

@@ -65,6 +65,7 @@ beforeEach(() => {
   electron = false;
   capacitorPlatform = "web";
   delete (window as { vellum?: unknown }).vellum;
+  delete env.VITE_CHANNEL;
 });
 
 describe("initSentry DSN selection", () => {
@@ -125,6 +126,32 @@ describe("initSentry client_os tag", () => {
     setElectronHost("windows");
     initSentry();
     expect(clientOsTag()).toBe("windows");
+  });
+});
+
+describe("initSentry channel tag", () => {
+  function channelTag(): unknown {
+    return (
+      syncedOptions?.initialScope as
+        | { tags?: Record<string, unknown> }
+        | undefined
+    )?.tags?.channel;
+  }
+
+  test("tags preview builds", () => {
+    env.VITE_CHANNEL = "preview";
+    initSentry();
+    expect(channelTag()).toBe("preview");
+  });
+
+  test("leaves every other build untagged", () => {
+    env.VITE_CHANNEL = "stable";
+    initSentry();
+    expect(channelTag()).toBeUndefined();
+
+    delete env.VITE_CHANNEL;
+    initSentry();
+    expect(channelTag()).toBeUndefined();
   });
 });
 

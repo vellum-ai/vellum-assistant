@@ -312,6 +312,44 @@ export interface LiveVoiceClientAttachFrameFrame {
 export interface LiveVoiceClientSightFrameFrame {
   readonly type: "sight_frame";
   readonly attachmentId: string;
+  /**
+   * How long the client's half of the frame took, for the daemon's log. The
+   * daemon adds its own half and the distance from the speech onset it
+   * announced, which is what makes a frame that answered the wrong question
+   * legible after the fact. Optional: an older client sends none.
+   */
+  readonly timing?: LiveVoiceSightFrameTiming;
+}
+
+/**
+ * The client leg of one kept frame, as durations between its own marks.
+ *
+ * Durations rather than timestamps because the two clocks are not the same
+ * clock: the client stamps from `performance.now` and the daemon from wall
+ * time, and only the client can say how long its encode and upload took.
+ * Every field is a non-negative whole number of milliseconds.
+ */
+export interface LiveVoiceSightFrameTiming {
+  /**
+   * Why the gate kept the frame: `forced` is the keep a speech onset asked
+   * for, everything else is the ambient cadence. Free-form so a new gate
+   * reason needs no daemon change to be logged.
+   */
+  readonly reason: string;
+  /**
+   * From the arm that asked for this keep to the keep itself. Present only on
+   * a forced keep, where it is the distance from the client hearing
+   * `speech_started` to a frame that postdates it.
+   */
+  readonly armToKeepMs?: number;
+  /** From the keep to a JPEG in hand, sized for upload. */
+  readonly keepToEncodedMs: number;
+  /** From the JPEG to the attachment id, which is the HTTP upload. */
+  readonly encodedToUploadedMs: number;
+  /** From the id to the send, which is the wait for older keeps to go first. */
+  readonly uploadedToSentMs: number;
+  /** The JPEG that was uploaded, in bytes. */
+  readonly bytes: number;
 }
 
 /**
@@ -932,9 +970,68 @@ function validateSightFrameFrame(
     );
   }
 
+  if (!("timing" in value) || value.timing === undefined) {
+    return {
+      ok: true,
+      frame: { type: "sight_frame", attachmentId: value.attachmentId },
+    };
+  }
+
+  const timing = validateSightFrameTiming(value.timing);
+  if (timing === null) {
+    return protocolError(
+      "invalid_field",
+      "sight_frame frame field timing must carry non-negative integer durations and a reason",
+      "timing",
+      "sight_frame",
+    );
+  }
+
   return {
     ok: true,
-    frame: { type: "sight_frame", attachmentId: value.attachmentId },
+    frame: { type: "sight_frame", attachmentId: value.attachmentId, timing },
+  };
+}
+
+/**
+ * Parse a `sight_frame`'s `timing`. Null for anything off-shape: a timing is
+ * for the log, so nothing about it is coerced, but a malformed one still
+ * refuses the frame, since a client that sends one means to send a whole one.
+ */
+function validateSightFrameTiming(
+  value: unknown,
+): LiveVoiceSightFrameTiming | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const isDuration = (duration: unknown): duration is number =>
+    isIntInRange(duration, 0, Number.MAX_SAFE_INTEGER);
+  const {
+    reason,
+    armToKeepMs,
+    keepToEncodedMs,
+    encodedToUploadedMs,
+    uploadedToSentMs,
+    bytes,
+  } = record;
+  if (
+    !isNonEmptyString(reason) ||
+    !isDuration(keepToEncodedMs) ||
+    !isDuration(encodedToUploadedMs) ||
+    !isDuration(uploadedToSentMs) ||
+    !isDuration(bytes) ||
+    (armToKeepMs !== undefined && !isDuration(armToKeepMs))
+  ) {
+    return null;
+  }
+  return {
+    reason,
+    ...(armToKeepMs !== undefined ? { armToKeepMs } : {}),
+    keepToEncodedMs,
+    encodedToUploadedMs,
+    uploadedToSentMs,
+    bytes,
   };
 }
 

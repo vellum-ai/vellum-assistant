@@ -186,7 +186,10 @@
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
-    "unmuteMicrophone": "解除麥克風靜音"
+    "unmuteMicrophone": "解除麥克風靜音",
+    "dictating": "正在聆聽",
+    "dictatingTranscribing": "正在思考",
+    "draw": "繪製"
   },
   "contentActionBar": {
     "copiedAria": "已複製",
@@ -882,5 +885,10 @@
       "label": "完全存取",
       "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小時",
+    "everyMinutes": "每 {count} 分鐘",
+    "retrospectiveSubtitle": "在對話活動後觸發"
   }
 }

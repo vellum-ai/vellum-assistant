@@ -20,6 +20,7 @@ import {
   setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useCallChords } from "@/domains/chat/voice/live-voice/use-call-chords";
 import {
   cancelPendingVoiceStart,
   startVoiceFromSurface,
@@ -156,6 +157,13 @@ export function RootLayout() {
   // from any route — including setMainView("chat") calls made while the chat
   // layout is unmounted — still sends the close signal.
   useChannelSetupCloseNotify();
+
+  // Option+S and Option+D while a call is running, from whatever application
+  // the user is in. Mounted here rather than beside the session because the
+  // binding follows the session's *state* and not its controller: the window
+  // that has a call is the one that arms them, and a window that has none
+  // never takes the keys.
+  useCallChords();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantVersion = useAssistantIdentityStore.use.version();

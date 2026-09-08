@@ -562,6 +562,25 @@ describe("server frame dispatch", () => {
     });
   });
 
+  test("sightFrame carries the frame's timing when it has one", async () => {
+    const { client, ws } = await ready();
+    const timing = {
+      reason: "forced",
+      armToKeepMs: 40,
+      keepToEncodedMs: 30,
+      encodedToUploadedMs: 200,
+      uploadedToSentMs: 0,
+      bytes: 12345,
+    };
+
+    expect(client.sightFrame("att-1", timing)).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "sight_frame",
+      attachmentId: "att-1",
+      timing,
+    });
+  });
+
   test("a rejected sight_frame is a routine drop, not a settings or session error", async () => {
     // The daemon reclaims the attachment on the path that sends this, so there
     // is nothing to retry and nothing to give back. What matters is where the
