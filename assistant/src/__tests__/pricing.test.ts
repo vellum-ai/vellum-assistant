@@ -121,6 +121,35 @@ describe("resolvePricing", () => {
       expect(result.estimatedCostUsd).toBeCloseTo(5 + 6.25 + 1 + 45, 10);
     });
 
+    test("bills GPT-6 Astra at published short-context rates", () => {
+      const result = resolvePricingForUsage("openai", "gpt-6-astra", {
+        directInputTokens: 50_000,
+        outputTokens: 0,
+        cacheCreationInputTokens: 50_000,
+        cacheReadInputTokens: 50_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      // 0.05M x $10 direct + 0.05M x $12.5 write + 0.05M x $1 read
+      expect(result.estimatedCostUsd).toBeCloseTo(0.5 + 0.625 + 0.05, 10);
+    });
+
+    test("bills GPT-6 Astra at the long-context tier above 272k", () => {
+      const result = resolvePricingForUsage("openai", "gpt-6-astra", {
+        directInputTokens: 500_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 500_000,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      // Tier rates: 0.5M x $20 direct + 0.5M x $25 write + 1M x $2 read
+      // + 1M x $75 output.
+      expect(result.estimatedCostUsd).toBeCloseTo(10 + 12.5 + 2 + 75, 10);
+    });
+
     test("uses OpenAI short-context tiers through 272k prompt tokens", () => {
       const result = resolvePricingForUsage("openai", "gpt-5.4", {
         directInputTokens: 272_000,
