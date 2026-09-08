@@ -1,12 +1,10 @@
 /**
- * The guardian a live-voice session runs as, resolved once at session scope.
+ * The guardian a live-voice turn runs as.
  *
- * The gateway pins the `/v1/live-voice` upgrade to the bound guardian, so the
- * daemon reconciles its own view with a forced read rather than trusting the
- * guardian-delivery cache, which holds a successful answer for minutes and
- * would otherwise stamp a turn with a principal the gateway did not admit.
- * Once per session rather than per turn is what keeps that round-trip off the
- * path to the model.
+ * The gateway admits the socket against its own binding and hands the
+ * principal down, so nothing here resolves one: a second reading taken later
+ * in the daemon is how an admitted session came to run as a guardian the
+ * gateway never let in.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -54,15 +52,8 @@ mock.module("../../runtime/local-actor-identity.js", () => ({
   },
 }));
 
-const { makeDefaultStartVoiceTurn, resolveLocalLiveVoiceIdentity } =
+const { resolveLocalLiveVoiceIdentity } =
   await import("../live-voice-session.js");
-
-/** Let the session's own read settle before asserting on it. */
-const flushMicrotasks = async (): Promise<void> => {
-  for (let i = 0; i < 5; i += 1) {
-    await Promise.resolve();
-  }
-};
 
 beforeEach(() => {
   lookups = [];
@@ -70,72 +61,15 @@ beforeEach(() => {
   lookupResult = undefined;
 });
 
-describe("live voice session guardian", () => {
-  /**
-   * The gateway admits a guardian at upgrade and revalidates nothing after,
-   * so the identity is bound as the session is built. Deferring to the first
-   * utterance would read a binding that changed in the silence between.
-   */
-  test("reads past the cache as the session is built", async () => {
-    lookupResult = "principal-guardian";
-
-    makeDefaultStartVoiceTurn();
-    await flushMicrotasks();
-
-    expect(lookups).toEqual([{ forceRefresh: true }]);
-  });
-
-  /**
-   * The whole reason this is session-scoped: a forced read per turn would put
-   * a gateway round-trip on every turn's path to the model.
-   */
-  test("costs one lookup however many turns the session runs", async () => {
-    lookupResult = "principal-guardian";
-
-    const start = makeDefaultStartVoiceTurn();
-    await flushMicrotasks();
-    void start;
-    await flushMicrotasks();
-
-    expect(lookups.length).toBe(1);
-  });
-
-  /** A separate session asks again, or a rebind would never be seen at all. */
-  test("a new session reads again", async () => {
-    lookupResult = "principal-guardian";
-
-    makeDefaultStartVoiceTurn();
-    makeDefaultStartVoiceTurn();
-    await flushMicrotasks();
-
-    expect(lookups.length).toBe(2);
-  });
-
-  /**
-   * A session that will not start is worse than one whose computer use is
-   * unavailable, so an unreachable gateway answers nobody rather than
-   * throwing.
-   */
-  test("a gateway that throws does not reject", async () => {
-    lookupResult = new Error("gateway unreachable");
-
-    makeDefaultStartVoiceTurn();
-    await flushMicrotasks();
-
-    expect(lookups.length).toBe(1);
-  });
-});
-
 /**
- * What a turn is stamped with once the session's read has settled.
+ * What a turn is stamped with, given what the gateway admitted.
  *
- * The two answers fail apart on purpose. A read that settles nothing still
- * knows the cached binding, which is enough to say what the turn may DO, and
- * not enough to say whose desktop it may reach: the gateway may have admitted
- * a guardian the cache has not caught up with.
+ * The two answers fail apart on purpose. A socket the gateway admitted
+ * without naming a guardian still has a cached binding to say what the turn
+ * may DO, and nothing to say whose desktop it may reach.
  */
 describe("live voice turn identity", () => {
-  test("stamps the actor the session's read settled", async () => {
+  test("stamps the guardian the gateway admitted", async () => {
     lookupResult = "principal-cached";
 
     const identity = await resolveLocalLiveVoiceIdentity("conv-1", {
@@ -144,7 +78,8 @@ describe("live voice turn identity", () => {
 
     expect(identity.actorPrincipalId).toBe("principal-admitted");
     expect(identity.trustContext).toBeDefined();
-    // The session's answer, never a second read behind its back.
+    // The gateway's answer, never a second read behind its back. Resolving
+    // one here is what let an admitted session run as a different guardian.
     expect(lookups.length).toBe(0);
     expect(trustLookups).toEqual(["principal-admitted"]);
   });
@@ -154,7 +89,7 @@ describe("live voice turn identity", () => {
    * risks reaching another user's desktop; stamping nothing costs this
    * session its host proxies and nothing else.
    */
-  test("leaves the actor unset when the session's read settled nothing", async () => {
+  test("leaves the actor unset when the gateway named no guardian", async () => {
     lookupResult = "principal-cached";
 
     const identity = await resolveLocalLiveVoiceIdentity("conv-2", {

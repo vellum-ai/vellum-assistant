@@ -6988,7 +6988,9 @@ export function createLiveVoiceSession(
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
         : options.resolveCredentialReadiness,
-    startVoiceTurn: options.startVoiceTurn ?? makeDefaultStartVoiceTurn(),
+    startVoiceTurn:
+      options.startVoiceTurn ??
+      makeDefaultStartVoiceTurn(context.guardianPrincipalId),
     streamTtsAudio:
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
@@ -7146,77 +7148,33 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
 }
 
 /**
- * The guardian this session belongs to, read past the cache, once.
- *
- * The gateway pins the `/v1/live-voice` upgrade to the bound guardian
- * (`requireBoundGuardian` in `checkLiveVoiceAuth`), so session open is the
- * moment the daemon's own view should be reconciled with the identity that was
- * admitted. The guardian-delivery cache holds a successful read for minutes,
- * so a rebind from one guardian to another inside that window would otherwise
- * leave a turn stamped with the principal the gateway did NOT admit, and the
- * host proxies would go looking for that principal's connected clients.
- *
- * Forced once per session rather than per turn. Per turn would put a gateway
- * round-trip on every turn's path to the model, which is the one thing the
- * pre-bridge timing above exists to watch.
- *
- * Best effort, and deliberately not fatal: a read that throws or names nobody
- * answers `undefined`, and the session then runs with cached trust and NO
- * actor. Its turns talk and act as they always did, and only their host-proxy
- * calls are refused, because the cached binding can say what the machine's
- * owner may do but not whether the gateway admitted that guardian or one it
- * was rebound from. A session that will not start is worse than one whose
- * computer use is unavailable.
- *
- * **The accepted remainder is a rebind that lands mid-session.** Reading once
- * is what keeps this off the turn path, and the cost is that a session already
- * open does not see the change until the next one.
- */
-async function resolveSessionGuardianPrincipalId(): Promise<
-  string | undefined
-> {
-  try {
-    const { findLocalGuardianPrincipalId } =
-      await import("../runtime/local-actor-identity.js");
-    return await findLocalGuardianPrincipalId({ forceRefresh: true });
-  } catch (err) {
-    log.warn(
-      { err },
-      "Live voice session guardian refresh failed; the session runs with cached trust and no actor",
-    );
-    return undefined;
-  }
-}
-
-/**
  * The default turn starter, bound to the guardian this session was admitted
  * for.
  *
- * **The read starts here, as the session is built, not on its first turn.**
- * The gateway pins the upgrade to the guardian bound at that moment and does
- * no per-message revalidation, so the admitted identity is the one in force
- * when the socket opened. A read deferred to the first utterance would see a
- * rebind that landed in the silence between and stamp the session with a
- * guardian the gateway never admitted, which is the same misattribution read
- * from the other end.
+ * **The identity is the gateway's, not one resolved here.** The gateway makes
+ * the admission decision against its own binding and hands the principal down
+ * on the upstream dial; the daemon is reached through a service token, so any
+ * answer it worked out for itself would be a second, later reading of a
+ * binding that can change in between, and a session admitted for one guardian
+ * could run as another. Resolving it here at all is what kept reintroducing
+ * that gap, so nothing here resolves it.
  *
- * The promise is the memo: every turn awaits this one, and it never rejects
- * (see {@link resolveSessionGuardianPrincipalId}). The cost is one gateway
- * read for a session that never speaks, which is the price of binding the
- * identity at admission rather than at first use.
+ * Absent when the gateway named nobody, and the session's turns then run with
+ * no actor.
  *
  * Exported for its tests, which are the only way to reach this: every caller
  * of `createLiveVoiceSession` in the suite injects its own `startVoiceTurn`,
  * so this starter is never driven there.
  */
-export function makeDefaultStartVoiceTurn(): LiveVoiceTurnStarter {
-  const sessionGuardian = resolveSessionGuardianPrincipalId();
-  return (options) => defaultStartVoiceTurn(options, sessionGuardian);
+export function makeDefaultStartVoiceTurn(
+  guardianPrincipalId?: string,
+): LiveVoiceTurnStarter {
+  return (options) => defaultStartVoiceTurn(options, guardianPrincipalId);
 }
 
 async function defaultStartVoiceTurn(
   options: VoiceTurnOptions,
-  sessionGuardian: Promise<string | undefined>,
+  guardianPrincipalId: string | undefined,
 ): Promise<VoiceTurnHandle> {
   // On the first turn of a brand-new chat the client's conversation id has no
   // persisted `conversations` row yet — the live-voice session adopts the id
@@ -7253,25 +7211,16 @@ async function defaultStartVoiceTurn(
   // denied; without the actor stamp it matches no connected client and every
   // host-proxy call is refused. Resolution stays fail-closed on both: a
   // gateway miss or missing binding leaves them unset, never a blind grant.
-  // Awaited before the trust timer starts, and measured on its own, because
-  // the two cost different things: this is the session's single forced
-  // gateway round-trip, paid by whichever turn happens to be first, where
-  // `trustMs` below is a cached read every turn pays. Folding them into one
-  // number would report the first turn as if every turn were that slow.
-  const guardianStartedAt = performance.now();
-  const sessionGuardianPrincipalId = await sessionGuardian;
-  const guardianMs = Math.round(performance.now() - guardianStartedAt);
   const trustStartedAt = performance.now();
   const { actorPrincipalId, trustContext } =
     await resolveLocalLiveVoiceIdentity(options.conversationId, {
-      principalId: sessionGuardianPrincipalId,
+      principalId: guardianPrincipalId,
     });
   const trustMs = Math.round(performance.now() - trustStartedAt);
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
   log.info(
     {
       conversationId: options.conversationId,
-      guardianMs,
       trustMs,
       sinceLaunchMs:
         options.launchedAtMs != null ? Date.now() - options.launchedAtMs : null,
