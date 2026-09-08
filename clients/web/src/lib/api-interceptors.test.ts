@@ -2915,10 +2915,13 @@ describe("successful daemon traffic", () => {
     async (_name, client, path, expected) => {
       await client.get({
         url: `https://app.example.test/v1/assistants/123/${path}`,
-        fetch: async () =>
-          new Response("{}", {
-            headers: { "Content-Type": "application/json" },
-          }),
+        fetch: Object.assign(
+          async () =>
+            new Response("{}", {
+              headers: { "Content-Type": "application/json" },
+            }),
+          { preconnect: () => {} },
+        ),
       });
       expect(useAssistantRequestActivity.getState().lastSuccess > 0).toBe(
         expected,
