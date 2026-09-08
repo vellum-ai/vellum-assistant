@@ -782,9 +782,7 @@
     "authPopupClosed": "La conexión de {name} falló: se cerró la ventana de autorización.",
     "authorizationError": "Error de {name}: {code}",
     "authorizationFailed": "La autorización de {name} falló",
-    "popupBlocked": "Ventana emergente bloqueada. Permite las ventanas emergentes e inténtalo de nuevo.",
-    "popupClosed": "La conexión de {name} falló: se cerró la ventana emergente.",
-    "startFailed": "No se pudo iniciar la autorización de {name}."
+    "popupBlocked": "Ventana emergente bloqueada. Permite las ventanas emergentes e inténtalo de nuevo."
   },
   "useOpenUrlDirectives": {
     "blocked": "Tu navegador bloqueó una página que el asistente intentó abrir.",

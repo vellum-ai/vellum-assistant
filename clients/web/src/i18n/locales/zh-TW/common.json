@@ -781,9 +781,7 @@
     "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
     "authorizationError": "{name} 錯誤：{code}",
     "authorizationFailed": "{name} 授權失敗",
-    "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
-    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
-    "startFailed": "無法啟動 {name} 授權。"
+    "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",

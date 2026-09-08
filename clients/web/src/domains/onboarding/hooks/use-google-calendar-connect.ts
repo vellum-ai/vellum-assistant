@@ -100,8 +100,8 @@ export function useGoogleCalendarConnect({
       releaseBusyState();
 
       if (result.status === "connected") {
-        // Refresh the connections cache the onboarding screens read, then hand
-        // the granted scopes to the caller.
+        // Refresh the connections cache the onboarding screens read. Safe after
+        // unmount: it only marks a query stale.
         void resolveLocalAssistantPlatformIdentity(assistantId)
           .then((platformAssistantId) =>
             queryClient.invalidateQueries({
@@ -111,13 +111,19 @@ export function useGoogleCalendarConnect({
             }),
           )
           .catch(() => {});
-        onConnect(result.connection?.scopes_granted ?? []);
+        // The engine now outlives this screen (a detached flow stays armed for
+        // minutes), so a late completion can arrive after the user moved on
+        // through the top nav. `onConnect` schedules the check-in and
+        // navigates, which would drag them back; only run it while mounted.
+        if (mountedRef.current) {
+          onConnect(result.connection?.scopes_granted ?? []);
+        }
         return;
       }
 
       // A cancelled connect is the user's own choice; onboarding stays quiet
       // and leaves the button ready for another try.
-      if (result.status === "error") {
+      if (result.status === "error" && mountedRef.current) {
         toast.error(result.message);
       }
     });

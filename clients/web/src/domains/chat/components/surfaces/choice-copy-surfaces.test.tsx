@@ -277,6 +277,9 @@ describe("OAuthConnectSurface", () => {
         providerKey: "google",
         providerLabel: "Google",
         requestedScopes: ["gmail.readonly"],
+        // Returns the card to `idle` if COOP disowns the popup, so Connect and
+        // Dismiss stay usable while the flow runs on in the background.
+        onDetached: expect.any(Function),
       });
       expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
         status: "connected",

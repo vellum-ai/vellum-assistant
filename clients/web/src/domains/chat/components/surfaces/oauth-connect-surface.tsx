@@ -177,6 +177,14 @@ export function OAuthConnectSurface({
       providerKey,
       providerLabel,
       requestedScopes: data.requestedScopes,
+      // A COOP-disowned popup keeps the flow armed in the background for
+      // minutes. Returning the card to `idle` keeps Connect and Dismiss usable
+      // meanwhile; the flow still reports here if the user finishes it.
+      onDetached: () => {
+        if (mountedRef.current) {
+          setState("idle");
+        }
+      },
     });
 
     // Skip if this instance unmounted while the (possibly shared) OAuth flow was

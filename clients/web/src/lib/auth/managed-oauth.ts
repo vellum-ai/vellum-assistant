@@ -209,9 +209,8 @@ function runManagedOAuthConnect(
     providerKey,
     providerLabel,
     requestedScopes,
-    onDetached,
   }: ManagedOAuthConnectOptions,
-  releaseDedupeSlot: () => void,
+  notifyDetached: () => void,
 ): Promise<ManagedOAuthConnectResult> {
   const requestId = crypto.randomUUID();
   const native = isNativePlatform();
@@ -221,8 +220,9 @@ function runManagedOAuthConnect(
       return;
     }
     detached = true;
-    releaseDedupeSlot();
-    onDetached?.();
+    // Releases the dedupe slot and notifies every caller sharing this flow,
+    // including the ones that joined after it started.
+    notifyDetached();
   };
 
   return new Promise((resolve) => {
@@ -230,9 +230,24 @@ function runManagedOAuthConnect(
     let settled = false;
     let platformAssistantId: string | null = null;
     let baselineSignatures = getProviderConnectionSignatures([], providerKey);
+    /**
+     * Whether the pre-authorization connections snapshot actually loaded. An
+     * empty map from a *failed* fetch is not the same as one from an account
+     * with no connections: it would make an existing row look new, so a
+     * cancelled connect would report the user's already-connected account as
+     * the one they just authorized.
+     */
+    let baselineEstablished = false;
     let popupWatch: OAuthPopupWatch | null = null;
     let unobservableDeadline: ReturnType<typeof setTimeout> | null = null;
     let nativeFinishUnsub: (() => void) | null = null;
+
+    const clearUnobservableDeadline = () => {
+      if (unobservableDeadline) {
+        clearTimeout(unobservableDeadline);
+        unobservableDeadline = null;
+      }
+    };
 
     const cleanup = () => {
       window.removeEventListener("message", handleOAuthMessage);
@@ -245,10 +260,7 @@ function runManagedOAuthConnect(
       nativeFinishUnsub = null;
       popupWatch?.stop();
       popupWatch = null;
-      if (unobservableDeadline) {
-        clearTimeout(unobservableDeadline);
-        unobservableDeadline = null;
-      }
+      clearUnobservableDeadline();
       closeOAuthPopup(popup);
       popup = null;
     };
@@ -286,6 +298,10 @@ function runManagedOAuthConnect(
     };
 
     const handleOAuthCompletePayload = (payload: OAuthCompletePayload) => {
+      // The payload is request-specific, so the flow has its answer. Disarm the
+      // detached deadline before the async connection poll below, or it can
+      // resolve `timed-out` mid-poll and discard the success.
+      clearUnobservableDeadline();
       if (payload.oauthStatus === "connected") {
         void finishConnectedAfterPoll();
         return;
@@ -356,7 +372,11 @@ function runManagedOAuthConnect(
         handleOAuthCompletePayload(storedCompletion);
         return;
       }
-      const connection = await pollForConnection();
+      // Polling is the only evidence of completion on this path, so it needs a
+      // baseline it can compare against. `finishConnectedAfterPoll` may still
+      // poll without one: there the payload already proved the flow completed
+      // and the poll is only looking up the row.
+      const connection = baselineEstablished ? await pollForConnection() : null;
       if (connection) {
         finish({ status: "connected", connection });
         return;
@@ -411,8 +431,16 @@ function runManagedOAuthConnect(
       try {
         platformAssistantId =
           await resolveLocalAssistantPlatformIdentity(assistantId);
+        const baselineConnections = await listOAuthConnections(
+          platformAssistantId,
+        )
+          .then((connections) => {
+            baselineEstablished = true;
+            return connections;
+          })
+          .catch(() => []);
         baselineSignatures = getProviderConnectionSignatures(
-          await listOAuthConnections(platformAssistantId).catch(() => []),
+          baselineConnections,
           providerKey,
         );
         const connectUrl = await startManagedOAuth(
@@ -466,9 +494,19 @@ function runManagedOAuthConnect(
  * that detaches (see `handlePopupLost`) stops polling and releases its slot,
  * so the flow that replaces it is still the only one watching the provider.
  */
+interface InFlightManagedOAuthConnect {
+  promise: Promise<ManagedOAuthConnectResult>;
+  /**
+   * Every caller sharing this flow. A remount or a second entry point joins an
+   * existing flow, and each of them is showing its own busy state, so detach
+   * has to reach all of them rather than only whoever started it.
+   */
+  detachSubscribers: Set<() => void>;
+}
+
 const inFlightManagedOAuthConnects = new Map<
   string,
-  Promise<ManagedOAuthConnectResult>
+  InFlightManagedOAuthConnect
 >();
 
 /**
@@ -507,7 +545,10 @@ export function connectManagedOAuthProvider(
   const dedupeKey = `${providerPrefix}${normalizeRequestedScopes(options.requestedScopes)}`;
   const existing = inFlightManagedOAuthConnects.get(dedupeKey);
   if (existing) {
-    return existing;
+    if (options.onDetached) {
+      existing.detachSubscribers.add(options.onDetached);
+    }
+    return existing.promise;
   }
 
   for (const key of inFlightManagedOAuthConnects.keys()) {
@@ -520,20 +561,37 @@ export function connectManagedOAuthProvider(
     }
   }
 
-  // Only clear the entry if it is still this promise. A later connect for the
-  // same key can only start after this one released the slot, but the identity
+  const detachSubscribers = new Set<() => void>();
+  if (options.onDetached) {
+    detachSubscribers.add(options.onDetached);
+  }
+
+  // Only clear the entry if it is still this one. A later connect for the same
+  // key can only start after this one released the slot, but the identity
   // check keeps that invariant explicit and race-proof.
   const releaseDedupeSlot = () => {
-    if (inFlightManagedOAuthConnects.get(dedupeKey) === connectPromise) {
+    if (inFlightManagedOAuthConnects.get(dedupeKey) === entry) {
       inFlightManagedOAuthConnects.delete(dedupeKey);
     }
   };
 
-  const connectPromise: Promise<ManagedOAuthConnectResult> =
-    runManagedOAuthConnect(options, releaseDedupeSlot);
-  inFlightManagedOAuthConnects.set(dedupeKey, connectPromise);
-  void connectPromise.finally(releaseDedupeSlot);
-  return connectPromise;
+  const notifyDetached = () => {
+    releaseDedupeSlot();
+    // Snapshot first: a subscriber may start a fresh connect from its own
+    // callback, and that must not mutate the set being iterated.
+    for (const subscriber of [...detachSubscribers]) {
+      subscriber();
+    }
+    detachSubscribers.clear();
+  };
+
+  const entry: InFlightManagedOAuthConnect = {
+    promise: runManagedOAuthConnect(options, notifyDetached),
+    detachSubscribers,
+  };
+  inFlightManagedOAuthConnects.set(dedupeKey, entry);
+  void entry.promise.finally(releaseDedupeSlot);
+  return entry.promise;
 }
 
 export const defaultManagedOAuthConnectClient: ManagedOAuthConnectClient = {

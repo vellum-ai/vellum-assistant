@@ -28,15 +28,42 @@ const startCreateMock = mock(
 
 /** Mutable backing store for the connections endpoint the poll path reads. */
 let connectionRows: unknown[] = [];
+/** Make the connections endpoint fail, as a transient outage would. */
+let connectionsListFails = false;
+/** Delay each connections response, to exercise races against the deadline. */
+let connectionsListDelayMs = 0;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   assistantsOauthStartCreate: startCreateMock,
-  assistantsOauthConnectionsList: mock(async () => ({
-    data: connectionRows,
-    error: null,
-    response: new Response(),
-  })),
+  assistantsOauthConnectionsList: mock(async () => {
+    if (connectionsListDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, connectionsListDelayMs));
+    }
+    if (connectionsListFails) {
+      return {
+        data: undefined,
+        error: { detail: "boom" },
+        response: new Response(),
+      };
+    }
+    return { data: connectionRows, error: null, response: new Response() };
+  }),
 }));
+
+const actualWatcher = await import("@/lib/auth/oauth-popup-watcher");
+
+/**
+ * Shrink the detached completion window for a single test. Re-mocking is what
+ * refreshes the engine's live binding; bun snapshots a mocked module's values
+ * at definition time, so a mutable getter is silently ignored.
+ */
+function setUnobservableWindowMs(ms: number): void {
+  mock.module("@/lib/auth/oauth-popup-watcher", () => ({
+    ...actualWatcher,
+    UNOBSERVABLE_COMPLETION_WINDOW_MS: ms,
+  }));
+}
+setUnobservableWindowMs(actualWatcher.UNOBSERVABLE_COMPLETION_WINDOW_MS);
 mock.module("@/generated/daemon/sdk.gen", () => ({
   oauthProvidersGet: mock(async () => ({
     data: { providers: [] },
@@ -86,6 +113,9 @@ let requestIds: string[];
 beforeEach(() => {
   startCreateMock.mockClear();
   connectionRows = [];
+  connectionsListFails = false;
+  connectionsListDelayMs = 0;
+  setUnobservableWindowMs(actualWatcher.UNOBSERVABLE_COMPLETION_WINDOW_MS);
   requestIds = [];
   let counter = 0;
   globalThis.crypto.randomUUID = (() => {
@@ -393,5 +423,108 @@ describe("connectManagedOAuthProvider with a COOP-disowned popup", () => {
 
     const result = await connect;
     expect(result).toEqual({ status: "cancelled", reason: "popup-closed" });
+  });
+});
+
+/** Review follow-ups on the detached-flow contract (PR #42296). */
+describe("connectManagedOAuthProvider detached-flow contract", () => {
+  const afterPopupLostGrace = () => new Promise((r) => setTimeout(r, 1400));
+
+  const connectedRow = {
+    id: "conn-1",
+    provider: "google",
+    connected: true,
+    status: "connected",
+    account_label: "user@example.com",
+    scopes_granted: ["scope-a"],
+    expires_at: null,
+  };
+
+  test("detach notifies callers that joined the shared flow, not just the starter", async () => {
+    let starterNotified = false;
+    let joinerNotified = false;
+
+    const first = connectManagedOAuthProvider({
+      ...OPTS,
+      onDetached: () => {
+        starterNotified = true;
+      },
+    });
+    await waitForStartCall();
+
+    // A remount (or a second entry point) latches onto the same flow, and is
+    // showing a busy state of its own.
+    const second = connectManagedOAuthProvider({
+      ...OPTS,
+      onDetached: () => {
+        joinerNotified = true;
+      },
+    });
+    expect(second).toBe(first);
+
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await afterPopupLostGrace();
+
+    expect(starterNotified).toBe(true);
+    expect(joinerNotified).toBe(true);
+
+    settleFailed(requestIds[0]!);
+    await first;
+  });
+
+  test("a failed baseline fetch never reports an existing account as newly connected", async () => {
+    // The user already has this provider connected, and the pre-authorization
+    // snapshot fails. Without a baseline the existing row looks new, which
+    // would report a cancelled connect as a success.
+    connectionsListFails = true;
+    const connect = connectManagedOAuthProvider(OPTS);
+    await waitForStartCall();
+
+    connectionsListFails = false;
+    connectionRows = [connectedRow];
+
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await afterPopupLostGrace();
+
+    // Detached rather than falsely connected, so it can still settle on its
+    // own completion payload.
+    settleFailed(requestIds[0]!);
+    const result = await connect;
+    expect(result.status).not.toBe("connected");
+  });
+
+  test("a completion accepted near the deadline is not lost to a timeout", async () => {
+    // Long enough to survive the reconcile that runs when the popup is lost,
+    // short enough that the slow row lookup below outlasts it.
+    setUnobservableWindowMs(600);
+    const connect = connectManagedOAuthProvider(OPTS);
+    await waitForStartCall();
+
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await afterPopupLostGrace();
+
+    // The completion lands, but looking up the row outlasts the window. The
+    // payload has to disarm the deadline rather than race the poll.
+    connectionRows = [connectedRow];
+    connectionsListDelayMs = 900;
+    settleConnected(requestIds[0]!);
+
+    const result = await connect;
+    expect(result.status).toBe("connected");
+  });
+
+  test("a detached flow that never completes resolves as timed out", async () => {
+    setUnobservableWindowMs(300);
+    const connect = connectManagedOAuthProvider(OPTS);
+    await waitForStartCall();
+
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+
+    const result = await connect;
+    expect(result).toEqual({ status: "cancelled", reason: "timed-out" });
   });
 });
