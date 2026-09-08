@@ -785,7 +785,11 @@ describe("NotificationsBell guardian rows", () => {
       "You don't have permission to decide this request.",
     ],
     ["request_misconfigured", "error", "That decision couldn't be applied."],
-    ["resolver_failed", "error", "That decision couldn't be applied."],
+    [
+      "resolver_failed",
+      "error",
+      "Your decision was recorded, but the step after it failed.",
+    ],
     [undefined, "error", "That decision couldn't be applied."],
   ] as const)(
     "a decision declined for %s says so and refreshes the feed",
@@ -799,6 +803,45 @@ describe("NotificationsBell guardian rows", () => {
 
       expect(feedInvalidateCalls.length).toBe(1);
       expect(toastCalls).toEqual([[tone, message]]);
+    },
+  );
+
+  // The feed can keep projecting a settled request as pending for a while: an
+  // expiry is only written by a periodic sweep, and a resolver failure lands
+  // after the decision itself. The row's buttons stay down regardless, so a
+  // request decided once cannot be decided again in the meantime.
+  test.each([
+    ["applied", undefined],
+    ["not-applied", "expired"],
+    ["not-applied", "resolver_failed"],
+    ["not-applied", "already_resolved"],
+  ] as const)(
+    "a %s decision (%s) keeps the row's buttons down until the feed catches up",
+    async (outcome, reason) => {
+      decisionRef.outcome = outcome;
+      decisionRef.reason = reason;
+      feedRef.items = [guardianBellItem()];
+
+      await openBell();
+      fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+      await act(async () => {});
+
+      expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+    },
+  );
+
+  test.each(["identity_mismatch", "request_misconfigured"] as const)(
+    "a decision declined for %s leaves the row's buttons in place",
+    async (reason) => {
+      decisionRef.outcome = "not-applied";
+      decisionRef.reason = reason;
+      feedRef.items = [guardianBellItem()];
+
+      await openBell();
+      fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+      await act(async () => {});
+
+      expect(screen.getByTestId("home-recap-row-decision")).toBeTruthy();
     },
   );
 

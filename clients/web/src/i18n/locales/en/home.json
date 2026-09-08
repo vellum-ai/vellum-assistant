@@ -40,7 +40,8 @@
     "loadFailed": "Couldn't load notifications.",
     "actionFailed": "Couldn't start that conversation. Try again.",
     "decisionNotPermitted": "You don't have permission to decide this request.",
-    "decisionNotApplied": "That decision couldn't be applied."
+    "decisionNotApplied": "That decision couldn't be applied.",
+    "decisionFollowThroughFailed": "Your decision was recorded, but the step after it failed."
   },
   "notificationsBellDetail": {
     "back": "Back to notifications"

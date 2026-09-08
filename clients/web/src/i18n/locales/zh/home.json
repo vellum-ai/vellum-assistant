@@ -40,7 +40,8 @@
     "loadFailed": "无法加载通知。",
     "actionFailed": "无法开始该对话。请重试。",
     "decisionNotPermitted": "您无权决定此请求。",
-    "decisionNotApplied": "无法应用该决定。"
+    "decisionNotApplied": "无法应用该决定。",
+    "decisionFollowThroughFailed": "您的决定已记录，但后续步骤失败。"
   },
   "notificationsBellDetail": {
     "back": "返回通知"

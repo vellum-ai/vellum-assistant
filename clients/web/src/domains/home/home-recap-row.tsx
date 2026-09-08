@@ -79,6 +79,11 @@ export interface HomeRecapRowProps {
   onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
   /** True while a decision is in flight, holding every row's buttons inert. */
   isDecisionPending?: boolean;
+  /**
+   * True once this request was decided this session, so the buttons stay
+   * down while the feed still projects it as pending.
+   */
+  isDecided?: boolean;
   trailingAction?: HomeRecapRowTrailingAction;
 }
 
@@ -113,6 +118,7 @@ export function HomeRecapRow({
   onGoToThread,
   onDecide,
   isDecisionPending = false,
+  isDecided = false,
   trailingAction = "dismiss",
 }: HomeRecapRowProps) {
   const { t } = useTranslation("home");
@@ -191,7 +197,7 @@ export function HomeRecapRow({
   );
 
   const decisionButtons =
-    isPendingApproval && onDecide ? (
+    isPendingApproval && onDecide && !isDecided ? (
       /* The buttons stand above the stretched link and take their own
          clicks, so deciding a request does not also open it. */
       <div

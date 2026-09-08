@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { t } from "@/i18n";
@@ -13,8 +13,8 @@ import { useInvalidateHomeFeed } from "./use-home-feed-query";
 export type GuardianDecisionAction = "approve_once" | "reject";
 
 /**
- * How the last decision settled: what was decided on which request, whether
- * the daemon applied it, and if not, the reason it gave.
+ * How a decision settled: what was decided on which request, whether the
+ * daemon applied it, and if not, the reason it gave.
  */
 export interface GuardianDecisionOutcome {
   requestId: string;
@@ -26,20 +26,45 @@ export interface GuardianDecisionOutcome {
 /**
  * Reasons that mean the request is no longer anyone's to decide: settled on
  * another surface, gone, or timed out. A surface holding such a request
- * shows it as retired. Every other reason (this actor may not decide it, the
- * record is unusable, the resolver failed) leaves the request as it was.
+ * shows it as retired.
  */
 const RETIRED_REASONS = new Set(["already_resolved", "not_found", "expired"]);
+
+/**
+ * The daemon committed the decision but the step after it (the resolver
+ * that acts on the decision) failed. The request is decided, and another
+ * attempt can only come back `already_resolved`, so it is terminal here even
+ * though it was reported as not applied.
+ */
+const RESOLVER_FAILED_REASON = "resolver_failed";
 
 export function isRetiredDecisionReason(reason: string | undefined): boolean {
   return reason !== undefined && RETIRED_REASONS.has(reason);
 }
 
+/** Whether the daemon recorded the decision, whatever happened after. */
+export function isCommittedDecision(outcome: GuardianDecisionOutcome): boolean {
+  return outcome.applied || outcome.reason === RESOLVER_FAILED_REASON;
+}
+
+/**
+ * Whether the request is settled as far as this client is concerned: the
+ * decision was recorded, or the request turned out to be nobody's to decide.
+ * Every other reason (this actor may not decide it, the record is unusable)
+ * leaves the request pending and its buttons in place.
+ */
+export function isTerminalDecision(outcome: GuardianDecisionOutcome): boolean {
+  return (
+    isCommittedDecision(outcome) || isRetiredDecisionReason(outcome.reason)
+  );
+}
+
 /**
  * Say what happened to a decision the daemon declined, in the reason's own
- * terms. A retired request is news rather than a failure; a request this
- * actor may not decide, or that could not be applied, is a failure the user
- * has to hear so as not to retry a click that cannot succeed.
+ * terms. A retired request is news rather than a failure; a decision that
+ * was recorded but not followed through, one this actor may not make, or
+ * one that could not be applied is a failure the user has to hear so as not
+ * to retry a click that cannot succeed.
  */
 function toastDeclinedDecision(reason: string | undefined): void {
   switch (reason) {
@@ -49,6 +74,9 @@ function toastDeclinedDecision(reason: string | undefined): void {
       return;
     case "expired":
       toast.info(t("home:homeGuardianRequestCard.receipt.expired"));
+      return;
+    case RESOLVER_FAILED_REASON:
+      toast.error(t("home:notificationsBell.decisionFollowThroughFailed"));
       return;
     case "identity_mismatch":
       toast.error(t("home:notificationsBell.decisionNotPermitted"));
@@ -64,11 +92,16 @@ function toastDeclinedDecision(reason: string | undefined): void {
  *
  * The feed is refreshed after every response, since the row and the card
  * both draw their buttons off the feed item and the refresh is what retires
- * them once the request is settled. A 200 that declined the decision carries
- * a reason, which is reported as `outcome` and explained by a toast; a 404
- * means the request is gone and is folded into the same shape as the
- * `not_found` reason. Any other failure is captured and reported as a
- * submission failure, with nothing recorded as an outcome.
+ * them once the daemon projects the settled request. That projection can lag
+ * the response (an expiry is only written by a periodic sweep, a resolver
+ * failure is written asynchronously), so the hook also remembers each
+ * request's outcome, and a surface consults `decidedRequestIds` to keep a
+ * settled request's buttons down until the feed catches up.
+ *
+ * A 200 that declined the decision carries a reason, which is reported as
+ * the outcome and explained by a toast; a 404 means the request is gone and
+ * is folded into the same shape as the `not_found` reason. Any other failure
+ * is captured and reported as a submission failure, with nothing recorded.
  */
 export function useGuardianDecision(): {
   /** Submit a decision. Ignored until the active assistant has resolved. */
@@ -77,12 +110,24 @@ export function useGuardianDecision(): {
   isPending: boolean;
   /** Whether a decision can be submitted at all. */
   canDecide: boolean;
-  /** The last settled decision, or null before one settles. */
-  outcome: GuardianDecisionOutcome | null;
+  /** Every settled decision this session, by request id. */
+  outcomes: ReadonlyMap<string, GuardianDecisionOutcome>;
+  /** The requests whose outcome is terminal here; see `isTerminalDecision`. */
+  decidedRequestIds: ReadonlySet<string>;
 } {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const invalidateFeed = useInvalidateHomeFeed(assistantId);
-  const [outcome, setOutcome] = useState<GuardianDecisionOutcome | null>(null);
+  const [outcomes, setOutcomes] = useState<
+    ReadonlyMap<string, GuardianDecisionOutcome>
+  >(() => new Map());
+
+  const recordOutcome = useCallback((outcome: GuardianDecisionOutcome) => {
+    setOutcomes((previous) => {
+      const next = new Map(previous);
+      next.set(outcome.requestId, outcome);
+      return next;
+    });
+  }, []);
 
   const decision = useGuardianactionsDecisionPostMutation({
     onSuccess: (data, variables) => {
@@ -94,7 +139,7 @@ export function useGuardianDecision(): {
         applied: data.applied,
         reason: data.reason,
       };
-      setOutcome(settled);
+      recordOutcome(settled);
       if (!settled.applied) {
         toastDeclinedDecision(settled.reason);
       }
@@ -102,7 +147,7 @@ export function useGuardianDecision(): {
     },
     onError: (error, variables) => {
       if (error instanceof ApiError && error.status === 404) {
-        setOutcome({
+        recordOutcome({
           requestId: variables.body.requestId,
           action: variables.body.action as GuardianDecisionAction,
           applied: false,
@@ -131,10 +176,21 @@ export function useGuardianDecision(): {
     [assistantId, mutate],
   );
 
+  const decidedRequestIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const outcome of outcomes.values()) {
+      if (isTerminalDecision(outcome)) {
+        ids.add(outcome.requestId);
+      }
+    }
+    return ids;
+  }, [outcomes]);
+
   return {
     decide,
     isPending: decision.isPending,
     canDecide: assistantId !== null,
-    outcome,
+    outcomes,
+    decidedRequestIds,
   };
 }

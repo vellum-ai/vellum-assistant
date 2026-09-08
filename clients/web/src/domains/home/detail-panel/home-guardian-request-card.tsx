@@ -22,6 +22,7 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import {
   type GuardianDecisionAction,
+  isCommittedDecision,
   isRetiredDecisionReason,
   useGuardianDecision,
 } from "../hooks/use-guardian-decision";
@@ -79,15 +80,14 @@ export function HomeGuardianRequestCard({
     decision.decide(guardianRequest.requestId, action);
   };
 
-  // Only this request's outcome counts: the hook remembers the last decision
-  // wherever it was made, and the bell can decide one row while another's
-  // detail is open.
-  const outcome =
-    decision.outcome?.requestId === guardianRequest.requestId
-      ? decision.outcome
-      : null;
+  // Only this request's outcome counts: the hook remembers every decision
+  // made this session, wherever it was made.
+  const outcome = decision.outcomes.get(guardianRequest.requestId) ?? null;
+  // A recorded decision shows as its receipt at once, even when the step
+  // after it failed: the daemon has the decision, and another attempt could
+  // only come back already resolved.
   const decidedLocally =
-    outcome?.applied === true
+    outcome !== null && isCommittedDecision(outcome)
       ? outcome.action === "approve_once"
         ? ("approved" as const)
         : ("denied" as const)

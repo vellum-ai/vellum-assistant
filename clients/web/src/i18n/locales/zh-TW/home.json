@@ -40,7 +40,8 @@
     "loadFailed": "無法載入通知。",
     "actionFailed": "無法開始該對話。請再試一次。",
     "decisionNotPermitted": "您無權決定此請求。",
-    "decisionNotApplied": "無法套用該決定。"
+    "decisionNotApplied": "無法套用該決定。",
+    "decisionFollowThroughFailed": "您的決定已記錄，但後續步驟失敗。"
   },
   "notificationsBellDetail": {
     "back": "返回通知"

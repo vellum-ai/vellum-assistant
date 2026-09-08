@@ -400,6 +400,7 @@ export function NotificationsBell() {
         }
         onDecide={handleDecide}
         isDecisionPending={decision.isPending}
+        decidedRequestIds={decision.decidedRequestIds}
       />
     );
 

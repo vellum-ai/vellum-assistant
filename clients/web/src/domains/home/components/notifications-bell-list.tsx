@@ -33,7 +33,14 @@ export interface NotificationsBellListProps {
   /** Decides a pending approval from its row; see `HomeRecapRow`. */
   onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
   isDecisionPending?: boolean;
+  /**
+   * Requests already decided this session, whose rows keep their buttons
+   * down until the feed projects the settled request.
+   */
+  decidedRequestIds?: ReadonlySet<string>;
 }
+
+const NO_DECIDED_REQUESTS: ReadonlySet<string> = new Set();
 
 /**
  * The notifications the bell shows before one is opened: a scrolling stack
@@ -54,6 +61,7 @@ export function NotificationsBellList({
   onToggleRead,
   onDecide,
   isDecisionPending = false,
+  decidedRequestIds = NO_DECIDED_REQUESTS,
 }: NotificationsBellListProps) {
   return (
     <div
@@ -79,6 +87,10 @@ export function NotificationsBellList({
             onToggleRead={onToggleRead}
             onDecide={onDecide}
             isDecisionPending={isDecisionPending}
+            isDecided={
+              item.guardianRequest !== undefined &&
+              decidedRequestIds.has(item.guardianRequest.requestId)
+            }
           />
         </div>
       ))}
