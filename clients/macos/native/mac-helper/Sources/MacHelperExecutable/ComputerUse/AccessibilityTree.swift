@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "AXTree")
@@ -359,11 +360,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     }
 
     /// The one AX window of `pid` that is `window`: the single window at its
-    /// frame, or else the single window with its title. Two windows at one
-    /// frame (two maximized browser windows) or titled alike (two "Untitled"
-    /// documents) would otherwise let the wrong one be read or raised beside
-    /// the right one's screenshot, so a frame or title that fits more than
-    /// one window decides nothing. Nil when neither fits exactly one.
+    /// frame, or else the single window its title names (see
+    /// `AXWindowMatch`, which allows for an app that appends its own suffix).
+    /// Two windows at one frame (two maximized browser windows) or titled
+    /// alike (two "Untitled" documents) would otherwise let the wrong one be
+    /// read or raised beside the right one's screenshot, so a frame or title
+    /// that fits more than one window decides nothing. Nil when neither fits
+    /// exactly one.
     ///
     /// The app element is handed back with the match because a caller that
     /// wants to read the tree marks it first, and one that only wants to raise
@@ -395,10 +398,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // windows at the frame when there are any, since a title shared with
         // a window elsewhere still names one window here.
         let candidates = framed.isEmpty ? windows : framed
-        return window.name.flatMap { name in
-            let titled = candidates.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
-            return titled.count == 1 ? titled[0] : nil
-        }
+        let titles = candidates.map { getStringAttribute($0, kAXTitleAttribute as CFString) }
+        return AXWindowMatch.uniqueTitle(serverName: window.name, titles: titles)
+            .map { candidates[$0] }
     }
 
     private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
