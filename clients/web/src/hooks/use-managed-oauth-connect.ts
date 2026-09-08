@@ -9,6 +9,7 @@ import type { OAuthConnection } from "@/generated/api/types.gen";
 import {
   getOAuthCompleteStoragePayload,
   oauthCompletionStorageKey,
+  parseOAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
 import {
   startManagedOAuth,
@@ -203,6 +204,21 @@ export function useManagedOAuthConnect({
       }
       handleCompletion(event.detail.oauthStatus, event.detail.oauthCode);
     };
+    // The `storage` event fires once, and only into contexts listening at that
+    // moment. A connect started from a modal that closed before the callback
+    // page wrote its result leaves the payload sitting there, so claim it on
+    // subscribe rather than waiting for an event that has already passed.
+    const stored = window.localStorage.getItem(
+      oauthCompletionStorageKey(attempt.requestId),
+    );
+    const storedPayload = stored ? parseOAuthCompletePayload(stored) : null;
+    if (storedPayload && storedPayload.requestId === attempt.requestId) {
+      window.localStorage.removeItem(
+        oauthCompletionStorageKey(attempt.requestId),
+      );
+      handleCompletion(storedPayload.oauthStatus, storedPayload.oauthCode);
+    }
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener(
       OAUTH_COMPLETE_DEEP_LINK_EVENT,
@@ -258,6 +274,13 @@ export function useManagedOAuthConnect({
       // during them cannot open a second authorization into the same slot.
       startAttempt(key, { requestId, startedAt: Date.now() });
 
+      // The setup requests outlive a dismissal. Once the slot belongs to a
+      // later attempt, this one may neither hand its window to the provider
+      // nor clear the slot out from under its replacement.
+      const stillOurs = () =>
+        useOAuthConnectAttemptStore.getState().attempts[key]?.requestId ===
+        requestId;
+
       void (async () => {
         try {
           const resolvedAssistantId =
@@ -287,6 +310,10 @@ export function useManagedOAuthConnect({
             overrideScopes ?? requestedScopes,
           );
 
+          if (!stillOurs()) {
+            popup?.close();
+            return;
+          }
           readyAttempt(key, requestId, {
             platformAssistantId: resolvedAssistantId,
             baselineSignatures,
@@ -301,6 +328,9 @@ export function useManagedOAuthConnect({
           popup?.location.replace(connectUrl);
         } catch (error) {
           popup?.close();
+          if (!stillOurs()) {
+            return;
+          }
           failAttempt({
             reason: "start-failed",
             detail: error instanceof Error ? error.message : undefined,

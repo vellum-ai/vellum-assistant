@@ -58,6 +58,11 @@ interface UseGoogleCalendarConnectOptions {
 
 interface UseGoogleCalendarConnectResult {
   handleConnect: () => void;
+  /**
+   * Abandon an authorization in progress. The window cannot be observed, so
+   * this is the only way an attempt ends short of completing.
+   */
+  cancelConnect: () => void;
   oauthInProgress: boolean;
 }
 
@@ -100,6 +105,7 @@ export function useGoogleCalendarConnect({
 
   return {
     handleConnect: connect.connect,
+    cancelConnect: connect.dismiss,
     oauthInProgress: status === "attempting",
   };
 }

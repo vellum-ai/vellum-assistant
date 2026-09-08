@@ -288,6 +288,74 @@ describe("useManagedOAuthConnect", () => {
     await waitFor(() => expect(startCreateMock).toHaveBeenCalledTimes(1));
   });
 
+  test("a dismissed attempt's late failure does not clear its replacement", async () => {
+    // Setup outlives a dismissal, so A's rejection must not tear down B.
+    let failA: ((err: Error) => void) | undefined;
+    resolveMock.mockImplementationOnce(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          failA = reject;
+        }),
+    );
+
+    const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
+    act(() => result.current.connect());
+    const attemptA = attemptFor()?.requestId;
+
+    act(() => result.current.dismiss());
+    act(() => result.current.connect());
+    const attemptB = attemptFor()?.requestId;
+    expect(attemptB).not.toBe(attemptA);
+
+    act(() => failA?.(new Error("stale")));
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(attemptFor()?.requestId).toBe(attemptB!);
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  test("a dismissed attempt does not hand its window to the provider", async () => {
+    let releaseA: (() => void) | undefined;
+    resolveMock.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseA = () => resolve("assistant-1");
+        }),
+    );
+
+    const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
+    act(() => result.current.connect());
+    act(() => result.current.dismiss());
+
+    act(() => releaseA?.());
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Its window is closed rather than pointed at the provider, so a dismissed
+    // attempt cannot leave a second authorization running untracked.
+    expect(navigatedTo).toHaveLength(0);
+  });
+
+  test("a payload written while nothing was listening is still claimed", async () => {
+    const { result, rerender } = renderHook(() => useManagedOAuthConnect(OPTS));
+    act(() => result.current.connect());
+    await waitFor(() => expect(attemptFor()?.platformAssistantId).toBeTruthy());
+
+    // The callback page wrote its result while no listener was mounted.
+    window.localStorage.setItem(
+      oauthCompletionStorageKey(attemptFor()!.requestId),
+      JSON.stringify({
+        type: "vellum:oauth-complete",
+        requestId: attemptFor()!.requestId,
+        oauthStatus: "error",
+        oauthCode: "access_denied",
+      }),
+    );
+    rerender();
+
+    await waitFor(() => expect(result.current.errorMessage).toBeTruthy());
+    expect(attemptFor()).toBeUndefined();
+  });
+
   test("dismiss is what ends an attempt", async () => {
     const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
     act(() => result.current.connect());
