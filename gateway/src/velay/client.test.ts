@@ -30,6 +30,7 @@ import {
 let workspaceDir = "";
 let registeredWebhookPaths: string[] = [];
 let velayWebhooksEnabled = false;
+let webhookRouteReadError: Error | undefined;
 
 mock.module("../credential-reader.js", () => ({
   getWorkspaceDir: () => workspaceDir,
@@ -37,8 +38,12 @@ mock.module("../credential-reader.js", () => ({
 }));
 
 mock.module("../db/webhook-ingress-route-store.js", () => ({
-  listWebhookIngressRoutes: () =>
-    registeredWebhookPaths.map((path) => ({ path })),
+  listWebhookIngressRoutes: () => {
+    if (webhookRouteReadError) {
+      throw webhookRouteReadError;
+    }
+    return registeredWebhookPaths.map((path) => ({ path }));
+  },
   hasWebhookIngressRoute: (path: string) =>
     registeredWebhookPaths.includes(path),
   registerWebhookIngressRoute: () => {
@@ -237,6 +242,7 @@ beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "velay-client-"));
   registeredWebhookPaths = [];
   velayWebhooksEnabled = false;
+  webhookRouteReadError = undefined;
 });
 
 afterEach(() => {
@@ -1531,6 +1537,20 @@ describe("advertised path rules", () => {
       ...VELAY_STATIC_ALLOWED_PATHS,
       "^/webhooks/telegram$",
     ]);
+    await client.stop();
+  });
+
+  test("still connects with statics-only rules when the registry read fails", async () => {
+    velayWebhooksEnabled = true;
+    webhookRouteReadError = new Error("database disk image is malformed");
+    const sockets: FakeWebSocket[] = [];
+    const client = makeClient({ sockets });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets.length).toBe(1);
+    expect(headerValue(sockets[0])).toBe(buildVelayAllowedPathsHeaderValue([]));
     await client.stop();
   });
 

@@ -269,6 +269,23 @@ export class VelayTunnelClient {
     await this.connect();
   }
 
+  /**
+   * A registry read failure must never block the tunnel: fall back to an
+   * empty path list, which the header builder turns into legacy or
+   * statics-only rules.
+   */
+  private readRegisteredWebhookPaths(): string[] {
+    try {
+      return listWebhookIngressRoutes().map((route) => route.path);
+    } catch (err) {
+      log.error(
+        { err },
+        "Failed to read webhook ingress routes for tunnel rules",
+      );
+      return [];
+    }
+  }
+
   private async connect(): Promise<void> {
     if (!this.running || this.connecting) return;
     this.connecting = true;
@@ -344,7 +361,7 @@ export class VelayTunnelClient {
           // ./allowed-paths.ts for the route inventory and the platform-side
           // enforcement (ATL-402).
           [VELAY_ALLOWED_PATHS_HEADER]: buildVelayAllowedPathsHeaderValue(
-            listWebhookIngressRoutes().map((route) => route.path),
+            this.readRegisteredWebhookPaths(),
           ),
         },
       });
