@@ -545,6 +545,37 @@ describe("connectManagedOAuthProvider detached-flow contract", () => {
     expect(detached).toBe(false);
   });
 
+  test("a connected payload during the lost-popup poll blocks a late detach", async () => {
+    // `connected` reconciles asynchronously, so `settled` is still false while
+    // the lost-popup poll finishes. The flow must not detach underneath an
+    // authorization that already succeeded.
+    let detached = false;
+    const connect = connectManagedOAuthProvider({
+      ...OPTS,
+      onDetached: () => {
+        detached = true;
+      },
+    });
+    await waitForStartCall();
+
+    connectionsListDelayMs = 100;
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await new Promise((r) => setTimeout(r, 1400));
+
+    settleConnected(requestIds[0]!);
+    // The row lands only after the lost-popup poll has given up, so that poll
+    // reaches the detach branch with the completion already accepted.
+    setTimeout(() => {
+      connectionRows = [connectedRow];
+    }, 600);
+
+    const result = await connect;
+    expect(result.status).toBe("connected");
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(detached).toBe(false);
+  });
+
   test("a detached flow that never completes resolves as timed out", async () => {
     setUnobservableWindowMs(300);
     const connect = connectManagedOAuthProvider(OPTS);

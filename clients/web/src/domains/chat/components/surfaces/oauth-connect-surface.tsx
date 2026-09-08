@@ -135,6 +135,13 @@ export function OAuthConnectSurface({
       mountedRef.current = false;
     };
   }, []);
+  /**
+   * Which connect attempt owns the card. A detached attempt stays armed in the
+   * background and can report minutes later, by which time the user may have
+   * started another one; without this its late result would overwrite the newer
+   * attempt's state or dismiss the card out from under it.
+   */
+  const attemptRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,6 +183,10 @@ export function OAuthConnectSurface({
     }
     setState("connecting");
     setErrorMessage(null);
+    attemptRef.current += 1;
+    const attempt = attemptRef.current;
+    const isCurrentAttempt = () =>
+      mountedRef.current && attemptRef.current === attempt;
 
     const result = await oauthClient.connect({
       assistantId,
@@ -186,16 +197,17 @@ export function OAuthConnectSurface({
       // minutes. Returning the card to `idle` keeps Connect and Dismiss usable
       // meanwhile; the flow still reports here if the user finishes it.
       onDetached: () => {
-        if (mountedRef.current) {
+        if (isCurrentAttempt()) {
           setState("idle");
         }
       },
     });
 
     // Skip if this instance unmounted while the (possibly shared) OAuth flow was
-    // in flight — a still-mounted sibling reports the result instead, so the
-    // surface action is submitted exactly once.
-    if (!mountedRef.current) {
+    // in flight (a still-mounted sibling reports the result instead, so the
+    // surface action is submitted exactly once), or if a detached attempt is
+    // reporting after the user already started a newer one.
+    if (!isCurrentAttempt()) {
       return;
     }
 

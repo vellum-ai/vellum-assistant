@@ -35,12 +35,15 @@ export function managedOAuthErrorMessage(
     case "scope-conflict":
       return t("useOauthConnect.scopeConflict", { name: providerLabel });
     case "start-failed":
-      // A server-supplied reason ("this assistant is not linked to a Vellum
-      // account") is far more actionable than the generic sentence, and the
-      // API already localizes it.
-      return (
-        result.detail ??
-        t("useOauthConnect.startFailed", { name: providerLabel })
-      );
+      // The reason ("Sign in to Vellum to register this local assistant") is
+      // what makes this actionable, but it is raw error text rather than
+      // catalog copy, so it goes inside a localized frame as data instead of
+      // becoming the sentence itself.
+      return result.detail
+        ? t("useOauthConnect.startFailedWithReason", {
+            name: providerLabel,
+            reason: result.detail,
+          })
+        : t("useOauthConnect.startFailed", { name: providerLabel });
   }
 }

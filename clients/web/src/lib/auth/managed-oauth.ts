@@ -248,6 +248,13 @@ function runManagedOAuthConnect(
      * the one they just authorized.
      */
     let baselineEstablished = false;
+    /**
+     * A request-specific completion has been accepted and is being reconciled.
+     * `settled` only flips once that async reconciliation finishes, so without
+     * this the lost-popup poll could still detach underneath an authorization
+     * that already succeeded.
+     */
+    let completionAccepted = false;
     let popupWatch: OAuthPopupWatch | null = null;
     let unobservableDeadline: ReturnType<typeof setTimeout> | null = null;
     let nativeFinishUnsub: (() => void) | null = null;
@@ -308,9 +315,11 @@ function runManagedOAuthConnect(
     };
 
     const handleOAuthCompletePayload = (payload: OAuthCompletePayload) => {
-      // The payload is request-specific, so the flow has its answer. Disarm the
-      // detached deadline before the async connection poll below, or it can
-      // resolve `timed-out` mid-poll and discard the success.
+      // The payload is request-specific, so the flow has its answer. Claim it
+      // synchronously and disarm the detached deadline before the async
+      // reconciliation below, or the deadline can resolve `timed-out` mid-poll
+      // and the lost-popup poll can detach, both discarding the outcome.
+      completionAccepted = true;
       clearUnobservableDeadline();
       if (payload.oauthStatus === "connected") {
         void finishConnectedAfterPoll();
@@ -387,11 +396,11 @@ function runManagedOAuthConnect(
       // poll without one: there the payload already proved the flow completed
       // and the poll is only looking up the row.
       const connection = baselineEstablished ? await pollForConnection() : null;
-      // A completion can arrive on any channel while that poll is retrying. It
-      // has already settled the flow, and `onDetach` below is not guarded by
-      // `finish`: it would reset a still-mounted card that is showing the
-      // error, and leave a stray deadline running.
-      if (settled) {
+      // A completion can arrive on any channel while that poll is retrying,
+      // and `onDetach` below is not guarded by `finish`: it would reset a
+      // still-mounted card, release the dedupe slot, and leave a stray
+      // deadline running underneath an outcome that is already decided.
+      if (settled || completionAccepted) {
         return;
       }
       if (connection) {
