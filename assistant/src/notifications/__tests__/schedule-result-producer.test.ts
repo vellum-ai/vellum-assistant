@@ -21,6 +21,8 @@ import type { ContentBlock } from "../../providers/types.js";
 
 const emitCalls: any[] = [];
 let assistantRow: MessageRow | null = null;
+/** Earlier assistant rows of the same turn (tool-call steps before the reply). */
+let turnRows: MessageRow[] = [];
 let attentionState: AttentionState | null = null;
 let alreadyNotified = false;
 const notifiedProbeArgs: Array<[string, number]> = [];
@@ -41,7 +43,7 @@ mock.module("../emit-signal.js", () => ({
 const realEventsStore = await import("../events-store.js");
 mock.module("../events-store.js", () => ({
   ...realEventsStore,
-  hasEventForSourceContextSince: (contextId: string, since: number) => {
+  hasNotifiedSourceContextSince: (contextId: string, since: number) => {
     notifiedProbeArgs.push([contextId, since]);
     return alreadyNotified;
   },
@@ -57,7 +59,13 @@ const realCrud = await import("../../persistence/conversation-crud.js");
 mock.module("../../persistence/conversation-crud.js", () => ({
   ...realCrud,
   getMessageById: (messageId: string) =>
-    messageId === ASSISTANT_MESSAGE_ID ? assistantRow : null,
+    messageId === ASSISTANT_MESSAGE_ID
+      ? assistantRow
+      : (turnRows.find((row) => row.id === messageId) ?? null),
+  getAssistantMessageIdsInTurn: (messageId: string) =>
+    messageId === ASSISTANT_MESSAGE_ID
+      ? [...turnRows.map((row) => row.id), ASSISTANT_MESSAGE_ID]
+      : [messageId],
 }));
 
 const realAttentionStore =
@@ -78,7 +86,10 @@ const { emitScheduleResultNotification } =
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
-function makeAssistantRow(content: ContentBlock[]): MessageRow {
+function makeAssistantRow(
+  content: ContentBlock[],
+  overrides: Partial<MessageRow> = {},
+): MessageRow {
   return {
     id: ASSISTANT_MESSAGE_ID,
     conversationId: CONVERSATION_ID,
@@ -88,7 +99,19 @@ function makeAssistantRow(content: ContentBlock[]): MessageRow {
     metadata: null,
     clientMessageId: null,
     finalized: 1,
+    ...overrides,
   };
+}
+
+/** An earlier row of the run's turn holding a single tool call. */
+function makeToolCallRow(
+  name: string,
+  input: Record<string, unknown>,
+): MessageRow {
+  return makeAssistantRow(
+    [{ type: "tool_use", id: `tu-${name}`, name, input }] as ContentBlock[],
+    { id: `msg-${name}`, createdAt: RUN_STARTED_AT + 100 },
+  );
 }
 
 function makeAttentionState(
@@ -143,6 +166,7 @@ beforeEach(() => {
   infoCalls.length = 0;
   notifiedProbeArgs.length = 0;
   alreadyNotified = false;
+  turnRows = [];
   attentionState = makeAttentionState();
   assistantRow = makeAssistantRow([
     { type: "text", text: "**3 new emails** and one calendar change." },
@@ -180,6 +204,69 @@ describe("emitScheduleResultNotification", () => {
     await run();
 
     expect(notifiedProbeArgs).toEqual([[CONVERSATION_ID, RUN_STARTED_AT]]);
+  });
+
+  test("stays silent when the run delivered by email through messaging_send", async () => {
+    // The schedule skill's prescribed route for rich content. It writes no
+    // notification event, so only the tool call shows the user has the result.
+    turnRows = [
+      makeToolCallRow("messaging_send", {
+        platform: "gmail",
+        conversation_id: "thread-1",
+        message: "Inbox digest…",
+      }),
+    ];
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "Sent the digest to your inbox." },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("stays silent when the run posted to Slack through chat.postMessage", async () => {
+    turnRows = [
+      makeToolCallRow("bash", {
+        command:
+          'assistant oauth request --provider slack_channel /chat.postMessage --json \'{"channel":"C1","text":"digest"}\'',
+      }),
+    ];
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "Posted the digest to #general." },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("still notifies when the run's tool calls were not deliveries", async () => {
+    // Bash that reads Slack is not bash that posts to it.
+    turnRows = [
+      makeToolCallRow("bash", {
+        command:
+          'assistant oauth request --provider slack_channel /conversations.history --json \'{"channel":"C1"}\'',
+      }),
+      makeToolCallRow("messaging_search", { query: "newer_than:1d" }),
+    ];
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  test("stays silent when the latest reply predates this run", async () => {
+    // A reused conversation whose current run wrote no reply: the attention
+    // state still points at yesterday's, which must not be re-sent as today's.
+    assistantRow = makeAssistantRow(
+      [{ type: "text", text: "Yesterday's briefing." }] as ContentBlock[],
+      { createdAt: RUN_STARTED_AT - 1 },
+    );
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
   });
 
   test("stays silent when the run produced no assistant message", async () => {

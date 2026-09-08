@@ -29,10 +29,15 @@ import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getAttentionStateByConversationIds } from "../persistence/conversation-attention-store.js";
-import { getMessageById } from "../persistence/conversation-crud.js";
+import {
+  getAssistantMessageIdsInTurn,
+  getMessageById,
+  type MessageRow,
+} from "../persistence/conversation-crud.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import type { ContentBlock } from "../providers/types.js";
 import { emitNotificationSignal } from "./emit-signal.js";
-import { hasEventForSourceContextSince } from "./events-store.js";
+import { hasNotifiedSourceContextSince } from "./events-store.js";
 import {
   sanitizeNotificationTitle,
   stripMarkdownForPreview,
@@ -69,6 +74,57 @@ export interface ScheduleResultNotificationParams {
 }
 
 /**
+ * Whether a tool call in the run's turn delivered the result somewhere the
+ * user will see it, outside the notification pipeline.
+ *
+ * The schedule skill prescribes two such routes for rich content — the
+ * messaging tool for email, and the Slack Web API's `chat.postMessage` through
+ * bash — and neither writes a `notification_events` row, so the pipeline probe
+ * cannot see them. Without this check a well-authored Slack digest would post
+ * its summary and then get a second notification whose body is "Posted the
+ * digest to #general." This is a recognized-routes list, not a general "did
+ * the run do anything?" heuristic: a route that is not here gets the fallback,
+ * which is the safe failure.
+ */
+function isDirectDelivery(block: ContentBlock): boolean {
+  if (block.type !== "tool_use") {
+    return false;
+  }
+  if (block.name === "messaging_send") {
+    return true;
+  }
+  if (block.name === "bash") {
+    const command = (block.input as { command?: unknown } | undefined)?.command;
+    return typeof command === "string" && command.includes("chat.postMessage");
+  }
+  return false;
+}
+
+/**
+ * The assistant rows this run wrote, in order, ending on `latestRow`.
+ *
+ * A run is one agent turn: `getAssistantMessageIdsInTurn` walks the tool-call
+ * loop back to the user message that opened it. Rows from before the run
+ * started are dropped defensively — a reused conversation's earlier turns must
+ * never be mistaken for this one.
+ */
+function collectRunRows(
+  latestRow: MessageRow,
+  conversationId: string,
+  runStartedAt: number,
+): MessageRow[] {
+  const rows: MessageRow[] = [];
+  for (const id of getAssistantMessageIdsInTurn(latestRow.id)) {
+    const row =
+      id === latestRow.id ? latestRow : getMessageById(id, conversationId);
+    if (row && row.createdAt >= runStartedAt) {
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+/**
  * Whether the run left the user anything worth reading, and what.
  *
  * Substance is judged mechanically: markdown is flattened and whitespace
@@ -81,7 +137,26 @@ export interface ScheduleResultNotificationParams {
  * The returned body keeps its original markdown — only the emptiness test runs
  * on the flattened form, because the detail panel renders the real thing.
  */
-function resolveRunOutput(conversationId: string): string | undefined {
+function resolveRunOutput(latestRow: MessageRow): string | undefined {
+  const text = stringifyMessageContent(latestRow.content);
+  const flattened = stripMarkdownForPreview(text).replace(/\s+/g, " ").trim();
+  if (!flattened) {
+    return undefined;
+  }
+  return truncate(text.trim(), MAX_RESULT_BODY_CHARS);
+}
+
+/**
+ * The run's final assistant row, or nothing if the run wrote none.
+ *
+ * `latestAssistantMessageId` is per conversation, not per run, so a reused
+ * conversation whose current run wrote no reply would otherwise hand back the
+ * previous run's — and the fallback would re-send yesterday's briefing.
+ */
+function resolveLatestRunRow(
+  conversationId: string,
+  runStartedAt: number,
+): MessageRow | undefined {
   const attention = getAttentionStateByConversationIds([conversationId]).get(
     conversationId,
   );
@@ -89,19 +164,11 @@ function resolveRunOutput(conversationId: string): string | undefined {
   if (!assistantMessageId) {
     return undefined;
   }
-
-  const assistantRow = getMessageById(assistantMessageId, conversationId);
-  if (!assistantRow) {
+  const row = getMessageById(assistantMessageId, conversationId);
+  if (!row || row.createdAt < runStartedAt) {
     return undefined;
   }
-
-  const text = stringifyMessageContent(assistantRow.content);
-  const flattened = stripMarkdownForPreview(text).replace(/\s+/g, " ").trim();
-  if (!flattened) {
-    return undefined;
-  }
-
-  return truncate(text.trim(), MAX_RESULT_BODY_CHARS);
+  return row;
 }
 
 /**
@@ -131,13 +198,27 @@ export async function emitScheduleResultNotification(
     }
 
     // The run spoke for itself — an explicit `assistant notifications send`,
-    // or any other signal the turn emitted against this conversation. Leaving
-    // it alone is what keeps a well-authored schedule from notifying twice.
-    if (hasEventForSourceContextSince(conversationId, runStartedAt)) {
+    // or any other signal the turn emitted against this conversation, that
+    // reached a verdict or a channel. Leaving it alone is what keeps a
+    // well-authored schedule from notifying twice.
+    if (hasNotifiedSourceContextSince(conversationId, runStartedAt)) {
       return;
     }
 
-    const body = resolveRunOutput(conversationId);
+    const latestRow = resolveLatestRunRow(conversationId, runStartedAt);
+    if (!latestRow) {
+      return;
+    }
+
+    // The run delivered around the pipeline — an email through the messaging
+    // tool, a Slack post through the Web API. The user has the result; a
+    // notification reading "posted it" on top would be the duplicate.
+    const runRows = collectRunRows(latestRow, conversationId, runStartedAt);
+    if (runRows.some((row) => row.content.some(isDirectDelivery))) {
+      return;
+    }
+
+    const body = resolveRunOutput(latestRow);
     if (!body) {
       return;
     }

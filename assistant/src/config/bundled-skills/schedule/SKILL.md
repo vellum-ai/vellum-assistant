@@ -246,7 +246,7 @@ Write the delivery step into the `message` when you create the schedule — not 
 
 A schedule whose message has no delivery step is not finished. Before calling `schedule_create` in `execute` mode, read your own message back and check that it says where the output goes.
 
-There is a safety net, and it is not a substitute for the above. When an execute-mode run finishes with user-facing output and emitted no notification of its own, the assistant sends one carrying the run's final reply, so a schedule can no longer run and leave no trace. It fires on the raw reply — whatever the run happened to end on, at whatever length. An authored delivery step gets a title and body you chose, sent at the moment you chose. Rely on the net and you get the machine's guess instead.
+There is a safety net, and it is not a substitute for the above. When an execute-mode run finishes with user-facing output and delivered nothing — no `assistant notifications send`, no `messaging_send`, no Slack `chat.postMessage` — the assistant sends a notification carrying the run's final reply, so a schedule can no longer run and leave no trace. It fires on the raw reply — whatever the run happened to end on, at whatever length. An authored delivery step gets a title and body you chose, sent at the moment you chose. Rely on the net and you get the machine's guess instead.
 
 Choose the right delivery tool based on the content:
 
