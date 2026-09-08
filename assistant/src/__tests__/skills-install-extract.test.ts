@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   extractTarToDir,
-  SkillArchiveError,
   SKILL_DEPENDENCY_INSTALL_ARGS,
+  SkillArchiveError,
   writeSkillFilesToDir,
 } from "../skills/catalog-install.js";
 import { makeTar } from "./helpers/tar-fixtures.js";

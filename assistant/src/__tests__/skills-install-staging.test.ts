@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Emits `error` on the returned child so the dependency install's spawn
 // promise rejects with the injected failure.
-const mockSpawn = mock(() => {
+const spawnArgv: string[][] = [];
+const mockSpawn = mock((_cmd: string, args: string[] = []) => {
+  spawnArgv.push(args);
   const child = {
     on(event: string, cb: (arg: unknown) => void) {
       if (event === "error") {
@@ -30,7 +32,10 @@ mock.module("node:child_process", () => ({
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
-import { installSkillLocally } from "../skills/catalog-install.js";
+import {
+  installSkillLocally,
+  SKILL_DEPENDENCY_INSTALL_ARGS,
+} from "../skills/catalog-install.js";
 import { installExternalSkill } from "../skills/skillssh-registry.js";
 import { makeTar } from "./helpers/tar-fixtures.js";
 
@@ -61,6 +66,7 @@ beforeEach(() => {
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   mkdirSync(join(workspaceDir, "skills"), { recursive: true });
   mockSpawn.mockClear();
+  spawnArgv.length = 0;
 });
 
 afterEach(() => {
@@ -104,12 +110,7 @@ describe("staged skill installs", () => {
     ).rejects.toThrow("dependency install failed");
 
     expect(mockSpawn).toHaveBeenCalled();
-    expect(mockSpawn.mock.calls[0]?.[1]).toEqual([
-      "install",
-      "--omit=dev",
-      "--ignore-scripts",
-      "--no-save",
-    ]);
+    expect(spawnArgv[0]).toEqual([...SKILL_DEPENDENCY_INSTALL_ARGS]);
 
     expect(
       existsSync(join(workspaceDir, "skills", "demo-skill", "SKILL.md")),
