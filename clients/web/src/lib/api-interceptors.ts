@@ -420,6 +420,8 @@ const assistantRequestObservations = new WeakMap<
 // These resources reach the daemon through the gateway runtime proxy.
 // SDK membership alone is insufficient: backups and trust rules are gateway-owned.
 const SERVING_DAEMON_PATHS = new Set([
+  // Presence reports run on resume even while normal queries are sleep-gated.
+  "clients",
   "conversations",
   "messages",
   "apps",

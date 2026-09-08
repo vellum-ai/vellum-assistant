@@ -3067,3 +3067,35 @@ test("a gateway OPTIONS response is not daemon readiness", async () => {
     resetAssistantRequestActivity(null);
   }
 });
+
+test.each([true, false])("a resume presence POST (recorded=%s) supersedes a stale sleep report", async (recorded) => {
+  resetAssistantRequestActivity("123");
+  setCsrfCookie("test-csrf-token");
+  try {
+    const statusRequest = await requestInterceptor(
+      new Request(
+        "https://app.example.test/v1/assistants/123/operational/status/",
+      ),
+    );
+    assistantActivityResponseInterceptor(
+      Response.json({ state: "sleeping" }),
+      statusRequest,
+    );
+    const sleepObservation = useAssistantRequestActivity.getState().lastStatus;
+    expect(sleepObservation).toBeGreaterThan(0);
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+    await daemonClient.post({
+      url: "https://app.example.test/v1/assistants/123/clients/web-presence",
+      body: { visible: true, focusedConversationId: null },
+      fetch: Object.assign(async () => Response.json({ recorded }), {
+        preconnect: () => {},
+      }),
+    });
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBeGreaterThan(
+      sleepObservation,
+    );
+  } finally {
+    resetAssistantRequestActivity(null);
+    clearCsrfCookie();
+  }
+});
