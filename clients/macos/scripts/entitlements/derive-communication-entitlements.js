@@ -1,3 +1,5 @@
+// @ts-check
+
 // `com.apple.developer.usernotifications.communication` is a restricted
 // entitlement: an app that declares it without an authorizing provisioning
 // profile is killed at launch, so only a build with
@@ -65,7 +67,6 @@ function deriveCommunicationEntitlements(options = {}) {
 module.exports = {
   COMMUNICATION_KEY,
   BASE_PLIST_PATH,
-  DERIVED_PLIST_PATH,
   addCommunicationEntitlement,
   deriveCommunicationEntitlements,
 };

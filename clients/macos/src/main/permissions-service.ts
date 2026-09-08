@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   BrowserWindow,
   Notification,
@@ -21,8 +23,8 @@ import { handle } from "./ipc";
 import log from "./logger";
 import {
   getNotifier,
+  isNotifierSupported,
   requestNotifierAuthorization,
-  type Notifier,
   type NotifierAuthorizationResult,
 } from "./notifier";
 
@@ -141,34 +143,51 @@ const settleWithin = <T>(
   probe: (settle: (value: T | null) => void) => void,
 ): Promise<T | null> =>
   new Promise((resolve) => {
-    let settled = false;
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    const settle = (value: T | null): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      resolve(value);
-    };
-    timeout = setTimeout(() => {
-      settle(null);
+    const timeout = setTimeout(() => {
+      resolve(null);
     }, timeoutMs);
     timeout.unref?.();
-    probe(settle);
+    probe((value) => {
+      clearTimeout(timeout);
+      resolve(value);
+    });
   });
+
+/**
+ * The Electron probe learns its answer by posting a notification, so a user
+ * who allows sees a confirmation banner. The addon answers without posting
+ * anything, so the native path posts the same banner itself. It carries no
+ * category because it has no action buttons to route.
+ */
+const postNativeNotificationConfirmation = (): void => {
+  const notifier = getNotifier();
+  if (!notifier) {
+    return;
+  }
+  try {
+    notifier.show(
+      {
+        id: randomUUID(),
+        title: "Vellum",
+        body: "Notifications are enabled.",
+        categoryId: "",
+        actions: [],
+      },
+      () => undefined,
+    );
+  } catch (error) {
+    log.warn("[permissions] confirmation notification failed:", error);
+  }
+};
 
 // Asking the addon rather than `electron.Notification.isSupported()`, which
 // builds Electron's presenter and takes the notification center's delegate.
-const initialNotificationStatus = (): PermissionStatus => {
-  const notifier = getNotifier();
-  const supported = notifier
-    ? notifier.isSupported()
-    : Notification.isSupported();
-  return supported ? "unknown" : "restricted";
-};
+// Electron's own probe is consulted only when the addon cannot post, which is
+// the case where the presenter gets built anyway.
+const initialNotificationStatus = (): PermissionStatus =>
+  isNotifierSupported() || Notification.isSupported()
+    ? "unknown"
+    : "restricted";
 
 export class PermissionsService {
   private lastStateJson: string | null = null;
@@ -336,20 +355,18 @@ export class PermissionsService {
   }
 
   private requestNotifications(_sender?: WebContents): Promise<void> {
-    const notifier = getNotifier();
-    if (notifier) {
-      return this.requestNativeNotifications(notifier);
+    // An addon that loads but reports unsupported is not a dead end: Electron
+    // can still post, so the probe falls back to it rather than calling the
+    // permission restricted.
+    if (isNotifierSupported()) {
+      return this.requestNativeNotifications();
     }
     return this.requestElectronNotifications();
   }
 
   // Prompting through the addon rather than `electron.Notification` is half of
   // what keeps the delegate with the addon; see the delegate rule in README.md.
-  private async requestNativeNotifications(notifier: Notifier): Promise<void> {
-    if (!notifier.isSupported()) {
-      this.notificationStatus = "restricted";
-      return;
-    }
+  private async requestNativeNotifications(): Promise<void> {
     const result = await settleWithin<NotifierAuthorizationResult>(
       NOTIFICATION_PROMPT_TIMEOUT_MS,
       (settle) => {
@@ -361,6 +378,9 @@ export class PermissionsService {
       return;
     }
     this.notificationStatus = result.granted ? "granted" : "denied";
+    if (result.granted) {
+      postNativeNotificationConfirmation();
+    }
   }
 
   private async requestElectronNotifications(): Promise<void> {

@@ -51,8 +51,9 @@ struct Event {
   // Negative when the event carries no action index.
   int actionIndex = -1;
   std::string error;
-  // Non-empty on `shown` when the Communication Notification treatment could
-  // not be applied, naming why the plain layout went out instead.
+  // Non-empty on `shown` when the notification went out in a reduced form,
+  // naming why: no Communication Notification treatment, or an unregistered
+  // category and so no action buttons.
   std::string degraded;
 };
 
@@ -103,20 +104,19 @@ bool OwnsNotification(const std::string &id) {
 
 // `final` releases the callback: the notification can produce no further
 // events. `shown` is not final because a click or a dismissal still follows.
+//
+// The lock is held across the call. Handing the thread-safe function out from
+// under it would let an eviction on another thread release the same function
+// mid-call. The queue is unbounded, so `BlockingCall` hands the payload off
+// without waiting and the JavaScript callback runs later on its own thread,
+// which is what makes holding the lock here safe.
 void EmitEvent(const std::string &id, Event event, bool final) {
-  Napi::ThreadSafeFunction tsfn;
-  {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    auto it = g_callbacks.find(id);
-    if (it == g_callbacks.end()) {
-      return;
-    }
-    tsfn = it->second;
-    if (final) {
-      g_callbacks.erase(it);
-      ForgetCallbackLocked(id);
-    }
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto it = g_callbacks.find(id);
+  if (it == g_callbacks.end()) {
+    return;
   }
+  Napi::ThreadSafeFunction tsfn = it->second;
 
   auto *payload = new Event(std::move(event));
   const napi_status status = tsfn.BlockingCall(
@@ -139,6 +139,8 @@ void EmitEvent(const std::string &id, Event event, bool final) {
     delete payload;
   }
   if (final) {
+    g_callbacks.erase(it);
+    ForgetCallbackLocked(id);
     tsfn.Release();
   }
 }
@@ -275,10 +277,24 @@ void RestoreDelegate() {
   g_delegate.previousDelegate = nil;
 }
 
+// One application of the union at a time, with a request that arrives while
+// one is in flight coalesced into a single re-run. These two flags and
+// `g_categories` are touched only on the main thread: that is where the
+// JavaScript surface runs and where the completion below hands control back.
+bool g_applyingCategories = false;
+bool g_categoriesDirty = false;
+
 // Hands the notification center the union of what it already holds and every
 // category this addon has registered. Replacing the set instead would drop
-// categories registered by anything else in the process.
+// categories registered by anything else in the process. The union is a
+// read-modify-write straddling an asynchronous fetch, so two applications that
+// overlapped could each write back a set missing the other's categories.
 void ApplyCategories() {
+  if (g_applyingCategories) {
+    g_categoriesDirty = true;
+    return;
+  }
+  g_applyingCategories = true;
   UNUserNotificationCenter *center =
       [UNUserNotificationCenter currentNotificationCenter];
   NSDictionary<NSString *, UNNotificationCategory *> *ours =
@@ -294,6 +310,13 @@ void ApplyCategories() {
     // ordered action set, so a collision means the same buttons either way.
     [merged addEntriesFromDictionary:ours];
     [center setNotificationCategories:[NSSet setWithArray:merged.allValues]];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      g_applyingCategories = false;
+      if (g_categoriesDirty) {
+        g_categoriesDirty = false;
+        ApplyCategories();
+      }
+    });
   }];
 }
 
@@ -429,17 +452,21 @@ SenderContent ContentWithSenderIntent(UNMutableNotificationContent *content,
 
 void PostNotification(const ShowRequest &request) {
   NSString *categoryId = ToNSString(request.categoryId);
-  // Every action set the app posts is registered at startup through
-  // `registerCategories`, because `setNotificationCategories:` applies
-  // asynchronously and a category minted in the runloop turn its notification
-  // is posted can miss it. This covers a set that was not registered there.
-  if (g_categories[categoryId] == nil) {
-    NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
-    for (const std::string &action : request.actions) {
-      [actionTitles addObject:ToNSString(action)];
-    }
-    RememberCategory(categoryId, actionTitles);
-    ApplyCategories();
+  // Every action set the app posts is registered through `registerCategories`
+  // at startup, because `setNotificationCategories:` applies asynchronously
+  // and a category minted in the runloop turn its notification is posted can
+  // miss it. An identifier that is not registered by then cannot be repaired
+  // here for the same reason, so the notification goes out without one and the
+  // `shown` event names the reason. An empty identifier is a notification that
+  // asks for no buttons.
+  std::string degraded;
+  const bool hasCategory =
+      categoryId.length > 0 && g_categories[categoryId] != nil;
+  if (categoryId.length > 0 && !hasCategory) {
+    degraded = "the category " + request.categoryId +
+               " is not registered, so the action buttons are missing";
+    os_log_error(OS_LOG_DEFAULT, "vellum-notifier: %{public}s",
+                 degraded.c_str());
   }
 
   UNMutableNotificationContent *content =
@@ -450,14 +477,18 @@ void PostNotification(const ShowRequest &request) {
   }
   content.body = ToNSString(request.body);
   content.sound = [UNNotificationSound defaultSound];
-  content.categoryIdentifier = categoryId;
+  if (hasCategory) {
+    content.categoryIdentifier = categoryId;
+  }
 
   UNNotificationContent *finalContent = content;
-  std::string degraded;
   if (request.hasSender) {
     SenderContent applied = ContentWithSenderIntent(content, request);
     finalContent = applied.content;
-    degraded = applied.degraded;
+    if (!applied.degraded.empty()) {
+      degraded = degraded.empty() ? applied.degraded
+                                  : degraded + "; " + applied.degraded;
+    }
   }
 
   const std::string id = request.id;

@@ -15,17 +15,21 @@ if ! command -v xcrun >/dev/null 2>&1; then
   exit 1
 fi
 
-ARCH="${ELECTRON_TARGET_ARCH:-}"
-if [ -z "$ARCH" ]; then
-  case "$(uname -m)" in
-    arm64)  ARCH=arm64 ;;
-    x86_64) ARCH=x64 ;;
-    *)
-      echo "build-notifier: unsupported host architecture $(uname -m)" >&2
-      exit 1
-      ;;
-  esac
-fi
+# The packaged app's architecture comes from ELECTRON_TARGET_ARCH, defaulting
+# to arm64 in pack.sh and electron-builder.config.cjs. The addon follows the
+# same variable rather than the host's architecture: electron-builder packs
+# whatever is under resources/notifier, so a host-shaped addon in an arm64 pack
+# ships an app that quietly falls back to plain notifications.
+# `lipo -archs` names the x64 slice x86_64.
+ARCH="${ELECTRON_TARGET_ARCH:-arm64}"
+case "$ARCH" in
+  arm64) EXPECTED_SLICE=arm64 ;;
+  x64)   EXPECTED_SLICE=x86_64 ;;
+  *)
+    echo "build-notifier: unsupported ELECTRON_TARGET_ARCH: $ARCH (use arm64 or x64)" >&2
+    exit 1
+    ;;
+esac
 
 # The addon links against Electron's V8/Node ABI, so it is compiled against the
 # headers for the exact Electron the app ships with.
@@ -60,5 +64,19 @@ fi
 rm -rf "$ROOT_DIR/resources/notifier"
 OUTPUT_DIR="$ROOT_DIR/resources/notifier/$ARCH"
 mkdir -p "$OUTPUT_DIR"
-cp "$BUILT" "$OUTPUT_DIR/vellum-notifier.node"
-echo "build-notifier: wrote $OUTPUT_DIR/vellum-notifier.node"
+OUTPUT="$OUTPUT_DIR/vellum-notifier.node"
+cp "$BUILT" "$OUTPUT"
+
+# A toolchain that ignores --arch produces a host-architecture binary, and
+# electron-builder signs and packs whatever it finds, so the mismatch has to
+# fail here rather than at the user's first notification.
+SLICES="$(lipo -archs "$OUTPUT")"
+case " $SLICES " in
+  *" $EXPECTED_SLICE "*) ;;
+  *)
+    echo "build-notifier: $OUTPUT is built for $SLICES, not $EXPECTED_SLICE ($ARCH)" >&2
+    exit 1
+    ;;
+esac
+
+echo "build-notifier: wrote $OUTPUT ($SLICES)"
