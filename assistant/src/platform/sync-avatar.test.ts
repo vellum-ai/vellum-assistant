@@ -54,15 +54,19 @@ mock.module("../avatar/avatar-manifest.js", () => ({
   },
 }));
 
+// Both entry points bump the same counter, so `rasterCalls` measures every
+// avatar-raster resolution a sync does, not just the one it goes through.
 mock.module("../avatar/ensure-raster.js", () => ({
   ensureAvatarRasterPath: async () => {
     rasterCalls += 1;
     return mockRasterPath;
   },
-  ensureAvatarRaster: async () =>
-    mockRasterPath === null
+  ensureAvatarRaster: async () => {
+    rasterCalls += 1;
+    return mockRasterPath === null
       ? null
-      : realReadContainedAvatarRaster(mockRasterPath),
+      : realReadContainedAvatarRaster(mockRasterPath);
+  },
   readContainedAvatarRaster: realReadContainedAvatarRaster,
 }));
 
@@ -134,6 +138,16 @@ function imageState(etag: string): AvatarState {
     traits: null,
     source: "upload",
     image: { updatedAt: "2026-01-01T00:00:00.000Z", etag },
+    accent: null,
+  };
+}
+
+function characterState(): AvatarState {
+  return {
+    kind: "character",
+    traits: { bodyShape: "blob", eyeStyle: "curious", color: "green" },
+    source: "builder",
+    image: null,
     accent: null,
   };
 }
@@ -285,13 +299,7 @@ describe("syncAvatarToPlatform", () => {
   test("a character whose re-render failed is skipped, not cleared", async () => {
     syncAvatarToPlatform();
     await settle();
-    mockState = {
-      kind: "character",
-      traits: { bodyShape: "blob", eyeStyle: "curious", color: "green" },
-      source: null,
-      image: null,
-      accent: null,
-    };
+    mockState = { ...characterState(), source: null };
     mockRasterPath = null;
     syncAvatarToPlatform();
     await settle();
@@ -411,11 +419,15 @@ describe("syncAvatarToPlatform", () => {
     });
   });
 
-  test("a changed notification render re-sends an unchanged raster", async () => {
+  test("a changed accent re-sends an unchanged raster", async () => {
     mockResvgAvailable = true;
     mockRenderedPng = Buffer.from("disc-a");
     syncAvatarToPlatform();
     await settle();
+    mockState = {
+      ...imageState("etag-a"),
+      accent: { hex: "#E9642F", source: "custom" },
+    };
     mockRenderedPng = Buffer.from("disc-b");
     syncAvatarToPlatform();
     await settle();
@@ -425,6 +437,35 @@ describe("syncAvatarToPlatform", () => {
       Buffer.from("disc-b").toString("base64"),
     ]);
     expect(patches[1].body.avatar_base64).toBe(png("a").toString("base64"));
+    expect(lastResvgSvg).toContain('fill="#FCE9E2"');
+  });
+
+  test("a character with no stored accent wears its palette disc", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-green");
+    mockState = characterState();
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body.notification_avatar_base64).toBe(
+      Buffer.from("disc-green").toString("base64"),
+    );
+    expect(lastResvgSvg).toContain('fill="#E6F1E7"');
+  });
+
+  test("does not render the notification avatar for a deduped payload", async () => {
+    mockResvgAvailable = true;
+    syncAvatarToPlatform();
+    await settle();
+    expect(patches).toHaveLength(1);
+
+    lastResvgSvg = "";
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(lastResvgSvg).toBe("");
   });
 
   test("a restart with the same raster and destination does not re-upload", async () => {

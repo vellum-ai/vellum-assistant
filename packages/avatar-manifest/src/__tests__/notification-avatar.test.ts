@@ -1,33 +1,33 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  NOTIFICATION_AVATAR_ACCENT_MIX,
   NOTIFICATION_AVATAR_FALLBACK_DISC_HEX,
   NOTIFICATION_AVATAR_INSET,
+  NOTIFICATION_AVATAR_MAX_BYTES,
   NOTIFICATION_AVATAR_SIZE,
+  NOTIFICATION_AVATAR_SPEC_VERSION,
   notificationAvatarDiscHex,
   notificationAvatarSvg,
 } from "../notification-avatar.js";
 
-/** The spec's mix, written out again so the module cannot grade its own homework. */
-function mixIntoWhite(hex: string, amount: number): string {
-  const rgb = parseInt(hex.slice(1), 16);
-  const channel = (shift: number) =>
-    Math.round(255 * (1 - amount) + ((rgb >> shift) & 0xff) * amount)
-      .toString(16)
-      .padStart(2, "0")
-      .toUpperCase();
-  return `#${channel(16)}${channel(8)}${channel(0)}`;
+function allAttributes(tag: string, svg: string): Record<string, string>[] {
+  return [...svg.matchAll(new RegExp(`<${tag}\\s([^>]*)/>`, "g"))].map(
+    (match) => {
+      const out: Record<string, string> = {};
+      for (const [, name, value] of match[1]!.matchAll(
+        /([\w:-]+)="([^"]*)"/g,
+      )) {
+        out[name!] = value!;
+      }
+      return out;
+    },
+  );
 }
 
 function attributes(tag: string, svg: string): Record<string, string> {
-  const match = svg.match(new RegExp(`<${tag}\\s([^>]*)/>`));
-  expect(match).not.toBeNull();
-  const out: Record<string, string> = {};
-  for (const [, name, value] of match![1]!.matchAll(/([\w:-]+)="([^"]*)"/g)) {
-    out[name!] = value!;
-  }
-  return out;
+  const all = allAttributes(tag, svg);
+  expect(all.length).toBeGreaterThan(0);
+  return all[0]!;
 }
 
 function countOf(tag: string, svg: string): number {
@@ -39,9 +39,7 @@ const PNG_BASE64 = "iVBORw0KGgo=";
 describe("notificationAvatarDiscHex", () => {
   test("mixes the accent into white", () => {
     expect(notificationAvatarDiscHex("#E9642F")).toBe("#FCE9E2");
-    expect(notificationAvatarDiscHex("#E9642F")).toBe(
-      mixIntoWhite("#E9642F", NOTIFICATION_AVATAR_ACCENT_MIX),
-    );
+    expect(notificationAvatarDiscHex("#4C9B50")).toBe("#E6F1E7");
   });
 
   test("is case insensitive and always returns uppercase #RRGGBB", () => {
@@ -50,9 +48,7 @@ describe("notificationAvatarDiscHex", () => {
 
   test("keeps white white and lifts black to near white", () => {
     expect(notificationAvatarDiscHex("#FFFFFF")).toBe("#FFFFFF");
-    expect(notificationAvatarDiscHex("#000000")).toBe(
-      mixIntoWhite("#000000", NOTIFICATION_AVATAR_ACCENT_MIX),
-    );
+    expect(notificationAvatarDiscHex("#000000")).toBe("#DBDBDB");
   });
 
   test.each([
@@ -76,7 +72,6 @@ describe("notificationAvatarSvg", () => {
     });
 
     expect(countOf("svg", svg)).toBe(1);
-    expect(countOf("circle", svg)).toBe(1);
     expect(countOf("image", svg)).toBe(1);
 
     expect(svg.startsWith("<svg ")).toBe(true);
@@ -96,6 +91,30 @@ describe("notificationAvatarSvg", () => {
     expect(Number(image.height)).toBeCloseTo(inner, 3);
     expect(image.href).toBe(`data:image/png;base64,${PNG_BASE64}`);
     expect(image["xlink:href"]).toBe(image.href);
+  });
+
+  test("cover-crops a non-square raster and clips it to the disc", () => {
+    // The builder never sees the source dimensions, so what makes a 1024x512
+    // upload fill the square instead of letterboxing is the pair of attributes
+    // asserted here.
+    const svg = notificationAvatarSvg({
+      innerPngBase64: PNG_BASE64,
+      accentHex: "#E9642F",
+    });
+
+    const image = attributes("image", svg);
+    expect(image.preserveAspectRatio).toBe("xMidYMid slice");
+
+    const clipRef = image["clip-path"]!;
+    const clipId = clipRef.match(/^url\(#([\w-]+)\)$/)?.[1];
+    expect(clipId).toBeTruthy();
+    expect(svg).toContain(`<clipPath id="${clipId}">`);
+
+    // The clip circle carries the disc geometry and nothing else, so the
+    // painted disc and the boundary can never drift apart.
+    const [disc, clip] = allAttributes("circle", svg);
+    expect(clip).toEqual({ cx: "128", cy: "128", r: "128" });
+    expect(disc).toMatchObject({ cx: "128", cy: "128", r: "128" });
   });
 
   test("scales the geometry to a custom size", () => {
@@ -139,5 +158,16 @@ describe("notificationAvatarSvg", () => {
     expect(attributes("circle", svg).fill).toBe(
       NOTIFICATION_AVATAR_FALLBACK_DISC_HEX,
     );
+  });
+});
+
+describe("the transport contract", () => {
+  test("caps a notification PNG at 128 KB", () => {
+    expect(NOTIFICATION_AVATAR_MAX_BYTES).toBe(128 * 1024);
+  });
+
+  test("stamps the drawing with a spec version", () => {
+    expect(Number.isInteger(NOTIFICATION_AVATAR_SPEC_VERSION)).toBe(true);
+    expect(NOTIFICATION_AVATAR_SPEC_VERSION).toBeGreaterThan(0);
   });
 });

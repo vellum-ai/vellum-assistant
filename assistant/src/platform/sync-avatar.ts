@@ -19,8 +19,11 @@
  * re-render unavailable) is skipped so the platform keeps the last synced
  * copy.
  * The same PATCH carries `notification_avatar_base64`, the disc render the
- * push pipeline shows as the sender. Its digest is part of the dedup key, so
- * a change to the disc spec re-uploads even when the raster is unchanged.
+ * push pipeline shows as the sender. The dedup key carries the accent and
+ * `NOTIFICATION_AVATAR_SPEC_VERSION` rather than the render's digest, so a
+ * change to the disc spec still re-uploads an unchanged raster without the
+ * key costing a render on every enqueue; the render itself happens inside the
+ * lazy body, only for a payload that is actually going out.
  * When the render is unavailable the key is omitted rather than nulled, so
  * the platform keeps the copy it holds.
  */
@@ -29,12 +32,20 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import {
+  NOTIFICATION_AVATAR_MAX_BYTES,
+  NOTIFICATION_AVATAR_SPEC_VERSION,
+} from "@vellumai/avatar-manifest/notification-avatar";
+
 import { readAvatarState } from "../avatar/avatar-manifest.js";
 import {
   ensureAvatarRasterPath,
   readContainedAvatarRaster,
 } from "../avatar/ensure-raster.js";
-import { renderNotificationAvatarPng } from "../avatar/notification-avatar.js";
+import {
+  renderNotificationAvatarPng,
+  resolveNotificationAccentHex,
+} from "../avatar/notification-avatar.js";
 import {
   getResvg,
   isResvgAvailable,
@@ -140,12 +151,11 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   if (!bytes) {
     return undefined;
   }
-  const notification = await renderNotificationAvatarPng(state);
   // Keyed on content so a same-size, same-mtime rewrite still re-syncs.
   const digest = sha256(bytes);
-  const notificationDigest = notification ? sha256(notification) : NONE_KEY;
+  const accentHex = resolveNotificationAccentHex(state);
   return {
-    key: `${state.kind}:${digest}:${notificationDigest}`,
+    key: `${state.kind}:${digest}:${NOTIFICATION_AVATAR_SPEC_VERSION}:${accentHex ?? NONE_KEY}`,
     body: async () => {
       const encoded = encodeForUpload(bytes);
       if (encoded === undefined) {
@@ -155,7 +165,15 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
         );
         return undefined;
       }
+      const notification = await renderNotificationAvatarPng(state, bytes);
       if (!notification) {
+        return { avatar_base64: encoded };
+      }
+      if (notification.length > NOTIFICATION_AVATAR_MAX_BYTES) {
+        log.warn(
+          { bytes: notification.length, cap: NOTIFICATION_AVATAR_MAX_BYTES },
+          "Notification avatar exceeds the contract cap; omitting it from the sync",
+        );
         return { avatar_base64: encoded };
       }
       return {
