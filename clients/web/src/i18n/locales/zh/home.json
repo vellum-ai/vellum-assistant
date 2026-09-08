@@ -12,17 +12,15 @@
     "clearAll": "全部清除"
   },
   "category": {
-    "security": "安全",
-    "email": "电子邮件",
-    "scheduling": "日程安排",
-    "background": "后台",
-    "system": "系统",
-    "guardianAction": "需要监护人操作",
+    "guardianAction": "需要您的批准",
+    "guardianAnswer": "需要您的回答",
     "guardianQuestion": "监护人问题",
     "guardianRequest": "监护人请求"
   },
   "homeRecapRow": {
-    "actionsTitle": "更新操作"
+    "actionsTitle": "更新操作",
+    "approve": "批准",
+    "reject": "拒绝"
   },
   "homeToolPermissionCard": {
     "missingScopes": "缺少范围",
@@ -40,7 +38,10 @@
     "ariaLabelUnread": "通知 (未读)",
     "heading": "通知",
     "loadFailed": "无法加载通知。",
-    "actionFailed": "无法开始该对话。请重试。"
+    "actionFailed": "无法开始该对话。请重试。",
+    "decisionNotPermitted": "您无权决定此请求。",
+    "decisionNotApplied": "无法应用该决定。",
+    "decisionFollowThroughFailed": "您的决定已记录，但后续步骤失败。"
   },
   "notificationsBellDetail": {
     "back": "返回通知"
