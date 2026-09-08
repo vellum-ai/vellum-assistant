@@ -28,6 +28,7 @@ final class NotificationService: UNNotificationServiceExtension {
     private let lock = NSLock()
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var unchangedContent: UNNotificationContent?
+    private var rewrite: Task<Void, Never>?
 
     override func didReceive(
         _ request: UNNotificationRequest,
@@ -49,15 +50,22 @@ final class NotificationService: UNNotificationServiceExtension {
             return
         }
 
-        Task {
-            var avatar = cache.data(forHash: sender.avatarHash)
-            if avatar == nil, let url = sender.avatarURL {
-                avatar = await cache.fetch(url: url, hash: sender.avatarHash)
-            }
-            guard let avatar else {
-                Self.logger.info("nse.avatar_unavailable: cache miss and no usable download")
-                self.deliver(request.content)
-                return
+        let task = Task {
+            let avatar: Data
+            if let cached = cache.data(forHash: sender.avatarHash) {
+                avatar = cached
+            } else {
+                guard let url = sender.avatarURL else {
+                    self.deliverWithoutAvatar(.missingURL, content: request.content)
+                    return
+                }
+                switch await cache.fetch(url: url, hash: sender.avatarHash) {
+                case .success(let downloaded):
+                    avatar = downloaded
+                case .failure(let reason):
+                    self.deliverWithoutAvatar(reason, content: request.content)
+                    return
+                }
             }
             do {
                 self.deliver(
@@ -74,6 +82,9 @@ final class NotificationService: UNNotificationServiceExtension {
                 self.deliver(request.content)
             }
         }
+        lock.lock()
+        rewrite = task
+        lock.unlock()
     }
 
     /// Called when the extension runs out of its budget. Delivering the push as
@@ -81,11 +92,28 @@ final class NotificationService: UNNotificationServiceExtension {
     override func serviceExtensionTimeWillExpire() {
         lock.lock()
         let content = unchangedContent
+        let pending = rewrite
+        rewrite = nil
         lock.unlock()
+        // Cancelling propagates into the avatar download, whose only bound
+        // otherwise is an idle timeout the system has already outlasted.
+        pending?.cancel()
         if let content {
             Self.logger.info("nse.expired: budget ran out before the rewrite finished")
             deliver(content)
         }
+    }
+
+    /// Logs why the notification has no avatar, then delivers the push as it
+    /// arrived.
+    private func deliverWithoutAvatar(
+        _ reason: AvatarCache.UnavailableReason,
+        content: UNNotificationContent
+    ) {
+        Self.logger.info(
+            "nse.avatar_unavailable reason=\(reason.rawValue, privacy: .public)"
+        )
+        deliver(content)
     }
 
     /// Hands `content` to the system once. Later calls are dropped: iOS accepts

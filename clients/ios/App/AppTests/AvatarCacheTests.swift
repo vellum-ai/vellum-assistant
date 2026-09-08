@@ -11,6 +11,7 @@ final class AvatarCacheTests: XCTestCase {
         cache = AvatarCache(rootURL: root)
         URLProtocol.registerClass(CountingURLProtocol.self)
         loadCounter.reset()
+        stubbedResponse.clear()
     }
 
     override func tearDown() {
@@ -103,6 +104,17 @@ final class AvatarCacheTests: XCTestCase {
         XCTAssertEqual(cache.data(forHash: hashes[0]), avatar(0))
     }
 
+    func testDropsACachedFilePastTheByteCap() throws {
+        let oversized = Data(repeating: 0x41, count: AvatarCache.maxBytes + 1)
+        let hash = AvatarCache.sha256Hex(oversized)
+        let url = try XCTUnwrap(cache.fileURL(forHash: hash))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try oversized.write(to: url)
+
+        XCTAssertNil(cache.data(forHash: hash))
+        XCTAssertEqual(storedFileCount(), 0)
+    }
+
     func testDropsACachedFileWhoseBytesNoLongerMatchItsName() throws {
         let hash = AvatarCache.sha256Hex(avatar(1))
         let url = try XCTUnwrap(cache.fileURL(forHash: hash))
@@ -144,15 +156,15 @@ final class AvatarCacheTests: XCTestCase {
 
     func testFetchRefusesANonHttpsURL() async throws {
         let url = try XCTUnwrap(URL(string: "http://storage.example.com/avatar.png"))
-        let bytes = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
-        XCTAssertNil(bytes)
+        let result = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
+        XCTAssertEqual(result.reason, .insecureURL)
         XCTAssertEqual(loadCounter.count, 0)
     }
 
     func testFetchRefusesAMalformedHash() async throws {
         let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
-        let bytes = await cache.fetch(url: url, hash: "../etc/passwd")
-        XCTAssertNil(bytes)
+        let result = await cache.fetch(url: url, hash: "../etc/passwd")
+        XCTAssertEqual(result.reason, .badHash)
         XCTAssertEqual(loadCounter.count, 0)
     }
 
@@ -161,15 +173,61 @@ final class AvatarCacheTests: XCTestCase {
     /// does reach the URL loading system.
     func testFetchReachesTheNetworkOnceTheGuardsPass() async throws {
         let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
-        let bytes = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
-        XCTAssertNil(bytes)
+        let result = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
+        XCTAssertEqual(result.reason, .requestFailed)
         XCTAssertEqual(loadCounter.count, 1)
+    }
+
+    /// A chunked response declares no length at all, so a fetch that insisted on
+    /// a declared one would miss every cache and refill it from nothing.
+    func testFetchAcceptsAResponseThatDeclaresNoLength() async throws {
+        let bytes = avatar(1)
+        let hash = AvatarCache.sha256Hex(bytes)
+        stubbedResponse.set(headerFields: [:], body: bytes)
+
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let result = await cache.fetch(url: url, hash: hash)
+        XCTAssertEqual(try result.get(), bytes)
+        XCTAssertEqual(cache.data(forHash: hash), bytes)
+    }
+
+    func testFetchRejectsABodyItDeclaresIsPastTheByteCap() async throws {
+        let bytes = avatar(1)
+        stubbedResponse.set(
+            headerFields: ["Content-Length": "\(AvatarCache.maxBytes + 1)"],
+            body: bytes
+        )
+
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let result = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(bytes))
+        XCTAssertEqual(result.reason, .declaredTooLarge)
+        XCTAssertEqual(storedFileCount(), 0)
+    }
+
+    func testFetchRejectsBytesThatDoNotMatchTheHash() async throws {
+        stubbedResponse.set(headerFields: [:], body: avatar(2))
+
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let result = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
+        XCTAssertEqual(result.reason, .digestMismatch)
+        XCTAssertEqual(storedFileCount(), 0)
     }
 }
 
-/// Counts the requests that reach the URL loading system and fails every one of
-/// them, so a test can tell a guard that returned early apart from a request
-/// that went out and came back empty.
+private extension Result where Failure == AvatarCache.UnavailableReason {
+    /// The reason a fetch gave up, or `nil` when it succeeded.
+    var reason: AvatarCache.UnavailableReason? {
+        guard case .failure(let reason) = self else {
+            return nil
+        }
+        return reason
+    }
+}
+
+/// Counts the requests that reach the URL loading system, so a test can tell a
+/// guard that returned early apart from a request that went out. Serves
+/// ``stubbedResponse`` when one is set and fails the request otherwise, which
+/// keeps the tests that assert on a failed request unchanged.
 private final class CountingURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -181,10 +239,49 @@ private final class CountingURLProtocol: URLProtocol {
 
     override func startLoading() {
         loadCounter.increment()
-        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+        guard let url = request.url,
+              let stub = stubbedResponse.current,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: "HTTP/1.1",
+                  headerFields: stub.headerFields
+              )
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: stub.body)
+        client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() {}
+}
+
+/// Shared for the same reason ``loadCounter`` is.
+private let stubbedResponse = StubbedResponse()
+
+private final class StubbedResponse: @unchecked Sendable {
+    struct Stub {
+        let headerFields: [String: String]
+        let body: Data
+    }
+
+    private let lock = NSLock()
+    private var stub: Stub?
+
+    var current: Stub? { lock.withLock { stub } }
+
+    /// Headers with no `Content-Length` are what a chunked response looks like
+    /// to `URLSession`: `expectedContentLength` comes back as -1.
+    func set(headerFields: [String: String], body: Data) {
+        lock.withLock { stub = Stub(headerFields: headerFields, body: body) }
+    }
+
+    func clear() {
+        lock.withLock { stub = nil }
+    }
 }
 
 /// Shared because `URLProtocol` instances are created by the loading system,

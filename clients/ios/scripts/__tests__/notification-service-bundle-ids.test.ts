@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { readSetting } from "./xcconfig-fixtures";
 
 const APP_DIR = join(import.meta.dir, "../../App/App");
+const NSE_DIR = join(import.meta.dir, "../../App/NotificationService");
 
 const PAIRS = [
   { app: "App.xcconfig", nse: "NotificationService.xcconfig" },
@@ -29,8 +30,9 @@ describe("NotificationService xcconfigs stay prefixed by their host app", () => 
 describe("Communication Notifications is declared on both sides", () => {
   // App and App Staging sign against App.entitlements, App Dev against
   // App-Dev.entitlements, so the pair covers all three app targets. Without the
-  // entitlement `UNNotificationContent.updating(from:)` silently returns the
-  // unmodified content.
+  // entitlement `UNNotificationContent.updating(from:)` either throws or
+  // returns the unmodified content, so the banner loses its avatar with or
+  // without a log line to explain it.
   for (const file of ["App.entitlements", "App-Dev.entitlements"]) {
     test(`${file} carries the communication entitlement`, () => {
       expect(readFileSync(join(APP_DIR, file), "utf8")).toContain(
@@ -45,6 +47,16 @@ describe("Communication Notifications is declared on both sides", () => {
     const plist = readFileSync(join(APP_DIR, "Info.plist"), "utf8");
     expect(plist).toContain("<key>NSUserActivityTypes</key>");
     expect(plist).toContain("<string>INSendMessageIntent</string>");
+  });
+
+  // `IntentsSupported` belongs to the Intents extension point, not to
+  // `com.apple.usernotifications.service`. The app's NSUserActivityTypes above
+  // is what declares the intent; claiming it here again buys nothing and gives
+  // the next reader a second, wrong place to look.
+  test("the extension Info.plist declares no IntentsSupported", () => {
+    expect(readFileSync(join(NSE_DIR, "Info.plist"), "utf8")).not.toContain(
+      "IntentsSupported",
+    );
   });
 });
 
