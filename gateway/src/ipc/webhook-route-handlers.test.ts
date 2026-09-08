@@ -34,6 +34,7 @@ import {
   resetGatewayDb,
 } from "../db/connection.js";
 import { webhookIngressRoutes } from "../db/schema.js";
+import { watchPluginIngressForWebhookRoutes } from "../channels/plugin-webhook-route-sync.js";
 import { createWebhookRouteRoutes } from "./webhook-route-handlers.js";
 
 const PATH = "/webhooks/telegram";
@@ -118,6 +119,23 @@ describe("register_webhook_route", () => {
     });
   });
 
+  it("refuses the type the plugin reconcile owns, with a client error", () => {
+    // Rows of that type are the reconcile's to keep or remove, so a caller
+    // claiming one would lose it the moment no plugin declares its path.
+    let thrown: unknown;
+    try {
+      register({ path: PATH, type: "plugin", source: "meeting-bot" });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toMatchObject({
+      statusCode: 400,
+      code: "reserved_webhook_route_type",
+    });
+    expect(list()).toEqual({ routes: [] });
+  });
+
   it("throws on a path outside the webhook namespace", () => {
     expect(() => register({ path: "/v1/admin", type: "telegram" })).toThrow();
     expect(() =>
@@ -163,6 +181,42 @@ describe("unregister_webhook_route", () => {
 
   it("reports a path it never held", () => {
     expect(unregister({ path: PATH })).toEqual({ removed: false });
+  });
+
+  it("asks the reconcile to reclaim a removed plugin-namespace path", async () => {
+    // A daemon-claimed row can be the only entry admitting a servable plugin
+    // route, so its removal arms the poll to settle the namespace again. The
+    // poll only runs a settle while armed, so settle invocations are the
+    // observable. A non-namespace removal is the control: it must arm nothing.
+    const emptyResolution = {
+      approved: [],
+      pending: [],
+      problems: [],
+    } as never;
+    const pollSettles = async (): Promise<number> => {
+      let settles = 0;
+      const unwatch = watchPluginIngressForWebhookRoutes({
+        subscribe: () => () => {},
+        resolve: () => {
+          settles += 1;
+          return emptyResolution;
+        },
+        refresh: () => {},
+        pollIntervalMs: 10,
+      });
+      await new Promise((r) => setTimeout(r, 30));
+      unwatch();
+      return settles;
+    };
+
+    register({ path: PATH, type: "telegram" });
+    expect(unregister({ path: PATH })).toEqual({ removed: true });
+    expect(await pollSettles()).toBe(0);
+
+    const claimed = "/webhooks/plugins/meeting-bot/realtime";
+    register({ path: claimed, type: "plugin_meeting-bot_realtime_ab12cd34" });
+    expect(unregister({ path: claimed })).toEqual({ removed: true });
+    expect(await pollSettles()).toBeGreaterThan(0);
   });
 
   it("still revokes and lists while the flag is off", () => {

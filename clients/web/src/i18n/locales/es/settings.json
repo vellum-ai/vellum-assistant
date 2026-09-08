@@ -1554,6 +1554,18 @@
     "selectModelPlaceholder": "Selecciona un modelo",
     "selectProviderPlaceholder": "Selecciona un proveedor…"
   },
+  "profileModalitiesSection": {
+    "audio": "Audio",
+    "enableAria": "Activar {modality}",
+    "enabledColumn": "Activado",
+    "helper": "El modelo recibe una modalidad solo si está activada y marcada como compatible. Las imágenes que no se envían así se convierten en una descripción.",
+    "image": "Imagen",
+    "resolvedOff": "No se envía al modelo",
+    "resolvedOn": "Se envía al modelo",
+    "supportedAria": "El modelo admite {modality}",
+    "supportedColumn": "El modelo lo admite",
+    "title": "Modalidades"
+  },
   "profileRow": {
     "actionsAriaLabel": "Acciones para {displayName}",
     "defaultTag": "Predeterminado",

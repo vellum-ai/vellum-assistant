@@ -11,16 +11,10 @@ name: Deploy Web SPA (reusable)
 # a $GITHUB_ENV/$GITHUB_PATH/BASH_ENV hook (or a fake `gcloud`) that would fire
 # in the post-auth publish step and exfiltrate the short-lived GCP credentials.
 #
-# Three single-environment callers, one per environment: `deploy-web-spa` in
-# dev-release.yaml deploys `dev` on every hourly dev release (hard-gated on
-# ci-web alone, ordered after register-release, so web changes still reach dev
-# when the backend half of the release fails); release.yml's
-# `deploy-web-spa-staging` deploys `staging` on staging releases and
-# `deploy-web-spa-production` deploys `production` when a release goes live —
-# last, after the GitHub Release is published and the release is registered
-# with the platform, so a failed go-live never leaves the prod UI ahead of the
-# backend. The `environment:` binding only resolves each environment's
-# secrets/vars; no environment gates on required reviewers.
+# The `stable` channel overwrites the root index.html. Any other channel writes
+# `<channel>/index.html` and uploads assets with --no-clobber, leaving the stable
+# release untouched. `environment:` only resolves secrets and vars; none gate on
+# required reviewers.
 on:
   workflow_call:
     inputs:
@@ -28,6 +22,13 @@ on:
         description: Target GitHub environment (dev | staging | production).
         required: true
         type: string
+      channel:
+        description: >-
+          Publish channel: stable overwrites the root index.html; any other
+          value writes <channel>/index.html and leaves root untouched.
+        required: false
+        type: string
+        default: stable
 
 jobs:
   build-and-package:
@@ -82,6 +83,7 @@ jobs:
       #                              or the live-voice WS upgrade 503s "offline".
       #   - VITE_APP_VERSION         commit SHA baked into the browser bundle
       #                              for Sentry event release tagging.
+      #   - VITE_CHANNEL             publish channel baked into the bundle.
       #   - SENTRY_UPLOAD_SOURCE_MAPS  deploy-only opt-in for source-map upload
       #                              and Sentry release side effects.
       #   - SENTRY_AUTH_TOKEN        repo-level secret; unprefixed, so Vite never
@@ -106,6 +108,7 @@ jobs:
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_VELAY_HOST: ${{ vars.VITE_VELAY_HOST }}
           VITE_APP_VERSION: ${{ github.sha }}
+          VITE_CHANNEL: ${{ inputs.channel }}
           SENTRY_UPLOAD_SOURCE_MAPS: "true"
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: bun run build
@@ -115,7 +118,7 @@ jobs:
       - name: Upload SPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: web-dist-${{ inputs.environment }}
+          name: web-dist-${{ inputs.environment }}-${{ inputs.channel }}
           path: clients/web/dist
           if-no-files-found: error
 
@@ -133,7 +136,7 @@ jobs:
       - name: Download SPA artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: web-dist-${{ inputs.environment }}
+          name: web-dist-${{ inputs.environment }}-${{ inputs.channel }}
           path: dist
 
       - name: Authenticate to GCP
@@ -146,6 +149,7 @@ jobs:
         env:
           PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           TARGET_ENV: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
         run: |
           set -euo pipefail
           BUCKET="${PROJECT_ID}-assistant-spa"
@@ -153,6 +157,15 @@ jobs:
           if [ ! -f dist/index.html ]; then
             echo "::error::dist/index.html not found — the build produced no output."
             exit 1
+          fi
+
+          # A non-stable channel gets its own entrypoint and never overwrites
+          # objects the stable release put in the bucket.
+          INDEX_DEST="index.html"
+          RSYNC_EXTRA=""
+          if [ "${CHANNEL}" != "stable" ]; then
+            INDEX_DEST="${CHANNEL}/index.html"
+            RSYNC_EXTRA="--no-clobber"
           fi
 
           # 1. Upload everything EXCEPT index.html with a long immutable cache,
@@ -164,12 +177,13 @@ jobs:
           gcloud storage rsync -r \
             --exclude="^index\.html$" \
             --cache-control="public, max-age=31536000, immutable" \
+            ${RSYNC_EXTRA} \
             dist "gs://${BUCKET}"
 
           # 2. Upload the HTML entrypoint last, with no-cache, so the new release
           #    only goes live once its assets exist and is always revalidated.
           gcloud storage cp \
             --cache-control="no-cache, max-age=0, must-revalidate" \
-            dist/index.html "gs://${BUCKET}/index.html"
+            dist/index.html "gs://${BUCKET}/${INDEX_DEST}"
 
-          echo "Published SPA to gs://${BUCKET}/ (environment=${TARGET_ENV})"
+          echo "Published SPA to gs://${BUCKET}/${INDEX_DEST} (environment=${TARGET_ENV}, channel=${CHANNEL})"

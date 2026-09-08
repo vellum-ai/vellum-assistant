@@ -1666,6 +1666,7 @@ export const companionContextMenuTemplate = (
   actions: {
     open: () => void;
     setSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
+    resetPosition: () => void;
     hide: () => void;
   },
 ): MenuItemConstructorOptions[] => [
@@ -1680,9 +1681,19 @@ export const companionContextMenuTemplate = (
   },
   { type: "separator" as const },
   // The size pickers the tray offers too, from the one builder both read. They
-  // leave the top level short enough to read at a glance: two headings, and the
-  // one item that is not a size.
+  // leave the top level short enough to read at a glance: two headings, and
+  // two items that are not a size.
   ...companionSizeSubmenus(current, actions.setSize),
+  {
+    // Grouped with the sizes, since it is about the same thing they are: how
+    // the surface sits on the screen. The way back for a pill dragged
+    // somewhere it is in the way, or lost behind a window the user has since
+    // closed, without hiding and showing it again to get there.
+    label: "Reset Position",
+    click: () => {
+      actions.resetPosition();
+    },
+  },
   { type: "separator" as const },
   {
     // Named for what it does to the thing under the cursor. The tray's item is
@@ -1863,6 +1874,23 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:setAnnotating", z.tuple([z.boolean()]), ([next]) => {
     setAnnotating(next);
+  });
+
+  /**
+   * Draw, from the keyboard: the same mode, flipped rather than set.
+   *
+   * A key has to be its own way back, and the side pressing it is not the
+   * side that knows which way that is. `annotating` is main's, and a renderer
+   * reading it off the pushed state would be answering with what the mode was
+   * when the last push left, which for a press made in the gap between a
+   * share starting and the state arriving is the wrong way round.
+   *
+   * Refused with nothing shared for the reason the press from the pill is
+   * ({@link canAnnotate}), and refused the same way: nothing changes, and the
+   * next push says the mode is off, which is what the desktop is doing.
+   */
+  on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
+    setAnnotating(!annotating);
   });
 
   /**
@@ -2083,6 +2111,7 @@ export const installCompanionWindow = (): void => {
         {
           open: openVellum,
           setSize: setCompanionSurfaceSize,
+          resetPosition: resetCompanionSurfacePosition,
           hide: () => {
             setCompanionSurfaceVisible(false);
           },
@@ -2485,6 +2514,40 @@ export const setCompanionSurfaceSize = (
     height: geometry.canvasHeight,
   });
   pushState();
+};
+
+/**
+ * Take the avatar back to where the surface opens: the bottom centre of the
+ * display it is on (see {@link defaultAvatarCentre}). The right-click menu's
+ * "Reset Position".
+ *
+ * The display it is on rather than the one under the cursor, which is what
+ * the open reads: the menu was popped from the pill, so the two are the same
+ * display, and measuring from the pill keeps the reset answerable without a
+ * pointer. Where the pill rests, for a glide in flight, is where the glide is
+ * headed, as every other reader of its resting place has it.
+ *
+ * During a call the surface is already at this point unless the user dragged
+ * it away, and the call is holding the place the pill goes back to when the
+ * call ends. A reset asked for mid-call makes the default that place too:
+ * the user has just said where the surface belongs, and a call ending by
+ * sending it back to wherever it was before would undo that.
+ *
+ * A glide rather than a jump, the way the call moves it, and instant under
+ * "Reduce motion" for the same reason.
+ */
+export const resetCompanionSurfacePosition = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed()) {
+    return;
+  }
+  const resting = glide === null ? avatarCentre(win) : glide.to;
+  const { workArea } = displayUnder(resting);
+  const home = defaultAvatarCentre(workArea, geometry);
+  if (callHome !== null) {
+    callHome = home;
+  }
+  glideAvatarTo(win, home, workArea);
 };
 
 /**

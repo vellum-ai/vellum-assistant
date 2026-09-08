@@ -53,6 +53,7 @@ export interface OutlookMessage {
     flagStatus: "notFlagged" | "flagged" | "complete";
   };
   internetMessageHeaders?: OutlookInternetMessageHeader[];
+  webLink?: string;
 }
 
 /** Outlook mail folder */
@@ -98,6 +99,8 @@ export interface OutlookDraftMessage {
   toRecipients?: OutlookRecipient[];
   ccRecipients?: OutlookRecipient[];
   bccRecipients?: OutlookRecipient[];
+  isDraft?: boolean;
+  attachments?: OutlookSendFileAttachment[];
 }
 
 /** Forward message payload (Graph API's /createForward returns a draft) */

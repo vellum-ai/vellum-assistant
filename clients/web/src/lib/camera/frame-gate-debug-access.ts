@@ -19,7 +19,7 @@
  * session can end without the logout sweep running and because the two can be
  * separated by a reload.
  *
- * The watcher runs outside React. Both gates are built from `sight-store` and
+ * The watcher runs outside React. The gate is built from
  * `use-voice-room-sight` whenever a camera opens, whether or not anything that
  * reads `hooks/use-camera-gate-hud.ts` is mounted, so a component-scoped
  * effect would leave the record holding a tuned threshold for exactly the

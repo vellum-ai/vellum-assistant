@@ -71,6 +71,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// attribute reads can momentarily take upwards of 1s.
     static let axMessagingTimeoutSeconds: Float = 3.0
 
+    /// Roles whose content is the text itself rather than a name for a thing.
+    static let textRoles: Set<String> = ["AXStaticText", "AXHeading"]
+
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
         "AXPopUpButton", "AXComboBox", "AXSlider", "AXLink", "AXMenuItem",
@@ -516,8 +519,21 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         guard depth < maxDepth else { return [] }
 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
-        let title = getStringAttribute(element, kAXTitleAttribute as CFString)
-            ?? getStringAttribute(element, kAXDescriptionAttribute as CFString)
+        // Emptiness, not nil, is what makes an attribute worth falling past:
+        // icon-only controls routinely carry `AXTitle` as "" and keep the name
+        // a user would say in `AXDescription` or the tooltip. Chained through
+        // `??` so an element that answers on its title costs one read: each of
+        // these is synchronous IPC into the target app, run per element.
+        //
+        // Only for a control. Text on screen is read out of its value, and a
+        // description or a tooltip standing in as its title would be reported
+        // in place of the words the user is actually looking at.
+        let namesAControl = !Self.textRoles.contains(role)
+        let title = AXLabel.nonBlank(getStringAttribute(element, kAXTitleAttribute as CFString))
+            ?? (namesAControl
+                ? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
+                    ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
+                : nil)
         let value = getValueAttribute(element)
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
@@ -530,7 +546,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let isInteractive = Self.interactiveRoles.contains(role)
         let isContainer = Self.containerRoles.contains(role)
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
-        let isStaticText = role == "AXStaticText" || role == "AXHeading"
+        let isStaticText = Self.textRoles.contains(role)
 
         // Enumerate children with safety checks
         var childElements: [AXElement] = []
@@ -701,7 +717,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
-            let isText = element.role == "AXStaticText" || element.role == "AXHeading"
+            let isText = textRoles.contains(element.role)
 
             if isInteractiveRole {
                 // Skip unlabeled non-text elements — the model can't meaningfully target
@@ -722,26 +738,28 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 let centerY = Int(element.frame.midY)
                 var line = "[\(element.id)] \(cleanedRole)"
                 if let title = element.title, !title.isEmpty {
-                    line += " \"\(title)\""
+                    line += " \"\(AXLabel.singleLine(title))\""
                 }
                 line += " at (\(centerX), \(centerY))"
                 if element.isFocused { line += " FOCUSED" }
                 if !element.isEnabled { line += " disabled" }
                 if let value = element.value, !value.isEmpty {
-                    let truncated = value.count > 50 ? String(value.prefix(50)) + "..." : value
-                    line += " value: \"\(truncated)\""
+                    line += " value: \"\(AXLabel.singleLine(value, max: 50))\""
                 } else if let placeholder = element.placeholderValue, !placeholder.isEmpty {
-                    line += " placeholder: \"\(placeholder)\""
+                    line += " placeholder: \"\(AXLabel.singleLine(placeholder))\""
                 }
                 if let url = element.url, !url.isEmpty {
                     line += " → \(url)"
                 }
                 interactive.append(line)
             } else if isText {
+                // Kept whole, unlike a name: this is what the user is reading,
+                // and the tail of it can be the half of an error message that
+                // says what to do about the first half.
                 if let title = element.title, !title.isEmpty {
-                    staticTexts.append(title)
+                    staticTexts.append(AXLabel.collapsed(title))
                 } else if let value = element.value, !value.isEmpty {
-                    staticTexts.append(value)
+                    staticTexts.append(AXLabel.collapsed(value))
                 }
             }
 
