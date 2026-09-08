@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
-import type { ManagedOAuthConnectClient } from "@/domains/chat/api/managed-oauth";
+import type { ManagedOAuthConnectClient } from "@/lib/auth/managed-oauth";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 
 import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";

@@ -15,7 +15,8 @@ import {
   defaultManagedOAuthConnectClient,
   type ManagedOAuthConnectClient,
   type ManagedOAuthProviderSummary,
-} from "@/domains/chat/api/managed-oauth";
+} from "@/lib/auth/managed-oauth";
+import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
 import {
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
@@ -56,7 +57,9 @@ function getProviderLabel(
   const raw =
     data.displayName ||
     provider?.display_name ||
-    (data.providerKey ? titleizeProviderKey(data.providerKey) : thisAccountLabel);
+    (data.providerKey
+      ? titleizeProviderKey(data.providerKey)
+      : thisAccountLabel);
   // Normalize once at the resolver so the title, description, icon, and
   // action payloads never double the verb (e.g. "Connect Connect Gmail")
   // when a caller-supplied displayName already begins with "Connect ".
@@ -82,7 +85,9 @@ function OAuthApprovalInfo({
     assistantDisplayName?.trim() || t("oauthConnectSurface.yourAssistant");
   return (
     <Tooltip
-      content={t("oauthConnectSurface.approvalTooltip", { name: assistantLabel })}
+      content={t("oauthConnectSurface.approvalTooltip", {
+        name: assistantLabel,
+      })}
       side="top"
       align="end"
     >
@@ -130,6 +135,13 @@ export function OAuthConnectSurface({
       mountedRef.current = false;
     };
   }, []);
+  /**
+   * Which connect attempt owns the card. A detached attempt stays armed in the
+   * background and can report minutes later, by which time the user may have
+   * started another one; without this its late result would overwrite the newer
+   * attempt's state or dismiss the card out from under it.
+   */
+  const attemptRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,18 +183,31 @@ export function OAuthConnectSurface({
     }
     setState("connecting");
     setErrorMessage(null);
+    attemptRef.current += 1;
+    const attempt = attemptRef.current;
+    const isCurrentAttempt = () =>
+      mountedRef.current && attemptRef.current === attempt;
 
     const result = await oauthClient.connect({
       assistantId,
       providerKey,
       providerLabel,
       requestedScopes: data.requestedScopes,
+      // A COOP-disowned popup keeps the flow armed in the background for
+      // minutes. Returning the card to `idle` keeps Connect and Dismiss usable
+      // meanwhile; the flow still reports here if the user finishes it.
+      onDetached: () => {
+        if (isCurrentAttempt()) {
+          setState("idle");
+        }
+      },
     });
 
     // Skip if this instance unmounted while the (possibly shared) OAuth flow was
-    // in flight — a still-mounted sibling reports the result instead, so the
-    // surface action is submitted exactly once.
-    if (!mountedRef.current) {
+    // in flight (a still-mounted sibling reports the result instead, so the
+    // surface action is submitted exactly once), or if a detached attempt is
+    // reporting after the user already started a newer one.
+    if (!isCurrentAttempt()) {
       return;
     }
 
@@ -221,7 +246,7 @@ export function OAuthConnectSurface({
     }
 
     setState("error");
-    setErrorMessage(result.message);
+    setErrorMessage(managedOAuthErrorMessage(result, providerLabel));
   };
 
   const missingConfiguration = !assistantId || !providerKey;
@@ -243,7 +268,8 @@ export function OAuthConnectSurface({
 
           <div className="min-w-0 flex-1">
             <div className="text-title-small text-[var(--content-strong)]">
-              {surface.title ?? t("oauthConnectSurface.connectTitle", { name: providerLabel })}
+              {surface.title ??
+                t("oauthConnectSurface.connectTitle", { name: providerLabel })}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
               <span>{description}</span>
@@ -299,7 +325,9 @@ export function OAuthConnectSurface({
             ) : (
               <ExternalLink className="h-4 w-4" />
             )}
-            {state === "connecting" ? t("oauthConnectSurface.waiting") : t("oauthConnectSurface.connect")}
+            {state === "connecting"
+              ? t("oauthConnectSurface.waiting")
+              : t("oauthConnectSurface.connect")}
           </button>
         </div>
       </div>
