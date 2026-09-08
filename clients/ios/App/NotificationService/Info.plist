@@ -31,15 +31,6 @@
 		<string>com.apple.usernotifications.service</string>
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).NotificationService</string>
-		<key>NSExtensionAttributes</key>
-		<dict>
-			<!-- Declares that this extension rewrites notifications into
-			     Communication Notifications via INSendMessageIntent. -->
-			<key>IntentsSupported</key>
-			<array>
-				<string>INSendMessageIntent</string>
-			</array>
-		</dict>
 	</dict>
 	<!-- The App Group this appex shares with its containing app, so code here
 	     can open the shared container. The entitlement grants access but is not

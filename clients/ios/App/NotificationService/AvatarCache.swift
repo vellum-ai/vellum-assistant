@@ -21,6 +21,7 @@ struct AvatarCache {
     static let maxEntries = 8
     static let maxBytes = 512 * 1024
     static let defaultTimeout: TimeInterval = 8
+    static let readChunkSize = 16 * 1024
 
     let rootURL: URL
 
@@ -42,10 +43,18 @@ struct AvatarCache {
 
     /// The cached bytes for `hash`, or `nil` when nothing is stored under it.
     ///
+    /// The bytes are re-hashed on the way out, not only on the way in: the
+    /// container is shared with the app, and a file that no longer matches its
+    /// own name is deleted rather than rendered.
+    ///
     /// A hit stamps the file with the current time so eviction, which ranks by
     /// modification date, treats a recently used avatar as recent.
     func data(forHash hash: String) -> Data? {
         guard let url = fileURL(forHash: hash), let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        guard Self.sha256Hex(data) == hash else {
+            try? FileManager.default.removeItem(at: url)
             return nil
         }
         try? FileManager.default.setAttributes(
@@ -78,10 +87,11 @@ struct AvatarCache {
     /// notification unchanged.
     ///
     /// The URL arrives in the push payload, so only `https` is followed and only
-    /// bytes that hash to `hash` are used. The body is streamed and abandoned
-    /// the moment it goes past ``maxBytes``, which keeps an oversized or
-    /// malformed response from filling the extension's memory budget, and
-    /// `timeout` bounds how long the read may take.
+    /// bytes that hash to `hash` are used. A response that declares no length or
+    /// one past ``maxBytes`` is dropped before its body is read, and the body
+    /// itself is abandoned the moment it goes past the same cap, which keeps an
+    /// oversized or malformed response from filling the extension's memory
+    /// budget. `timeout` bounds how long the read may take.
     func fetch(url: URL, hash: String, timeout: TimeInterval = defaultTimeout) async -> Data? {
         guard Self.isValidHash(hash), url.scheme == "https" else {
             return nil
@@ -96,6 +106,7 @@ struct AvatarCache {
         }
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 200,
+              http.expectedContentLength >= 0,
               http.expectedContentLength <= Int64(Self.maxBytes)
         else {
             bytes.task.cancel()
@@ -113,18 +124,30 @@ struct AvatarCache {
 
     /// Collect `bytes` until the sequence ends, or return `nil` as soon as more
     /// than `limit` bytes arrive so an oversized body is never held whole.
+    ///
+    /// Bytes land in an array first and reach the `Data` a chunk at a time:
+    /// appending each byte to `Data` individually costs a bounds check and a
+    /// possible reallocation per byte, which is the whole of the extension's
+    /// CPU budget on a 512 KB avatar.
     static func readAtMost<Bytes: AsyncSequence>(
         _ limit: Int,
         from bytes: Bytes
     ) async throws -> Data? where Bytes.Element == UInt8 {
         var data = Data()
-        data.reserveCapacity(min(limit, 32 * 1024))
+        data.reserveCapacity(min(limit, readChunkSize))
+        var chunk = [UInt8]()
+        chunk.reserveCapacity(min(limit, readChunkSize))
         for try await byte in bytes {
-            if data.count >= limit {
+            if data.count + chunk.count >= limit {
                 return nil
             }
-            data.append(byte)
+            chunk.append(byte)
+            if chunk.count == readChunkSize {
+                data.append(contentsOf: chunk)
+                chunk.removeAll(keepingCapacity: true)
+            }
         }
+        data.append(contentsOf: chunk)
         return data
     }
 

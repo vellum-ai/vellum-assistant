@@ -47,3 +47,33 @@ describe("Communication Notifications is declared on both sides", () => {
     expect(plist).toContain("<string>INSendMessageIntent</string>");
   });
 });
+
+describe("NSE profile names agree with release-ios.yaml", () => {
+  // Three places have to hold the same string character for character: the
+  // Apple Developer portal, the xcconfig, and the workflow. The portal cannot
+  // be checked from here, but a drift between the other two fails the archive
+  // with "No profile for team ... matching '<name>' found", which names
+  // neither file.
+  const workflow = readFileSync(
+    join(import.meta.dir, "../../../../.github/workflows/release-ios.yaml"),
+    "utf8",
+  );
+  const workflowNames = workflow
+    .split("\n")
+    .flatMap((line) => {
+      const match = line.match(/nse_profile_name=(.+?)"/);
+      return match ? [match[1]] : [];
+    })
+    .sort();
+
+  test("the workflow names one profile per environment", () => {
+    expect(workflowNames).toHaveLength(PAIRS.length);
+  });
+
+  test("every xcconfig specifier appears in the workflow", () => {
+    const configNames = PAIRS.map(({ nse }) =>
+      readSetting(nse, "PROVISIONING_PROFILE_SPECIFIER_Manual"),
+    ).sort();
+    expect(configNames).toEqual(workflowNames);
+  });
+});

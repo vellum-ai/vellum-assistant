@@ -755,6 +755,18 @@ build of the affected environment fails while signing or exporting.
 > help either; manual signing then fails with `"VoiceActivity …" requires a
 > provisioning profile` instead. The fix is the portal work below, not a
 > workflow change.
+>
+> **The app's own profiles are equally stale.** `App.entitlements` and
+> `App-Dev.entitlements` now declare
+> `com.apple.developer.usernotifications.communication`, and a profile issued
+> before Communication Notifications was ticked on its App ID does not grant
+> it, so the archive fails on the **app** target even once every extension row
+> is complete. Unlike the extension case this one is caught early:
+> "Install provisioning profiles" decodes the installed app profile with
+> `security cms -D` and hard-fails the run with an `::error::` when the
+> entitlement is absent, rather than letting the run reach Archive. Clearing
+> it means doing step 2 and step 4 below for the app App ID of the environment
+> being released and replacing its `IOS_PROVISIONING_PROFILE*` secret.
 
 | Environment | Extension bundle ID | Profile name (exact) | GitHub secret |
 |-------------|---------------------|----------------------|---------------|
@@ -836,8 +848,10 @@ track that releases hourly, so it is the fastest way to prove the setup):
    ```
 
 6. **Add or replace the GitHub secrets.** Repo **Settings → Secrets and
-   variables → Actions**. This row's `IOS_PROVISIONING_PROFILE_EXT*` is
-   a **New repository secret** named exactly as in the first table; its
+   variables → Actions**. This row's extension secret
+   (`IOS_PROVISIONING_PROFILE_EXT*`, `IOS_PROVISIONING_PROFILE_SHARE*`, or
+   `IOS_PROVISIONING_PROFILE_NSE*`, whichever the first table names) is a
+   **New repository secret** named exactly as in that table; its
    `IOS_PROVISIONING_PROFILE*` already exists, so **Update** it with the
    step 4 profile. Use the same scope as the existing
    `IOS_PROVISIONING_PROFILE*` secrets.
@@ -855,7 +869,29 @@ unzip -q ios-ipa-dev.zip && unzip -q *.ipa
 codesign -dvvv "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -i profile
 codesign -d --entitlements - "Payload/App Dev.app" 2>&1 | grep -A2 application-groups
 codesign -d --entitlements - "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -A2 application-groups
+# Communication Notifications reached the signed app, not just its entitlements
+# file. An empty result means the profile predates the capability.
+codesign -d --entitlements - "Payload/App Dev.app" 2>&1 | grep usernotifications.communication
 ```
+
+Then check the notification avatar itself on a device: send a push while the
+app is killed, backgrounded, and foregrounded; send a second push for the same
+avatar and confirm Console shows no network fetch; change the avatar on the
+daemon and confirm the next push picks it up; tap through to the conversation.
+Every path that gives up logs one `nse.` prefix
+(`nse.no_sender`, `nse.no_app_group`, `nse.avatar_unavailable`,
+`nse.intent_failed`, `nse.expired`), so filter Console on `nse.` before
+guessing.
+
+If the avatar never appears, the first thing to **check** is whether the appex
+needs `com.apple.developer.usernotifications.communication` too. It is on the
+app alone today, following Apple's Notification Service Extension guide, and
+`updating(from:)` fails closed when the entitlement is missing from whichever
+bundle iOS looks at, which lands in `nse.intent_failed`. The first thing to
+**restore** is the `NSExtensionAttributes` / `IntentsSupported` dict in
+`App/NotificationService/Info.plist`: it was removed because `IntentsSupported`
+belongs to the Intents extension point rather than the notification-service
+one, and it is the cheapest change to undo.
 
 > **Profiles expire after one year.** Renewal is the same loop:
 > regenerate in the portal under the identical name, re-encode, update
@@ -926,6 +962,9 @@ clients/
     │   │   └── Info.plist
     │   ├── AppTests/                 # XCTest bundle for the framework-free
     │   │                             # helpers under App/ (no host app)
+    │   ├── NotificationService/      # Notification Service Extension: rewrite
+    │   │                             # a push into a Communication Notification
+    │   │                             # so the assistant avatar is the icon
     │   ├── ShareExtension/           # Share Sheet: write inbox + open host
     │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
     │   │   │                         # presentations + Control Center controls

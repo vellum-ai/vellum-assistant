@@ -224,6 +224,17 @@ jobs:
             exit 1
           fi
 
+          # The app entitlements declare
+          # com.apple.developer.usernotifications.communication, and a profile
+          # issued before Communication Notifications was enabled on the App ID
+          # does not grant it. Xcode only notices at Archive, long after the
+          # build has started, with an error that names neither the entitlement
+          # nor the fix, so the profile is decoded and checked here instead.
+          if ! security cms -D -i "$PROFILE_DIR/ios_distribution.mobileprovision" | grep -q usernotifications.communication; then
+            echo "::error::Provisioning profile $APP_PROFILE_KEY does not grant com.apple.developer.usernotifications.communication, which App.entitlements and App-Dev.entitlements declare. Archive would fail while signing the app target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md, steps 2 and 4 for this environment's app row: tick Communication Notifications on the app App ID, reissue its distribution profile under the identical name, then replace $APP_PROFILE_KEY."
+            exit 1
+          fi
+
           # A missing extension profile is tolerated: the App IDs and profiles
           # behind IOS_PROVISIONING_PROFILE_EXT* do not exist in the Apple
           # Developer portal yet. The archive fails either way, so exiting here
