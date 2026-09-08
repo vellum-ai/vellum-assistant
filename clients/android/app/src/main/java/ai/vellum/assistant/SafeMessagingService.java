@@ -4,9 +4,11 @@ import ai.vellum.assistant.push.AvatarCache;
 import ai.vellum.assistant.push.NativePushRenderer;
 import ai.vellum.assistant.push.PushDataMessage;
 import android.app.ActivityManager;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Process;
+import android.service.notification.StatusBarNotification;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
@@ -49,7 +51,8 @@ public class SafeMessagingService extends FirebaseMessagingService {
 
     /**
      * Posts with whatever the cache already holds, then re-posts the same
-     * notification id once a download lands. onMessageReceived runs in a short
+     * notification id once a download lands, as long as the user has not
+     * tapped or cleared it in the meantime. onMessageReceived runs in a short
      * execution window, so nothing waits on the network before the first post.
      */
     private void render(RemoteMessage remoteMessage, PushDataMessage message) {
@@ -62,9 +65,23 @@ public class SafeMessagingService extends FirebaseMessagingService {
         Bitmap fetched = avatar(message, sender ->
             cache.fetch(sender.avatarUrl, sender.avatarHash)
         );
-        if (fetched != null) {
+        if (fetched != null && isNotificationActive(message.notificationId())) {
             NativePushRenderer.show(this, remoteMessage, message, fetched);
         }
+    }
+
+    private boolean isNotificationActive(int notificationId) {
+        NotificationManager manager =
+            (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) {
+            return false;
+        }
+        for (StatusBarNotification active : manager.getActiveNotifications()) {
+            if (active.getId() == notificationId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Runs on the Firebase message thread, so the cache read and fetch may block. */
