@@ -1528,7 +1528,7 @@ jobs:
           # ci-web fails the dev SPA warning above already says so.
           if [ "${PREVIEW_SPA_RESULT}" != "success" ] && [ "${PREVIEW_SPA_RESULT}" != "skipped" ]; then
             HEADER_EMOJI="⚠️"
-            PREVIEW_SPA_WARNING=$(jq -n --arg result "$PREVIEW_SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Preview web SPA was not published* (result: " + $result + ") — the dev release shipped but prod `/preview/` is unchanged. See the workflow run for details.") } }')
+            PREVIEW_SPA_WARNING=$(jq -n --arg result "$PREVIEW_SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Preview web SPA was not published* (result: " + $result + "). The dev release shipped but prod `/preview/` is unchanged. See the workflow run for details.") } }')
           else
             PREVIEW_SPA_WARNING=""
           fi
