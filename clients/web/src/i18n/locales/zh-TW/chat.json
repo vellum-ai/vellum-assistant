@@ -779,7 +779,6 @@
     "keptFrameAlt": "已保留畫面",
     "maxIntervalLabel": "心跳間隔",
     "minDetailLabel": "最低細節度",
-    "minIntervalLabel": "頻率下限",
     "motionLabel": "與前一幀運動量",
     "noKeeps": "尚未保留任何畫面。",
     "noveltyLabel": "與上次保留的新穎度",
@@ -791,7 +790,6 @@
     "reasonHeartbeat": "畫面未發生變化，但上一張照片時間已過久。",
     "reasonMoving": "畫面仍在晃動中。",
     "reasonNovel": "與上一張照片相比發生了足夠的變化。",
-    "reasonRateFloor": "距離上一張照片時間過短。",
     "reasonUnchanged": "畫面穩定、採集時間近且與上一張照片基本一致。",
     "reasonWarmup": "仍處於曝光預熱階段。",
     "recentFrames": "最近畫面幀",
@@ -805,10 +803,8 @@
     "stepHeartbeat": "心跳",
     "stepMoving": "畫面穩定",
     "stepNovel": "新穎度",
-    "stepRateFloor": "頻率下限",
     "stepUnchanged": "未變更",
     "stepWarmup": "預熱",
-    "surfaceComposer": "輸入框攝影機",
     "surfaceVoice": "語音通話攝影機",
     "thresholds": "閾值",
     "valueAbsent": "無"
@@ -1880,16 +1876,5 @@
   "assistantSection": {
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
-  },
-  "sightTile": {
-    "close": "關閉攝影機",
-    "interrupted": "攝影機已中斷連線。",
-    "permissionDenied": "攝影機存取被封鎖。請在瀏覽器或系統設定中允許存取。",
-    "unavailable": "沒有可用的攝影機。"
-  },
-  "sightToggle": {
-    "busyInCall": "語音通話正在使用攝影機",
-    "turnOff": "關閉攝影機視覺",
-    "turnOn": "開啟攝影機視覺"
   }
 }

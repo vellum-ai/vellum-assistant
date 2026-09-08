@@ -779,7 +779,6 @@
     "keptFrameAlt": "已保留画面",
     "maxIntervalLabel": "心跳间隔",
     "minDetailLabel": "最低细节度",
-    "minIntervalLabel": "频率下限",
     "motionLabel": "与前一帧运动量",
     "noKeeps": "尚未保留任何画面。",
     "noveltyLabel": "与上次保留的新颖度",
@@ -791,7 +790,6 @@
     "reasonHeartbeat": "画面未发生变化，但上一张照片时间已过久。",
     "reasonMoving": "画面仍在晃动中。",
     "reasonNovel": "与上一张照片相比发生了足够的变化。",
-    "reasonRateFloor": "距离上一张照片时间过短。",
     "reasonUnchanged": "画面稳定、采集时间近且与上一张照片基本一致。",
     "reasonWarmup": "仍处于曝光预热阶段。",
     "recentFrames": "最近画面帧",
@@ -805,10 +803,8 @@
     "stepHeartbeat": "心跳",
     "stepMoving": "画面稳定",
     "stepNovel": "新颖度",
-    "stepRateFloor": "频率下限",
     "stepUnchanged": "未变更",
     "stepWarmup": "预热",
-    "surfaceComposer": "输入框摄像头",
     "surfaceVoice": "语音通话摄像头",
     "thresholds": "阈值",
     "valueAbsent": "无"
@@ -1880,16 +1876,5 @@
   "assistantSection": {
     "emptyBody": "我随时都在思考。当有值得您关注的事情时，我会在这里发起对话。",
     "emptyTitle": "目前还没有任何想法。"
-  },
-  "sightTile": {
-    "close": "关闭摄像头",
-    "interrupted": "摄像头已断开连接。",
-    "permissionDenied": "摄像头访问被阻止。请在浏览器或系统设置中允许访问。",
-    "unavailable": "没有可用的摄像头。"
-  },
-  "sightToggle": {
-    "busyInCall": "语音通话正在使用摄像头",
-    "turnOff": "关闭摄像头视觉",
-    "turnOn": "开启摄像头视觉"
   }
 }
