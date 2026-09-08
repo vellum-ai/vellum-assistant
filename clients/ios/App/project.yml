@@ -322,6 +322,11 @@ targets:
       - path: AppTests
       - path: App/Attribution.swift
       - path: App/NotificationCategories.swift
+      # The Foundation-only halves of the Notification Service Extension. The
+      # Intents rewrite next to them stays out: donating an interaction needs a
+      # real notification, which a host-less bundle has no way to produce.
+      - path: NotificationService/AvatarCache.swift
+      - path: NotificationService/SenderPayload.swift
       - path: App/Shared
         includes:
           - AppGroupID.swift
