@@ -2,9 +2,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import "../../__tests__/test-preload.js";
+
+let velayWebhooksEnabled = true;
+
+mock.module("../../feature-flag-resolver.js", () => ({
+  isFeatureFlagEnabled: (_key: string) => velayWebhooksEnabled,
+}));
+
 import {
   ingressDeclarationDigest,
   resolvePluginIngress,
@@ -19,7 +26,11 @@ import {
   approvePluginIngress,
   getPluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
-import { pluginIngressApprovals } from "../../db/schema.js";
+import {
+  pluginIngressApprovals,
+  webhookIngressRoutes,
+} from "../../db/schema.js";
+import { listWebhookIngressRoutes } from "../../db/webhook-ingress-route-store.js";
 import {
   createChannelIngressApproveHandler,
   createChannelIngressListHandler,
@@ -77,9 +88,11 @@ function revokeRequest(): Request {
 }
 
 beforeEach(async () => {
+  velayWebhooksEnabled = true;
   resetGatewayDb();
   await initGatewayDb();
   getGatewayDb().delete(pluginIngressApprovals).run();
+  getGatewayDb().delete(webhookIngressRoutes).run();
 
   workspaceDir = mkdtempSync(join(tmpdir(), "channel-ingress-"));
   created.push(workspaceDir);
@@ -159,6 +172,40 @@ describe("approve", () => {
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
   });
 
+  it("claims a webhook path for every route it approves", async () => {
+    // Velay forwards only paths this assistant has claimed, so a grant that
+    // wrote no rows reaches nothing.
+    const routes = [ROUTES[0]!, { ...ROUTES[0]!, path: "events/inbound" }];
+    writePlugin("meeting-bot", routes);
+
+    const res = await approve(
+      approveRequest({ digest: ingressDeclarationDigest(routes) }),
+      "meeting-bot",
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => [r.path, r.type, r.source])
+        .sort(),
+    ).toEqual([
+      ["/webhooks/plugins/meeting-bot/events/inbound", "plugin", "meeting-bot"],
+      ["/webhooks/plugins/meeting-bot/realtime", "plugin", "meeting-bot"],
+    ]);
+  });
+
+  it("records the approval without claiming a path while the flag is off", async () => {
+    velayWebhooksEnabled = false;
+    writePlugin("meeting-bot");
+    const digest = ingressDeclarationDigest(ROUTES);
+
+    const res = await approve(approveRequest({ digest }), "meeting-bot");
+
+    expect(res.status).toBe(200);
+    expect(getPluginIngressApproval("meeting-bot")?.digest).toBe(digest);
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
   it("rejects a body that is not JSON", async () => {
     writePlugin("meeting-bot");
 
@@ -189,6 +236,35 @@ describe("revoke", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ revoked: false });
+  });
+
+  async function approveWithClaimedPath(): Promise<void> {
+    writePlugin("meeting-bot");
+    await approve(
+      approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
+      "meeting-bot",
+    );
+    expect(listWebhookIngressRoutes()).toHaveLength(1);
+  }
+
+  it("drops the paths the grant claimed", async () => {
+    await approveWithClaimedPath();
+
+    const res = await revoke(revokeRequest(), "meeting-bot");
+
+    expect(await res.json()).toMatchObject({ revoked: true });
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
+  it("drops them once the flag is off again", async () => {
+    // The flag decides whether a path is claimed. Once one is, withdrawing the
+    // grant has to withdraw the reach it opened.
+    await approveWithClaimedPath();
+    velayWebhooksEnabled = false;
+
+    await revoke(revokeRequest(), "meeting-bot");
+
+    expect(listWebhookIngressRoutes()).toEqual([]);
   });
 
   it("revokes a grant whose declaration has become unreadable", async () => {

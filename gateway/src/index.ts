@@ -251,7 +251,11 @@ import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
-import { onWebhookIngressRoutesChanged } from "./db/webhook-ingress-route-store.js";
+import { listPluginIngressApprovals } from "./db/plugin-ingress-approval-store.js";
+import {
+  onWebhookIngressRoutesChanged,
+  unregisterOrphanedPluginWebhookIngressRoutes,
+} from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
@@ -402,6 +406,24 @@ async function main() {
   await initGatewayDb();
   initTrustRuleCache();
   initAdmissionPolicyCache();
+
+  // A plugin holds webhook routes for exactly as long as its ingress approval
+  // does, and an uninstall or a revocation while the gateway was down leaves
+  // rows behind. This only removes reach, so it runs whatever `velay-webhooks`
+  // says, and a failure is logged rather than allowed to stop startup.
+  try {
+    const orphanedPluginRoutes = unregisterOrphanedPluginWebhookIngressRoutes(
+      listPluginIngressApprovals().map((approval) => approval.plugin),
+    );
+    if (orphanedPluginRoutes > 0) {
+      log.info(
+        { removed: orphanedPluginRoutes },
+        "Removed webhook routes for plugins that hold no ingress approval",
+      );
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to sweep webhook routes for unapproved plugins");
+  }
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.

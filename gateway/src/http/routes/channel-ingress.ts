@@ -22,6 +22,7 @@ import {
 } from "../../channels/plugin-ingress-approvals.js";
 import type { IngressVerification } from "../../channels/ingress-verification.js";
 import {
+  ingressRoutePaths,
   pluginWebhookPath,
   type IngressRoute,
 } from "../../channels/plugin-ingress.js";
@@ -31,6 +32,12 @@ import {
   listPluginIngressApprovals,
   revokePluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
+import {
+  PLUGIN_WEBHOOK_ROUTE_TYPE,
+  registerWebhookIngressRoute,
+  unregisterWebhookIngressRoutesBySource,
+} from "../../db/webhook-ingress-route-store.js";
+import { isFeatureFlagEnabled } from "../../feature-flag-resolver.js";
 import { getLogger } from "../../logger.js";
 import { ApproveChannelIngressRequestSchema } from "./channel-ingress-routes.js";
 
@@ -252,6 +259,18 @@ export function createChannelIngressApproveHandler(
 
     try {
       const row = approvePluginIngress({ plugin: source, digest });
+      // Velay forwards a webhook path only once this assistant has claimed it,
+      // so the claim is part of the grant: a failure here is reported as one,
+      // rather than left as an approval that reaches nothing.
+      if (isFeatureFlagEnabled("velay-webhooks")) {
+        for (const path of ingressRoutePaths(current)) {
+          registerWebhookIngressRoute({
+            path,
+            type: PLUGIN_WEBHOOK_ROUTE_TYPE,
+            source,
+          });
+        }
+      }
       log.info(
         { source, digest, routes: current.routes.length },
         "Guardian approved channel ingress declaration",
@@ -280,8 +299,15 @@ export function createChannelIngressRevokeHandler() {
   return async (_req: Request, source: string): Promise<Response> => {
     try {
       const revoked = revokePluginIngressApproval(source);
+      // Never gated on `velay-webhooks`: the flag decides whether a path is
+      // claimed, and a claim made while it was on has to be withdrawable
+      // whatever the flag says now.
+      const removedRoutes = unregisterWebhookIngressRoutesBySource(source);
       if (revoked) {
-        log.info({ source }, "Guardian revoked channel ingress approval");
+        log.info(
+          { source, removedRoutes },
+          "Guardian revoked channel ingress approval",
+        );
       }
       return Response.json({ source, revoked });
     } catch (err) {

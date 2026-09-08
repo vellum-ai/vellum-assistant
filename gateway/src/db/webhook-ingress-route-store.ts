@@ -1,7 +1,7 @@
 /** Store for the webhook subpaths this assistant accepts from outside. */
 
 import type { WebhookIngressRoute } from "@vellumai/gateway-client/gateway-ipc-contracts";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import {
   isSafeOriginRelativePath,
@@ -11,6 +11,12 @@ import { getGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
 
 const MAX_WEBHOOK_PATH_LENGTH = 512;
+
+/**
+ * Type carried by the rows the plugin ingress approval gate owns, whose
+ * `source` is therefore always a plugin name.
+ */
+export const PLUGIN_WEBHOOK_ROUTE_TYPE = "plugin";
 
 const changeListeners = new Set<() => void>();
 
@@ -129,6 +135,64 @@ export function unregisterWebhookIngressRoute(path: string): boolean {
     .run();
   notifyChanged();
   return true;
+}
+
+/**
+ * Drop every plugin route registered for `source`. Returns how many rows were
+ * removed.
+ *
+ * Scoped to plugin rows so that revoking a plugin's grant cannot take out a
+ * route some other subsystem registered under a colliding source name.
+ */
+export function unregisterWebhookIngressRoutesBySource(source: string): number {
+  const match = and(
+    eq(webhookIngressRoutes.type, PLUGIN_WEBHOOK_ROUTE_TYPE),
+    eq(webhookIngressRoutes.source, source),
+  );
+  const matched = getGatewayDb()
+    .select({ path: webhookIngressRoutes.path })
+    .from(webhookIngressRoutes)
+    .where(match)
+    .all();
+  if (matched.length === 0) {
+    return 0;
+  }
+  getGatewayDb().delete(webhookIngressRoutes).where(match).run();
+  notifyChanged();
+  return matched.length;
+}
+
+/**
+ * Drop plugin routes whose source is not among `approvedSources`. Returns how
+ * many rows were removed.
+ *
+ * A plugin route is only ever written alongside an approval, so a row for a
+ * plugin holding none is left over from an uninstall or a revocation that
+ * happened while the gateway was not running.
+ */
+export function unregisterOrphanedPluginWebhookIngressRoutes(
+  approvedSources: readonly string[],
+): number {
+  const approved = new Set(approvedSources);
+  const orphaned = listWebhookIngressRoutes().filter(
+    (route) =>
+      route.type === PLUGIN_WEBHOOK_ROUTE_TYPE &&
+      (route.source === null || !approved.has(route.source)),
+  );
+  if (orphaned.length === 0) {
+    return 0;
+  }
+  getGatewayDb()
+    .delete(webhookIngressRoutes)
+    .where(
+      inArray(
+        webhookIngressRoutes.path,
+        orphaned.map((route) => route.path),
+      ),
+    )
+    .run();
+  notifyChanged();
+  return orphaned.length;
 }
 
 /** Every registered route. */

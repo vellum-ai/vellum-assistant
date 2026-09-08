@@ -23,7 +23,9 @@ import {
   listWebhookIngressRoutes,
   onWebhookIngressRoutesChanged,
   registerWebhookIngressRoute,
+  unregisterOrphanedPluginWebhookIngressRoutes,
   unregisterWebhookIngressRoute,
+  unregisterWebhookIngressRoutesBySource,
 } from "./webhook-ingress-route-store.js";
 
 const PATH = "/webhooks/telegram";
@@ -168,6 +170,147 @@ describe("unregisterWebhookIngressRoute", () => {
 
   it("reports a path it never held", () => {
     expect(unregisterWebhookIngressRoute(PATH)).toBe(false);
+  });
+});
+
+describe("unregisterWebhookIngressRoutesBySource", () => {
+  function seedTwoPluginsAndAChannel(): void {
+    registerWebhookIngressRoute({
+      path: "/webhooks/plugins/meeting-bot/realtime",
+      type: "plugin",
+      source: "meeting-bot",
+    });
+    registerWebhookIngressRoute({
+      path: "/webhooks/plugins/meeting-bot/events",
+      type: "plugin",
+      source: "meeting-bot",
+    });
+    registerWebhookIngressRoute({
+      path: "/webhooks/plugins/notes/events",
+      type: "plugin",
+      source: "notes",
+    });
+    // Same source name, different type: a plugin's revocation has no say over
+    // a route another subsystem registered.
+    registerWebhookIngressRoute({
+      path: PATH,
+      type: "telegram",
+      source: "meeting-bot",
+    });
+  }
+
+  it("removes only the named plugin's plugin routes", () => {
+    seedTwoPluginsAndAChannel();
+
+    expect(unregisterWebhookIngressRoutesBySource("meeting-bot")).toBe(2);
+
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual(["/webhooks/plugins/notes/events", PATH]);
+  });
+
+  it("fires the change listener once for the whole removal", () => {
+    seedTwoPluginsAndAChannel();
+
+    let fired = 0;
+    const unsubscribe = onWebhookIngressRoutesChanged(() => {
+      fired += 1;
+    });
+
+    unregisterWebhookIngressRoutesBySource("meeting-bot");
+    expect(fired).toBe(1);
+
+    unsubscribe();
+  });
+
+  it("stays quiet when the plugin holds no routes", () => {
+    registerWebhookIngressRoute({ path: PATH, type: "telegram" });
+
+    let fired = 0;
+    const unsubscribe = onWebhookIngressRoutesChanged(() => {
+      fired += 1;
+    });
+
+    expect(unregisterWebhookIngressRoutesBySource("meeting-bot")).toBe(0);
+    expect(fired).toBe(0);
+    expect(listWebhookIngressRoutes()).toHaveLength(1);
+
+    unsubscribe();
+  });
+});
+
+describe("unregisterOrphanedPluginWebhookIngressRoutes", () => {
+  function seedPluginRoutes(): void {
+    registerWebhookIngressRoute({
+      path: "/webhooks/plugins/meeting-bot/realtime",
+      type: "plugin",
+      source: "meeting-bot",
+    });
+    registerWebhookIngressRoute({
+      path: "/webhooks/plugins/gone/events",
+      type: "plugin",
+      source: "gone",
+    });
+    registerWebhookIngressRoute({
+      path: PATH,
+      type: "telegram",
+      source: "bot-1",
+    });
+  }
+
+  it("drops routes for plugins holding no approval and keeps the rest", () => {
+    seedPluginRoutes();
+
+    expect(unregisterOrphanedPluginWebhookIngressRoutes(["meeting-bot"])).toBe(
+      1,
+    );
+
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual(["/webhooks/plugins/meeting-bot/realtime", PATH]);
+  });
+
+  it("leaves routes that are not a plugin's alone even with no approvals", () => {
+    seedPluginRoutes();
+
+    expect(unregisterOrphanedPluginWebhookIngressRoutes([])).toBe(2);
+
+    expect(listWebhookIngressRoutes().map((r) => r.path)).toEqual([PATH]);
+  });
+
+  it("drops an unattributed plugin route, which no approval can claim", () => {
+    registerWebhookIngressRoute({
+      path: "/webhooks/plugins/meeting-bot/realtime",
+      type: "plugin",
+    });
+
+    expect(unregisterOrphanedPluginWebhookIngressRoutes(["meeting-bot"])).toBe(
+      1,
+    );
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
+  it("fires the change listener once, and not at all when nothing is stale", () => {
+    seedPluginRoutes();
+
+    let fired = 0;
+    const unsubscribe = onWebhookIngressRoutesChanged(() => {
+      fired += 1;
+    });
+
+    unregisterOrphanedPluginWebhookIngressRoutes(["meeting-bot"]);
+    expect(fired).toBe(1);
+
+    expect(unregisterOrphanedPluginWebhookIngressRoutes(["meeting-bot"])).toBe(
+      0,
+    );
+    expect(fired).toBe(1);
+
+    unsubscribe();
   });
 });
 
