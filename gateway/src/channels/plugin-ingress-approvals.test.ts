@@ -444,9 +444,10 @@ describe("listServablePluginWebhookPaths", () => {
       .sort();
   }
 
-  it("agrees with findServableRoute on every declared route", () => {
+  it("agrees with findServableRoute on every spelling of every declared route", () => {
     // Both read the same rule, and this is what says so: a path is in the set
-    // exactly when a request for it would be served.
+    // exactly when a request for it would be served. The trailing-slash
+    // spelling is served too, so it has to be in the set on the same terms.
     const workspaceDir = makeWorkspace();
     writePlugin(workspaceDir, "meeting-bot", MIXED);
     writePlugin(workspaceDir, "notes", MIXED);
@@ -461,14 +462,12 @@ describe("listServablePluginWebhookPaths", () => {
     );
     for (const plugin of ["meeting-bot", "notes"]) {
       for (const declared of MIXED) {
-        expect(set.has(`/webhooks/plugins/${plugin}/${declared.path}`)).toBe(
-          findServableRoute(
-            resolution,
-            plugin,
-            declared.path,
-            declared.kind,
-          ) !== undefined,
-        );
+        for (const requested of [declared.path, `${declared.path}/`]) {
+          expect(set.has(`/webhooks/plugins/${plugin}/${requested}`)).toBe(
+            findServableRoute(resolution, plugin, requested, declared.kind) !==
+              undefined,
+          );
+        }
       }
     }
   });
@@ -484,8 +483,11 @@ describe("listServablePluginWebhookPaths", () => {
 
     expect(servable(workspaceDir)).toEqual([
       "meeting-bot /webhooks/plugins/meeting-bot/hook",
+      "meeting-bot /webhooks/plugins/meeting-bot/hook/",
       "meeting-bot /webhooks/plugins/meeting-bot/platform",
+      "meeting-bot /webhooks/plugins/meeting-bot/platform/",
       "notes /webhooks/plugins/notes/platform",
+      "notes /webhooks/plugins/notes/platform/",
     ]);
   });
 
@@ -505,6 +507,7 @@ describe("listServablePluginWebhookPaths", () => {
 
     expect(servable(workspaceDir)).toEqual([
       "meeting-bot /webhooks/plugins/meeting-bot/platform",
+      "meeting-bot /webhooks/plugins/meeting-bot/platform/",
     ]);
   });
 

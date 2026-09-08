@@ -124,6 +124,19 @@ export function resolveCachedPluginIngress(): PluginIngressResolution {
   return resolveDiscoveredPluginIngress(ingressCache.get());
 }
 
+/**
+ * Register a callback for when the shared cache picks up different plugin
+ * declarations than it last held. Returns an unsubscribe function.
+ *
+ * Approvals are not part of this: they change only through a guardian decision
+ * the handler already reports on. What this catches is the half nothing else
+ * announces, a plugin installed, removed, toggled or edited while the gateway
+ * runs.
+ */
+export function subscribeToPluginIngressChanges(cb: () => void): () => void {
+  return ingressCache.onChange(cb);
+}
+
 /** Split an already-performed discovery by approval. */
 function resolveDiscoveredPluginIngress(
   discovery: PluginIngressDiscovery,
@@ -214,7 +227,10 @@ function isRouteServable(route: IngressRoute, approved: boolean): boolean {
 
 /** A public webhook path the gateway would serve right now. */
 export interface ServablePluginWebhookPath {
-  /** Absolute public path, as {@link pluginWebhookPath} composes it. */
+  /**
+   * Absolute public path, as {@link pluginWebhookPath} composes it or with one
+   * trailing slash appended.
+   */
   path: string;
   /** Declaring plugin's name, which is what a plugin route row carries. */
   source: string;
@@ -227,6 +243,13 @@ export interface ServablePluginWebhookPath {
  * decision contributes only the routes approval does not gate. Both halves ask
  * {@link isRouteServable}, so this cannot come to describe a different surface
  * than the one requests are matched against.
+ *
+ * Each servable route contributes both spellings the gateway answers, with and
+ * without the trailing slash {@link findServableRoute} ignores. Every consumer
+ * of this set matches a path exactly, so a spelling absent here is refused
+ * before the handler that would have accepted it ever runs. The pair is
+ * unambiguous for the reason {@link findServableRoute} gives: a declared path
+ * may not end in a slash, so `<declared>/` names that route and no other.
  *
  * Declarations that failed validation are in `problems` and appear nowhere
  * here, and a plugin that is uninstalled or disabled is not discovered at all,
@@ -243,10 +266,9 @@ export function listServablePluginWebhookPaths(
     for (const declaration of declarations) {
       for (const route of declaration.routes) {
         if (isRouteServable(route, approved)) {
-          paths.push({
-            path: pluginWebhookPath(declaration.plugin, route.path),
-            source: declaration.plugin,
-          });
+          const path = pluginWebhookPath(declaration.plugin, route.path);
+          paths.push({ path, source: declaration.plugin });
+          paths.push({ path: `${path}/`, source: declaration.plugin });
         }
       }
     }

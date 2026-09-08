@@ -657,4 +657,31 @@ describe("PluginIngressCache", () => {
       "meeting-bot",
     ]);
   });
+
+  it("announces a refresh that found different declarations", () => {
+    const workspaceDir = makeWorkspace();
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
+    let announced = 0;
+    const unsubscribe = cache.onChange(() => {
+      announced += 1;
+    });
+    cache.get();
+    expect(announced).toBe(0);
+
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    cache.get({ force: true });
+    expect(announced).toBe(1);
+
+    // A re-scan that read the same manifests is not a change.
+    cache.get({ force: true });
+    expect(announced).toBe(1);
+
+    unsubscribe();
+    rmSync(join(workspaceDir, "plugins", "meeting-bot"), {
+      recursive: true,
+      force: true,
+    });
+    cache.get({ force: true });
+    expect(announced).toBe(1);
+  });
 });

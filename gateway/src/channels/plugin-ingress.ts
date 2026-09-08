@@ -413,6 +413,8 @@ export class PluginIngressCache {
   private readonly workspaceDir: string | undefined;
   private snapshot: PluginIngressDiscovery = { plugins: [], problems: [] };
   private lastReadAt = 0;
+  private fingerprint = declarationFingerprint({ plugins: [], problems: [] });
+  private readonly changeListeners = new Set<() => void>();
 
   constructor(opts?: { ttlMs?: number; workspaceDir?: string }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
@@ -427,6 +429,11 @@ export class PluginIngressCache {
         workspaceDir: this.workspaceDir,
       });
       this.lastReadAt = Date.now();
+      const fingerprint = declarationFingerprint(this.snapshot);
+      if (fingerprint !== this.fingerprint) {
+        this.fingerprint = fingerprint;
+        this.notifyChanged();
+      }
     }
     return this.snapshot;
   }
@@ -435,4 +442,44 @@ export class PluginIngressCache {
   invalidate(): void {
     this.lastReadAt = 0;
   }
+
+  /**
+   * Register a callback that fires when a refresh finds different
+   * declarations than the previous snapshot held, which is how an install,
+   * uninstall, toggle, or manifest edit becomes visible to anything that
+   * mirrors what plugins declare. Returns an unsubscribe function.
+   *
+   * The callback runs inside {@link get}, on whichever request drove the
+   * refresh, so it must not read back through this cache synchronously.
+   */
+  onChange(cb: () => void): () => void {
+    this.changeListeners.add(cb);
+    return () => {
+      this.changeListeners.delete(cb);
+    };
+  }
+
+  private notifyChanged(): void {
+    for (const cb of this.changeListeners) {
+      try {
+        cb();
+      } catch (err) {
+        log.warn({ err }, "Plugin ingress change listener failed");
+      }
+    }
+  }
+}
+
+/**
+ * Identity of what a discovery declares, so a refresh that read the same
+ * manifests again is not reported as a change. Plugin order is whatever the
+ * directory walk produced, so it is sorted out. Problems are excluded because
+ * a declaration that failed validation contributes no route either way.
+ */
+function declarationFingerprint(discovery: PluginIngressDiscovery): string {
+  return JSON.stringify(
+    [...discovery.plugins]
+      .sort((a, b) => a.plugin.localeCompare(b.plugin))
+      .map((p) => [p.plugin, p.routes]),
+  );
 }

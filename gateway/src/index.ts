@@ -169,11 +169,11 @@ import {
   getPluginWebhookWebsocketHandlers,
   isPluginWebhookSocketData,
 } from "./http/routes/plugin-webhook-websocket.js";
+import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
 import {
-  listServablePluginWebhookPaths,
-  resolveCachedPluginIngress,
-  resolvePluginIngress,
-} from "./channels/plugin-ingress-approvals.js";
+  reconcilePluginWebhookRoutes,
+  watchPluginIngressForWebhookRoutes,
+} from "./channels/plugin-webhook-route-sync.js";
 import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
@@ -255,10 +255,7 @@ import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
-import {
-  onWebhookIngressRoutesChanged,
-  reconcilePluginWebhookIngressRoutes,
-} from "./db/webhook-ingress-route-store.js";
+import { onWebhookIngressRoutesChanged } from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
@@ -410,36 +407,13 @@ async function main() {
   initTrustRuleCache();
   initAdmissionPolicyCache();
 
-  // Plugin rows in the webhook registry mirror what the ingress gate serves,
-  // and nothing keeps them in step while the gateway is down: a plugin can be
-  // installed, uninstalled, disabled, or have its manifest edited into a
-  // digest its approval no longer covers. Recomputing them here is what makes
-  // those settle, and is also what backfills approvals granted before any of
-  // this existed. Gateway startup is the only hook the gateway has for a
-  // plugin appearing or going away, so it is where the drift is caught. A
-  // failure is logged rather than allowed to stop startup.
-  try {
-    const { added, removed, rejected } = reconcilePluginWebhookIngressRoutes(
-      listServablePluginWebhookPaths(resolvePluginIngress()),
-    );
-    if (added.length > 0 || removed.length > 0) {
-      log.info(
-        { added: added.length, removed: removed.length },
-        "Reconciled webhook routes against plugin ingress declarations",
-      );
-    }
-    if (rejected.length > 0) {
-      log.warn(
-        { rejected },
-        "Declared paths the webhook registry cannot store were not claimed",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to reconcile webhook routes against plugin ingress declarations",
-    );
-  }
+  // Plugin rows in the webhook registry are derived from the declarations the
+  // ingress gate currently serves, so startup recomputes them from what is
+  // installed and approved right now rather than trusting whatever the last
+  // run left behind. Anything that moved while the gateway was down settles
+  // here, and the watch below keeps them settling while it runs.
+  reconcilePluginWebhookRoutes();
+  watchPluginIngressForWebhookRoutes();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.

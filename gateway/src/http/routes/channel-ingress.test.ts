@@ -172,9 +172,10 @@ describe("approve", () => {
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
   });
 
-  it("claims a webhook path for every route it approves", async () => {
-    // Velay forwards only paths this assistant has claimed, so a grant that
-    // wrote no rows reaches nothing.
+  it("claims both accepted spellings of every route it approves", async () => {
+    // Velay forwards only paths this assistant has claimed, and matches them
+    // exactly, so a grant that wrote no row for the trailing-slash spelling
+    // leaves a request the gateway would answer rejected at the edge.
     const routes = [ROUTES[0]!, { ...ROUTES[0]!, path: "events/inbound" }];
     writePlugin("meeting-bot", routes);
 
@@ -190,7 +191,13 @@ describe("approve", () => {
         .sort(),
     ).toEqual([
       ["/webhooks/plugins/meeting-bot/events/inbound", "plugin", "meeting-bot"],
+      [
+        "/webhooks/plugins/meeting-bot/events/inbound/",
+        "plugin",
+        "meeting-bot",
+      ],
       ["/webhooks/plugins/meeting-bot/realtime", "plugin", "meeting-bot"],
+      ["/webhooks/plugins/meeting-bot/realtime/", "plugin", "meeting-bot"],
     ]);
   });
 
@@ -221,7 +228,9 @@ describe("approve", () => {
         .sort(),
     ).toEqual([
       "/webhooks/plugins/meeting-bot/realtime",
+      "/webhooks/plugins/meeting-bot/realtime/",
       "/webhooks/plugins/notes/realtime",
+      "/webhooks/plugins/notes/realtime/",
     ]);
   });
 
@@ -263,7 +272,7 @@ describe("revoke", () => {
       approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
       "meeting-bot",
     );
-    expect(listWebhookIngressRoutes()).toHaveLength(1);
+    expect(listWebhookIngressRoutes()).toHaveLength(2);
   }
 
   it("drops the paths the grant claimed", async () => {
@@ -293,12 +302,13 @@ describe("revoke", () => {
       approveRequest({ digest: ingressDeclarationDigest(mixed) }),
       "meeting-bot",
     );
-    expect(listWebhookIngressRoutes()).toHaveLength(2);
+    expect(listWebhookIngressRoutes()).toHaveLength(4);
 
     await revoke(revokeRequest(), "meeting-bot");
 
     expect(listWebhookIngressRoutes().map((r) => r.path)).toEqual([
       "/webhooks/plugins/meeting-bot/platform",
+      "/webhooks/plugins/meeting-bot/platform/",
     ]);
   });
 
