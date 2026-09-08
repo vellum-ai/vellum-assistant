@@ -22,6 +22,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Conversation } from "@/types/conversation-types";
+import { ApiError } from "@/utils/api-errors";
 import { formatCompactLocalDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
@@ -97,10 +98,10 @@ mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
       isPending: false,
     },
     markAll: { mutate: () => {}, isPending: false },
-    invalidate: () => {
-      feedInvalidateCalls.push(feedInvalidateCalls.length + 1);
-    },
   }),
+  useInvalidateHomeFeed: () => () => {
+    feedInvalidateCalls.push(feedInvalidateCalls.length + 1);
+  },
 }));
 
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -238,7 +239,11 @@ interface DecisionVars {
 }
 
 interface DecisionCallbacks {
-  onSuccess?: (data: { applied: boolean; reason?: string }) => void;
+  onSuccess?: (
+    data: { applied: boolean; reason?: string },
+    variables: DecisionVars,
+  ) => void;
+  onError?: (error: Error, variables: DecisionVars) => void;
 }
 
 /** What the rows' inline Approve and Reject submit to the decision route. */
@@ -250,7 +255,7 @@ const decisionCalls: DecisionVars[] = [];
  * reaches `onSuccess` rather than `onError`.
  */
 const decisionRef: {
-  outcome: "pending" | "applied" | "not-applied";
+  outcome: "pending" | "applied" | "not-applied" | "gone" | "failed";
   reason?: string;
 } = { outcome: "pending" };
 
@@ -269,9 +274,21 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     mutate: (vars: DecisionVars) => {
       decisionCalls.push(vars);
       if (decisionRef.outcome === "applied") {
-        options?.onSuccess?.({ applied: true });
+        options?.onSuccess?.({ applied: true }, vars);
       } else if (decisionRef.outcome === "not-applied") {
-        options?.onSuccess?.({ applied: false, reason: decisionRef.reason });
+        options?.onSuccess?.(
+          { applied: false, reason: decisionRef.reason },
+          vars,
+        );
+      } else if (decisionRef.outcome === "gone") {
+        // The route's 404 for a request that no longer exists, as the
+        // daemon client's error interceptor surfaces it.
+        options?.onError?.(
+          new ApiError(404, "Guardian request not found"),
+          vars,
+        );
+      } else if (decisionRef.outcome === "failed") {
+        options?.onError?.(new ApiError(500, "boom"), vars);
       }
     },
     isPending: false,
@@ -770,7 +787,7 @@ describe("NotificationsBell guardian rows", () => {
     ["request_misconfigured", "error", "That decision couldn't be applied."],
     ["resolver_failed", "error", "That decision couldn't be applied."],
     [undefined, "error", "That decision couldn't be applied."],
-  ])(
+  ] as const)(
     "a decision declined for %s says so and refreshes the feed",
     async (reason, tone, message) => {
       decisionRef.outcome = "not-applied";
@@ -784,6 +801,34 @@ describe("NotificationsBell guardian rows", () => {
       expect(toastCalls).toEqual([[tone, message]]);
     },
   );
+
+  test("a request that no longer exists is retired like one already resolved", async () => {
+    decisionRef.outcome = "gone";
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    // The route answers a stale row's decision with a 404, which reaches the
+    // error path rather than a declined 200. The feed is still refreshed so
+    // the row goes, and the click reads as the request being gone rather
+    // than as a failure to retry.
+    expect(feedInvalidateCalls.length).toBe(1);
+    expect(toastCalls).toEqual([["info", "Already resolved"]]);
+  });
+
+  test("any other failure reports a submission failure and leaves the row", async () => {
+    decisionRef.outcome = "failed";
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(feedInvalidateCalls).toEqual([]);
+    expect(toastCalls).toEqual([
+      ["error", "The decision could not be submitted. Try again."],
+    ]);
+  });
 });
 
 describe("NotificationsBell empty state", () => {

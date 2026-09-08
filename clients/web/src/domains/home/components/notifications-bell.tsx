@@ -2,7 +2,6 @@ import { Bell } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   useBackgroundConversationListQuery,
   useConversationListQuery,
@@ -11,7 +10,6 @@ import {
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation } from "@/i18n";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
-import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -28,6 +26,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import type { HomeRecapRowDecision } from "../home-recap-row";
 import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
+import { useGuardianDecision } from "../hooks/use-guardian-decision";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
   clearAllArgs,
@@ -193,50 +192,17 @@ export function NotificationsBell() {
   const areConversationListsPending =
     isForegroundPending || isBackgroundPending || isScheduledPending;
 
-  // A pending approval can be decided from its row. One mutation serves every
-  // row, so all of their buttons go inert together while a decision is in
-  // flight. The row draws its buttons off the feed item alone, so the feed is
-  // refreshed on every outcome: a decision that was applied turns the row
-  // into its receipt, and one the route declined (a 200 with `applied:
-  // false`) is explained by a toast keyed on its reason, since the click
-  // otherwise did nothing visible. A request that was already settled or has
-  // expired is retired by the refresh; one this actor may not decide, or
-  // that the daemon could not apply, keeps its row, and the toast is what
-  // stops the user retrying a click that cannot succeed.
-  const decision = useGuardianactionsDecisionPostMutation({
-    onSuccess: (data) => {
-      if (!data.applied) {
-        switch (data.reason) {
-          case "already_resolved":
-          case "not_found":
-            toast.info(t("homeGuardianRequestCard.receipt.alreadyResolved"));
-            break;
-          case "expired":
-            toast.info(t("homeGuardianRequestCard.receipt.expired"));
-            break;
-          case "identity_mismatch":
-            toast.error(t("notificationsBell.decisionNotPermitted"));
-            break;
-          default:
-            toast.error(t("notificationsBell.decisionNotApplied"));
-        }
-      }
-      feedQuery.invalidate();
-    },
-    onError: (error) => {
-      captureError(error, { context: "notifications-bell-decision" });
-      toast.error(t("homeGuardianRequestCard.decisionFailed"));
-    },
-  });
+  // A pending approval can be decided from its row, through the same hook
+  // the detail card decides with, so every outcome (applied, declined for a
+  // reason, gone) is handled the same whichever surface the click came from.
+  // One decision serves every row, so all of their buttons go inert together
+  // while one is in flight.
+  const decision = useGuardianDecision();
   const handleDecide = (item: FeedItem, action: HomeRecapRowDecision) => {
     const requestId = item.guardianRequest?.requestId;
-    if (!assistantId || !requestId) {
-      return;
+    if (requestId) {
+      decision.decide(requestId, action);
     }
-    decision.mutate({
-      path: { assistant_id: assistantId },
-      body: { requestId, action },
-    });
   };
 
   // A notification also links back to what it is about: the schedule that
