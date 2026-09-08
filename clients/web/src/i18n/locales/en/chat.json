@@ -905,7 +905,7 @@
     "connecting": "Connecting…",
     "ending": "Ending…",
     "listening": "Listening…",
-    "microphoneDenied": "Microphone access is blocked. Allow it for this site and try again.",
+    "microphoneDenied": "Microphone access is blocked. Allow it in your browser or system settings and try again.",
     "muted": "Muted",
     "reconnecting": "Reconnecting…",
     "speaking": "Speaking…",

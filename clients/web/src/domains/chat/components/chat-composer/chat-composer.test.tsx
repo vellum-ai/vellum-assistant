@@ -2993,6 +2993,32 @@ describe("ChatComposer — live-voice integration", () => {
     expect(useLiveVoiceStore.getState().error).toBeNull();
   });
 
+  test("unmounting during the readiness preflight releases the microphone reserved from the click", async () => {
+    // GIVEN a preflight that has not answered yet
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    let settlePreflight: () => void = () => {};
+    preflightSpy.mockImplementationOnce(
+      () =>
+        new Promise<LiveVoicePreflightVerdict | null>((resolve) => {
+          settlePreflight = () => resolve({ status: "ready" });
+        }),
+    );
+    const { getByLabelText, unmount } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
+
+    // WHEN the composer unmounts before the verdict arrives
+    unmount();
+    await act(async () => {
+      settlePreflight();
+    });
+
+    // THEN the microphone reserved from the click goes back, and no session
+    // starts for the page the user left
+    expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+  });
+
   test("unmounting mid-reclaim releases the microphone reserved from the click", async () => {
     // GIVEN a reclaim whose out-of-band end has not settled yet
     useTurnStore.setState(INITIAL_TURN_STATE);

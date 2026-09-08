@@ -509,6 +509,10 @@ export function ChatComposer({
   // race to start). A ref, not state — this must gate synchronously and never
   // trigger a re-render.
   const liveVoicePreflightPendingRef = useRef(false);
+  // Whether this composer is still mounted, read on the far side of the
+  // preflight await. The unmount cleanup below has already released what the
+  // click reserved, so an attempt that outlives its composer just stops.
+  const liveVoiceMountedRef = useRef(true);
   // Latest chat identity, re-read after the preflight await. The awaiting
   // callback holds the assistant/conversation captured when it was created, so
   // a user who switches chats (or leaves) mid-flight would otherwise resume and
@@ -548,6 +552,9 @@ export function ChatComposer({
       readiness = await voiceReadiness(assistantId);
     } finally {
       liveVoicePreflightPendingRef.current = false;
+    }
+    if (!liveVoiceMountedRef.current) {
+      return;
     }
     // The user may have moved to another chat while the POST was in flight.
     // Drop the result entirely rather than opening a room bound to the chat
@@ -607,8 +614,18 @@ export function ChatComposer({
   const liveVoiceReclaimRef = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
+      liveVoiceMountedRef.current = false;
+      const reclaimPending = liveVoiceReclaimRef.current !== null;
       liveVoiceReclaimRef.current?.abort();
       liveVoiceReclaimRef.current = null;
+      // A start or reclaim still in flight reserved the microphone from its
+      // click, and nothing will now adopt it: the layout-owned controller
+      // outlives this composer, so left alone the tracks would stay open
+      // behind no session. Released here, before any successor composer can
+      // reserve one of its own, so the cancel cannot take a newer reservation.
+      if (liveVoicePreflightPendingRef.current || reclaimPending) {
+        useLiveVoiceStore.getState().starter?.cancelPrewarm();
+      }
     },
     [],
   );
@@ -638,13 +655,8 @@ export function ChatComposer({
       liveVoiceReclaimRef.current = null;
     }
     if (reclaim.signal.aborted) {
-      // Aborted by the composer unmounting (the ref is cleared) or by a newer
-      // reclaim (the ref holds it). The newer one prewarmed against the same
-      // reservation and starts with it; the unmount left nobody to, so the
-      // microphone goes back rather than staying open behind no session.
-      if (liveVoiceReclaimRef.current === null) {
-        useLiveVoiceStore.getState().starter?.cancelPrewarm();
-      }
+      // Aborted by a newer reclaim, which starts with the same reservation, or
+      // by the composer unmounting, whose cleanup already released it.
       return;
     }
     dismissLiveVoiceFailure();

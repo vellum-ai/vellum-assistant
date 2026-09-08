@@ -2243,7 +2243,7 @@ describe("failure", () => {
 
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe(
-      "Microphone access is blocked. Allow it for this site and try again.",
+      "Microphone access is blocked. Allow it in your browser or system settings and try again.",
     );
     expect(h.client.closed).toBe(true);
     // No audio frame was ever sent on the failed session.
@@ -2363,7 +2363,7 @@ describe("concurrent mic acquisition", () => {
     });
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe(
-      "Microphone access is blocked. Allow it for this site and try again.",
+      "Microphone access is blocked. Allow it in your browser or system settings and try again.",
     );
     expect(h.client.closed).toBe(true);
     expect(h.client.sentAudio).toHaveLength(0);
