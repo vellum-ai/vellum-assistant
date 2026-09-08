@@ -779,12 +779,9 @@
   },
   "useOauthConnect": {
     "accountConnected": "Cuenta de {name} conectada.",
-    "authPopupClosed": "La conexión de {name} falló: se cerró la ventana de autorización.",
     "authorizationError": "Error de {name}: {code}",
     "authorizationFailed": "La autorización de {name} falló",
-    "connectionNotFound": "La autorización de {name} finalizó, pero no se encontró ninguna cuenta conectada.",
     "popupBlocked": "Ventana emergente bloqueada. Permite las ventanas emergentes e inténtalo de nuevo.",
-    "scopeConflict": "Ya hay otra conexión de {name} en curso con permisos diferentes. Finalízala o descártala y vuelve a intentarlo.",
     "startFailed": "No se pudo iniciar la autorización de {name}.",
     "startFailedWithReason": "No se pudo iniciar la autorización de {name}: {reason}"
   },

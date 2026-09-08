@@ -781,12 +781,9 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} account connected.",
-    "authPopupClosed": "{name} connection failed: authorization popup closed.",
     "authorizationError": "{name} error: {code}",
     "authorizationFailed": "{name} authorization failed",
-    "connectionNotFound": "{name} authorization finished, but no connected account was found.",
     "popupBlocked": "Popup blocked. Please enable popups and try again.",
-    "scopeConflict": "Another {name} connection is already in progress with different permissions. Finish or dismiss it, then try again.",
     "startFailed": "Failed to start {name} authorization.",
     "startFailedWithReason": "Couldn't start {name} authorization: {reason}"
   },
