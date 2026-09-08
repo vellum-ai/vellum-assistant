@@ -32,7 +32,7 @@
       "scope": "client",
       "key": "vision-mode",
       "label": "Vision Mode",
-      "description": "Gates the Eyes camera surface in the web composer: the toggle, the floating viewfinder tile, and the send-frame path are all reachable only through the toggle. String-valued so future A/B arms can be added as new values.",
+      "description": "Gates hold-to-Live ambient frame sampling in the voice room camera. String-valued so future A/B arms can be added as new values.",
       "defaultEnabled": "off",
       "values": ["off", "on"]
     },

@@ -75,7 +75,6 @@ const SLIDER_LABEL_KEYS = {
 } as const satisfies Record<FrameGateOverrideKey, string>;
 
 const SURFACE_LABEL_KEYS = {
-  composer: "frameGateHud.surfaceComposer",
   voice: "frameGateHud.surfaceVoice",
 } as const satisfies Record<FrameGateDebugSurface, string>;
 

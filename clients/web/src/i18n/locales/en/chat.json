@@ -812,7 +812,6 @@
     "stepRateFloor": "Rate floor",
     "stepUnchanged": "Unchanged",
     "stepWarmup": "Warmup",
-    "surfaceComposer": "Composer camera",
     "surfaceVoice": "Voice room camera",
     "thresholds": "Thresholds",
     "valueAbsent": "n/a"
@@ -1523,17 +1522,6 @@
   },
   "sidebarListContextMenu": {
     "newGroup": "New group…"
-  },
-  "sightTile": {
-    "close": "Close camera",
-    "interrupted": "The camera was disconnected.",
-    "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
-    "unavailable": "No camera is available."
-  },
-  "sightToggle": {
-    "busyInCall": "The voice call is using the camera",
-    "turnOff": "Turn off camera vision",
-    "turnOn": "Turn on camera vision"
   },
   "singleActivity": {
     "webSearch": "Web Search"
