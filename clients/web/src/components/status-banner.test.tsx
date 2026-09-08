@@ -4,6 +4,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   mock,
   test,
 } from "bun:test";
@@ -51,6 +52,7 @@ let operationalStatusQueryMock: {
     | {
         state: string;
         detail_state?: string;
+        active_operation?: { operation: string; phase: string };
         detail?: { reason?: string | null; message?: string | null };
       }
     | null
@@ -620,50 +622,166 @@ describe("StatusBanner", () => {
     expect(screen.queryByText("Assistant is unreachable")).toBeNull();
   });
 
-  test("shows restarting banner instead of fatal error when a restart briefly reads as crash_loop", async () => {
-    // GIVEN the operational status is restarting
-    operationalStatusQueryMock = {
-      data: { state: "restarting" },
-      isError: false,
-    };
+  describe.each([
+    ["restarting", "restart", "Assistant is restarting"],
+    [
+      "upgrading_assistant_version",
+      "upgrade_assistant_version",
+      "Assistant is upgrading",
+    ],
+  ])("%s transition", (state, operation, title) => {
+    test.each(["crash_loop", "unreachable"])(
+      "keeps the operation visible through %s",
+      (gap) => {
+        operationalStatusQueryMock = {
+          data: { state: "active" },
+          isError: false,
+        };
+        const { rerender } = render(<StatusBanner />);
+        operationalStatusQueryMock.data = { state };
+        rerender(<StatusBanner />);
+        operationalStatusQueryMock.data = { state: gap };
+        rerender(<StatusBanner />);
 
-    const { rerender } = render(<StatusBanner />);
+        expect(screen.getByText(title)).toBeTruthy();
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(screen.queryByText("Go to Doctor")).toBeNull();
+        expect(screen.queryByText("Assistant is sleeping")).toBeNull();
+      },
+    );
 
-    // WHEN the pod bounce is briefly classified as a crash loop
-    operationalStatusQueryMock = {
-      data: { state: "crash_loop" },
-      isError: false,
-    };
-    rerender(<StatusBanner />);
-
-    // THEN the banner keeps showing "restarting" instead of the fatal error
-    await waitFor(() => {
-      expect(screen.getByText("Assistant is restarting")).toBeTruthy();
+    test("uses an active operation on the first poll and remembers it after the marker clears", () => {
+      operationalStatusQueryMock = {
+        data: {
+          state: "crash_loop",
+          active_operation: { operation, phase: "waiting_for_ready" },
+        },
+        isError: false,
+      };
+      const { rerender } = render(<StatusBanner />);
+      expect(screen.getByText(title)).toBeTruthy();
+      operationalStatusQueryMock.data = { state: "unreachable" };
+      rerender(<StatusBanner />);
+      expect(screen.getByText(title)).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
     });
-    expect(screen.queryByText("Assistant fatal error")).toBeNull();
-  });
 
-  test("shows fatal error when crash_loop follows a failed restart", async () => {
-    // GIVEN the restart has terminally failed
-    operationalStatusQueryMock = {
-      data: { state: "restarting", detail_state: "failed" },
-      isError: false,
-    };
+    test("retains the operation through a failed status refetch", () => {
+      operationalStatusQueryMock = { data: { state }, isError: false };
+      const { rerender } = render(<StatusBanner />);
+      operationalStatusQueryMock.isError = true;
+      rerender(<StatusBanner />);
+      expect(screen.getByText(title)).toBeTruthy();
+      expect(screen.queryByText("Assistant status is unavailable")).toBeNull();
+    });
 
-    const { rerender } = render(<StatusBanner />);
+    test("does not extend the grace window when health errors alternate or polls fail", () => {
+      jest.useFakeTimers();
+      try {
+        operationalStatusQueryMock = { data: { state }, isError: false };
+        const { rerender } = render(<StatusBanner />);
+        operationalStatusQueryMock.data = { state: "crash_loop" };
+        rerender(<StatusBanner />);
+        act(() => jest.advanceTimersByTime(30_000));
+        operationalStatusQueryMock.isError = true;
+        rerender(<StatusBanner />);
+        act(() => jest.advanceTimersByTime(15_000));
+        operationalStatusQueryMock = {
+          data: { state: "unreachable" },
+          isError: false,
+        };
+        rerender(<StatusBanner />);
+        act(() => jest.advanceTimersByTime(14_999));
+        expect(screen.getByText(title)).toBeTruthy();
+        act(() => jest.advanceTimersByTime(1));
+        expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+        expect(screen.getByText("Go to Doctor")).toBeTruthy();
+      } finally {
+        cleanup();
+        jest.useRealTimers();
+      }
+    });
 
-    // WHEN the assistant subsequently reports a crash loop
-    operationalStatusQueryMock = {
-      data: { state: "crash_loop" },
-      isError: false,
-    };
-    rerender(<StatusBanner />);
+    test.each([false, true])(
+      "bounds errors even with a cached operation (query failure: %s)",
+      (isError) => {
+        jest.useFakeTimers();
+        try {
+          operationalStatusQueryMock = {
+            data: isError
+              ? { state }
+              : {
+                  state: "crash_loop",
+                  active_operation: { operation, phase: "waiting_for_ready" },
+                },
+            isError,
+          };
+          const { rerender } = render(<StatusBanner />);
+          expect(screen.getByText(title)).toBeTruthy();
+          act(() => jest.advanceTimersByTime(60_000));
+          rerender(<StatusBanner />);
+          expect(
+            screen.getByText(
+              isError
+                ? "Assistant status is unavailable"
+                : "Assistant fatal error",
+            ),
+          ).toBeTruthy();
+          expect(screen.queryByText(title)).toBeNull();
+        } finally {
+          cleanup();
+          jest.useRealTimers();
+        }
+      },
+    );
 
-    // THEN the fatal error is not suppressed
-    await waitFor(() => {
+    test("surfaces a failed operation immediately and disarms its grace window", () => {
+      operationalStatusQueryMock = { data: { state }, isError: false };
+      const { rerender } = render(<StatusBanner />);
+      operationalStatusQueryMock.data = { state, detail_state: "failed" };
+      rerender(<StatusBanner />);
+      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(screen.queryByText(title)).toBeNull();
+      operationalStatusQueryMock.data = { state: "crash_loop" };
+      rerender(<StatusBanner />);
       expect(screen.getByText("Assistant fatal error")).toBeTruthy();
     });
-    expect(screen.queryByText("Assistant is restarting")).toBeNull();
+
+    test("does not suppress a crash with a failed operation marker", () => {
+      operationalStatusQueryMock = { data: { state }, isError: false };
+      const { rerender } = render(<StatusBanner />);
+      operationalStatusQueryMock.data = {
+        state: "crash_loop",
+        active_operation: { operation, phase: "failed" },
+      };
+      rerender(<StatusBanner />);
+      expect(screen.getByText("Assistant fatal error")).toBeTruthy();
+    });
+
+    test.each(["active", "sleeping", "not_found", "maintenance_mode"])(
+      "clears operation history on %s",
+      (settled) => {
+        operationalStatusQueryMock = { data: { state }, isError: false };
+        const { rerender } = render(<StatusBanner />);
+        operationalStatusQueryMock.data = { state: settled };
+        rerender(<StatusBanner />);
+        operationalStatusQueryMock.data = { state: "crash_loop" };
+        rerender(<StatusBanner />);
+        expect(screen.getByText("Assistant fatal error")).toBeTruthy();
+      },
+    );
+
+    test("does not carry operation history across assistant switches", () => {
+      operationalStatusQueryMock = { data: { state }, isError: false };
+      const { rerender } = render(<StatusBanner />);
+      activeAssistantIdMock = "assistant-456";
+      operationalStatusQueryMock.data = { state: "crash_loop" };
+      rerender(<StatusBanner />);
+      expect(screen.getByText("Assistant fatal error")).toBeTruthy();
+      activeAssistantIdMock = "assistant-123";
+      rerender(<StatusBanner />);
+      expect(screen.getByText("Assistant fatal error")).toBeTruthy();
+    });
   });
 
   test("shows waking instead of unreachable within the resume grace window", async () => {
@@ -827,7 +945,9 @@ describe("StatusBanner", () => {
       expect(html).toContain('data-tone="neutral"');
       expect(html).toContain("bg-[var(--surface-active)]");
       expect(html).toContain("items-center");
-      expect(html).toContain("[&amp;_[data-slot=button]]:text-body-small-default");
+      expect(html).toContain(
+        "[&amp;_[data-slot=button]]:text-body-small-default",
+      );
       expect(html).not.toContain("[&amp;_[data-slot=button]]:uppercase");
       expect(html).not.toContain(
         "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
@@ -875,9 +995,7 @@ describe("StatusBanner", () => {
 
       const { container } = render(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(
         screen.getByText(
           "The connection to the paired assistant's host is down. Check the host machine and its tunnel.",
@@ -904,9 +1022,7 @@ describe("StatusBanner", () => {
 
       const { container } = render(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(container.innerHTML).toContain("lucide-cloud-off");
       expect(container.innerHTML).toContain('data-tone="neutral"');
       expect(screen.queryByText("Your assistant is asleep")).toBeNull();
@@ -929,9 +1045,7 @@ describe("StatusBanner", () => {
 
       render(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(screen.queryByText("Your assistant runs locally")).toBeNull();
       expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
     });
@@ -971,9 +1085,7 @@ describe("StatusBanner", () => {
       localHealthMock = "unreachable";
       rerender(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(screen.queryByText("Your assistant is waking up")).toBeNull();
       expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
     });

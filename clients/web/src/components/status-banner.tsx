@@ -33,6 +33,7 @@ import {
   type AssistantOperationalStatus,
   useAssistantOperationalStatus,
 } from "@/assistant/operational-status";
+import { useOperationalTransition } from "@/assistant/use-operational-transition";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
@@ -602,7 +603,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
     } else if (
       operationalStatus?.state === "active" ||
       operationalStatus?.state === "crash_loop" ||
-      operationalStatus?.state === "not_found"
+      operationalStatus?.state === "not_found" ||
+      operationalStatus?.state === "restarting" ||
+      operationalStatus?.state === "upgrading_assistant_version"
     ) {
       setWasRecentlySleeping(false);
     }
@@ -630,7 +633,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
     } else if (
       operationalStatus?.state === "sleeping" ||
       operationalStatus?.state === "crash_loop" ||
-      operationalStatus?.state === "not_found"
+      operationalStatus?.state === "not_found" ||
+      operationalStatus?.state === "restarting" ||
+      operationalStatus?.state === "upgrading_assistant_version"
     ) {
       setWasRecentlyActive(false);
     }
@@ -654,45 +659,12 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // the preceding reading.
   const isResumeGraceActive = useResumeGrace();
 
-  // Suppress the brief "crash_loop" flash during a restart. The pod bounce
-  // bumps the container restart counter, which the platform can briefly
-  // classify as a crash loop before the assistant settles back to active.
-  // Keyed by assistant id so a polling-target switch can't carry the
-  // suppression over to a different assistant's genuine crash loop.
-  const [recentlyRestartingAssistantId, setRecentlyRestartingAssistantId] =
-    useState<string | null>(null);
-  useEffect(() => {
-    if (!assistantId) {
-      return;
-    }
-    if (operationalStatus?.state === "restarting") {
-      // A failed restart disarms the suppression so a follow-up
-      // crash_loop surfaces immediately instead of reading as a restart.
-      setRecentlyRestartingAssistantId(
-        operationalStatus.detail_state === "failed" ? null : assistantId,
-      );
-    } else if (
-      operationalStatus?.state === "active" ||
-      operationalStatus?.state === "sleeping" ||
-      operationalStatus?.state === "not_found"
-    ) {
-      setRecentlyRestartingAssistantId(null);
-    }
-  }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
-  const wasRecentlyRestarting =
-    recentlyRestartingAssistantId !== null &&
-    recentlyRestartingAssistantId === assistantId;
+  const operationalTransition = useOperationalTransition(
+    assistantId,
+    operationalStatus,
+    operationalStatusIsError,
+  );
 
-  // Auto-clear after 60s so a genuine crash loop surfaces the fatal error.
-  useEffect(() => {
-    if (!wasRecentlyRestarting || operationalStatus?.state !== "crash_loop") {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setRecentlyRestartingAssistantId(null);
-    }, 60_000);
-    return () => clearTimeout(timeout);
-  }, [wasRecentlyRestarting, operationalStatus?.state]);
   // Track dismissed failed-operation banners so the user can clear
   // terminal error messages (e.g. "Assistant upgrade failed"). The
   // dismissal is keyed on the operation state so it auto-resets when
@@ -940,6 +912,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   if (
     operationalStatusIsError &&
     !shouldUseLifecycleMaintenanceMode &&
+    !operationalTransition &&
     !isResumeGraceActive
   ) {
     return {
@@ -949,31 +922,17 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
-  // When the status transitions from sleeping directly to unreachable, the
-  // assistant is in the final phase of waking (pod ready per k8s but the
-  // application healthz hasn't responded ok yet). Show "waking" so the user
-  // sees a smooth sleeping → waking → active progression.
-  // Conversely, when the status transitions from active directly to
-  // unreachable, the pod is shutting down for sleep. Show "sleeping" so
-  // the user sees a smooth active → sleeping progression.
-  // Similarly, a restart can briefly read as "crash_loop"; keep showing
-  // "restarting" until the grace window expires.
-  // Finally, within the resume grace window a transient "unreachable" reads
-  // as "waking" so returning to a backgrounded client shows the info/spinner
-  // treatment rather than the "unreachable" error banner.
+  // A known operation takes precedence over inferred sleep or resume states.
   const effectiveStatus =
-    operationalStatus?.state === "unreachable" &&
-    (wasRecentlySleeping || isResumeGraceActive)
-      ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus?.state === "unreachable" && wasRecentlyActive
-        ? {
-            ...operationalStatus,
-            state: "sleeping" as AssistantOperationalState,
-          }
-        : operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
+    operationalStatus && operationalTransition
+      ? { ...operationalStatus, state: operationalTransition }
+      : operationalStatus?.state === "unreachable" &&
+          (wasRecentlySleeping || isResumeGraceActive)
+        ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
+        : operationalStatus?.state === "unreachable" && wasRecentlyActive
           ? {
               ...operationalStatus,
-              state: "restarting" as AssistantOperationalState,
+              state: "sleeping" as AssistantOperationalState,
             }
           : operationalStatus;
 
