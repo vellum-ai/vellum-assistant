@@ -176,13 +176,40 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
         return builder.Append("</toast>").ToString();
     }
 
-    /// <summary>The `file:///` form of an absolute local path, with separators
-    /// flipped and reserved characters percent-encoded, or null for anything a
-    /// toast image cannot load.</summary>
-    private static string? ToFileUri(string? avatarPath) =>
-        Uri.TryCreate(avatarPath, UriKind.Absolute, out var uri) && uri.IsFile
-            ? uri.AbsoluteUri
-            : null;
+    private static readonly char[] PathSeparators = ['\\', '/'];
+
+    /// <summary>The `file:///` form of a drive-rooted local path: the drive
+    /// kept verbatim, every following segment percent-encoded, separators
+    /// flipped to forward slashes. Null for anything a toast image cannot
+    /// load, including relative paths and UNC shares. The URI is assembled
+    /// from the path's own segments rather than parsed out of it, so a literal
+    /// `%` in a folder name stays encoded and keeps naming the file the avatar
+    /// was written to.</summary>
+    private static string? ToFileUri(string? avatarPath)
+    {
+        if (avatarPath is null)
+        {
+            return null;
+        }
+        var segments = avatarPath.Split(PathSeparators);
+        if (segments.Length < 2 ||
+            segments[0].Length != 2 ||
+            !char.IsAsciiLetter(segments[0][0]) ||
+            segments[0][1] != ':')
+        {
+            return null;
+        }
+        var builder = new StringBuilder("file:///").Append(segments[0]);
+        for (var index = 1; index < segments.Length; index++)
+        {
+            if (segments[index].Length == 0)
+            {
+                return null;
+            }
+            builder.Append('/').Append(Uri.EscapeDataString(segments[index]));
+        }
+        return builder.ToString();
+    }
 
     public static (string Kind, int Index) ParseActivationArguments(string arguments)
     {
