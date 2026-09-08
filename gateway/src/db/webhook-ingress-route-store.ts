@@ -13,10 +13,11 @@ import { webhookIngressRoutes } from "./schema.js";
 const MAX_WEBHOOK_PATH_LENGTH = 512;
 
 /**
- * Type carried by the rows the plugin ingress approval gate owns, whose
- * `source` is therefore always a plugin name.
+ * Type carried by the rows the plugin ingress gate owns, whose `source` is
+ * therefore always a plugin name. Only a reconcile writes or removes them, so
+ * nothing outside this module needs to name the type.
  */
-export const PLUGIN_WEBHOOK_ROUTE_TYPE = "plugin";
+const PLUGIN_WEBHOOK_ROUTE_TYPE = "plugin";
 
 const changeListeners = new Set<() => void>();
 
@@ -137,62 +138,108 @@ export function unregisterWebhookIngressRoute(path: string): boolean {
   return true;
 }
 
-/**
- * Drop every plugin route registered for `source`. Returns how many rows were
- * removed.
- *
- * Scoped to plugin rows so that revoking a plugin's grant cannot take out a
- * route some other subsystem registered under a colliding source name.
- */
-export function unregisterWebhookIngressRoutesBySource(source: string): number {
-  const match = and(
-    eq(webhookIngressRoutes.type, PLUGIN_WEBHOOK_ROUTE_TYPE),
-    eq(webhookIngressRoutes.source, source),
-  );
-  const matched = getGatewayDb()
-    .select({ path: webhookIngressRoutes.path })
-    .from(webhookIngressRoutes)
-    .where(match)
-    .all();
-  if (matched.length === 0) {
-    return 0;
-  }
-  getGatewayDb().delete(webhookIngressRoutes).where(match).run();
-  notifyChanged();
-  return matched.length;
+/** One path a plugin declaration currently entitles the gateway to serve. */
+export interface PluginWebhookRouteClaim {
+  path: string;
+  /** Declaring plugin's name, stored as the row's `source`. */
+  source: string;
+}
+
+/** What a reconcile changed, by path. */
+export interface PluginWebhookRouteReconciliation {
+  added: string[];
+  removed: string[];
+  /**
+   * Claims the registry cannot store byte for byte. Skipped rather than
+   * thrown, so one plugin declaring an unusable path cannot stop every other
+   * plugin's paths from settling.
+   */
+  rejected: string[];
 }
 
 /**
- * Drop plugin routes whose source is not among `approvedSources`. Returns how
- * many rows were removed.
+ * Make the registry's plugin rows equal `servable`.
  *
- * A plugin route is only ever written alongside an approval, so a row for a
- * plugin holding none is left over from an uninstall or a revocation that
- * happened while the gateway was not running.
+ * These rows are a mirror, not a record of events: a path is claimed for
+ * exactly as long as the ingress gate would serve it. Deriving them from that
+ * set rather than from approve and revoke callbacks is what lets an approval
+ * granted before any of this existed, a plugin uninstalled while the gateway
+ * was down, and a manifest edited into a different digest all settle correctly
+ * on the next reconcile.
+ *
+ * Only plugin rows are removed, so a claim another subsystem registered is
+ * never withdrawn, whatever its source name.
+ *
+ * Fires the change listener once when anything moved, and not at all otherwise,
+ * so an unchanged reconcile does not ask the tunnel to re-advertise.
  */
-export function unregisterOrphanedPluginWebhookIngressRoutes(
-  approvedSources: readonly string[],
-): number {
-  const approved = new Set(approvedSources);
-  const orphaned = listWebhookIngressRoutes().filter(
-    (route) =>
-      route.type === PLUGIN_WEBHOOK_ROUTE_TYPE &&
-      (route.source === null || !approved.has(route.source)),
-  );
-  if (orphaned.length === 0) {
-    return 0;
+export function reconcilePluginWebhookIngressRoutes(
+  servable: readonly PluginWebhookRouteClaim[],
+): PluginWebhookRouteReconciliation {
+  const desired = new Map<string, string>();
+  const rejected: string[] = [];
+  for (const claim of servable) {
+    if (isValidWebhookIngressPath(claim.path)) {
+      desired.set(claim.path, claim.source);
+    } else {
+      rejected.push(claim.path);
+    }
   }
-  getGatewayDb()
-    .delete(webhookIngressRoutes)
-    .where(
-      inArray(
-        webhookIngressRoutes.path,
-        orphaned.map((route) => route.path),
-      ),
-    )
-    .run();
+
+  const existing = new Map(
+    listWebhookIngressRoutes()
+      .filter((route) => route.type === PLUGIN_WEBHOOK_ROUTE_TYPE)
+      .map((route) => [route.path, route] as const),
+  );
+
+  const removed = [...existing.keys()].filter((path) => !desired.has(path));
+  const now = Date.now();
+  const writes: WebhookIngressRoute[] = [];
+  for (const [path, source] of desired) {
+    const row = existing.get(path);
+    if (row?.source === source) {
+      continue;
+    }
+    writes.push({
+      path,
+      type: PLUGIN_WEBHOOK_ROUTE_TYPE,
+      source,
+      match: "exact",
+      createdAt: row?.createdAt ?? now,
+      lastRegisteredAt: now,
+    });
+  }
+
+  if (removed.length === 0 && writes.length === 0) {
+    return { added: [], removed: [], rejected };
+  }
+
+  const db = getGatewayDb();
+  if (removed.length > 0) {
+    db.delete(webhookIngressRoutes)
+      .where(
+        and(
+          eq(webhookIngressRoutes.type, PLUGIN_WEBHOOK_ROUTE_TYPE),
+          inArray(webhookIngressRoutes.path, removed),
+        ),
+      )
+      .run();
+  }
+  for (const row of writes) {
+    db.insert(webhookIngressRoutes)
+      .values(row)
+      .onConflictDoUpdate({
+        target: webhookIngressRoutes.path,
+        set: {
+          type: row.type,
+          source: row.source,
+          lastRegisteredAt: row.lastRegisteredAt,
+        },
+      })
+      .run();
+  }
   notifyChanged();
-  return orphaned.length;
+  return { added: writes.map((row) => row.path), removed, rejected };
 }
 
 /** Every registered route. */

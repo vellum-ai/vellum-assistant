@@ -17,12 +17,12 @@
 
 import {
   findServableRoute,
+  listServablePluginWebhookPaths,
   resolvePluginIngress,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
 import type { IngressVerification } from "../../channels/ingress-verification.js";
 import {
-  ingressRoutePaths,
   pluginWebhookPath,
   type IngressRoute,
 } from "../../channels/plugin-ingress.js";
@@ -32,12 +32,7 @@ import {
   listPluginIngressApprovals,
   revokePluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
-import {
-  PLUGIN_WEBHOOK_ROUTE_TYPE,
-  registerWebhookIngressRoute,
-  unregisterWebhookIngressRoutesBySource,
-} from "../../db/webhook-ingress-route-store.js";
-import { isFeatureFlagEnabled } from "../../feature-flag-resolver.js";
+import { reconcilePluginWebhookIngressRoutes } from "../../db/webhook-ingress-route-store.js";
 import { getLogger } from "../../logger.js";
 import { ApproveChannelIngressRequestSchema } from "./channel-ingress-routes.js";
 
@@ -261,18 +256,26 @@ export function createChannelIngressApproveHandler(
       const row = approvePluginIngress({ plugin: source, digest });
       // Velay forwards a webhook path only once this assistant has claimed it,
       // so the claim is part of the grant: a failure here is reported as one,
-      // rather than left as an approval that reaches nothing.
-      if (isFeatureFlagEnabled("velay-webhooks")) {
-        for (const path of ingressRoutePaths(current)) {
-          registerWebhookIngressRoute({
-            path,
-            type: PLUGIN_WEBHOOK_ROUTE_TYPE,
-            source,
-          });
-        }
+      // rather than left as an approval that reaches nothing. Reconciling the
+      // whole set rather than this source's paths costs one more declaration
+      // scan and settles anything else that has drifted since the last one.
+      const claimed = reconcilePluginWebhookIngressRoutes(
+        listServablePluginWebhookPaths(resolve()),
+      );
+      if (claimed.rejected.length > 0) {
+        log.warn(
+          { source, rejected: claimed.rejected },
+          "Declared paths the webhook registry cannot store were not claimed",
+        );
       }
       log.info(
-        { source, digest, routes: current.routes.length },
+        {
+          source,
+          digest,
+          routes: current.routes.length,
+          claimedPaths: claimed.added.length,
+          releasedPaths: claimed.removed.length,
+        },
         "Guardian approved channel ingress declaration",
       );
       return Response.json({
@@ -292,20 +295,29 @@ export function createChannelIngressApproveHandler(
 // ---------------------------------------------------------------------------
 
 /**
- * Unlike approve this does not consult the declaration: a grant must be
- * withdrawable even when the manifest that justified it has become unreadable.
+ * Whether to revoke is decided without consulting the declaration: a grant must
+ * be withdrawable even when the manifest that justified it has become
+ * unreadable, and an unreadable one is reported as a problem rather than
+ * thrown. The declarations are read afterwards only to recompute which paths
+ * remain servable, which is not the same question.
+ *
+ * Withdrawing a grant does not withdraw every path the source holds. A
+ * `signer: "vellum"` route is served without approval, so it keeps its claim,
+ * and an allowlist that dropped it would block a route the gateway still
+ * answers.
  */
-export function createChannelIngressRevokeHandler() {
+export function createChannelIngressRevokeHandler(
+  resolve: () => PluginIngressResolution = resolvePluginIngress,
+) {
   return async (_req: Request, source: string): Promise<Response> => {
     try {
       const revoked = revokePluginIngressApproval(source);
-      // Never gated on `velay-webhooks`: the flag decides whether a path is
-      // claimed, and a claim made while it was on has to be withdrawable
-      // whatever the flag says now.
-      const removedRoutes = unregisterWebhookIngressRoutesBySource(source);
+      const claimed = reconcilePluginWebhookIngressRoutes(
+        listServablePluginWebhookPaths(resolve()),
+      );
       if (revoked) {
         log.info(
-          { source, removedRoutes },
+          { source, releasedPaths: claimed.removed.length },
           "Guardian revoked channel ingress approval",
         );
       }

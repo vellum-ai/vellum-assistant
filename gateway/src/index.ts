@@ -169,7 +169,11 @@ import {
   getPluginWebhookWebsocketHandlers,
   isPluginWebhookSocketData,
 } from "./http/routes/plugin-webhook-websocket.js";
-import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import {
+  listServablePluginWebhookPaths,
+  resolveCachedPluginIngress,
+  resolvePluginIngress,
+} from "./channels/plugin-ingress-approvals.js";
 import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
@@ -251,10 +255,9 @@ import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
-import { listPluginIngressApprovals } from "./db/plugin-ingress-approval-store.js";
 import {
   onWebhookIngressRoutesChanged,
-  unregisterOrphanedPluginWebhookIngressRoutes,
+  reconcilePluginWebhookIngressRoutes,
 } from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
@@ -407,22 +410,35 @@ async function main() {
   initTrustRuleCache();
   initAdmissionPolicyCache();
 
-  // A plugin holds webhook routes for exactly as long as its ingress approval
-  // does, and an uninstall or a revocation while the gateway was down leaves
-  // rows behind. This only removes reach, so it runs whatever `velay-webhooks`
-  // says, and a failure is logged rather than allowed to stop startup.
+  // Plugin rows in the webhook registry mirror what the ingress gate serves,
+  // and nothing keeps them in step while the gateway is down: a plugin can be
+  // installed, uninstalled, disabled, or have its manifest edited into a
+  // digest its approval no longer covers. Recomputing them here is what makes
+  // those settle, and is also what backfills approvals granted before any of
+  // this existed. Gateway startup is the only hook the gateway has for a
+  // plugin appearing or going away, so it is where the drift is caught. A
+  // failure is logged rather than allowed to stop startup.
   try {
-    const orphanedPluginRoutes = unregisterOrphanedPluginWebhookIngressRoutes(
-      listPluginIngressApprovals().map((approval) => approval.plugin),
+    const { added, removed, rejected } = reconcilePluginWebhookIngressRoutes(
+      listServablePluginWebhookPaths(resolvePluginIngress()),
     );
-    if (orphanedPluginRoutes > 0) {
+    if (added.length > 0 || removed.length > 0) {
       log.info(
-        { removed: orphanedPluginRoutes },
-        "Removed webhook routes for plugins that hold no ingress approval",
+        { added: added.length, removed: removed.length },
+        "Reconciled webhook routes against plugin ingress declarations",
+      );
+    }
+    if (rejected.length > 0) {
+      log.warn(
+        { rejected },
+        "Declared paths the webhook registry cannot store were not claimed",
       );
     }
   } catch (err) {
-    log.warn({ err }, "Failed to sweep webhook routes for unapproved plugins");
+    log.warn(
+      { err },
+      "Failed to reconcile webhook routes against plugin ingress declarations",
+    );
   }
 
   // ── TTL caches ──
