@@ -26,10 +26,13 @@ const startCreateMock = mock(
   }),
 );
 
+/** Mutable backing store for the connections endpoint the poll path reads. */
+let connectionRows: unknown[] = [];
+
 mock.module("@/generated/api/sdk.gen", () => ({
   assistantsOauthStartCreate: startCreateMock,
   assistantsOauthConnectionsList: mock(async () => ({
-    data: [],
+    data: connectionRows,
     error: null,
     response: new Response(),
   })),
@@ -49,6 +52,13 @@ mock.module("@/runtime/native-auth", () => ({
 mock.module("@/runtime/browser", () => ({
   openUrl: async () => {},
   openUrlFinishedListener: () => () => {},
+}));
+// Collapse the connection-poll backoff; these tests exercise the decision
+// logic, not the 750ms spacing between polls.
+const actualConnectionUtils = await import("@/utils/oauth-connection-utils");
+mock.module("@/utils/oauth-connection-utils", () => ({
+  ...actualConnectionUtils,
+  wait: async () => {},
 }));
 
 const { connectManagedOAuthProvider } = await import("./managed-oauth");
@@ -75,6 +85,7 @@ let requestIds: string[];
  */
 beforeEach(() => {
   startCreateMock.mockClear();
+  connectionRows = [];
   requestIds = [];
   let counter = 0;
   globalThis.crypto.randomUUID = (() => {
@@ -102,7 +113,11 @@ beforeEach(() => {
  * first.
  */
 async function waitForStartCalls(count: number): Promise<void> {
-  for (let i = 0; i < 100 && startCreateMock.mock.calls.length < count; i += 1) {
+  for (
+    let i = 0;
+    i < 100 && startCreateMock.mock.calls.length < count;
+    i += 1
+  ) {
     await Promise.resolve();
   }
   expect(startCreateMock).toHaveBeenCalledTimes(count);
@@ -110,6 +125,20 @@ async function waitForStartCalls(count: number): Promise<void> {
 
 async function waitForStartCall(): Promise<void> {
   await waitForStartCalls(1);
+}
+
+/** Settle an in-flight connect through the localStorage completion channel. */
+function settleConnected(requestId: string): void {
+  window.dispatchEvent(
+    new StorageEvent("storage", {
+      key: oauthCompletionStorageKey(requestId),
+      newValue: JSON.stringify({
+        type: "vellum:oauth-complete",
+        requestId,
+        oauthStatus: "connected",
+      }),
+    }),
+  );
 }
 
 /** Settle an in-flight connect through the localStorage completion channel. */
@@ -282,5 +311,87 @@ describe("connectManagedOAuthProvider requested scopes", () => {
 
     settleFailed(requestIds[0]!);
     await connect;
+  });
+});
+
+/**
+ * The COOP regression (Link by Stripe).
+ *
+ * `link.com` serves `Cross-Origin-Opener-Policy: same-origin` and
+ * `connect.stripe.com` serves `same-origin-allow-popups`. Navigating the popup
+ * onto either one moves it into a new browsing-context group and disowns our
+ * handle, so `popup.closed` flips to `true` within a few hundred ms while the
+ * window is still open on the "Confirm it's you" step. Treating that as a
+ * cancellation produced a red "authorization popup closed" toast mid-flow and,
+ * worse, tore down the completion listeners so the authorization the user went
+ * on to finish was never reported.
+ */
+describe("connectManagedOAuthProvider with a COOP-disowned popup", () => {
+  /** Let the 100ms poll observe the handle and the 1s grace elapse. */
+  const afterPopupLostGrace = () => new Promise((r) => setTimeout(r, 1400));
+
+  const connectedRow = {
+    id: "conn-1",
+    provider: "google",
+    connected: true,
+    status: "connected",
+    account_label: "user@example.com",
+    scopes_granted: ["scope-a"],
+    expires_at: null,
+  };
+
+  test("does not resolve as cancelled while the popup is still open", async () => {
+    const connect = connectManagedOAuthProvider(OPTS);
+    let settled: unknown = null;
+    void connect.then((r) => {
+      settled = r;
+    });
+    await waitForStartCall();
+
+    // What COOP does: the handle reads closed, the window is still up.
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await afterPopupLostGrace();
+
+    expect(settled).toBeNull();
+
+    // The user finishes the flow in the popup we could no longer see.
+    connectionRows = [connectedRow];
+    settleConnected(requestIds[0]!);
+    const result = await connect;
+    expect(result.status).toBe("connected");
+  });
+
+  test("releases the dedupe slot so a retry opens a new popup", async () => {
+    const first = connectManagedOAuthProvider(OPTS);
+    await waitForStartCall();
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await afterPopupLostGrace();
+
+    // Detached, so the next connect is a real second flow rather than a
+    // silent no-op that hands back the unobservable one.
+    const second = connectManagedOAuthProvider(OPTS);
+    expect(second).not.toBe(first);
+    expect(openSpy).toHaveBeenCalledTimes(2);
+
+    settleFailed(requestIds[1]!);
+    await second;
+    settleFailed(requestIds[0]!);
+    await first;
+  });
+
+  test("a popup closed before the hand-off is still reported as cancelled", async () => {
+    // No COOP response can have applied yet, so `closed` is trustworthy here.
+    startCreateMock.mockImplementationOnce(
+      () => new Promise(() => {}) as never,
+    );
+    const connect = connectManagedOAuthProvider(OPTS);
+    await Promise.resolve();
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+
+    const result = await connect;
+    expect(result).toEqual({ status: "cancelled", reason: "popup-closed" });
   });
 });

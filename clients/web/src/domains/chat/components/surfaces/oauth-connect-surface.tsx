@@ -15,7 +15,7 @@ import {
   defaultManagedOAuthConnectClient,
   type ManagedOAuthConnectClient,
   type ManagedOAuthProviderSummary,
-} from "@/domains/chat/api/managed-oauth";
+} from "@/lib/auth/managed-oauth";
 import {
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
