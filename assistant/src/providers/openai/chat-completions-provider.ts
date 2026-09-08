@@ -36,7 +36,11 @@ import {
   isUnparseableToolArgs,
   wrapUnparseableToolArgs,
 } from "../unparseable-tool-args.js";
-import { salvageXmlToolCalls, splitXmlToolCallHoldback } from "../xml-tool-call-salvage.js";
+import {
+  salvageXmlToolCalls,
+  shouldSalvageXmlToolCalls,
+  splitXmlToolCallHoldback,
+} from "../xml-tool-call-salvage.js";
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
@@ -180,6 +184,12 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  with minimax-m3 on Fireworks). Off by default; scalars/arrays unaffected.
    *  See {@link coerceObjectParamsToJsonString}. */
   coerceObjectArgsToJsonString?: boolean;
+  /**
+   * Convert complete `<invoke>` XML in assistant text into `tool_use` blocks.
+   * Defaults to on for DeepSeek model ids and off otherwise. Set explicitly to
+   * override the model-id default.
+   */
+  salvageXmlToolCalls?: boolean;
   /** Drop `tool_choice` when thinking/reasoning is on the wire. Strict
    *  OpenAI-compatible reasoning upstreams (DeepSeek thinking mode) reject any
    *  explicit `tool_choice` with `Thinking mode does not support this
@@ -697,6 +707,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private assistantReasoningField:
     "reasoning" | "reasoning_content" | undefined;
   private coerceObjectArgsToJsonString: boolean;
+  private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
 
   constructor(
@@ -725,6 +736,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.assistantReasoningField = options.assistantReasoningField;
     this.coerceObjectArgsToJsonString =
       options.coerceObjectArgsToJsonString ?? false;
+    this.salvageXmlToolCalls =
+      options.salvageXmlToolCalls ?? shouldSalvageXmlToolCalls(model);
     this.omitToolChoiceWhenReasoning =
       options.omitToolChoiceWhenReasoning ?? false;
   }
@@ -850,7 +863,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
         // receive them; the generic openai-compatible adapter drops every
         // explicit value in thinking mode via `omitToolChoiceWhenReasoning`.
         const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
-        xmlToolCallSalvageEnabled = toolChoice !== "none";
+        xmlToolCallSalvageEnabled =
+          this.salvageXmlToolCalls && toolChoice !== "none";
         if (toolChoice !== undefined) {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
@@ -1172,10 +1186,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
         flushPendingContent(true);
       }
 
-      // Some OpenAI-compatible models (DeepSeek V4 Flash on Budget) emit
-      // Anthropic-style `<invoke>` XML as assistant text instead of native
-      // `tool_calls`. Convert complete offered-tool invokes into tool_use
-      // blocks so the agent loop can execute them. Native tool_calls win.
+      // DeepSeek (and any caller that sets salvageXmlToolCalls) may emit
+      // `<invoke>` XML as assistant text instead of native `tool_calls`.
+      // Convert complete offered-tool invokes into tool_use blocks so the
+      // agent loop can execute them. Native tool_calls win.
       if (xmlToolCallSalvageEnabled && toolCallMap.size === 0) {
         const salvaged = salvageXmlToolCalls(
           contentText + xmlHeld,

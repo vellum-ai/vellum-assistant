@@ -51,15 +51,12 @@ function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
 function stubProvider(
   chunks: MockChunk[],
   options?: OpenAIChatCompletionsProviderOptions,
+  model = "test-model",
 ): {
   provider: OpenAIChatCompletionsProvider;
   events: Array<{ type: string; text?: string }>;
 } {
-  const provider = new OpenAIChatCompletionsProvider(
-    "test-key",
-    "test-model",
-    options,
-  );
+  const provider = new OpenAIChatCompletionsProvider("test-key", model, options);
   (provider as unknown as { client: unknown }).client = {
     chat: {
       completions: {
@@ -94,6 +91,7 @@ describe("OpenAIChatCompletionsProvider XML tool-call salvage", () => {
         `<parameter name="timeout_seconds">60</parameter>\n`,
         "</invoke>",
       ]),
+      { salvageXmlToolCalls: true },
     );
 
     const response = await provider.sendMessage(
@@ -138,7 +136,7 @@ describe("OpenAIChatCompletionsProvider XML tool-call salvage", () => {
   test("salvages invoke XML when parseThinkTags is enabled", async () => {
     const { provider } = stubProvider(
       contentChunks([`Okay.\n${INVOKE_XML}`]),
-      { parseThinkTags: true },
+      { parseThinkTags: true, salvageXmlToolCalls: true },
     );
 
     const response = await provider.sendMessage(
@@ -154,7 +152,8 @@ describe("OpenAIChatCompletionsProvider XML tool-call salvage", () => {
   });
 
   test("leaves XML as text when native tool_calls are already present", async () => {
-    const { provider } = stubProvider([
+    const { provider } = stubProvider(
+      [
       { choices: [{ delta: { content: `${INVOKE_XML}\n` } }] },
       {
         choices: [
@@ -178,7 +177,9 @@ describe("OpenAIChatCompletionsProvider XML tool-call salvage", () => {
         choices: [{ delta: {}, finish_reason: "tool_calls" }],
         usage: { prompt_tokens: 1, completion_tokens: 2 },
       },
-    ]);
+      ],
+      { salvageXmlToolCalls: true },
+    );
 
     const response = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -220,7 +221,9 @@ describe("OpenAIChatCompletionsProvider XML tool-call salvage", () => {
   });
 
   test("leaves XML as text when tool_choice is none", async () => {
-    const { provider } = stubProvider(contentChunks([INVOKE_XML]));
+    const { provider } = stubProvider(contentChunks([INVOKE_XML]), {
+      salvageXmlToolCalls: true,
+    });
 
     const response = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -228,6 +231,55 @@ describe("OpenAIChatCompletionsProvider XML tool-call salvage", () => {
         tools: [BASH_TOOL],
         config: { tool_choice: { type: "none" } },
       },
+    );
+
+    expect(response.content.some((b) => b.type === "tool_use")).toBe(false);
+    const textBlock = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(textBlock?.text).toContain("<invoke");
+  });
+
+  test("leaves XML as text on non-DeepSeek models unless salvage is opted in", async () => {
+    const { provider } = stubProvider(contentChunks([INVOKE_XML]));
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { tools: [BASH_TOOL] },
+    );
+
+    expect(response.content.some((b) => b.type === "tool_use")).toBe(false);
+    const textBlock = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(textBlock?.text).toContain("<invoke");
+  });
+
+  test("salvages by default when the model id is DeepSeek", async () => {
+    const { provider } = stubProvider(
+      contentChunks([INVOKE_XML]),
+      undefined,
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { tools: [BASH_TOOL] },
+    );
+
+    expect(response.content.some((b) => b.type === "tool_use")).toBe(true);
+  });
+
+  test("does not salvage DeepSeek when salvageXmlToolCalls is false", async () => {
+    const { provider } = stubProvider(
+      contentChunks([INVOKE_XML]),
+      { salvageXmlToolCalls: false },
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { tools: [BASH_TOOL] },
     );
 
     expect(response.content.some((b) => b.type === "tool_use")).toBe(false);

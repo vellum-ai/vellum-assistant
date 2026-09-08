@@ -2,10 +2,10 @@
  * Salvage Anthropic-style XML tool calls that some OpenAI-compatible models
  * emit as assistant text instead of native `tool_calls`.
  *
- * Observed on DeepSeek V4 Flash (the managed Budget profile): the request
- * carries OpenAI-format tools, but the model finishes with `stop` and a
- * `<invoke name="bash">` block in `content`. Without this conversion those
- * calls never execute.
+ * Off by default. DeepSeek model ids enable it because those models are
+ * trained to emit DSML `invoke` markup and OpenAI-compatible hosts sometimes
+ * leave a prefix-stripped variant in `content`. Invokes inside markdown
+ * fences stay as text.
  */
 
 import { indexOfTag, partialTagSuffix } from "../util/think-tag-stream.js";
@@ -35,6 +35,13 @@ const PARAMETER_CLOSE = "</parameter>";
 const EMPTY_WRAPPER_RE =
   /<(?:function_calls|minimax:tool_call)>\s*<\/(?:function_calls|minimax:tool_call)>/gi;
 
+/** True when the model id is a DeepSeek variant that leaks XML tool calls. */
+export function shouldSalvageXmlToolCalls(
+  model: string | null | undefined,
+): boolean {
+  return typeof model === "string" && /deepseek/i.test(model);
+}
+
 export function salvageXmlToolCalls(
   text: string,
   offeredToolNames: ReadonlySet<string>,
@@ -63,7 +70,7 @@ export function salvageXmlToolCalls(
     const canonicalName = rawName
       ? resolveOfferedName(rawName, offeredToolNames)
       : null;
-    if (canonicalName) {
+    if (canonicalName && !isInsideMarkdownFence(text, openMatch.index)) {
       spans.push({
         start: openMatch.index,
         end: closeIdx + INVOKE_CLOSE.length,
@@ -188,4 +195,18 @@ function decodeXmlEntities(value: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, "&");
+}
+
+function isInsideMarkdownFence(text: string, index: number): boolean {
+  let inside = false;
+  let searchFrom = 0;
+  while (searchFrom < index) {
+    const next = text.indexOf("```", searchFrom);
+    if (next < 0 || next >= index) {
+      break;
+    }
+    inside = !inside;
+    searchFrom = next + 3;
+  }
+  return inside;
 }

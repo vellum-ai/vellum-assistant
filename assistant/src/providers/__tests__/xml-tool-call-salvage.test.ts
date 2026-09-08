@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   salvageXmlToolCalls,
+  shouldSalvageXmlToolCalls,
   splitXmlToolCallHoldback,
 } from "../xml-tool-call-salvage.js";
 
@@ -101,6 +102,49 @@ describe("salvageXmlToolCalls", () => {
       OFFERED,
     );
     expect(salvaged!.calls[0]?.input.command).toBe('echo "a & b"');
+  });
+
+  test("leaves invokes inside markdown fences as text", () => {
+    const text = `Example:
+
+\`\`\`xml
+<invoke name="bash">
+<parameter name="command">ls</parameter>
+</invoke>
+\`\`\``;
+
+    expect(salvageXmlToolCalls(text, OFFERED)).toBeNull();
+  });
+
+  test("salvages an unfenced invoke next to a fenced example", () => {
+    const text = `<invoke name="bash"><parameter name="command">pwd</parameter></invoke>
+
+\`\`\`
+<invoke name="file_read"><parameter name="path">/workspace/README.md</parameter></invoke>
+\`\`\``;
+
+    const salvaged = salvageXmlToolCalls(text, OFFERED);
+    expect(salvaged!.calls).toEqual([{ name: "bash", input: { command: "pwd" } }]);
+    expect(salvaged!.text).toContain('name="file_read"');
+  });
+});
+
+describe("shouldSalvageXmlToolCalls", () => {
+  test("is true for DeepSeek model ids", () => {
+    expect(
+      shouldSalvageXmlToolCalls(
+        "accounts/fireworks/models/deepseek-v4-flash-0731",
+      ),
+    ).toBe(true);
+    expect(shouldSalvageXmlToolCalls("deepseek/deepseek-v4-flash")).toBe(true);
+  });
+
+  test("is false for other models", () => {
+    expect(shouldSalvageXmlToolCalls("gpt-5.6")).toBe(false);
+    expect(shouldSalvageXmlToolCalls("accounts/fireworks/models/minimax-m3")).toBe(
+      false,
+    );
+    expect(shouldSalvageXmlToolCalls(undefined)).toBe(false);
   });
 });
 
