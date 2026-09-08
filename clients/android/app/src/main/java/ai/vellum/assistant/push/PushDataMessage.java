@@ -81,6 +81,24 @@ public final class PushDataMessage {
         return !hasNotificationBlock && title != null;
     }
 
+    /**
+     * True when this process posts the notification itself. The web layer owns
+     * every other push, and the two paths never both run: a second banner would
+     * otherwise land beside or on top of this one.
+     */
+    public boolean rendersNatively(boolean appIsForeground) {
+        return isDataOnly() && !appIsForeground;
+    }
+
+    /**
+     * Shortcut identity for the conversation. Two threads with one assistant
+     * share a sender id, so the conversation id keeps their shortcuts, ranking,
+     * and per-conversation settings apart.
+     */
+    static String shortcutId(String senderId, @Nullable String conversationId) {
+        return conversationId == null ? senderId : senderId + ":" + conversationId;
+    }
+
     /** Stable per-delivery id so a redelivery replaces its own notification. */
     public int notificationId() {
         return Objects.hashCode(deliveryId == null ? conversationId : deliveryId);

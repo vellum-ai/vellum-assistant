@@ -23,7 +23,8 @@ import com.google.firebase.messaging.RemoteMessage;
  * Renders a data-only push. With a sender the notification is a
  * {@code MessagingStyle} conversation: the avatar is the large icon, the
  * assistant's name is the message line, and the conversation title is the
- * header. Without one it matches what Firebase rendered from a notification
+ * header. The avatar is the only optional part of that treatment. Without a
+ * sender the notification matches what Firebase rendered from a notification
  * block.
  */
 public final class NativePushRenderer {
@@ -59,63 +60,71 @@ public final class NativePushRenderer {
             .setColor(ContextCompat.getColor(context, R.color.notification_icon_color))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setContentIntent(contentIntent)
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true);
         if (message.unreadCount != null && message.unreadCount > 0) {
             builder.setNumber(message.unreadCount);
         }
 
         PushDataMessage.Sender sender = message.sender;
-        if (sender != null && avatar != null) {
-            IconCompat icon = IconCompat.createWithBitmap(avatar);
-            Person person = new Person.Builder()
-                .setKey(sender.id)
-                .setName(sender.name)
-                .setIcon(icon)
-                .build();
-            pushShortcut(context, sender, person, icon, launchIntent);
-            builder
-                .setShortcutId(sender.id)
-                .setStyle(
-                    new NotificationCompat.MessagingStyle(
-                        new Person.Builder()
-                            .setName(context.getString(R.string.notification_self_name))
-                            .build()
-                    )
-                        .setGroupConversation(true)
-                        .setConversationTitle(message.title)
-                        .addMessage(body, System.currentTimeMillis(), person)
-                );
-        } else {
+        if (sender == null) {
             builder
                 .setContentTitle(message.title)
                 .setContentText(body)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
+            manager.notify(notificationId, builder.build());
+            return;
         }
+
+        // The avatar can be absent: the platform omits the signed url on an
+        // oversized payload, and the first push for a hash posts before the
+        // download lands. The conversation treatment does not depend on it.
+        IconCompat icon = avatar == null ? null : IconCompat.createWithBitmap(avatar);
+        Person.Builder personBuilder = new Person.Builder().setKey(sender.id).setName(sender.name);
+        if (icon != null) {
+            personBuilder.setIcon(icon);
+        }
+        Person person = personBuilder.build();
+        String shortcutId = PushDataMessage.shortcutId(sender.id, message.conversationId);
+        pushShortcut(context, shortcutId, sender, person, icon, launchIntent);
+        builder
+            .setShortcutId(shortcutId)
+            .setStyle(
+                new NotificationCompat.MessagingStyle(
+                    new Person.Builder()
+                        .setName(context.getString(R.string.notification_self_name))
+                        .build()
+                )
+                    .setGroupConversation(true)
+                    .setConversationTitle(message.title)
+                    .addMessage(body, System.currentTimeMillis(), person)
+            );
 
         manager.notify(notificationId, builder.build());
     }
 
     private static void pushShortcut(
         Context context,
+        String shortcutId,
         PushDataMessage.Sender sender,
         Person person,
-        IconCompat icon,
+        @Nullable IconCompat icon,
         @Nullable Intent launchIntent
     ) {
         if (launchIntent == null) {
             return;
         }
-        NativeFailureGuard.run("Unable to publish the Android conversation shortcut", () ->
-            ShortcutManagerCompat.pushDynamicShortcut(
-                context,
-                new ShortcutInfoCompat.Builder(context, sender.id)
+        NativeFailureGuard.run("Unable to publish the Android conversation shortcut", () -> {
+            ShortcutInfoCompat.Builder shortcut =
+                new ShortcutInfoCompat.Builder(context, shortcutId)
                     .setLongLived(true)
                     .setPerson(person)
                     .setShortLabel(sender.name)
-                    .setIcon(icon)
-                    .setIntent(launchIntent)
-                    .build()
-            )
-        );
+                    .setIntent(launchIntent);
+            if (icon != null) {
+                shortcut.setIcon(icon);
+            }
+            ShortcutManagerCompat.pushDynamicShortcut(context, shortcut.build());
+        });
     }
 }

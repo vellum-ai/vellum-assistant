@@ -20,13 +20,18 @@ import javax.net.ssl.HttpsURLConnection;
 /**
  * Disk cache for the sender avatars drawn into conversation notifications.
  * Every method blocks on the calling thread, which is the Firebase message
- * thread rather than the main thread.
+ * thread rather than the main thread. {@link #load} is a disk read; only
+ * {@link #fetch} touches the network, and callers post their notification
+ * before reaching it.
  */
 public final class AvatarCache {
     private static final String DIRECTORY = "notification-avatars";
     private static final String EXTENSION = ".png";
     private static final int MAX_BYTES = 512 * 1024;
-    private static final int TIMEOUT_MILLIS = 8_000;
+    // A cached avatar is a handful of kilobytes, and onMessageReceived has a
+    // short execution window, so a stalled host has to give up quickly.
+    private static final int CONNECT_TIMEOUT_MILLIS = 3_000;
+    private static final int READ_TIMEOUT_MILLIS = 3_000;
     private static final int MAX_FILES = 8;
 
     private final File directory;
@@ -98,8 +103,8 @@ public final class AvatarCache {
                 return null;
             }
             connection = (HttpsURLConnection) parsed.openConnection();
-            connection.setConnectTimeout(TIMEOUT_MILLIS);
-            connection.setReadTimeout(TIMEOUT_MILLIS);
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
             if (connection.getResponseCode() != HttpsURLConnection.HTTP_OK) {
                 return null;
             }

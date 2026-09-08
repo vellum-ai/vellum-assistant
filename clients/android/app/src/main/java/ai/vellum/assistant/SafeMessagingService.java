@@ -13,6 +13,7 @@ import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.List;
+import java.util.function.Function;
 
 public class SafeMessagingService extends FirebaseMessagingService {
     @Override
@@ -22,12 +23,17 @@ public class SafeMessagingService extends FirebaseMessagingService {
             "Unable to receive the Android push notification",
             () -> {
                 super.onMessageReceived(remoteMessage);
-                PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
                 PushDataMessage message = PushDataMessage.from(remoteMessage);
-                // A foreground data-only push stays with the web handler.
-                if (message.isDataOnly() && !isAppForeground()) {
-                    NativePushRenderer.show(this, remoteMessage, message, avatar(message));
+                // Exactly one of the two renderers runs. Handing a natively
+                // rendered push to the plugin as well would either fire
+                // pushNotificationReceived at a live bridge or stash the
+                // message for replay on the next load, and the web handler
+                // posts its own banner from either.
+                if (message.rendersNatively(isAppForeground())) {
+                    render(remoteMessage, message);
+                    return;
                 }
+                PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
             }
         );
     }
@@ -41,20 +47,39 @@ public class SafeMessagingService extends FirebaseMessagingService {
         });
     }
 
+    /**
+     * Posts with whatever the cache already holds, then re-posts the same
+     * notification id once a download lands. onMessageReceived runs in a short
+     * execution window, so nothing waits on the network before the first post.
+     */
+    private void render(RemoteMessage remoteMessage, PushDataMessage message) {
+        AvatarCache cache = new AvatarCache(this);
+        Bitmap cached = avatar(message, sender -> cache.load(sender.avatarHash));
+        NativePushRenderer.show(this, remoteMessage, message, cached);
+        if (cached != null) {
+            return;
+        }
+        Bitmap fetched = avatar(message, sender ->
+            cache.fetch(sender.avatarUrl, sender.avatarHash)
+        );
+        if (fetched != null) {
+            NativePushRenderer.show(this, remoteMessage, message, fetched);
+        }
+    }
+
     /** Runs on the Firebase message thread, so the cache read and fetch may block. */
     @Nullable
-    private Bitmap avatar(PushDataMessage message) {
+    private Bitmap avatar(
+        PushDataMessage message,
+        Function<PushDataMessage.Sender, Bitmap> load
+    ) {
         PushDataMessage.Sender sender = message.sender;
         if (sender == null) {
             return null;
         }
         return NativeFailureGuard.get(
             "Unable to load the Android push notification avatar",
-            () -> {
-                AvatarCache cache = new AvatarCache(this);
-                Bitmap cached = cache.load(sender.avatarHash);
-                return cached == null ? cache.fetch(sender.avatarUrl, sender.avatarHash) : cached;
-            },
+            () -> load.apply(sender),
             null
         );
     }

@@ -104,6 +104,46 @@ public class PushDataMessageTest {
     }
 
     @Test
+    public void onlyABackgroundedDataOnlyPushIsRenderedNatively() {
+        assertTrue(PushDataMessage.of(alertData(), false).rendersNatively(false));
+        assertFalse("foreground", PushDataMessage.of(alertData(), false).rendersNatively(true));
+        assertFalse(
+            "notification block",
+            PushDataMessage.of(alertData(), true).rendersNatively(false)
+        );
+
+        Map<String, String> untitled = alertData();
+        untitled.remove("title");
+        assertFalse("untitled", PushDataMessage.of(untitled, false).rendersNatively(false));
+    }
+
+    @Test
+    public void theShortcutIdSeparatesTwoConversationsWithOneAssistant() {
+        assertEquals(
+            "assistant-1:conversation-1",
+            PushDataMessage.shortcutId("assistant-1", "conversation-1")
+        );
+        assertNotEquals(
+            PushDataMessage.shortcutId("assistant-1", "conversation-1"),
+            PushDataMessage.shortcutId("assistant-1", "conversation-2")
+        );
+    }
+
+    @Test
+    public void theShortcutIdFallsBackToTheAssistantWithoutAConversation() {
+        Map<String, String> data = alertData();
+        data.remove("conversationId");
+
+        PushDataMessage message = PushDataMessage.of(data, false);
+
+        assertNull(message.conversationId);
+        assertEquals(
+            "assistant-1",
+            PushDataMessage.shortcutId("assistant-1", message.conversationId)
+        );
+    }
+
+    @Test
     public void theNotificationIdIsStablePerDelivery() {
         int first = PushDataMessage.of(alertData(), false).notificationId();
         Map<String, String> other = alertData();
