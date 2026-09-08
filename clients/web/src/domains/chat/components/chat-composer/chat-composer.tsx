@@ -31,7 +31,6 @@ import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel
 import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
-import { SightToggle } from "@/domains/chat/sight/sight-toggle";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
@@ -153,16 +152,6 @@ export interface ChatComposerProps {
    * filtering stays a plain callback and cannot free an allowance by accident.
    */
   onAddAttachmentFiles: (files: FileList | File[]) => File[] | void;
-
-  /**
-   * The same gate `onAddAttachmentFiles` applies, resolved by the caller: false
-   * when an image attached to this message would be rejected by the provider
-   * and take the turn down with it. Read by the Eyes toggle, which offers no
-   * camera where its frames could not be sent. Defaults to true for the
-   * surfaces that attach no images of their own (the app-editing and story
-   * composers), which is what they do today.
-   */
-  imageAttachmentsAllowed?: boolean;
 
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).
@@ -351,7 +340,6 @@ export function ChatComposer({
   typingDisabled,
   sendDisabled,
   onAddAttachmentFiles,
-  imageAttachmentsAllowed = true,
   voiceInputRef,
   onVoiceTranscript,
   onVoiceInterimTranscript,
@@ -1789,29 +1777,6 @@ export function ChatComposer({
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
                           {!isAssistantBusy && attachControl}
-                          {/* Desktop only, which this row already is: the
-                              viewfinder mounts with the chat layout's desktop
-                              branch, and a control offered anywhere that branch
-                              does not render would open a camera with nothing
-                              to preview it and nothing to close it. Pop-out
-                              windows are excluded on that count, as they are
-                              from the voice room and the companion mirror, and
-                              the native mobile shells on it plus their own: a
-                              Capacitor viewfinder is the plugin preview layer
-                              rather than a `getUserMedia` `<video>` (see
-                              `voice/voice-room/voice-camera.ts`), and a roomy
-                              tablet clears the width breakpoint this row is
-                              chosen by. Renders nothing while the `vision-mode`
-                              flag is off. */}
-                          {!isAssistantBusy &&
-                            !isPopout &&
-                            !isNativeMobileShell && (
-                              <SightToggle
-                                imageAttachmentsAllowed={
-                                  imageAttachmentsAllowed
-                                }
-                              />
-                            )}
                           {!isAssistantBusy && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"

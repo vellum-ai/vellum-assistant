@@ -38,8 +38,19 @@ let answerFrame: () => Promise<ScreenCaptureFrame | null> = async () => ({
 const captureCompanionScreen = mock((_target: WatchCaptureTarget) =>
   answerFrame(),
 );
+/**
+ * What the shell is told reached the call, recorded rather than sent. The
+ * acknowledgement is what lets main admit the assistant's own marks against
+ * a surface, so which targets arrive here, and whether one arrives at all
+ * when a frame fails, is the part worth pinning.
+ */
+const sharedFrames: WatchCaptureTarget[] = [];
+const reportCompanionSharedFrame = mock((target: WatchCaptureTarget) => {
+  sharedFrames.push(target);
+});
 mock.module("@/runtime/companion-surface", () => ({
   captureCompanionScreen,
+  reportCompanionSharedFrame,
 }));
 
 /**
@@ -141,7 +152,9 @@ function renderShare() {
 
 beforeEach(() => {
   annotated.length = 0;
+  sharedFrames.length = 0;
   captureCompanionScreen.mockClear();
+  reportCompanionSharedFrame.mockClear();
   uploadChatAttachment.mockClear();
   deleteChatAttachment.mockClear();
   answerFrame = async () => ({
@@ -195,6 +208,34 @@ describe("useLiveVoiceScreenShare: starting", () => {
     expect(file?.type).toBe("image/jpeg");
     expect(await file?.text()).toBe("jpeg");
     expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+  });
+
+  /**
+   * The shell admits the assistant's own marks against a surface only once a
+   * frame of it has reached the call, so the acknowledgement has to follow the
+   * send rather than the capture.
+   */
+  test("tells the shell the surface reached the call, after it was sent", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    expect(sharedFrames).toEqual([WINDOW]);
+  });
+
+  /**
+   * A frame the helper never produced was never shown, so nothing may be
+   * acknowledged for it: the guard it opens would be admitting marks against
+   * a picture the call does not have.
+   */
+  test("acknowledges nothing when no frame could be taken", async () => {
+    answerFrame = async () => null;
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    expect(sharedFrames).toEqual([]);
   });
 
   test("takes nothing for an assistant that predates the frame", async () => {

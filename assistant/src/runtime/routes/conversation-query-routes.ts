@@ -30,6 +30,12 @@ import {
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
 import {
+  catalogEntryFor,
+  type InputModalities,
+  modalitiesOf,
+  resolveModalityOverride,
+} from "../../config/input-modalities.js";
+import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
   getConfig,
@@ -112,7 +118,6 @@ import {
   listConnections,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/inference/connections.js";
-import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -1064,9 +1069,10 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
  * Annotate each profile in `config.llm.profiles` with wire-only flags
  * (`WIRE_ONLY_PROFILE_KEYS`) — never persisted to disk:
  *
- * - `supportsVision`: resolved from the model catalog. Unknown (provider,
- *   model) pairs default to `true` (fail-open) so image upload remains
- *   available for custom / unlisted models.
+ * - `supportsVision`: resolved from the model catalog, with a profile
+ *   `inputModalities.image` override winning when set. Unknown (provider,
+ *   model) pairs with no override default to `true` (fail-open) so image
+ *   upload remains available for custom / unlisted models.
  * - `invariant`: `true` for managed-source entries of the managed profile
  *   names (`INVARIANT_PROFILE_NAMES`); absent otherwise. Source-gated to
  *   match `assertInvariantProfilesPreserved` — a user-owned profile sharing
@@ -1101,9 +1107,13 @@ function enrichProfilesForWire(config: unknown): void {
       continue;
     }
 
-    const catalogProvider = PROVIDER_CATALOG.find((p) => p.id === provider);
-    const catalogModel = catalogProvider?.models.find((m) => m.id === model);
-    entry.supportsVision = catalogModel?.supportsVision ?? true;
+    const catalogModel = catalogEntryFor(provider, model);
+    const catalogVision = catalogModel?.supportsVision;
+    const imageOverride = modalitiesOf({
+      inputModalities: entry.inputModalities as InputModalities | null,
+    })?.image;
+    entry.supportsVision =
+      resolveModalityOverride(imageOverride, catalogVision) ?? true;
   }
 }
 

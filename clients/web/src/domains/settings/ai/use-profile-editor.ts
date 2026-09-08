@@ -38,6 +38,12 @@ import {
   type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { THINKING_LEVEL_INHERIT } from "@/domains/settings/ai/profile-advanced-params";
+import {
+  parseInputModalities,
+  profileUsesFreeTextModel,
+  serializeInputModalities,
+  type InputModalities,
+} from "@/domains/settings/ai/profile-modalities";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import {
@@ -52,6 +58,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { assistantSupportsEntryProviderBinding } from "@/lib/backwards-compat/entry-provider-binding";
+import { resolveSupportsProfileInputModalities } from "@/lib/backwards-compat/profile-input-modalities";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
 
@@ -190,6 +197,9 @@ export interface ProfileEditor {
   setProviderConnection: (value: string) => void;
   setModel: (value: string) => void;
 
+  inputModalities: InputModalities;
+  setInputModalities: (value: InputModalities) => void;
+
   handleSave: () => Promise<void>;
   /** "Save As New": duplicate a read-only profile into a fresh create. */
   switchToSaveAsNew: () => void;
@@ -297,6 +307,9 @@ export function useProfileEditor({
   );
   const [topP, setTopP] = useState<number>(
     typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
+  );
+  const [inputModalities, setInputModalities] = useState<InputModalities>(
+    parseInputModalities(initialValues?.inputModalities),
   );
 
   // True when read-only mode's one permitted edit - the enable flip
@@ -527,6 +540,7 @@ export function useProfileEditor({
     setThinkingEnabled(false);
     setThinkingStreamThinking(false);
     setThinkingLevel(THINKING_LEVEL_INHERIT);
+    setInputModalities({});
   }
 
   function handleConnectionChange(newConnection: string) {
@@ -562,6 +576,7 @@ export function useProfileEditor({
       return;
     }
     setModel(newModel);
+    setInputModalities({});
     // Reset token sliders when model changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
@@ -871,6 +886,18 @@ export function useProfileEditor({
       ) {
         entry.thinking = { enabled: true, level: thinkingLevel };
       }
+      if (await resolveSupportsProfileInputModalities(assistantId)) {
+        if (profileUsesFreeTextModel(provider, nativeModel || model)) {
+          const modalities = serializeInputModalities(inputModalities);
+          if (modalities) {
+            entry.inputModalities = modalities;
+          } else if (effectiveMode === "edit") {
+            entry.inputModalities = null;
+          }
+        } else if (effectiveMode === "edit") {
+          entry.inputModalities = null;
+        }
+      }
       // Status - always include in edit mode; omit in create when active
       if (effectiveMode === "edit") {
         entry.status = status;
@@ -972,6 +999,8 @@ export function useProfileEditor({
     handleProviderCreated,
     setProviderConnection,
     setModel,
+    inputModalities,
+    setInputModalities,
     handleSave,
     switchToSaveAsNew,
   };

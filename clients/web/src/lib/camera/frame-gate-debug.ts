@@ -2,11 +2,11 @@
  * The frame gate's tuning readout: what each frame scored, which check decided
  * it, and the thresholds it was decided against.
  *
- * Two surfaces feed the same gate (the composer's sight tile and the voice
- * room's viewfinder) and both are hard to reason about from the outside,
- * because the only visible sign of a decision is a photo appearing or not
- * appearing. This module is the instrument: it collects every decision the
- * gate makes and lets the thresholds be moved while the camera is running.
+ * The voice room's viewfinder feeds the gate, and it is hard to reason about
+ * from the outside, because the only visible sign of a decision is a photo
+ * appearing or not appearing. This module is the instrument: it collects every
+ * decision the gate makes and lets the thresholds be moved while the camera is
+ * running.
  *
  * ## One options record, mutated in place
  *
@@ -16,8 +16,8 @@
  *
  * That is not a convenience, it is the only safe way to do it. Rebuilding the
  * gate would reset its last-keep clock, which bypasses the rate floor and
- * fires an immediate keep, and on both surfaces a keep is a real upload and a
- * real persisted conversation message. So there is exactly one record, it
+ * fires an immediate keep, and a keep is a real upload and a real persisted
+ * conversation message. So there is exactly one record, it
  * lives here for the lifetime of the tab, and nothing ever replaces it.
  *
  * ## Overrides apply only while the readout is on
@@ -44,7 +44,7 @@ import {
 } from "./frame-gate";
 
 /** Which camera surface a decision came from. */
-export type FrameGateDebugSurface = "composer" | "voice";
+export type FrameGateDebugSurface = "voice";
 
 /**
  * Zero for every reason, rebuilt per call so no caller can write into another's
@@ -118,7 +118,7 @@ type MutableFrameGateOptions = {
 };
 
 /**
- * The one options record both gates read from, for the lifetime of the tab.
+ * The one options record every gate reads from, for the lifetime of the tab.
  *
  * Hand this to `createFrameGate` instead of {@link DEFAULT_FRAME_GATE_OPTIONS}.
  * It holds exactly the defaults until the readout is enabled and a slider
@@ -229,7 +229,6 @@ function createSurfaceState(): SurfaceState {
 }
 
 const surfaces: Record<FrameGateDebugSurface, SurfaceState> = {
-  composer: createSurfaceState(),
   voice: createSurfaceState(),
 };
 
@@ -241,7 +240,7 @@ let enabled = false;
 
 export interface FrameGateDebugSnapshot {
   /**
-   * Which surface the readout is showing, or null when neither has produced a
+   * Which surface the readout is showing, or null when none has produced a
    * decision recently. The panel renders nothing on null.
    */
   readonly surface: FrameGateDebugSurface | null;
@@ -267,19 +266,14 @@ const EMPTY_SNAPSHOT: FrameGateDebugSnapshot = {
 };
 
 /**
- * Which surface the panel shows: whichever produced a decision most recently,
- * as long as it produced one recently enough to still be running a camera.
+ * Which surface the panel shows: one that produced a decision recently enough
+ * to still be running a camera.
  */
 function displayedSurface(): FrameGateDebugSurface | null {
   const cutoff = Date.now() - SURFACE_IDLE_MS;
-  const { composer, voice } = surfaces;
-  const voiceLive = voice.lastSeq > 0 && voice.lastSeenAt > cutoff;
-  const composerLive = composer.lastSeq > 0 && composer.lastSeenAt > cutoff;
-  if (voiceLive && (!composerLive || voice.lastSeq > composer.lastSeq)) {
+  const { voice } = surfaces;
+  if (voice.lastSeq > 0 && voice.lastSeenAt > cutoff) {
     return "voice";
-  }
-  if (composerLive) {
-    return "composer";
   }
   return null;
 }
@@ -536,7 +530,7 @@ function discardCollected(): void {
     clearTimeout(idleHandle);
     idleHandle = null;
   }
-  for (const key of ["composer", "voice"] as const) {
+  for (const key of ["voice"] as const) {
     const state = surfaces[key];
     for (const keep of state.keeps) {
       URL.revokeObjectURL(keep.url);

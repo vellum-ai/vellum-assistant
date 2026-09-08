@@ -34,6 +34,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 
 import { Capacitor } from "@capacitor/core";
@@ -268,6 +269,13 @@ spyOn(Capacitor, "isNativePlatform").mockImplementation(() => nativeShell);
 spyOn(Capacitor, "getPlatform").mockImplementation(() =>
   nativeShell ? "ios" : "web",
 );
+// The two flash calls are spies rather than constants: which modes a camera
+// reports is what decides whether the room offers the control at all, and which
+// mode reaches the bridge is the whole of what the light does.
+const supportedFlashModesSpy = mock(
+  async (): Promise<{ result: string[] }> => ({ result: [] }),
+);
+const setFlashModeSpy = mock(async (_options: { flashMode: string }) => {});
 mock.module("@capacitor-community/camera-preview", () => ({
   CameraPreview: {
     start: async () => {},
@@ -275,10 +283,16 @@ mock.module("@capacitor-community/camera-preview", () => ({
     capture: async () => ({ value: "" }),
     captureSample: async () => ({ value: "" }),
     flip: async () => {},
-    getSupportedFlashModes: async () => ({ result: [] }),
-    setFlashMode: async () => {},
+    getSupportedFlashModes: supportedFlashModesSpy,
+    setFlashMode: setFlashModeSpy,
   },
 }));
+
+/** What a rear camera that also carries a lamp answers the probe with. */
+const TORCH_CAPABLE = ["off", "on", "auto", "torch"];
+
+/** What a camera with a capture flash and no lamp answers with. */
+const FLASH_CAPABLE = ["off", "on", "auto"];
 
 // Sight is left real except for the frame it holds. A kept frame is the end of
 // a chain (decode, canvas readback, upload) that no test environment runs, and
@@ -391,6 +405,10 @@ beforeEach(() => {
   controls.release.mockClear();
   controls.interrupt.mockClear();
   mockHeldFrame = null;
+  nativeShell = false;
+  supportedFlashModesSpy.mockClear();
+  supportedFlashModesSpy.mockImplementation(async () => ({ result: [] }));
+  setFlashModeSpy.mockClear();
   useLiveVoiceStore.getState().reset();
   useConversationStore
     .getState()
@@ -399,6 +417,7 @@ beforeEach(() => {
   useVoicePrefsStore.setState({
     showUserTranscript: false,
     showAssistantTranscript: false,
+    flashMode: "off",
   });
   handleSurfaceActionSpy.mockClear();
   useChatSessionStore.setState({
@@ -2989,6 +3008,138 @@ describe("VoiceRoom: camera", () => {
         "Close camera",
         "End voice session",
       ]);
+    });
+
+    /**
+     * The light: the lamp Live holds on, driven by the same one-button control
+     * the capture flash already uses.
+     *
+     * Native only, so these open the viewfinder through the Capacitor preview
+     * rather than through `getUserMedia`, and what that camera reports as
+     * supported is what decides whether the control is on screen at all.
+     */
+    describe("the light", () => {
+      const flashControl = () => screen.queryByTestId("voice-room-flash");
+
+      /** Open the native viewfinder on a camera that answers `modes`. */
+      async function openNativeCamera(modes: string[]): Promise<void> {
+        nativeShell = true;
+        supportedFlashModesSpy.mockImplementation(async () => ({
+          result: modes,
+        }));
+        seedLiveCapableAssistant();
+        startOwnedSession("listening");
+        render(<VoiceRoom />);
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+        await waitFor(() => expect(flashControl()).not.toBeNull());
+      }
+
+      test("takes the control away in Live on a camera with no lamp", async () => {
+        await openNativeCamera(FLASH_CAPABLE);
+
+        // The capture flash is still worth offering here: a photo taken from
+        // this viewfinder fires it.
+        expect(flashControl()).not.toBeNull();
+
+        await holdShutter();
+
+        // Live takes no photo, so a control that could only arm one has
+        // nothing left to do.
+        expect(flashControl()).toBeNull();
+      });
+
+      test("keeps it in Live on a camera that has one", async () => {
+        await openNativeCamera(TORCH_CAPABLE);
+
+        await holdShutter();
+
+        expect(flashControl()).not.toBeNull();
+        expect(flashControl()!.getAttribute("aria-label")).toBe("Light off");
+      });
+
+      test("cycles two states rather than three while Live runs", async () => {
+        await openNativeCamera(TORCH_CAPABLE);
+        await holdShutter();
+
+        await act(async () => {
+          fireEvent.click(flashControl()!);
+        });
+
+        expect(useVoicePrefsStore.getState().flashMode).toBe("on");
+        expect(flashControl()!.getAttribute("aria-label")).toBe("Light on");
+        expect(flashControl()!.dataset.flashMode).toBe("on");
+
+        await act(async () => {
+          fireEvent.click(flashControl()!);
+        });
+
+        // Auto is a state a lamp cannot be in, so the press from `on` lands
+        // where the next one turns it back on.
+        expect(useVoicePrefsStore.getState().flashMode).toBe("off");
+        expect(flashControl()!.getAttribute("aria-label")).toBe("Light off");
+      });
+
+      test("reads a stored auto as off in Live without rewriting it", async () => {
+        useVoicePrefsStore.setState({ flashMode: "auto" });
+        await openNativeCamera(TORCH_CAPABLE);
+        expect(flashControl()!.dataset.flashMode).toBe("auto");
+
+        await holdShutter();
+
+        expect(flashControl()!.dataset.flashMode).toBe("off");
+        expect(flashControl()!.getAttribute("aria-label")).toBe("Light off");
+        // Entering Live is not a choice about the flash. Only a press is, so
+        // the photo the user takes after it still fires the mode they set.
+        expect(useVoicePrefsStore.getState().flashMode).toBe("auto");
+      });
+
+      test("lights the lamp on the camera while Live runs", async () => {
+        useVoicePrefsStore.setState({ flashMode: "on" });
+        await openNativeCamera(TORCH_CAPABLE);
+        await waitFor(() =>
+          expect(setFlashModeSpy).toHaveBeenCalledWith({ flashMode: "on" }),
+        );
+
+        await holdShutter();
+
+        await waitFor(() =>
+          expect(setFlashModeSpy).toHaveBeenCalledWith({ flashMode: "torch" }),
+        );
+      });
+
+      test("puts it out when Live ends", async () => {
+        useVoicePrefsStore.setState({ flashMode: "on" });
+        await openNativeCamera(TORCH_CAPABLE);
+        await holdShutter();
+        await waitFor(() =>
+          expect(setFlashModeSpy).toHaveBeenCalledWith({ flashMode: "torch" }),
+        );
+        setFlashModeSpy.mockClear();
+
+        await act(async () => {
+          fireEvent.click(shutter());
+        });
+
+        await waitFor(() =>
+          expect(setFlashModeSpy).toHaveBeenCalledWith({ flashMode: "on" }),
+        );
+      });
+
+      test("keeps photo mode on the three-state cycle", async () => {
+        await openNativeCamera(TORCH_CAPABLE);
+
+        const labels: (string | null)[] = [];
+        for (let press = 0; press < 3; press += 1) {
+          await act(async () => {
+            fireEvent.click(flashControl()!);
+          });
+          labels.push(flashControl()!.getAttribute("aria-label"));
+        }
+
+        expect(labels).toEqual(["Flash auto", "Flash on", "Flash off"]);
+      });
     });
   });
 });

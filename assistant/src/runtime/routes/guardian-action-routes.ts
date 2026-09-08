@@ -116,6 +116,7 @@ async function handleGuardianActionDecision({
   return {
     applied: false,
     reason: result.reason,
+    ...(result.committed !== undefined ? { committed: result.committed } : {}),
     ...(result.resolverFailureReason
       ? { resolverFailureReason: result.resolverFailureReason }
       : {}),
@@ -271,6 +272,12 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .optional()
         .describe("Decline reason (present only when applied is false)"),
+      committed: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether the decision was recorded before the decline. Present only for a resolver failure: true under resolver_failed (the decision committed and its follow-through failed), false under decision_not_persisted (nothing was written; retry is safe). Absent on daemons that report both under resolver_failed.",
+        ),
       replyText: z
         .string()
         .optional()

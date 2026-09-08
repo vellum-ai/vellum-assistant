@@ -308,6 +308,7 @@ export const HOST_PROXY_CAPABILITIES = [
   "host_file",
   "host_cu",
   "host_cu_window_capture",
+  "host_cu_annotate",
   "host_browser",
   "host_app_control",
   "host_ui_snapshot",
@@ -348,8 +349,16 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // Window capture is additionally negotiated on each client connection.
-  if (capability === "host_cu_window_capture") {
+  // Both of these ride the host_cu transport rather than being transports of
+  // their own, and each is additionally negotiated on the client connection.
+  // Answered ahead of the per-interface rules below because those grant
+  // Windows and Linux everything but app control, and neither client answers
+  // these: a CU request they cannot serve would reach their native helper as
+  // an unknown action.
+  if (
+    capability === "host_cu_window_capture" ||
+    capability === "host_cu_annotate"
+  ) {
     return id === "macos";
   }
   // macOS supports every host proxy capability including host_browser
