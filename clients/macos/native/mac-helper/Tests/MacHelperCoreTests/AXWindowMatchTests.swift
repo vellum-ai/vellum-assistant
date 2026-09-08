@@ -14,15 +14,37 @@ struct AXWindowMatchTests {
 
     @Test("an app that appends its own suffix still resolves")
     func chromeSuffix() {
+        // The real case: five Chrome windows stacked at one frame, each named
+        // by its page plus Chrome's own suffix.
         #expect(
             AXWindowMatch.uniqueTitle(
                 serverName: "Weekly Planning / User Stories | Notes",
-                titles: Self.chrome
+                titles: Self.chrome,
+                candidates: .sharingOneFrame
             ) == 0
         )
         #expect(
-            AXWindowMatch.uniqueTitle(serverName: "Example Assistant", titles: Self.chrome)
-                == 1
+            AXWindowMatch.uniqueTitle(
+                serverName: "Example Assistant",
+                titles: Self.chrome,
+                candidates: .sharingOneFrame
+            ) == 1
+        )
+    }
+
+    /**
+     Which form an app gives a window is not knowable from this side, so among
+     windows sharing a frame an exact title beside a decorated one is an
+     ambiguity. The Chrome tab picker already answers it this way.
+     */
+    @Test("an exact title beside a decorated one at the same frame decides nothing")
+    func exactBesideDecoratedAtOneFrame() {
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "Doc",
+                titles: ["Doc", "Doc - Preview"],
+                candidates: .sharingOneFrame
+            ) == nil
         )
     }
 
@@ -31,12 +53,16 @@ struct AXWindowMatchTests {
         #expect(AXWindowMatch.uniqueTitle(serverName: "Notes", titles: ["Mail", "Notes"]) == 1)
     }
 
-    @Test("equality is preferred over a longer prefix match")
+    @Test("with no frame to go on, equality is preferred over a prefix")
     func exactBeatsPrefix() {
-        // Without trying equality first, "Untitled" would be ambiguous here.
+        // Nothing sits at the requested frame, so these are every window the
+        // app has. Without trying equality first, "Untitled" is ambiguous.
         #expect(
-            AXWindowMatch.uniqueTitle(serverName: "Untitled", titles: ["Untitled 2", "Untitled"])
-                == 1
+            AXWindowMatch.uniqueTitle(
+                serverName: "Untitled",
+                titles: ["Untitled 2", "Untitled"],
+                candidates: .everyWindow
+            ) == 1
         )
     }
 
@@ -72,5 +98,73 @@ struct AXWindowMatchTests {
     func nilTitles() {
         #expect(AXWindowMatch.uniqueTitle(serverName: "Notes", titles: [nil, "Notes - Edited"]) == 1)
         #expect(AXWindowMatch.uniqueTitle(serverName: "Notes", titles: [nil, nil]) == nil)
+    }
+}
+
+/**
+ The window server hands back a long title with its middle elided, so the
+ name the caller holds is the real title with a hole in it.
+ */
+@Suite("AXWindowMatch, elided server names")
+struct AXWindowMatchElidedTests {
+    /// A GitHub tab long enough for the window server to shorten it.
+    private static let longTitle =
+        "feat(companion): Option+S shares a screen on a call, Option+D draws "
+        + "(#42159) . example-org/example-repo@93e93af - Google Chrome - Alice"
+
+    @Test("a name shortened in the middle still finds its window")
+    func elidedMiddle() {
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "feat(companion): Option+S sha\u{2026}e-org/example-repo@93e93af",
+                titles: ["Example Assistant - Google Chrome - Alice", Self.longTitle],
+                candidates: .sharingOneFrame
+            ) == 1
+        )
+    }
+
+    @Test("the tail has to fit as well as the head")
+    func tailMustFit() {
+        // Same beginning, different commit: the head alone would match both.
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "feat(companion): Option+S sha\u{2026}@0000000",
+                titles: [Self.longTitle],
+                candidates: .sharingOneFrame
+            ) == nil
+        )
+    }
+
+    @Test("two windows fitting one shortened name decide nothing")
+    func elidedAmbiguous() {
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "Report\u{2026}2026",
+                titles: ["Report for Q1 2026 - Chrome", "Report for Q2 2026 - Chrome"],
+                candidates: .sharingOneFrame
+            ) == nil
+        )
+    }
+
+    @Test("a name that is only an ellipsis names no window")
+    func onlyEllipsis() {
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "\u{2026}",
+                titles: ["Anything - Chrome"],
+                candidates: .sharingOneFrame
+            ) == nil
+        )
+    }
+
+    @Test("an unshortened name is left to the ordinary comparisons")
+    func notElided() {
+        #expect(
+            AXWindowMatch.uniqueTitle(
+                serverName: "Example Assistant",
+                titles: ["Example Assistant - Google Chrome - Alice"],
+                candidates: .sharingOneFrame
+            ) == 0
+        )
     }
 }

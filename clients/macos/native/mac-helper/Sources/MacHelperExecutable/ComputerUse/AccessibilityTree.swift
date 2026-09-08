@@ -399,8 +399,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // a window elsewhere still names one window here.
         let candidates = framed.isEmpty ? windows : framed
         let titles = candidates.map { getStringAttribute($0, kAXTitleAttribute as CFString) }
-        return AXWindowMatch.uniqueTitle(serverName: window.name, titles: titles)
-            .map { candidates[$0] }
+        return AXWindowMatch.uniqueTitle(
+            serverName: window.name,
+            titles: titles,
+            candidates: framed.isEmpty ? .everyWindow : .sharingOneFrame
+        ).map { candidates[$0] }
     }
 
     private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
