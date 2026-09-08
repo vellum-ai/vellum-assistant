@@ -698,7 +698,7 @@ final class MacHelper: @unchecked Sendable {
             } else {
                 nil
             }
-            let flattened = AccessibilityTreeEnumerator.flattenElements(tree.elements)
+            let flattened = AccessibilityTreeEnumerator.flattenClipped(tree.elements)
 
             // Focus is one thing across every monitor, so the window it names
             // can be standing on a different screen from the one asked about.
@@ -710,7 +710,7 @@ final class MacHelper: @unchecked Sendable {
             // questions.
             if let displayId,
                !AXDisplayMatch.tree(
-                   at: flattened.map(\.frame),
+                   at: flattened.map(\.element.frame),
                    standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
                ) {
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
@@ -724,20 +724,28 @@ final class MacHelper: @unchecked Sendable {
             // pointed at, interactive or not: a value someone is reading is as
             // legitimate a target as a button they are about to press.
             //
-            // On the shared surface, though. A tree reaches past what is being
-            // shown: a window can lie across the seam between two monitors,
-            // and a scroll view keeps the rows above and below the ones on
-            // screen, at the frames they would have. Such an element
-            // normalises to a fraction outside 0 to 1, so pointing at it draws
-            // at a clamped edge while the answer says it landed exactly. It is
-            // not a candidate, and a query that named it comes back with the
-            // labels that are on the surface instead.
-            let elements = flattened.filter { element in
-                guard let title = element.title, !title.isEmpty else { return false }
-                guard element.frame.width > 0, element.frame.height > 0 else { return false }
-                guard let surface else { return true }
-                return AXDisplayMatch.frame(element.frame, standsOn: surface)
-            }
+            // Where it can actually be seen, though. A tree reaches past what
+            // is being shown, in two directions: outward, since a window can
+            // lie across the seam between two monitors, and inward, since a
+            // scroll view keeps the rows above and below the ones on screen at
+            // the frames they would have if they were on screen. The first
+            // draws at a clamped edge, the second squarely over unrelated
+            // content, and both while the answer says it landed exactly.
+            // Neither is a candidate, and a query that named one comes back
+            // with the labels that can be seen instead.
+            let elements = flattened
+                .filter { candidate in
+                    let element = candidate.element
+                    guard let title = element.title, !title.isEmpty else { return false }
+                    guard element.frame.width > 0, element.frame.height > 0 else { return false }
+                    if let visible = candidate.visible,
+                       !AXDisplayMatch.frame(element.frame, standsOn: visible) {
+                        return false
+                    }
+                    guard let surface else { return true }
+                    return AXDisplayMatch.frame(element.frame, standsOn: surface)
+                }
+                .map(\.element)
             let outcome = AXTargetMatch.locate(
                 query: query,
                 among: elements.map { AXTargetMatch.Candidate(label: $0.title ?? "") }
