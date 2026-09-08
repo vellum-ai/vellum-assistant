@@ -238,7 +238,7 @@ interface DecisionVars {
 }
 
 interface DecisionCallbacks {
-  onSuccess?: (data: { applied: boolean }) => void;
+  onSuccess?: (data: { applied: boolean; reason?: string }) => void;
 }
 
 /** What the rows' inline Approve and Reject submit to the decision route. */
@@ -246,12 +246,13 @@ const decisionCalls: DecisionVars[] = [];
 
 /**
  * How the mocked decision settles. "not-applied" is the 200 the route
- * returns when another surface resolved the request first, which reaches
- * `onSuccess` rather than `onError`.
+ * returns when it declines to apply the decision, carrying a `reason`; it
+ * reaches `onSuccess` rather than `onError`.
  */
-const decisionRef: { outcome: "pending" | "applied" | "not-applied" } = {
-  outcome: "pending",
-};
+const decisionRef: {
+  outcome: "pending" | "applied" | "not-applied";
+  reason?: string;
+} = { outcome: "pending" };
 
 /** Feed refreshes the bell asked for, one per decision outcome. */
 const feedInvalidateCalls: number[] = [];
@@ -270,7 +271,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
       if (decisionRef.outcome === "applied") {
         options?.onSuccess?.({ applied: true });
       } else if (decisionRef.outcome === "not-applied") {
-        options?.onSuccess?.({ applied: false });
+        options?.onSuccess?.({ applied: false, reason: decisionRef.reason });
       }
     },
     isPending: false,
@@ -426,6 +427,7 @@ beforeEach(() => {
   updateStatusCalls.length = 0;
   decisionCalls.length = 0;
   decisionRef.outcome = "pending";
+  decisionRef.reason = undefined;
   feedInvalidateCalls.length = 0;
   toastCalls.length = 0;
   triggerActionCalls.length = 0;
@@ -751,19 +753,37 @@ describe("NotificationsBell guardian rows", () => {
     expect(toastCalls).toEqual([]);
   });
 
-  test("a decision another surface beat says so and refreshes the feed", async () => {
-    decisionRef.outcome = "not-applied";
-    feedRef.items = [guardianBellItem()];
+  // The route answers 200 with `applied: false` and a reason when it declines
+  // a decision, which is not an error. The feed is refreshed either way, and
+  // the toast says what happened in the reason's own terms, so a request that
+  // was settled elsewhere reads as such and one this actor may not decide is
+  // not retried as if it might succeed next time.
+  test.each([
+    ["already_resolved", "info", "Already resolved"],
+    ["not_found", "info", "Already resolved"],
+    ["expired", "info", "Request expired"],
+    [
+      "identity_mismatch",
+      "error",
+      "You don't have permission to decide this request.",
+    ],
+    ["request_misconfigured", "error", "That decision couldn't be applied."],
+    ["resolver_failed", "error", "That decision couldn't be applied."],
+    [undefined, "error", "That decision couldn't be applied."],
+  ])(
+    "a decision declined for %s says so and refreshes the feed",
+    async (reason, tone, message) => {
+      decisionRef.outcome = "not-applied";
+      decisionRef.reason = reason;
+      feedRef.items = [guardianBellItem()];
 
-    await openBell();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+      await openBell();
+      fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    // The route answers 200 with `applied: false`, which is not an error:
-    // the row was stale, so the feed is refreshed to retire its buttons and
-    // the click is explained rather than swallowed.
-    expect(feedInvalidateCalls.length).toBe(1);
-    expect(toastCalls).toEqual([["info", "Already resolved"]]);
-  });
+      expect(feedInvalidateCalls.length).toBe(1);
+      expect(toastCalls).toEqual([[tone, message]]);
+    },
+  );
 });
 
 describe("NotificationsBell empty state", () => {

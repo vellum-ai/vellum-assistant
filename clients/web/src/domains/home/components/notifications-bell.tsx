@@ -196,14 +196,30 @@ export function NotificationsBell() {
   // A pending approval can be decided from its row. One mutation serves every
   // row, so all of their buttons go inert together while a decision is in
   // flight. The row draws its buttons off the feed item alone, so the feed is
-  // refreshed on every outcome to retire them: a decision that was applied
-  // turns the row into its receipt, and one that comes back not-applied means
-  // another surface resolved the request first, which the refresh reflects
-  // and a toast says out loud, since the click otherwise did nothing visible.
+  // refreshed on every outcome: a decision that was applied turns the row
+  // into its receipt, and one the route declined (a 200 with `applied:
+  // false`) is explained by a toast keyed on its reason, since the click
+  // otherwise did nothing visible. A request that was already settled or has
+  // expired is retired by the refresh; one this actor may not decide, or
+  // that the daemon could not apply, keeps its row, and the toast is what
+  // stops the user retrying a click that cannot succeed.
   const decision = useGuardianactionsDecisionPostMutation({
     onSuccess: (data) => {
-      if (data.applied === false) {
-        toast.info(t("homeGuardianRequestCard.receipt.alreadyResolved"));
+      if (!data.applied) {
+        switch (data.reason) {
+          case "already_resolved":
+          case "not_found":
+            toast.info(t("homeGuardianRequestCard.receipt.alreadyResolved"));
+            break;
+          case "expired":
+            toast.info(t("homeGuardianRequestCard.receipt.expired"));
+            break;
+          case "identity_mismatch":
+            toast.error(t("notificationsBell.decisionNotPermitted"));
+            break;
+          default:
+            toast.error(t("notificationsBell.decisionNotApplied"));
+        }
       }
       feedQuery.invalidate();
     },
