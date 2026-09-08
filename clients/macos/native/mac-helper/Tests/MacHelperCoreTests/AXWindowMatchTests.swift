@@ -6,22 +6,23 @@ import Testing
 struct AXWindowMatchTests {
     /// The five Chrome windows that produced JARVIS-1765, all at one frame.
     private static let chrome = [
-        "Ambient Agent / Riding Shotgun — User Stories | Notion - Google Chrome - Alex (vellum.ai)",
-        "Vellum Assistant - Google Chrome - Alex",
-        "Inbox (1) - alex@vellum.ai - vellum.ai Mail - Google Chrome - Alex (vellum.ai)",
-        "Seven Repackaging Plays - Google Chrome - Alex (vellum.ai)",
+        "Weekly Planning / User Stories | Notes - Google Chrome - Alice (example.com)",
+        "Example Assistant - Google Chrome - Alice",
+        "Inbox (1) - user@example.com - Mail - Google Chrome - Alice (example.com)",
+        "Quarterly Report - Google Chrome - Alice (example.com)",
     ]
 
     @Test("an app that appends its own suffix still resolves")
     func chromeSuffix() {
         #expect(
             AXWindowMatch.uniqueTitle(
-                serverName: "Ambient Agent / Riding Shotgun — User Stories | Notion",
+                serverName: "Weekly Planning / User Stories | Notes",
                 titles: Self.chrome
             ) == 0
         )
         #expect(
-            AXWindowMatch.uniqueTitle(serverName: "Vellum Assistant", titles: Self.chrome) == 1
+            AXWindowMatch.uniqueTitle(serverName: "Example Assistant", titles: Self.chrome)
+                == 1
         )
     }
 
