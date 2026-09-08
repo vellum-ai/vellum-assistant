@@ -278,6 +278,17 @@ describe("pointing at the shared surface", () => {
   });
 
   /**
+   * Overtaken is not the same as failed: the screen is showing what asked
+   * last, and a turn told only that it failed would point again and take it
+   * back.
+   */
+  test("tells an overtaken turn that the screen belongs to the later one", async () => {
+    const told = await refusedWith("superseded");
+    expect(told).toContain("Another request");
+    expect(told).toContain("were not drawn");
+  });
+
+  /**
    * Resolving a name is a round trip, which is long enough for a cancel to
    * land inside one. By the time it answers the turn that asked is gone: a
    * result posted for it answers nobody.

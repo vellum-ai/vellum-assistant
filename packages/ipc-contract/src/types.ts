@@ -1522,7 +1522,11 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * and the host-proxy executor words it, and the file that words it says in as
  * many words that it must not reach into the windows for anything.
  */
-export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+export type CoachmarkRefusal =
+  | "unshared"
+  | "not-this-call"
+  | "stale-surface"
+  | "superseded";
 
 /**
  * One thing to point at: a control named, or a rectangle given.

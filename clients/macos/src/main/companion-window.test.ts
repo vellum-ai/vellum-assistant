@@ -291,6 +291,13 @@ let located: unknown = {
   height: 20,
 };
 
+/**
+ * A lookup held open, so a case can decide what else happens while a name is
+ * still being resolved. Nothing when the answer comes back at once, which is
+ * every case that is not about that gap.
+ */
+let locateHeldBy: Promise<void> | null = null;
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
@@ -308,6 +315,9 @@ mock.module("./companion-capture-sources", () => ({
   },
   locateOnTarget: async (target: unknown, query: string) => {
     locatesAsked.push({ target, query });
+    if (locateHeldBy !== null) {
+      await locateHeldBy;
+    }
     return located;
   },
 }));
@@ -3254,6 +3264,7 @@ describe("companion window: pointing at what is shared", () => {
 
   beforeEach(() => {
     locatesAsked.length = 0;
+    locateHeldBy = null;
     located = {
       found: true,
       label: "Share",
@@ -3478,6 +3489,55 @@ describe("companion window: pointing at what is shared", () => {
       refusal: "stale-surface",
     });
     expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * Nothing queues behind a lookup, and a clear has nothing to look up, so it
+   * answers while the lookup is still out. The user has been told the screen
+   * is clear by then, and the lookup landing afterwards would put the mark
+   * back on it.
+   */
+  test("a lookup that lands after a clear does not put the mark back", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    let letGo!: () => void;
+    locateHeldBy = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    expect(await showCompanionCoachmarks([], CALL)).toEqual({
+      kind: "placed",
+      marks: [],
+    });
+    letGo();
+
+    expect(await drawing).toEqual({
+      kind: "refused",
+      refusal: "superseded",
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /** The same for a later request that draws something of its own. */
+  test("a lookup that lands after another request does not overwrite it", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    let letGo!: () => void;
+    locateHeldBy = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    locateHeldBy = null;
+    expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
+      kind: "placed",
+    });
+    letGo();
+
+    expect(await drawing).toMatchObject({
+      kind: "refused",
+      refusal: "superseded",
+    });
+    expect(state().coachmarks).toEqual([MARK]);
   });
 
   /**
