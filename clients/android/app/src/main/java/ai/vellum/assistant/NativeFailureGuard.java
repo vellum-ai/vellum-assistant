@@ -5,7 +5,7 @@ import com.getcapacitor.Logger;
 import com.getcapacitor.PluginCall;
 import java.util.function.Supplier;
 
-final class NativeFailureGuard {
+public final class NativeFailureGuard {
     private static volatile Context applicationContext;
 
     private NativeFailureGuard() {}
@@ -27,7 +27,7 @@ final class NativeFailureGuard {
         }
     }
 
-    static void run(String logMessage, Runnable operation) {
+    public static void run(String logMessage, Runnable operation) {
         try {
             operation.run();
         } catch (RuntimeException exception) {
