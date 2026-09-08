@@ -56,8 +56,8 @@ import { sendLiveVoiceSightFrame, useLiveVoiceStore } from "./live-voice-store";
 /**
  * How many finished captures may wait on an unfinished older one.
  *
- * Overlap is naturally shallow: the gate's rate floor is seconds and an upload
- * is not, so at most one or two captures are usually in flight. The cap is for
+ * Overlap is naturally shallow: keeps are seconds apart in practice and an
+ * upload is not, so at most one or two captures are usually in flight. The cap is for
  * the pathological case, an upload that hangs rather than fails, which would
  * otherwise hold every later keep behind it for the rest of the call.
  */

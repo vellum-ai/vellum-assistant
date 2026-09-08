@@ -1751,6 +1751,10 @@ describe("native frame source out-of-cycle sample", () => {
     const gate = createFrameGate({
       ...DEFAULT_FRAME_GATE_OPTIONS,
       warmupMs: 0,
+      // Every stub sample is the same picture, and what is under test is the
+      // arm's time bound rather than its novelty bar: with the bar at zero a
+      // fresh frame spends the arm whatever it shows.
+      forcedNoveltyThreshold: 0,
     });
     gate.reset(0);
     const decisions: FrameGateDecision[] = [];
@@ -1802,6 +1806,8 @@ describe("native frame source out-of-cycle sample", () => {
     const gate = createFrameGate({
       ...DEFAULT_FRAME_GATE_OPTIONS,
       warmupMs: 0,
+      // As above: the time bound is the subject, not the novelty bar.
+      forcedNoveltyThreshold: 0,
     });
     gate.reset(0);
     const decisions: FrameGateDecision[] = [];

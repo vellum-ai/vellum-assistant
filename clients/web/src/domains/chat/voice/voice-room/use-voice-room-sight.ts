@@ -592,7 +592,8 @@ export function useVoiceRoomSight(
   // needs the sample it is holding refused rather than the cadence broken.
   //
   // The frame on screen is the old camera's view, and the exposure warmup plus
-  // the gate's rate floor put the replacement seconds away, so leaving it up
+  // the wait for the new view to settle put the replacement a moment away, so
+  // leaving it up
   // would show the user's own face as what the call is being shown of the room
   // in front of them. On mount nothing is held and this is a no-op.
   //

@@ -1586,7 +1586,7 @@ describe("useVoiceRoomSight: closing and flipping", () => {
 
   test("clears the pulse when the camera flips", async () => {
     // The frame on screen is the old camera's view, and the new camera's first
-    // keep is an exposure warmup plus a rate floor away, so leaving it up would
+    // keep is an exposure warmup and a settle away, so leaving it up would
     // show the user's own face as what the call is seeing of the room.
     const { view } = renderSight();
     await keepFrame();
@@ -1811,7 +1811,7 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
 
     expect(nativeInvalidate).toHaveBeenCalledTimes(1);
     // Told, not restarted: the replacement camera is one tick away rather than
-    // a whole interval, and the gate keeps the rate floor a rebuild would drop.
+    // a whole interval, and the gate keeps the history a rebuild would drop.
     expect(nativeStop).not.toHaveBeenCalled();
     expect(nativeStart).toHaveBeenCalledTimes(1);
   });
