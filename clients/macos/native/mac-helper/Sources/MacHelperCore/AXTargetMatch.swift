@@ -13,16 +13,12 @@ import Foundation
 /// refuses when it fits more than one candidate, and the caller is handed the
 /// names that fit so it can say what it found instead of guessing between them.
 public enum AXTargetMatch {
-    /// One candidate control: whatever it is called, and what kind of thing it
-    /// is. `role` is only ever a tie-breaker, never a filter, since the words
-    /// people use for a control ("button", "toggle") rarely match its role.
+    /// One candidate control: what it is called.
     public struct Candidate: Sendable, Equatable {
         public let label: String
-        public let role: String
 
-        public init(label: String, role: String) {
+        public init(label: String) {
             self.label = label
-            self.role = role
         }
     }
 
@@ -40,10 +36,18 @@ public enum AXTargetMatch {
 
     /// The candidate `query` names, by increasingly forgiving comparisons.
     ///
-    /// In order: the same string; the same string ignoring case, punctuation
-    /// and spacing; one containing the other. The first comparison to fit
-    /// exactly one candidate wins, so a widening step is never reached by a
-    /// query an earlier one had already settled.
+    /// In order: the same string, then the same string ignoring case,
+    /// punctuation and spacing. Both are mechanical: they decide that two
+    /// spellings are one name, which is not a judgement about what someone
+    /// meant.
+    ///
+    /// Nothing looser, deliberately. Reading a label inside a longer phrase is
+    /// where a guess starts, and it reaches confidently wrong controls: a
+    /// query long enough to describe one contains short words that name
+    /// others, so "the Send button" finds a control called `End` alone and
+    /// without ambiguity. Deciding which control a phrase meant is the
+    /// assistant's call, so a query that fits nothing comes back carrying the
+    /// labels instead, for it to choose from and ask again.
     public static func locate(query: String, among candidates: [Candidate]) -> Outcome {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else {
@@ -53,7 +57,6 @@ public enum AXTargetMatch {
         let comparisons: [(Candidate) -> Bool] = [
             { $0.label == needle },
             { normalise($0.label) == normalise(needle) },
-            { contains(normalise($0.label), normalise(needle)) },
         ]
 
         for fits in comparisons {
@@ -62,13 +65,6 @@ public enum AXTargetMatch {
                 return .found(hits[0])
             }
             if hits.count > 1 {
-                // The role is the last thing that can separate them, and only
-                // when the query actually named one: "close button" against a
-                // button and a menu item both labelled "Close".
-                let byRole = hits.filter { mentionsRole(needle, candidates[$0].role) }
-                if byRole.count == 1 {
-                    return .found(byRole[0])
-                }
                 return .ambiguous(hits.map { candidates[$0].label })
             }
         }
@@ -86,18 +82,4 @@ public enum AXTargetMatch {
             .joined()
     }
 
-    /// Either string containing the other, so both "balance" and "the color
-    /// balance toggle" find `color balance`. Guarded against a needle so short
-    /// it would fit half the surface.
-    private static func contains(_ label: String, _ needle: String) -> Bool {
-        guard needle.count >= 3 else { return label == needle }
-        return label.contains(needle) || needle.contains(label)
-    }
-
-    /// Whether the query names this role in the words a person would use.
-    private static func mentionsRole(_ query: String, _ role: String) -> Bool {
-        let bare = normalise(role.hasPrefix("AX") ? String(role.dropFirst(2)) : role)
-        guard !bare.isEmpty else { return false }
-        return normalise(query).contains(bare)
-    }
 }

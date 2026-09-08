@@ -35,9 +35,13 @@ fails saying so. Ask them to share their screen from the call, then point.
 
 **Name the thing.** `{"target": "color balance", "caption": "Click this"}`.
 The name is looked up on the surface itself, which knows where its controls
-actually are, and an arrow is drawn at it. Use the label as it appears, or a
-phrase containing it: "the Send button", "the stabilization toggle", "search
-filmstrip".
+actually are, and an arrow is drawn at it.
+
+**The label, not a description of it.** What is matched is the control's own
+name. Casing, spacing and punctuation are forgiven, so `Color Balance` finds
+`color balance`; nothing beyond that is, so "the stabilization button" finds
+nothing, because no control is called that. Give the label on its own:
+`stabilization`, `Send`, `Search`.
 
 The arrow points at the middle of the control and stops just short, so what
 you are sending someone to stays visible the whole time.
@@ -46,14 +50,15 @@ You are answered with what was drawn and the name it resolved to, which is not
 always the name you asked for. Say the resolved one out loud: it is the word
 the user can see.
 
-A name that is not on the surface draws nothing and comes back with the names
-that are. That is the answer, not a setback: point at one of those, or say
-where the thing is in words. **Never fall back to coordinates for a control
-you could not find.** A mark drawn at a guess is worse than no mark, because
-someone follows it; the words you say are the better tool for a thing you
-cannot point at. What the user calls something and what the
-surface calls it often differ: they may say "white balance" where the control
-reads `color balance`.
+A name the surface does not carry draws nothing and comes back with the names
+it does carry. That is the answer, not a setback: the thing is nearly always
+one of those, so read the list and point again. **Never fall back to
+coordinates for a control you could not find.** A mark drawn at a guess is
+worse than no mark, because someone follows it; the words you say are the
+better tool for a thing you cannot point at. What the user calls something and
+what the surface calls it often differ, which is what the list is for: they
+may say "white balance" where the control reads `color balance`, or "the
+stabilization button" where it reads `stabilization`.
 
 ## Coordinates, for an extent
 

@@ -589,6 +589,7 @@ final class MacHelper: @unchecked Sendable {
             // sharing their screen and naming a control means the one they are
             // looking at, which is the same window computer use reads.
             let enumerator = AccessibilityTreeEnumerator()
+            let displayId = (params["displayId"] as? NSNumber)?.uint32Value
             let located = if let windowId = (params["windowId"] as? NSNumber)?.uint32Value {
                 await enumerator.enumerateWindow(windowId: CGWindowID(windowId))
             } else {
@@ -610,11 +611,26 @@ final class MacHelper: @unchecked Sendable {
                     guard let title = element.title, !title.isEmpty else { return false }
                     return element.frame.width > 0 && element.frame.height > 0
                 }
+
+            // Focus is one thing across every monitor, so the window it names
+            // can be standing on a different screen from the one asked about.
+            // The caller normalises what comes back against that screen's
+            // bounds, so a frame from elsewhere resolves to somewhere
+            // arbitrary on it: a tree that is not on the display is no tree.
+            if let displayId,
+               !AXDisplayMatch.tree(
+                   at: elements.map(\.frame),
+                   standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
+               ) {
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-tree",
+                ]))
+                return
+            }
             let outcome = AXTargetMatch.locate(
                 query: query,
-                among: elements.map {
-                    AXTargetMatch.Candidate(label: $0.title ?? "", role: $0.role)
-                }
+                among: elements.map { AXTargetMatch.Candidate(label: $0.title ?? "") }
             )
 
             switch outcome {

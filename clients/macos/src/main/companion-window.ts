@@ -1261,11 +1261,11 @@ export const showCompanionCoachmarks = async (
     setCoachmarks(NO_COACHMARKS);
     return { kind: "placed", marks: [] };
   }
-  const refusal = whyNotToDraw(conversationId);
+  const share = context.screenShare;
+  const refusal = whyNotToDraw(conversationId, share);
   if (refusal !== null) {
     return { kind: "refused", refusal };
   }
-  const share = context.screenShare;
   if (share === undefined) {
     return { kind: "refused", refusal: "unshared" };
   }
@@ -1280,20 +1280,22 @@ export const showCompanionCoachmarks = async (
       continue;
     }
     const placed = await placeOnNamedTarget(share, request);
+    // Asked after every await, against the share these marks are being
+    // resolved on rather than against whatever is shared now. Resolving a
+    // name is a round trip to the helper and the user is still working the
+    // whole time: a share that moved and had a frame of its own served in
+    // that window answers every check the current state can make, and these
+    // marks would land on it measured against the surface it replaced.
+    const moved = whyNotToDraw(conversationId, share);
+    if (moved !== null) {
+      return { kind: "refused", refusal: moved };
+    }
     if ("reason" in placed) {
       return { kind: "unresolved", unresolved: placed };
     }
     marks.push(placed);
   }
 
-  // Asked again after the awaits above. Resolving a name is a round trip to
-  // the helper and the user is still working the whole time: a share that
-  // moved in that window would take these marks, measured against the surface
-  // they were resolved on, onto whatever replaced it.
-  const moved = whyNotToDraw(conversationId);
-  if (moved !== null) {
-    return { kind: "refused", refusal: moved };
-  }
   // The name a mark resolved from is for the caller to read back, not for the
   // frame to draw: what goes on screen is a rectangle, and the renderer has
   // no use for the label it came from.
@@ -1304,10 +1306,21 @@ export const showCompanionCoachmarks = async (
 /**
  * Why the marks cannot go up, or `null` when they can.
  *
- * Pulled out because it is asked twice: once before resolving a name and once
- * after, since resolving takes long enough for the answer to change.
+ * Pulled out because it is asked before resolving a name and again after
+ * every round trip that resolving takes, since resolving takes long enough
+ * for the answer to change.
+ *
+ * `measuredAgainst` is the surface the marks in hand describe, which is the
+ * share as it was when the request was taken. Asking only what is shared
+ * *now* is not enough: a share that moved and then served a frame of its own
+ * leaves the current state entirely self-consistent, and marks measured
+ * against the surface before the move would pass on their way onto the one
+ * after it.
  */
-const whyNotToDraw = (conversationId?: string): CoachmarkRefusal | null => {
+const whyNotToDraw = (
+  conversationId: string | undefined,
+  measuredAgainst: WatchCaptureTarget | undefined,
+): CoachmarkRefusal | null => {
   if (!framesTheShare()) {
     return "unshared";
   }
@@ -1318,6 +1331,9 @@ const whyNotToDraw = (conversationId?: string): CoachmarkRefusal | null => {
     return "not-this-call";
   }
   if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
+    return "stale-surface";
+  }
+  if (!sameCaptureTarget(measuredAgainst, context.screenShare)) {
     return "stale-surface";
   }
   return null;

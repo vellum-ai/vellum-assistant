@@ -9,15 +9,15 @@ struct AXTargetMatchTests {
     /// iMovie's toolbar as the enumerator reports it once labels are read
     /// properly, which is what this matcher is for.
     private static let iMovie = [
-        Candidate(label: "enhance", role: "AXCheckBox"),
-        Candidate(label: "color balance", role: "AXCheckBox"),
-        Candidate(label: "color correction", role: "AXCheckBox"),
-        Candidate(label: "cropping", role: "AXCheckBox"),
-        Candidate(label: "stabilization", role: "AXCheckBox"),
-        Candidate(label: "volume", role: "AXCheckBox"),
-        Candidate(label: "speed", role: "AXCheckBox"),
-        Candidate(label: "My Media", role: "AXButton"),
-        Candidate(label: "Titles", role: "AXButton"),
+        Candidate(label: "enhance"),
+        Candidate(label: "color balance"),
+        Candidate(label: "color correction"),
+        Candidate(label: "cropping"),
+        Candidate(label: "stabilization"),
+        Candidate(label: "volume"),
+        Candidate(label: "speed"),
+        Candidate(label: "My Media"),
+        Candidate(label: "Titles"),
     ]
 
     @Test("the exact label is found")
@@ -32,19 +32,24 @@ struct AXTargetMatchTests {
         #expect(AXTargetMatch.locate(query: "my media", among: Self.iMovie) == .found(7))
     }
 
-    @Test("a query wrapped in extra words still finds its control")
-    func containment() {
-        // What a model actually writes when it is talking as it points.
-        #expect(AXTargetMatch.locate(query: "the stabilization button", among: Self.iMovie) == .found(4))
+    /// A phrase is not resolved here. It comes back with the labels so the
+    /// assistant picks one, rather than a string match guessing for it.
+    @Test("a query wrapped in extra words is handed back, not guessed at")
+    func phraseIsNotGuessed() {
+        guard case let .notFound(labels) =
+            AXTargetMatch.locate(query: "the stabilization button", among: Self.iMovie)
+        else {
+            Issue.record("a phrase must not be resolved by string matching")
+            return
+        }
+        #expect(labels.contains("stabilization"))
     }
 
     @Test("an exact label wins over a longer one containing it")
-    func exactBeatsContainment() {
-        // "color balance" is a prefix of nothing here, but it is contained in
-        // no other label either; the risk is the reverse direction, so pin it.
+    func exactBeatsLonger() {
         let candidates = [
-            Candidate(label: "volume", role: "AXCheckBox"),
-            Candidate(label: "volume mixer", role: "AXButton"),
+            Candidate(label: "volume"),
+            Candidate(label: "volume mixer"),
         ]
         #expect(AXTargetMatch.locate(query: "volume", among: candidates) == .found(0))
     }
@@ -52,8 +57,8 @@ struct AXTargetMatchTests {
     @Test("two controls fitting equally are reported, not chosen between")
     func ambiguous() {
         let candidates = [
-            Candidate(label: "Close", role: "AXButton"),
-            Candidate(label: "Close", role: "AXMenuItem"),
+            Candidate(label: "Close"),
+            Candidate(label: "Close"),
         ]
         #expect(
             AXTargetMatch.locate(query: "Close", among: candidates)
@@ -61,13 +66,16 @@ struct AXTargetMatchTests {
         )
     }
 
-    @Test("naming the role separates two controls that share a label")
-    func roleBreaksTheTie() {
-        let candidates = [
-            Candidate(label: "Close", role: "AXMenuItem"),
-            Candidate(label: "Close", role: "AXButton"),
-        ]
-        #expect(AXTargetMatch.locate(query: "Close button", among: candidates) == .found(1))
+    /// Which of two controls sharing a name was meant is a judgement, so it
+    /// goes back to the assistant rather than being settled by their roles.
+    @Test("a phrase naming a kind of control is still handed back")
+    func roleIsNotATieBreak() {
+        let candidates = [Candidate(label: "Close"), Candidate(label: "Close")]
+        guard case .notFound = AXTargetMatch.locate(query: "Close button", among: candidates)
+        else {
+            Issue.record("a role must not decide which control was meant")
+            return
+        }
     }
 
     @Test("a miss carries what was actually there")
@@ -85,6 +93,17 @@ struct AXTargetMatchTests {
     func emptyQuery() {
         guard case .notFound = AXTargetMatch.locate(query: "   ", among: Self.iMovie) else {
             Issue.record("an empty query must not match")
+            return
+        }
+    }
+
+    /// A phrase describing one control contains words that name others.
+    @Test("a short label inside a longer query is not a match")
+    func shortLabelInsideQuery() {
+        let candidates = [Candidate(label: "End")]
+        guard case .notFound = AXTargetMatch.locate(query: "the Send button", among: candidates)
+        else {
+            Issue.record("\"End\" must not answer to \"the Send button\"")
             return
         }
     }

@@ -3376,6 +3376,27 @@ describe("companion window: pointing at what is shared", () => {
     expect(state().coachmarks).toBeUndefined();
   });
 
+  /**
+   * The move that the current state alone cannot see. Once the new surface
+   * has served a frame of its own, everything main can ask about the present
+   * agrees: the share is framed, the call is the same one, and the picture
+   * the assistant holds is of what is shared. Only the surface these marks
+   * were measured against says otherwise, so it is what has to be kept.
+   */
+  test("a share that moves and is seen while a name resolves is refused", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    shareOf(DISPLAY);
+    acknowledge(DISPLAY);
+
+    expect(await drawing).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
   /** Bounds still go up untouched, for what the tree cannot name. */
   test("a mark given as bounds keeps its ring and never asks the tree", async () => {
     await shareAndSee();
