@@ -426,9 +426,14 @@ async function main() {
     configFile: configFileCache,
   });
   // Velay only sees a webhook route on the next tunnel connect, so a registry
-  // write asks for one.
+  // write asks for one. With the flag off the advertised rules are a constant,
+  // so a write changes nothing worth reconnecting for; registry maintenance
+  // must never touch the tunnel in that state. A flag flip re-advertises via
+  // the flag-change handler, which picks up any rows written while off.
   onWebhookIngressRoutesChanged(() => {
-    velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
+    if (isFeatureFlagEnabled("velay-webhooks")) {
+      velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
+    }
   });
 
   // ── Integration readiness flags ──
