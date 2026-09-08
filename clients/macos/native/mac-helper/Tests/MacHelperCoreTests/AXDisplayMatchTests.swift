@@ -51,6 +51,21 @@ struct AXDisplayMatchTests {
         #expect(!AXDisplayMatch.frame(onExternal, standsOn: Self.builtIn))
     }
 
+    /**
+     A control lying across the seam is on both screens, but the part of it a
+     caller can point at is the part on the screen being shared: its middle,
+     taken from the whole frame, can be on the other monitor entirely.
+     */
+    @Test("what can be pointed at is the part on the display")
+    func clippedToDisplay() {
+        let straddling = CGRect(x: 1340, y: 200, width: 200, height: 40)
+        let onBuiltIn = straddling.intersection(Self.builtIn)
+        #expect(onBuiltIn == CGRect(x: 1340, y: 200, width: 100, height: 40))
+        // The whole frame's middle is at x 1440, which is the other screen.
+        #expect(!Self.builtIn.contains(CGPoint(x: straddling.midX, y: straddling.midY)))
+        #expect(Self.builtIn.contains(CGPoint(x: onBuiltIn.midX, y: onBuiltIn.midY)))
+    }
+
     @Test("a control with no area is on nothing")
     func noArea() {
         #expect(

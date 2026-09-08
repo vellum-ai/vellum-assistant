@@ -11,15 +11,16 @@ public enum AXClip {
     /// The rectangle left by `clip` once an ancestor at `frame` is entered.
     ///
     /// `clips` says whether that ancestor crops what is under it at all; a
-    /// plain group does not, and passes its own clip through untouched. An
-    /// ancestor that crops but reports no area is passed over too: a frame of
-    /// nothing would hide everything beneath it, and an app answering that way
-    /// is saying it does not know where the pane is rather than that the pane
-    /// shows nothing.
+    /// plain group does not, and passes its own clip through untouched.
+    ///
+    /// An ancestor that crops and reports no area leaves nothing: a collapsed
+    /// or hidden pane keeps its rows at the frames they had when it was open,
+    /// and taking its word for the rows while ignoring its word for itself is
+    /// how a mark lands on a pane that is not there.
     ///
     /// Nil is nothing cropping, which is most of a tree.
     public static func narrowed(_ clip: CGRect?, by frame: CGRect, clips: Bool) -> CGRect? {
-        guard clips, !frame.isEmpty else { return clip }
+        guard clips else { return clip }
         guard let clip else { return frame }
         return clip.intersection(frame)
     }

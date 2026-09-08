@@ -122,7 +122,7 @@ const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
       ? ` (and ${candidates.length - CANDIDATES_SHOWN} more)`
       : "";
   if (reason === "ambiguous") {
-    return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. Name the one you mean more precisely, saying what kind of control it is if that separates them.`;
+    return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. A name is matched whole, so there is no wording of "${target}" that picks one of them out. Point at a nearby control whose name is its own, or say where the thing is out loud.`;
   }
   return `Nothing on the shared surface is called "${target}". What is there: ${shown}${rest}. Point at one of those by name, or give bounds if the thing you mean has no label.`;
 };
@@ -275,18 +275,6 @@ class PointAtExecutor implements HostProxyExecutor {
     void paint(marks, conversation)
       .then((result) => {
         if (this.settle(requestId)) {
-          // The turn that asked is over, so nobody is left to say what the
-          // marks mean or to take them down. A ring standing over the user's
-          // work with nothing to explain it is worse than none, and clearing
-          // is the one direction that always succeeds.
-          if (result.kind === "placed" && result.marks.length > 0) {
-            void paint([], conversation).catch((err: unknown) => {
-              log.warn(
-                "[host-cu-executor] cancelled point_at not cleared:",
-                err,
-              );
-            });
-          }
           return;
         }
         void poster.postCuResult({
@@ -328,8 +316,12 @@ class PointAtExecutor implements HostProxyExecutor {
    * A cancel names a request rather than a tool, so this cannot tell which
    * executor owns it and both are told. Resolving a name takes a round trip,
    * which is long enough for a cancel to land inside one, and the turn that
-   * asked is gone by the time it answers: what it drew comes down and no
-   * result is posted for it.
+   * asked is gone by the time it answers, so no result is posted for it.
+   *
+   * What it drew is left alone. The screen belongs to whichever request
+   * painted last, and a cancel answering after a later one has painted would
+   * be taking down that request's marks rather than its own. Marks come down
+   * on the next request, and when the share moves or ends.
    */
   handleCancel(message: HostProxySseMessage, poster: HostProxyPoster): void {
     const requestId = message.requestId as string | undefined;

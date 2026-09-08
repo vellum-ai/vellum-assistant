@@ -320,11 +320,12 @@ describe("pointing at the shared surface", () => {
   });
 
   /**
-   * And what it drew comes down. Nobody is left to say what the ring means or
-   * to take it down later, and a mark standing over the user's work with no
-   * words beside it is worse than none.
+   * And it touches nothing else on the way out. A cancel can answer after a
+   * later request has painted, and a tidy-up from here would be taking that
+   * request's marks down rather than its own. What is on the screen belongs
+   * to whichever request painted last.
    */
-  test("takes down the marks a cancelled pointing drew", async () => {
+  test("a cancelled pointing takes nothing down", async () => {
     let letGo!: () => void;
     const held = new Promise<void>((resolve) => {
       letGo = resolve;
@@ -347,7 +348,7 @@ describe("pointing at the shared surface", () => {
     letGo();
     await tick();
 
-    expect(showCoachmarks.mock.calls[1]?.[0]).toEqual([]);
+    expect(showCoachmarks).toHaveBeenCalledTimes(1);
   });
 
   /** A cancel for a pointing that already answered changes nothing. */
