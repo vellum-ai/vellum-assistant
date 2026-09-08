@@ -4,7 +4,6 @@ import { eventRefersToAnotherMessage } from "./channels/inbound-event.js";
 import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
-import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import {
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
@@ -3006,12 +3005,12 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
-  let velayWebhooksEnabled = isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY);
+  let velayWebhooksEnabled = isFeatureFlagEnabled("velay-webhooks");
   emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
     // The flag decides the shape of the advertised rules, so flipping it has
     // to re-advertise rather than wait out the periodic tunnel refresh.
-    const enabled = isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY);
+    const enabled = isFeatureFlagEnabled("velay-webhooks");
     if (enabled !== velayWebhooksEnabled) {
       velayWebhooksEnabled = enabled;
       velayTunnelClient?.requestRulesRefresh("velay-webhooks-flag-changed");

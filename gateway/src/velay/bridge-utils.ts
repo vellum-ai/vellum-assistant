@@ -1,7 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
 import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
-import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { hasWebhookIngressRoute } from "../db/webhook-ingress-route-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
@@ -54,7 +53,7 @@ export const VELAY_FORWARDED_HEADER = "x-velay-forwarded" as const;
 export function isAllowedVelayHttpPath(path: string): boolean {
   if (
     path.startsWith(WEBHOOK_PATH_PREFIX) &&
-    isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY) &&
+    isFeatureFlagEnabled("velay-webhooks") &&
     hasWebhookIngressRoute(path)
   ) {
     return true;

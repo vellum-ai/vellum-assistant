@@ -43,8 +43,6 @@
  * the allowlist and the gateway's actual public surface.
  */
 
-import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
-
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 
 /**
@@ -130,7 +128,7 @@ function escapeForRe2(value: string): string {
 export function buildVelayAllowedPathsHeaderValue(
   registeredPaths: string[],
 ): string {
-  if (!isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY)) {
+  if (!isFeatureFlagEnabled("velay-webhooks")) {
     return VELAY_ALLOWED_PATHS_HEADER_VALUE;
   }
   return JSON.stringify([

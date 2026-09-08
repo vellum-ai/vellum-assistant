@@ -413,8 +413,6 @@ export type ContactsIdentitySnapshotIpcResponse = z.infer<
  * and the daemon reads it to decide whether to claim at all, so both sides have
  * to name the same key.
  */
-export const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
-
 export const WebhookIngressRouteSchema = z.object({
   path: z.string(),
   type: z.string(),
