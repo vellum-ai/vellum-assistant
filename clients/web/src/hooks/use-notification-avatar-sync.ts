@@ -22,11 +22,15 @@ import { NOTIFICATION_AVATAR_SIZE } from "@vellumai/avatar-manifest/notification
  * `push-avatar-sender`: no other host reads the holder, and with the flag off
  * the IPC payload must be byte-for-byte what it is today.
  *
- * Clears on every outcome that is not a stored avatar. The holder outlives this
- * effect, so a flag turned off, an assistant with no avatar, or a failed
- * rasterization all have to take back what an earlier run put there.
+ * Every run starts by emptying the holder, and what it stores is stamped with
+ * the assistant it was drawn for. The holder outlives this effect, so a flag
+ * turned off, an assistant with no avatar, or a failed rasterization all have
+ * to take back what an earlier run put there; and a replacement render must not
+ * keep serving the old picture across the rasterize-and-hash gap, which is the
+ * window an assistant switch lands in.
  */
 export function useNotificationAvatarSync(
+  assistantId: string | null,
   customImageUrl: string | null,
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
@@ -35,8 +39,9 @@ export function useNotificationAvatarSync(
   const enabled = useClientFeatureFlagStore.use.pushAvatarSender();
 
   useEffect(() => {
-    if (!isElectron() || !enabled) {
-      clearNotificationAvatar();
+    clearNotificationAvatar();
+
+    if (!isElectron() || !enabled || !assistantId) {
       return;
     }
 
@@ -47,7 +52,6 @@ export function useNotificationAvatarSync(
       NOTIFICATION_AVATAR_SIZE,
     );
     if (render.kind === "none") {
-      clearNotificationAvatar();
       return;
     }
 
@@ -55,16 +59,12 @@ export function useNotificationAvatarSync(
     const src = render.kind === "character" ? render.dataUri : render.url;
     void rasterizeNotificationAvatar(src, accentHex)
       .then(async (png) => {
-        if (cancelled) {
-          return;
-        }
-        if (!png) {
-          clearNotificationAvatar();
+        if (cancelled || !png) {
           return;
         }
         const hash = await sha256Hex(png);
         if (!cancelled) {
-          setNotificationAvatar(png, hash);
+          setNotificationAvatar(assistantId, png, hash);
         }
       })
       .catch(() => {
@@ -76,5 +76,5 @@ export function useNotificationAvatarSync(
     return () => {
       cancelled = true;
     };
-  }, [enabled, customImageUrl, components, traits, accentHex]);
+  }, [enabled, assistantId, customImageUrl, components, traits, accentHex]);
 }

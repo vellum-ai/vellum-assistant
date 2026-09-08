@@ -15,6 +15,13 @@ import { encodeBase64Bytes } from "@/utils/base64";
  * their app-icon look.
  */
 export interface NotificationAvatar {
+  /**
+   * The assistant this picture was drawn for. `senderPayload()` reads the
+   * active assistant itself, so a held avatar is usable only while the two
+   * agree: after a switch the new assistant's name would otherwise be sent
+   * with the old one's face.
+   */
+  assistantId: string;
   /** The disc PNG as base64, with no data-URI prefix. */
   avatarBase64: string;
   /** SHA-256 of the PNG bytes, lowercase hex, so a host can name a cache file by it. */
@@ -23,8 +30,16 @@ export interface NotificationAvatar {
 
 let current: NotificationAvatar | null = null;
 
-export function setNotificationAvatar(png: Uint8Array, hash: string): void {
-  current = { avatarBase64: encodeBase64Bytes(png), avatarHash: hash };
+export function setNotificationAvatar(
+  assistantId: string,
+  png: Uint8Array,
+  hash: string,
+): void {
+  current = {
+    assistantId,
+    avatarBase64: encodeBase64Bytes(png),
+    avatarHash: hash,
+  };
 }
 
 export function getNotificationAvatar(): NotificationAvatar | null {

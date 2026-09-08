@@ -458,16 +458,26 @@ export async function sendNotificationIntentAck(
  *
  * The name, the id and the avatar all describe the active assistant, and all
  * three are read from the stores that own it rather than from the caller, so
- * the sender cannot name one assistant while wearing another's face.
+ * the sender cannot name one assistant while wearing another's face. The
+ * avatar carries the assistant it was drawn for and is refused when that is
+ * not the active one, which is what closes the window between an assistant
+ * switch and the replacement avatar finishing.
  */
 function senderPayload(): { sender?: NotificationSender } {
   const avatar = getNotificationAvatar();
   const name = useAssistantIdentityStore.getState().name;
   const id = useResolvedAssistantsStore.getState().activeAssistantId;
-  if (!avatar || !name || !id) {
+  if (!avatar || !name || !id || avatar.assistantId !== id) {
     return {};
   }
-  return { sender: { id, name, ...avatar } };
+  return {
+    sender: {
+      id,
+      name,
+      avatarBase64: avatar.avatarBase64,
+      avatarHash: avatar.avatarHash,
+    },
+  };
 }
 
 /**

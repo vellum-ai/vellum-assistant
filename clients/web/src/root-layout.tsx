@@ -222,6 +222,7 @@ export function RootLayout() {
   // The same avatar again, composited onto its accent disc, for the desktop
   // notifications that show the assistant as the sender rather than the app.
   useNotificationAvatarSync(
+    assistantId,
     avatar.customImageUrl,
     avatar.components,
     avatar.traits,

@@ -3,6 +3,8 @@
  * held only on Electron with `push-avatar-sender` on. Every other host, and the
  * flag off, must leave the holder empty so the IPC payload stays what it is
  * today, and a flag that turns off has to take back what an earlier run stored.
+ * What is held is stamped with the assistant it was drawn for, and a
+ * replacement render empties the holder before it starts drawing.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -15,8 +17,15 @@ mock.module("@/runtime/is-electron", () => ({
 }));
 
 let rasterized: Uint8Array | null = AVATAR_PNG;
+/** Set to stall the rasterizer so the mid-render window can be observed. */
+let rasterizeGate: Promise<void> | null = null;
 const rasterizeNotificationAvatar = mock(
-  async (_src: string, _accentHex: string | null) => rasterized,
+  async (_src: string, _accentHex: string | null) => {
+    if (rasterizeGate) {
+      await rasterizeGate;
+    }
+    return rasterized;
+  },
 );
 mock.module("@/utils/avatar-raster", () => ({ rasterizeNotificationAvatar }));
 
@@ -27,15 +36,19 @@ const { useClientFeatureFlagStore } =
 const { useNotificationAvatarSync } =
   await import("@/hooks/use-notification-avatar-sync");
 
+const ASSISTANT_ID = "assistant-1";
 const IMAGE_URL = "blob:avatar-1";
 const ACCENT = "#E9642F";
 
 const render = (accentHex: string | null = ACCENT) =>
-  renderHook(() => useNotificationAvatarSync(IMAGE_URL, null, null, accentHex));
+  renderHook(() =>
+    useNotificationAvatarSync(ASSISTANT_ID, IMAGE_URL, null, null, accentHex),
+  );
 
 beforeEach(() => {
   electronHost = true;
   rasterized = AVATAR_PNG;
+  rasterizeGate = null;
   rasterizeNotificationAvatar.mockClear();
   clearNotificationAvatar();
   useClientFeatureFlagStore.setState({ pushAvatarSender: true });
@@ -48,7 +61,7 @@ afterEach(() => {
 });
 
 describe("useNotificationAvatarSync", () => {
-  test("holds the composited avatar and its hash on Electron with the flag on", async () => {
+  test("holds the composited avatar, its hash and its assistant on Electron with the flag on", async () => {
     render();
 
     await waitFor(() => {
@@ -56,6 +69,7 @@ describe("useNotificationAvatarSync", () => {
     });
     expect(rasterizeNotificationAvatar).toHaveBeenCalledWith(IMAGE_URL, ACCENT);
     expect(getNotificationAvatar()).toEqual({
+      assistantId: ASSISTANT_ID,
       avatarBase64: "iVBORw==",
       avatarHash: await sha256Hex(AVATAR_PNG),
     });
@@ -100,7 +114,20 @@ describe("useNotificationAvatarSync", () => {
   });
 
   test("holds nothing for an assistant with no avatar to draw", async () => {
-    renderHook(() => useNotificationAvatarSync(null, null, null, ACCENT));
+    renderHook(() =>
+      useNotificationAvatarSync(ASSISTANT_ID, null, null, null, ACCENT),
+    );
+
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+    });
+    expect(getNotificationAvatar()).toBeNull();
+  });
+
+  test("holds nothing while there is no active assistant", async () => {
+    renderHook(() =>
+      useNotificationAvatarSync(null, IMAGE_URL, null, null, ACCENT),
+    );
 
     await waitFor(() => {
       expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
@@ -117,5 +144,29 @@ describe("useNotificationAvatarSync", () => {
       expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
     });
     expect(getNotificationAvatar()).toBeNull();
+  });
+
+  test("empties the holder before drawing a replacement, then holds the new assistant's avatar", async () => {
+    const { rerender } = renderHook(
+      ({ id, url }: { id: string; url: string }) =>
+        useNotificationAvatarSync(id, url, null, null, ACCENT),
+      { initialProps: { id: ASSISTANT_ID, url: IMAGE_URL } },
+    );
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+
+    let releaseRasterize = () => {};
+    rasterizeGate = new Promise<void>((resolve) => {
+      releaseRasterize = resolve;
+    });
+    rerender({ id: "assistant-2", url: "blob:avatar-2" });
+
+    expect(getNotificationAvatar()).toBeNull();
+
+    releaseRasterize();
+    await waitFor(() => {
+      expect(getNotificationAvatar()?.assistantId).toBe("assistant-2");
+    });
   });
 });

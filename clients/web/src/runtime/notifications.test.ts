@@ -380,7 +380,7 @@ describe("postLocalNotification sender (Electron branch)", () => {
   });
 
   test("attaches the held avatar, the assistant's name and its id", async () => {
-    setNotificationAvatar(AVATAR, "sha256-abc");
+    setNotificationAvatar("assistant-1", AVATAR, "sha256-abc");
 
     await postLocalNotification(baseArgs);
 
@@ -401,8 +401,16 @@ describe("postLocalNotification sender (Electron branch)", () => {
   });
 
   test("sends no sender when the assistant has no name yet", async () => {
-    setNotificationAvatar(AVATAR, "sha256-abc");
+    setNotificationAvatar("assistant-1", AVATAR, "sha256-abc");
     useAssistantIdentityStore.getState().clearIdentity();
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender when the held avatar belongs to another assistant", async () => {
+    setNotificationAvatar("assistant-2", AVATAR, "sha256-abc");
 
     await postLocalNotification(baseArgs);
 
