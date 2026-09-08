@@ -30,6 +30,12 @@ import {
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
 import {
+  catalogEntryFor,
+  type InputModalities,
+  modalitiesOf,
+  resolveModalityOverride,
+} from "../../config/input-modalities.js";
+import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
   getConfig,
@@ -45,12 +51,6 @@ import {
   completeCustomProfile,
   mergePreservingUnknownKeys,
 } from "../../config/profile-materialization.js";
-import {
-  catalogEntryFor,
-  modalitiesOf,
-  resolveModalityOverride,
-  type InputModalities,
-} from "../../config/input-modalities.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {

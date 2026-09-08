@@ -9,12 +9,12 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { clampProviderString } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
+import { requestSupportsInlineAudio } from "../inline-audio-support.js";
 import {
   base64Source,
   mediaSourceByteLength,
   resolveMediaReferences,
 } from "../media-resolve.js";
-import { requestSupportsInlineAudio } from "../inline-audio-support.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";

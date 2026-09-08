@@ -24,9 +24,9 @@
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import {
   catalogEntryFor,
+  type InputModalities,
   modalitiesOf,
   resolveModalityOverride,
-  type InputModalities,
 } from "../config/input-modalities.js";
 import { getConfig } from "../config/loader.js";
 import { resolveEntryProviderKind } from "../providers/connection-resolution.js";

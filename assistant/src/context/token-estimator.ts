@@ -2,8 +2,8 @@ import {
   estimateGeminiAudioTokens,
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
-import { mediaSourceByteLength } from "../providers/media-resolve.js";
 import { requestSupportsInlineAudio } from "../providers/inline-audio-support.js";
+import { mediaSourceByteLength } from "../providers/media-resolve.js";
 import {
   estimateOpenAICompatAudioTokens,
   isOpenAICompatInlineAudio,

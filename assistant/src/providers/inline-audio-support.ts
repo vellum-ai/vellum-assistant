@@ -1,5 +1,5 @@
-import { getConfig } from "../config/loader.js";
 import { resolveModalityOverride } from "../config/input-modalities.js";
+import { getConfig } from "../config/loader.js";
 import { modelSupportsAudioInput } from "./model-catalog.js";
 
 /**
