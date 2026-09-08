@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -49,9 +50,25 @@ export const ensureNotificationAvatarFile = (
     return file;
   }
   mkdirSync(directory, { recursive: true });
-  writeFileSync(file, avatarPng);
+  writeAtomically(file, avatarPng);
   pruneToNewest(directory);
   return file;
+};
+
+/**
+ * A partial `.png` would be served by the `existsSync` check above forever,
+ * so the bytes land under a temporary name and only become the cache entry
+ * through a rename.
+ */
+const writeAtomically = (file: string, bytes: Buffer): void => {
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, bytes);
+    renameSync(temporary, file);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
 };
 
 const pruneToNewest = (directory: string): void => {
