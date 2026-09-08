@@ -407,6 +407,27 @@ describe("deriveReason", () => {
     );
   });
 
+  test("500 with apiErrorType=ModelError stays server_error", () => {
+    expect(
+      deriveReason(
+        n({
+          message: "Internal server error",
+          apiErrorType: "ModelError",
+        }),
+        500,
+      ),
+    ).toBe("server_error");
+  });
+
+  test("500 with 'model is not supported' prose stays server_error", () => {
+    expect(
+      deriveReason(
+        n({ message: "Model muse-spark-1.3-contributor is not supported" }),
+        500,
+      ),
+    ).toBe("server_error");
+  });
+
   test("vision-not-supported prose → vision_unsupported", () => {
     expect(
       deriveReason(
