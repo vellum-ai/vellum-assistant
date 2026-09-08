@@ -1047,7 +1047,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T20:33:02.000Z"
+      "updatedAt": "2026-09-08T14:23:25.000Z"
     },
     {
       "id": "vellum-client-capabilities",
@@ -1167,7 +1167,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-06T03:18:24.000Z"
+      "updatedAt": "2026-09-06T10:00:02.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
