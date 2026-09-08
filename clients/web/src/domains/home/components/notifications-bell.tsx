@@ -138,26 +138,31 @@ export function NotificationsBell() {
     isEmptyStateVisible,
   );
 
-  // The rows name the thread each notification came from, and the detail's
-  // "Go to Conversation" link is checked against the conversations that still
-  // exist, so the foreground, background, and scheduled lists are merged for
-  // both. They load only while the panel is open: the bell renders in the top
-  // bar on every route, and a closed panel has no use for the ids. Disabled,
+  // A notification can point at a conversation that has since been deleted, so
+  // the detail's "Go to Conversation" link is checked against the foreground,
+  // background, and scheduled lists merged. They load only while a detail is
+  // open: each list is a full drain of its bucket, the bell renders in the top
+  // bar on every route, and the list view has no use for the ids. Disabled,
   // these stay subscribed to the caches without fetching, so the foreground
-  // list the chat layout already loaded is read for free and opening the
-  // panel costs the background and scheduled lists at most.
+  // list the chat layout already loaded is read for free and opening a
+  // detail costs the background and scheduled lists at most.
+  //
+  // The rows name their threads off those same caches, and only off the
+  // caches: a title the sidebar has already loaded is shown, and one it has
+  // not is left to the row's source-label fallback rather than paid for with
+  // a drain of every bucket each time the panel opens.
   const {
     conversations: foregroundConversations,
     isPending: isForegroundPending,
-  } = useConversationListQuery(assistantId, isOpen);
+  } = useConversationListQuery(assistantId, isDetailOpen);
   const {
     conversations: backgroundConversations,
     isPending: isBackgroundPending,
-  } = useBackgroundConversationListQuery(assistantId, isOpen);
+  } = useBackgroundConversationListQuery(assistantId, isDetailOpen);
   const {
     conversations: scheduledConversations,
     isPending: isScheduledPending,
-  } = useScheduledConversationListQuery(assistantId, isOpen);
+  } = useScheduledConversationListQuery(assistantId, isDetailOpen);
   const mergedConversations = useMemo(
     () =>
       mergeConversationLists(
@@ -190,10 +195,18 @@ export function NotificationsBell() {
 
   // A pending approval can be decided from its row. One mutation serves every
   // row, so all of their buttons go inert together while a decision is in
-  // flight. A decision that comes back not-applied means another surface
-  // resolved the request first; the projection converges through the feed's
-  // own refresh, so nothing is done here beyond reporting a failure.
+  // flight. The row draws its buttons off the feed item alone, so the feed is
+  // refreshed on every outcome to retire them: a decision that was applied
+  // turns the row into its receipt, and one that comes back not-applied means
+  // another surface resolved the request first, which the refresh reflects
+  // and a toast says out loud, since the click otherwise did nothing visible.
   const decision = useGuardianactionsDecisionPostMutation({
+    onSuccess: (data) => {
+      if (data.applied === false) {
+        toast.info(t("homeGuardianRequestCard.receipt.alreadyResolved"));
+      }
+      feedQuery.invalidate();
+    },
     onError: (error) => {
       captureError(error, { context: "notifications-bell-decision" });
       toast.error(t("homeGuardianRequestCard.decisionFailed"));

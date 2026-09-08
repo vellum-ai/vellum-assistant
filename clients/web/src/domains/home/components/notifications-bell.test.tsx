@@ -97,11 +97,24 @@ mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
       isPending: false,
     },
     markAll: { mutate: () => {}, isPending: false },
+    invalidate: () => {
+      feedInvalidateCalls.push(feedInvalidateCalls.length + 1);
+    },
   }),
 }));
 
 mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: { error: () => {}, success: () => {} },
+  toast: {
+    error: (message: string) => {
+      toastCalls.push(["error", message]);
+    },
+    info: (message: string) => {
+      toastCalls.push(["info", message]);
+    },
+    success: (message: string) => {
+      toastCalls.push(["success", message]);
+    },
+  },
 }));
 
 mock.module("@/lib/backwards-compat/bulk-feed-status", () => ({
@@ -224,17 +237,41 @@ interface DecisionVars {
   body?: { requestId?: string; action?: string };
 }
 
+interface DecisionCallbacks {
+  onSuccess?: (data: { applied: boolean }) => void;
+}
+
 /** What the rows' inline Approve and Reject submit to the decision route. */
 const decisionCalls: DecisionVars[] = [];
+
+/**
+ * How the mocked decision settles. "not-applied" is the 200 the route
+ * returns when another surface resolved the request first, which reaches
+ * `onSuccess` rather than `onError`.
+ */
+const decisionRef: { outcome: "pending" | "applied" | "not-applied" } = {
+  outcome: "pending",
+};
+
+/** Feed refreshes the bell asked for, one per decision outcome. */
+const feedInvalidateCalls: number[] = [];
+
+/** Toasts the bell raised, by tone. */
+const toastCalls: Array<[string, string]> = [];
 
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   skillsGetOptions: (options: { query?: { kind?: string } }) => ({
     queryKey: ["skills", options.query?.kind ?? ""],
     queryFn: () => Promise.resolve({ skills: skillsRef.list }),
   }),
-  useGuardianactionsDecisionPostMutation: () => ({
+  useGuardianactionsDecisionPostMutation: (options?: DecisionCallbacks) => ({
     mutate: (vars: DecisionVars) => {
       decisionCalls.push(vars);
+      if (decisionRef.outcome === "applied") {
+        options?.onSuccess?.({ applied: true });
+      } else if (decisionRef.outcome === "not-applied") {
+        options?.onSuccess?.({ applied: false });
+      }
     },
     isPending: false,
   }),
@@ -388,6 +425,9 @@ beforeEach(() => {
   localStorage.clear();
   updateStatusCalls.length = 0;
   decisionCalls.length = 0;
+  decisionRef.outcome = "pending";
+  feedInvalidateCalls.length = 0;
+  toastCalls.length = 0;
   triggerActionCalls.length = 0;
   triggerActionRef.outcome = "pending";
   navigateMock.mockClear();
@@ -698,6 +738,31 @@ describe("NotificationsBell guardian rows", () => {
       requestId: "req-1",
       action: "reject",
     });
+  });
+
+  test("an applied decision refreshes the feed so the row becomes its receipt", async () => {
+    decisionRef.outcome = "applied";
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(feedInvalidateCalls.length).toBe(1);
+    expect(toastCalls).toEqual([]);
+  });
+
+  test("a decision another surface beat says so and refreshes the feed", async () => {
+    decisionRef.outcome = "not-applied";
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    // The route answers 200 with `applied: false`, which is not an error:
+    // the row was stale, so the feed is refreshed to retire its buttons and
+    // the click is explained rather than swallowed.
+    expect(feedInvalidateCalls.length).toBe(1);
+    expect(toastCalls).toEqual([["info", "Already resolved"]]);
   });
 });
 
@@ -1312,25 +1377,20 @@ describe("NotificationsBell detail", () => {
     expect(shortHeight).toBe(longHeight);
   });
 
-  test("loads the conversation lists once the panel opens, and the entity-link lists only once a detail is open", async () => {
+  test("loads the conversation and entity-link lists only once a detail is open", async () => {
     feedRef.items = [FIRST];
 
-    render(<NotificationsBell />);
+    await openBell();
 
-    // The bell renders on every route, so a closed panel fetches nothing.
+    // The list view names its threads off whatever the caches already hold
+    // and fetches nothing for it: each conversation list is a drain of its
+    // whole bucket, and the bell renders on every route. Schedule and skill
+    // ids matter only to a detail's links, so those lists stay untouched
+    // too.
     expect(enabledCalls.foreground.length).toBeGreaterThan(0);
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
-
-    await clickTrigger();
-
-    // The rows name their threads, so opening the panel reads the
-    // conversation lists. Schedule and skill ids matter only to a detail's
-    // links, so those lists stay untouched.
-    expect(enabledCalls.foreground.at(-1)).toBe(true);
-    expect(enabledCalls.background.at(-1)).toBe(true);
-    expect(enabledCalls.scheduled.at(-1)).toBe(true);
     expect(skillsEnabledCalls.length).toBeGreaterThan(0);
     expect(skillsEnabledCalls.some((enabled) => enabled)).toBe(false);
     // The recipe gate reads the same list, but only for an empty feed, and
@@ -1341,6 +1401,9 @@ describe("NotificationsBell detail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
 
+    expect(enabledCalls.foreground.at(-1)).toBe(true);
+    expect(enabledCalls.background.at(-1)).toBe(true);
+    expect(enabledCalls.scheduled.at(-1)).toBe(true);
     expect(skillsEnabledCalls.at(-1)).toBe(true);
     expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(true);
   });
