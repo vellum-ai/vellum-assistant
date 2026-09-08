@@ -1131,6 +1131,19 @@ let coachmarks: readonly CompanionCoachmark[] = NO_COACHMARKS;
 let coachmarkTarget: WatchCaptureTarget | undefined;
 
 /**
+ * How many requests to change what is pointed at have been taken.
+ *
+ * Resolving a name is a round trip to the helper and nothing is queued behind
+ * it, so a second request can arrive and finish while the first is still out.
+ * `screen_clear_marks` is the case that matters, because it has nothing to
+ * look up and answers immediately: the lookup landing afterwards would put
+ * the mark the user was just told was gone back on their screen. Each request
+ * takes the next number on the way in, and only the request holding the
+ * latest one is allowed to paint.
+ */
+let coachmarkRequests = 0;
+
+/**
  * The surface of the last frame this process handed to the window holding the
  * session, or nothing before it has served one.
  *
@@ -1246,6 +1259,16 @@ const syncCapturedTarget = (): void => {
  * changes and cannot reach one that arrives afterwards, so the arrival is
  * refused here instead.
  *
+ * **The last request in owns the screen.** Requests are not queued, so a
+ * lookup still out when a later one lands would paint over its answer.
+ * {@link coachmarkRequests} settles that: the latest number paints, and
+ * anything holding an older one is refused.
+ *
+ * **A request replaces everything, including with nothing.** A name that does
+ * not resolve takes the standing marks down on its way to saying so. They
+ * describe the step before this one, and leaving them up would point the user
+ * at a control while the assistant says it could not find the one it meant.
+ *
  * **Taking them down always succeeds**, whoever asks and whatever the frame is
  * around. The two directions are not the same risk: a mark placed by the
  * wrong conversation is a ring on a stranger's screen reported as a success,
@@ -1258,6 +1281,7 @@ export const showCompanionCoachmarks = async (
   conversationId?: string,
 ): Promise<CoachmarkResult> => {
   if (requests.length === 0) {
+    coachmarkRequests += 1;
     setCoachmarks(NO_COACHMARKS);
     return { kind: "placed", marks: [] };
   }
@@ -1269,6 +1293,10 @@ export const showCompanionCoachmarks = async (
   if (share === undefined) {
     return { kind: "refused", refusal: "unshared" };
   }
+  // Taken after the refusals above, so a request that was never going to
+  // change what is on screen does not supersede one that is.
+  coachmarkRequests += 1;
+  const sequence = coachmarkRequests;
 
   const marks: PlacedCoachmark[] = [];
   for (const request of requests) {
@@ -1280,17 +1308,27 @@ export const showCompanionCoachmarks = async (
       continue;
     }
     const placed = await placeOnNamedTarget(share, request);
-    // Asked after every await, against the share these marks are being
-    // resolved on rather than against whatever is shared now. Resolving a
-    // name is a round trip to the helper and the user is still working the
-    // whole time: a share that moved and had a frame of its own served in
-    // that window answers every check the current state can make, and these
-    // marks would land on it measured against the surface it replaced.
+    // Both asked after every await, because both answers can change across
+    // one. Something else asking to point in the meantime owns the screen
+    // now, and this request touching it at all would undo that.
+    if (sequence !== coachmarkRequests) {
+      return { kind: "refused", refusal: "superseded" };
+    }
+    // Asked against the share these marks are being resolved on rather than
+    // against whatever is shared now. Resolving a name is a round trip to the
+    // helper and the user is still working the whole time: a share that moved
+    // and had a frame of its own served in that window answers every check
+    // the current state can make, and these marks would land on it measured
+    // against the surface it replaced.
     const moved = whyNotToDraw(conversationId, share);
     if (moved !== null) {
       return { kind: "refused", refusal: moved };
     }
     if ("reason" in placed) {
+      // A request replaces everything on screen, and it has replaced it with
+      // nothing it can draw. Leaving the last step's mark up would point the
+      // user at a control this turn is about to say it could not find.
+      setCoachmarks(NO_COACHMARKS);
       return { kind: "unresolved", unresolved: placed };
     }
     marks.push(placed);
@@ -1365,9 +1403,8 @@ const placeOnNamedTarget = async (
   // The centre, not the frame. An element's frame is its hit area, which is
   // routinely a good deal larger than the thing drawn inside it, and it can
   // belong to the small triangle that discloses a row rather than the row.
-  // Measured on 8 Sep: every frame that misled about size was right about
-  // position. So the arrow is aimed at the middle of it and nothing claims an
-  // extent that was never trustworthy.
+  // Its position is trustworthy where its extent is not, so the arrow is
+  // aimed at the middle of it and nothing claims a size.
   return {
     kind: "point",
     x: (located.x + located.width / 2 - bounds.x) / bounds.width,

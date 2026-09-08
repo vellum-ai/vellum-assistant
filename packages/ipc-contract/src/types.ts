@@ -1517,7 +1517,11 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * and the host-proxy executor words it, and the file that words it says in as
  * many words that it must not reach into the windows for anything.
  */
-export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+export type CoachmarkRefusal =
+  | "unshared"
+  | "not-this-call"
+  | "stale-surface"
+  | "superseded";
 
 /**
  * One thing to point at: a control named, or a rectangle given.
@@ -1526,8 +1530,8 @@ export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
  * frame of every labelled control on the surface, so a name resolves to where
  * the thing actually is; a rectangle is a guess at it, measured off a picture
  * that has been scaled and compressed on its way to whoever is guessing. The
- * rectangle form remains for what the tree cannot name — a canvas, an image,
- * a plugin's own drawing — where there is nothing to resolve against.
+ * rectangle form remains for what the tree cannot name (a canvas, an image,
+ * a plugin's own drawing), where there is nothing to resolve against.
  */
 export type CoachmarkRequest =
   | { target: string; caption?: string }

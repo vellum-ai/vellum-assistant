@@ -748,7 +748,7 @@ export async function captureSourceThumbnail(
  * A found element carries the frame the accessibility tree holds for it,
  * which is exact: the point of asking at all is that nothing here estimates
  * a position from a picture. A refusal carries names instead, so the caller
- * can say what is on the surface rather than pointing at a guess — see
+ * can say what is on the surface rather than pointing at a guess. See
  * `AXTargetMatch` for why a query fitting more than one control resolves to
  * nothing.
  */

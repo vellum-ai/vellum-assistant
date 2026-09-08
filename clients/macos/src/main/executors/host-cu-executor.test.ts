@@ -292,6 +292,17 @@ describe("pointing at the shared surface", () => {
     expect(told).not.toContain("Ask the user to share");
   });
 
+  /**
+   * Overtaken is not the same as failed: the screen is showing what asked
+   * last, and a turn told only that it failed would point again and take it
+   * back.
+   */
+  test("tells an overtaken turn that the screen belongs to the later one", async () => {
+    const told = await refusedWith("superseded");
+    expect(told).toContain("Another request");
+    expect(told).toContain("were not drawn");
+  });
+
   test("refuses coordinates measured against some other surface", async () => {
     const executor = createHostCuExecutor({
       helper: helperReturning({}),

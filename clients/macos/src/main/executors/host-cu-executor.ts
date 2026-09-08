@@ -158,11 +158,23 @@ const NOT_THIS_CALL =
 const STALE_SURFACE =
   "The user has moved the share to another screen or window since the picture you measured against, so those coordinates no longer describe what they are showing. Wait for a fresh frame of the new surface and point again.";
 
+/**
+ * What a turn whose marks were overtaken is told.
+ *
+ * Not a failure to fix, which is why it says what is on the screen rather
+ * than what to do: something else has since said what is pointed at, and the
+ * screen is showing that. Pointing again here would take it back from
+ * whatever asked last.
+ */
+const SUPERSEDED =
+  "Another request changed what is pointed at while this one was resolving a name, so these marks were not drawn. The screen shows what that later request asked for.";
+
 /** What the assistant is told for each way a set of marks can be refused. */
 const REFUSALS: Record<CoachmarkRefusal, string> = {
   unshared: UNSHARED,
   "not-this-call": NOT_THIS_CALL,
   "stale-surface": STALE_SURFACE,
+  superseded: SUPERSEDED,
 };
 
 /**
