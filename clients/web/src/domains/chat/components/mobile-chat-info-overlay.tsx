@@ -1,6 +1,7 @@
 import { lazy } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { chatInfoPanelKey } from "@/domains/chat/components/chat-info-panel";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
 import type { ChatInfoCategory, ChatInfoPayload } from "@/stores/viewer-store";
 
@@ -41,11 +42,11 @@ export function MobileChatInfoOverlay({
   return (
     <div className="fixed inset-x-0 z-30" style={shellStyle}>
       <LazyBoundary>
-        {/* Re-key per conversation so a switch remounts the panel rather than
+        {/* Re-key per target so a switch remounts the panel rather than
             reusing one whose preview and delete state belong to the previous
             chat. */}
         <ChatInfoPanel
-          key={payload.conversationId}
+          key={chatInfoPanelKey(payload)}
           payload={payload}
           onClose={onClose}
           onSelectCategory={onSelectCategory}

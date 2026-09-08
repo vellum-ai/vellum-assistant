@@ -33,7 +33,7 @@ mock.module(
         mountCount += 1;
       }, []);
       return (
-        <div data-testid={`panel-${payload.conversationId}`}>
+        <div data-testid={`panel-${payload.assistantId}-${payload.conversationId}`}>
           {payload.conversationId}
         </div>
       );
@@ -50,12 +50,11 @@ const noop = () => {};
 // findBy's 1000ms default under CI load.
 const LAZY_WAIT = { timeout: 5000 };
 
-function makePayload(conversationId: string): ChatInfoPayload {
-  return {
-    assistantId: "assistant-1",
-    conversationId,
-    category: null,
-  };
+function makePayload(
+  conversationId: string,
+  assistantId = "assistant-1",
+): ChatInfoPayload {
+  return { assistantId, conversationId, category: null };
 }
 
 beforeEach(() => {
@@ -85,7 +84,7 @@ describe("MobileChatInfoOverlay", () => {
       />,
     );
     expect(
-      await screen.findByTestId("panel-conv-1", undefined, LAZY_WAIT),
+      await screen.findByTestId("panel-assistant-1-conv-1", undefined, LAZY_WAIT),
     ).toBeDefined();
   });
 
@@ -97,7 +96,7 @@ describe("MobileChatInfoOverlay", () => {
         onSelectCategory={noop}
       />,
     );
-    await screen.findByTestId("panel-conv-1", undefined, LAZY_WAIT);
+    await screen.findByTestId("panel-assistant-1-conv-1", undefined, LAZY_WAIT);
     expect(mountCount).toBe(1);
 
     rerender(
@@ -107,8 +106,30 @@ describe("MobileChatInfoOverlay", () => {
         onSelectCategory={noop}
       />,
     );
-    await screen.findByTestId("panel-conv-2", undefined, LAZY_WAIT);
-    expect(screen.queryByTestId("panel-conv-1")).toBeNull();
+    await screen.findByTestId("panel-assistant-1-conv-2", undefined, LAZY_WAIT);
+    expect(screen.queryByTestId("panel-assistant-1-conv-1")).toBeNull();
+    expect(mountCount).toBe(2);
+  });
+
+  test("switching assistant remounts the panel for the same conversation id", async () => {
+    const { rerender } = render(
+      <MobileChatInfoOverlay
+        payload={makePayload("conv-1")}
+        onClose={noop}
+        onSelectCategory={noop}
+      />,
+    );
+    await screen.findByTestId("panel-assistant-1-conv-1", undefined, LAZY_WAIT);
+
+    rerender(
+      <MobileChatInfoOverlay
+        payload={makePayload("conv-1", "assistant-2")}
+        onClose={noop}
+        onSelectCategory={noop}
+      />,
+    );
+    await screen.findByTestId("panel-assistant-2-conv-1", undefined, LAZY_WAIT);
+    expect(screen.queryByTestId("panel-assistant-1-conv-1")).toBeNull();
     expect(mountCount).toBe(2);
   });
 });
