@@ -248,15 +248,24 @@
     "adjust": "调整",
     "capProgress": " / 本月 {cap}",
     "connectCardBanner": "自动充值需要您绑定一张信用卡。",
+    "dailyLimitLookupError": "无法检查每日积分限额，自动充值需要该限额。请重试以继续。",
     "declinedCutoffNotice": "多次付款失败后，我们已暂停自动充值。请添加新的付款方式以重新开启自动充值。",
     "disableError": "未能禁用自动充值。请重试。",
     "dismiss": "忽略",
     "loadError": "未能加载自动充值配置。",
     "loading": "加载中…",
+    "retry": "重试",
     "summary": "当余额低于 {threshold} 时，自动充值 {amount}",
     "toggleHelper": "自动充值仅在套餐用量耗尽时发生",
     "toggleLabel": "启用自动充值",
     "updateError": "未能保存自动充值设置。请重试。"
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "禁用自动充值",
+    "message": "自动充值需要设置每日积分限额。请设置一个限额以保存自动充值设置，或禁用自动充值。",
+    "save": "保存",
+    "saving": "保存中…",
+    "title": "设置每日积分限额"
   },
   "autoTopUpDisableConfirm": {
     "disable": "禁用",
@@ -446,12 +455,12 @@
     "urlPlaceholder": "在此处粘贴回调 URL..."
   },
   "checkoutBonusModal": {
-    "body": "领取一次性 {amount} 积分，我们将直接将其添加到您的账户余额中。无需支付。",
-    "claim": "领取 {amount} 积分",
+    "body": "领取一次性 {amount} 额外用量，我们将直接将其添加到您的使用余额中。无需支付。",
+    "claim": "领取 {amount} 额外用量",
     "decline": "不用了，谢谢",
-    "errorToast": "无法添加积分。请重试。",
-    "grantedToast": "{amount} 积分已添加到您的账户。",
-    "title": "我们赠送您 {amount}",
+    "errorToast": "无法添加额外用量。请重试。",
+    "grantedToast": "{amount} 额外用量已添加到您的使用余额。",
+    "title": "我们赠送您 {amount} 额外用量",
     "unavailableToast": "此优惠已不再可用。"
   },
   "checkoutPage": {
@@ -2295,6 +2304,38 @@
     "redirectUrl": "重定向 URL",
     "waitingAuthorization": "等待授权..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "伙伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "独立",
+        "right": "协作"
+      },
+      "genzBoomer": {
+        "left": "Z世代",
+        "right": "婴儿潮一代"
+      },
+      "playfulSerious": {
+        "left": "活泼",
+        "right": "严肃"
+      },
+      "politeUnfiltered": {
+        "left": "礼貌",
+        "right": "直率"
+      }
+    },
+    "loadError": "无法加载个性滑块。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "保存",
+    "saveErrorToast": "无法保存个性滑块。请重试。",
+    "saveSuccessToast": "个性滑块已保存。",
+    "saving": "正在保存…",
+    "subtitle": "将这些滑块值保存到此助手。这不会改写身份文件。",
+    "title": "个性"
+  },
   "sidebar": {
     "general": "常规",
     "model": "模型与服务",
@@ -2310,6 +2351,7 @@
     "community": "社区",
     "debug": "调试",
     "developer": "开发者",
+    "personality": "个性",
     "logout": "退出登录",
     "login": "登录",
     "title": "设置"

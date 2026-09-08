@@ -310,6 +310,7 @@ interface FakeTurnState {
   assistantId: string | undefined;
   callSessionId: string | undefined;
   trustContext: unknown;
+  actorPrincipalId: string | undefined;
   commandIntent: unknown;
   turnChannelContext: unknown;
   turnInterfaceContext: unknown;
@@ -332,6 +333,8 @@ function wireTurnState(
   const conv = fake as FakeConversation & {
     assistantId?: string;
     trustContext?: unknown;
+    currentTurnSourceActorPrincipalId?: string;
+    currentTurnActorStampGeneration?: number;
     commandIntent?: unknown;
     channelCapabilities?: unknown;
     voiceCallControlPrompt?: string;
@@ -341,6 +344,22 @@ function wireTurnState(
   conv.assistantId = initial.assistantId;
   conv.callSessionId = initial.callSessionId;
   conv.trustContext = initial.trustContext;
+  // The real Conversation counts every write to the actor stamp behind an
+  // accessor (see `currentTurnActorStampGeneration`), which is what lets a
+  // turn tell its own stamp from a concurrent writer's. The fake counts them
+  // the same way, so the bridge's check is exercised here rather than being
+  // trivially true against a plain property.
+  let actorPrincipal = initial.actorPrincipalId;
+  conv.currentTurnActorStampGeneration = 0;
+  Object.defineProperty(conv, "currentTurnSourceActorPrincipalId", {
+    configurable: true,
+    get: () => actorPrincipal,
+    set: (value: string | undefined) => {
+      actorPrincipal = value;
+      conv.currentTurnActorStampGeneration =
+        (conv.currentTurnActorStampGeneration ?? 0) + 1;
+    },
+  });
   conv.commandIntent = initial.commandIntent;
   conv.channelCapabilities = initial.channelCapabilities;
   conv.voiceCallControlPrompt = initial.voiceCallControlPrompt;
@@ -374,6 +393,7 @@ function wireTurnState(
     assistantId: conv.assistantId,
     callSessionId: conv.callSessionId,
     trustContext: conv.trustContext,
+    actorPrincipalId: conv.currentTurnSourceActorPrincipalId,
     commandIntent: conv.commandIntent,
     turnChannelContext,
     turnInterfaceContext,
@@ -393,6 +413,7 @@ function makeWinnerState(): FakeTurnState {
     assistantId: "assistant-winner",
     callSessionId: "session-winner",
     trustContext: { sourceChannel: "imessage", trustClass: "trusted_contact" },
+    actorPrincipalId: "principal-winner",
     commandIntent: undefined,
     turnChannelContext: {
       userMessageChannel: "imessage",
@@ -1489,6 +1510,103 @@ describe("startVoiceTurn queued-message drain race", () => {
   });
 });
 
+describe("startVoiceTurn actor principal", () => {
+  // The turn's actor is what host proxies match connected desktop clients
+  // against (`pickSameUserAutoResolve`). A turn that carries none matches no
+  // client, so every computer-use call it makes is refused however healthy
+  // the connected client is.
+
+  test("stamps the caller's actor for the duration of the turn", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-stamp"),
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBe("principal-guardian");
+  });
+
+  /**
+   * A phone caller is whoever dialled in. Resolving them to a desktop client
+   * would hand an inbound caller the owner's machine, so the telephony path
+   * passes no actor and the turn must not invent one.
+   */
+  test("a turn with no caller actor leaves the conversation without one", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-actor-absent"));
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBeUndefined();
+  });
+
+  /** The stamp is the turn's, so it goes when the turn does. */
+  test("releases the actor when the turn ends", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBeUndefined();
+  });
+
+  /**
+   * The release is not unconditional. `runAgentLoopImpl` gives up the
+   * processing claim before the turn-boundary commit is awaited, so a retry
+   * can take the conversation and stamp its own actor while this turn is
+   * still unwinding. The retry route installs no auth-context fallback, so a
+   * clear on the way out would leave it with no actor at all and its
+   * host-proxy calls refused.
+   */
+  test("does not clear an actor another turn stamped while this one unwound", async () => {
+    let conv: { currentTurnSourceActorPrincipalId?: string } | null = null;
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        conv!.currentTurnSourceActorPrincipalId = "principal-retry";
+      },
+    });
+    conv = fake.conversation as {
+      currentTurnSourceActorPrincipalId?: string;
+    };
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release-guard"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBe("principal-retry");
+  });
+});
+
 describe("startVoiceTurn race-loss state restore", () => {
   // A busy persist means a concurrent turn (the lock winner) is running with
   // per-turn state it installed. Every race-loss path must put the winner's
@@ -1545,6 +1663,54 @@ describe("startVoiceTurn race-loss state restore", () => {
       assistantMessageInterface: "phone",
     });
     expect(retryState.voiceCallControlPrompt).toContain("voice_call_control");
+  });
+
+  /**
+   * The winner here is an ordinary message turn, which stamps the actor
+   * directly (`conversation-routes`, `conversation-process`) rather than
+   * through this bridge. It shares the guardian, so it writes the identical
+   * string this turn did and the field cannot say which of them wrote it.
+   * Reverting on that would hand the winner a principal from an earlier turn,
+   * and automatic host-client resolution would then go looking for that other
+   * principal's desktop.
+   */
+  test("an ordinary turn's actor stamp is not reverted by a losing voice turn", async () => {
+    const statesDuringWait: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          // The winner takes the conversation and stamps the same guardian,
+          // the way an ordinary turn does: a direct write, counted but
+          // otherwise invisible to this bridge.
+          (
+            fake.conversation as { currentTurnSourceActorPrincipalId?: string }
+          ).currentTurnSourceActorPrincipalId = "principal-guardian";
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    // What an earlier turn left resident, and what a value-based revert would
+    // wrongly put back.
+    const readState = wireTurnState(fake.conversation, {
+      actorPrincipalId: "principal-other",
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-ordinary-winner"),
+      callSessionId: "session-voice-loser",
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesDuringWait.length).toBe(1);
+    expect(statesDuringWait[0]!.actorPrincipalId).toBe("principal-guardian");
   });
 
   test("a busy persist whose retry wait exhausts the budget leaves the winner's values in place", async () => {

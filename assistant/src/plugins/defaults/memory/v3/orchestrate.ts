@@ -13,7 +13,13 @@
  *        - the span-query pass — the dense lane re-run over the current
  *          message's clause chunks as separate queries at a small per-chunk
  *          budget (`spanQueryK`), rescuing motifs a long multi-topic message's
- *          single query vector averages away — and
+ *          single query vector averages away,
+ *        - the entity lane (`entityLane`) and the rare-term lane
+ *          (`rareTermLane`), which key on one strong token each (a
+ *          distinctive `## ` heading token the message names; a query word
+ *          that occurs in at most a handful of sections) so the section a
+ *          name or a rare word points at surfaces regardless of the
+ *          message's bulk theme, and
  *        - link-graph edge expansion (`edgeExpand`) over the top
  *          user-message needle+dense article seeds, and
  *        - learned-edge expansion (`edgeExpand` over the co-selection NPMI
@@ -31,9 +37,14 @@
  *      throw inside it logs a warning and falls through to normal selection.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
  *      `[...core (file order), ...hot (score order), ...fresh (recency order),
- *      ...always-candidate (skills pinned every turn)]`, all computed at lane
- *      init — followed by the finder candidates (needle → dense → edge
- *      surfacing order). The stable prefix
+ *      ...always-candidate (skills listed every turn)]`, all computed at lane
+ *      init, followed by the finder candidates (needle → dense → reply →
+ *      span → entity → rare → edge → learned surfacing order), one line per
+ *      distinct (page, matched section) and at most `finderSectionsPerPage`
+ *      lines per page from the lanes other than entity and rare (an entity
+ *      line and a rare-term line never count against the cap or yield to it;
+ *      see `poolLine`), so a page whose sections match different parts of
+ *      the message is shown section by section. The stable prefix
  *      is identical across consecutive turns while the lanes are unchanged
  *      (lane invalidation at consolidation is the recompute cadence), so the
  *      selector input's leading segment rides the provider KV cache (the
@@ -42,16 +53,17 @@
  *      Stable-prefix candidates render as FULL CARDS (`renderCard` — head
  *      section + TOC), pre-rendered at lane init (`prefixCards`) so the
  *      rendered prefix is byte-identical across turns. Finder candidates
- *      render as compact snippet lines: the matched section's text (or the
- *      curated `links` description for an edge hit), falling back to the
- *      page's lead-section text when no match text exists.
+ *      render as compact snippet lines: the matched section's
+ *      keyword-in-context window around the query terms that scored it (or
+ *      the curated `links` description for an edge hit), falling back to
+ *      the page's lead-section text when no match text exists.
  *
  *      The finder tail is NOT deduped against the stable prefix: a finder hit
  *      on a core/hot page keeps its matched-section line (and its
- *      `matchedSections` ref + `lanes.finder` entry), so the selector and the
- *      section spotlight see that page's CURRENT relevance even though the
- *      page itself sits in the stable prefix. The selector dedupes selections
- *      by slug.
+ *      `lanes.finder` entry), so the selector and the
+ *      section injection see that page's CURRENT relevance even though the
+ *      page itself sits in the stable prefix. The selector merges selections
+ *      per slug, carrying every selected section.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
  *      result is this turn's selections — current turn only. Cross-turn
  *      persistence is the injector's job (net-new blocks frozen into history),
@@ -65,7 +77,7 @@ import {
 } from "../../../../daemon/turn-latency-sub-spans.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../logging.js";
-import type { DenseHitScored } from "./dense.js";
+import { injectionUnits } from "./capabilities.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
@@ -78,15 +90,21 @@ import type {
   StableCandidate,
 } from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
+import {
+  type RareTermHit,
+  rareTermLane,
+  type RareTermLaneOptions,
+} from "./rare-term-lane.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { spanChunksOf } from "./span-query.js";
-import type {
-  FinderLane,
-  MemoryRoutingTurn,
-  Section,
-  SectionIndex,
-  SelectedPage,
-  Slug,
+import {
+  type FinderLane,
+  type MemoryRoutingTurn,
+  type Section,
+  type SectionIndex,
+  sectionKey,
+  type SelectedPage,
+  type Slug,
 } from "./types.js";
 
 // Named to disambiguate from the unrelated `src/config/memory-v3-gate.ts`: this
@@ -159,6 +177,10 @@ export const DEFAULT_NEEDLE_K = 12;
 export const DEFAULT_DENSE_K = 0;
 /** Default hard cap on entity-lane articles folded into the pool per turn. */
 export const DEFAULT_ENTITY_CAP = 8;
+/** Contributing query terms carried per finder candidate for its
+ *  keyword-in-context snippet (the renderer uses the first one that occurs
+ *  in the section body). */
+const SNIPPET_TERMS = 3;
 
 export interface OrchestrateDeps {
   sectionIndex: SectionIndex;
@@ -180,7 +202,7 @@ export interface OrchestrateDeps {
   /** The modification-recency fresh set in recency order (computed at lane
    *  init with core and hot excluded). Follows hot in the stable prefix. */
   freshSlugs: Slug[];
-  /** Skills pinned into the candidate pool every turn regardless of retrieval
+  /** Skills placed in the candidate pool every turn regardless of retrieval
    *  (existence-filtered and core/hot/fresh-excluded at lane init). Follow fresh
    *  in the stable prefix so the selector always sees them. */
   alwaysCandidateSlugs?: Slug[];
@@ -197,6 +219,21 @@ export interface OrchestrateDeps {
   /** Hard cap on entity-lane articles. Defaults to {@link DEFAULT_ENTITY_CAP}.
    *  Ignored when `entityIndex` is omitted (the lane is off). */
   entityCap?: number;
+  /** Rare-term lane tuning (canonical value: `memory.v3.rareTerm`): the df
+   *  ceiling for a query word to count as rare (`maxDf`, lowered on a smaller
+   *  corpus by `maxDfFraction`), the sections surfaced per rare word, and the
+   *  per-turn cap. Omitted disables the lane, which the caller does whenever
+   *  the selector is off: rare lines are candidates for a judge, not evidence
+   *  strong enough to inject unjudged. */
+  rareTerm?: RareTermLaneOptions;
+  /** Cap on finder lines one page may carry per turn, applied in surfacing
+   *  order (needle, dense, reply, span); a section-less edge or learned line
+   *  counts as one. An entity line and a rare-term line are outside the cap,
+   *  neither counted against it nor displaced by it (the lanes' own
+   *  `entityCap` and `rareTerm.cap` bound those per turn), so a page carries
+   *  at most this many lines plus its entity and rare lines (canonical
+   *  value, default included: `memory.v3.finderSectionsPerPage`). */
+  finderSectionsPerPage: number;
   /** Per-lane article budget for the reply-query pass (needle + dense re-run
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
    *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
@@ -242,26 +279,36 @@ export interface OrchestrateDeps {
    *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
    *  telemetry detail (the gate itself never reads it). */
   realConceptPageCount?: number;
-  /** Slugs already live in this conversation (prior turns' injected cards). Used
-   *  ONLY to compute the `net_new_count` telemetry field — selections minus this
-   *  set are what the injector actually renders. Read-only and side-effect-free:
-   *  selection never consults it, and omitting it just drops the field. The
-   *  injector reads the same store, so the two agree for a turn that has not yet
-   *  committed. */
-  activeSlugs?: ReadonlySet<Slug>;
+  /** Whether one of this turn's injection units (`injectionUnits` in
+   *  `capabilities.ts`: a selected section, or the lead of a page selected
+   *  with none, by page slug and section-store key) is already resident in
+   *  the conversation. Used ONLY to compute the `net_new_count` telemetry
+   *  field, selections it rejects are what the injector actually renders.
+   *  Read-only and side-effect-free: selection never consults it, and
+   *  omitting it just drops the field. The injector reads the same store, so
+   *  the two agree for a turn that has not yet committed. */
+  isResident?: (slug: Slug, key: string) => boolean;
 }
 
-/** A finder-lane candidate: the slug, the descriptor that justified it, and
- *  the finder lane that FIRST surfaced it (needle → dense → edge precedence). */
+/** A finder-lane candidate, one pool line: the slug, the matched section
+ *  when the lane scored one (absent for an edge or learned hit), the query
+ *  terms that contributed most to that match (best first; they drive the
+ *  selector's keyword-in-context snippet, and a rare-term line carries the
+ *  one word it was keyed on as its only term), the descriptor that
+ *  justified the line, and the lane that surfaced it. One page can carry
+ *  several candidates, one per distinct matched section, in surfacing
+ *  order. */
 export interface FinderCandidate {
   slug: Slug;
+  section?: Section;
+  terms?: string[];
   descriptor: string;
   lane: FinderLane;
 }
 
 /**
- * The candidate lanes in cache order. `core`, `hot`, and `fresh` are the
- * stable prefix (byte-identical across turns while lanes are unchanged);
+ * The candidate lanes in cache order. `core`, `hot`, `fresh`, and `always` are
+ * the stable prefix (byte-identical across turns while lanes are unchanged);
  * `finder` is the dynamic tail and MAY repeat a stable-prefix slug (a finder
  * hit on a stable-prefix page is kept so its current relevance stays visible
  * downstream).
@@ -273,24 +320,31 @@ export interface OrchestrateLanes {
   hot: Slug[];
   /** Modification-recency fresh set, recency order (never overlaps core/hot). */
   fresh: Slug[];
-  /** Finder candidates in surfacing order, deduped among themselves only. */
+  /** Always-candidate skills, install order (never overlaps core/hot/fresh). */
+  always: Slug[];
+  /** Finder candidates in surfacing order: one per distinct (page, matched
+   *  section), capped per page, deduped among themselves only. */
   finder: FinderCandidate[];
 }
 
 export interface OrchestrateResult {
-  /** This turn's selections, deduped by slug (pinned flags ORed; the dedup is
-   *  `selectPool`'s contract). Current turn only — there is no
+  /** This turn's selections, one per slug with the selected finder lines'
+   *  sections merged in pool order (the merge is `selectPool`'s contract);
+   *  the injector renders each of them. Current turn only: there is no
    *  carried-forward set unioned in. */
   selections: SelectedPage[];
-  /** The matched `Section` for each candidate slug that had one, keyed by slug.
-   *  Populated from the finder-lane hits — including hits on core/hot pages —
-   *  and consumed by the injector to render each selected slug's matched
-   *  section (progressive disclosure). */
-  matchedSections: Map<Slug, Section>;
   /** The candidate lanes in cache order; see {@link OrchestrateLanes}. Consumed
-   *  by the selection telemetry (lane attribution) and the downstream selector
-   *  rendering/spotlight. */
+   *  by the selection telemetry (lane attribution), the per-turn pool record
+   *  (`pool-log-store.ts`), and the downstream selector rendering. */
   lanes: OrchestrateLanes;
+  /** Whether the selector LLM judged a non-empty pool this turn (the
+   *  `selector_ran` telemetry field). False when the pool was empty, when the
+   *  disabled-selector passthrough kept every candidate, and when a closed
+   *  injection gate hard-skipped selection. On that last path `lanes` still
+   *  carries the stable prefix as computed, but no pool was ever assembled,
+   *  so a false value with empty `selections` means the selector was given
+   *  nothing. */
+  selectorRan: boolean;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -408,11 +462,12 @@ export async function orchestrate(
         ),
       ]),
     );
-  // Everything from here to the step-3 selection — finder assembly, the
-  // entity lane, the injection gate, edge + learned-edge expansion, pool
-  // assembly — is synchronous in-memory work, measured as one `v3_expand`
-  // region rather than wrapped calls. Gate-closed early returns skip the
-  // record on purpose: the expansion work didn't happen on those turns.
+  // Everything from here to the step-3 selection (finder assembly, the
+  // entity and rare-term lanes, the injection gate, edge + learned-edge
+  // expansion, pool assembly) is synchronous in-memory work, measured as one
+  // `v3_expand` region rather than wrapped calls. Gate-closed early returns
+  // skip the record on purpose: the expansion work didn't happen on those
+  // turns.
   const expandStartedAt = Date.now();
 
   // Dense hits restricted to pages still in the live section index. A deleted
@@ -424,152 +479,176 @@ export async function orchestrate(
     deps.sectionIndex.byArticle.has(hit.article),
   );
 
-  // `matchedSections` records the matched `Section` (when one is known) for
-  // every finder hit — INCLUDING hits on stable-prefix slugs — for downstream
-  // injection/spotlight. `finder` accumulates one entry per distinct
-  // finder-surfaced article; the first lane to surface a slug wins the entry,
-  // so the needle → dense → edge call order encodes lane precedence.
-  const matchedSections = new Map<Slug, Section>();
+  // `finder` accumulates the pool's dynamic tail: one entry per distinct
+  // (article, matched section), in the needle → dense → reply → span →
+  // entity → rare call order, so a page whose sections match different parts of
+  // the message carries one line per section and the selector sees each
+  // section's own text. A hit that resolves to no section (an edge or
+  // learned neighbour, a dense ordinal the index no longer holds) is one
+  // section-less line per page, added only when nothing has surfaced the
+  // page yet. Each page's lines are capped at `finderSectionsPerPage` in
+  // surfacing order, its entity and rare lines aside (`poolLine`). Hits on
+  // stable-prefix slugs are kept like any other, so the selector and the
+  // injection see those pages' CURRENT relevance.
+  const finderCap = deps.finderSectionsPerPage;
   const finder: FinderCandidate[] = [];
-  const finderSeen = new Set<Slug>();
+  const finderByArticle = new Map<Slug, FinderCandidate[]>();
 
-  // `descriptor` overrides the section text when supplied (the edge lane
-  // prefers a curated `links` description).
-  const addFinder = (
-    slug: Slug,
-    section: Section | undefined,
-    descriptor: string | undefined,
-    lane: FinderLane,
-  ): void => {
-    if (section && !matchedSections.has(slug)) {
-      matchedSections.set(slug, section);
-    }
-    if (finderSeen.has(slug)) {
+  // Whether a line counts against its page's cap. An entity line and a
+  // rare-term line do not: both lanes key on one strong token the message
+  // names and run after every lane that fills the cap, so holding them to
+  // the cap would displace exactly the line each lane exists to surface.
+  // The lanes' own caps (`entityCap`, `rareTerm.cap`) bound the lines they
+  // add per turn instead.
+  const countsAgainstCap = (line: FinderCandidate): boolean =>
+    line.lane !== "entity" && line.lane !== "rare";
+
+  // Pool a line for its page unless the page already carries it or is at
+  // the cap: a line with a section duplicates a line for the same section
+  // key; a section-less line duplicates any line. The cap holds the page's
+  // counted lines at `finderCap`; a line outside the cap joins past it, so a
+  // page carries at most `finderCap` counted lines plus its entity and rare
+  // lines, `finderCap + entityCap + rareTerm.cap` in all.
+  const poolLine = (candidate: FinderCandidate): void => {
+    const lines = finderByArticle.get(candidate.slug) ?? [];
+    const key = candidate.section ? sectionKey(candidate.section) : undefined;
+    const duplicate =
+      key === undefined
+        ? lines.length > 0
+        : lines.some((c) => c.section && sectionKey(c.section) === key);
+    const atCap =
+      countsAgainstCap(candidate) &&
+      lines.filter(countsAgainstCap).length >= finderCap;
+    if (duplicate || atCap) {
       return;
     }
-    finderSeen.add(slug);
-    finder.push({
-      slug,
-      descriptor: descriptor ?? section?.text ?? "",
-      lane,
+    lines.push(candidate);
+    finderByArticle.set(candidate.slug, lines);
+    finder.push(candidate);
+  };
+
+  // A lane hit on section `doc` (an index into `sections`) scored against
+  // `query`, whose best-contributing terms ride the line for the selector's
+  // keyword-in-context snippet. A `doc` the index does not hold pools as a
+  // section-less line with a blank descriptor.
+  const addSectionHit = (
+    slug: Slug,
+    doc: number | undefined,
+    lane: FinderLane,
+    query: string,
+  ): void => {
+    const section = doc === undefined ? undefined : sections[doc];
+    poolLine(
+      doc !== undefined && section
+        ? {
+            slug,
+            section,
+            terms: deps.needle.topTerms(doc, query, SNIPPET_TERMS),
+            descriptor: section.text,
+            lane,
+          }
+        : { slug, descriptor: "", lane },
+    );
+  };
+
+  // A rare-term hit is keyed on one query word, which is the line's only
+  // snippet term and, through the lane, its tag.
+  const addRareHit = (hit: RareTermHit): void => {
+    const section = sections[hit.section]!;
+    poolLine({
+      slug: hit.article,
+      section,
+      terms: [hit.term],
+      descriptor: section.text,
+      lane: "rare",
     });
   };
 
-  // Step 1a: needle hits — descriptor is the matched section's text. `section`
-  // is an index into `sections`.
+  // A page surfaced by association (an edge or learned neighbour): no
+  // section, described by its curated `links` text or a fallback.
+  const addNeighbour = (
+    slug: Slug,
+    descriptor: string | undefined,
+    lane: FinderLane,
+  ): void => {
+    poolLine({ slug, descriptor: descriptor ?? "", lane });
+  };
+
+  // Step 1a: needle hits, `section` is an index into `sections`.
   for (const hit of needled) {
-    addFinder(hit.article, sections[hit.section], undefined, "needle");
+    addSectionHit(hit.article, hit.section, "needle", turn.currentMessage);
   }
 
-  // Step 1b: dense hits — `section` is the matched ORDINAL; resolve it to the
-  // concrete `Section` via the section index. Falls back to undefined (blank
-  // descriptor) if the ordinal is not in the in-memory index.
-  //
-  // `denseOwnedSection` tracks the articles whose recorded matched section
-  // came from THIS loop (needle records first and wins ties), along with the
-  // hit's cosine score — the span pass upgrades those sections when a clause
-  // query finds a strictly stronger match under the same metric.
-  const denseOwnedSection = new Map<Slug, number>();
+  // Step 1b: dense hits, `section` is the matched ORDINAL; resolve it to the
+  // section's index via the section index. An ordinal the in-memory index
+  // does not hold yields a section-less candidate (blank descriptor).
   for (const hit of densed) {
     // A deleted page's points can linger in Qdrant; keep only live-index
     // articles. The section index is rebuilt from `getPageIndex` at `initLanes`,
     // so `byArticle` holds exactly the live pages (synthetic capability slugs
-    // included) — only truly-deleted pages are dropped here.
+    // included), only truly-deleted pages are dropped here.
     if (!deps.sectionIndex.byArticle.has(hit.article)) {
       continue;
     }
-    const section = sectionByOrdinal(
-      deps.sectionIndex,
+    addSectionHit(
       hit.article,
-      hit.section,
+      sectionDocByOrdinal(deps.sectionIndex, hit.article, hit.section),
+      "dense",
+      turn.currentMessage,
     );
-    if (section && !matchedSections.has(hit.article)) {
-      denseOwnedSection.set(hit.article, hit.score);
-    }
-    addFinder(hit.article, section, undefined, "dense");
   }
 
-  // Step 1b': reply-query hits — candidates the user-message lanes already
-  // surfaced keep their primary attribution (`addFinder`'s first-lane-wins
-  // dedup); only genuinely reply-surfaced articles tag `"reply"`. Matched
-  // sections are recorded the same way as the primary lanes', so injection
-  // and the spotlight render the reply-matched section.
+  // Step 1b': reply-query hits. A section the user-message lanes already
+  // pooled is a no-op (`poolLine`'s pair dedup), so only a genuinely
+  // reply-surfaced section tags `"reply"`; its snippet terms come from the
+  // reply text it was scored against.
   for (const hit of replyNeedled) {
-    addFinder(hit.article, sections[hit.section], undefined, "reply");
+    addSectionHit(hit.article, hit.section, "reply", replyQuery);
   }
   for (const hit of replyDensed) {
     if (!deps.sectionIndex.byArticle.has(hit.article)) {
       continue;
     }
-    addFinder(
+    addSectionHit(
       hit.article,
-      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
-      undefined,
+      sectionDocByOrdinal(deps.sectionIndex, hit.article, hit.section),
       "reply",
+      replyQuery,
     );
   }
 
-  // Step 1b'': span-query hits — union-additive at the pass's own small
-  // budget. Candidates the primary or reply lanes already surfaced keep their
-  // attribution (`addFinder`'s first-lane-wins dedupe); only genuinely
-  // span-surfaced articles tag `"span"`. Like the reply pass, span hits are
-  // excluded from the injection gate (which scores current-message needle +
-  // dense only) and from the edge-expansion seeds.
+  // Step 1b'': span-query hits, union-additive at the pass's own small
+  // budget. A section a primary or reply lane already pooled is a no-op; a
+  // different section of an already-surfaced page joins as its own line,
+  // which is the buried-clause match the pass exists to recover. Like the
+  // reply pass, span hits are excluded from the injection gate (which scores
+  // current-message needle + dense only) and from the edge-expansion seeds.
   //
-  // An article can be surfaced by SEVERAL chunks; dedupe by best cosine score
-  // before `addFinder`, since chunk order would otherwise decide which section
-  // gets recorded — letting an earlier chunk's weak match mask the strong
-  // buried-clause match the pass exists to recover.
-  const bestSpanHits = new Map<Slug, DenseHitScored>();
-  for (const hit of spanDensed.flat()) {
-    const prev = bestSpanHits.get(hit.article);
-    if (!prev || hit.score > prev.score) {
-      bestSpanHits.set(hit.article, hit);
-    }
-  }
-  // For an article a primary lane already surfaced, upgrade its matched
-  // section/descriptor ONLY when the existing section was recorded by the
-  // full-message dense hit and the span's cosine is strictly higher — same
-  // encoder, same collection, so the comparison is evidence, not judgment.
-  // Needle- and reply-recorded sections stay (BM25 and cosine scores are not
-  // comparable, and the reply pass's own convention is first-wins); lane
-  // attribution never changes here.
-  for (const hit of bestSpanHits.values()) {
+  // Several chunks can hit one article on different sections; they are
+  // pooled strongest cosine first, so chunk order never decides which
+  // sections fill the page's cap.
+  const spanHits = spanDensed.flat().sort((a, c) => c.score - a.score);
+  for (const hit of spanHits) {
     if (!deps.sectionIndex.byArticle.has(hit.article)) {
       continue;
     }
-    const section = sectionByOrdinal(
-      deps.sectionIndex,
+    addSectionHit(
       hit.article,
-      hit.section,
+      sectionDocByOrdinal(deps.sectionIndex, hit.article, hit.section),
+      "span",
+      turn.currentMessage,
     );
-    const denseScore = denseOwnedSection.get(hit.article);
-    if (section && denseScore !== undefined && hit.score > denseScore) {
-      matchedSections.set(hit.article, section);
-      const existing = finder.find((c) => c.slug === hit.article);
-      if (existing) {
-        existing.descriptor = section.text;
-      }
-      continue;
-    }
-    addFinder(hit.article, section, undefined, "span");
   }
 
-  // Step 1b''': entity lane — sections whose `## ` heading NAMES a distinctive
+  // Step 1b''': entity lane, sections whose `## ` heading NAMES a distinctive
   // entity the message mentions. Additive BM25 buries a single named entity
   // under a long, multi-topic message's bulk theme; this keys on the heading
-  // vocabulary so the page the user named surfaces regardless of the bulk
-  // theme. Runs before edge expansion so an entity hit joins `finderSeen` (edge
-  // won't re-surface it section-less); it is NOT added to the edge seeds, so it
-  // only contributes its own page.
-  //
-  // The heading section IS the identity this lane exists to surface, so it
-  // takes precedence over any bulk-theme section a prior lane (needle / dense /
-  // reply) already recorded for the SAME page: `addFinder` keeps the first
-  // matched section and skips duplicate slugs, so override the matched section
-  // and the existing finder descriptor here before delegating, ensuring
-  // injection, the spotlight, and the selector snippet all render the heading
-  // rather than the earlier non-entity match.
+  // vocabulary so the section the user named surfaces regardless of the bulk
+  // theme, as its own line beside any bulk-theme section a prior lane pooled
+  // for the same page (a no-op when that lane already pooled the heading).
+  // Runs before edge expansion so an entity hit counts as surfaced (edge
+  // won't re-surface its page section-less); it is NOT added to the edge
+  // seeds, so it only contributes its own section.
   if (deps.entityIndex) {
     for (const hit of entityLane(
       deps.entityIndex,
@@ -577,25 +656,39 @@ export async function orchestrate(
       turn.currentMessage,
       deps.entityCap ?? DEFAULT_ENTITY_CAP,
     )) {
-      const section = sections[hit.section];
-      if (section) {
-        matchedSections.set(hit.article, section);
-        const existing = finder.find((c) => c.slug === hit.article);
-        if (existing) {
-          existing.descriptor = section.text;
-        }
-      }
-      addFinder(hit.article, section, undefined, "entity");
+      addSectionHit(hit.article, hit.section, "entity", turn.currentMessage);
     }
   }
 
-  // Step 1b'''': opt-in injection gate. With the CURRENT-message finder lanes in
-  // hand (needle + dense — NOT reply/span/entity/edge, which only add recall), decide
-  // whether retrieval is confident enough to spend the selectPool LLM call this
-  // turn. Default-off via `?.enabled`; pass-open on any throw (a gate bug must
-  // never drop a turn's memory). A closed gate either hard-skips selection
-  // (empty selections) or, when `bypassForCore` is set, runs selectPool over the
-  // stable prefix only — never the finder tail.
+  // Step 1b'''': rare-term lane, the sections a rare query word occurs in. A
+  // word found in at most `maxDf` sections is a near-certain signal on its
+  // own: additive BM25 lets the message's bulk theme pick a page's section,
+  // and a query on the clause alone cannot rank a page whose only
+  // distinctive token is that word. Each rare word's top sections by
+  // single-term score join as their own lines, tagged with the word, which
+  // also centers the selector's snippet; a section a prior lane pooled is a
+  // no-op, and a page the prior lanes filled to the per-page cap still
+  // takes its rare lines (`poolLine`). Like the entity lane, rare hits feed
+  // neither the gate nor the edge seeds.
+  if (deps.rareTerm) {
+    for (const hit of rareTermLane(
+      deps.needle,
+      deps.sectionIndex,
+      turn.currentMessage,
+      deps.rareTerm,
+    )) {
+      addRareHit(hit);
+    }
+  }
+
+  // Step 1b''''': opt-in injection gate. With the CURRENT-message finder lanes
+  // in hand (needle + dense, NOT reply/span/entity/rare/edge, which only add
+  // recall), decide whether retrieval is confident enough to spend the
+  // selectPool LLM call this turn. Default-off via `?.enabled`; pass-open on
+  // any throw (a gate bug must never drop a turn's memory). A closed gate
+  // either hard-skips selection (empty selections) or, when `bypassForCore`
+  // is set, runs selectPool over the stable prefix only, never the finder
+  // tail.
   //
   // The gate is dense-gated: it only runs when the live dense lane produced hits
   // (`liveDensed.length > 0`). In healthy operation dense returns top-k hits for
@@ -650,18 +743,25 @@ export async function orchestrate(
   //     the provider (also a 0%).
   // The last is why `poolSize` decides this rather than each call site: an empty
   // pool is not a judgment that nothing was relevant, and no caller has to
-  // remember that.
+  // remember that. `selectorRanOver` is that rule; the selection event and the
+  // result's `selectorRan` both read it.
   // `selector_kept_all` and `net_new_count` separate what the selector JUDGED
   // from what actually reaches the turn, which `selected_count` alone conflates:
   //   - kept_all: the recall-safe fallback fired (model omitted `ids`), so every
   //     candidate was kept without a real judgment. Distinguishes "kept the whole
   //     pool because it gave up" from "explicitly selected a large set", which
   //     otherwise look identical and inflate the same way.
-  //   - net_new: selections not already live in the conversation — the injector
-  //     renders only these (prior turns' cards ride history), so it is the real
-  //     incremental injection, where `selected_count` re-counts the whole
-  //     standing set every turn. Omitted when the caller did not supply
-  //     `activeSlugs` (tests, shadow-less paths).
+  //   - net_new: the injection units among the selections (`injectionUnits`:
+  //     each selected section, or the lead of a page selected with none, a
+  //     capability page as one unit) not already live in the conversation,
+  //     the injector renders only these (prior turns' sections ride
+  //     history), so it is the real incremental injection, where
+  //     `selected_count` re-counts the whole standing set every turn.
+  //     Omitted when the caller did not supply `isResident` (tests,
+  //     shadow-less paths). The count reads the same units the injector will
+  //     (a closed gate's selections carry no sections, so it counts leads).
+  const selectorRanOver = (poolSize: number): boolean =>
+    deps.selectorEnabled !== false && poolSize > 0;
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
@@ -670,14 +770,15 @@ export async function orchestrate(
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
-      selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selector_ran: selectorRanOver(poolSize),
       selector_kept_all: keptAll,
       selected_count: selections.length,
       pool_size: poolSize,
     };
-    if (deps.activeSlugs !== undefined) {
-      detail.net_new_count = selections.filter(
-        (s) => !deps.activeSlugs!.has(s.slug),
+    const isResident = deps.isResident;
+    if (isResident !== undefined) {
+      detail.net_new_count = injectionUnits(selections).filter(
+        ({ slug, key }) => !isResident(slug, key),
       ).length;
     }
     if (deps.realConceptPageCount !== undefined) {
@@ -739,12 +840,15 @@ export async function orchestrate(
           checked_articles: gate.checkedArticles,
         });
         if (!gate.pass) {
-          // A closed gate produces no finder lane and no matched sections; only
-          // the `selections` differ between bypass (stable prefix) and hard-skip.
-          const closed = (selections: SelectedPage[]): OrchestrateResult => ({
+          // A closed gate produces no finder lane; only `selections` and
+          // `selectorRan` differ between bypass (stable prefix) and hard-skip.
+          const closed = (
+            selections: SelectedPage[],
+            selectorRan: boolean,
+          ): OrchestrateResult => ({
             selections,
-            matchedSections: new Map(),
-            lanes: { core, hot, fresh, finder: [] },
+            lanes: { core, hot, fresh, always, finder: [] },
+            selectorRan,
           });
           if (deps.gateConfig.bypassForCore) {
             // Select over the stable prefix only. `runSelection` mirrors the
@@ -762,13 +866,14 @@ export async function orchestrate(
               finder: [],
             });
             recordSelection(bypassed, stableOnly.length, keptAll);
-            return closed(bypassed);
+            return closed(bypassed, selectorRanOver(stableOnly.length));
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
-          // `selector_ran: false` keeps it out of any relevance rate.
+          // `selector_ran: false` keeps it out of any relevance rate, and the
+          // result's `selectorRan` keeps it out of the persisted pool record.
           recordSelection([], 0, false);
-          return closed([]);
+          return closed([], false);
         }
       }
     }
@@ -783,8 +888,8 @@ export async function orchestrate(
   // its first/lead section on a zero-score match. That lead is often empty for
   // heading-structured pages, and it is the curated `links` description (not
   // the lead) that made the candidate relevant. So we record NO matched
-  // section for edge-only pages (pass `undefined`), which makes injection fall
-  // back to the FULL page — where the link-relevant content lives.
+  // section for edge-only pages (pass `undefined`): the candidate is a
+  // section-less line and a selection of it injects the page's lead.
   // `bestSection`'s text is kept only as the select-pool DESCRIPTOR fallback
   // for when the traversed edge carried no curated `links` description.
   const seeds = unique<Slug>([
@@ -795,14 +900,13 @@ export async function orchestrate(
     seedCount: deps.edgeSeeds,
     perSeed: deps.edgePerSeed,
     cap: deps.edgeCap,
-    alive: (slug) => !finderSeen.has(slug) && !stablePrefix.has(slug),
+    alive: (slug) => !finderByArticle.has(slug) && !stablePrefix.has(slug),
   });
   for (const neighbor of surfaced) {
     const best = deps.needle.bestSection(neighbor.article, turn.currentMessage);
     const fallbackDescriptor = best >= 0 ? sections[best]?.text : undefined;
-    addFinder(
+    addNeighbour(
       neighbor.article,
-      undefined,
       neighbor.description ?? fallbackDescriptor,
       "edge",
     );
@@ -820,16 +924,15 @@ export async function orchestrate(
       seedCount: deps.edgeSeeds,
       perSeed: deps.learnedPerSeed,
       cap: deps.learnedCap,
-      alive: (slug) => !finderSeen.has(slug) && !stablePrefix.has(slug),
+      alive: (slug) => !finderByArticle.has(slug) && !stablePrefix.has(slug),
     });
     for (const neighbor of learned) {
       const best = deps.needle.bestSection(
         neighbor.article,
         turn.currentMessage,
       );
-      addFinder(
+      addNeighbour(
         neighbor.article,
-        undefined,
         best >= 0 ? sections[best]?.text : undefined,
         "learned",
       );
@@ -843,12 +946,15 @@ export async function orchestrate(
   // byte-identical across turns while the lanes are unchanged. The tail is
   // NOT deduped against the prefix — a finder hit on a core/hot page renders
   // its own snippet line so its CURRENT relevance stays visible; `selectPool`
-  // dedupes selections by slug. Finder candidates with no match text fall
-  // back to the page's lead-section snippet.
+  // merges selections per slug. Each line carries its matched section and
+  // snippet terms; a candidate with no match text falls back to the page's
+  // lead-section snippet.
   const stable = buildStable();
   const finderTail: PoolCandidate[] = finder.map((c) => ({
     slug: c.slug,
     lane: c.lane,
+    section: c.section,
+    terms: c.terms,
     descriptor:
       c.descriptor.trim().length > 0
         ? c.descriptor
@@ -856,48 +962,55 @@ export async function orchestrate(
   }));
 
   // Step 3: a SINGLE forced-tool select over the cache-ordered pool. The
-  // selections come back slug-deduped (pinned flags ORed) — `selectPool`'s
-  // contract. `selectorPrompt` is the (optionally overridden) instruction
-  // scaffold; `undefined` falls through to the bundled default.
+  // selections come back slug-deduped (`selectPool`'s contract).
+  // `selectorPrompt` is the (optionally overridden) instruction scaffold;
+  // `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
   recordLatencySubSpan(
     "v3_expand",
     "Gate & edge expansion",
     Date.now() - expandStartedAt,
   );
+  const poolSize = stable.length + finderTail.length;
   const { selections, keptAll } = await runSelection(pool);
-  recordSelection(selections, stable.length + finderTail.length, keptAll);
+  recordSelection(selections, poolSize, keptAll);
 
   return {
     selections,
-    matchedSections,
-    lanes: { core, hot, fresh, finder },
+    lanes: { core, hot, fresh, always, finder },
+    selectorRan: selectorRanOver(poolSize),
   };
 }
 
 /**
- * Resolve a dense-lane hit's matched ordinal to the concrete `Section` in the
- * in-memory index. The dense store keys sections by `(article, ordinal)`, so we
- * scan the article's sections for the matching ordinal. Returns `undefined`
- * when the article or ordinal is not in the index (e.g. the dense store is
- * ahead of the in-memory rebuild).
+ * Resolve a dense-lane hit's matched ordinal to its index into
+ * `index.sections`. The dense store keys sections by `(article, ordinal)`, so
+ * we scan the article's sections for the matching ordinal. Returns
+ * `undefined` when the article or ordinal is not in the index (e.g. the dense
+ * store is ahead of the in-memory rebuild).
  */
+function sectionDocByOrdinal(
+  index: SectionIndex,
+  article: Slug,
+  ordinal: number,
+): number | undefined {
+  for (const doc of index.byArticle.get(article) ?? []) {
+    if (index.sections[doc]?.ordinal === ordinal) {
+      return doc;
+    }
+  }
+  return undefined;
+}
+
+/** The concrete `Section` a dense-lane hit's ordinal resolves to; see
+ *  {@link sectionDocByOrdinal}. */
 export function sectionByOrdinal(
   index: SectionIndex,
   article: Slug,
   ordinal: number,
 ): Section | undefined {
-  const indices = index.byArticle.get(article);
-  if (!indices) {
-    return undefined;
-  }
-  for (const i of indices) {
-    const section = index.sections[i];
-    if (section && section.ordinal === ordinal) {
-      return section;
-    }
-  }
-  return undefined;
+  const doc = sectionDocByOrdinal(index, article, ordinal);
+  return doc === undefined ? undefined : index.sections[doc];
 }
 
 /**

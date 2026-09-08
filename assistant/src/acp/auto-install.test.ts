@@ -199,7 +199,7 @@ describe("ensureAdapterInstalled", () => {
     );
     expect(installedPackages.sort()).toEqual([
       "@agentclientprotocol/claude-agent-acp",
-      "@zed-industries/codex-acp",
+      "@agentclientprotocol/codex-acp",
     ]);
   });
 });
@@ -237,6 +237,40 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     expect(result.failureMessage).toBeUndefined();
     expect(execFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock.mock.calls[0][0]).toBe(BUN_BIN);
+  });
+
+  test("missing codex installs the successor package and resolves the same command", async () => {
+    let installed = false;
+    which.setWhich((cmd) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd === "codex-acp" && installed) {
+        return "/usr/local/bin/codex-acp";
+      }
+      return null;
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installed = true;
+      },
+    });
+
+    const result = await resolveAgentWithAutoInstall("codex");
+
+    expect(result.resolved.ok).toBe(true);
+    if (!result.resolved.ok) {
+      return;
+    }
+    expect(result.resolved.agent.command).toBe("codex-acp");
+    expect(result.autoInstalledPackage).toBe("@agentclientprotocol/codex-acp");
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      "@agentclientprotocol/codex-acp",
+    ]);
   });
 
   test("binary missing + bun absent: no install, plain failure with the hint", async () => {

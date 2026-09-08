@@ -29,6 +29,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useWindowBox } from "@/components/companion-window-box";
 import { annotateCompanionShare } from "@/runtime/companion-surface";
 import {
   COMPANION_ANNOTATION_MAX_POINTS,
@@ -76,28 +77,6 @@ export function movedEnough(
   const dx = (next.x - last.x) * aspect;
   const dy = next.y - last.y;
   return dx * dx + dy * dy >= COMPANION_ANNOTATION_MIN_STEP ** 2;
-}
-
-/** The window's own size, tracked so the marks can be drawn in its pixels. */
-function useWindowBox(): { width: number; height: number } {
-  const [box, setBox] = useState(() => ({
-    width: typeof window === "undefined" ? 0 : window.innerWidth,
-    height: typeof window === "undefined" ? 0 : window.innerHeight,
-  }));
-  useEffect(() => {
-    // The shell resizes this window whenever the share moves to another
-    // target, and follows a picked window as the user drags it, so the box is
-    // not something that can be read once.
-    const measure = (): void => {
-      setBox({ width: window.innerWidth, height: window.innerHeight });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => {
-      window.removeEventListener("resize", measure);
-    };
-  }, []);
-  return box;
 }
 
 export function CompanionShareAnnotation({ ink }: { ink: string }) {

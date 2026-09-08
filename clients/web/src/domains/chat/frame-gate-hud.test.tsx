@@ -159,37 +159,32 @@ afterEach(() => {
 describe("FrameGateHud gating", () => {
   test("renders nothing for a session that is neither staff nor flagged", () => {
     useAuthStore.setState({ user: LOCAL_USER });
-    judge("composer", "novel", true);
+    judge("voice", "novel", true);
 
-    render(<FrameGateHud surface="composer" />);
+    render(<FrameGateHud surface="voice" />);
 
     expect(screen.queryByTestId("frame-gate-hud")).toBeNull();
   });
 
   test("renders nothing while the readout is switched off", () => {
-    judge("composer", "novel", true);
+    judge("voice", "novel", true);
     act(() => {
       useCameraGateDebugStore.getState().setHudEnabled(false);
     });
 
-    render(<FrameGateHud surface="composer" />);
+    render(<FrameGateHud surface="voice" />);
 
     expect(screen.queryByTestId("frame-gate-hud")).toBeNull();
   });
 
   test("renders nothing before any camera has fed the gate", () => {
-    render(<FrameGateHud surface="composer" />);
+    render(<FrameGateHud surface="voice" />);
 
     expect(screen.queryByTestId("frame-gate-hud")).toBeNull();
   });
 
-  test("only the mount for the surface feeding the gate renders", () => {
-    render(
-      <>
-        <FrameGateHud surface="composer" />
-        <FrameGateHud surface="voice" />
-      </>,
-    );
+  test("the mount renders once its surface has fed the gate, and names it", () => {
+    render(<FrameGateHud surface="voice" />);
 
     judge("voice", "novel", true);
 
@@ -200,8 +195,8 @@ describe("FrameGateHud gating", () => {
 
 describe("FrameGateHud readout", () => {
   test("shows the latest verdict and highlights the check that made it", () => {
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "rate-floor", false);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "rate-floor", false);
 
     expect(screen.getByText("Skip")).toBeTruthy();
     expect(screen.getByText("Too soon after the last photo.")).toBeTruthy();
@@ -218,11 +213,11 @@ describe("FrameGateHud readout", () => {
   });
 
   test("a keep replaces the verdict on the next frame", () => {
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "warmup", false);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "warmup", false);
     expect(screen.getByText("Skip")).toBeTruthy();
 
-    judge("composer", "novel", true);
+    judge("voice", "novel", true);
 
     expect(screen.getByText("Keep")).toBeTruthy();
     expect(
@@ -235,8 +230,8 @@ describe("FrameGateHud readout", () => {
 
 describe("FrameGateHud decision order", () => {
   test("lists the checks the gate runs once it has a baseline", () => {
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "novel", true);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "novel", true);
 
     expect(renderedSteps()).toEqual([
       "warmup",
@@ -251,8 +246,8 @@ describe("FrameGateHud decision order", () => {
   });
 
   test("lists the shorter path for a frame judged with no baseline", () => {
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "first", true, null);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "first", true, null);
 
     // The floor and the settle check are above the keep, which is the order
     // the gate runs them in on this branch, and the checks that score against
@@ -273,8 +268,8 @@ describe("FrameGateHud decision order", () => {
   });
 
   test("a floor skip with no baseline highlights the floor, not the keep", () => {
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "rate-floor", false, null);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "rate-floor", false, null);
 
     expect(renderedSteps()).toEqual([
       "warmup",
@@ -300,8 +295,8 @@ describe("FrameGateHud decision order", () => {
 describe("FrameGateHud thresholds", () => {
   test("a slider writes into the record the running gate holds", () => {
     const recordBefore = FRAME_GATE_LIVE_OPTIONS;
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "novel", true);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "novel", true);
 
     const noveltySlider = within(
       screen.getByTestId("frame-gate-hud-slider-noveltyThreshold"),
@@ -317,8 +312,8 @@ describe("FrameGateHud thresholds", () => {
   });
 
   test("reset puts every threshold back on the gate", () => {
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "novel", true);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "novel", true);
     act(() => {
       useCameraGateDebugStore.getState().setOverride("minDetail", 30);
     });
@@ -344,8 +339,8 @@ const backdrop = () => screen.queryByTestId("frame-gate-hud-backdrop");
 
 /** Put a decision on the record and render a mount that may stand down. */
 function renderCollapsible(): void {
-  render(<FrameGateHud surface="composer" collapsible />);
-  judge("composer", "novel", true);
+  render(<FrameGateHud surface="voice" collapsible />);
+  judge("voice", "novel", true);
 }
 
 /** Render the collapsible mount on a narrow window and open its sheet. */
@@ -369,7 +364,7 @@ function RoomHarness({ onRoomPress }: { onRoomPress: () => void }) {
   return (
     <div data-testid="room" onPointerDown={onRoomPress}>
       <div data-testid="bare-chrome" />
-      <FrameGateHud surface="composer" collapsible />
+      <FrameGateHud surface="voice" collapsible />
     </div>
   );
 }
@@ -378,7 +373,7 @@ function RoomHarness({ onRoomPress }: { onRoomPress: () => void }) {
 function renderRoom(): Mock<() => void> {
   const roomPress = mock(() => {});
   render(<RoomHarness onRoomPress={roomPress} />);
-  judge("composer", "novel", true);
+  judge("voice", "novel", true);
   return roomPress;
 }
 
@@ -422,8 +417,8 @@ const TRACK_RECT = {
  *
  * Two terms, and both matter. The window has to be short of room, which is the
  * shared narrow-window signal rather than the pointer or the platform; and the
- * mount has to have said its slot can stand a strip, since the composer's
- * corner tile is a layout the room knows nothing about.
+ * mount has to have said its slot can stand a strip, since only the mount knows
+ * the layout it sits in.
  */
 describe("FrameGateHud presentation", () => {
   test("a collapsible mount on a narrow window is a strip, not a card", () => {
@@ -436,8 +431,8 @@ describe("FrameGateHud presentation", () => {
 
   test("a mount that has not opted in keeps the card on a narrow window", () => {
     isMobileRef.value = true;
-    render(<FrameGateHud surface="composer" />);
-    judge("composer", "novel", true);
+    render(<FrameGateHud surface="voice" />);
+    judge("voice", "novel", true);
 
     expect(card()).not.toBeNull();
     expect(strip()).toBeNull();
@@ -452,12 +447,12 @@ describe("FrameGateHud presentation", () => {
 
   test("the strip is absent for a session with the readout switched off", () => {
     isMobileRef.value = true;
-    judge("composer", "novel", true);
+    judge("voice", "novel", true);
     act(() => {
       useCameraGateDebugStore.getState().setHudEnabled(false);
     });
 
-    render(<FrameGateHud surface="composer" collapsible />);
+    render(<FrameGateHud surface="voice" collapsible />);
 
     expect(strip()).toBeNull();
     expect(card()).toBeNull();
@@ -488,7 +483,7 @@ describe("FrameGateHud strip", () => {
     renderCollapsible();
     expect(within(strip()!).getByText("Keep")).toBeTruthy();
 
-    judge("composer", "rate-floor", false);
+    judge("voice", "rate-floor", false);
 
     expect(within(strip()!).getByText("Skip")).toBeTruthy();
   });

@@ -93,6 +93,8 @@ export function SettingsLayout() {
           return t("sidebar.debug", "Debug");
         case "developer":
           return t("sidebar.developer", "Developer");
+        case "personality":
+          return t("sidebar.personality", "Personality");
         default:
           return defaultLabel;
       }
@@ -115,7 +117,7 @@ export function SettingsLayout() {
         if (item.id === "credentials" && !supportsCredentials) {
           return false;
         }
-        if (item.id === "developer") {
+        if (item.id === "developer" || item.id === "personality") {
           return false;
         }
         return true;
@@ -136,12 +138,12 @@ export function SettingsLayout() {
     const items: SidebarItem[] = [];
     if (settingsDeveloperNav) {
       items.push(
-        ...SETTINGS_SIDEBAR.filter((item) => item.id === "developer").map(
-          (item) => ({
-            ...item,
-            label: getSidebarLabel(item.id, item.label),
-          }),
-        ),
+        ...SETTINGS_SIDEBAR.filter(
+          (item) => item.id === "personality" || item.id === "developer",
+        ).map((item) => ({
+          ...item,
+          label: getSidebarLabel(item.id, item.label),
+        })),
       );
     }
     // The auth action is pinned to the very bottom of the nav.

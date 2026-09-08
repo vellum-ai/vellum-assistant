@@ -248,15 +248,24 @@
     "adjust": "調整",
     "capProgress": " / 本月 {cap}",
     "connectCardBanner": "自動加值需要您綁定一張信用卡。",
+    "dailyLimitLookupError": "無法檢查每日點數限制，自動加值需要該限制。請重試以繼續。",
     "declinedCutoffNotice": "多次付款失敗後，我們已暫停自動加值。請新增付款方式以重新開啟自動加值。",
     "disableError": "無法停用自動加值。請再試一次。",
     "dismiss": "關閉",
     "loadError": "無法載入自動加值設定。",
     "loading": "載入中…",
+    "retry": "重試",
     "summary": "當餘額低於 {threshold} 時，自動加值 {amount}",
     "toggleHelper": "自動加值僅在方案用量耗盡時發生",
     "toggleLabel": "啟用自動加值",
     "updateError": "無法儲存自動加值設定。請再試一次。"
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "停用自動加值",
+    "message": "自動加值需要設定每日點數限制。請設定一個限制以儲存自動加值設定，或停用自動加值。",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "title": "設定每日點數限制"
   },
   "autoTopUpDisableConfirm": {
     "disable": "停用",
@@ -446,12 +455,12 @@
     "urlPlaceholder": "在此貼上回呼 URL..."
   },
   "checkoutBonusModal": {
-    "body": "領取一次性 {amount} 點數，我們將直接將其新增至您的帳戶餘額。無需付款。",
-    "claim": "領取 {amount} 點數",
+    "body": "領取一次性 {amount} 額外用量，我們將直接將其新增至您的使用餘額。無需付款。",
+    "claim": "領取 {amount} 額外用量",
     "decline": "不用了，謝謝",
-    "errorToast": "無法新增點數。請再試一次。",
-    "grantedToast": "{amount} 點數已新增至您的帳戶。",
-    "title": "我們贈送您 {amount}",
+    "errorToast": "無法新增額外用量。請再試一次。",
+    "grantedToast": "{amount} 額外用量已新增至您的使用餘額。",
+    "title": "我們贈送您 {amount} 額外用量",
     "unavailableToast": "此優惠已不再提供。"
   },
   "checkoutPage": {
@@ -2295,6 +2304,38 @@
     "redirectUrl": "重新導向網址",
     "waitingAuthorization": "等待授權中..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "夥伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "獨立",
+        "right": "協作"
+      },
+      "genzBoomer": {
+        "left": "Z 世代",
+        "right": "嬰兒潮世代"
+      },
+      "playfulSerious": {
+        "left": "活潑",
+        "right": "嚴肅"
+      },
+      "politeUnfiltered": {
+        "left": "有禮",
+        "right": "直率"
+      }
+    },
+    "loadError": "無法載入個性滑桿。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "儲存",
+    "saveErrorToast": "無法儲存個性滑桿。請再試一次。",
+    "saveSuccessToast": "個性滑桿已儲存。",
+    "saving": "正在儲存…",
+    "subtitle": "將這些滑桿值儲存到此助手。這不會改寫身分檔案。",
+    "title": "個性"
+  },
   "sidebar": {
     "general": "一般",
     "model": "模型與服務",
@@ -2310,6 +2351,7 @@
     "community": "社群",
     "debug": "偵錯",
     "developer": "開發者",
+    "personality": "個性",
     "logout": "登出",
     "login": "登入",
     "title": "設定"

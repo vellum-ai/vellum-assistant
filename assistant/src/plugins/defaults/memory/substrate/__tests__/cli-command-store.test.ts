@@ -20,6 +20,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { CliCommandHelp } from "../../../../../cli/lib/cli-command-help.js";
+import { isCliCommandSlug } from "../capability-slugs.js";
 
 // ---------------------------------------------------------------------------
 // Programmable test state
@@ -161,7 +162,6 @@ const {
   seedV2CliCommandEntries,
   getCliCommandCapability,
   listCliCommandEntries,
-  isCliCommandSlug,
   _resetCliCommandStoreForTests,
 } = await import("../cli-command-store.js");
 

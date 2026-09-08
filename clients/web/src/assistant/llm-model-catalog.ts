@@ -153,6 +153,15 @@ export const MODELS_BY_PROVIDER = {
   ],
   openai: [
     {
+      id: "gpt-6-astra",
+      displayName: "GPT-6 Astra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
       id: "gpt-5.6-sol",
       displayName: "GPT-5.6 Sol",
       contextWindowTokens: 1_050_000,
@@ -580,6 +589,25 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
       supportsThinking: true,
+    },
+    {
+      id: "openai/gpt-6-astra",
+      displayName: "GPT-6 Astra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-6-astra-pro",
+      displayName: "GPT-6 Astra Pro",
+      vendor: "openai",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
     },
     {
       id: "openai/gpt-5.6-sol",
@@ -1323,6 +1351,7 @@ export function getManagedUpstreamForModel(
 // the "chatgpt" identity's model list resolves here like every provider's;
 // the settings domain re-exports it from codex-subscription-models.
 export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

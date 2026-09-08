@@ -177,6 +177,19 @@ interface SttStreamWebSocketData {
  */
 interface LiveVoiceWebSocketData {
   wsType: "live-voice";
+  /**
+   * The guardian the gateway admitted this socket for, when it named one.
+   *
+   * The runtime cannot work this out for itself: the gateway dials with a
+   * service token, so every socket arrives as the same caller, and any
+   * identity resolved here would be a second reading of a binding that can
+   * change between the admission and the read. Absent when the gateway
+   * admitted nobody, which the session reads as a turn with no actor.
+   *
+   * Trusted because it arrives on this dial, which only the gateway can make
+   * (see {@link verifyGatewayServiceToken}), and never from a client header.
+   */
+  guardianPrincipalId?: string;
 }
 
 /**
@@ -352,6 +365,11 @@ export class RuntimeHttpServer {
                 send: (frame) => {
                   ws.send(JSON.stringify(frame));
                 },
+                ...(liveVoiceWs.data.guardianPrincipalId
+                  ? {
+                      guardianPrincipalId: liveVoiceWs.data.guardianPrincipalId,
+                    }
+                  : {}),
                 // Lets the daemon hang up on a client that stopped answering.
                 // A normal close (not a retryable one) so the client ends the
                 // call rather than reconnecting into a session that is gone.
@@ -1052,9 +1070,14 @@ export class RuntimeHttpServer {
       return tokenError;
     }
 
+    const guardianPrincipalId =
+      new URL(req.url).searchParams.get("guardianPrincipalId")?.trim() ||
+      undefined;
+
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "live-voice",
+        ...(guardianPrincipalId ? { guardianPrincipalId } : {}),
       } satisfies LiveVoiceWebSocketData,
     });
     if (!upgraded) {

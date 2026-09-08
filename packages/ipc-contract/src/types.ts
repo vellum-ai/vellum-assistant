@@ -1100,15 +1100,21 @@ export const companionBaselineFor = (avatarBox: number): number =>
   (COMPANION_BASE_AVATAR_IMAGE / 2) * companionScaleFor(avatarBox);
 
 /**
- * The height of the pill the surface rests in once a pointer has grown it, at
- * the authored avatar box.
+ * The tallest the pill the surface rests in has ever been drawn, at the
+ * authored avatar box.
  *
  * Here rather than in the renderer alone because main places the window by it:
- * the grown pill is centred on the avatar and reaches further below that
- * centre than the creature does, so a placement that did not know this number
- * would rest the surface low enough to hang the pill's lower rim off the
- * bottom of the display. Two readings of it is a pill drawn somewhere main did
- * not leave room for.
+ * this shape is centred on the avatar, so a placement that did not know how
+ * far below that centre it reached would rest the surface low enough to hang
+ * its lower rim off the bottom of the display.
+ *
+ * **Now a floor rather than a measurement.** The pill no longer grows under
+ * the pointer: it draws in onto the creature and goes out, so nothing the
+ * surface draws is this tall any more and the renderer no longer reads this
+ * number. It stays because the room it reserves is room the surface already
+ * had, and giving it back would move every companion that rests near the
+ * bottom of a display up against the edge as a side effect of an animation
+ * change. Retiring it is its own change, and takes the term below with it.
  */
 export const COMPANION_BASE_RESTING_PILL_HEIGHT = 35;
 
@@ -1125,10 +1131,12 @@ export const COMPANION_BASE_CALL_RING = 2;
  * **The whole surface, not the state it happens to be in.** The window is
  * placed once and does not move when the pointer arrives or a call starts, so
  * the room kept under it has to answer for every state it can enter from
- * there. Three things are centred on that point and each is the lowest at some
- * size: the creature's own artwork, the pill a pointer grows around it, and
- * the call's bar, which stands on the centre rather than beside it and is
- * sized by the options box instead of the avatar's.
+ * there. Three things are centred on that point: the creature's own artwork,
+ * the resting pill, and the call's bar, which stands on the centre rather than
+ * beside it and is sized by the options box instead of the avatar's. The last
+ * two are the lowest at some size; the pill's term is now a floor over a shape
+ * that has stopped growing, and {@link COMPANION_BASE_RESTING_PILL_HEIGHT}
+ * says why it is still here.
  *
  * Whole points, as every distance the window is placed by is: the options
  * sizes are not whole multiples of the authored box, and a reach carrying a
@@ -1418,6 +1426,67 @@ export const COMPANION_ANNOTATION_MAX_POINTS = 512;
 export const COMPANION_ANNOTATION_STROKE = 0.006;
 
 /**
+ * One thing the assistant is pointing at on the surface a call is being
+ * shown: the bounds of the thing, and a line about what to do with it.
+ *
+ * **In fractions of the shared surface, from `0` to `1`**, for the reason
+ * {@link CompanionAnnotationStroke} carries fractions. The overlay is a
+ * window sized in points, and what the mark was resolved from is measured in
+ * the target's own units; a fraction of the surface is the one description
+ * both ends agree on, and it survives the scaling between them.
+ *
+ * The bounds are the thing itself rather than the ring drawn for it. The ring
+ * goes outside them, so the control a user is being pointed at stays as
+ * visible as it was before anything was drawn on it.
+ *
+ * A rectangle, not a stroke, because this end knows what it is pointing at:
+ * the user draws freehand at something they can already see, and the
+ * assistant resolves an element that has bounds.
+ */
+export interface CompanionCoachmark {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * What to do with the thing, in the user's language, or nothing when the
+   * ring is the whole message.
+   *
+   * Short by contract ({@link COMPANION_COACHMARK_CAPTION_MAX}): it is drawn
+   * over the user's own work, in a window they cannot scroll or dismiss, and
+   * anything longer than a caption belongs in what the assistant is saying.
+   */
+  caption?: string;
+}
+
+/**
+ * How many marks stand at once, and how long a caption may be.
+ *
+ * A mark is where to look next, so a surface covered in them is nowhere to
+ * look. The bound is low because it is the shape of the feature rather than a
+ * safeguard: past a few marks at once, what is being drawn is not a place to
+ * go but a diagram, and the call is where a diagram gets explained.
+ */
+export const COMPANION_COACHMARK_MAX = 4;
+export const COMPANION_COACHMARK_CAPTION_MAX = 80;
+
+/**
+ * Why a set of marks did not go up, or `null` for marks that did.
+ *
+ * Named refusals rather than one boolean, because the assistant can act on
+ * the difference and each one has its own answer: nothing shared is answered
+ * by asking the user to share, a surface owned by another conversation is not
+ * answered at all, and a surface that moved is answered by looking again.
+ * Told only that it failed, an assistant would ask for a share that is
+ * already running.
+ *
+ * Here rather than beside either end of the call. The window layer decides it
+ * and the host-proxy executor words it, and the file that words it says in as
+ * many words that it must not reach into the windows for anything.
+ */
+export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+
+/**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
  * with the size it was encoded at. Base64 rather than bytes because it
  * crosses the bridge as JSON.
@@ -1580,6 +1649,19 @@ export interface CompanionContext {
    * the share as on only once frames can flow to a session that takes them.
    */
   screenShare?: WatchCaptureTarget;
+  /**
+   * Which conversation the running call belongs to, while one is sharing.
+   *
+   * The marks the assistant places are addressed to a surface and say nothing
+   * about who asked for them, so without this main cannot tell the call's own
+   * conversation from any other the same user has running. A background turn
+   * would otherwise draw on a call it has no part in and be told it worked.
+   *
+   * Published with `screenShare` and withheld with it: a share that cannot
+   * flow is one nothing can be pointed at, so an id beside it would name a
+   * conversation with nothing to own.
+   */
+  callConversationId?: string;
   /**
    * Whether the call in this window can be shown the screen at all: a session
    * is running and its assistant understands the frame. The surface offers
@@ -1838,6 +1920,21 @@ export interface CompanionSurfaceState {
    * about where the next click goes.
    */
   annotating?: boolean;
+
+  /**
+   * What the assistant is pointing at on the shared surface, drawn on the
+   * frame around it. See {@link CompanionCoachmark}.
+   *
+   * Main's rather than the app window's, in the sense that main decides
+   * whether any of them stand: the coordinates are fractions of the surface
+   * the frame is drawn around, so a mark only means anything while the frame
+   * is around the surface the marks were resolved against. Main takes them
+   * down when it is not.
+   *
+   * Optional, and absence means nothing is being pointed at. An empty array
+   * never travels: a shell with nothing to draw says nothing.
+   */
+  coachmarks?: readonly CompanionCoachmark[];
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the

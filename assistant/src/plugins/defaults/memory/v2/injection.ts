@@ -27,15 +27,15 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
-  getCliCommandCapability,
   isCliCommandSlug,
-} from "../substrate/cli-command-store.js";
+  isSkillSlug,
+} from "../substrate/capability-slugs.js";
+import { getCliCommandCapability } from "../substrate/cli-command-store.js";
 import { getEdgeIndex } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
 import {
   getSkillCapability,
-  isSkillSlug,
   listAlwaysCandidateSkillSlugs,
 } from "../substrate/skill-store.js";
 import { spreadActivation } from "../substrate/spread.js";
@@ -820,7 +820,7 @@ interface RenderInjectionBlockResult {
  * the agent into wasted reads.
  *
  * Exported for the v2-suppression regression tests: memory-v3's
- * `V3_CARDS_INJECTION_HEADER` is deliberately byte-identical to this header,
+ * `V3_INJECTION_HEADER` is deliberately byte-identical to this header,
  * which is exactly why the v3-era tail strip must discriminate the two
  * `<memory>` layers by block identity rather than by this shared prefix.
  */

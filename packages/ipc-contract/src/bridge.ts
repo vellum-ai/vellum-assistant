@@ -26,6 +26,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionCoachmark,
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
@@ -669,6 +670,21 @@ export interface VellumBridge {
     captureScreen?(
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * A frame of `target` has reached the call, so the assistant has now been
+     * shown that surface.
+     *
+     * Told rather than inferred, and told here rather than at the capture.
+     * Taking a frame is not showing it: it is prepared, uploaded and sent
+     * afterwards, and any of those can fail or be voided by a reconnect. Main
+     * refuses marks measured against a surface the call has not been shown
+     * ({@link CompanionSurfaceState.coachmarks}), and a capture counted as a
+     * showing would open that gate for a picture nobody received.
+     *
+     * Only the window holding the session knows the frame arrived, which is
+     * why this comes from the renderer rather than being settled in main.
+     */
+    sharedFrame?(target: WatchCaptureTarget): void;
     /**
      * A preview of one row of the picker, as a JPEG data URL, for the tile
      * that row is drawn as.

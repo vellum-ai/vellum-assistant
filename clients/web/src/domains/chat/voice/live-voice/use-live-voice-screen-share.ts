@@ -60,7 +60,10 @@ import {
 import { annotateSharedFrame } from "@/domains/chat/voice/live-voice/annotate-shared-frame";
 import { createSightCapture } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
-import { captureCompanionScreen } from "@/runtime/companion-surface";
+import {
+  captureCompanionScreen,
+  reportCompanionSharedFrame,
+} from "@/runtime/companion-surface";
 import type {
   CompanionAnnotationStroke,
   WatchCaptureTarget,
@@ -166,8 +169,12 @@ export function useLiveVoiceScreenShare(): void {
             return frame;
           },
           // Nothing to show: there is no viewfinder to put a pulse on. The
-          // transcript is where a frame is seen.
-          onShared: () => undefined,
+          // transcript is where a frame is seen. What this does say is that
+          // the call has now been shown this surface, which is what lets the
+          // shell admit the assistant's own marks against it. Said here
+          // rather than at the capture because only this edge means the frame
+          // arrived: everything before it can still fail or be voided.
+          onShared: () => reportCompanionSharedFrame(target),
         })
         .then(() => {
           if (cancelled || !missed) {

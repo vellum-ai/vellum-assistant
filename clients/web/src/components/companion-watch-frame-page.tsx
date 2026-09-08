@@ -45,6 +45,7 @@ import {
   companionAccentHexFor,
   COMPANION_DEFAULT_ACCENT,
 } from "@/components/companion-accent";
+import { CompanionCoachmarks } from "@/components/companion-coachmarks";
 import { CompanionShareAnnotation } from "@/components/companion-share-annotation";
 import {
   getCompanionState,
@@ -145,6 +146,13 @@ export function CompanionWatchFramePage() {
   // layer mounted over that would swallow presses that go nowhere.
   const annotating = state?.annotating === true;
 
+  // A mark is a fraction of the surface the frame encloses, and a watch
+  // session outranks a share for the frame (`framedTarget` in
+  // `companion-window.ts`). So the marks describe what this window is around
+  // only while no session is being read beside the share. Main holds them to
+  // the same terms; this is that fact read where it is drawn.
+  const coachmarks = sharing && !watching ? (state?.coachmarks ?? []) : [];
+
   return (
     <div
       className="pointer-events-none h-screen w-screen bg-transparent"
@@ -176,6 +184,16 @@ export function CompanionWatchFramePage() {
           so the default the class carries is named for it. */}
       {annotating && (
         <CompanionShareAnnotation ink={accentHex ?? COMPANION_DEFAULT_ACCENT} />
+      )}
+      {/* Above the user's own ink in the markup for the reason it is drawn at
+          all: a mark says where to go next, and the user's marks are about
+          where they have already been. Neither takes the mouse, so the order
+          is about the eye alone. */}
+      {coachmarks.length > 0 && (
+        <CompanionCoachmarks
+          marks={coachmarks}
+          ink={accentHex ?? COMPANION_DEFAULT_ACCENT}
+        />
       )}
     </div>
   );
