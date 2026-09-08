@@ -352,6 +352,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
 });
 
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
+import { useGuardianDecisionStore } from "@/domains/home/guardian-decision-store";
 
 // The dot element itself, matched by a styling-independent test hook so the
 // assertions survive restyling. The accessible name is a separate concern, so
@@ -445,6 +446,7 @@ beforeEach(() => {
   decisionCalls.length = 0;
   decisionRef.outcome = "pending";
   decisionRef.reason = undefined;
+  useGuardianDecisionStore.getState().reset();
   feedInvalidateCalls.length = 0;
   toastCalls.length = 0;
   triggerActionCalls.length = 0;
@@ -830,7 +832,33 @@ describe("NotificationsBell guardian rows", () => {
     },
   );
 
-  test.each(["identity_mismatch", "request_misconfigured"] as const)(
+  test("a decision made from the row reads as decided in its detail", async () => {
+    decisionRef.outcome = "applied";
+    // The canonical guardian item, whose detail is the request card.
+    feedRef.items = [
+      guardianBellItem({ detailPanel: { kind: "permissionChat" } }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Needs your approval" }),
+    );
+    await act(async () => {});
+
+    // The feed still projects the request as pending, but the outcome is
+    // shared, so the detail shows the receipt rather than offering the
+    // decision again.
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.getByText("Request approved")).toBeTruthy();
+  });
+
+  test.each([
+    "identity_mismatch",
+    "request_misconfigured",
+    "decision_not_persisted",
+  ] as const)(
     "a decision declined for %s leaves the row's buttons in place",
     async (reason) => {
       decisionRef.outcome = "not-applied";
