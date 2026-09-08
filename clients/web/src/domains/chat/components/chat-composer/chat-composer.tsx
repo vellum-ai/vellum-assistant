@@ -22,6 +22,7 @@ import {
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useCameraDeepLink } from "@/domains/chat/components/chat-attachments/use-camera-deep-link";
 import {
+  type ComposerSlot,
   selectPathReferencePaths,
   selectUploadedIds,
   selectUploadingCount,
@@ -240,6 +241,14 @@ export interface ChatComposerProps {
   // Edit-message recall — up-arrow on empty input recalls last user message.
   onRecallLastMessage?: () => void;
   onCancelEdit?: () => void;
+
+  // Which `composer-store` slot this instance reads/writes its draft text and
+  // attachments from. Defaults to `"main"` (the chat route's composer, the
+  // only slot that existed before the mobile document composer). Pass
+  // `"document"` for the composer pinned to `MobileDocumentOverlay`, which
+  // targets a different, non-active conversation and must not share draft
+  // state with whatever the main composer is pointed at.
+  slot?: ComposerSlot;
 }
 
 /**
@@ -363,26 +372,51 @@ export function ChatComposer({
   suggestion,
   onRecallLastMessage,
   onCancelEdit,
+  slot = "main",
 }: ChatComposerProps) {
   const { t } = useTranslation("chat");
   // Draft text is owned by the composer store; subscribing here (rather than
   // receiving it as a prop) means a keystroke re-renders only this component,
-  // not the orchestrator or the transcript above it.
-  const input = useComposerStore.use.input();
-  const setInput = useComposerStore.use.setInput();
+  // not the orchestrator or the transcript above it. Which slot ("main" vs
+  // "document") is read/written is fixed per composer instance via `slot`.
+  const input = useComposerStore((s) =>
+    slot === "document" ? s.documentInput : s.input,
+  );
+  const setInputAction = useComposerStore.use.setInput();
+  const setInput = useCallback(
+    (value: string | ((prev: string) => string)) => setInputAction(value, slot),
+    [setInputAction, slot],
+  );
   // Attachments are composer-owned too: read the list and derive send-gating
   // here rather than threading four props down from the orchestrator.
-  const attachments = useComposerStore.use.attachments();
-  const removeAttachment = useComposerStore.use.removeAttachment();
+  const attachments = useComposerStore((s) =>
+    slot === "document" ? s.documentAttachments : s.attachments,
+  );
+  const removeAttachmentAction = useComposerStore.use.removeAttachment();
+  const removeAttachment = useCallback(
+    (localId: string) => removeAttachmentAction(localId, slot),
+    [removeAttachmentAction, slot],
+  );
   const attachmentsUploadingCount = selectUploadingCount(attachments);
   const canSendAttachments =
     attachmentsUploadingCount === 0 &&
     (selectUploadedIds(attachments).length > 0 ||
       selectPathReferencePaths(attachments).length > 0);
 
+  // Whether this composer instance offers dictation at all — the document
+  // composer (v1) omits voice wiring entirely by never passing these props.
+  const showVoiceInput =
+    voiceInputRef !== undefined && onVoiceTranscript !== undefined;
   const voicePhase = useVoiceRecordingStore.use.phase();
+  // `useVoiceRecordingStore` is a single global store with no per-composer
+  // scoping (same reason `composer-store` needed a `slot`, see its docstring):
+  // gated on `showVoiceInput` so a dictation session started from the main
+  // composer cannot hide the document composer's send button or textarea
+  // (both of which key off `isVoiceActive` below) while it has no dictation
+  // entry point of its own to have started that session from.
   const isVoiceActive =
-    voicePhase === "recording" || voicePhase === "processing";
+    showVoiceInput &&
+    (voicePhase === "recording" || voicePhase === "processing");
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
@@ -397,8 +431,6 @@ export function ChatComposer({
     }
     setVoiceAudioLevel(amplitude);
   }, [amplitude, voiceStream, setVoiceAudioLevel]);
-  const showVoiceInput =
-    voiceInputRef !== undefined && onVoiceTranscript !== undefined;
 
   // ---- Live voice (full-duplex conversation) ----------------------------
   // Coexists with dictation: entry is gated on eligibility — `LiveVoiceButton`
@@ -806,13 +838,23 @@ export function ChatComposer({
   // read from their stores here, the same way attachments are, so the send
   // button, the Enter policy, and `useComposerSubmit`'s own guard all answer
   // "is there something to send" from the same state.
-  const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
+  //
+  // Both stores are global and un-scoped by conversation, same as
+  // `useVoiceRecordingStore` above — quoting a transcript message or pinning a
+  // channel reference are chat-transcript concepts the document composer has
+  // no UI to trigger, so its own read is always gated to `slot === "main"`.
+  // Without the gate, a quote staged for the main composer would leak into
+  // the document composer's send-gating (and vice versa) purely because the
+  // two instances are mounted concurrently.
+  const stagedQuotesCount = useQuoteReplyStore.use.stagedQuotes().length;
+  const hasStagedQuotes = slot === "main" && stagedQuotesCount > 0;
   // Derived boolean selector: swapping which row is staged replaces the
   // reference object without changing sendability, so this subscribes to the
   // flip alone rather than re-rendering the composer on every swap.
-  const hasStagedChannelReference = useChannelReferenceStore(
+  const channelReferenceStaged = useChannelReferenceStore(
     (s) => s.reference !== null,
   );
+  const hasStagedChannelReference = slot === "main" && channelReferenceStaged;
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;
@@ -1347,7 +1389,10 @@ export function ChatComposer({
           // restored draft, so retire the "draft restored" marker (and its
           // notice). Keeps `restoredDraftConversationId` an accurate
           // signal for "unedited restored draft" (see use-deep-link-consumer).
+          // Main-slot-only concern: the document composer's `restoredDraftConversationId`
+          // read would be about an unrelated (main-chat) conversation switch.
           if (
+            slot === "main" &&
             useComposerStore.getState().restoredDraftConversationId !== null
           ) {
             useComposerStore.getState().clearRestoredDraftNotice();
@@ -1530,7 +1575,7 @@ export function ChatComposer({
       <div ref={bannerStackRef} data-slot="composer-banner-stack">
         {/* Composer-owned draft/attachment notices (self-sourced), above the
             orchestration banner stack. */}
-        <ComposerDraftNotices />
+        <ComposerDraftNotices slot={slot} />
         {/* Live-voice failure notice, surfaced by the voice-enabled composer
             the user is looking at, mirroring the dictation `voiceError` Notice
             rendered by `ComposerNotices` in the orchestration stack below.

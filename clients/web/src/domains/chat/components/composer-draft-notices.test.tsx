@@ -12,6 +12,9 @@ function reset() {
     attachments: [],
     attachmentLastError: null,
     restoredDraftConversationId: null,
+    documentInput: "",
+    documentAttachments: [],
+    documentAttachmentLastError: null,
   });
   useConversationStore.setState({ activeConversationId: null });
 }
@@ -22,8 +25,8 @@ afterEach(() => {
   reset();
 });
 
-function renderNotices(): string {
-  const { container } = render(<ComposerDraftNotices />);
+function renderNotices(slot?: "main" | "document"): string {
+  const { container } = render(<ComposerDraftNotices slot={slot} />);
   return container.innerHTML;
 }
 
@@ -79,5 +82,40 @@ describe("ComposerDraftNotices", () => {
     useComposerStore.setState({ restoredDraftConversationId: "c1" });
     render(<ComposerDraftNotices />);
     expect(useComposerStore.getState().restoredDraftConversationId).toBe(null);
+  });
+
+  describe("document slot", () => {
+    test("reads text/attachment state from the document slot, not main", () => {
+      useComposerStore.setState({
+        // Main slot has text + an uploading attachment — must not leak in.
+        input: "main draft",
+        attachments: [
+          {
+            kind: "uploading",
+            localId: "u1",
+            filename: "f",
+            mimeType: "text/plain",
+            sizeBytes: 1,
+          },
+        ],
+        documentInput: "doc draft",
+        documentAttachments: [],
+      });
+      expect(renderNotices("document")).not.toContain("Waiting for");
+    });
+
+    test("surfaces the document slot's own attachment error", () => {
+      useComposerStore.setState({
+        attachmentLastError: null,
+        documentAttachmentLastError: "Document attachment failed",
+      });
+      expect(renderNotices("document")).toContain("Document attachment failed");
+    });
+
+    test("never shows the restored-draft notice — no draft persistence for this slot", () => {
+      useConversationStore.setState({ activeConversationId: "c1" });
+      useComposerStore.setState({ restoredDraftConversationId: "c1" });
+      expect(renderNotices("document")).not.toContain("Draft restored");
+    });
   });
 });

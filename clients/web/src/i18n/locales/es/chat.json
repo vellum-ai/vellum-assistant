@@ -698,6 +698,14 @@
     "resolve": "Resolver",
     "resolved": "Resuelto"
   },
+  "documentComposer": {
+    "assistantRepliedToast": "El asistente respondió",
+    "messageSentToast": "Mensaje enviado",
+    "sendFailed": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
+    "sent": "Enviado",
+    "viewConversation": "Ver conversación",
+    "viewReply": "Ver respuesta"
+  },
   "documentPreviewSurface": {
     "openAria": "Abrir {name}"
   },

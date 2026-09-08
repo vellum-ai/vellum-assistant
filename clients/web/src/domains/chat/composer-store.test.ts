@@ -56,14 +56,27 @@ mock.module(
   }),
 );
 
-const { useComposerStore } = await import("@/domains/chat/composer-store");
+const { MAX_ATTACHMENT_BYTES, useComposerStore } =
+  await import("@/domains/chat/composer-store");
 
 function getStore() {
   return useComposerStore.getState();
 }
 
+// `fullReset` is deliberately a "main"-slot-only concern (see composer-store's
+// `ComposerSlot` docstring), so the document slot's fields are reset directly
+// here to keep the two slots from leaking state across tests.
+function resetDocumentSlot() {
+  useComposerStore.setState({
+    documentInput: "",
+    documentAttachments: [],
+    documentAttachmentLastError: null,
+  });
+}
+
 beforeEach(() => {
   getStore().fullReset();
+  resetDocumentSlot();
   localSettingsStore.clear();
   uploadChatAttachmentMock.mockClear();
   fetchAttachmentContentBlobMock.mockClear();
@@ -71,6 +84,7 @@ beforeEach(() => {
 
 afterEach(() => {
   getStore().fullReset();
+  resetDocumentSlot();
   localSettingsStore.clear();
 });
 
@@ -694,5 +708,171 @@ describe("restoreFailedDraft", () => {
     getStore().loadAssistantDrafts("assistant-2");
     getStore().loadAssistantDrafts("assistant-1");
     expect(draftFor("conv-A")).toBe("typed later");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ComposerSlot ("main" vs "document") isolation — LUM-3384
+// ---------------------------------------------------------------------------
+
+describe("ComposerSlot isolation", () => {
+  test("setInput defaults to the main slot", () => {
+    getStore().setInput("typed in main");
+    expect(getStore().input).toBe("typed in main");
+    expect(getStore().documentInput).toBe("");
+  });
+
+  test("setInput('document') writes documentInput without touching input", () => {
+    getStore().setInput("main text");
+    getStore().setInput("document text", "document");
+
+    expect(getStore().input).toBe("main text");
+    expect(getStore().documentInput).toBe("document text");
+  });
+
+  test("setInput('document') accepts a functional updater scoped to its own slot", () => {
+    getStore().setInput("main");
+    getStore().setInput("doc", "document");
+
+    getStore().setInput((prev) => `${prev}!`, "document");
+
+    expect(getStore().documentInput).toBe("doc!");
+    expect(getStore().input).toBe("main");
+  });
+
+  test("addFiles('document') queues into documentAttachments, not attachments", async () => {
+    getStore().addFiles(
+      [fileWithHeader(PNG_HEADER, "doc.png", "image/png")],
+      "assistant-1",
+      "document",
+    );
+
+    // Queued synchronously, before the async upload settles.
+    expect(getStore().documentAttachments).toHaveLength(1);
+    expect(getStore().attachments).toHaveLength(0);
+
+    for (let i = 0; i < 100; i++) {
+      if (getStore().documentAttachments.every((a) => a.kind !== "uploading")) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(getStore().documentAttachments[0]?.kind).toBe("uploaded");
+    expect(getStore().attachments).toHaveLength(0);
+  });
+
+  test("an oversized file sets documentAttachmentLastError, not attachmentLastError", () => {
+    const hugeFile = {
+      name: "huge.bin",
+      type: "application/octet-stream",
+      size: MAX_ATTACHMENT_BYTES + 1,
+    } as unknown as File;
+
+    getStore().addFiles([hugeFile], "assistant-1", "document");
+
+    expect(getStore().documentAttachmentLastError).toContain("larger than");
+    expect(getStore().attachmentLastError).toBeNull();
+  });
+
+  test("removeAttachment('document') removes only from documentAttachments", () => {
+    useComposerStore.setState({
+      attachments: [
+        {
+          kind: "uploaded",
+          localId: "main-att",
+          id: "srv-main",
+          filename: "main.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "doc-att",
+          id: "srv-doc",
+          filename: "doc.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+    });
+
+    getStore().removeAttachment("doc-att", "document");
+
+    expect(getStore().documentAttachments).toHaveLength(0);
+    expect(getStore().attachments).toHaveLength(1);
+  });
+
+  test("resetAttachments('document') clears only the document slot", () => {
+    useComposerStore.setState({
+      attachments: [
+        {
+          kind: "uploaded",
+          localId: "main-att",
+          id: "srv-main",
+          filename: "main.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      attachmentLastError: "main error",
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "doc-att",
+          id: "srv-doc",
+          filename: "doc.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      documentAttachmentLastError: "doc error",
+    });
+
+    getStore().resetAttachments("document");
+
+    expect(getStore().documentAttachments).toHaveLength(0);
+    expect(getStore().documentAttachmentLastError).toBeNull();
+    expect(getStore().attachments).toHaveLength(1);
+    expect(getStore().attachmentLastError).toBe("main error");
+  });
+
+  test("dismissAttachmentError('document') clears only documentAttachmentLastError", () => {
+    useComposerStore.setState({
+      attachmentLastError: "main error",
+      documentAttachmentLastError: "doc error",
+    });
+
+    getStore().dismissAttachmentError("document");
+
+    expect(getStore().documentAttachmentLastError).toBeNull();
+    expect(getStore().attachmentLastError).toBe("main error");
+  });
+
+  test("fullReset is a main-slot-only concern and leaves the document slot untouched", () => {
+    useComposerStore.setState({
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "doc-att",
+          id: "srv-doc",
+          filename: "doc.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+      documentAttachmentLastError: "doc error",
+    });
+
+    getStore().fullReset();
+
+    expect(getStore().documentAttachments).toHaveLength(1);
+    expect(getStore().documentAttachmentLastError).toBe("doc error");
   });
 });

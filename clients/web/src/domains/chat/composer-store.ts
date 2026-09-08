@@ -81,6 +81,19 @@ export type ChatAttachment =
   | FailedAttachmentUpload
   | PathReferenceAttachment;
 
+/**
+ * Which composer instance a draft/attachment action targets. `"main"` is the
+ * chat route's composer (the only slot that existed before LUM-3384) and is
+ * the default for every action, so call sites that never pass `slot` keep
+ * reading/writing exactly the state they always have. `"document"` is the
+ * independent draft/attachment bucket for the composer pinned to the mobile
+ * document editor (`MobileDocumentOverlay`) — a separate slot rather than a
+ * shared one, since the document composer targets a different conversation
+ * than whatever the main composer is pointed at, and sharing state between
+ * them would let typing in one clobber the other's in-progress draft.
+ */
+export type ComposerSlot = "main" | "document";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -210,19 +223,30 @@ function basenameOf(path: string): string {
 // ---------------------------------------------------------------------------
 
 export interface ComposerState {
-  // --- Draft input ---
+  // --- Draft input ("main" slot — the chat route composer) ---
   input: string;
   /** Which conversation's draft was most recently restored (for the "Draft restored" notice). */
   restoredDraftConversationId: string | null;
 
-  // --- Attachments ---
+  // --- Attachments ("main" slot) ---
   attachments: ChatAttachment[];
   attachmentLastError: string | null;
+
+  // --- "document" slot — the composer pinned to the mobile document editor.
+  // No draft persistence (`draftsMap`), no restored-draft notice: those are
+  // main-composer-only concerns (see `ComposerSlot`).
+  documentInput: string;
+  documentAttachments: ChatAttachment[];
+  documentAttachmentLastError: string | null;
 }
 
 export interface ComposerActions {
   // --- Draft input actions ---
-  setInput: (value: string | ((prev: string) => string)) => void;
+  /** `slot` defaults to `"main"` — every existing call site is unaffected. */
+  setInput: (
+    value: string | ((prev: string) => string),
+    slot?: ComposerSlot,
+  ) => void;
   /**
    * Save a draft for the given conversation key. Call before operations
    * that wipe state but should preserve the user's text (e.g. pull-to-refresh).
@@ -288,21 +312,26 @@ export interface ComposerActions {
    */
   restoreDraftIfEmpty: (key: string) => void;
 
-  // --- Attachment actions ---
-  addFiles: (files: FileList | File[], assistantId: string | null) => void;
+  // --- Attachment actions (`slot` defaults to `"main"`) ---
+  addFiles: (
+    files: FileList | File[],
+    assistantId: string | null,
+    slot?: ComposerSlot,
+  ) => void;
   /**
    * Queue one or more native filesystem paths as `path-reference` attachments.
    * Nothing is uploaded — the path is included in the sent message content so
    * the assistant can operate against the folder in place.
    */
   addPathReferences: (paths: string[]) => void;
-  removeAttachment: (localId: string) => void;
+  removeAttachment: (localId: string, slot?: ComposerSlot) => void;
   /** Clear all attachments (e.g. after successful send). Does NOT revoke
    * preview URLs — sent message bubbles still need them. */
-  resetAttachments: () => void;
-  /** Clear all attachments AND revoke preview URLs (e.g. on assistant switch). */
+  resetAttachments: (slot?: ComposerSlot) => void;
+  /** Clear all attachments AND revoke preview URLs (e.g. on assistant switch).
+   * "main" slot only — see `ComposerSlot`. */
   fullReset: () => void;
-  dismissAttachmentError: () => void;
+  dismissAttachmentError: (slot?: ComposerSlot) => void;
 }
 
 type ComposerStore = ComposerState & ComposerActions;
@@ -330,9 +359,19 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   restoredDraftConversationId: null,
   attachments: [],
   attachmentLastError: null,
+  documentInput: "",
+  documentAttachments: [],
+  documentAttachmentLastError: null,
 
   // --- Draft input actions ---
-  setInput: (value) => {
+  setInput: (value, slot = "main") => {
+    if (slot === "document") {
+      set((s) => ({
+        documentInput:
+          typeof value === "function" ? value(s.documentInput) : value,
+      }));
+      return;
+    }
     set((s) => ({
       input: typeof value === "function" ? value(s.input) : value,
     }));
@@ -436,13 +475,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   },
 
   // --- Attachment actions ---
-  addFiles: (files, assistantId) => {
+  addFiles: (files, assistantId, slot = "main") => {
     const list = Array.from(files);
     if (list.length === 0) {
       return;
     }
     if (!assistantId) {
-      set({ attachmentLastError: "No active assistant. Please try again." });
+      setAttachmentError(set, slot, "No active assistant. Please try again.");
       return;
     }
 
@@ -458,14 +497,15 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
     const firstOversized = oversized[0];
     if (firstOversized) {
-      set({
-        attachmentLastError:
-          oversized.length === 1
-            ? `${firstOversized.name} is larger than ${uploadLimitLabel(firstOversized)} and can't be attached.`
-            : `${oversized.length} files are too large and can't be attached.`,
-      });
+      setAttachmentError(
+        set,
+        slot,
+        oversized.length === 1
+          ? `${firstOversized.name} is larger than ${uploadLimitLabel(firstOversized)} and can't be attached.`
+          : `${oversized.length} files are too large and can't be attached.`,
+      );
     } else {
-      set({ attachmentLastError: null });
+      setAttachmentError(set, slot, null);
     }
 
     if (accepted.length === 0) {
@@ -484,9 +524,10 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
         file,
       }));
 
-    set((s) => ({
-      attachments: [...s.attachments, ...queued.map((entry) => entry.pending)],
-    }));
+    updateAttachments(set, slot, (atts) => [
+      ...atts,
+      ...queued.map((entry) => entry.pending),
+    ]);
 
     // Upload each file asynchronously.
     for (const { pending, file } of queued) {
@@ -500,7 +541,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
           if (prepared.status === "failed") {
             if (file.size > MAX_ATTACHMENT_BYTES) {
-              markFailed(set, pending.localId, prepared.error);
+              markFailed(set, slot, pending.localId, prepared.error);
               return;
             }
           }
@@ -508,12 +549,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           const uploadFile =
             prepared.status === "failed" ? file : prepared.file;
           if (await isUnreadableImage(uploadFile)) {
-            markFailed(set, pending.localId, UNREADABLE_IMAGE_ERROR);
+            markFailed(set, slot, pending.localId, UNREADABLE_IMAGE_ERROR);
             return;
           }
           if (uploadFile.size > MAX_ATTACHMENT_BYTES) {
             markFailed(
               set,
+              slot,
               pending.localId,
               "This attachment is still larger than 50 MB after resizing. Try a smaller image.",
             );
@@ -521,8 +563,8 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           }
 
           if (prepared.status === "resized") {
-            set((s) => ({
-              attachments: s.attachments.map((att) =>
+            updateAttachments(set, slot, (atts) =>
+              atts.map((att) =>
                 att.localId === pending.localId && att.kind === "uploading"
                   ? {
                       ...att,
@@ -532,7 +574,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
                     }
                   : att,
               ),
-            }));
+            );
           }
 
           const result = await uploadChatAttachment(assistantId, uploadFile);
@@ -544,6 +586,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           if (!result.ok) {
             markFailed(
               set,
+              slot,
               pending.localId,
               result.error.detail ?? "Upload failed",
             );
@@ -582,8 +625,8 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
             previewUrl = null;
           }
 
-          set((s) => ({
-            attachments: s.attachments.map((att) =>
+          updateAttachments(set, slot, (atts) =>
+            atts.map((att) =>
               att.localId === pending.localId
                 ? ({
                     kind: "uploaded",
@@ -597,13 +640,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
                   } satisfies UploadedAttachment)
                 : att,
             ),
-          }));
+          );
         } catch {
           if (cancelledUploads.has(pending.localId)) {
             cancelledUploads.delete(pending.localId);
             return;
           }
-          markFailed(set, pending.localId, "Upload failed");
+          markFailed(set, slot, pending.localId, "Upload failed");
         }
       })();
     }
@@ -632,32 +675,31 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }));
   },
 
-  removeAttachment: (localId) => {
-    set((s) => {
-      const target = s.attachments.find((att) => att.localId === localId);
+  removeAttachment: (localId, slot = "main") => {
+    updateAttachments(set, slot, (atts) => {
+      const target = atts.find((att) => att.localId === localId);
       if (target && target.kind === "uploading") {
         cancelledUploads.add(localId);
       }
-      return {
-        attachments: s.attachments.filter((att) => att.localId !== localId),
-      };
+      return atts.filter((att) => att.localId !== localId);
     });
     revokePreview(localId);
   },
 
-  resetAttachments: () => {
-    set((s) => {
-      for (const att of s.attachments) {
+  resetAttachments: (slot = "main") => {
+    updateAttachments(set, slot, (atts) => {
+      for (const att of atts) {
         if (att.kind === "uploading") {
           cancelledUploads.add(att.localId);
         }
       }
-      // Intentionally do NOT revoke preview blob URLs here. After a successful
-      // send the uploaded attachment chip is rendered inside the sent user
-      // message bubble, which still needs those URLs. They get revoked on
-      // assistant switch (fullReset) and on page unload.
-      return { attachments: [], attachmentLastError: null };
+      return [];
     });
+    // Intentionally do NOT revoke preview blob URLs here. After a successful
+    // send the uploaded attachment chip is rendered inside the sent user
+    // message bubble, which still needs those URLs. They get revoked on
+    // assistant switch (fullReset) and on page unload.
+    setAttachmentError(set, slot, null);
   },
 
   fullReset: () => {
@@ -673,8 +715,8 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     previewUrls.clear();
   },
 
-  dismissAttachmentError: () => {
-    set({ attachmentLastError: null });
+  dismissAttachmentError: (slot = "main") => {
+    setAttachmentError(set, slot, null);
   },
 }));
 
@@ -682,13 +724,42 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
+type ComposerSetFn = (fn: (s: ComposerState) => Partial<ComposerState>) => void;
+
+/** Read/write the attachment list belonging to `slot`, main or document. */
+function updateAttachments(
+  set: ComposerSetFn,
+  slot: ComposerSlot,
+  updater: (atts: ChatAttachment[]) => ChatAttachment[],
+) {
+  if (slot === "document") {
+    set((s) => ({ documentAttachments: updater(s.documentAttachments) }));
+    return;
+  }
+  set((s) => ({ attachments: updater(s.attachments) }));
+}
+
+/** Set the attachment-error banner belonging to `slot`, main or document. */
+function setAttachmentError(
+  set: ComposerSetFn,
+  slot: ComposerSlot,
+  error: string | null,
+) {
+  if (slot === "document") {
+    set(() => ({ documentAttachmentLastError: error }));
+    return;
+  }
+  set(() => ({ attachmentLastError: error }));
+}
+
 function markFailed(
-  set: (fn: (s: ComposerState) => Partial<ComposerState>) => void,
+  set: ComposerSetFn,
+  slot: ComposerSlot,
   localId: string,
   detail: string,
 ) {
-  set((s) => ({
-    attachments: s.attachments.map((att) => {
+  updateAttachments(set, slot, (atts) =>
+    atts.map((att) => {
       // Only uploading attachments can transition to failed — path-references
       // and already-uploaded rows aren't part of the upload flow.
       if (att.localId !== localId || att.kind !== "uploading") {
@@ -703,7 +774,7 @@ function markFailed(
         error: detail,
       } satisfies FailedAttachmentUpload;
     }),
-  }));
+  );
 }
 
 function revokePreview(localId: string) {

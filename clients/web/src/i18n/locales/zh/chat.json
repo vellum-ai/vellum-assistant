@@ -680,6 +680,14 @@
     "resolve": "解决",
     "resolved": "已解决"
   },
+  "documentComposer": {
+    "assistantRepliedToast": "助手已回复",
+    "messageSentToast": "消息已发送",
+    "sendFailed": "无法发送您的消息,请重试。",
+    "sent": "已发送",
+    "viewConversation": "查看对话",
+    "viewReply": "查看回复"
+  },
   "documentPreviewSurface": {
     "openAria": "打开 {name}"
   },

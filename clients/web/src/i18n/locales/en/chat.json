@@ -702,6 +702,14 @@
     "resolve": "Resolve",
     "resolved": "Resolved"
   },
+  "documentComposer": {
+    "assistantRepliedToast": "Assistant replied",
+    "messageSentToast": "Message sent",
+    "sendFailed": "Couldn't send your message. Try again.",
+    "sent": "Sent",
+    "viewConversation": "View conversation",
+    "viewReply": "View reply"
+  },
   "documentPreviewSurface": {
     "openAria": "Open {name}"
   },

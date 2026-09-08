@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 /**
  * Route component for viewing a single document with comment integration.
@@ -18,19 +17,15 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import {
-  documentsByIdConversationsPost,
-  documentsByIdGet,
-} from "@/generated/daemon/sdk.gen";
+import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import {
+  linkDocumentConversationIfNeeded,
+  resolveDocumentConversationId,
+} from "@/domains/chat/utils/document-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
-import {
-  getEditChatConversationId,
-  setEditChatConversationId,
-} from "@/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import {
   DocumentViewerContainer,
@@ -140,24 +135,8 @@ export function DocumentViewerPage() {
     // Prefer the document's original conversation — the document is already
     // linked there, so the injector will surface the comments automatically.
     // Fall back to session-cached conversation id for repeated feedback.
-    const conversationId =
-      doc.conversationId ||
-      getEditChatConversationId(assistantId, surfaceId) ||
-      createDraftConversationId();
-
-    setEditChatConversationId(assistantId, surfaceId, conversationId);
-
-    if (conversationId !== doc.conversationId) {
-      try {
-        await documentsByIdConversationsPost({
-          path: { assistant_id: assistantId, id: surfaceId },
-          body: { conversationId },
-          throwOnError: true,
-        });
-      } catch {
-        // Best-effort — fails if the daemon doesn't have the route yet.
-      }
-    }
+    const conversationId = resolveDocumentConversationId(doc, assistantId);
+    await linkDocumentConversationIfNeeded(doc, assistantId, conversationId);
 
     useViewerStore.getState().openDocument();
     useViewerStore.getState().setLoadedDocument({
@@ -224,7 +203,9 @@ export function DocumentViewerPage() {
         documentName={doc.title}
         content={doc.content}
         onClose={handleClose}
-        onRenamed={(title) => setDoc((prev) => (prev ? { ...prev, title } : prev))}
+        onRenamed={(title) =>
+          setDoc((prev) => (prev ? { ...prev, title } : prev))
+        }
         onExport={handleExport}
         onSubmitFeedback={handleSubmitFeedback}
         handleRef={viewerRef}
