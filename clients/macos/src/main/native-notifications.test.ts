@@ -116,10 +116,39 @@ describe("createNativeNotificationFactory", () => {
     expect(request.title).toBe("Weekly plan");
     expect(request.subtitle).toBeUndefined();
     expect(request.body).toBe("Your draft is ready");
-    expect(request.categoryId).toBe("notificationIntent");
+    expect(request.categoryId).toMatch(/^vellum\.actions\.[0-9a-f]{16}$/);
     expect(request.actions).toEqual(["Allow", "Deny"]);
     expect(request.sender).toBeUndefined();
     expect(request.id.length).toBeGreaterThan(0);
+  });
+
+  test("gives every distinct action set its own category id", () => {
+    const factory = createNativeNotificationFactory();
+    factory.create(options()).show();
+    factory
+      .create(options({ actions: [{ type: "button", text: "View" }] }))
+      .show();
+    factory.create(options()).show();
+    factory.create(options({ actions: [] })).show();
+
+    const [twoButton, oneButton, twoButtonAgain, noButton] = calls.map(
+      (call) => call.request.categoryId,
+    );
+    expect(twoButton).not.toBe(oneButton);
+    expect(twoButton).toBe(twoButtonAgain);
+    expect(noButton).not.toBe(twoButton);
+    expect(noButton).not.toBe(oneButton);
+  });
+
+  test("posts a notification with no actions", () => {
+    createNativeNotificationFactory()
+      .create(options({ actions: [] }))
+      .show();
+
+    expect(calls.length).toBe(1);
+    const { request } = calls[0]!;
+    expect(request.actions).toEqual([]);
+    expect(request.categoryId).toMatch(/^vellum\.actions\.[0-9a-f]{16}$/);
   });
 
   test("swaps the sender name into the title and the title into the subtitle", () => {

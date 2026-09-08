@@ -15,7 +15,7 @@
  * delegate before the addon can.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -29,7 +29,7 @@ import path from "node:path";
 import { app } from "electron";
 
 import type {
-  NotificationCategory,
+  CategoryAction,
   NotificationCreateOptions,
   NotificationLike,
 } from "@vellumai/electron-desktop/notifications";
@@ -95,7 +95,22 @@ type Listeners = {
   failed?: (event: unknown, error: string) => void;
 };
 
-const CATEGORY_ID: NotificationCategory = "notificationIntent";
+/**
+ * The addon registers one `UNNotificationCategory` per identifier and hands the
+ * notification center the union, so an identifier shared by two different
+ * action sets would let the later registration relabel or drop the buttons on a
+ * notification already on screen, and a press would then be routed through the
+ * earlier notification's action array. Keying the identifier by the ordered
+ * action labels gives every distinct set its own category, an empty set
+ * included, and keeps a repeated set on the one registration.
+ */
+const categoryIdForActions = (actions: readonly CategoryAction[]): string => {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(actions.map((action) => action.text)))
+    .digest("hex")
+    .slice(0, 16);
+  return `vellum.actions.${digest}`;
+};
 
 export const createNativeNotificationFactory = (): {
   create: (options: NotificationCreateOptions) => NotificationLike;
@@ -144,7 +159,7 @@ export const createNativeNotificationFactory = (): {
         title: sender ? sender.name : options.title,
         ...(sender ? { subtitle: options.title } : {}),
         body: options.body,
-        categoryId: CATEGORY_ID,
+        categoryId: categoryIdForActions(options.actions),
         actions: options.actions.map((action) => action.text),
         ...(sender ? { sender } : {}),
       };

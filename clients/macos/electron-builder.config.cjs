@@ -1,5 +1,9 @@
 // @ts-check
 
+const {
+  deriveCommunicationEntitlements,
+} = require("./scripts/entitlements/derive-communication-entitlements");
+
 const env = process.env.VELLUM_ENVIRONMENT || "local";
 const bucketEnv = env === "production" ? "prod" : env;
 const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
@@ -30,10 +34,12 @@ const helperBundleName =
 // declares it without an authorizing provisioning profile is killed at launch.
 // A build only gets the entitlement (and the profile) when
 // VELLUM_MAC_PROVISIONING_PROFILE names a decoded profile on disk; every other
-// build signs with the plain entitlements and posts plain notifications.
+// build signs with the plain entitlements and posts plain notifications. The
+// profile build's plist is derived from app.plist at pack time, so app.plist
+// stays the single source of the entitlement set.
 const provisioningProfile = process.env.VELLUM_MAC_PROVISIONING_PROFILE || "";
 const entitlements = provisioningProfile
-  ? "./scripts/entitlements/app-communication.plist"
+  ? deriveCommunicationEntitlements()
   : "./scripts/entitlements/app.plist";
 
 const schemes =

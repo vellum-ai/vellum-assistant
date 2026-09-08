@@ -236,13 +236,17 @@ re-signs with `inherit.plist`.
 
 **Provisioning profile switch.** `com.apple.developer.usernotifications.communication`
 is a restricted entitlement: an app declaring it without an authorizing
-provisioning profile is killed at launch. `electron-builder.config.cjs` signs
-with `scripts/entitlements/app-communication.plist` and sets
+provisioning profile is killed at launch. `electron-builder.config.cjs` sets
 `mac.provisioningProfile` only when `VELLUM_MAC_PROVISIONING_PROFILE` names a
 profile on disk; the release workflows decode one there from the
-`MAC_PROVISIONING_PROFILE` secret. Every other build signs with
-`scripts/entitlements/app.plist`, the intent path fails closed inside
-`contentByUpdatingWithProvider:`, and notifications post plainly.
+`MAC_PROVISIONING_PROFILE` secret. That build signs with an entitlements plist
+derived at pack time by `scripts/entitlements/derive-communication-entitlements.js`,
+which reads `scripts/entitlements/app.plist`, adds the one restricted key, and
+writes `build/entitlements/app-communication.plist` (gitignored, and rederived
+by `scripts/afterSign.js` for the outer re-sign), so `app.plist` stays the only
+place the entitlement set is edited. Every other build signs with `app.plist`
+itself, the intent path fails closed inside `contentByUpdatingWithProvider:`,
+and notifications post plainly.
 
 ## Scripts
 
