@@ -44,14 +44,23 @@ import {
   REDACTED_CREDENTIAL_TAG,
   rehypeRedactedCredential,
 } from "@/domains/chat/utils/rehype-redacted-credential";
+import { rehypeEntityName } from "@/domains/chat/utils/rehype-entity-name";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
+import {
+  EMPTY_ENTITY_NAME_CATALOG,
+  ENTITY_NAME_TAG,
+  type EntityNameCatalog,
+} from "@/domains/chat/utils/entity-name-links";
+import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import {
   toVellumWorkspaceHref,
   WORKSPACE_PATH_TAG,
 } from "@/domains/chat/utils/workspace-path-links";
+import { AppPathLink } from "@/domains/chat/components/app-path-link";
+import { EntityNameLink } from "@/domains/chat/components/entity-name-link";
 import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
-import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
+import { useEntityNameCatalog } from "@/domains/chat/hooks/use-entity-name-catalog";
 import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
@@ -344,9 +353,42 @@ export interface ChatMarkdownMessageProps
    * typed is their own prose and should render as they wrote it.
    */
   workspacePathLinks?: boolean;
+  /**
+   * Upgrade unique conversation titles and schedule names into in-app links
+   * (see `rehypeEntityName`). Enable only for assistant-authored content: a
+   * name the user typed is their own prose and should render as they wrote it.
+   */
+  entityNameLinks?: boolean;
 }
 
-export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
+export const ChatMarkdownMessage = memo(function ChatMarkdownMessage(
+  props: ChatMarkdownMessageProps,
+) {
+  if (props.entityNameLinks) {
+    return <ChatMarkdownMessageWithEntityNames {...props} />;
+  }
+  return (
+    <ChatMarkdownMessageView
+      {...props}
+      entityNameCatalog={EMPTY_ENTITY_NAME_CATALOG}
+    />
+  );
+});
+
+function ChatMarkdownMessageWithEntityNames(props: ChatMarkdownMessageProps) {
+  const entityNameCatalog = useEntityNameCatalog(
+    props.assistantId ?? null,
+    true,
+  );
+  return (
+    <ChatMarkdownMessageView
+      {...props}
+      entityNameCatalog={entityNameCatalog}
+    />
+  );
+}
+
+const ChatMarkdownMessageView = memo(function ChatMarkdownMessageView({
   content,
   className,
   hardLineBreaks,
@@ -356,7 +398,9 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   streamWordFade,
   redactedCredentialChips,
   workspacePathLinks,
-}: ChatMarkdownMessageProps) {
+  entityNameLinks,
+  entityNameCatalog,
+}: ChatMarkdownMessageProps & { entityNameCatalog: EntityNameCatalog }) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
     attachments,
@@ -411,6 +455,9 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       }
 
       const target = classifyMarkdownHref(href);
+      if (href != null && target.kind === "app") {
+        return <AppPathLink href={target.appPath}>{children}</AppPathLink>;
+      }
       if (href != null && target.kind === "local-file") {
         const { workspacePath } = target;
         return (
@@ -454,6 +501,14 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       ...(workspacePathLinks && onVellumLinkClick
         ? [rehypeWorkspacePath as import("unified").Pluggable]
         : []),
+      ...(entityNameLinks && entityNameCatalog.names.length > 0
+        ? [
+            [
+              rehypeEntityName,
+              { catalog: entityNameCatalog },
+            ] as import("unified").Pluggable,
+          ]
+        : []),
       ...(streamWordFade
         ? [
             [
@@ -468,6 +523,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       streamWordFade,
       workspacePathLinks,
       onVellumLinkClick,
+      entityNameLinks,
+      entityNameCatalog,
     ],
   );
 
@@ -543,14 +600,17 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
           onOpen={onVellumLinkClick ? handleWorkspacePathOpen : undefined}
         />
       ),
+      [ENTITY_NAME_TAG]: EntityNameLink,
     }),
     [assistantId, onVellumLinkClick, handleWorkspacePathOpen],
   );
 
-  // Both tags are registered together: each is only ever emitted by its own
+  // Tags are registered together: each is only ever emitted by its own
   // rehype plugin, so a tag whose plugin didn't run never appears in the tree.
   const hasExtraComponents =
-    redactedCredentialChips || (workspacePathLinks && onVellumLinkClick);
+    redactedCredentialChips ||
+    (workspacePathLinks && onVellumLinkClick) ||
+    entityNameLinks;
 
   return (
     <>

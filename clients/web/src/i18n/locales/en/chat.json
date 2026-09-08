@@ -1847,6 +1847,10 @@
     "cancelledAria": "Cancelled",
     "openDetailsAria": "Open {title} details"
   },
+  "entityNameLink": {
+    "openConversation": "Open conversation {name}",
+    "openSchedule": "Open schedule {name}"
+  },
   "workspacePathLink": {
     "openTitle": "Open {path}"
   },

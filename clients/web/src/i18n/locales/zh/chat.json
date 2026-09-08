@@ -1773,6 +1773,10 @@
     "cancelledAria": "已取消",
     "openDetailsAria": "打开 {title} 详情"
   },
+  "entityNameLink": {
+    "openConversation": "打开对话 {name}",
+    "openSchedule": "打开定时任务 {name}"
+  },
   "workspacePathLink": {
     "openTitle": "打开 {path}"
   },

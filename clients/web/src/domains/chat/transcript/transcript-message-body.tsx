@@ -615,6 +615,7 @@ export function TranscriptMessageBody({
                     !isUser && supportsRedactedCredentialChips
                   }
                   workspacePathLinks={!isUser}
+                  entityNameLinks={!isUser}
                 />
               </div>
             );
@@ -634,6 +635,7 @@ export function TranscriptMessageBody({
           streamWordFade={streamWordFade}
           redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
           workspacePathLinks={!isUser}
+          entityNameLinks={!isUser}
         />
       </div>
     );
