@@ -207,6 +207,33 @@ describe("useConversationAssets", () => {
 });
 
 describe("toConversationFileAssets", () => {
+  test("keeps legacy rehydrated attachments from different rows apart by id", () => {
+    const { files } = toConversationFileAssets(
+      [],
+      [
+        {
+          attachment: makeDisplayAttachment({
+            id: "rehydrated:0",
+            filename: "old.pdf",
+          }),
+          messageId: "msg-old",
+          capturedAt: null,
+          sightFrame: false,
+        },
+        {
+          attachment: makeDisplayAttachment({
+            id: "rehydrated:0",
+            filename: "new.pdf",
+          }),
+          messageId: "msg-new",
+          capturedAt: null,
+          sightFrame: false,
+        },
+      ],
+    );
+    expect(new Set(files.map((file) => file.id)).size).toBe(2);
+  });
+
   test("routes a camera frame to frames and nowhere else", () => {
     const frame = makeDisplayAttachment({ id: "shot", filename: "shot.jpg" });
     const upload = makeDisplayAttachment({

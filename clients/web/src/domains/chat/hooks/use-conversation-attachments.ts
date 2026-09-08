@@ -43,6 +43,21 @@ const NO_ENTRIES: ConversationAttachmentEntry[] = [];
 
 const NOOP = () => {};
 
+/**
+ * The identity an attachment has across the whole conversation. A legacy row
+ * without structured metadata gets `rehydrated:N` ids that restart per
+ * message, so those are only unique within their own row; real attachment ids
+ * are unique on their own.
+ */
+export function conversationAttachmentKey(
+  messageId: string,
+  attachmentId: string,
+): string {
+  return attachmentId.startsWith("rehydrated:")
+    ? `${messageId}:${attachmentId}`
+    : attachmentId;
+}
+
 export function useConversationAttachments(target: {
   assistantId: string;
   conversationId: string;
@@ -61,12 +76,7 @@ export function useConversationAttachments(target: {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]!;
       for (const attachment of message.attachments ?? []) {
-        // A legacy row without structured metadata gets `rehydrated:N` ids
-        // that restart per message, so those are only duplicates within their
-        // own row; real attachment ids are unique across the conversation.
-        const key = attachment.id.startsWith("rehydrated:")
-          ? `${message.id}:${attachment.id}`
-          : attachment.id;
+        const key = conversationAttachmentKey(message.id, attachment.id);
         if (seen.has(key)) {
           continue;
         }
