@@ -1,3 +1,5 @@
+import type { ChatError } from "@/domains/chat/types";
+
 export interface ChatErrorLike {
   code?: string;
   errorCategory?: string;
@@ -173,6 +175,33 @@ export function shouldShowGenericChatErrorNotice(
   error: ChatErrorLike | null | undefined,
 ): boolean {
   return !!error && !shouldSuppressGenericChatErrorNotice(error);
+}
+
+/**
+ * Build a Zustand updater that sets a generic inline chat error, unless the
+ * current error is one that must own the notice surface (billing, provider
+ * configuration, or a modal dialog). Preserves the previous error when
+ * suppressing so the more specific surface remains visible.
+ */
+export function buildGenericChatErrorUpdater(
+  next: Omit<ChatError, "errorCategory" | "displayAs">,
+): (prev: ChatError | null) => ChatError | null {
+  return (prev) => {
+    if (shouldSuppressGenericChatErrorNotice(prev)) {
+      return prev;
+    }
+    return next;
+  };
+}
+
+/**
+ * Build a Zustand updater that clears an existing error whose `code` matches,
+ * leaving any other error untouched.
+ */
+export function buildClearChatErrorByCodeUpdater(
+  code: string,
+): (prev: ChatError | null) => ChatError | null {
+  return (prev) => (prev?.code === code ? null : prev);
 }
 
 export function isManagedCredentialChatError(

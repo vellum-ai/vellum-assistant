@@ -42,6 +42,7 @@ function paginationStub(): HistoryPaginationResult {
     isLoading: false,
     isSuccess: true,
     isError: false,
+    isLoadingError: false,
     error: null,
     hasMore: false,
     isFetchingOlderPages: false,

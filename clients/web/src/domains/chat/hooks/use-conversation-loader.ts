@@ -37,7 +37,10 @@ import { useNavigate } from "react-router";
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
 import { useTurnTimeout } from "@/domains/chat/hooks/use-turn-timeout";
 import type { AssistantStateKind } from "@/domains/chat/types";
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+import {
+  buildClearChatErrorByCodeUpdater,
+  buildGenericChatErrorUpdater,
+} from "@/domains/chat/utils/error-classification";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -259,30 +262,25 @@ export function useConversationLoader({
       if (isResumeGraceActive) {
         return;
       }
-      useChatSessionStore.getState().setError((prev) => {
-        if (shouldSuppressGenericChatErrorNotice(prev)) {
-          return prev;
-        }
-        const status =
-          conversationListError instanceof ApiError
-            ? conversationListError.status
-            : 0;
-        return {
+      const status =
+        conversationListError instanceof ApiError
+          ? conversationListError.status
+          : 0;
+      useChatSessionStore.getState().setError(
+        buildGenericChatErrorUpdater({
           code: CONVERSATION_LIST_LOAD_FAILED_CODE,
           message:
             status >= 500
               ? "We couldn't reach your assistant. We'll keep checking the connection."
               : "We couldn't load your conversations. Please refresh and try again.",
-        };
-      });
+        }),
+      );
       return;
     }
     if (hasUsableData) {
       useChatSessionStore
         .getState()
-        .setError((prev) =>
-          prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
-        );
+        .setError(buildClearChatErrorByCodeUpdater(CONVERSATION_LIST_LOAD_FAILED_CODE));
     }
   }, [
     assistantStateKind,
@@ -290,7 +288,6 @@ export function useConversationLoader({
     conversationListError,
     conversationListIsError,
     isResumeGraceActive,
-    shouldSuppressGenericChatErrorNotice,
   ]);
 
   // -------------------------------------------------------------------------
