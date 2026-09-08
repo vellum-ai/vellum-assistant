@@ -2993,6 +2993,44 @@ describe("ChatComposer — live-voice integration", () => {
     expect(useLiveVoiceStore.getState().error).toBeNull();
   });
 
+  test("unmounting mid-reclaim releases the microphone reserved from the click", async () => {
+    // GIVEN a reclaim whose out-of-band end has not settled yet
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+    sessionEndSpy.mockClear();
+    preflightSpy.mockClear();
+    let settleEnd: (ended: boolean) => void = () => {};
+    sessionEndSpy.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleEnd = resolve;
+        }),
+    );
+    useLiveVoiceStore
+      .getState()
+      .fail("Voice is already active in the Mac app.", {
+        kind: "reclaim",
+        holderConversationId: "conversation-elsewhere",
+      });
+    const { getByText, unmount } = renderVoiceComposer();
+
+    // WHEN the user takes the slot, then leaves before the end settles
+    await act(async () => {
+      fireEvent.click(getByText("End it and start here"));
+    });
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
+    unmount();
+    await act(async () => {
+      settleEnd(true);
+    });
+
+    // THEN the microphone reserved from the click goes back, and nothing
+    // starts: the layout-owned controller outlives this composer, so an
+    // unreleased reservation would sit open behind no session.
+    expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(preflightSpy).not.toHaveBeenCalled();
+  });
+
   test("a busy failure in this conversation offers no destination", () => {
     // GIVEN the blocking session is in the conversation already on screen
     useTurnStore.setState(INITIAL_TURN_STATE);

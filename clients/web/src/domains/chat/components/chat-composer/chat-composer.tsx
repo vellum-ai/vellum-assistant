@@ -638,6 +638,13 @@ export function ChatComposer({
       liveVoiceReclaimRef.current = null;
     }
     if (reclaim.signal.aborted) {
+      // Aborted by the composer unmounting (the ref is cleared) or by a newer
+      // reclaim (the ref holds it). The newer one prewarmed against the same
+      // reservation and starts with it; the unmount left nobody to, so the
+      // microphone goes back rather than staying open behind no session.
+      if (liveVoiceReclaimRef.current === null) {
+        useLiveVoiceStore.getState().starter?.cancelPrewarm();
+      }
       return;
     }
     dismissLiveVoiceFailure();
