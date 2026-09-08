@@ -784,7 +784,10 @@
     "authPopupClosed": "{name} connection failed: authorization popup closed.",
     "authorizationError": "{name} error: {code}",
     "authorizationFailed": "{name} authorization failed",
-    "popupBlocked": "Popup blocked. Please enable popups and try again."
+    "connectionNotFound": "{name} authorization finished, but no connected account was found.",
+    "popupBlocked": "Popup blocked. Please enable popups and try again.",
+    "scopeConflict": "Another {name} connection is already in progress with different permissions. Finish or dismiss it, then try again.",
+    "startFailed": "Failed to start {name} authorization."
   },
   "useOpenUrlDirectives": {
     "blocked": "Your browser blocked a page the assistant tried to open.",

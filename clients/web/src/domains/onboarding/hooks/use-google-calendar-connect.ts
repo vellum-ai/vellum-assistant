@@ -18,6 +18,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { connectManagedOAuthProvider } from "@/lib/auth/managed-oauth";
+import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
 import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { t } from "@/i18n";
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
@@ -83,6 +84,9 @@ export function useGoogleCalendarConnect({
 
   const handleConnect = useCallback(() => {
     setOAuthInProgress(true);
+    const providerLabel = t("googleCalendar.providerLabel", {
+      ns: "onboarding",
+    });
 
     const releaseBusyState = () => {
       if (mountedRef.current) {
@@ -93,7 +97,7 @@ export function useGoogleCalendarConnect({
     void connectManagedOAuthProvider({
       assistantId,
       providerKey: GOOGLE_PROVIDER_KEY,
-      providerLabel: t("googleCalendar.providerLabel", { ns: "onboarding" }),
+      providerLabel,
       requestedScopes,
       onDetached: releaseBusyState,
     }).then((result) => {
@@ -124,7 +128,7 @@ export function useGoogleCalendarConnect({
       // A cancelled connect is the user's own choice; onboarding stays quiet
       // and leaves the button ready for another try.
       if (result.status === "error" && mountedRef.current) {
-        toast.error(result.message);
+        toast.error(managedOAuthErrorMessage(result, providerLabel));
       }
     });
   }, [assistantId, onConnect, queryClient, requestedScopes]);

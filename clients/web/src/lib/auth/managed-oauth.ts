@@ -80,9 +80,19 @@ export type ManagedOAuthConnectResult =
   | {
       status: "error";
       reason: ManagedOAuthErrorReason;
+      /**
+       * Diagnostic English, always present. Do not put this in front of a
+       * user: `managedOAuthErrorMessage` turns a result into localized copy.
+       */
       message: string;
       /** Provider-supplied failure code, when the callback carried one. */
       code?: string;
+      /**
+       * Server-supplied explanation, when the failure carried one. Already
+       * localized by the API and more specific than any generic copy, so it
+       * wins over the catalog string.
+       */
+      detail?: string;
     };
 
 export interface ManagedOAuthConnectClient {
@@ -377,6 +387,13 @@ function runManagedOAuthConnect(
       // poll without one: there the payload already proved the flow completed
       // and the poll is only looking up the row.
       const connection = baselineEstablished ? await pollForConnection() : null;
+      // A completion can arrive on any channel while that poll is retrying. It
+      // has already settled the flow, and `onDetach` below is not guarded by
+      // `finish`: it would reset a still-mounted card that is showing the
+      // error, and leave a stray deadline running.
+      if (settled) {
+        return;
+      }
       if (connection) {
         finish({ status: "connected", connection });
         return;
@@ -471,6 +488,7 @@ function runManagedOAuthConnect(
             error instanceof Error
               ? error.message
               : `Failed to start ${providerLabel} authorization.`,
+          detail: error instanceof Error ? error.message : undefined,
         });
       }
     };

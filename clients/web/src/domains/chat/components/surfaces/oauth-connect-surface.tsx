@@ -16,6 +16,7 @@ import {
   type ManagedOAuthConnectClient,
   type ManagedOAuthProviderSummary,
 } from "@/lib/auth/managed-oauth";
+import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
 import {
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
@@ -56,7 +57,9 @@ function getProviderLabel(
   const raw =
     data.displayName ||
     provider?.display_name ||
-    (data.providerKey ? titleizeProviderKey(data.providerKey) : thisAccountLabel);
+    (data.providerKey
+      ? titleizeProviderKey(data.providerKey)
+      : thisAccountLabel);
   // Normalize once at the resolver so the title, description, icon, and
   // action payloads never double the verb (e.g. "Connect Connect Gmail")
   // when a caller-supplied displayName already begins with "Connect ".
@@ -82,7 +85,9 @@ function OAuthApprovalInfo({
     assistantDisplayName?.trim() || t("oauthConnectSurface.yourAssistant");
   return (
     <Tooltip
-      content={t("oauthConnectSurface.approvalTooltip", { name: assistantLabel })}
+      content={t("oauthConnectSurface.approvalTooltip", {
+        name: assistantLabel,
+      })}
       side="top"
       align="end"
     >
@@ -229,7 +234,7 @@ export function OAuthConnectSurface({
     }
 
     setState("error");
-    setErrorMessage(result.message);
+    setErrorMessage(managedOAuthErrorMessage(result, providerLabel));
   };
 
   const missingConfiguration = !assistantId || !providerKey;
@@ -251,7 +256,8 @@ export function OAuthConnectSurface({
 
           <div className="min-w-0 flex-1">
             <div className="text-title-small text-[var(--content-strong)]">
-              {surface.title ?? t("oauthConnectSurface.connectTitle", { name: providerLabel })}
+              {surface.title ??
+                t("oauthConnectSurface.connectTitle", { name: providerLabel })}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
               <span>{description}</span>
@@ -307,7 +313,9 @@ export function OAuthConnectSurface({
             ) : (
               <ExternalLink className="h-4 w-4" />
             )}
-            {state === "connecting" ? t("oauthConnectSurface.waiting") : t("oauthConnectSurface.connect")}
+            {state === "connecting"
+              ? t("oauthConnectSurface.waiting")
+              : t("oauthConnectSurface.connect")}
           </button>
         </div>
       </div>

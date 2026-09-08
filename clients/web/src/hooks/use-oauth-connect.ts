@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { connectManagedOAuthProvider } from "@/lib/auth/managed-oauth";
+import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
 import { t } from "@/i18n";
 import type { QueryKey } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -95,24 +96,7 @@ export function useOAuthConnect({
           return;
         }
 
-        if (result.reason === "popup-blocked") {
-          toast.error(t("useOauthConnect.popupBlocked"));
-          return;
-        }
-        if (result.reason === "authorization-failed") {
-          toast.error(
-            result.code
-              ? t("useOauthConnect.authorizationError", {
-                  name: displayName,
-                  code: result.code,
-                })
-              : t("useOauthConnect.authorizationFailed", {
-                  name: displayName,
-                }),
-          );
-          return;
-        }
-        toast.error(result.message);
+        toast.error(managedOAuthErrorMessage(result, displayName));
       });
     },
     [

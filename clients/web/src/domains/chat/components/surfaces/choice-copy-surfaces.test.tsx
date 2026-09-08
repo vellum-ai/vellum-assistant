@@ -542,8 +542,9 @@ describe("OAuthConnectSurface", () => {
     );
 
     fireEvent.click(getByRole("button", { name: "Connect" }));
-    // Error surfaces its message and never emits a surface action.
-    expect(await findByText("Authorization failed.")).toBeTruthy();
+    // The card shows catalog copy for the reason, not the engine's diagnostic
+    // English, and never emits a surface action.
+    expect(await findByText("Google authorization failed")).toBeTruthy();
 
     expect(onAction).not.toHaveBeenCalled();
     expect(invalidateQueries).not.toHaveBeenCalled();

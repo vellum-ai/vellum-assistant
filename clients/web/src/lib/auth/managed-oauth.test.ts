@@ -516,6 +516,35 @@ describe("connectManagedOAuthProvider detached-flow contract", () => {
     expect(result.status).toBe("connected");
   });
 
+  test("a completion during the lost-popup poll wins, with no late detach", async () => {
+    // The reconcile poll is slow, and an authorization failure lands while it
+    // is still retrying. The flow is already settled by the time the poll
+    // returns, so it must not go on to detach: that would reset a card which
+    // is showing the error, and leave a stray deadline behind.
+    let detached = false;
+    const connect = connectManagedOAuthProvider({
+      ...OPTS,
+      onDetached: () => {
+        detached = true;
+      },
+    });
+    await waitForStartCall();
+
+    // Slow only the reconcile poll, not the baseline fetch above it. Eight
+    // attempts at 100ms keeps the poll in flight past the completion below.
+    connectionsListDelayMs = 100;
+    const popup = openSpy.mock.results[0]?.value as StubPopup;
+    popup.closed = true;
+    await new Promise((r) => setTimeout(r, 1400));
+    settleFailed(requestIds[0]!);
+
+    const result = await connect;
+    expect(result.status).toBe("error");
+    // Outlast the poll, so a late detach would have landed by now.
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(detached).toBe(false);
+  });
+
   test("a detached flow that never completes resolves as timed out", async () => {
     setUnobservableWindowMs(300);
     const connect = connectManagedOAuthProvider(OPTS);
