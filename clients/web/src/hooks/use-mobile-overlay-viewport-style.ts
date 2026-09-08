@@ -13,6 +13,23 @@ const SAFE_AREA_RIGHT =
   "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))";
 
 /**
+ * Keyboard-aware bottom safe-area inset: the device's bottom safe area while
+ * the soft keyboard is closed, `0px` while it is open (the home indicator
+ * sits behind the keyboard, so nothing needs to clear it).
+ *
+ * Shared by {@link useMobileOverlayViewportStyle} (exposed as the
+ * `--overlay-safe-area-bottom` CSS variable for callers positioned by that
+ * hook) and any host that lays out in normal flow instead of
+ * `position: fixed` and so cannot rely on the CSS variable being defined in
+ * its subtree (the standalone `/documents/:surfaceId` route).
+ */
+export function useOverlaySafeAreaBottomInset(): string {
+  const keyboardOpen = useKeyboardOpen();
+  const visibleViewport = useVisibleViewport();
+  return keyboardOpen && visibleViewport ? "0px" : SAFE_AREA_BOTTOM;
+}
+
+/**
  * Positioning style for a full-screen mobile overlay (`position: fixed`,
  * horizontally full-bleed, safe-area padded) that stays glued to the region
  * actually visible above the iOS soft keyboard.
@@ -44,6 +61,7 @@ const SAFE_AREA_RIGHT =
 export function useMobileOverlayViewportStyle(): CSSProperties {
   const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
+  const bottomInset = useOverlaySafeAreaBottomInset();
 
   if (keyboardOpen && visibleViewport) {
     return {
@@ -55,7 +73,7 @@ export function useMobileOverlayViewportStyle(): CSSProperties {
       paddingBottom: 0,
       paddingLeft: SAFE_AREA_LEFT,
       paddingRight: SAFE_AREA_RIGHT,
-      ...effectiveBottomInsetVar("0px"),
+      ...effectiveBottomInsetVar(bottomInset),
     };
   }
 
@@ -68,7 +86,7 @@ export function useMobileOverlayViewportStyle(): CSSProperties {
     paddingBottom: SAFE_AREA_BOTTOM,
     paddingLeft: SAFE_AREA_LEFT,
     paddingRight: SAFE_AREA_RIGHT,
-    ...effectiveBottomInsetVar(SAFE_AREA_BOTTOM),
+    ...effectiveBottomInsetVar(bottomInset),
   };
 }
 

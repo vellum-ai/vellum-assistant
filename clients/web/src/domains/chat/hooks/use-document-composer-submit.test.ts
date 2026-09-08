@@ -3,12 +3,16 @@
  * submit logic. Covers the conversation-id resolution branches (existing /
  * cached / fresh-mint, with and without server-side minting), the snapshot
  * passed to the sidebar's processing tracking, the success and failure
- * paths, the empty-content/uploading guards, and the reply-toast watcher.
+ * paths, the empty-content/uploading guards, and the hand-off of the
+ * conversation to watch for a reply to `document-composer-reply-store`.
+ *
+ * The "Assistant replied" toast that hand-off leads to belongs to
+ * `DocumentComposerReplyWatcher` and is covered by its own test file.
  *
  * `postChatMessage` and `documentsByIdConversationsPost` are mocked (network);
- * `edit-chat-session` (sessionStorage), the composer/conversation stores, and
- * the event bus are real, so the resolution and reply-watch branches are
- * exercised for real rather than asserted against a mock's call args.
+ * `edit-chat-session` (sessionStorage) and the composer/conversation/reply
+ * stores are real, so the resolution branches are exercised for real rather
+ * than asserted against a mock's call args.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -60,12 +64,11 @@ mock.module("@/utils/conversation-navigation", () => ({
 }));
 
 const toastInfoMock = mock((..._args: unknown[]) => {});
-const toastSuccessMock = mock((..._args: unknown[]) => {});
 const toastErrorMock = mock((..._args: unknown[]) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
     info: (...args: unknown[]) => toastInfoMock(...args),
-    success: (...args: unknown[]) => toastSuccessMock(...args),
+    success: (..._args: unknown[]) => {},
     error: (...args: unknown[]) => toastErrorMock(...args),
   },
 }));
@@ -79,7 +82,8 @@ const { getEditChatConversationId, setEditChatConversationId } =
 const { conversationListQueryKey } =
   await import("@/utils/conversation-list-keys");
 const { listPage } = await import("@/utils/conversation-list.test-helper");
-const { publish } = await import("@/lib/event-bus");
+const { useDocumentComposerReplyStore } =
+  await import("@/domains/chat/document-composer-reply-store");
 const { useDocumentComposerSubmit } =
   await import("./use-document-composer-submit");
 
@@ -103,21 +107,10 @@ function renderSubmit(conversationId: string) {
   );
 }
 
-function publishMessageComplete(
-  conversationId: string,
-  source?: "main" | "aux",
-) {
-  act(() => {
-    publish("sse.event", {
-      id: `evt-${conversationId}`,
-      emittedAt: new Date().toISOString(),
-      message: {
-        type: "message_complete",
-        conversationId,
-        ...(source ? { source } : {}),
-      },
-    });
-  });
+function isAwaitingReply(conversationId: string): boolean {
+  return useDocumentComposerReplyStore
+    .getState()
+    .awaitingReplyConversationIds.has(conversationId);
 }
 
 beforeEach(() => {
@@ -134,6 +127,9 @@ beforeEach(() => {
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
   });
+  useDocumentComposerReplyStore.setState({
+    awaitingReplyConversationIds: new Set(),
+  });
   useAssistantIdentityStore.setState({ version: null });
   window.sessionStorage.clear();
   postChatMessageMock = mock(defaultPostChatMessage);
@@ -141,13 +137,15 @@ beforeEach(() => {
   navigateSpy.mockClear();
   navigateToConversationMock.mockClear();
   toastInfoMock.mockClear();
-  toastSuccessMock.mockClear();
   toastErrorMock.mockClear();
 });
 
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
+  useDocumentComposerReplyStore.setState({
+    awaitingReplyConversationIds: new Set(),
+  });
 });
 
 describe("conversation id resolution", () => {
@@ -435,59 +433,42 @@ describe("success path", () => {
     });
   });
 
-  test("a message_complete event for the target conversation fires the Assistant replied toast", async () => {
+  test("hands the sent conversation to the reply watcher store", async () => {
     useComposerStore.getState().setInput("hello", "document");
     const { result } = renderSubmit("conv-existing");
 
     await act(async () => {
       await result.current.submit();
     });
-    expect(
-      useConversationStore
-        .getState()
-        .processingConversationIds.has("conv-existing"),
-    ).toBe(true);
 
-    publishMessageComplete("conv-existing");
-
-    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
-    expect(
-      useConversationStore
-        .getState()
-        .processingConversationIds.has("conv-existing"),
-    ).toBe(false);
-    const options = toastSuccessMock.mock.calls[0]?.[1] as {
-      action: { onClick: () => void };
-    };
-    options.action.onClick();
-    expect(navigateToConversationMock).toHaveBeenCalledWith(
-      navigateSpy,
-      "conv-existing",
-    );
+    // `DocumentComposerReplyWatcher` raises the "Assistant replied" toast off
+    // this record, so it must outlive this hook's own mount.
+    expect(isAwaitingReply("conv-existing")).toBe(true);
   });
 
-  test("fires even for a brand-new conversation absent from the fetched conversation list", async () => {
-    // No `queryClient.setQueryData` seed at all: this conversation does not
-    // exist in the list cache the sidebar's own graduation sweep reads, which
-    // is exactly the case that sweep cannot answer for (see the hook's
-    // docstring). The bus event still carries the id regardless.
+  test("watches the conversation the send resolved, not the document's own", async () => {
+    // A document with no linked conversation: the id worth watching only
+    // exists once the send resolves one, and is not in any query cache.
     useComposerStore.getState().setInput("hello", "document");
     const { result } = renderSubmit("");
 
     await act(async () => {
       await result.current.submit();
     });
+
     const conversationId = postChatMessageMock.mock.calls[0]?.[1] as string;
-    expect(
-      useConversationStore.getState().processingConversationIds.has(conversationId),
-    ).toBe(true);
-
-    publishMessageComplete(conversationId);
-
-    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(conversationId).toBeTruthy();
+    expect(isAwaitingReply(conversationId)).toBe(true);
   });
 
-  test("ignores a message_complete event for a different conversation", async () => {
+  test("a failed send leaves nothing awaiting a reply", async () => {
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => ({
+        ok: false,
+        status: 500,
+        error: { detail: "boom" },
+      }),
+    );
     useComposerStore.getState().setInput("hello", "document");
     const { result } = renderSubmit("conv-existing");
 
@@ -495,22 +476,7 @@ describe("success path", () => {
       await result.current.submit();
     });
 
-    publishMessageComplete("conv-unrelated");
-
-    expect(toastSuccessMock).not.toHaveBeenCalled();
-  });
-
-  test("ignores an aux-source message_complete event", async () => {
-    useComposerStore.getState().setInput("hello", "document");
-    const { result } = renderSubmit("conv-existing");
-
-    await act(async () => {
-      await result.current.submit();
-    });
-
-    publishMessageComplete("conv-existing", "aux");
-
-    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(isAwaitingReply("conv-existing")).toBe(false);
   });
 });
 

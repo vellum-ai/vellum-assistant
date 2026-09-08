@@ -1,10 +1,11 @@
 /**
  * Tests for `resolveDocumentConversationId` / `persistDocumentConversationId` /
- * `linkDocumentConversationIfNeeded`, the conversation-id fallback shared by
- * `document-viewer-page.tsx`'s "Submit Feedback" and
+ * `linkDocumentConversationIfNeeded` / `rekeyOpenedDocumentConversation`, the
+ * conversation-id fallback and re-keying shared by
+ * `document-viewer-page.tsx`'s "Submit Feedback", `use-send-message.ts`, and
  * `use-document-composer-submit.ts`. Uses the real `edit-chat-session`
- * (sessionStorage) and conversation-selection modules; only the daemon POST is
- * mocked.
+ * (sessionStorage), conversation-selection, and viewer-store modules; only the
+ * daemon POST is mocked.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -23,22 +24,34 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 const { getEditChatConversationId } = await import("@/utils/edit-chat-session");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { useViewerStore } = await import("@/stores/viewer-store");
 const {
   linkDocumentConversationIfNeeded,
   persistDocumentConversationId,
+  rekeyOpenedDocumentConversation,
   resolveDocumentConversationId,
 } = await import("@/domains/chat/utils/document-conversation");
 
 const ASSISTANT_ID = "assistant-1";
 const SURFACE_ID = "surf-1";
 
+const OPENED_DOC = {
+  source: "document",
+  surfaceId: SURFACE_ID,
+  conversationId: "conv-draft",
+  documentName: "README.md",
+  content: "# Hello",
+} as const;
+
 beforeEach(() => {
   window.sessionStorage.clear();
   documentsByIdConversationsPostMock.mockClear();
+  useViewerStore.setState({ openedDocumentState: null });
 });
 
 afterEach(() => {
   window.sessionStorage.clear();
+  useViewerStore.setState({ openedDocumentState: null });
 });
 
 describe("resolveDocumentConversationId", () => {
@@ -161,5 +174,74 @@ describe("linkDocumentConversationIfNeeded", () => {
         "conv-new",
       ),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("rekeyOpenedDocumentConversation", () => {
+  test("re-keys the open document and re-links it to the minted conversation", async () => {
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    await rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-draft",
+      "conv-minted",
+    );
+
+    // Only the conversation id moves: the document itself is the same one.
+    expect(useViewerStore.getState().openedDocumentState).toEqual({
+      ...OPENED_DOC,
+      conversationId: "conv-minted",
+    });
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: ASSISTANT_ID, id: SURFACE_ID },
+      body: { conversationId: "conv-minted" },
+      throwOnError: true,
+    });
+  });
+
+  test("no-ops when no document is open", async () => {
+    await rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-draft",
+      "conv-minted",
+    );
+
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+  });
+
+  test("no-ops for a read-only workspace file preview", async () => {
+    const preview = {
+      source: "workspace-file-preview",
+      workspacePath: "data/rows.csv",
+      documentName: "rows.csv",
+      previewKind: "csv",
+    } as const;
+    useViewerStore.setState({ openedDocumentState: preview });
+
+    await rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-draft",
+      "conv-minted",
+    );
+
+    expect(useViewerStore.getState().openedDocumentState).toBe(preview);
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+  });
+
+  test("no-ops when the open document is on a different conversation", async () => {
+    // The mint was for some other conversation's draft: re-keying here would
+    // move this document off the conversation it is actually open against.
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    await rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-someone-else",
+      "conv-minted",
+    );
+
+    expect(useViewerStore.getState().openedDocumentState).toBe(OPENED_DOC);
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
   });
 });

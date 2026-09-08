@@ -11,10 +11,15 @@
  * message row, no turn-store phase flip, and no SSE stream to fold, just a
  * direct POST and a local status the caller renders.
  *
- * Also owns the reply/confirmation surface: a "Sent" toast with a "View
- * conversation" action on send, and a follow-up "Assistant replied" toast once
- * the daemon reports the turn complete for the conversation the message
- * landed in.
+ * Also raises the inline "Sent" toast with a "View conversation" action on
+ * send. The follow-up "Assistant replied" toast is not owned here: this hook
+ * lives inside `DocumentComposerPanel`, which unmounts when the host closes
+ * the document (`MobileDocumentOverlay` returning `null`, or navigating off
+ * the standalone document route), so a subscription kept here would drop a
+ * reply that arrives afterward. This hook only records the conversation to
+ * watch, via `document-composer-reply-store.ts`; the always-mounted
+ * `DocumentComposerReplyWatcher` (in `RootLayout`) owns the subscription and
+ * raises the toast.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
@@ -28,9 +33,11 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import {
   linkDocumentConversationIfNeeded,
   persistDocumentConversationId,
+  rekeyOpenedDocumentConversation,
   resolveDocumentConversationId,
   type DocumentConversationRef,
 } from "@/domains/chat/utils/document-conversation";
@@ -40,7 +47,6 @@ import { findConversation } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useTranslation } from "@/i18n";
 
 export type DocumentComposerSendStatus = "idle" | "sending" | "sent" | "error";
@@ -69,11 +75,6 @@ export function useDocumentComposerSubmit({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<DocumentComposerSendStatus>("idle");
-  // Conversation to watch for a reply, independent of `doc`/`status`: the
-  // user may close the document (unmounting nothing here: `MobileDocumentOverlay`
-  // stays mounted and just renders `null`, see its docstring) before the
-  // assistant answers, and the "Assistant replied" toast must still fire.
-  const [awaitingReplyFor, setAwaitingReplyFor] = useState<string | null>(null);
 
   // Auto-fade the "Sent" micro-state.
   useEffect(() => {
@@ -83,44 +84,6 @@ export function useDocumentComposerSubmit({
     const id = setTimeout(() => setStatus("idle"), SENT_STATUS_MS);
     return () => clearTimeout(id);
   }, [status]);
-
-  // Follow-up "Assistant replied" toast once the turn completes.
-  //
-  // Keyed directly off the daemon's own `message_complete` SSE event rather
-  // than the `processingConversationIds` graduation sweep the sidebar's
-  // background-conversation spinner uses: that sweep only clears a key once
-  // its conversation shows up in the fetched conversation list, and a
-  // conversation this send just minted is not in that list until a refetch,
-  // which may never happen promptly for a conversation nobody has open. The
-  // bus event carries the conversation id on every turn regardless of which
-  // conversation is active, so this watches it directly instead.
-  useBusSubscription("sse.event", (envelope) => {
-    if (!awaitingReplyFor) {
-      return;
-    }
-    const event = envelope.message;
-    if (event.type !== "message_complete") {
-      return;
-    }
-    // Auxiliary notifier injections (call transcripts, watch summaries) are
-    // not the reply this composer sent a message toward.
-    if (event.source === "aux") {
-      return;
-    }
-    if (event.conversationId !== awaitingReplyFor) {
-      return;
-    }
-    useConversationStore
-      .getState()
-      .removeProcessingConversationId(awaitingReplyFor);
-    toast.success(t("documentComposer.assistantRepliedToast"), {
-      action: {
-        label: t("documentComposer.viewReply"),
-        onClick: () => navigateToConversation(navigate, awaitingReplyFor),
-      },
-    });
-    setAwaitingReplyFor(null);
-  });
 
   const submit = useCallback(async () => {
     if (!assistantId || !doc) {
@@ -198,6 +161,15 @@ export function useDocumentComposerSubmit({
       if (useServerMint) {
         if (conversationId !== resolvedId) {
           resolveEditChatDraftConversationId(resolvedId, conversationId);
+          // If the document open in the viewer store is the one this mint was
+          // for, keep its conversation id in sync so a later submit does not
+          // resolve back to the now-dead draft id (see
+          // `resolveDocumentConversationId`'s fallback order).
+          await rekeyOpenedDocumentConversation(
+            assistantId,
+            resolvedId,
+            conversationId,
+          );
         }
         await linkDocumentConversationIfNeeded(doc, assistantId, conversationId);
       }
@@ -209,7 +181,7 @@ export function useDocumentComposerSubmit({
       useComposerStore.getState().setInput("", "document");
       useComposerStore.getState().resetAttachments("document");
       setStatus("sent");
-      setAwaitingReplyFor(conversationId);
+      useDocumentComposerReplyStore.getState().startAwaitingReply(conversationId);
       toast.info(t("documentComposer.messageSentToast"), {
         action: {
           label: t("documentComposer.viewConversation"),

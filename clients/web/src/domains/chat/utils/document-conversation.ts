@@ -9,6 +9,7 @@
  */
 import { documentsByIdConversationsPost } from "@/generated/daemon/sdk.gen";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { useViewerStore } from "@/stores/viewer-store";
 import {
   getEditChatConversationId,
   setEditChatConversationId,
@@ -90,4 +91,45 @@ export async function linkDocumentConversationIfNeeded(
   } catch {
     // Best-effort: fails if the daemon doesn't have the route yet.
   }
+}
+
+/**
+ * When a draft conversation id a document is open against gets re-keyed to a
+ * server-minted id (any send against that draft, whether from the document
+ * composer itself or a chat page navigated to from `document-viewer-page`'s
+ * "Submit Feedback"), keep the document viewer store in sync and re-link the
+ * document server-side to the minted id.
+ *
+ * Without this, `openedDocumentState.conversationId` keeps pointing at the
+ * dead draft id: it wins over the session cache in
+ * {@link resolveDocumentConversationId} because it is truthy, so the next
+ * send against the open document strict-lookups a conversation id the server
+ * has never minted and 404s. Re-linking also keeps the document in the
+ * minted conversation's turn context instead of dropping out of it.
+ *
+ * No-ops when no document is open against `oldConversationId` (match is on
+ * conversation id, not surface id: the caller doesn't know which document,
+ * if any, was open against the draft).
+ */
+export async function rekeyOpenedDocumentConversation(
+  assistantId: string,
+  oldConversationId: string,
+  newConversationId: string,
+): Promise<void> {
+  const opened = useViewerStore.getState().openedDocumentState;
+  if (
+    !opened ||
+    opened.source !== "document" ||
+    opened.conversationId !== oldConversationId
+  ) {
+    return;
+  }
+  useViewerStore
+    .getState()
+    .relinkOpenedDocumentConversation(oldConversationId, newConversationId);
+  await linkDocumentConversationIfNeeded(
+    { surfaceId: opened.surfaceId, conversationId: oldConversationId },
+    assistantId,
+    newConversationId,
+  );
 }

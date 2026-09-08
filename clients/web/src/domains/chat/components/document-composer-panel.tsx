@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -15,8 +15,10 @@ export interface DocumentComposerPanelProps {
   /**
    * Bottom padding for the safe area below the composer. Defaults to
    * `MobileDocumentOverlay`'s keyboard-aware `--overlay-safe-area-bottom`
-   * variable; callers that are not that fixed, keyboard-tracking shell (the
-   * standalone document route on mobile) pass the raw `env()` value instead.
+   * variable; a caller that is not that fixed, keyboard-tracking shell (the
+   * standalone document route) has no CSS variable to read and instead
+   * passes the same keyboard-aware value directly, computed via
+   * `useOverlaySafeAreaBottomInset`.
    */
   bottomInset?: string;
 }
@@ -36,6 +38,22 @@ export function DocumentComposerPanel({
   const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { status, submit } = useDocumentComposerSubmit({ assistantId, doc });
+
+  // Clear the document slot's staged text/attachments whenever the target
+  // document changes or the panel unmounts, so a draft typed for one
+  // document never carries into another. A host that remounts this panel
+  // per document (`MobileDocumentOverlay`'s `key` prop) gets this for free
+  // from React, but a host that reuses one panel instance across documents
+  // (the standalone `/documents/:surfaceId` route, whose route params can
+  // change without remounting `DocumentViewerPage`) has no other hook to
+  // clear on, so the cleanup lives here where both hosts share it.
+  const surfaceId = doc?.surfaceId ?? null;
+  useEffect(() => {
+    return () => {
+      useComposerStore.getState().setInput("", "document");
+      useComposerStore.getState().fullReset("document");
+    };
+  }, [surfaceId]);
 
   if (!assistantId) {
     return null;

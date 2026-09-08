@@ -16,6 +16,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useOverlaySafeAreaBottomInset } from "@/hooks/use-mobile-overlay-viewport-style";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
@@ -48,6 +49,7 @@ export function DocumentViewerPage() {
   const isMobile = useIsMobile();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const swipeContainerRef = useRef<HTMLDivElement>(null);
+  const composerBottomInset = useOverlaySafeAreaBottomInset();
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -227,8 +229,7 @@ export function DocumentViewerPage() {
           <DocumentComposerPanel
             assistantId={assistantId}
             doc={{ surfaceId: doc.surfaceId, conversationId: doc.conversationId }}
-            // eslint-disable-next-line local/no-untranslated-strings -- CSS value, not copy: the raw safe-area env() fallback for a non-overlay (plain flow) layout
-            bottomInset="env(safe-area-inset-bottom, 0px)"
+            bottomInset={composerBottomInset}
           />
         </>
       ) : (

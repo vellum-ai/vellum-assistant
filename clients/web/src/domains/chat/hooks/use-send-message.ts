@@ -34,6 +34,7 @@ import type {
 } from "@/domains/chat/types/types";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
+import { rekeyOpenedDocumentConversation } from "@/domains/chat/utils/document-conversation";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import {
   type DiskPressureChatBlockReason,
@@ -1161,6 +1162,15 @@ export function useSendMessage({
             newConversationId,
           );
           resolveEditChatDraftConversationId(
+            activeConversationId,
+            newConversationId,
+          );
+          // A document opened against the draft (e.g. via
+          // `document-viewer-page`'s "Submit Feedback") still points at the
+          // now-dead draft id in the viewer store; re-key it and re-link the
+          // document to the minted conversation.
+          void rekeyOpenedDocumentConversation(
+            assistantId,
             activeConversationId,
             newConversationId,
           );

@@ -190,6 +190,10 @@ describe("MobileDocumentOverlay", () => {
   });
 });
 
+// The clearing itself belongs to `DocumentComposerPanel` (rendered for real
+// here, unlike `ChatComposer`), and is unit-tested in that component's own
+// file. These assert the overlay hosts it such that closing the document, or
+// switching to another one, takes the staged draft with it.
 describe("MobileDocumentOverlay: document-slot lifecycle", () => {
   test("clears staged document-slot text/attachments when the opened document changes", () => {
     const { rerender } = render(

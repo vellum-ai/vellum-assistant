@@ -30,18 +30,56 @@ mock.module("@/domains/chat/components/chat-composer/chat-composer", () => ({
   },
 }));
 
+const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { DocumentComposerPanel } = await import(
   "@/domains/chat/components/document-composer-panel"
 );
+
+function resetComposerDocumentSlot() {
+  useComposerStore.setState({
+    documentInput: "",
+    documentAttachments: [],
+    documentAttachmentLastError: null,
+  });
+}
 
 afterEach(() => {
   cleanup();
   hookStatus = "idle";
   submitMock.mockClear();
   lastComposerProps = {};
+  resetComposerDocumentSlot();
 });
 
 const DOC = { surfaceId: "surf-1", conversationId: "conv-1" };
+const OTHER_DOC = { surfaceId: "surf-2", conversationId: "conv-2" };
+
+function stageDocumentDraft() {
+  useComposerStore.setState({
+    documentInput: "unsent draft",
+    documentAttachments: [
+      {
+        kind: "uploaded",
+        localId: "a1",
+        id: "srv-1",
+        filename: "f.txt",
+        mimeType: "text/plain",
+        sizeBytes: 1,
+        previewUrl: null,
+      },
+    ],
+    documentAttachmentLastError: "Upload failed",
+  });
+}
+
+function documentSlot() {
+  const state = useComposerStore.getState();
+  return {
+    documentInput: state.documentInput,
+    documentAttachments: state.documentAttachments,
+    documentAttachmentLastError: state.documentAttachmentLastError,
+  };
+}
 
 describe("DocumentComposerPanel", () => {
   test("renders nothing without an assistant id", () => {
@@ -107,5 +145,58 @@ describe("DocumentComposerPanel", () => {
     );
     const panel = container.firstChild as HTMLElement;
     expect(panel.style.paddingBottom).toBe("12px");
+  });
+});
+
+describe("DocumentComposerPanel: document-slot lifecycle", () => {
+  test("clears the staged document draft when the panel unmounts", () => {
+    const { unmount } = render(
+      <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
+    );
+    stageDocumentDraft();
+
+    unmount();
+
+    expect(documentSlot()).toEqual({
+      documentInput: "",
+      documentAttachments: [],
+      documentAttachmentLastError: null,
+    });
+  });
+
+  test("clears the staged document draft when the panel is pointed at another document", () => {
+    // The standalone `/documents/:surfaceId` route keeps one panel instance
+    // across param changes, so nothing unmounts to carry the draft away.
+    const { rerender } = render(
+      <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
+    );
+    stageDocumentDraft();
+
+    rerender(
+      <DocumentComposerPanel assistantId="assistant-1" doc={OTHER_DOC} />,
+    );
+
+    expect(documentSlot()).toEqual({
+      documentInput: "",
+      documentAttachments: [],
+      documentAttachmentLastError: null,
+    });
+  });
+
+  test("keeps the staged draft across a re-render for the same document", () => {
+    const { rerender } = render(
+      <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
+    );
+    useComposerStore.getState().setInput("still typing", "document");
+
+    rerender(
+      <DocumentComposerPanel
+        assistantId="assistant-1"
+        doc={{ ...DOC }}
+        bottomInset="12px"
+      />,
+    );
+
+    expect(useComposerStore.getState().documentInput).toBe("still typing");
   });
 });

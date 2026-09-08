@@ -89,6 +89,7 @@ import {
 } from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
+import { DocumentComposerReplyWatcher } from "@/domains/chat/components/document-composer-reply-watcher";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { StatusBanner } from "@/components/status-banner";
 import { UpdateToast } from "@/components/update-toast";
@@ -569,6 +570,7 @@ export function RootLayout() {
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
+      <DocumentComposerReplyWatcher />
 
       {feedbackOpen ? (
         <ShareFeedbackModalLazy

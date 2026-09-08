@@ -1,9 +1,6 @@
-import { useEffect } from "react";
-
 import { DocumentComposerPanel } from "@/domains/chat/components/document-composer-panel";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
-import { useComposerStore } from "@/domains/chat/composer-store";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
 import {
@@ -31,11 +28,11 @@ interface MobileDocumentOverlayProps {
  *
  * A db-backed document gets a `DocumentComposerPanel` pinned below the editor
  * (wired to the composer store's `"document"` slot; shared with the
- * standalone document route's mobile composer). This component stays mounted
- * for the whole chat session (its parent, `MobileChatOverlays`, renders it
- * unconditionally and it just returns `null` between documents), so the
- * submit hook's reply-toast watcher survives the user closing the document
- * before the assistant answers.
+ * standalone document route's mobile composer). This component returns
+ * `null` between documents, unmounting the panel along with it, so anything
+ * that must survive the user closing the document before the assistant
+ * answers (the "Assistant replied" toast watcher) lives elsewhere, in the
+ * always-mounted `DocumentComposerReplyWatcher`.
  */
 export function MobileDocumentOverlay({
   openedDocumentState,
@@ -55,18 +52,6 @@ export function MobileDocumentOverlay({
           conversationId: openedDocumentState.conversationId,
         }
       : null;
-  const surfaceId = docRef?.surfaceId ?? null;
-
-  // Clear the document slot's staged text/attachments whenever the opened
-  // document changes or the overlay closes, so a draft typed for one document
-  // never carries into the next: this component stays mounted across
-  // documents (see the docstring above), so nothing else would clear it.
-  useEffect(() => {
-    return () => {
-      useComposerStore.getState().setInput("", "document");
-      useComposerStore.getState().fullReset("document");
-    };
-  }, [surfaceId]);
 
   if (!openedDocumentState || !assistantId) {
     return null;

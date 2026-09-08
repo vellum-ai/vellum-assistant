@@ -956,6 +956,37 @@ describe("updateDocumentContent", () => {
   });
 });
 
+describe("relinkOpenedDocumentConversation", () => {
+  it("re-keys the open document to the minted conversation id", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_DOC });
+    getState().relinkOpenedDocumentConversation("conv-1", "conv-minted");
+    expect(getState().openedDocumentState).toEqual({
+      ...SAMPLE_DOC,
+      conversationId: "conv-minted",
+    });
+  });
+
+  it("is a no-op when no document is open", () => {
+    useViewerStore.setState({ openedDocumentState: null });
+    getState().relinkOpenedDocumentConversation("conv-1", "conv-minted");
+    expect(getState().openedDocumentState).toBeNull();
+  });
+
+  it("leaves a read-only preview alone", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_PREVIEW });
+    getState().relinkOpenedDocumentConversation("conv-1", "conv-minted");
+    expect(getState().openedDocumentState).toBe(SAMPLE_FILE_PREVIEW);
+  });
+
+  it("leaves a document that already moved to another conversation alone", () => {
+    // The document was re-linked elsewhere while the mint was in flight, so
+    // the minted id belongs to a conversation it is no longer open against.
+    useViewerStore.setState({ openedDocumentState: SAMPLE_DOC });
+    getState().relinkOpenedDocumentConversation("conv-stale", "conv-minted");
+    expect(getState().openedDocumentState).toBe(SAMPLE_DOC);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Document viewer: read-only file previews
 // ---------------------------------------------------------------------------

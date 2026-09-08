@@ -693,6 +693,16 @@ export interface ViewerActions {
    * waiting for the next load.
    */
   renameOpenedDocument: (surfaceId: string, documentName: string) => void;
+  /**
+   * Re-key the open document's conversation id after a draft conversation is
+   * minted server-side. Matches on `oldConversationId` rather than
+   * `surfaceId`: the document may have moved on to a different conversation
+   * by the time the mint resolves, in which case this is a no-op.
+   */
+  relinkOpenedDocumentConversation: (
+    oldConversationId: string,
+    newConversationId: string,
+  ) => void;
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
@@ -1317,6 +1327,20 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       return;
     }
     set({ openedDocumentState: { ...prev, documentName } });
+  },
+
+  relinkOpenedDocumentConversation: (oldConversationId, newConversationId) => {
+    const prev = get().openedDocumentState;
+    if (
+      !prev ||
+      prev.source !== "document" ||
+      prev.conversationId !== oldConversationId
+    ) {
+      return;
+    }
+    set({
+      openedDocumentState: { ...prev, conversationId: newConversationId },
+    });
   },
 
   handleDocumentLoadFailed: () => {
