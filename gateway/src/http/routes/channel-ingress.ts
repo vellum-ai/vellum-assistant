@@ -265,7 +265,7 @@ export function createChannelIngressApproveHandler(
       if (claimed.rejected.length > 0) {
         log.warn(
           { source, rejected: claimed.rejected },
-          "Declared paths the webhook registry cannot store were not claimed",
+          "Declared paths the webhook registry will not claim were skipped",
         );
       }
       log.info(

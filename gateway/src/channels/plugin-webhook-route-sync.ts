@@ -47,7 +47,7 @@ export function reconcilePluginWebhookRoutes(
     if (rejected.length > 0) {
       log.warn(
         { rejected },
-        "Declared paths the webhook registry cannot store were not claimed",
+        "Declared paths the webhook registry will not claim were skipped",
       );
     }
   } catch (err) {

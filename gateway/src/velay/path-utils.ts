@@ -10,6 +10,12 @@
 export const WEBHOOK_PATH_PREFIX = "/webhooks/";
 
 /**
+ * Namespace reserved for plugin-declared routes. Every plugin webhook path is
+ * composed under it, and the plugin reconcile owns exactly the rows inside it.
+ */
+export const PLUGIN_WEBHOOK_PATH_PREFIX = `${WEBHOOK_PATH_PREFIX}plugins/`;
+
+/**
  * Longest path the webhook ingress registry stores. Anything that composes a
  * path destined for the registry has to fit its longest spelling inside this,
  * because a path the registry refuses is one Velay is never told to forward.

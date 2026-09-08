@@ -17,6 +17,7 @@ import {
 
 import "../__tests__/test-preload.js";
 import { pluginWebhookPath } from "../channels/plugin-ingress.js";
+import { MAX_WEBHOOK_INGRESS_PATH_LENGTH } from "../velay/path-utils.js";
 import { getGatewayDb, initGatewayDb, resetGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
 import {
@@ -30,6 +31,22 @@ import {
 } from "./webhook-ingress-route-store.js";
 
 const PATH = "/webhooks/telegram";
+
+/** Write a row straight to the table, past what the register function accepts. */
+function persistRow(path: string, type: string, source: string): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(webhookIngressRoutes)
+    .values({
+      path,
+      type,
+      source,
+      match: "exact",
+      createdAt: now,
+      lastRegisteredAt: now,
+    })
+    .run();
+}
 
 beforeAll(async () => {
   resetGatewayDb();
@@ -312,20 +329,52 @@ describe("reconcilePluginWebhookIngressRoutes", () => {
     unsubscribe();
   });
 
-  it("stores both spellings composed from a maximum-length declaration", () => {
-    // What the declaration schema's length bound buys: the longest path a
-    // manifest may declare, under the longest plugin name a directory entry
-    // can carry, still fits the registry with its trailing slash on.
-    const plugin = "p".repeat(255);
-    const path = pluginWebhookPath(plugin, "x".repeat(237));
+  it("stores both spellings of a composition at the registry's bound", () => {
+    // The budget is shared between the plugin name and the declared path, so
+    // whichever half spends it, a composition discovery accepted registers.
+    for (const [plugin, route] of [
+      ["p".repeat(255), "x".repeat(237)],
+      ["p", "x".repeat(491)],
+    ] as const) {
+      const path = pluginWebhookPath(plugin, route);
+      expect(`${path}/`).toHaveLength(MAX_WEBHOOK_INGRESS_PATH_LENGTH);
+
+      const { added, rejected } = reconcilePluginWebhookIngressRoutes([
+        claim(path, plugin),
+        claim(`${path}/`, plugin),
+      ]);
+
+      expect(rejected).toEqual([]);
+      expect(added.sort()).toEqual([path, `${path}/`].sort());
+    }
+  });
+
+  it("leaves a plugin-typed row outside the plugin namespace alone", () => {
+    // A row the public IPC persisted under this type sits outside the
+    // namespace the reconcile owns, so it is not the reconcile's to reap.
+    persistRow("/webhooks/plugin", PLUGIN_WEBHOOK_ROUTE_TYPE, "acme");
+    reconcilePluginWebhookIngressRoutes([claim(REALTIME, "meeting-bot")]);
+
+    const { removed } = reconcilePluginWebhookIngressRoutes([]);
+
+    // The namespace row still follows what plugins declare; the other stays.
+    expect(removed).toEqual([REALTIME]);
+    expect(paths()).toEqual(["/webhooks/plugin"]);
+  });
+
+  it("refuses to claim a path outside the plugin namespace", () => {
+    // The reconcile writes only rows it can also withdraw, so a claim it would
+    // never reap is reported instead of stored.
+    const outside = "/webhooks/telegram";
 
     const { added, rejected } = reconcilePluginWebhookIngressRoutes([
-      claim(path, plugin),
-      claim(`${path}/`, plugin),
+      claim(outside, "meeting-bot"),
+      claim(NOTES, "notes"),
     ]);
 
-    expect(rejected).toEqual([]);
-    expect(added.sort()).toEqual([path, `${path}/`].sort());
+    expect(rejected).toEqual([outside]);
+    expect(added).toEqual([NOTES]);
+    expect(paths()).toEqual([NOTES]);
   });
 
   it("skips a path it could not compare byte for byte and settles the rest", () => {

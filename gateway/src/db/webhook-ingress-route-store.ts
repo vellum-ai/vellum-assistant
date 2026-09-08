@@ -6,6 +6,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   isSafeOriginRelativePath,
   MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+  PLUGIN_WEBHOOK_PATH_PREFIX,
   WEBHOOK_PATH_PREFIX,
 } from "../velay/path-utils.js";
 import { getGatewayDb } from "./connection.js";
@@ -15,10 +16,10 @@ import { webhookIngressRoutes } from "./schema.js";
  * Type carried by the rows the plugin ingress gate owns, whose `source` is
  * therefore always a plugin name.
  *
- * This value is reserved: a reconcile treats every row carrying it as its own
- * to keep or remove, so {@link registerWebhookIngressRoute} refuses it and a
- * claim made through that function survives the next reconcile, whatever its
- * source name.
+ * This value is reserved: a reconcile treats a row carrying it as its own to
+ * keep or remove wherever the row sits inside the plugin namespace, so
+ * {@link registerWebhookIngressRoute} refuses it and a claim made through that
+ * function survives the next reconcile, whatever its source name.
  */
 export const PLUGIN_WEBHOOK_ROUTE_TYPE = "plugin";
 
@@ -162,11 +163,27 @@ export interface PluginWebhookRouteReconciliation {
   added: string[];
   removed: string[];
   /**
-   * Claims the registry cannot store byte for byte. Skipped rather than
-   * thrown, so one plugin declaring an unusable path cannot stop every other
-   * plugin's paths from settling.
+   * Claims the reconcile will not store: a path the registry cannot hold byte
+   * for byte, or one outside the plugin namespace the reconcile owns. Skipped
+   * rather than thrown, so one plugin declaring an unusable path cannot stop
+   * every other plugin's paths from settling.
    */
   rejected: string[];
+}
+
+/**
+ * Whether a persisted row is the reconcile's to keep or remove.
+ *
+ * The reconcile owns exactly the plugin namespace. A plugin-typed row outside
+ * it, such as a `/webhooks/plugin` claim written through the public IPC, is
+ * never touched, while a row inside it follows what plugins currently declare
+ * whoever wrote it.
+ */
+function isReconcileOwned(route: WebhookIngressRoute): boolean {
+  return (
+    route.type === PLUGIN_WEBHOOK_ROUTE_TYPE &&
+    route.path.startsWith(PLUGIN_WEBHOOK_PATH_PREFIX)
+  );
 }
 
 /**
@@ -178,9 +195,10 @@ export interface PluginWebhookRouteReconciliation {
  * plugin uninstalled while the gateway was down or a manifest edited into a
  * different digest, settle on the next reconcile.
  *
- * Only rows carrying {@link PLUGIN_WEBHOOK_ROUTE_TYPE} are removed, and that
- * type is reserved against {@link registerWebhookIngressRoute}, so a claim
- * another subsystem registered is never withdrawn, whatever its source name.
+ * Only the rows {@link isReconcileOwned} accepts are removed, and only claims
+ * inside that same namespace are written, so the mirror covers exactly the rows
+ * it can also withdraw and a claim another subsystem registered is never
+ * touched, whatever its type or source name.
  *
  * Fires the change listener once when anything moved, and not at all otherwise,
  * so an unchanged reconcile does not ask the tunnel to re-advertise.
@@ -191,7 +209,10 @@ export function reconcilePluginWebhookIngressRoutes(
   const desired = new Map<string, string>();
   const rejected: string[] = [];
   for (const claim of servable) {
-    if (isValidWebhookIngressPath(claim.path)) {
+    if (
+      isValidWebhookIngressPath(claim.path) &&
+      claim.path.startsWith(PLUGIN_WEBHOOK_PATH_PREFIX)
+    ) {
       desired.set(claim.path, claim.source);
     } else {
       rejected.push(claim.path);
@@ -200,7 +221,7 @@ export function reconcilePluginWebhookIngressRoutes(
 
   const existing = new Map(
     listWebhookIngressRoutes()
-      .filter((route) => route.type === PLUGIN_WEBHOOK_ROUTE_TYPE)
+      .filter(isReconcileOwned)
       .map((route) => [route.path, route] as const),
   );
 

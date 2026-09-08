@@ -7,14 +7,14 @@ import { z } from "zod";
 
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
-import { MAX_WEBHOOK_INGRESS_PATH_LENGTH } from "../velay/path-utils.js";
+import {
+  MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+  PLUGIN_WEBHOOK_PATH_PREFIX,
+} from "../velay/path-utils.js";
 import { IngressInboundSchema } from "./ingress-inbound.js";
 import { IngressVerificationSchema } from "./ingress-verification.js";
 
 const log = getLogger("plugin-ingress");
-
-/** Reserved namespace every plugin webhook is composed under. */
-export const PLUGIN_WEBHOOK_PREFIX = "/webhooks/plugins";
 
 /** Manifest location relative to a plugin's workspace directory. */
 export const PLUGIN_INGRESS_MANIFEST_RELPATH = join("channels", "ingress.json");
@@ -48,26 +48,6 @@ export type IngressHandshake = z.infer<typeof IngressHandshakeSchema>;
 const SAFE_PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
 
 /**
- * Longest plugin directory name the composed-path budget assumes. Nothing in
- * the install path bounds a plugin name, so the assumption is the filesystem's
- * own ceiling: a POSIX `NAME_MAX` of 255 bytes for a single directory entry.
- */
-const MAX_PLUGIN_NAME_LENGTH = 255;
-
-/**
- * Longest declared route path whose composed public path still fits the
- * webhook registry, in the longest spelling the gateway serves:
- * `/webhooks/plugins/` and the plugin name and a separating slash and the
- * declared path and a trailing slash. A declaration over this bound is a
- * declaration problem, refused here where the plugin author sees it, rather
- * than a route the ingress resolver reports servable and the registry has no
- * row for.
- */
-const MAX_INGRESS_ROUTE_PATH_LENGTH =
-  MAX_WEBHOOK_INGRESS_PATH_LENGTH -
-  (PLUGIN_WEBHOOK_PREFIX.length + 1 + MAX_PLUGIN_NAME_LENGTH + 1 + 1);
-
-/**
  * A path is canonical when percent-decoding and POSIX normalization both
  * leave it unchanged.
  *
@@ -95,14 +75,14 @@ export const IngressRouteSchema = z.object({
    * `/webhooks/plugins/meeting-bot/realtime`. The prefix and the plugin
    * name are supplied by the gateway, so a declaration cannot name another
    * plugin's route.
+   *
+   * How long the path may be is not decided here: the budget it spends depends
+   * on the plugin's directory name, which discovery knows and this schema does
+   * not. See {@link assertComposablePaths}.
    */
   path: z
     .string()
     .min(1)
-    .max(
-      MAX_INGRESS_ROUTE_PATH_LENGTH,
-      "path is too long to compose into a servable public path",
-    )
     .regex(
       /^[^/?#\s][^?#\s]*$/,
       "path must be relative (no leading slash) and free of query/fragment",
@@ -263,7 +243,33 @@ export const PLUGIN_WEBHOOK_PATH_PATTERN =
 
 /** Compose the absolute public path the gateway serves for a route. */
 export function pluginWebhookPath(plugin: string, path: string): string {
-  return `${PLUGIN_WEBHOOK_PREFIX}/${plugin}/${path.replace(/^\/+/, "")}`;
+  return `${PLUGIN_WEBHOOK_PATH_PREFIX}${plugin}/${path.replace(/^\/+/, "")}`;
+}
+
+/**
+ * Refuse routes whose composed public path is longer than the webhook registry
+ * stores, measured in the longest spelling the gateway serves: the composed
+ * path with a trailing slash.
+ *
+ * The plugin's directory name is part of that length, so the check belongs
+ * here, where the name is known, rather than in the schema, which sees only the
+ * declared half and would have to assume the longest name a directory entry can
+ * carry. A path the registry has no room for would otherwise be a route the
+ * ingress resolver reports servable and the registry holds no row for, so an
+ * oversized composition is a declaration problem for its plugin instead.
+ */
+function assertComposablePaths(
+  plugin: string,
+  routes: readonly IngressRoute[],
+): void {
+  for (const route of routes) {
+    const composed = `${pluginWebhookPath(plugin, route.path)}/`;
+    if (composed.length > MAX_WEBHOOK_INGRESS_PATH_LENGTH) {
+      throw new Error(
+        `route ${route.path}: composed public path is ${composed.length} characters, over the ${MAX_WEBHOOK_INGRESS_PATH_LENGTH} the webhook registry stores`,
+      );
+    }
+  }
 }
 
 /** Absolute paths a discovered plugin is asking the gateway to expose. */
@@ -330,7 +336,9 @@ export interface DiscoverPluginIngressOptions {
  * Scan the workspace for plugin ingress declarations.
  *
  * A manifest is untrusted input from the assistant and is validated here
- * independently of any checks the plugin performs on itself.
+ * independently of any checks the plugin performs on itself. This is also where
+ * composed path lengths are checked, because the plugin's directory name is
+ * half of what a public path spends.
  *
  * Plugins carrying a `.disabled` sentinel are skipped, matching the source
  * of truth the assistant uses for hooks, tools, and routes, so a disabled
@@ -406,6 +414,7 @@ export function discoverPluginIngress(
 
     try {
       const manifest = parsePluginIngressManifest(raw);
+      assertComposablePaths(plugin, manifest.routes);
       plugins.push({ plugin, routes: manifest.routes });
     } catch (err) {
       problems.push({
