@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../__tests__/helpers/set-config.js";
+import { hasSetConstructs } from "../schedule/recurrence-engine.js";
 
 type MockHeartbeatConfig = {
   enabled: boolean;
@@ -44,6 +45,7 @@ mock.module("../heartbeat/heartbeat-service.js", () => ({
 }));
 
 mock.module("../schedule/recurrence-engine.js", () => ({
+  hasSetConstructs,
   computeNextRunAt: () => computedCronNextRunAt,
 }));
 

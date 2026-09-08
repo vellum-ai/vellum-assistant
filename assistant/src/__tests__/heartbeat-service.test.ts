@@ -2,6 +2,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { hasSetConstructs } from "../schedule/recurrence-engine.js";
+
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Default the warm-pool gate to OPEN for existing tests — they predate
@@ -80,11 +82,14 @@ function setHeartbeatConfig(overrides: Partial<HeartbeatSeed> = {}): void {
 //
 // HeartbeatService imports computeNextRunAt for cron scheduling.
 // Tests mutate `mockComputeNextRunAt` to control the next cron occurrence.
+// `hasSetConstructs` is re-exported because `schedule-timezone` imports it
+// from the same module and must keep working under this mock.
 let mockComputeNextRunAtResult: number | null = null;
 let mockComputeNextRunAtError: Error | null = null;
 let computeNextRunAtCallCount = 0;
 
 mock.module("../schedule/recurrence-engine.js", () => ({
+  hasSetConstructs,
   computeNextRunAt: (_spec: {
     syntax: string;
     expression: string;
