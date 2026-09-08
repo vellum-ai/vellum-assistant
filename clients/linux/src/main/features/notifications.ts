@@ -8,6 +8,7 @@ import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
+import { ensureNotificationAvatarFile } from "@vellumai/electron-desktop/notification-avatar-file";
 import {
   configureNotifications,
   installNotifications,
@@ -24,6 +25,11 @@ import { ensureVisible } from "../main-window";
  * Linux notifications feature. Delivery prefers a native helper toast module
  * when one exists. Until a Linux sidecar ships, the shared module's default
  * `electron.Notification` path delivers click-only toasts.
+ *
+ * A toast from a sender puts the assistant's avatar in the toast's image slot,
+ * which the helper reads from a file, so the assistant's name is the title and
+ * the conversation title becomes the subtitle. The default path draws the same
+ * avatar through `electron.Notification`'s `icon`.
  */
 
 const HELPER_EXECUTABLE = "vellum-linux-helper";
@@ -99,6 +105,32 @@ export const createHelperToastFactory = (
     return client;
   };
 
+  /**
+   * The toast's image, or null when there is no sender or the file could not
+   * be written. A cache failure must not cost the user the notification, so it
+   * falls back to the app-icon toast.
+   */
+  const resolveAvatarPath = (
+    options: NotificationCreateOptions,
+  ): string | null => {
+    if (!options.sender) {
+      return null;
+    }
+    try {
+      return ensureNotificationAvatarFile(
+        app.getPath("userData"),
+        options.sender.avatarPng,
+        options.sender.avatarHash,
+      );
+    } catch (error) {
+      log.warn(
+        "[notifications] Could not store the notification avatar:",
+        error,
+      );
+      return null;
+    }
+  };
+
   return (options) => {
     const token = `toast-${nextToken++}`;
     const listeners: Record<string, ToastListener> = {};
@@ -117,14 +149,27 @@ export const createHelperToastFactory = (
       // (helper unavailable, circuit open) still acks as a failed delivery
       // instead of rejecting the renderer's invoke.
       Promise.resolve()
-        .then(() =>
-          ensureClient().call("notifications/show", {
-            token,
-            title: options.title,
-            body: options.body,
-            actions: options.actions.map((action) => ({ text: action.text })),
-          }),
-        )
+        .then(() => {
+          const actions = options.actions.map((action) => ({
+            text: action.text,
+          }));
+          const avatarPath = resolveAvatarPath(options);
+          // With an avatar in the image slot the assistant is the sender, so
+          // its name is the toast title and the conversation title drops to
+          // the subtitle.
+          const params =
+            options.sender && avatarPath
+              ? {
+                  token,
+                  title: options.sender.name,
+                  subtitle: options.title,
+                  body: options.body,
+                  actions,
+                  avatarPath,
+                }
+              : { token, title: options.title, body: options.body, actions };
+          return ensureClient().call("notifications/show", params);
+        })
         .then((result) => {
           const parsed = SHOW_RESULT_SCHEMA.safeParse(result);
           if (parsed.success && parsed.data.success) {

@@ -226,12 +226,14 @@ const pruneStaleEntries = (): void => {
  * Swift client, which acks only after `UNUserNotificationCenter.add(...)`'s
  * completion handler resolves.
  *
- * Unlike the Swift client, Electron cannot request authorization up front, so
- * the very first notification races the macOS permission prompt — neither
- * event fires until the user answers. The timeout is deliberately generous so
- * a user who takes a few seconds to click "Allow" still acks as delivered;
- * only a genuinely unanswered or dropped notification falls through to the
- * conservative "not confirmed" failure ack.
+ * On the default `electron.Notification` path the very first notification
+ * races the macOS permission prompt: neither event fires until the user
+ * answers. A client whose `create` factory owns the notification center (the
+ * macOS native addon) prompts for authorization up front instead, so its first
+ * notification is posted against an answered prompt. The timeout is
+ * deliberately generous so a user who takes a few seconds to click "Allow"
+ * still acks as delivered; only a genuinely unanswered or dropped notification
+ * falls through to the conservative "not confirmed" failure ack.
  */
 const DELIVERY_TIMEOUT_MS = 30_000;
 

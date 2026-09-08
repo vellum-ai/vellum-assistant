@@ -45,6 +45,7 @@ import {
   assistantsPushTokensDelete,
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
+import type { AssistantsPushTokensUpsertData } from "@/generated/api/types.gen";
 import { publish } from "@/lib/event-bus";
 import { resolvePlatformAssistantId } from "@/lib/platform-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -164,7 +165,8 @@ export function isRemotePushSupported(): boolean {
 }
 
 /**
- * What this Android build can do with a push, advertised on the token row.
+ * What this Android build can do with a push, advertised on the token row as
+ * `DevicePushToken.capabilities`, which the Android upsert serializer accepts.
  *
  * The platform sends data-only FCM messages only to tokens claiming
  * `native-notification-render`, so an older shell whose plugin lacks the
@@ -184,6 +186,12 @@ async function readAndroidCapabilities(): Promise<string[]> {
   }
 }
 
+/** The Android arm of the generated upsert body. */
+type AndroidUpsertBody = Extract<
+  AssistantsPushTokensUpsertData["body"],
+  { platform: "android" }
+>;
+
 /**
  * Upsert a freshly-minted native token to the platform for the given assistant.
  * Best-effort: a non-2xx response or thrown error is reported and swallowed.
@@ -198,17 +206,20 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
     const platform = Capacitor.getPlatform();
-    const body =
+    // Annotated so a change to the generated contract is a compile error here.
+    // `capabilities` is not in it yet, and the assertion is what admits that
+    // one field without loosening the rest of the row.
+    const body: AssistantsPushTokensUpsertData["body"] =
       platform === "android"
-        ? {
+        ? ({
             token,
-            platform: "android" as const,
+            platform: "android",
             bundle_id: bundleId,
             capabilities: await readAndroidCapabilities(),
-          }
+          } as AndroidUpsertBody)
         : {
             token,
-            platform: "ios" as const,
+            platform: "ios",
             bundle_id: bundleId,
             apns_environment: await resolveSignedApnsEnvironment(bundleId),
           };

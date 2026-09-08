@@ -22,12 +22,13 @@ import { NOTIFICATION_AVATAR_SIZE } from "@vellumai/avatar-manifest/notification
  * `push-avatar-sender`: no other host reads the holder, and while the flag is
  * off the holder stays empty so the IPC payload carries no `sender` field.
  *
- * Every run starts by emptying the holder, and what it stores is stamped with
- * the assistant it was drawn for. The holder outlives this effect, so a flag
- * turned off, an assistant with no avatar, or a failed rasterization all have
- * to take back what an earlier run put there; and a replacement render must not
- * keep serving the old picture across the rasterize-and-hash gap, which is the
- * window an assistant switch lands in.
+ * Every run starts by emptying the holder and cleanup empties it again, and
+ * what a run stores is stamped with the assistant it was drawn for. The holder
+ * outlives this effect, so a flag turned off, an assistant with no avatar, a
+ * failed rasterization and an unmount all have to take back what an earlier run
+ * put there; and a replacement render must not keep serving the old picture
+ * across the rasterize-and-hash gap, which is the window an assistant switch
+ * lands in.
  */
 export function useNotificationAvatarSync(
   assistantId: string | null,
@@ -75,6 +76,7 @@ export function useNotificationAvatarSync(
 
     return () => {
       cancelled = true;
+      clearNotificationAvatar();
     };
   }, [enabled, assistantId, customImageUrl, components, traits, accentHex]);
 }

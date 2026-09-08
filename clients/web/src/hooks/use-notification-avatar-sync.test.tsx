@@ -2,9 +2,10 @@
  * The gate this hook exists to hold: the notification avatar is composited and
  * held only on Electron with `push-avatar-sender` on. Every other host, and the
  * flag off, must leave the holder empty so the IPC payload carries no `sender`
- * field, and a flag that turns off has to take back what an earlier run stored.
- * What is held is stamped with the assistant it was drawn for, and a
- * replacement render empties the holder before it starts drawing.
+ * field, and a flag that turns off, or a hook that goes away, has to take back
+ * what an earlier run stored. What is held is stamped with the assistant it was
+ * drawn for, and a replacement render empties the holder before it starts
+ * drawing.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -111,6 +112,17 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(getNotificationAvatar()).toBeNull();
     });
+  });
+
+  test("empties the holder when the hook goes away", async () => {
+    const { unmount } = render();
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+
+    unmount();
+
+    expect(getNotificationAvatar()).toBeNull();
   });
 
   test("holds nothing for an assistant with no avatar to draw", async () => {
