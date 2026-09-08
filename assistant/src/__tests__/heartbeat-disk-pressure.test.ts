@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { setConfig } from "./helpers/set-config.js";
 import { hasSetConstructs } from "../schedule/recurrence-engine.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Default the warm-pool gate to OPEN — these tests probe disk-pressure
 // behavior, not the pre-first-message guard.

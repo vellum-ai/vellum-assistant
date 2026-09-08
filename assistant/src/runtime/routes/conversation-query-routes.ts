@@ -63,7 +63,6 @@ import {
   findSubstrateShadowing,
 } from "../../config/substrate-twin-shadowing.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
-import { rescheduleHeartbeatIfTimezoneChanged } from "../../heartbeat/heartbeat-service.js";
 import {
   getEmbeddingConfigInfo,
   setEmbeddingConfig,
@@ -86,6 +85,7 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
+import { rescheduleHeartbeatIfTimezoneChanged } from "../../heartbeat/heartbeat-service.js";
 import {
   getAssistantMessageIdsInTurn,
   getConversation,
