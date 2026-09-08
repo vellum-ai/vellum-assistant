@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import { MALFORMED_USTAR_SIZE, parseUstarSizeField } from "../archive/ustar-size.js";
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { isBunVirtualPath } from "../util/bundled-asset.js";
@@ -50,18 +51,12 @@ export class SkillArchiveError extends Error {
   }
 }
 
-/** Parse the ustar `size` field (bytes 124-136, octal). */
 function parseTarSize(header: Buffer): number {
-  const raw = header
-    .subarray(124, 136)
-    .toString("utf-8")
-    .replace(/\0/g, "")
-    .trim();
-  const size = raw ? Number.parseInt(raw, 8) : 0;
-  if (!Number.isFinite(size) || size < 0) {
-    throw new SkillArchiveError("malformed tar size field");
+  try {
+    return parseUstarSizeField(header);
+  } catch {
+    throw new SkillArchiveError(MALFORMED_USTAR_SIZE);
   }
-  return size;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
