@@ -676,6 +676,25 @@ export const NOTIFICATION_CATEGORIES = [
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 /**
+ * What a notification avatar's SHA-256 has to look like: 64 lowercase hex
+ * characters. The hash names the file a host writes the avatar to, so anything
+ * else could escape the cache directory. Shared by the IPC boundary that
+ * accepts it and the cache that writes it.
+ */
+export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/**
+ * The longest base64 payload the notification-avatar channel carries: base64
+ * of `NOTIFICATION_AVATAR_MAX_LOCAL_BYTES` (512 KB) from
+ * `@vellumai/avatar-manifest/notification-avatar`, which is the cap the
+ * renderer drops a heavier render at. A payload past this is malformed rather
+ * than merely large, and the host has to cache it on disk, so the boundary
+ * refuses it instead of writing it.
+ */
+export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
+  Math.ceil((512 * 1024) / 3) * 4;
+
+/**
  * The assistant a notification is from, for the platforms that render a sender
  * rather than the app: its name goes on the first line and its notification
  * avatar becomes the icon.

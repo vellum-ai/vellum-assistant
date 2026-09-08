@@ -419,6 +419,25 @@ describe("syncAvatarToPlatform", () => {
     });
   });
 
+  test("re-sends an unchanged raster once the rasterizer appears", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    expect(patches[0].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+    });
+
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-a");
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    expect(patches[1].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+      notification_avatar_base64: Buffer.from("disc-a").toString("base64"),
+    });
+  });
+
   test("a changed accent re-sends an unchanged raster", async () => {
     mockResvgAvailable = true;
     mockRenderedPng = Buffer.from("disc-a");

@@ -1,20 +1,33 @@
 /**
  * The gate this hook exists to hold: the notification avatar is composited and
- * held only on Electron with `push-avatar-sender` on. Every other host, and the
- * flag off, must leave the holder empty so the IPC payload carries no `sender`
- * field, and a flag that turns off, or a hook that goes away, has to take back
- * what an earlier run stored. What is held is stamped with the assistant it was
- * drawn for, and a replacement render empties the holder before it starts
- * drawing.
+ * held only in the main Electron window with `push-avatar-sender` on. Every
+ * other host, a pop-out thread window, and the flag off must leave the holder
+ * empty so the IPC payload carries no `sender` field, and a flag that turns
+ * off, or a hook that goes away, has to take back what an earlier run stored.
+ * What is held is stamped with the assistant it was drawn for, a replacement
+ * render empties the holder before it starts drawing, and a re-run for the
+ * picture already held leaves it alone.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+
+import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
+import { NOTIFICATION_AVATAR_BASE64_MAX_CHARS } from "@vellumai/ipc-contract";
+
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 const AVATAR_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
 let electronHost = true;
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electronHost,
+}));
+
+const realPopoutWindow = await import("@/runtime/popout-window");
+let popoutWindow = false;
+mock.module("@/runtime/popout-window", () => ({
+  ...realPopoutWindow,
+  isPopoutWindowLifetime: () => popoutWindow,
 }));
 
 let rasterized: Uint8Array | null = AVATAR_PNG;
@@ -41,6 +54,23 @@ const ASSISTANT_ID = "assistant-1";
 const IMAGE_URL = "blob:avatar-1";
 const ACCENT = "#E9642F";
 
+/**
+ * Components and traits that name nothing in the palette, so the render falls
+ * through to the uploaded image. Fresh objects stand in for the identities the
+ * avatar query hands out again on every refetch.
+ */
+const staleComponents = (): CharacterComponents => ({
+  bodyShapes: [],
+  eyeStyles: [],
+  colors: [],
+  faceCenterOverrides: [],
+});
+const staleTraits = (): CharacterTraits => ({
+  bodyShape: "gone",
+  eyeStyle: "gone",
+  color: "gone",
+});
+
 const render = (accentHex: string | null = ACCENT) =>
   renderHook(() =>
     useNotificationAvatarSync(ASSISTANT_ID, IMAGE_URL, null, null, accentHex),
@@ -48,6 +78,7 @@ const render = (accentHex: string | null = ACCENT) =>
 
 beforeEach(() => {
   electronHost = true;
+  popoutWindow = false;
   rasterized = AVATAR_PNG;
   rasterizeGate = null;
   rasterizeNotificationAvatar.mockClear();
@@ -78,6 +109,17 @@ describe("useNotificationAvatarSync", () => {
 
   test("does no canvas work and holds nothing off Electron", async () => {
     electronHost = false;
+
+    render();
+
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+    });
+    expect(getNotificationAvatar()).toBeNull();
+  });
+
+  test("does no canvas work and holds nothing in a pop-out thread window", async () => {
+    popoutWindow = true;
 
     render();
 
@@ -158,6 +200,48 @@ describe("useNotificationAvatarSync", () => {
     expect(getNotificationAvatar()).toBeNull();
   });
 
+  test("holds nothing for a render past the local byte cap", async () => {
+    rasterized = new Uint8Array(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES + 1);
+
+    render();
+
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+    });
+    expect(getNotificationAvatar()).toBeNull();
+  });
+
+  test("keeps the held avatar across a refetch that redraws the same picture", async () => {
+    const { rerender } = renderHook(
+      ({
+        components,
+        traits,
+      }: {
+        components: CharacterComponents;
+        traits: CharacterTraits;
+      }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          components,
+          traits,
+          ACCENT,
+        ),
+      {
+        initialProps: { components: staleComponents(), traits: staleTraits() },
+      },
+    );
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+    const held = getNotificationAvatar();
+
+    rerender({ components: staleComponents(), traits: staleTraits() });
+
+    expect(getNotificationAvatar()).toEqual(held);
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+  });
+
   test("empties the holder before drawing a replacement, then holds the new assistant's avatar", async () => {
     const { rerender } = renderHook(
       ({ id, url }: { id: string; url: string }) =>
@@ -180,5 +264,34 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(getNotificationAvatar()?.assistantId).toBe("assistant-2");
     });
+  });
+
+  test("a render the holder has moved past never lands", async () => {
+    const { rerender } = renderHook(
+      ({ id, url }: { id: string; url: string }) =>
+        useNotificationAvatarSync(id, url, null, null, ACCENT),
+      { initialProps: { id: ASSISTANT_ID, url: IMAGE_URL } },
+    );
+
+    let releaseRasterize = () => {};
+    rasterizeGate = new Promise<void>((resolve) => {
+      releaseRasterize = resolve;
+    });
+    rerender({ id: "assistant-2", url: "blob:avatar-2" });
+    rasterizeGate = null;
+    rerender({ id: "assistant-3", url: "blob:avatar-3" });
+    releaseRasterize();
+
+    await waitFor(() => {
+      expect(getNotificationAvatar()?.assistantId).toBe("assistant-3");
+    });
+  });
+});
+
+describe("the bytes the holder passes on", () => {
+  test("fit what the IPC boundary accepts", () => {
+    expect(NOTIFICATION_AVATAR_BASE64_MAX_CHARS).toBe(
+      Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4,
+    );
   });
 });
