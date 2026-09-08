@@ -18,6 +18,11 @@
  * non-none avatar whose raster is missing (image PNG gone, character
  * re-render unavailable) is skipped so the platform keeps the last synced
  * copy.
+ * The same PATCH carries `notification_avatar_base64`, the disc render the
+ * push pipeline shows as the sender. Its digest is part of the dedup key, so
+ * a change to the disc spec re-uploads even when the raster is unchanged.
+ * When the render is unavailable the key is omitted rather than nulled, so
+ * the platform keeps the copy it holds.
  */
 
 import { createHash } from "node:crypto";
@@ -29,6 +34,7 @@ import {
   ensureAvatarRasterPath,
   readContainedAvatarRaster,
 } from "../avatar/ensure-raster.js";
+import { renderNotificationAvatarPng } from "../avatar/notification-avatar.js";
 import {
   getResvg,
   isResvgAvailable,
@@ -120,7 +126,10 @@ function persistKey(synced: SyncedKey): void {
 async function buildPayload(): Promise<PatchPayload | undefined> {
   const state = readAvatarState();
   if (state.kind === "none") {
-    return { key: NONE_KEY, body: { avatar_base64: null } };
+    return {
+      key: NONE_KEY,
+      body: { avatar_base64: null, notification_avatar_base64: null },
+    };
   }
   const path = await ensureAvatarRasterPath(state);
   if (!path) {
@@ -131,10 +140,12 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   if (!bytes) {
     return undefined;
   }
+  const notification = await renderNotificationAvatarPng(state);
   // Keyed on content so a same-size, same-mtime rewrite still re-syncs.
-  const digest = createHash("sha256").update(bytes).digest("hex");
+  const digest = sha256(bytes);
+  const notificationDigest = notification ? sha256(notification) : NONE_KEY;
   return {
-    key: `${state.kind}:${digest}`,
+    key: `${state.kind}:${digest}:${notificationDigest}`,
     body: async () => {
       const encoded = encodeForUpload(bytes);
       if (encoded === undefined) {
@@ -144,9 +155,19 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
         );
         return undefined;
       }
-      return { avatar_base64: encoded };
+      if (!notification) {
+        return { avatar_base64: encoded };
+      }
+      return {
+        avatar_base64: encoded,
+        notification_avatar_base64: notification.toString("base64"),
+      };
     },
   };
+}
+
+function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 /**

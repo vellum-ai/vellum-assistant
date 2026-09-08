@@ -59,6 +59,10 @@ mock.module("../avatar/ensure-raster.js", () => ({
     rasterCalls += 1;
     return mockRasterPath;
   },
+  ensureAvatarRaster: async () =>
+    mockRasterPath === null
+      ? null
+      : realReadContainedAvatarRaster(mockRasterPath),
   readContainedAvatarRaster: realReadContainedAvatarRaster,
 }));
 
@@ -144,7 +148,10 @@ const NONE: AvatarState = {
 
 interface Patch {
   path: string;
-  body: { avatar_base64: string | null };
+  body: {
+    avatar_base64: string | null;
+    notification_avatar_base64?: string | null;
+  };
 }
 
 let patches: Patch[];
@@ -251,7 +258,7 @@ describe("syncAvatarToPlatform", () => {
     expect(rasterCalls).toBe(1);
   });
 
-  test("removing the avatar sends avatar_base64: null", async () => {
+  test("removing the avatar nulls both images", async () => {
     syncAvatarToPlatform();
     await settle();
     mockState = NONE;
@@ -259,7 +266,10 @@ describe("syncAvatarToPlatform", () => {
     syncAvatarToPlatform();
     await settle();
 
-    expect(patches[1].body).toEqual({ avatar_base64: null });
+    expect(patches[1].body).toEqual({
+      avatar_base64: null,
+      notification_avatar_base64: null,
+    });
   });
 
   test("an image avatar with a missing PNG is skipped, not cleared", async () => {
@@ -376,6 +386,45 @@ describe("syncAvatarToPlatform", () => {
     await settle();
 
     expect(patches).toHaveLength(0);
+  });
+
+  test("PATCHes the notification avatar alongside the raster", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-a");
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+      notification_avatar_base64: Buffer.from("disc-a").toString("base64"),
+    });
+    expect(lastResvgSvg).toContain("<circle");
+  });
+
+  test("omits the notification avatar when resvg is unavailable", async () => {
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches[0].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+    });
+  });
+
+  test("a changed notification render re-sends an unchanged raster", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-a");
+    syncAvatarToPlatform();
+    await settle();
+    mockRenderedPng = Buffer.from("disc-b");
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches.map((p) => p.body.notification_avatar_base64)).toEqual([
+      Buffer.from("disc-a").toString("base64"),
+      Buffer.from("disc-b").toString("base64"),
+    ]);
+    expect(patches[1].body.avatar_base64).toBe(png("a").toString("base64"));
   });
 
   test("a restart with the same raster and destination does not re-upload", async () => {
