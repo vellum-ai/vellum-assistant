@@ -366,7 +366,7 @@ describe("revoke", () => {
 
   it("revokes a grant whose declaration has become unreadable", async () => {
     // A grant must be withdrawable even when the manifest that justified it
-    // can no longer be parsed, or a broken plugin would keep its ingress.
+    // cannot be parsed, or a broken plugin would keep its ingress.
     approvePluginIngress({ plugin: "meeting-bot", digest: "a".repeat(32) });
     writePlugin("meeting-bot", [{ path: "/absolute", kind: "http" }]);
 
@@ -389,9 +389,10 @@ describe("webhook route reconciliation", () => {
       "notes",
     );
 
-  it("releases the paths of a plugin that is no longer installed", async () => {
-    // Uninstalling does not revoke, so the approval outlives the plugin. What
-    // decides is the declaration, and there is no longer one.
+  it("releases the paths of a plugin that is not installed", async () => {
+    // An approval outlives the plugin it was granted for, because uninstalling
+    // does not revoke. What decides is the declaration, and an absent plugin
+    // makes none.
     approvePluginIngress({ plugin: "gone", digest: "a".repeat(32) });
     // A reconcile is the only writer of plugin rows, so it is also how the
     // registry comes to hold one for a plugin that is now absent.
@@ -405,9 +406,9 @@ describe("webhook route reconciliation", () => {
   });
 
   it("releases the paths of an approval the declaration has outgrown", async () => {
-    // Editing the manifest changes its digest and drops the source back to
-    // pending, so the grant no longer covers anything and the name alone is
-    // not enough to keep a path claimed.
+    // An edited manifest carries a different digest, which leaves the source
+    // pending. The grant then covers a declaration nobody makes, and the
+    // source name alone is not enough to keep a path claimed.
     writePlugin("meeting-bot");
     await approve(
       approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
