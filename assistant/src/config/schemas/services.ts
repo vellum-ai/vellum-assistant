@@ -152,6 +152,11 @@ export const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type FigmaOAuthService = z.infer<typeof FigmaOAuthServiceSchema>;
 
+export const PagerDutyOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type PagerDutyOAuthService = z.infer<typeof PagerDutyOAuthServiceSchema>;
+
 export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -219,6 +224,9 @@ export const ServicesSchema = z.object({
   ),
   "figma-oauth": FigmaOAuthServiceSchema.default(
     FigmaOAuthServiceSchema.parse({}),
+  ),
+  "pagerduty-oauth": PagerDutyOAuthServiceSchema.default(
+    PagerDutyOAuthServiceSchema.parse({}),
   ),
   "eventbrite-oauth": EventbriteOAuthServiceSchema.default(
     EventbriteOAuthServiceSchema.parse({}),
