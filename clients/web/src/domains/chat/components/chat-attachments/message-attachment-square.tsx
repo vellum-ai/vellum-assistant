@@ -1,25 +1,14 @@
-import {
-  Archive,
-  Code2,
-  FileAudio,
-  File as FileIcon,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileType2,
-  FileVideo,
-} from "lucide-react";
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent } from "react";
 import { useCallback } from "react";
 
 import { Typography } from "@vellumai/design-library";
 import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
 
 import {
+  ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   formatAttachmentSize,
   middleTruncate,
-  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -43,19 +32,6 @@ interface MessageAttachmentSquareProps {
   onPreviewError?: () => void;
 }
 
-const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
-  image: <FileImage className="h-6 w-6" />,
-  video: <FileVideo className="h-6 w-6" />,
-  audio: <FileAudio className="h-6 w-6" />,
-  pdf: <FileType2 className="h-6 w-6" />,
-  code: <Code2 className="h-6 w-6" />,
-  archive: <Archive className="h-6 w-6" />,
-  spreadsheet: <FileSpreadsheet className="h-6 w-6" />,
-  document: <FileText className="h-6 w-6" />,
-  text: <FileText className="h-6 w-6" />,
-  file: <FileIcon className="h-6 w-6" />,
-};
-
 /**
  * Square thumbnail used inside message bubbles. Image attachments render their
  * preview edge-to-edge; non-image attachments fall back to a neutral surface
@@ -71,6 +47,7 @@ export function MessageAttachmentSquare({
   const { filename, mimeType, sizeBytes, previewUrl, thumbnailUrl } =
     attachment;
   const kind = classifyAttachment(mimeType, filename);
+  const Icon = ATTACHMENT_ICON_BY_KIND[kind];
   const hasImagePreview = kind === "image" && previewUrl !== null;
   // Video posters stay a CSS background: there is no fallback to swap to when
   // a poster fails, so an <img> would surface the browser's broken glyph.
@@ -136,7 +113,7 @@ export function MessageAttachmentSquare({
               className="h-full w-full object-cover"
             />
           ) : backgroundImageUrl ? null : (
-            ICON_BY_KIND[kind]
+            <Icon className="h-6 w-6" />
           )}
         </div>
         {onDownload && (
