@@ -474,6 +474,17 @@ export interface ChatInfoPayload {
   category: ChatInfoCategory | null;
 }
 
+/**
+ * The identity of a chat-info target. Conversation ids are assistant-scoped,
+ * so both halves name it; hosts key the panel on this so a retarget remounts
+ * it rather than carrying preview and pending-delete state across.
+ */
+export function chatInfoTargetKey(
+  target: Pick<ChatInfoPayload, "assistantId" | "conversationId">,
+): string {
+  return `${target.assistantId}:${target.conversationId}`;
+}
+
 /** The identity fields a thinking drawer target is matched on. */
 type ThinkingTarget = Pick<
   ToolDetailPayload,
@@ -1270,11 +1281,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   toggleChatInfo: (target) => {
     const state = get();
-    // Conversation ids are assistant-scoped, so both halves name the target.
     const isSameTarget =
       state.mainView === "chat-info" &&
-      state.activeChatInfo?.assistantId === target.assistantId &&
-      state.activeChatInfo.conversationId === target.conversationId;
+      state.activeChatInfo !== null &&
+      chatInfoTargetKey(state.activeChatInfo) === chatInfoTargetKey(target);
     if (isSameTarget) {
       get().closeChatInfo();
     } else {

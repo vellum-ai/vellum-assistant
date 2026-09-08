@@ -33,7 +33,9 @@ mock.module(
         mountCount += 1;
       }, []);
       return (
-        <div data-testid={`panel-${payload.assistantId}-${payload.conversationId}`}>
+        <div
+          data-testid={`panel-${payload.assistantId}-${payload.conversationId}`}
+        >
           {payload.conversationId}
         </div>
       );
@@ -84,7 +86,11 @@ describe("MobileChatInfoOverlay", () => {
       />,
     );
     expect(
-      await screen.findByTestId("panel-assistant-1-conv-1", undefined, LAZY_WAIT),
+      await screen.findByTestId(
+        "panel-assistant-1-conv-1",
+        undefined,
+        LAZY_WAIT,
+      ),
     ).toBeDefined();
   });
 

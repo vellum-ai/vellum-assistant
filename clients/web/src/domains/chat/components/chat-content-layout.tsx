@@ -17,7 +17,6 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { ProgressStack } from "@/domains/chat/components/progress-stack";
 import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { chatInfoPanelKey } from "@/domains/chat/components/chat-info-panel";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
@@ -31,7 +30,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
 import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { chatInfoTargetKey, useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -583,7 +582,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
               than reusing one whose preview and delete state belong to the
               previous chat. */}
           <ChatInfoPanel
-            key={chatInfoPanelKey(activeChatInfo)}
+            key={chatInfoTargetKey(activeChatInfo)}
             payload={activeChatInfo}
             onClose={closeChatInfo}
             onSelectCategory={setChatInfoCategory}

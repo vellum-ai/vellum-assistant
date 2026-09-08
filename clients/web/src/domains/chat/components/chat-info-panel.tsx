@@ -51,17 +51,6 @@ export interface ChatInfoPanelProps {
   onSelectCategory: (category: ChatInfoCategory | null) => void;
 }
 
-/**
- * The React key a host gives the panel. Conversation ids are assistant-scoped,
- * so a retarget to another assistant remounts the panel rather than carrying
- * its preview and pending-delete state across.
- */
-export function chatInfoPanelKey(
-  payload: Pick<ChatInfoPayload, "assistantId" | "conversationId">,
-): string {
-  return `${payload.assistantId}:${payload.conversationId}`;
-}
-
 /** The drilled-in header's title cluster: title · N, as every detail panel draws it. */
 function TitleWithCount({ title, count }: { title: string; count: number }) {
   return (
