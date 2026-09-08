@@ -120,6 +120,7 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
   const view = render(pill(CONVERSATION_ID));
 
   return {
+    unmount: () => view.unmount(),
     /** Swap the prop on the already-mounted pill, as the chat header does. */
     switchConversation: (conversationId: string) => {
       view.rerender(pill(conversationId));
@@ -270,6 +271,19 @@ describe("conversation switch while the panel is open", () => {
     expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
     expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
     expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
+  });
+});
+
+describe("pill unmount while the panel is open", () => {
+  test("closes the panel it owns", () => {
+    const { unmount } = renderPill();
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+    expect(useViewerStore.getState().mainView).toBe("chat-info");
+
+    unmount();
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeChatInfo).toBeNull();
   });
 });
 

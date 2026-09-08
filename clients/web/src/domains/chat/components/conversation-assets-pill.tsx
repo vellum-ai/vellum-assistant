@@ -71,6 +71,19 @@ export function ConversationAssetsPill({
     ) {
       state.closeChatInfo();
     }
+    // The pill leaving (an assistant switch clears the conversation before
+    // the next one resolves) must take its panel with it, or the store keeps
+    // showing a target no control owns.
+    return () => {
+      const current = useViewerStore.getState();
+      if (
+        current.mainView === "chat-info" &&
+        current.activeChatInfo !== null &&
+        chatInfoTargetKey(current.activeChatInfo) === targetKey
+      ) {
+        current.closeChatInfo();
+      }
+    };
   }, [targetKey]);
 
   // The header cluster only has room for a labelled pill on a roomy window.
