@@ -1,9 +1,10 @@
 /**
- * Tests for `ConversationAssetsPill`'s unseen-document-changes affordance.
+ * Tests for `ConversationAssetsPill`: the Chat Info trigger it registers in the
+ * viewer store, and its unseen-document-changes affordance.
  *
- * The pill's asset list comes from two TanStack queries, so the suite seeds
- * the cache with `staleTime: Infinity` instead of mocking the SDK: nothing
- * refetches on mount and the rendered list is exactly what a test asks for.
+ * The pill's asset count comes from TanStack queries, so the suite seeds the
+ * cache with `staleTime: Infinity` instead of mocking the SDK: nothing
+ * refetches on mount and the count is exactly what a test asks for.
  *
  * Class strings are deliberately not asserted (happy-dom makes those brittle);
  * the dot is located by its `data-testid` and the state it communicates is
@@ -18,13 +19,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import * as motionReact from "motion/react";
 
 import type { DocumentSummary } from "@/types/document-types";
-
-const isTouchMobileRef = { value: false };
-
-mock.module("@/hooks/use-touch-mobile", () => ({
-  useTouchMobile: () => isTouchMobileRef.value,
-  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
-}));
 
 const isMobileRef = { value: false };
 
@@ -49,6 +43,7 @@ const {
 } = await import("@/domains/chat/components/conversation-assets-pill");
 const { useUnseenDocumentChangesStore } =
   await import("@/domains/chat/unseen-document-changes-store");
+const { useViewerStore } = await import("@/stores/viewer-store");
 const { appsGetOptions, documentsGetOptions } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
 
@@ -59,7 +54,6 @@ const OTHER_CONVERSATION_ID = "conv-2";
 const OTHER_SURFACE_ID = "surface-2";
 
 const DOC_TITLE = "Roadmap";
-const OTHER_DOC_TITLE = "Backlog";
 
 // Singular: these fixtures seed one asset, and the ICU `plural` in
 // `conversationAssets.ariaLabel` agrees with the count.
@@ -69,12 +63,11 @@ const UNSEEN_LABEL = "Conversation assets, 1 item (unseen changes)";
 function makeDocument(
   conversationId = CONVERSATION_ID,
   surfaceId = SURFACE_ID,
-  title = DOC_TITLE,
 ): DocumentSummary {
   return {
     surfaceId,
     conversationId,
-    title,
+    title: DOC_TITLE,
     wordCount: 12,
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_001,
@@ -111,7 +104,7 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
   seedConversation(client, withAssets ? [makeDocument()] : [], CONVERSATION_ID);
   seedConversation(
     client,
-    [makeDocument(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID, OTHER_DOC_TITLE)],
+    [makeDocument(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID)],
     OTHER_CONVERSATION_ID,
   );
 
@@ -144,16 +137,22 @@ function unseenConversations(): string[] {
   return Object.keys(useUnseenDocumentChangesStore.getState().changedDocuments);
 }
 
+function chatInfoState() {
+  const { mainView, activeChatInfo } = useViewerStore.getState();
+  return { mainView, activeChatInfo };
+}
+
 beforeEach(() => {
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
+  useViewerStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
-  isTouchMobileRef.value = false;
   isMobileRef.value = false;
   reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
+  useViewerStore.getState().reset();
 });
 
 function dotHasPulse(): boolean {
@@ -178,21 +177,52 @@ describe("desktop pill", () => {
     expect(screen.getByRole("button", { name: SEEN_LABEL })).toBeTruthy();
   });
 
-  test("opening the popover clears the conversation", () => {
+  test("opening the panel clears the conversation and sets mainView to chat-info", () => {
     markUnseen();
     renderPill();
 
     fireEvent.click(screen.getByRole("button", { name: UNSEEN_LABEL }));
 
+    expect(chatInfoState()).toEqual({
+      mainView: "chat-info",
+      activeChatInfo: {
+        assistantId: ASSISTANT_ID,
+        conversationId: CONVERSATION_ID,
+        category: null,
+      },
+    });
     expect(unseenConversations()).toEqual([]);
     expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
+  });
+
+  test("clicking while open closes the panel", () => {
+    renderPill();
+
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+    expect(chatInfoState().mainView).toBe("chat-info");
+
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+
+    expect(chatInfoState()).toEqual({
+      mainView: "chat",
+      activeChatInfo: null,
+    });
+  });
+
+  test("aria-expanded reflects the store", () => {
+    renderPill();
+
+    const trigger = screen.getByRole("button", { name: SEEN_LABEL });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 });
 
 describe("narrow window with a mouse", () => {
-  // Room decides whether the count fits in the header cluster, and pointer
-  // decides whether the disclosure is a sheet: a narrow mouse-driven window
-  // gets the compact trigger and still opens the anchored popover.
+  // Room decides whether the count fits in the header cluster: a narrow window
+  // gets the compact trigger and the same panel.
   beforeEach(() => {
     isMobileRef.value = true;
   });
@@ -205,82 +235,38 @@ describe("narrow window with a mouse", () => {
     );
   });
 
-  test("opening the popover clears the conversation", () => {
+  test("opening the panel clears the conversation", () => {
     markUnseen();
     renderPill();
 
     fireEvent.click(screen.getByRole("button", { name: UNSEEN_LABEL }));
 
+    expect(chatInfoState().mainView).toBe("chat-info");
     expect(unseenConversations()).toEqual([]);
   });
 });
 
-describe("mobile trigger", () => {
-  beforeEach(() => {
-    isTouchMobileRef.value = true;
-    isMobileRef.value = true;
-  });
-
-  test("shows the dot and names the state when a change is unseen", () => {
-    markUnseen();
-    renderPill();
-
-    expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
-    expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
-  });
-
-  test("shows no dot and the plain name when nothing is unseen", () => {
-    renderPill();
-
-    expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
-    expect(screen.getByRole("button", { name: SEEN_LABEL })).toBeTruthy();
-  });
-
-  test("opening the sheet clears the conversation", () => {
-    markUnseen();
-    renderPill();
-
-    fireEvent.click(screen.getByRole("button", { name: UNSEEN_LABEL }));
-
-    expect(unseenConversations()).toEqual([]);
-    expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
-  });
-});
-
-describe("conversation switch while the disclosure is open", () => {
+describe("conversation switch while the panel is open", () => {
   /**
    * The chat header renders one unkeyed pill and swaps `conversationId` on it,
-   * so `open` survives the switch and `onOpenChange` never fires for it. The
-   * pill closes its own disclosure on that swap: the incoming conversation's
-   * assets are never put on screen unasked, and its changes stay marked unseen
-   * until the user opens the list.
+   * so the open panel would otherwise survive the switch. The pill settles the
+   * store on that swap: the incoming conversation's assets are never put on
+   * screen unasked, and its changes stay marked unseen until the user opens
+   * the panel.
    */
-  test("closes the popover and keeps the incoming dot", () => {
+  test("closes the panel and keeps the incoming dot", () => {
     markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
     const { switchConversation } = renderPill();
 
     fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
-    expect(screen.getByText(DOC_TITLE)).toBeTruthy();
+    expect(chatInfoState().mainView).toBe("chat-info");
 
     switchConversation(OTHER_CONVERSATION_ID);
 
-    expect(screen.queryByText(OTHER_DOC_TITLE)).toBeNull();
-    expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
-    expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
-    expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
-  });
-
-  test("closes the sheet and keeps the incoming dot on mobile", () => {
-    isTouchMobileRef.value = true;
-    markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
-    const { switchConversation } = renderPill();
-
-    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
-    expect(screen.getByText(DOC_TITLE)).toBeTruthy();
-
-    switchConversation(OTHER_CONVERSATION_ID);
-
-    expect(screen.queryByText(OTHER_DOC_TITLE)).toBeNull();
+    expect(chatInfoState()).toEqual({
+      mainView: "chat",
+      activeChatInfo: null,
+    });
     expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
     expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
     expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
@@ -313,7 +299,7 @@ describe("empty asset list", () => {
    * assets, so there is no Layers icon to carry a dot. An unseen change in
    * that window stays recorded in the store and the dot appears as soon as
    * the documents query reports the asset, rather than the pill being forced
-   * to render an empty disclosure.
+   * to render a trigger for an empty panel.
    */
   test("renders nothing even when a change is unseen", () => {
     markUnseen();

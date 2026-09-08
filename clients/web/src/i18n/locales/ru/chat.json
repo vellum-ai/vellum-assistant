@@ -355,7 +355,6 @@
   "conversationAssets": {
     "ariaLabel": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}",
     "ariaLabelUnseen": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}} (есть невидимые изменения)",
-    "heading": "Ресурсы",
     "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}"
   },
   "conversationStarterDock": {
