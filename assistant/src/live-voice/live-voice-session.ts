@@ -7161,13 +7161,16 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
  * pre-bridge timing above exists to watch.
  *
  * Best effort, and deliberately not fatal: a read that throws or names nobody
- * answers `undefined`, and the turn falls back to the cached lookup. A voice
- * session that will not start is worse than one running on a cached
- * principal.
+ * answers `undefined`, and the session then runs with cached trust and NO
+ * actor. Its turns talk and act as they always did, and only their host-proxy
+ * calls are refused, because the cached binding can say what the machine's
+ * owner may do but not whether the gateway admitted that guardian or one it
+ * was rebound from. A session that will not start is worse than one whose
+ * computer use is unavailable.
  *
- * **The accepted remainder is a rebind that lands mid-session.** Resolving
- * once is what keeps this off the turn path, and the cost of that choice is
- * that a session already open does not see the change until the next one.
+ * **The accepted remainder is a rebind that lands mid-session.** Reading once
+ * is what keeps this off the turn path, and the cost is that a session already
+ * open does not see the change until the next one.
  */
 async function resolveSessionGuardianPrincipalId(): Promise<
   string | undefined
@@ -7179,34 +7182,36 @@ async function resolveSessionGuardianPrincipalId(): Promise<
   } catch (err) {
     log.warn(
       { err },
-      "Live voice session guardian refresh failed; falling back to the cached read",
+      "Live voice session guardian refresh failed; the session runs with cached trust and no actor",
     );
     return undefined;
   }
 }
 
 /**
- * One session's guardian resolution, resolved at most once.
+ * The default turn starter, bound to the guardian this session was admitted
+ * for.
  *
- * The refresh is started by the first turn rather than by the factory: the
- * factory is synchronous, and a session that never speaks should not spend a
- * gateway call. Every later turn awaits the same settled promise.
+ * **The read starts here, as the session is built, not on its first turn.**
+ * The gateway pins the upgrade to the guardian bound at that moment and does
+ * no per-message revalidation, so the admitted identity is the one in force
+ * when the socket opened. A read deferred to the first utterance would see a
+ * rebind that landed in the silence between and stamp the session with a
+ * guardian the gateway never admitted, which is the same misattribution read
+ * from the other end.
+ *
+ * The promise is the memo: every turn awaits this one, and it never rejects
+ * (see {@link resolveSessionGuardianPrincipalId}). The cost is one gateway
+ * read for a session that never speaks, which is the price of binding the
+ * identity at admission rather than at first use.
  *
  * Exported for its tests, which are the only way to reach this: every caller
  * of `createLiveVoiceSession` in the suite injects its own `startVoiceTurn`,
- * so the default starter below is never driven there.
+ * so this starter is never driven there.
  */
-export function makeSessionGuardianResolver(): () => Promise<
-  string | undefined
-> {
-  let sessionGuardian: Promise<string | undefined> | null = null;
-  return () => (sessionGuardian ??= resolveSessionGuardianPrincipalId());
-}
-
-/** The default turn starter, bound to one session's guardian resolution. */
-function makeDefaultStartVoiceTurn(): LiveVoiceTurnStarter {
-  const sessionGuardian = makeSessionGuardianResolver();
-  return (options) => defaultStartVoiceTurn(options, sessionGuardian());
+export function makeDefaultStartVoiceTurn(): LiveVoiceTurnStarter {
+  const sessionGuardian = resolveSessionGuardianPrincipalId();
+  return (options) => defaultStartVoiceTurn(options, sessionGuardian);
 }
 
 async function defaultStartVoiceTurn(

@@ -54,8 +54,15 @@ mock.module("../../runtime/local-actor-identity.js", () => ({
   },
 }));
 
-const { makeSessionGuardianResolver, resolveLocalLiveVoiceIdentity } =
+const { makeDefaultStartVoiceTurn, resolveLocalLiveVoiceIdentity } =
   await import("../live-voice-session.js");
+
+/** Let the session's own read settle before asserting on it. */
+const flushMicrotasks = async (): Promise<void> => {
+  for (let i = 0; i < 5; i += 1) {
+    await Promise.resolve();
+  }
+};
 
 beforeEach(() => {
   lookups = [];
@@ -64,11 +71,17 @@ beforeEach(() => {
 });
 
 describe("live voice session guardian", () => {
-  test("reads past the cache", async () => {
+  /**
+   * The gateway admits a guardian at upgrade and revalidates nothing after,
+   * so the identity is bound as the session is built. Deferring to the first
+   * utterance would read a binding that changed in the silence between.
+   */
+  test("reads past the cache as the session is built", async () => {
     lookupResult = "principal-guardian";
-    const resolve = makeSessionGuardianResolver();
 
-    expect(await resolve()).toBe("principal-guardian");
+    makeDefaultStartVoiceTurn();
+    await flushMicrotasks();
+
     expect(lookups).toEqual([{ forceRefresh: true }]);
   });
 
@@ -78,44 +91,38 @@ describe("live voice session guardian", () => {
    */
   test("costs one lookup however many turns the session runs", async () => {
     lookupResult = "principal-guardian";
-    const resolve = makeSessionGuardianResolver();
 
-    const answers = await Promise.all([resolve(), resolve(), resolve()]);
+    const start = makeDefaultStartVoiceTurn();
+    await flushMicrotasks();
+    void start;
+    await flushMicrotasks();
 
-    expect(answers).toEqual([
-      "principal-guardian",
-      "principal-guardian",
-      "principal-guardian",
-    ]);
     expect(lookups.length).toBe(1);
   });
 
   /** A separate session asks again, or a rebind would never be seen at all. */
   test("a new session reads again", async () => {
     lookupResult = "principal-guardian";
-    await makeSessionGuardianResolver()();
-    await makeSessionGuardianResolver()();
+
+    makeDefaultStartVoiceTurn();
+    makeDefaultStartVoiceTurn();
+    await flushMicrotasks();
 
     expect(lookups.length).toBe(2);
   });
 
   /**
-   * A session that will not start is worse than one running on the cached
-   * principal, so an unreachable gateway answers nobody rather than throwing.
+   * A session that will not start is worse than one whose computer use is
+   * unavailable, so an unreachable gateway answers nobody rather than
+   * throwing.
    */
-  test("a gateway that throws leaves the turn to the cached read", async () => {
+  test("a gateway that throws does not reject", async () => {
     lookupResult = new Error("gateway unreachable");
-    const resolve = makeSessionGuardianResolver();
 
-    expect(await resolve()).toBeUndefined();
-  });
+    makeDefaultStartVoiceTurn();
+    await flushMicrotasks();
 
-  test("a binding that names nobody answers nobody", async () => {
-    lookupResult = undefined;
-    const resolve = makeSessionGuardianResolver();
-
-    expect(await resolve()).toBeUndefined();
-    expect(lookups).toEqual([{ forceRefresh: true }]);
+    expect(lookups.length).toBe(1);
   });
 });
 
