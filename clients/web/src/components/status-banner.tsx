@@ -461,12 +461,9 @@ function localHealthBannerConfig(
       };
     case "unreachable":
       return {
-        tone: wakeError ? "error" : "neutral",
-        title: "Your assistant is asleep",
-        icon: <Moon className="h-4 w-4" aria-hidden="true" />,
-        children: wakeError,
-        actions: wakeAction,
-        sleepPhase: wakeError ? undefined : "sleeping",
+        tone: "neutral",
+        title: t("statusBanner.reconnecting"),
+        icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
       };
     case "unhealthy":
       return {
@@ -489,9 +486,7 @@ function doctorAction(): ReactNode {
 }
 
 function canWakeLocalHealth(health: LocalAssistantHealth | null): boolean {
-  return (
-    health === "sleeping" || health === "crashed" || health === "unreachable"
-  );
+  return health === "sleeping" || health === "crashed";
 }
 
 function BannerNotice({
@@ -592,66 +587,6 @@ function useAssistantBannerConfig(): BannerConfig | null {
     refetch: refetchOperationalStatus,
   } = statusQuery;
 
-  // Track whether the assistant was recently sleeping so we can suppress
-  // the brief "unreachable" flash that occurs during the tail end of a
-  // wake (pod ready per k8s but application healthz not yet ok).
-  const [wasRecentlySleeping, setWasRecentlySleeping] = useState(false);
-  useEffect(() => {
-    if (operationalStatus?.state === "sleeping") {
-      setWasRecentlySleeping(true);
-    } else if (
-      operationalStatus?.state === "active" ||
-      operationalStatus?.state === "crash_loop" ||
-      operationalStatus?.state === "not_found"
-    ) {
-      setWasRecentlySleeping(false);
-    }
-  }, [operationalStatus?.state]);
-
-  // Auto-clear the override after 60s so a genuinely failed wake surfaces
-  // the real "unreachable" error with the Doctor action.
-  useEffect(() => {
-    if (!wasRecentlySleeping || operationalStatus?.state !== "unreachable") {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setWasRecentlySleeping(false);
-    }, 60_000);
-    return () => clearTimeout(timeout);
-  }, [wasRecentlySleeping, operationalStatus?.state]);
-
-  // Suppress the brief "unreachable" flash during the active → sleeping
-  // transition. When the pod is shutting down, healthz fails before the
-  // backend registers the sleep, causing a transient unreachable state.
-  const [wasRecentlyActive, setWasRecentlyActive] = useState(false);
-  useEffect(() => {
-    if (operationalStatus?.state === "active") {
-      setWasRecentlyActive(true);
-    } else if (
-      operationalStatus?.state === "sleeping" ||
-      operationalStatus?.state === "crash_loop" ||
-      operationalStatus?.state === "not_found"
-    ) {
-      setWasRecentlyActive(false);
-    }
-  }, [operationalStatus?.state]);
-
-  // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
-  useEffect(() => {
-    if (!wasRecentlyActive || operationalStatus?.state !== "unreachable") {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setWasRecentlyActive(false);
-    }, 15_000);
-    return () => clearTimeout(timeout);
-  }, [wasRecentlyActive, operationalStatus?.state]);
-
-  // Suppress the brief "unreachable" flash when returning to a backgrounded
-  // client. On resume the first status probe often reads `unreachable`
-  // before settling, and because background poll timers were throttled the
-  // `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed
-  // the preceding reading.
   const isResumeGraceActive = useResumeGrace();
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
@@ -949,33 +884,25 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
-  // When the status transitions from sleeping directly to unreachable, the
-  // assistant is in the final phase of waking (pod ready per k8s but the
-  // application healthz hasn't responded ok yet). Show "waking" so the user
-  // sees a smooth sleeping → waking → active progression.
-  // Conversely, when the status transitions from active directly to
-  // unreachable, the pod is shutting down for sleep. Show "sleeping" so
-  // the user sees a smooth active → sleeping progression.
-  // Similarly, a restart can briefly read as "crash_loop"; keep showing
-  // "restarting" until the grace window expires.
-  // Finally, within the resume grace window a transient "unreachable" reads
-  // as "waking" so returning to a backgrounded client shows the info/spinner
-  // treatment rather than the "unreachable" error banner.
   const effectiveStatus =
-    operationalStatus?.state === "unreachable" &&
-    (wasRecentlySleeping || isResumeGraceActive)
-      ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus?.state === "unreachable" && wasRecentlyActive
-        ? {
-            ...operationalStatus,
-            state: "sleeping" as AssistantOperationalState,
-          }
-        : operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
-          ? {
-              ...operationalStatus,
-              state: "restarting" as AssistantOperationalState,
-            }
-          : operationalStatus;
+    operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
+      ? {
+          ...operationalStatus,
+          state: "restarting" as AssistantOperationalState,
+        }
+      : operationalStatus;
+
+  if (
+    effectiveStatus?.state === "unreachable" &&
+    effectiveStatus.detail_state !== "failed" &&
+    isResumeGraceActive
+  ) {
+    return {
+      tone: "neutral",
+      title: t("statusBanner.reconnecting"),
+      icon: spinnerIcon(),
+    };
+  }
 
   const isFailedOperationDismissed =
     effectiveStatus?.detail_state === "failed" &&
@@ -1030,10 +957,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
  * its phase, because the banner is not mounted everywhere the stage is (a
  * pop-out window has no banner at all). The cost is a second pass over local
  * state, not a second request: the operational status is one shared React
- * Query entry. The two instances hold their own transient-state suppression
- * history, so a stage mounted mid-wake can read no phase where the older
- * banner still reads "waking"; that resolves in the safe direction, with the
- * banner keeping the status rather than both surfaces going quiet.
+ * Query entry. Request activity clears stale sleep for both consumers.
  */
 export function useAssistantSleepPhase(): AssistantSleepPhase | null {
   return useAssistantBannerConfig()?.sleepPhase ?? null;

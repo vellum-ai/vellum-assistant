@@ -148,10 +148,18 @@ mock.module("@/lib/telemetry/resume-request-counter", () => ({
   noteDaemonApiRequest: noteDaemonApiRequestMock,
 }));
 
+import {
+  beginAssistantRequest,
+  recordAssistantRequestSuccess,
+  hasAssistantRespondedSince,
+  resetAssistantRequestActivity,
+  useAssistantRequestActivity,
+} from "@/assistant/request-activity";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import {
+  assistantActivityResponseInterceptor,
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
@@ -2792,4 +2800,129 @@ describe("api-interceptors / post-resume request counting", () => {
     expect(output.url).toBe(input.url);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
   });
+});
+
+describe("successful daemon traffic", () => {
+  beforeEach(() => {
+    resetAssistantRequestActivity("123");
+    isPlatformDisabledMock.mockReturnValue(false);
+    setSelfHostedConnection(null);
+  });
+  afterEach(() => resetAssistantRequestActivity(null));
+
+  test("a routed daemon success retains its original assistant identity", async () => {
+    setSelfHostedConnection({
+      url: "https://gateway.example.test",
+      token: "token",
+    });
+    const request = await daemonRequestInterceptor(
+      new Request("https://app.example.test/v1/assistants/123/conversations"),
+    );
+    expect(request.url).toContain("gateway.example.test");
+    assistantActivityResponseInterceptor(new Response("{}"), request);
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBeGreaterThan(
+      0,
+    );
+  });
+
+  test.each(["health", "healthz", "events", "background-wake/prepare-sleep"])(
+    "%s is not proof that normal daemon requests are serving",
+    async (path) => {
+      const request = await daemonRequestInterceptor(
+        new Request(`https://app.example.test/v1/assistants/123/${path}`),
+      );
+      assistantActivityResponseInterceptor(new Response("{}"), request);
+      expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+    },
+  );
+
+  test.each([401, 403, 500, 502, 503, 504])(
+    "HTTP %i does not clear stale sleep",
+    async (status) => {
+      const request = await daemonRequestInterceptor(
+        new Request("https://app.example.test/v1/assistants/123/conversations"),
+      );
+      assistantActivityResponseInterceptor(
+        new Response(null, { status }),
+        request,
+      );
+      expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+    },
+  );
+
+  test("any platform status consumer supersedes older success", async () => {
+    const success = beginAssistantRequest("123");
+    recordAssistantRequestSuccess(success);
+    const statusRequest = await requestInterceptor(
+      new Request(
+        "https://app.example.test/v1/assistants/123/operational/status/",
+      ),
+    );
+    assistantActivityResponseInterceptor(new Response("{}"), statusRequest);
+    const activity = useAssistantRequestActivity.getState();
+    expect(activity.lastStatus).toBeGreaterThan(activity.lastSuccess);
+    recordAssistantRequestSuccess(success);
+    expect(useAssistantRequestActivity.getState().lastStatus).toBeGreaterThan(
+      useAssistantRequestActivity.getState().lastSuccess,
+    );
+  });
+
+  test("a delayed status response cannot hide a newer successful daemon request", async () => {
+    const beforeStatus = beginAssistantRequest("123");
+    const statusRequest = await requestInterceptor(
+      new Request(
+        "https://app.example.test/v1/assistants/123/operational/status/",
+      ),
+    );
+    const request = await daemonRequestInterceptor(
+      new Request("https://app.example.test/v1/assistants/123/conversations"),
+    );
+    assistantActivityResponseInterceptor(new Response("{}"), request);
+    assistantActivityResponseInterceptor(new Response("{}"), statusRequest);
+    expect(hasAssistantRespondedSince(beforeStatus)).toBe(true);
+    const activity = useAssistantRequestActivity.getState();
+    expect(activity.lastSuccess).toBeGreaterThan(activity.lastStatus);
+  });
+
+  test("an aborted request cannot clear sleep", async () => {
+    const controller = new AbortController();
+    const request = await daemonRequestInterceptor(
+      new Request("https://app.example.test/v1/assistants/123/conversations", {
+        signal: controller.signal,
+      }),
+    );
+    controller.abort();
+    assistantActivityResponseInterceptor(new Response("{}"), request);
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+  });
+
+  test("a response from an assistant switched away from is ignored", async () => {
+    const request = await daemonRequestInterceptor(
+      new Request("https://app.example.test/v1/assistants/123/conversations"),
+    );
+    resetAssistantRequestActivity("456");
+    assistantActivityResponseInterceptor(new Response("{}"), request);
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+  });
+
+  test.each([
+    ["daemon", daemonClient, "conversations", true],
+    ["gateway", gatewayClient, "contacts", false],
+    ["platform status", platformClient, "operational/status/", false],
+    ["platform runtime proxy", platformClient, "conversations", true],
+  ] as const)(
+    "the %s client only reports daemon responses",
+    async (_name, client, path, expected) => {
+      await client.get({
+        url: `https://app.example.test/v1/assistants/123/${path}`,
+        fetch: async () =>
+          new Response("{}", {
+            headers: { "Content-Type": "application/json" },
+          }),
+      });
+      expect(useAssistantRequestActivity.getState().lastSuccess > 0).toBe(
+        expected,
+      );
+    },
+  );
 });

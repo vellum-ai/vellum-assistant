@@ -27,6 +27,12 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
+import {
+  beginAssistantRequest,
+  recordAssistantRequestSuccess,
+  recordAssistantStatusObservation,
+  type AssistantRequestObservation,
+} from "@/assistant/request-activity";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
@@ -154,8 +160,7 @@ const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
  * Same resource match as {@link ASSISTANT_PATH_RE}, but allows an ingress
  * path prefix (`/assistant-123/v1/assistants/...`).
  */
-const ASSISTANT_RESOURCE_RE =
-  /\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+const ASSISTANT_RESOURCE_RE = /\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
 
 /**
  * First segments whose `/v1/assistants/{id}/` prefix is stripped before
@@ -403,6 +408,33 @@ export function authorizeRemoteGatewayRequest(
   });
 }
 
+const assistantRequestObservations = new WeakMap<
+  Request,
+  { observation: AssistantRequestObservation; isStatus: boolean }
+>();
+// Health responses need payload validation; streams and sleep acknowledgments do not prove readiness.
+const NON_SERVING_DAEMON_PATHS = new Set([
+  "health",
+  "healthz",
+  "events",
+  "background-wake",
+]);
+
+export function assistantActivityResponseInterceptor(
+  response: Response,
+  request: Request,
+): Response {
+  const observation = assistantRequestObservations.get(request);
+  if (response.ok && !request.signal.aborted && observation) {
+    if (observation.isStatus) {
+      recordAssistantStatusObservation(observation.observation);
+    } else {
+      recordAssistantRequestSuccess(observation.observation);
+    }
+  }
+  return response;
+}
+
 /**
  * Builds a request interceptor for a HeyAPI client.
  *
@@ -426,6 +458,7 @@ export function authorizeRemoteGatewayRequest(
 function createInterceptor({
   isDaemonClient = false,
   allowRemoteGatewayDirect = false,
+  observeDaemonActivity = false,
 } = {}) {
   /**
    * `outgoing` is the request the chain hands downstream; `url` is the original
@@ -522,7 +555,26 @@ function createInterceptor({
   };
 
   return async (request: Request): Promise<Request> => {
+    const pathname = new URL(request.url).pathname;
+    const isStatus =
+      !isDaemonClient &&
+      /\/v1\/assistants\/[^/]+\/operational\/status\/?$/.test(pathname);
+    const match = observeDaemonActivity
+      ? /\/v1\/assistants\/([^/]+)\/([^/?#]+)/.exec(pathname)
+      : null;
+    const observation =
+      observeDaemonActivity &&
+      match &&
+      !NON_SERVING_DAEMON_PATHS.has(match[2]) &&
+      (isStatus ||
+        isDaemonClient ||
+        RUNTIME_PROXIED_FIRST_SEGMENTS.has(match[2]))
+        ? beginAssistantRequest(match[1])
+        : null;
     const outgoing = await route(request);
+    if (observation) {
+      assistantRequestObservations.set(outgoing, { observation, isStatus });
+    }
     try {
       if (shouldCount(request.url, outgoing)) {
         noteDaemonApiRequest(request.url);
@@ -535,10 +587,18 @@ function createInterceptor({
 }
 
 /** Platform + auth clients: uses the segment allowlist. */
-export const requestInterceptor = createInterceptor();
+export const requestInterceptor = createInterceptor({
+  observeDaemonActivity: true,
+});
 
 /** Daemon client: bypasses the segment allowlist. */
 export const daemonRequestInterceptor = createInterceptor({
+  isDaemonClient: true,
+  allowRemoteGatewayDirect: true,
+  observeDaemonActivity: true,
+});
+
+const gatewayRequestInterceptor = createInterceptor({
   isDaemonClient: true,
   allowRemoteGatewayDirect: true,
 });
@@ -1184,13 +1244,14 @@ daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
 daemonClient.interceptors.response.use(platformAuthRecoveryInterceptor);
+daemonClient.interceptors.response.use(assistantActivityResponseInterceptor);
 daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Gateway client uses the same routing as daemon: all gateway endpoints
 // are proxied through the same self-hosted ingress / platform gateway path,
 // so a stale renderer token 401s both clients identically and the same
-// in-place recovery applies. The two chains are kept in the same order.
-gatewayClient.interceptors.request.use(daemonRequestInterceptor);
+// in-place recovery applies. Gateway-only responses do not prove daemon readiness.
+gatewayClient.interceptors.request.use(gatewayRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
 gatewayClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
 gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);
@@ -1314,3 +1375,4 @@ export function platformFeaturesGate(request: Request): Request {
 }
 
 platformClient.interceptors.request.use(platformFeaturesGate);
+platformClient.interceptors.response.use(assistantActivityResponseInterceptor);

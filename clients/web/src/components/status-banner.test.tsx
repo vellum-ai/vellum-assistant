@@ -12,6 +12,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -82,6 +83,7 @@ let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
 }>;
+let useAssistantSleepPhase: () => "sleeping" | "waking" | null;
 const setResumeGraceMs = __setResumeGraceMsForTesting;
 const DEFAULT_RESUME_GRACE_MS = 15_000;
 
@@ -210,7 +212,8 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 beforeAll(async () => {
-  ({ StatusBanner } = await import("@/components/status-banner"));
+  ({ StatusBanner, useAssistantSleepPhase } =
+    await import("@/components/status-banner"));
 });
 
 beforeEach(() => {
@@ -597,7 +600,7 @@ describe("StatusBanner", () => {
     expect(maintenanceHtml).toContain("Resume Assistant");
   });
 
-  test("shows sleeping banner instead of unreachable when transitioning from active to unreachable", async () => {
+  test("does not infer sleep when an active assistant becomes unreachable", async () => {
     // GIVEN the operational status is active
     operationalStatusQueryMock = {
       data: { state: "active" },
@@ -613,11 +616,8 @@ describe("StatusBanner", () => {
     };
     rerender(<StatusBanner />);
 
-    // THEN the banner shows "sleeping" instead of "unreachable"
-    await waitFor(() => {
-      expect(screen.getByText("Assistant is sleeping")).toBeTruthy();
-    });
-    expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+    expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    expect(screen.queryByText("Assistant is sleeping")).toBeNull();
   });
 
   test("shows restarting banner instead of fatal error when a restart briefly reads as crash_loop", async () => {
@@ -666,10 +666,10 @@ describe("StatusBanner", () => {
     expect(screen.queryByText("Assistant is restarting")).toBeNull();
   });
 
-  test("shows waking instead of unreachable within the resume grace window", async () => {
+  test("shows reconnecting without inferring a wake within the resume grace window", async () => {
     /**
      * Returning to a backgrounded/tabbed-away client where the first status
-     * probe reads a transient `unreachable` must show the "waking" info
+     * probe reads a transient `unreachable` must show the neutral reconnecting
      * treatment, not the "Assistant is unreachable" error banner.
      */
 
@@ -688,9 +688,9 @@ describe("StatusBanner", () => {
     };
     rerender(<StatusBanner />);
 
-    // THEN the banner shows the waking info treatment, not the error banner
+    // THEN the banner shows the reconnecting treatment, not the error banner
     await waitFor(() => {
-      expect(screen.getByText("Assistant is waking")).toBeTruthy();
+      expect(screen.getByText("Reconnecting to your assistant…")).toBeTruthy();
     });
     expect(screen.queryByText("Assistant is unreachable")).toBeNull();
     expect(screen.queryByText("Go to Doctor")).toBeNull();
@@ -827,7 +827,9 @@ describe("StatusBanner", () => {
       expect(html).toContain('data-tone="neutral"');
       expect(html).toContain("bg-[var(--surface-active)]");
       expect(html).toContain("items-center");
-      expect(html).toContain("[&amp;_[data-slot=button]]:text-body-small-default");
+      expect(html).toContain(
+        "[&amp;_[data-slot=button]]:text-body-small-default",
+      );
       expect(html).not.toContain("[&amp;_[data-slot=button]]:uppercase");
       expect(html).not.toContain(
         "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
@@ -835,21 +837,21 @@ describe("StatusBanner", () => {
       expect(html).not.toContain("[&amp;_[data-slot=button]]:hover:opacity-90");
     });
 
-    test("renders unreachable local health as an asleep fallback", () => {
+    test("renders unreachable local health as a connection problem", () => {
       localHealthMock = "unreachable";
 
       const html = renderToStaticMarkup(<StatusBanner />);
 
-      expect(html).toContain("Your assistant is asleep");
-      expect(html).toContain("Wake up");
+      expect(html).toContain("Reconnecting to your assistant…");
+      expect(html).not.toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
-      expect(html).not.toContain("Your assistant is unreachable");
+      expect(html).not.toContain("asleep");
     });
 
     test("shows an informative, action-free banner when no local-mode host is available", () => {
       // Where local-mode operations aren't available, the banner must not offer
       // a "Wake up" button that can't work.
-      localHealthMock = "unreachable";
+      localHealthMock = "sleeping";
       isLocalModeHostAvailableMock = false;
 
       const html = renderToStaticMarkup(<StatusBanner />);
@@ -875,9 +877,7 @@ describe("StatusBanner", () => {
 
       const { container } = render(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(
         screen.getByText(
           "The connection to the paired assistant's host is down. Check the host machine and its tunnel.",
@@ -904,9 +904,7 @@ describe("StatusBanner", () => {
 
       const { container } = render(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(container.innerHTML).toContain("lucide-cloud-off");
       expect(container.innerHTML).toContain('data-tone="neutral"');
       expect(screen.queryByText("Your assistant is asleep")).toBeNull();
@@ -929,9 +927,7 @@ describe("StatusBanner", () => {
 
       render(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(screen.queryByText("Your assistant runs locally")).toBeNull();
       expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
     });
@@ -971,15 +967,13 @@ describe("StatusBanner", () => {
       localHealthMock = "unreachable";
       rerender(<StatusBanner />);
 
-      expect(
-        screen.getByText("Your assistant can't be reached"),
-      ).toBeTruthy();
+      expect(screen.getByText("Your assistant can't be reached")).toBeTruthy();
       expect(screen.queryByText("Your assistant is waking up")).toBeNull();
       expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
     });
 
     test("keeps the asleep copy and wake action for a non-paired local assistant", () => {
-      localHealthMock = "unreachable";
+      localHealthMock = "sleeping";
       assistantsMock = [
         {
           id: "assistant-123",
@@ -1000,7 +994,7 @@ describe("StatusBanner", () => {
       // Capable host, but the active assistant isn't CLI-wakeable (Docker /
       // apple-container) — offering "Wake up" would call `vellum wake`, which
       // refuses those. Show status without the button.
-      localHealthMock = "unreachable";
+      localHealthMock = "sleeping";
       isLocalModeHostAvailableMock = true;
       isCliWakeableMock = false;
 
@@ -1231,5 +1225,37 @@ describe("StatusBanner", () => {
 
       expect(html).toBe("");
     });
+  });
+});
+
+describe("sleep stage phase", () => {
+  test("network failures never put the chat into a sleep or wake stage", () => {
+    operationalStatusQueryMock = {
+      data: { state: "sleeping" },
+      isError: false,
+    };
+    const { result, rerender } = renderHook(() => useAssistantSleepPhase());
+    expect(result.current).toBe("sleeping");
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender();
+    expect(result.current).toBeNull();
+    localHealthMock = "unreachable";
+    rerender();
+    expect(result.current).toBeNull();
+  });
+
+  test("recovered status clears the sleep phase on the same render", () => {
+    operationalStatusQueryMock = {
+      data: { state: "sleeping" },
+      isError: false,
+    };
+    const { result, rerender } = renderHook(() => useAssistantSleepPhase());
+    expect(result.current).toBe("sleeping");
+    operationalStatusQueryMock = { data: { state: "active" }, isError: false };
+    rerender();
+    expect(result.current).toBeNull();
   });
 });
