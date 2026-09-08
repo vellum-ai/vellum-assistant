@@ -165,17 +165,20 @@ The executable, installer, and uninstaller use the environment-specific icon
 from `build-resources/icons/<environment>/icon.ico`, matching the local, dev,
 staging, and production desktop identities.
 
-Signing is provider-neutral and an explicit gate on each GitHub environment
-(`electron-builder.config.cjs`, `WINDOWS_SIGNING_PROVIDER`):
+CD uses Azure Artifact Signing (`azure-trusted-signing`) with the shared account,
+certificate profile, regional endpoint, and publisher name defined directly in
+`.github/workflows/release-windows.yaml`. These settings apply to dev, staging,
+and production without GitHub signing variables.
 
-- `pfx`: `WINDOWS_SIGNING_PFX_BASE64` + `WINDOWS_SIGNING_PFX_PASSWORD` secrets.
-- `azure-trusted-signing`: `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` /
-  `AZURE_CLIENT_SECRET` secrets plus `AZURE_TRUSTED_SIGNING_ENDPOINT`,
-  `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`, and
-  `WINDOWS_SIGNING_PUBLISHER_NAME` variables.
-- `command`: a `WINDOWS_SIGN_COMMAND` secret holding any signing CLI
-  invocation with a `{file}` placeholder, plus `WINDOWS_SIGNING_PUBLISHER_NAME`
-  so the updater can verify downloaded installers.
+Set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` once as
+repository secrets under **Settings > Secrets and variables > Actions**.
+Both callers inherit these secrets. Environment secrets with the same names
+override the repository values. The app registration must have the
+Artifact Signing Certificate Profile Signer role on the signing account or
+certificate profile.
+
+Local packaging also supports `pfx` and `command` through the
+`WINDOWS_SIGNING_PROVIDER` environment variable in `electron-builder.config.cjs`.
 
 Production also requires `SENTRY_DSN_WINDOWS` and `SENTRY_AUTH_TOKEN` secrets
 plus the `SENTRY_PROJECT_WINDOWS` variable. The DSN serves both the main

@@ -6,14 +6,8 @@ name: Release Windows
 # production remain behind their WINDOWS_<ENV>_RELEASE_ENABLED variables.
 # Never dispatched on its own.
 #
-# External gates (per GitHub environment):
-#   vars.WINDOWS_SIGNING_PROVIDER   pfx | azure-trusted-signing | command
-#   pfx:     secrets.WINDOWS_SIGNING_PFX_BASE64, secrets.WINDOWS_SIGNING_PFX_PASSWORD
-#   azure:   secrets.AZURE_TENANT_ID, secrets.AZURE_CLIENT_ID, secrets.AZURE_CLIENT_SECRET,
-#            vars.AZURE_TRUSTED_SIGNING_ENDPOINT, vars.AZURE_TRUSTED_SIGNING_ACCOUNT,
-#            vars.AZURE_TRUSTED_SIGNING_PROFILE, vars.WINDOWS_SIGNING_PUBLISHER_NAME
-#   command: secrets.WINDOWS_SIGN_COMMAND (a signing CLI invocation with a {file} placeholder),
-#            vars.WINDOWS_SIGNING_PUBLISHER_NAME
+# External gates (repository secrets can be shared across environments):
+#   signing: secrets.AZURE_TENANT_ID, secrets.AZURE_CLIENT_ID, secrets.AZURE_CLIENT_SECRET
 #   production observability: secrets.SENTRY_DSN_WINDOWS (main process and
 #             the renderer's VITE_SENTRY_DSN_WINDOWS), secrets.SENTRY_AUTH_TOKEN,
 #             vars.SENTRY_PROJECT_WINDOWS
@@ -49,10 +43,7 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           VERSION: ${{ inputs.version }}
-          SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
-          HAS_PFX: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 != '' && secrets.WINDOWS_SIGNING_PFX_PASSWORD != '' }}
-          HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && vars.AZURE_TRUSTED_SIGNING_ACCOUNT != '' && vars.AZURE_TRUSTED_SIGNING_PROFILE != '' && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
-          HAS_COMMAND: ${{ contains(secrets.WINDOWS_SIGN_COMMAND, '{file}') && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
+          HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' }}
           HAS_SENTRY: ${{ secrets.SENTRY_DSN_WINDOWS != '' && secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_PROJECT_WINDOWS != '' }}
         run: |
           case "$ENVIRONMENT" in
@@ -62,18 +53,10 @@ jobs:
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::version '$VERSION' is not a release version"; exit 1
           fi
-          case "$SIGNING_PROVIDER" in
-            pfx)
-              [ "$HAS_PFX" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=pfx needs secrets WINDOWS_SIGNING_PFX_BASE64 and WINDOWS_SIGNING_PFX_PASSWORD on the $ENVIRONMENT environment"; exit 1; } ;;
-            azure-trusted-signing)
-              [ "$HAS_AZURE" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=azure-trusted-signing needs AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET secrets and AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE, WINDOWS_SIGNING_PUBLISHER_NAME variables on the $ENVIRONMENT environment"; exit 1; } ;;
-            command)
-              [ "$HAS_COMMAND" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=command needs the WINDOWS_SIGN_COMMAND secret (containing a {file} placeholder) and the WINDOWS_SIGNING_PUBLISHER_NAME variable on the $ENVIRONMENT environment"; exit 1; } ;;
-            "")
-              echo "::error::Set the WINDOWS_SIGNING_PROVIDER variable (pfx, azure-trusted-signing, or command) on the $ENVIRONMENT environment. Unsigned Windows releases are never published."; exit 1 ;;
-            *)
-              echo "::error::Unknown WINDOWS_SIGNING_PROVIDER '$SIGNING_PROVIDER'"; exit 1 ;;
-          esac
+          if [ "$HAS_AZURE" != "true" ]; then
+            echo "::error::Windows signing needs AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET secrets at repository scope or on the $ENVIRONMENT environment. Unsigned Windows releases are never published."
+            exit 1
+          fi
           if [ "$ENVIRONMENT" = "production" ] && [ "$HAS_SENTRY" != "true" ]; then
             echo "::error::Production Windows releases need SENTRY_DSN_WINDOWS and SENTRY_AUTH_TOKEN secrets plus the SENTRY_PROJECT_WINDOWS variable"
             exit 1
@@ -177,18 +160,15 @@ jobs:
       - name: Package and sign NSIS installer
         env:
           SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
-          WINDOWS_SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          WINDOWS_SIGNING_PROVIDER: azure-trusted-signing
           WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
-          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
-          WIN_CSC_LINK: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: Vocify Inc.
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-          AZURE_TRUSTED_SIGNING_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_PROFILE }}
-          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: https://cus.codesigning.azure.net/
+          AZURE_TRUSTED_SIGNING_ACCOUNT: vellum-assistant
+          AZURE_TRUSTED_SIGNING_PROFILE: vellum-assistant
         run: bunx electron-builder --win --config electron-builder.config.cjs --publish never
 
       # Every binary in the signing manifest (app executable, CLI runtime,
