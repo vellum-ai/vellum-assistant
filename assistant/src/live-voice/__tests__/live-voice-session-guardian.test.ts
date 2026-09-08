@@ -78,7 +78,7 @@ describe("live voice session guardian", () => {
 
   /**
    * A session that will not start is worse than one running on the cached
-   * principal, which is what this path did before the forced read existed.
+   * principal, so an unreachable gateway answers nobody rather than throwing.
    */
   test("a gateway that throws leaves the turn to the cached read", async () => {
     lookupResult = new Error("gateway unreachable");

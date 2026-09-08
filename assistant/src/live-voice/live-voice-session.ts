@@ -7147,10 +7147,10 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
  * round-trip on every turn's path to the model, which is the one thing the
  * pre-bridge timing above exists to watch.
  *
- * Best effort, and deliberately not fatal: a refresh that throws or names
- * nothing falls back to the cached per-turn read this path used before. A
- * voice session that will not start is worse than one running on a cached
- * principal, and the cached principal is what it ran on until now.
+ * Best effort, and deliberately not fatal: a read that throws or names nobody
+ * answers `undefined`, and the turn falls back to the cached lookup. A voice
+ * session that will not start is worse than one running on a cached
+ * principal.
  *
  * **The accepted remainder is a rebind that lands mid-session.** Resolving
  * once is what keeps this off the turn path, and the cost of that choice is
@@ -7295,8 +7295,8 @@ async function resolveLocalLiveVoiceIdentity(
   const { resolveLocalPrincipalTrustContext } =
     await import("../runtime/local-principal-trust.js");
   // The session's own forced read when it produced one, so every turn runs as
-  // the principal the gateway admitted. Trust is still resolved here per turn
-  // against that principal, so it is no staler than it was before.
+  // the principal the gateway admitted. Trust resolves per turn against
+  // whichever principal that leaves, so both answers describe one identity.
   const guardianPrincipalId =
     sessionGuardianPrincipalId ?? (await findLocalGuardianPrincipalId());
   if (!guardianPrincipalId) {
