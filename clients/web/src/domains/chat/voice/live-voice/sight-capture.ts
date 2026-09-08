@@ -349,10 +349,14 @@ export function createSightCapture(errorContext: string): SightCapture {
           }
           // The renderer console reaches the desktop shell's log, so the
           // client leg can be read beside the daemon's without a debugger.
-          console.info("[live-voice sight] frame sent", {
-            attachmentId: uploaded.id,
-            ...timing,
-          });
+          // One string: the shell's forwarder joins console arguments with
+          // their string form, and an object's is "[object Object]".
+          console.info(
+            `[live-voice sight] frame sent ${JSON.stringify({
+              attachmentId: uploaded.id,
+              ...timing,
+            })}`,
+          );
           onShared({ attachmentId: uploaded.id, frame });
         },
       };
