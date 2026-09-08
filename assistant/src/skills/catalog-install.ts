@@ -14,7 +14,10 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { MALFORMED_USTAR_SIZE, parseUstarSizeField } from "../archive/ustar-size.js";
+import {
+  MALFORMED_USTAR_SIZE,
+  parseUstarSizeField,
+} from "../archive/ustar-size.js";
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { isBunVirtualPath } from "../util/bundled-asset.js";

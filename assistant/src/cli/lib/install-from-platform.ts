@@ -29,7 +29,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { MALFORMED_USTAR_SIZE, parseUstarSizeField } from "../../archive/ustar-size.js";
+import {
+  MALFORMED_USTAR_SIZE,
+  parseUstarSizeField,
+} from "../../archive/ustar-size.js";
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { getExistingDeviceId } from "../../util/device-id.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
