@@ -12,9 +12,7 @@
  * turn has finished.
  */
 
-import { PERSONALITY_AXIS_IDS } from "@vellumai/personality-sliders";
-
-export { PERSONALITY_AXIS_IDS };
+import { PERSONALITY_AXIS_IDS } from "@vellumai/assistant-api";
 
 /**
  * Consecutive identical assistant reads that mark the rewrite turn settled —

@@ -78,7 +78,6 @@
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
-    "@vellumai/personality-sliders": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",
     "capacitor-plugin-safe-area": "5.0.0",
     "class-variance-authority": "0.7.1",

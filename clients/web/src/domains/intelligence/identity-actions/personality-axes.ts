@@ -1,15 +1,15 @@
 /**
  * The five personality trait axes shown on the personality page, each a
  * 0–100 slider flanked by its end labels. The ids come from
- * `@vellumai/personality-sliders` so they stay aligned with the sidecar
- * path and the daemon's hosted-Qwen direction mapper. 0 = the left label
+ * `@vellumai/assistant-api` so they stay aligned with the sidecar
+ * path and the assistant's hosted-Qwen direction mapper. 0 = the left label
  * and 100 = the right label.
  */
 
 import {
   PERSONALITY_AXIS_IDS,
   PERSONALITY_SLIDER_DEFAULT,
-} from "@vellumai/personality-sliders";
+} from "@vellumai/assistant-api";
 
 export interface PersonalityAxisDefinition {
   id: string;

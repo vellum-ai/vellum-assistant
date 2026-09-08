@@ -1,11 +1,10 @@
 /**
- * @vellumai/personality-sliders: the single source of truth for the
- * personality sidecar path, the five 0-100 axis ids, and the hosted-Qwen
- * direction poles those sliders map onto.
+ * Personality slider sidecar path, the five 0-100 axis ids, and the
+ * hosted-Qwen direction poles those sliders map onto.
  *
- * The web writes `data/personality-sliders.json`. The daemon reads the same
- * path and maps each slider onto one left/right pole. Both go through this
- * contract so the ids cannot drift.
+ * The web writes `data/personality-sliders.json`. The assistant reads the
+ * same path and maps each slider onto one left/right pole. Both import
+ * these constants from `@vellumai/assistant-api` so the ids cannot drift.
  */
 
 /** Workspace-relative sidecar holding the five 0-100 slider values. */

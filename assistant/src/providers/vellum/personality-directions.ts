@@ -12,12 +12,12 @@ import { join } from "node:path";
 import {
   PERSONALITY_DIRECTION_AXES,
   PERSONALITY_SLIDERS_PATH,
-} from "@vellumai/personality-sliders";
+} from "../../api/constants/personality-sliders.js";
 
 export {
   PERSONALITY_DIRECTION_AXES,
   PERSONALITY_SLIDERS_PATH,
-} from "@vellumai/personality-sliders";
+} from "../../api/constants/personality-sliders.js";
 
 export const HOSTED_STEERING_MODEL = "qwen/qwen3-8b";
 

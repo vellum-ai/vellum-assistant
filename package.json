@@ -27,7 +27,6 @@
     "packages/ipc-server-utils",
     "packages/local-mode",
     "packages/native-sidecar",
-    "packages/personality-sliders",
     "packages/service-contracts",
     "packages/slack-text",
     "packages/twilio-client"

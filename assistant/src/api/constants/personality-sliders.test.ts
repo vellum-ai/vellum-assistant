@@ -5,7 +5,7 @@ import {
   PERSONALITY_DIRECTION_AXES,
   PERSONALITY_SLIDER_DEFAULT,
   PERSONALITY_SLIDERS_PATH,
-} from "./index.js";
+} from "./personality-sliders.js";
 
 describe("personality slider contract", () => {
   test("sidecar path and default stay centered", () => {
