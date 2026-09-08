@@ -25,11 +25,9 @@
 // Two pointers move under different rules — see `memory-retrospective-state.ts`
 // and the plan for details.
 //
-//   - `lastProcessedMessageId` advances on a successful usable run, or after
-//     `SKIP_AFTER_CONSECUTIVE_FAILURES` unusable attempts so the sweep cannot
-//     re-enqueue the same unresolvable window forever. Wake failures below
-//     that threshold keep it unchanged so the next attempt re-processes the
-//     same messages.
+//   - `lastProcessedMessageId` advances ONLY on `result.invoked === true`.
+//     Wake failures keep it unchanged so the next attempt re-processes the
+//     same messages. This is the load-bearing correctness invariant.
 //   - `lastRunAt` advances at the end of every job that actually attempted a
 //     run (success or wake failure), so the per-conversation cooldown gate
 //     applies to subsequent trigger-driven enqueues. The mid-turn skip
@@ -103,7 +101,6 @@ import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
   getRetrospectiveState,
-  SKIP_AFTER_CONSECUTIVE_FAILURES,
   upsertRetrospectiveState,
 } from "./memory-retrospective-state.js";
 import { effectiveSweepLookbackMs } from "./memory-retrospective-sweep.js";
@@ -149,7 +146,6 @@ export type MemoryRetrospectiveOutcome =
   | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
   | { kind: "no_usable_output"; reason?: string; conversationId?: string }
-  | { kind: "skipped_after_failures"; cutoffMessageId: string }
   | {
       kind: "invoked";
       backgroundConversationId: string;
@@ -235,9 +231,6 @@ export async function memoryRetrospectiveJob(
       ? { reason: outcome.reason }
       : {}),
     ...(outcome.kind === "invoked" ? { noFindings: outcome.noFindings } : {}),
-    ...(outcome.kind === "skipped_after_failures"
-      ? { reason: `skipped after ${SKIP_AFTER_CONSECUTIVE_FAILURES} consecutive failures` }
-      : {}),
   });
   return outcome;
 }
@@ -446,21 +439,11 @@ export async function runForkBasedRetrospective(
       groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
     });
   } catch (err) {
-    const failureDisposition = await recordRetrospectiveAttemptFailure({
-      sourceConversationId,
-      cutoffMessageId,
-      consecutiveFailures: state?.consecutiveFailures ?? 0,
-    });
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.error(
       { err, sourceConversationId },
       "memory-retrospective (fork): forkConversationForRetrospective failed",
     );
-    if (failureDisposition === "skipped") {
-      return {
-        kind: "skipped_after_failures",
-        cutoffMessageId,
-      };
-    }
     throw err;
   }
   const forkId = forkConversationRow.id;
@@ -494,17 +477,7 @@ export async function runForkBasedRetrospective(
       forkId,
       FORK_DELETE_FAILURE_WARNING,
     );
-    const failureDisposition = await recordRetrospectiveAttemptFailure({
-      sourceConversationId,
-      cutoffMessageId,
-      consecutiveFailures: state?.consecutiveFailures ?? 0,
-    });
-    if (failureDisposition === "skipped") {
-      return {
-        kind: "skipped_after_failures",
-        cutoffMessageId,
-      };
-    }
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     throw err;
   }
 
@@ -691,26 +664,14 @@ export async function runForkBasedRetrospective(
     }
   }
 
-  // Wake failed or produced no usable output. Bump `lastRunAt` so the
-  // cooldown gate applies. After `SKIP_AFTER_CONSECUTIVE_FAILURES` unusable
-  // attempts, advance the cursor anyway so the sweep cannot re-enqueue the
-  // same unresolvable window forever. Then clean up the orphan fork.
-  const failureDisposition = await recordRetrospectiveAttemptFailure({
-    sourceConversationId,
-    cutoffMessageId,
-    consecutiveFailures: state?.consecutiveFailures ?? 0,
-  });
+  // Wake failed or produced no usable output. Bump `lastRunAt` only so the
+  // cooldown gate applies, leave `lastProcessedMessageId` alone so the next
+  // attempt re-processes the same messages. Then clean up the orphan fork.
+  await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
   await safeDeleteRetrospectiveConversation(
     forkId,
     FORK_DELETE_FAILURE_WARNING,
   );
-
-  if (failureDisposition === "skipped") {
-    return {
-      kind: "skipped_after_failures",
-      cutoffMessageId,
-    };
-  }
 
   if (threw !== undefined) {
     throw threw;
@@ -731,40 +692,6 @@ export async function runForkBasedRetrospective(
     reason: failureReason,
     conversationId: forkId,
   };
-}
-
-/**
- * Record an unusable retrospective attempt. Increments the failure streak
- * without moving the cursor, unless the streak has reached the skip
- * threshold, in which case the window is marked consumed.
- */
-async function recordRetrospectiveAttemptFailure(args: {
-  sourceConversationId: string;
-  cutoffMessageId: string;
-  consecutiveFailures: number;
-}): Promise<"retryable" | "skipped"> {
-  const failures = args.consecutiveFailures + 1;
-  if (failures >= SKIP_AFTER_CONSECUTIVE_FAILURES) {
-    await upsertRetrospectiveState({
-      conversationId: args.sourceConversationId,
-      lastProcessedMessageId: args.cutoffMessageId,
-      lastRunAt: Date.now(),
-      consecutiveFailures: 0,
-    });
-    log.warn(
-      {
-        sourceConversationId: args.sourceConversationId,
-        cutoffMessageId: args.cutoffMessageId,
-        consecutiveFailures: failures,
-      },
-      "memory-retrospective (fork): skipping window after consecutive unusable attempts",
-    );
-    return "skipped";
-  }
-  await bumpRetrospectiveLastRunAt(args.sourceConversationId, Date.now(), {
-    consecutiveFailures: failures,
-  });
-  return "retryable";
 }
 
 /**
@@ -1052,7 +979,6 @@ async function finalizeSuccessfulRetrospective(args: {
     lastProcessedMessageId: cutoffMessageId,
     lastRunAt: Date.now(),
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
-    consecutiveFailures: 0,
   });
 
   // Skill cards are not a finalize concern: when the run authors a skill, the

@@ -25,6 +25,10 @@
  * Registered first in the `user-prompt-submit` chain, so it heads the chain
  * ahead of history repair and title generation: those later hooks see the
  * fully assembled, memory-injected history.
+ *
+ * Memory-retrospective wakes skip this hook. Those forks already carry copied
+ * injection metadata on historical messages. The remember-pass does not need a
+ * fresh selector or router call, and that call is what this hook awaits.
  */
 
 import type {
@@ -324,6 +328,10 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // threaded in, mirroring how `applyRuntimeInjections` self-resolves its
   // per-turn inputs.
   const conversation = findConversationOrSubagent(ctx.conversationId);
+  if (conversation?.currentCallSite === "memoryRetrospective") {
+    return;
+  }
+
   const config = getConfig();
   const abortSignal = conversation?.abortController?.signal;
   const isTrustedActor =
@@ -340,13 +348,6 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // fallback — a v3 empty/failed selection yields no NEW injected memory that
   // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
-  // Retrospective forks already carry copied injection metadata on historical
-  // messages. Re-running retrieval and runtime assembly here is an LLM call
-  // over the full parent history and routinely exceeds the plugin hook
-  // timeout on long threads.
-  if (conversation?.currentCallSite === "memoryRetrospective") {
-    return;
-  }
   const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
   if (isVoiceFrontDoor && conversation) {
     conversation.graphMemory.recordPkbQueryVectors(undefined, undefined);

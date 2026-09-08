@@ -73,7 +73,6 @@ let forkCalls: Array<{ conversationId: string; throughMessageId?: string }> =
 // ---------------------------------------------------------------------------
 
 mock.module("../memory-retrospective-state.js", () => ({
-  SKIP_AFTER_CONSECUTIVE_FAILURES: 3,
   getRetrospectiveState: (_id: string) => null,
   upsertRetrospectiveState: (args: {
     conversationId: string;

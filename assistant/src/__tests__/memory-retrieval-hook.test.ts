@@ -202,7 +202,7 @@ beforeEach(() => {
 });
 
 describe("user-prompt-submit hook (memory retrieval)", () => {
-  test("memory retrospective skips retrieval and runtime injection", async () => {
+  test("does not run on a memory-retrospective wake", async () => {
     const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
       makeFakeGraphMemory();
     const conversation = installConversation(memory, { trusted: true });
