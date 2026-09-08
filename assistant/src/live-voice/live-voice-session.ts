@@ -281,6 +281,19 @@ export type LiveVoiceStreamingTranscriberResolver = (
 export type LiveVoiceCredentialReadinessResolver =
   () => Promise<LiveVoiceCredentialReadiness>;
 
+/**
+ * What a session's own guardian read settled on, which is not the same as no
+ * read having happened.
+ *
+ * Present with an undefined `principalId` means the session asked past the
+ * cache and got no answer; the turn then runs with no actor rather than with
+ * the cached one. Absent means nothing asked, which is the background
+ * continuation, and only its trust answer is used.
+ */
+export interface LiveVoiceSessionGuardian {
+  principalId: string | undefined;
+}
+
 export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
@@ -7245,10 +7258,9 @@ async function defaultStartVoiceTurn(
   const guardianMs = Math.round(performance.now() - guardianStartedAt);
   const trustStartedAt = performance.now();
   const { actorPrincipalId, trustContext } =
-    await resolveLocalLiveVoiceIdentity(
-      options.conversationId,
-      sessionGuardianPrincipalId,
-    );
+    await resolveLocalLiveVoiceIdentity(options.conversationId, {
+      principalId: sessionGuardianPrincipalId,
+    });
   const trustMs = Math.round(performance.now() - trustStartedAt);
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
   log.info(
@@ -7283,9 +7295,9 @@ async function defaultStartVoiceTurn(
  * principal there would refuse the owner access to their own machine over a
  * question about what they are allowed to do once they have it.
  */
-async function resolveLocalLiveVoiceIdentity(
+export async function resolveLocalLiveVoiceIdentity(
   conversationId: string,
-  sessionGuardianPrincipalId?: string,
+  session?: LiveVoiceSessionGuardian,
 ): Promise<{
   actorPrincipalId?: string;
   trustContext?: TrustContext;
@@ -7294,21 +7306,29 @@ async function resolveLocalLiveVoiceIdentity(
     await import("../runtime/local-actor-identity.js");
   const { resolveLocalPrincipalTrustContext } =
     await import("../runtime/local-principal-trust.js");
-  // The session's own forced read when it produced one, so every turn runs as
-  // the principal the gateway admitted. Trust resolves per turn against
-  // whichever principal that leaves, so both answers describe one identity.
-  const guardianPrincipalId =
-    sessionGuardianPrincipalId ?? (await findLocalGuardianPrincipalId());
-  if (!guardianPrincipalId) {
+  // Trust is a question about the machine's own owner, so the cached binding
+  // answers it whenever the session's read settled nothing. The actor is a
+  // question about whose desktop a tool may reach, and only a read the
+  // gateway's admission was reconciled with answers that one.
+  const trustPrincipalId =
+    session?.principalId ?? (await findLocalGuardianPrincipalId());
+  if (!trustPrincipalId) {
     return {};
   }
   const trustContext = await resolveLocalPrincipalTrustContext({
-    actorPrincipalId: guardianPrincipalId,
+    actorPrincipalId: trustPrincipalId,
     sourceChannel: "vellum",
     conversationExternalId: conversationId,
   });
+  // **Unset beats stale.** A session whose read settled nothing knows the
+  // cached binding, but not whether the gateway admitted that guardian or one
+  // it was just rebound from. Stamping the cached answer risks the turn
+  // reaching another user's desktop; stamping nothing costs this session its
+  // host proxies, which is where a voice session carrying no actor already
+  // sits, and leaves the call itself untouched either way.
+  const actorPrincipalId = session ? session.principalId : trustPrincipalId;
   return {
-    actorPrincipalId: guardianPrincipalId,
+    ...(actorPrincipalId ? { actorPrincipalId } : {}),
     // Only stamp a positive guardian resolution; the resolver's own
     // fail-closed `unknown` carries no more information than no stamp.
     ...(trustContext.trustClass === "guardian" ? { trustContext } : {}),
