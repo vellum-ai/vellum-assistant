@@ -8,7 +8,9 @@
  * and extracts it into the plugin's install directory — it does NOT clone the
  * plugin from GitHub itself, and it does NOT emit `plugin_installed` telemetry
  * (hitting this endpoint *is* the recorded install; the server rejects that
- * event type on the usual ingest path).
+ * event type on the usual ingest path). A tarball that ships no
+ * `package.json` gets the same synthesized manifest the GitHub clone path
+ * writes, so the loader still registers the plugin's skills.
  *
  *     GET {PLATFORM_BASE_URL}/v1/plugins/{name}/install/
  *
@@ -42,6 +44,7 @@ import {
   PluginNotFoundError,
   PluginSourceUnavailableError,
   sanitizePluginName,
+  synthesizeMinimalPackageJson,
 } from "./install-from-github.js";
 
 /**
@@ -196,6 +199,14 @@ export async function installPluginFromPlatform(
   if (fileCount === 0) {
     rmSync(stagingDir, { recursive: true, force: true });
     throw new PluginNotFoundError(name, meta.ref ?? "", meta.repo ?? name);
+  }
+
+  // Same default as the GitHub clone path: a marketplace tarball that
+  // ships skills/mcp.json but no Vellum package.json still has to load.
+  // The loader skips a directory with no manifest, so synthesize one
+  // before the fingerprint and swap.
+  if (!existsSync(join(stagingDir, "package.json"))) {
+    synthesizeMinimalPackageJson(name, stagingDir);
   }
 
   await confirmStagedOrAbort(name, stagingDir, deps.confirmStaged);

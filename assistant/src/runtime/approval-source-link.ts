@@ -45,6 +45,12 @@ const log = getLogger("approval-source-link");
 export interface ApprovalSourceReference {
   /** Channel-native chat/conversation id the request originated from. */
   sourceChatId: string;
+  /**
+   * Display name of the originating chat, when ingress captured one (a
+   * Slack channel's name, without the `#`). Renderers prefer it over the
+   * raw chat id and fall back when absent (DMs, pre-capture rows).
+   */
+  sourceChatName?: string;
   /** Deep link to the originating message/thread, when derivable. */
   sourceLink?: ExternalSourceLink;
 }

@@ -1,7 +1,13 @@
 import { AVATAR_COLORS } from "./colors.js";
 import type { CharacterComponents } from "./types.js";
 
-const SCLERA = "#F2F2F2";
+/**
+ * The white of an eye. Exported because a consumer that reduces an eye pair to
+ * a silhouette (an Android themed-icon mask, say) has to tell the sclera paths
+ * from the pupils, and matching on this is the only way to do that from the
+ * path list alone.
+ */
+export const SCLERA = "#F2F2F2";
 const PUPIL = "#1A1A1A";
 
 /**

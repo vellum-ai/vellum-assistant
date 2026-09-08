@@ -82,10 +82,7 @@ export function isBackgroundConversationType(
  * columns into one label.
  */
 export type ConversationKind =
-  | "user"
-  | "background"
-  | "background_memory_consolidation"
-  | "scheduled";
+  "user" | "background" | "background_memory_consolidation" | "scheduled";
 
 /**
  * Single classifier shared by the LLM-context routes and the notification
@@ -295,6 +292,48 @@ export function sightFrameAttachmentIdsFromMetadata(
 }
 
 /**
+ * True when a stored `messages.metadata` column belongs to a standalone
+ * ambient camera keep: a row the call's own gate sampled, which no one spoke.
+ *
+ * The raw-column counterpart to {@link sightFrameAttachmentIdsFromMetadata},
+ * for consumers holding the JSON string a row was written with rather than a
+ * parsed bag: the memory rebuild's re-embed scan and the retrospective's
+ * accounting both ask this question of rows they never otherwise decode. It
+ * lives here, beside the key and the parser, so the two cannot drift.
+ *
+ * BOTH halves are required, and the tag alone is not enough. A genuine spoken
+ * turn carries the same tag whenever a parked frame rode it (see
+ * `calls/voice-session-bridge.ts`), which in camera mode is every turn the
+ * user speaks, so keying on the tag would read real speech as machine
+ * output. `scripted` is what separates them: the standalone persist sets it
+ * (`live-voice/live-voice-photo.ts`), while a spoken turn leaves it absent
+ * and the persist stamps the `false` default durably. The pair is the
+ * signature of a keep; `scripted` on its own belongs to every auto-sent row,
+ * onboarding prompts included, which are none of this predicate's business.
+ *
+ * Absent or unparseable metadata is not a keep. Both callers use this to hold
+ * keeps BACK from work, so a row whose marking cannot be read is treated as
+ * ordinary content and still gets indexed or reviewed, which is the direction
+ * that loses nothing.
+ */
+export function messageMetadataIsAmbientSightKeep(
+  metadata: string | null,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return (
+      parsed.scripted === true &&
+      sightFrameAttachmentIdsFromMetadata(parsed).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *
@@ -321,7 +360,9 @@ export function isDesktopOriginatedUserMessage(
     return false;
   }
   const clientOs = parseClientOs((client as Record<string, unknown>).os);
-  return clientOs === "macos" || clientOs === "windows";
+  return (
+    clientOs === "macos" || clientOs === "windows" || clientOs === "linux"
+  );
 }
 
 /**
@@ -406,6 +447,41 @@ export function isReplyPushIneligibleUserMessage(
  */
 export const UNGROUPED_GROUP_ID = "system:all";
 export const PINNED_GROUP_ID = "system:pinned";
+
+/**
+ * The `conversations.source` that makes a thread a member of the
+ * assistant-initiated section ({@link ASSISTANT_INITIATED_GROUP_ID}).
+ *
+ * Opt-in and stamped at creation, by a producer declaring "this is a thread
+ * I started because it is worth the user's time" - a heartbeat realization,
+ * an observation the user did not ask for. Deliberately NOT the notification
+ * pipeline's `'notification'`: the conversations that stamp carries are the
+ * transactional flows (guardian call approvals, confirmation / access /
+ * question / tool-grant requests, channel delivery trails - the
+ * `requiresConversation` producers), which belong to the bell and to Chats,
+ * and matching on it would also sweep every historical row into the section
+ * the day the flag turns on. A dedicated source makes membership all-new by
+ * construction: nothing stamps it until a producer passes it through
+ * `conversationMetadata.source` on its notification signal (see
+ * `notifications/conversation-pairing.ts`), so the section holds exactly the
+ * threads written for it and nothing retroactively.
+ */
+// FROZEN: persisted `conversations.source` value. Never rename it.
+export const ASSISTANT_INITIATED_SOURCE = "assistant_initiated";
+
+/**
+ * The section holding the conversations the assistant started on its own:
+ * the threads stamped {@link ASSISTANT_INITIATED_SOURCE} at creation.
+ *
+ * A pseudo-group in the same sense as {@link UNGROUPED_GROUP_ID}: no row
+ * carries it in `group_id`. Those conversations are filed nowhere (NULL
+ * `group_id`), so without the split they land in Chats; membership is
+ * decided by `source`, not by the column this id names. It is spelled as a
+ * group id anyway so a client selects the section through the `groupId`
+ * parameter every other section already uses, rather than through a filter
+ * only this one section knows about.
+ */
+export const ASSISTANT_INITIATED_GROUP_ID = "system:assistant";
 
 /**
  * The `origin_channel` value for a conversation started in Vellum itself

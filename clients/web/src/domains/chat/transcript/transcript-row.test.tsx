@@ -143,6 +143,60 @@ describe("TranscriptRow deliberate-silence dispatch", () => {
   });
 });
 
+describe("TranscriptRow channel-deletion dispatch", () => {
+  test("a deleted row renders the tombstone in the message shell, never its content", () => {
+    // The route keeps the stored content for Inspect, so the tombstone must
+    // not depend on the content being absent.
+    const message: DisplayMessage = {
+      id: "m-deleted",
+      role: "user",
+      ...textBody("the text Slack no longer shows"),
+      deletedAt: 1725100001000,
+    };
+    const { getByTestId, queryByText, container } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-deleted", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    expect(getByTestId("deleted-message-row")).toBeTruthy();
+    expect(queryByText("the text Slack no longer shows")).toBeNull();
+    expect(container.querySelector("#msg-m-deleted")).toBeTruthy();
+    expect(
+      container.querySelector('[data-message-id="m-deleted"]'),
+    ).toBeTruthy();
+  });
+
+  test("deletion wins over the Slack-shaped and reaction renderings", () => {
+    const message: DisplayMessage = {
+      id: "m-deleted-slack",
+      role: "assistant",
+      ...textBody("a reply later removed"),
+      deletedAt: 1725100001000,
+      slackMessage: {
+        channelId: "C1",
+        channelTs: "1725100000.000100",
+        eventKind: "message",
+      },
+      reaction: {
+        emoji: "🎉",
+        op: "added",
+        targetMessageId: "555.1",
+        selfAuthored: true,
+      },
+    };
+    const { getByTestId, queryByTestId, queryByText } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-deleted-slack", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    expect(getByTestId("deleted-message-row")).toBeTruthy();
+    expect(queryByTestId("reaction-line-row")).toBeNull();
+    expect(queryByText("a reply later removed")).toBeNull();
+  });
+});
+
 describe("TranscriptRow creditsUpsell dispatch", () => {
   test("renders a creditsUpsell item via CreditsUpsellCard", () => {
     const { getByTestId } = render(

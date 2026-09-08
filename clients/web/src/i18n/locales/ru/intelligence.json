@@ -101,6 +101,13 @@
     "renameErrorToast": "Имя не сменилось. Повторите попытку.",
     "renameSuccessToast": "Знакомься, это {newName}!",
     "scheduleCadence": "{cadence} · следующее {nextRun}",
+    "scheduleGhosts": {
+      "inboxTriageCadence": "Каждые 2 часа",
+      "inboxTriageName": "Разбор входящих",
+      "morningBriefingCadence": "По будням в 8:00",
+      "morningBriefingName": "Утренняя сводка"
+    },
+    "setUpSchedule": "Создать расписание",
     "updateAvatarAndName": "Изменить аватар и имя",
     "viewMoreSchedules": "{count, plural, one {Показать ещё #…} few {Показать ещё #…} many {Показать ещё #…} other {Показать ещё #…}}"
   },

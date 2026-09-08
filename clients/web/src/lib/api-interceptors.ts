@@ -124,17 +124,38 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // Every removed entry (contacts, trust-rules, permissions,
   // channel-admission-policy, …) was retired by migrating its call sites
   // to the generated gateway SDK, whose client forwards all
-  // assistant-scoped requests without this list — that is the paved road
+  // assistant-scoped requests without this list: that is the paved road
   // for new endpoints. Deliberately NOT listed: `artifacts` (no
-  // gateway/daemon route exists) and `a2a` (platform broker route); those
-  // stay on the platform. The contact family (`contacts`,
-  // `contact-channels`) is forwarded via {@link FLATTENED_FIRST_SEGMENTS}
-  // with the assistant prefix stripped — it does not belong in this
-  // allowlist.
+  // gateway/daemon route exists), `a2a` (platform broker route), and
+  // `push-tokens` / `live-activity` (Django-owned token registration).
+  // Those stay on the platform in cloud and local-with-ingress. Remote
+  // gateway authorizes the last two via
+  // {@link authorizeRemoteGatewayRequest} so the features gate does not
+  // abort them. The contact family (`contacts`, `contact-channels`) is
+  // forwarded via {@link FLATTENED_FIRST_SEGMENTS} with the assistant
+  // prefix stripped; it does not belong in this allowlist.
   "config",
 ]);
 
+/**
+ * Django-owned device and Live Activity token routes. In remote-gateway
+ * mode they are same-origin to the ingress, so they must carry the
+ * paired bearer or {@link platformFeaturesGate} aborts them before
+ * Django (or the gateway proxy that reaches Django) sees them.
+ */
+const PLATFORM_PUSH_FIRST_SEGMENTS = new Set<string>([
+  "push-tokens",
+  "live-activity",
+]);
+
 const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+
+/**
+ * Same resource match as {@link ASSISTANT_PATH_RE}, but allows an ingress
+ * path prefix (`/assistant-123/v1/assistants/...`).
+ */
+const ASSISTANT_RESOURCE_RE =
+  /\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
 
 /**
  * First segments whose `/v1/assistants/{id}/` prefix is stripped before
@@ -192,6 +213,47 @@ function isDaemonBoundPath(url: string): boolean {
     RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) ||
     FLATTENED_FIRST_SEGMENTS.has(firstSegment)
   );
+}
+
+function isPlatformPushPath(url: string): boolean {
+  const match = ASSISTANT_RESOURCE_RE.exec(new URL(url).pathname);
+  return match !== null && PLATFORM_PUSH_FIRST_SEGMENTS.has(match[2]);
+}
+
+/**
+ * Platform clients emit `/v1/assistants/...` against the page origin. A
+ * path-prefixed remote ingress only serves `/assistant-123/v1/...`, so
+ * relocate the resource under that prefix before authorizing.
+ */
+function relocateRemoteGatewayPushRequest(request: Request): Request {
+  if (!isRemoteGatewayMode()) {
+    return request;
+  }
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) {
+    return request;
+  }
+
+  const url = new URL(request.url);
+  const ingress = new URL(ingressUrl);
+  if (url.origin !== ingress.origin) {
+    return request;
+  }
+
+  const resource = ASSISTANT_RESOURCE_RE.exec(url.pathname);
+  if (!resource || !PLATFORM_PUSH_FIRST_SEGMENTS.has(resource[2])) {
+    return request;
+  }
+
+  const prefix = ingress.pathname.replace(/\/$/, "");
+  const relocatedPath = `${prefix}${resource[0]}`;
+  if (url.pathname === relocatedPath) {
+    return request;
+  }
+
+  const relocated = new URL(request.url);
+  relocated.pathname = relocatedPath;
+  return new Request(relocated.toString(), request);
 }
 
 /**
@@ -409,6 +471,14 @@ function createInterceptor({
 
     if (allowRemoteGatewayDirect) {
       const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
+      if (remoteGateway) {
+        return remoteGateway;
+      }
+    }
+
+    if (!isDaemonClient && isPlatformPushPath(newRequest.url)) {
+      const relocated = relocateRemoteGatewayPushRequest(newRequest);
+      const remoteGateway = authorizeRemoteGatewayRequest(relocated);
       if (remoteGateway) {
         return remoteGateway;
       }

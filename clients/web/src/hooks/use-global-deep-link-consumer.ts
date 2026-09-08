@@ -14,6 +14,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
+import { consumeShareInbox, readShareInboxFiles } from "@/runtime/share-inbox";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
@@ -78,6 +79,10 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  *   only a base prefills that, and the dialog mints its own approval
  *   code. A link with no usable base gets guidance instead of a prefill,
  *   naming its legacy pairing bundle when it carried one.
+ * - `deeplink.share` → consume the App Group inbox (by id, or the newest
+ *   item when the command URL never arrived), then park a send for
+ *   `useShareInboxSend` and land on a new draft or the chosen thread.
+ *   Inbox existence is the send-authorization.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * ## Deep-link text: proven provenance sends, anything else pre-fills
@@ -293,7 +298,9 @@ export function useGlobalDeepLinkConsumer(): void {
     // mints the fresh conversation the session binds to and lands on it from
     // there, reading the ref because it navigates after its own awaits.
     navigateRef.current(routes.assistant);
-    requestVoiceStart((to, options) => navigateRef.current(to, options));
+    requestVoiceStart((to, options) => navigateRef.current(to, options), {
+      entry: "deep_link",
+    });
   });
 
   // The Home Screen widgets' New Chat buttons. `navigateToNewConversation` is
@@ -423,6 +430,37 @@ export function useGlobalDeepLinkConsumer(): void {
           : { guidanceKind: legacy ? "legacy" : "generic" },
       );
     navigateRef.current(routes.selectAssistant);
+  });
+
+  useBusSubscription("deeplink.share", ({ inboxId }) => {
+    void (async () => {
+      const item = await consumeShareInbox(inboxId);
+      if (item === null) {
+        return;
+      }
+      const files = await readShareInboxFiles(item.files);
+      void ensureMainWindowVisible();
+      const text = item.text ?? "";
+      if (item.destination.type === "new") {
+        const draftId = navigateToNewConversation(navigateRef.current, {
+          silent: true,
+        });
+        usePendingDeepLinkStore.getState().setPendingShareSend({
+          threadId: draftId,
+          isNewDraft: true,
+          text,
+          files,
+        });
+        return;
+      }
+      usePendingDeepLinkStore.getState().setPendingShareSend({
+        threadId: item.destination.threadId,
+        isNewDraft: false,
+        text,
+        files,
+      });
+      openThread(item.destination.threadId);
+    })();
   });
 
   useBusSubscription("deeplink.unknown", ({ url }) => {

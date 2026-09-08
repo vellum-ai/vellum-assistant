@@ -10,6 +10,7 @@ import { getDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { messages } from "../../../../persistence/schema/index.js";
 import {
+  countRetrospectiveMessagesAfter,
   getRetrospectiveMessagesAfter,
   hasQualifyingUserMessageAfter,
   messagesHaveUserActivity,
@@ -28,12 +29,61 @@ const MIXED = JSON.stringify([
   { type: "text", text: "note" },
 ]);
 
+/** A kept camera frame's row: a user-role image the call sampled by itself. */
+const SIGHT_FRAME_CONTENT = JSON.stringify([
+  { type: "text", text: "(camera frame)" },
+  {
+    type: "image",
+    source: {
+      type: "workspace_ref",
+      media_type: "image/jpeg",
+      attachmentId: "att-frame",
+      sizeBytes: 1024,
+    },
+  },
+]);
+
+/**
+ * What `persistAmbientSightFrame` writes on the voice surface: the gate
+ * sampled this, nobody spoke it, so `scripted` rides along with the tag.
+ */
+function sightFrameMetadata(attachmentId: string): string {
+  return JSON.stringify({
+    voiceSessionTurn: true,
+    provenanceTrustClass: "guardian",
+    scripted: true,
+    sightFrameAttachmentIds: [attachmentId],
+  });
+}
+
+/**
+ * What the voice bridge writes when a parked frame rides real speech
+ * (`calls/voice-session-bridge.ts`, matching its persist test's shape). The
+ * bridge leaves `scripted` absent for a genuine turn and the persist stamps
+ * the `false` default durably, which is what tells the two apart.
+ */
+function riddenTurnMetadata(attachmentId: string): string {
+  return JSON.stringify({
+    voiceSessionTurn: true,
+    provenanceTrustClass: "guardian",
+    scripted: false,
+    sightFrameAttachmentIds: [attachmentId],
+  });
+}
+
+/** An auto-sent row with no camera involvement, e.g. an onboarding prompt. */
+const SCRIPTED_UNTAGGED_METADATA = JSON.stringify({
+  provenanceTrustClass: "guardian",
+  scripted: true,
+});
+
 let seq = 0;
 function insertRaw(opts: {
   role: string;
   content: string;
   createdAt: number;
   id?: string;
+  metadata?: string;
 }): string {
   const id = opts.id ?? `msg-${String(++seq).padStart(4, "0")}`;
   getDb()
@@ -44,7 +94,7 @@ function insertRaw(opts: {
       role: opts.role,
       content: opts.content,
       createdAt: opts.createdAt,
-      metadata: null,
+      metadata: opts.metadata ?? null,
     })
     .run();
   return id;
@@ -267,5 +317,120 @@ describe("getRetrospectiveMessagesAfter", () => {
     expect(slice.some((row) => row.finalized === 0)).toBe(false);
     expect(slice.at(-1)?.id).toBe(lastFinalized);
     expect(slice.map((row) => row.id)).not.toContain(streaming);
+  });
+});
+
+describe("ambient camera frames are not retrospective work", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+    createConversation({ id: CONV });
+  });
+
+  /** One kept frame, as the live-voice persist writes it. */
+  function insertSightFrame(createdAt: number, attachmentId: string): string {
+    return insertRaw({
+      role: "user",
+      content: SIGHT_FRAME_CONTENT,
+      createdAt,
+      metadata: sightFrameMetadata(attachmentId),
+    });
+  }
+
+  test("a camera-only tail does not qualify as user activity", () => {
+    // A phone lying face up on a desk persists one of these every few
+    // seconds. Nobody said anything, so there is nothing to review.
+    insertSightFrame(1_000, "att-a");
+    insertSightFrame(2_000, "att-b");
+    insertSightFrame(3_000, "att-c");
+
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(false);
+  });
+
+  test("one real message among the frames does qualify", () => {
+    insertSightFrame(1_000, "att-a");
+    insertRaw({ role: "user", content: TEXT, createdAt: 2_000 });
+    insertSightFrame(3_000, "att-b");
+
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
+  });
+
+  test("frames are left out of the count that decides a run is due", () => {
+    insertSightFrame(1_000, "att-a");
+    insertSightFrame(2_000, "att-b");
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(0);
+
+    insertRaw({ role: "user", content: TEXT, createdAt: 3_000 });
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+  });
+
+  test("frames are left out of the slice a run would review", () => {
+    insertSightFrame(1_000, "att-a");
+    const real = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 2_000,
+    });
+    insertSightFrame(3_000, "att-b");
+
+    const slice = getRetrospectiveMessagesAfter(CONV, null);
+
+    // The cutoff lands on the real message, so the frames are neither
+    // reviewed nor skipped over.
+    expect(slice.map((row) => row.id)).toEqual([real]);
+  });
+
+  test("a spoken turn that carried a frame is real work", () => {
+    // Camera mode parks a frame continuously, so in a camera call EVERY
+    // spoken turn carries the tag. Excluding on the tag alone would mean a
+    // conversation held entirely in camera mode never earns a retrospective.
+    const spoken = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 1_000,
+      metadata: riddenTurnMetadata("att-frame-1"),
+    });
+
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+    expect(getRetrospectiveMessagesAfter(CONV, null).map((r) => r.id)).toEqual([
+      spoken,
+    ]);
+  });
+
+  test("an auto-sent row without the tag is untouched by this exclusion", () => {
+    // `scripted` covers onboarding sends and other machine-authored turns.
+    // They counted before the camera existed and must keep counting.
+    const onboarding = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 1_000,
+      metadata: SCRIPTED_UNTAGGED_METADATA,
+    });
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+    expect(getRetrospectiveMessagesAfter(CONV, null).map((r) => r.id)).toEqual([
+      onboarding,
+    ]);
+  });
+
+  test("keeps are excluded even among the speech they punctuate", () => {
+    insertSightFrame(1_000, "att-a");
+    const spoken = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 2_000,
+      metadata: riddenTurnMetadata("att-frame-1"),
+    });
+    insertSightFrame(3_000, "att-b");
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+    expect(getRetrospectiveMessagesAfter(CONV, null).map((r) => r.id)).toEqual([
+      spoken,
+    ]);
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
   });
 });

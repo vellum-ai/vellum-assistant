@@ -552,6 +552,35 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.share for the share-inbox host", async () => {
+    const shares: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubShare = subscribe("deeplink.share", (p) => {
+      shares.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://share/A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+      });
+      urlOpenHandler!({ url: "vellum-assistant://share/../x" });
+
+      expect(shares).toEqual([
+        { inboxId: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" },
+      ]);
+      expect(unknowns).toEqual([{ url: "vellum-assistant://share/../x" }]);
+    } finally {
+      unsubShare();
+      unsubUnknown();
+    }
+  });
+
   test("publishes deeplink.unknown on the bus for a non-OAuth URL", async () => {
     const received: { url: string }[] = [];
     const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {

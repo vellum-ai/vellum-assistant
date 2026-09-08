@@ -103,12 +103,8 @@ function loadDefaultDisabledAssistantFlagKeys(): string[] {
     .sort();
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function featureFlagKeyPattern(key: string): RegExp {
-  const escaped = escapeRegExp(key);
+  const escaped = RegExp.escape(key);
   if (key.includes("-")) {
     return new RegExp(`(?:^|[^a-z0-9-])${escaped}(?:$|[^a-z0-9-])`, "i");
   }

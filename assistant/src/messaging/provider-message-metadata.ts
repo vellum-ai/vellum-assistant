@@ -1,3 +1,4 @@
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import { CHANNEL_IDS } from "../channels/types.js";
@@ -40,7 +41,21 @@ const providerReactionMetadataSchema = z.object({
    * namespace as `messageId`. Resolution is keyed on it, so it is required.
    */
   targetMessageId: z.string(),
+  /**
+   * The emoji in the channel's own spelling. Kept because the channel's
+   * write path consumes it and the model hands it back verbatim; the typed
+   * fields beside it are what a reader consults.
+   */
   emoji: z.string(),
+  /**
+   * Which namespace the emoji was drawn from, as the channel said it. Spread
+   * from the shared group rather than restated, and declared rather than
+   * left to passthrough: the outer envelope passes unknown keys through, but
+   * this nested object strips them, so an undeclared field writes fine and
+   * reads back as nothing with no error at either end. A row carrying only
+   * the spelling has its kind recovered by `resolveInboundReactionPayload`.
+   */
+  ...ReactionEmojiFieldsSchema.shape,
   op: z.enum(["added", "removed"]),
   actorDisplayName: z.string().optional(),
 });
@@ -65,7 +80,7 @@ export const providerMessageMetadataSchema = z
      * Provider ids of the further posts this row's delivery produced beyond
      * `messageId`: one stored reply split at tool boundaries or length
      * limits posts several provider messages, and they all belong to this
-     * one row. A reaction naming any of them resolves here.
+     * one row. A reaction or delete naming any of them resolves here.
      */
     additionalMessageIds: z.array(z.string()).optional(),
     /**
@@ -89,7 +104,19 @@ export const providerMessageMetadataSchema = z
     eventKind: z.enum(["message", "reaction"]),
     reaction: providerReactionMetadataSchema.optional(),
     editedAt: z.number().optional(),
+    /**
+     * The row is no longer visible on the channel: every provider post it
+     * produced has been deleted. Readers treat this as the whole row's
+     * deletion mark, as before rows could name several posts.
+     */
     deletedAt: z.number().optional(),
+    /**
+     * Provider ids among `messageId`/`additionalMessageIds` whose posts have
+     * been deleted on the channel. A split reply can lose one post while the
+     * others stay visible, so deletion is tracked per id; `deletedAt` is
+     * stamped only once every id is here.
+     */
+    deletedMessageIds: z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -99,6 +126,18 @@ export type ProviderReactionMetadata = z.infer<
 export type ProviderMessageMetadata = z.infer<
   typeof providerMessageMetadataSchema
 >;
+
+/**
+ * Whether every post a row names is among its deleted ones, which is exactly
+ * when the row-level `deletedAt` is warranted. A row naming no post is a
+ * single post by construction, so an empty list reads as fully deleted.
+ */
+export function everyPostDeleted(
+  postIds: readonly string[],
+  deletedIds: readonly string[] | undefined,
+): boolean {
+  return postIds.every((id) => deletedIds?.includes(id) === true);
+}
 
 /**
  * Parse and validate a serialized `ProviderMessageMetadata`, the counterpart of

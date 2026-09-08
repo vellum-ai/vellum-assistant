@@ -20,6 +20,17 @@ export function isSetupChannelId(value: string): value is SetupChannelId {
   return SETUP_CHANNEL_IDS.some((id) => id === value);
 }
 
+/**
+ * Channels set up by creating a bot in a third-party developer portal and
+ * bringing its credential back, which is what gives them a step wizard, an
+ * icon to upload, and a completion notice. Email and phone are provisioned
+ * rather than created, so they share none of that.
+ *
+ * Derived from {@link SetupChannelId} so a channel cannot be added to one
+ * list and forgotten in the other.
+ */
+export type BotSetupChannel = Exclude<SetupChannelId, "email" | "phone">;
+
 // ---------------------------------------------------------------------------
 // Channel setup state (UI-only; shared by the Channels tab and the Contacts
 // assistant detail)

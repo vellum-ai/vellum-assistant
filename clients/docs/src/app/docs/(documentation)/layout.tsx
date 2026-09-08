@@ -11,6 +11,8 @@ import { DocsSearch } from "@/app/docs/_components/docs-search";
 import { DocsThemePicker } from "@/app/docs/_components/docs-theme-picker";
 import { DocsMobileMenuButton } from "@/app/docs/_components/docs-mobile-menu-button";
 
+import { CodeBlockCopy } from "@/app/docs/_components/code-block-copy";
+
 import "@/app/docs/docs-theme.css";
 
 export const metadata: Metadata = {
@@ -26,6 +28,7 @@ export default function DocsLayout({ children }: DocsLayoutProps) {
   return (
     <DocsNavProvider>
       <div className="docs-shell min-h-screen">
+        <CodeBlockCopy />
         <header className="docs-header sticky top-0 z-20 border-b backdrop-blur">
           {/* Top row in centered band */}
           <div className="mx-auto max-w-[1280px]">

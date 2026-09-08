@@ -1,3 +1,4 @@
+import { extractedTextForFileBlock } from "../providers/content-block-size.js";
 import {
   attachmentIdFragment,
   type ContentBlock,
@@ -64,6 +65,10 @@ export function attachmentsToReferenceBlocks(
       } as ContentBlock;
     }
 
+    const extractedText = extractedTextForFileBlock(
+      ref.mimeType,
+      ref.extractedText,
+    );
     return {
       type: "file",
       source: {
@@ -73,7 +78,7 @@ export function attachmentsToReferenceBlocks(
         sizeBytes: ref.sizeBytes,
         filename: ref.filename,
       },
-      extracted_text: ref.extractedText,
+      ...(extractedText !== undefined ? { extracted_text: extractedText } : {}),
     } as ContentBlock;
   });
 }
@@ -99,6 +104,10 @@ export function attachmentsToContentBlocks(
         } as ContentBlock;
       }
 
+      const extractedText = extractedTextForFileBlock(
+        attachment.mimeType,
+        attachment.extractedText,
+      );
       return {
         type: "file",
         source: {
@@ -107,7 +116,9 @@ export function attachmentsToContentBlocks(
           data: attachment.data,
           filename: attachment.filename,
         },
-        extracted_text: attachment.extractedText,
+        ...(extractedText !== undefined
+          ? { extracted_text: extractedText }
+          : {}),
         ...attachmentIdFragment(attachment.id),
       } as ContentBlock;
     }),

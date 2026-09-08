@@ -1,36 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
-import { avatarRasterQueryKey } from "./channel-avatar-download";
+import { withAvatarRaster } from "./channel-avatar-story-decorator";
 import { SlackSetupWizard } from "./slack-setup-wizard";
 
 const ASSISTANT_ID = "asst_story";
-
-/**
- * A 1x1 green PNG standing in for the rendered avatar. Seeded into the cache
- * under the raster key so the card renders without a daemon: the component
- * reads its file through TanStack Query, and a story owns that cache.
- */
-const AVATAR_DATA_URI =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+s9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-
-function withAvatar(hasAvatar: boolean) {
-  return function Decorator(Story: () => React.ReactElement) {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-    });
-    client.setQueryData(
-      avatarRasterQueryKey(ASSISTANT_ID),
-      hasAvatar ? AVATAR_DATA_URI : null,
-    );
-    return (
-      <QueryClientProvider client={client}>
-        <Story />
-      </QueryClientProvider>
-    );
-  };
-}
 
 const meta: Meta<typeof SlackSetupWizard> = {
   title: "Contacts/SlackSetupWizard",
@@ -44,7 +18,7 @@ const meta: Meta<typeof SlackSetupWizard> = {
   // `minWidth` both 400. A wider frame hides the density these stories exist to
   // show.
   decorators: [
-    withAvatar(true),
+    withAvatarRaster(ASSISTANT_ID, true),
     (Story) => (
       <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
@@ -201,6 +175,6 @@ export const ConnectWithAvatar: Story = {
 
 /** The same step for an assistant with no avatar: the card is absent entirely. */
 export const ConnectWithoutAvatar: Story = {
-  decorators: [withAvatar(false)],
+  decorators: [withAvatarRaster(ASSISTANT_ID, false)],
   play: ConnectWithAvatar.play,
 };

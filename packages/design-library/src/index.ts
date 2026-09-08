@@ -34,6 +34,7 @@ export {
   ScrollShadow,
   type ScrollShadowProps,
   type ScrollShadowOrientation,
+  type ScrollShadowFadeEdges,
 } from "./components/scroll-shadow";
 export {
   Tag,

@@ -11,21 +11,24 @@
 
 import { v4 as uuid } from "uuid";
 
+import { isChannelId } from "../channels/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import {
-  buildAccessRequestContractText,
+  buildAccessRequestReplyMechanics,
   buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
+import { resolveMessageText } from "./adapters/shared.js";
 import {
   pairDeliveryWithConversation,
   type PairingResult,
 } from "./conversation-pairing.js";
 import { composeFallbackCopy } from "./copy-composer.js";
+import { recordDeliveredChannelPost } from "./delivered-post-record.js";
 import {
   createDelivery,
   findDeliveryByDecisionAndChannel,
@@ -33,14 +36,16 @@ import {
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
 import {
+  buildGuardianRequestCodeInstruction,
   buildQuestionAnswerActions,
   buildToolApprovalSourceView,
   parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
   resolveGuardianInstructionModeFromPayload,
+  resolveGuardianQuestionInstructionMode,
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
-import { nonEmpty } from "./notification-utils.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
@@ -97,25 +102,25 @@ function resolveApprovalContext(
         actions: buildIntroductionActionsForPayload(
           parseAccessRequestPayload(payload),
         ),
-        plainTextFallback: buildAccessRequestContractText(payload),
+        plainTextFallback: buildAccessRequestReplyMechanics(payload),
       },
     };
   }
 
   if (signal.sourceEventName === "guardian.question") {
-    // Answer-mode question with structured options (an ask_question prompt):
-    // render the options as card actions so every channel adapter shows
-    // tappable choices. Built here — once per broadcast — so adapters stay
-    // rendering-only; the reply router recognizes the action ids as answer
-    // selections (see parseQuestionAnswerActionId).
-    const questionContext = resolveQuestionOptionsContext(payload);
+    // Answer-mode question: options render as card actions so every channel
+    // adapter shows tappable choices, and an option-less question carries
+    // its typed-reply instruction. Built here, once per broadcast, so
+    // adapters stay rendering-only; the reply router recognizes the action
+    // ids as answer selections (see parseQuestionAnswerActionId).
+    const questionContext = resolveQuestionContext(payload);
     if (questionContext) {
       return questionContext;
     }
 
     const parsed = parseInteractiveApprovalPayload(payload);
     if (!parsed) {
-      return undefined;
+      return resolveCodedTextContext(payload);
     }
     const requestId = parsed.requestId;
 
@@ -139,7 +144,10 @@ function resolveApprovalContext(
       approval: {
         requestId,
         actions: APPROVAL_ACTIONS,
-        plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
+        plainTextFallback: buildGuardianRequestCodeInstruction(
+          parsed.requestCode?.toUpperCase() ?? requestId,
+          "approval",
+        ),
         permissionDetails: toolName
           ? {
               toolName,
@@ -157,14 +165,43 @@ function resolveApprovalContext(
 }
 
 /**
- * Card actions for an answer-mode `pending_question` payload carrying
- * structured options: one action per option plus Skip, ids in the
- * answer-selection scheme. Returns `undefined` for approval-mode payloads,
- * option-less questions (voice questions answer by free text), and anything
- * that fails strict parsing — those fall through to the approval/plain-text
- * paths.
+ * A `guardian.question` payload that fails strict parsing draws no buttons
+ * anywhere, so its only way to be answered is the typed reply. When it
+ * still names a request id and code, it gets a context with no actions and
+ * the instruction for its mode, which the transports render as text plus
+ * the instruction. Without those it is undefined, as before.
  */
-function resolveQuestionOptionsContext(
+function resolveCodedTextContext(
+  payload: Record<string, unknown>,
+): ResolvedApprovalContext | undefined {
+  const requestId = nonEmpty(readPayloadString(payload, "requestId"));
+  const requestCode = nonEmpty(readPayloadString(payload, "requestCode"));
+  if (!requestId || !requestCode) {
+    return undefined;
+  }
+  return {
+    approval: {
+      requestId,
+      actions: [],
+      plainTextFallback: buildGuardianRequestCodeInstruction(
+        requestCode.toUpperCase(),
+        resolveGuardianQuestionInstructionMode(payload).mode,
+      ),
+    },
+  };
+}
+
+/**
+ * The card context for an answer-mode `pending_question`: one action per
+ * option plus Skip, ids in the answer-selection scheme, and the typed-reply
+ * instruction as the text fallback. An option-less question (a voice
+ * question, answered by free text) carries no actions, only the fallback:
+ * the transports read an empty action set as "send text, append the
+ * instruction", which is the one way that question stays answerable.
+ * Returns `undefined` for approval-mode payloads and anything that fails
+ * strict parsing; those fall through to the approval path.
+ */
+function resolveQuestionContext(
   payload: Record<string, unknown>,
 ): ResolvedApprovalContext | undefined {
   const parsed = parseGuardianQuestionPayload(payload);
@@ -174,21 +211,19 @@ function resolveQuestionOptionsContext(
   if (resolveGuardianInstructionModeFromPayload(parsed).mode !== "answer") {
     return undefined;
   }
-  const options = parsed.options;
-  if (!options || options.length === 0) {
-    return undefined;
-  }
   const requestId = nonEmpty(parsed.requestId);
   if (!requestId) {
     return undefined;
   }
 
-  const code = parsed.requestCode?.toUpperCase() ?? requestId;
   return {
     approval: {
       requestId,
-      actions: buildQuestionAnswerActions(options),
-      plainTextFallback: `Reply "${code} <your answer>".`,
+      actions: buildQuestionAnswerActions(parsed.options ?? []),
+      plainTextFallback: buildGuardianRequestCodeInstruction(
+        parsed.requestCode?.toUpperCase() ?? requestId,
+        "answer",
+      ),
       intent: "question",
     },
   };
@@ -793,6 +828,52 @@ export class NotificationBroadcaster {
   }
 
   /**
+   * Record a channel delivery the adapter just acknowledged as an assistant
+   * row in the chat's home conversation, and return that row's id.
+   *
+   * Only for channel deliveries (`continue_existing_conversation`, the
+   * strategy every external channel adapter has): pairing resolved the home
+   * conversation before the send and wrote no row, so this is the one write.
+   * Vellum and platform deliveries keep their own pairing rows. Returns
+   * undefined when there is nothing to record (no home, no chat, no provider
+   * id) and when the write fails: the post is already on the channel, so a
+   * lost row is logged rather than turning the delivery into a failure.
+   */
+  private async recordDeliveredPost(
+    dispatch: PendingChannelDispatch,
+    signal: NotificationSignal,
+    providerMessageId: string | undefined,
+  ): Promise<string | undefined> {
+    const { channel, destination, payload, pairing } = dispatch;
+    const externalChatId = destination.bindingContext?.externalChatId;
+    if (
+      !providerMessageId ||
+      pairing.strategy !== "continue_existing_conversation" ||
+      !pairing.conversationId ||
+      !externalChatId ||
+      !isChannelId(channel)
+    ) {
+      return undefined;
+    }
+    try {
+      const recorded = await recordDeliveredChannelPost({
+        conversationId: pairing.conversationId,
+        channel,
+        externalChatId,
+        text: resolveMessageText(payload),
+        providerMessageId,
+      });
+      return recorded.messageId;
+    } catch (err) {
+      log.warn(
+        { err, channel, signalId: signal.signalId, providerMessageId },
+        "Failed to record a delivered notification as a conversation row; the send itself succeeded",
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * Dispatch a prepared payload through its channel adapter and record the
    * outcome (delivery row status + results entry). Returns the adapter's
    * result, or null when the send threw. The recorded result tracks what the
@@ -824,14 +905,28 @@ export class NotificationBroadcaster {
         // through conversation pairing instead.
         const resolvedMessageId =
           adapterResult.messageId ?? pairing.messageId ?? undefined;
+        // A channel delivery becomes a conversation row only now, with the
+        // id the channel assigned: pairing resolved the chat's home
+        // conversation before the send and wrote nothing there. A failed
+        // send therefore leaves no row anywhere.
+        const canonicalMessageId = await this.recordDeliveredPost(
+          dispatch,
+          signal,
+          adapterResult.messageId,
+        );
         if (hasPersistedDecision) {
           try {
             updateDeliveryStatus(
               deliveryId,
               "sent",
               undefined,
-              adapterResult.messageId
-                ? { messageId: adapterResult.messageId }
+              adapterResult.messageId || canonicalMessageId
+                ? {
+                    ...(adapterResult.messageId
+                      ? { messageId: adapterResult.messageId }
+                      : {}),
+                    ...(canonicalMessageId ? { canonicalMessageId } : {}),
+                  }
                 : undefined,
             );
           } catch (statusErr) {

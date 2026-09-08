@@ -5,6 +5,8 @@
  * time — no network, no filesystem path resolution.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import bundledManifest from "../bundled-marketplace.json" with { type: "json" };
@@ -12,6 +14,15 @@ import {
   buildBundledPluginCatalog,
   readBundledPluginCatalog,
 } from "../plugin-catalog-local.js";
+import { marketplaceManifestSchema } from "../plugin-marketplace.js";
+import { marketplaceMatch } from "../search-plugins.js";
+
+const canonicalManifest = JSON.parse(
+  readFileSync(
+    join(import.meta.dir, "../../../../../plugins/marketplace.json"),
+    "utf8",
+  ),
+) as unknown;
 
 describe("buildBundledPluginCatalog", () => {
   test("yields one match per unique manifest name, sorted alphabetically", () => {
@@ -49,6 +60,28 @@ describe("buildBundledPluginCatalog", () => {
         repo: "JuliusBrussee/caveman",
         path: undefined,
         ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+      },
+    });
+  });
+
+  test("projects the OpenSEO subdirectory pin from the canonical catalog", () => {
+    const parsed = marketplaceManifestSchema.parse(canonicalManifest);
+    const entry = parsed.plugins.find((plugin) => plugin.name === "openseo");
+    expect(entry).toBeDefined();
+    expect(marketplaceMatch(entry!)).toEqual({
+      name: "openseo",
+      path: "github:every-app/open-seo/plugins/openseo@c469a48ae90ab58413b198fe3d1ac1aa90a9b070",
+      description:
+        "Keyword research, competitor analysis, site audits, backlinks, and rank tracking with real SEO data, plus guided workflow skills and the hosted OpenSEO MCP server.",
+      category: "marketing",
+      homepage: "https://openseo.so",
+      license: "MIT",
+      icon: "🔎",
+      source: {
+        kind: "github",
+        repo: "every-app/open-seo",
+        path: "plugins/openseo",
+        ref: "c469a48ae90ab58413b198fe3d1ac1aa90a9b070",
       },
     });
   });

@@ -37,6 +37,9 @@ const unifiedTurnContextInjector: Injector = {
       clientOs: ctx.clientOs,
       visibleApp: ctx.visibleApp,
       channelName: ctx.channelName,
+      // The chat and thread this turn arrived through, from its trust snapshot.
+      chatId: ctx.trust.requesterChatId,
+      threadId: ctx.trust.sourceThreadId,
       actorContext: ctx.actorContext,
       configuredUserTimezone: ctx.configuredUserTimezone,
       clientTimezone: ctx.clientTimezone,

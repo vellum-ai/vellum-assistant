@@ -59,6 +59,15 @@ export type PermissionRequestDetails = z.infer<
 export const ApprovalUIMetadataSchema = z.object({
   requestId: z.string(),
   actions: z.array(ApprovalActionOptionSchema),
+  /**
+   * Typed-reply instructions for a transport that sends text without
+   * buttons. Two producers, two shapes: the notification pipeline sends the
+   * instructions alone and always beside a message text, so a transport
+   * appends them; the legacy in-turn approval rail sends prompt plus
+   * instructions and a transport may use them as the whole message when no
+   * text is given. An empty `actions` list means there is nothing to draw
+   * and the instructions are the message's only affordance.
+   */
   plainTextFallback: z.string(),
   permissionDetails: PermissionRequestDetailsSchema.optional(),
   /**

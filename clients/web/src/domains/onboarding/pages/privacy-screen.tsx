@@ -12,7 +12,8 @@ import {
   getOnboardingFunnelSessionId,
   ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
-import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
+import { isSelectedAssistantOnboarded } from "@/domains/onboarding/onboarded-assistant";
+import { readSelectedAssistantId } from "@/assistant/selected-assistant-storage";
 import {
   canSkipOnboardingResearch,
   isNewAssistantFunnel,
@@ -128,13 +129,14 @@ export function PrivacyScreen() {
     // to chat.
     const isLocalHatch =
       isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
-    const alreadyOnboarded = hasOnboardedAssistant(
+    const selectedAssistantOnboarded = isSelectedAssistantOnboarded(
       useResolvedAssistantsStore.getState().assistants,
+      readSelectedAssistantId(),
     );
     const destination = onboardingDestinationAfterConsent({
       isLocalHatch,
       skipResearch,
-      alreadyOnboarded,
+      selectedAssistantOnboarded,
       newAssistant: isNewAssistantFunnel(searchParams),
     });
     const onboardingNext = skipResearch

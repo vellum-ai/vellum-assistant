@@ -146,3 +146,52 @@ export function useConversationActivity(
     completedAcpRunIds,
   ]);
 }
+
+/**
+ * How far before the first still-running session a finished one may have
+ * started and still count as part of the same run.
+ *
+ * A batch is spawned in a burst, but not atomically: siblings land milliseconds
+ * or a second or two apart, and a fast one can finish before the last of its
+ * own batch is even created. Without the tolerance that sibling would sort
+ * before the earliest running session and be filed as history. Small enough
+ * that a genuinely earlier run, which is separated by however long its work
+ * took, never slips in.
+ */
+const RUN_START_TOLERANCE_MS = 2_000;
+
+/**
+ * The CURRENT run's sessions: everything still working, plus the finished ones
+ * from the same batch.
+ *
+ * The floating agents control is about what is happening now. Listing every
+ * session the conversation ever produced turned it into a transcript of its
+ * own, where the live work was buried under runs that ended minutes ago and the
+ * same agent name appeared several times from different batches.
+ *
+ * "The same batch" is defined against the earliest session still running: the
+ * run began when that one started, so anything from before it is a previous
+ * run. Sessions are the unit here rather than the spawning message, because ACP
+ * runs carry no message identity and would otherwise need a second rule.
+ *
+ * With nothing running there is no current run, and this reports empty, which
+ * is also when the floating control is hidden anyway.
+ */
+export function useCurrentRunActivity(
+  conversationId: string | null,
+): ConversationActivity {
+  const activity = useConversationActivity(conversationId);
+
+  return useMemo(() => {
+    const { running } = activity;
+    if (running.length === 0) {
+      return { running: [], completed: [], total: 0 };
+    }
+    const runStartedAt =
+      Math.min(...running.map(startedAt)) - RUN_START_TOLERANCE_MS;
+    const completed = activity.completed.filter(
+      (row) => startedAt(row) >= runStartedAt,
+    );
+    return { running, completed, total: running.length + completed.length };
+  }, [activity]);
+}

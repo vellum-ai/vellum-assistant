@@ -109,6 +109,11 @@ export function ChatLayoutHeader({
   const { t } = useTranslation("chat");
   const electronHostOS = detectElectronHostOS();
   const electron = electronHostOS !== null;
+  // macOS and Windows hide the native title bar and use this header as the
+  // drag surface. Linux keeps the window manager decorations, so the header
+  // stays a regular toolbar.
+  const usesCustomTitleBar =
+    electronHostOS === "macos" || electronHostOS === "windows";
 
   // Mobile-only: on desktop the same affordance lives in the left cluster.
   const searchButton = isMobile ? (
@@ -125,12 +130,12 @@ export function ChatLayoutHeader({
   const setInlineTitleBarActive =
     useTitleBarStore.use.setInlineTitleBarActive();
   useEffect(() => {
-    if (!electron) {
+    if (!usesCustomTitleBar) {
       return;
     }
     setInlineTitleBarActive(true);
     return () => setInlineTitleBarActive(false);
-  }, [electron, setInlineTitleBarActive]);
+  }, [usesCustomTitleBar, setInlineTitleBarActive]);
 
   // The header sits between the safe-area strips and the page content, both of
   // which take the route's published surface on the native shells. Painting it
@@ -147,14 +152,14 @@ export function ChatLayoutHeader({
     <header
       data-slot={CHAT_LAYOUT_HEADER_SLOT}
       className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile && !electron ? " pb-4" : ""}${
-        electron
+        usesCustomTitleBar
           ? " select-none [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
           : ""
       }`}
       style={{
         background: headerBackground,
-        minHeight: electron ? "44px" : "40px",
-        paddingTop: electron ? 0 : undefined,
+        minHeight: usesCustomTitleBar ? "44px" : "40px",
+        paddingTop: usesCustomTitleBar ? 0 : undefined,
         paddingRight:
           electronHostOS === "windows"
             ? WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX

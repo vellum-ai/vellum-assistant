@@ -67,7 +67,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
         {tool.type && <Tag>{tool.type}</Tag>}
         {tool.description && (
           <span
-            className="min-w-0 flex-1 truncate text-label-default"
+            className="min-w-0 flex-1 truncate text-label-medium-default"
             style={{ color: "var(--content-tertiary)" }}
           >
             {tool.description}
@@ -87,7 +87,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
           {tool.inputSchema ? (
             <div>
               <p
-                className="mb-1 text-label-default"
+                className="mb-1 text-label-medium-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
                 {t("toolDefinitionsContent.inputSchema")}
@@ -96,7 +96,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
             </div>
           ) : (
             <p
-              className="text-label-default"
+              className="text-label-medium-default"
               style={{ color: "var(--content-tertiary)" }}
             >
               {t("toolDefinitionsContent.noInputSchema")}
@@ -105,7 +105,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
           {Object.keys(tool.extras).length > 0 && (
             <div>
               <p
-                className="mb-1 text-label-default"
+                className="mb-1 text-label-medium-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
                 {t("toolDefinitionsContent.settings")}
@@ -212,14 +212,14 @@ function SchemaProperty({
           {name}
         </span>
         <span
-          className="font-mono text-label-default"
+          className="font-mono text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {schemaTypeLabel(schema)}
         </span>
         {isRequired && (
           <span
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{
               color: "var(--content-attention, var(--content-secondary))",
             }}
@@ -229,7 +229,7 @@ function SchemaProperty({
         )}
         {schema.default !== undefined && (
           <span
-            className="font-mono text-label-default"
+            className="font-mono text-label-medium-default"
             style={{ color: "var(--content-tertiary)" }}
           >
             {t("toolDefinitionsContent.defaultValue", {
@@ -240,7 +240,7 @@ function SchemaProperty({
       </div>
       {description && (
         <p
-          className="mt-0.5 select-text whitespace-pre-wrap break-words text-label-default"
+          className="mt-0.5 select-text whitespace-pre-wrap break-words text-label-medium-default"
           style={{ color: "var(--content-secondary)" }}
         >
           {description}
@@ -268,7 +268,7 @@ function SchemaLeafSummary({
 }): ReactNode {
   return (
     <p
-      className="font-mono text-label-default"
+      className="font-mono text-label-medium-default"
       style={{ color: "var(--content-tertiary)" }}
     >
       {schemaTypeLabel(schema)}

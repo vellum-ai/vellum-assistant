@@ -15,7 +15,11 @@ import {
   readConsentHydrated,
 } from "@/domains/onboarding/prefs";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
-import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
+import {
+  isSelectedAssistantOnboarded,
+  userHasOnboardedAssistant,
+} from "@/domains/onboarding/onboarded-assistant";
+import { readSelectedAssistantId } from "@/assistant/selected-assistant-storage";
 import {
   assistantsValidForOrg,
   useResolvedAssistantsStore,
@@ -48,6 +52,9 @@ export function buildNavigationState(
   const { sessionStatus, platformSession } = useAuthStore.getState();
   const { assistants, assistantsHydrated } =
     useResolvedAssistantsStore.getState();
+  // The persisted key rather than the store slice: this runs inside route
+  // middleware, before the store has necessarily reconciled a selection.
+  const selectedAssistantId = readSelectedAssistantId();
   const isRemoteGateway = isRemoteGatewayMode();
   return {
     isLocalClient: isLocalClient(),
@@ -73,7 +80,11 @@ export function buildNavigationState(
     diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
     consentHydrated: readConsentHydrated(),
     assistantsHydrated,
-    alreadyOnboarded: hasOnboardedAssistant(assistants),
+    userHasOnboardedAssistant: userHasOnboardedAssistant(assistants),
+    selectedAssistantOnboarded: isSelectedAssistantOnboarded(
+      assistants,
+      selectedAssistantId,
+    ),
     ...overrides,
   };
 }

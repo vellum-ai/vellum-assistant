@@ -14,6 +14,7 @@ import { formatToolInputError } from "./shared/zod-tool-schema.js";
 import { notifyParentInputSchema } from "./subagent/notify-parent.js";
 import { requestSystemPermissionInputSchema } from "./system/request-permission.js";
 import { shellInputSchema } from "./terminal/shell.js";
+import { watchRetroReportInputSchema } from "./watch/watch-retro-report.js";
 
 /**
  * Per-tool Zod input schemas, keyed by tool name. Tool calls are a
@@ -57,6 +58,7 @@ export const TOOL_INPUT_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   host_file_read: hostFileReadInputSchema,
   host_file_write: hostFileWriteInputSchema,
   notify_parent: notifyParentInputSchema,
+  watch_retro_report: watchRetroReportInputSchema,
   react_to_message: reactToMessageInputSchema,
   request_system_permission: requestSystemPermissionInputSchema,
 };

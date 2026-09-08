@@ -123,7 +123,33 @@ else
     mkdir -p "$OUTPUT_BUNDLE/Contents/Resources"
     cp "$ICON_SRC" "$OUTPUT_BUNDLE/Contents/Resources/AppIcon.icns"
   fi
-  codesign --force --sign - --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"
+  # Signed with a real identity where one is available, ad-hoc otherwise.
+  #
+  # This is what decides whether the helper keeps its Input Monitoring grant
+  # across rebuilds. An ad-hoc signature has no team and no stable authority,
+  # so its designated requirement is the binary's own cdhash: change one byte
+  # and macOS sees an application it has never met, the grant stops applying
+  # and the old entry goes from the Privacy list. Every local build would cost
+  # another trip through System Settings, and the prompt does not come back,
+  # because the previous decision is still on file.
+  #
+  # A certificate gives a requirement of identifier plus authority, which
+  # survives rebuilds. `VELLUM_HELPER_SIGN_IDENTITY` names one explicitly;
+  # otherwise the first Developer ID on the keychain is used, and a machine
+  # with none falls back to ad-hoc exactly as before.
+  SIGN_IDENTITY="${VELLUM_HELPER_SIGN_IDENTITY:-}"
+  if [ -z "$SIGN_IDENTITY" ]; then
+    SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+      | grep -m1 "Developer ID Application" \
+      | sed -E 's/.*"(.*)"$/\1/')"
+  fi
+  if [ -z "$SIGN_IDENTITY" ]; then
+    SIGN_IDENTITY="-"
+    echo "build-mac-helper: no signing identity found; ad-hoc signing (the Input Monitoring grant will not survive rebuilds)"
+  else
+    echo "build-mac-helper: signing with $SIGN_IDENTITY"
+  fi
+  codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"
   printf '%s' "$SOURCE_HASH" > "$HASH_MARKER"
 fi
 

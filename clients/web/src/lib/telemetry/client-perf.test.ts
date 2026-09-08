@@ -222,6 +222,24 @@ describe("sendClientWatchdogEvent", () => {
     expect(captureErrorMock).not.toHaveBeenCalled();
   });
 
+  test.each([401, 403])(
+    "stays quiet on %i: the auth layer refusing the caller is expected",
+    async (status) => {
+      telemetryIngestPostMock.mockImplementation(() =>
+        Promise.resolve({ response: { ok: false, status } }),
+      );
+
+      sendClientWatchdogEvent({
+        checkName: "client_boot",
+        value: 1,
+        detail: {},
+      });
+      await Bun.sleep(0);
+
+      expect(captureErrorMock).not.toHaveBeenCalled();
+    },
+  );
+
   test("stays quiet on 5xx: an unreachable daemon is transport, not contract", async () => {
     telemetryIngestPostMock.mockImplementation(() =>
       Promise.resolve({ response: { ok: false, status: 503 } }),

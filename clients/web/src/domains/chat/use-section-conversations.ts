@@ -34,6 +34,7 @@ import {
   NATIVE_ORIGIN_CHANNEL,
   ORIGIN_CHANNELS,
   SYSTEM_ALL_GROUP_ID,
+  SYSTEM_ASSISTANT_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
   drainConversationList,
   type ConversationListPage,
@@ -85,6 +86,12 @@ function sectionFilter(
   switch (section.type) {
     case "pinned":
       return { groupId: SYSTEM_PINNED_GROUP_ID };
+    case "assistant":
+      /* One axis only. The daemon already narrows this pseudo-group to the
+         ungrouped set, and it spans every origin: a thread the assistant
+         started about a Slack message is still a thread the assistant
+         started. */
+      return { groupId: SYSTEM_ASSISTANT_GROUP_ID };
     case "group":
       return { groupId: section.group.id };
     case "channel":

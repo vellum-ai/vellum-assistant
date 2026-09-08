@@ -12,12 +12,13 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
 import { useTranslation } from "@/i18n";
+import { resolveDesktopHostOS } from "@/runtime/platform-detection";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-import { destinationDescription, destinationLabel } from "./teleport-types";
+import { destinationDescriptionKey, destinationLabel } from "./teleport-types";
 import { useTeleport } from "./use-teleport";
 
 export function TeleportCard() {
@@ -39,7 +40,7 @@ export function TeleportCard() {
       {phase.kind === "idle" && (
         <div className="flex flex-col gap-2">
           <p className="text-body-medium-default text-[var(--content-tertiary)]">
-            {destinationDescription(destination)}
+            {t(destinationDescriptionKey(destination, resolveDesktopHostOS()))}
           </p>
           <Button
             variant="outlined"

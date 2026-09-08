@@ -11,9 +11,10 @@ import {
   getFeedItemScheduleId,
   getFeedItemSkillId,
   getVisibleFeedItems,
-  guardianCategoryLabelKey,
+  guardianLabelKey,
   markAllReadArgs,
   resolveFeedItemTitle,
+  resolveThreadName,
   sortFeedItems,
 } from "./utils";
 
@@ -117,7 +118,7 @@ describe("resolveFeedItemTitle", () => {
 });
 
 function guardianItem(
-  status: "pending" | "approved",
+  status: NonNullable<FeedItem["guardianRequest"]>["status"],
   overrides: Partial<FeedItem> = {},
 ): FeedItem {
   return feedItem({
@@ -167,9 +168,13 @@ describe("guardian feed item derivations", () => {
     );
   });
 
-  test("guardian rows name what they need on the category chip", () => {
-    expect(guardianCategoryLabelKey(guardianItem("pending"))).toBe(
+  test("a guardian item is named for what its state asks of the user", () => {
+    expect(guardianLabelKey(guardianItem("pending"))).toBe(
       "category.guardianAction",
+    );
+    // Settled: nothing is needed of anyone, so it is named for what it was.
+    expect(guardianLabelKey(guardianItem("approved"))).toBe(
+      "category.guardianRequest",
     );
     const question = feedItem({
       guardianRequest: {
@@ -179,9 +184,53 @@ describe("guardian feed item derivations", () => {
         status: "pending",
       },
     });
-    expect(guardianCategoryLabelKey(question)).toBe(
-      "category.guardianQuestion",
-    );
-    expect(guardianCategoryLabelKey(feedItem())).toBeNull();
+    expect(guardianLabelKey(question)).toBe("category.guardianAnswer");
+    // A question that was answered asks nothing more.
+    expect(
+      guardianLabelKey({
+        ...question,
+        guardianRequest: { ...question.guardianRequest!, status: "approved" },
+      }),
+    ).toBe("category.guardianQuestion");
+    expect(guardianLabelKey(feedItem())).toBeNull();
+  });
+});
+
+describe("resolveThreadName", () => {
+  const titles = new Map([["conv-1", "Weekly report"]]);
+
+  test("names the item's conversation when the lists carry its title", () => {
+    expect(
+      resolveThreadName(
+        feedItem({ conversationId: "conv-1", sourceLabel: "Heartbeat" }),
+        titles,
+      ),
+    ).toBe("Weekly report");
+  });
+
+  test("falls back to an informative source label", () => {
+    expect(
+      resolveThreadName(
+        feedItem({ conversationId: "conv-gone", sourceLabel: "Heartbeat" }),
+        titles,
+      ),
+    ).toBe("Heartbeat");
+    expect(
+      resolveThreadName(feedItem({ sourceLabel: "Heartbeat" }), titles),
+    ).toBe("Heartbeat");
+  });
+
+  test.each(["Conversation", "Other"])(
+    "leaves the line out for the generic %s source label",
+    (sourceLabel) => {
+      expect(resolveThreadName(feedItem({ sourceLabel }), titles)).toBeNull();
+    },
+  );
+
+  test("leaves the line out when nothing names the thread", () => {
+    expect(resolveThreadName(feedItem(), titles)).toBeNull();
+    expect(
+      resolveThreadName(feedItem({ conversationId: "conv-gone" }), titles),
+    ).toBeNull();
   });
 });

@@ -8,6 +8,8 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/macos/**'
+      # The desktop CSP drift guard in packages/electron-desktop reads this file.
+      - 'clients/web/index.html'
       - 'packages/electron-utils/**'
       - 'packages/electron-desktop/**'
       # The macOS main process imports this contract's types directly, so a

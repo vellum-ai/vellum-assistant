@@ -111,7 +111,7 @@ export function ExportProgressModal({
                 aria-label={t("exportProgressModal.progressAriaLabel")}
               />
               <div
-                className="flex items-center justify-between text-label-default"
+                className="flex items-center justify-between text-label-medium-default"
                 style={{ color: "var(--content-secondary)" }}
               >
                 <span>

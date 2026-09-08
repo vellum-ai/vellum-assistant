@@ -46,7 +46,7 @@ describe("resolveSignupCheckoutDestination", () => {
 
     const result = resolveSignupCheckoutDestination({
       intent: "signup",
-      returnTo: "/assistant/home",
+      returnTo: "/assistant/identity",
     });
 
     expect(result).toBe("/assistant/onboarding/privacy");
@@ -58,10 +58,10 @@ describe("resolveSignupCheckoutDestination", () => {
 
     const result = resolveSignupCheckoutDestination({
       intent: "login",
-      returnTo: "/assistant/home",
+      returnTo: "/assistant/identity",
     });
 
-    expect(result).toBe("/assistant/home");
+    expect(result).toBe("/assistant/identity");
     expect(readCheckoutIntent()).toBeNull();
   });
 

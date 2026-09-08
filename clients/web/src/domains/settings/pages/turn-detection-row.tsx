@@ -163,7 +163,7 @@ export function TurnDetectionRow() {
       <span className="text-body-medium-lighter text-[var(--content-default)]">
         {t("voicePage.turnDetectionLabel")}
       </span>
-      <p className="text-body-small-default text-[var(--content-tertiary)]">
+      <p className="text-body-small-lighter text-[var(--content-tertiary)]">
         {languageOk
           ? t("voicePage.turnDetectionDescription")
           : t("voicePage.turnDetectionLanguageUnsupported")}

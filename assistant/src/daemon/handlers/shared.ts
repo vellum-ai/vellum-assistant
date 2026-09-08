@@ -15,6 +15,7 @@ import { ConfirmationDecisionSchema } from "../../api/responses/conversation-mes
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
+import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
 import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
@@ -223,6 +224,14 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Neutral per-row channel envelope captured at the channel ingress
+   * boundary, the non-Slack counterpart of `slackInbound`. When present (and
+   * the turn channel matches its `source`), persistence writes it as the
+   * message's `providerMeta` metadata key so the stored row can say which
+   * external message it is, in which thread, from whom.
+   */
+  channelInbound?: ProviderMessageMetadata;
   /**
    * Conversation type for newly created conversations. When omitted,
    * defaults to `"standard"` (visible in the sidebar). Set to

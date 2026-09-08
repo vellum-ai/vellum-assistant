@@ -15,10 +15,17 @@ export {
   resolveAvatarDir,
 } from "./layout.js";
 export {
+  dominantAccentHex,
+  isAvatarAccentHex,
+  normalizeAvatarAccentHex,
+} from "./accent.js";
+export {
   deriveAvatarFromLegacyFiles,
   parseAvatarManifest,
 } from "./manifest.js";
 export type {
+  AvatarAccent,
+  AvatarAccentSource,
   AvatarImageMeta,
   AvatarKind,
   AvatarSource,

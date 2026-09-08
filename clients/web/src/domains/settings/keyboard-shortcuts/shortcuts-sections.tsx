@@ -195,7 +195,7 @@ export function ShortcutsSections() {
       {sections.map((section) => (
         <Card key={section.scope} bordered>
           <div className="mb-2">
-            <div className="text-body-medium-emphasised text-[var(--content-default)]">
+            <div className="text-body-medium-default text-[var(--content-default)]">
               {section.title}
             </div>
             <div className="text-body-small-default text-[var(--content-tertiary)]">

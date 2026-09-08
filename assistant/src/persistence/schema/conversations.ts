@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -282,6 +283,30 @@ export const conversationCompactionEvents = sqliteTable(
   ],
 );
 
+/**
+ * Lifecycle of a channel inbound event's reply delivery. `pending` is the only
+ * non-terminal value, so every path that finishes a turn has to move the row
+ * off it, including the paths that finish WITHOUT delivering: recovery reads a
+ * lingering `pending` as a reply still owed. See `runtime/AGENTS.md`.
+ */
+export const CHANNEL_DELIVERY_STATUSES = [
+  "pending",
+  "delivered",
+  "failed",
+  "dead_letter",
+] as const;
+export type ChannelDeliveryStatus = (typeof CHANNEL_DELIVERY_STATUSES)[number];
+
+/** Lifecycle of a channel inbound event's agent-turn processing. */
+export const CHANNEL_PROCESSING_STATUSES = [
+  "pending",
+  "processed",
+  "failed",
+  "dead_letter",
+] as const;
+export type ChannelProcessingStatus =
+  (typeof CHANNEL_PROCESSING_STATUSES)[number];
+
 export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   id: text("id").primaryKey(),
   sourceChannel: text("source_channel").notNull(),
@@ -294,8 +319,14 @@ export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   messageId: text("message_id").references(() => messages.id, {
     onDelete: "cascade",
   }),
-  deliveryStatus: text("delivery_status").notNull().default("pending"),
-  processingStatus: text("processing_status").notNull().default("pending"),
+  deliveryStatus: text("delivery_status", { enum: CHANNEL_DELIVERY_STATUSES })
+    .notNull()
+    .default("pending"),
+  processingStatus: text("processing_status", {
+    enum: CHANNEL_PROCESSING_STATUSES,
+  })
+    .notNull()
+    .default("pending"),
   processingAttempts: integer("processing_attempts").notNull().default(0),
   deliveryAttempts: integer("delivery_attempts").notNull().default(0),
   lastProcessingError: text("last_processing_error"),
@@ -307,3 +338,41 @@ export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+/**
+ * Provider-id index for messages the assistant itself posted: the outbound
+ * counterpart of `channelInboundEvents`' provider-id resolution. One stored
+ * reply fans out to many provider posts, and a reaction or deletion names a
+ * post, so resolution is keyed by the (channel, chat, provider id) triple.
+ * Written by the post-send reconciliation alongside the row's `providerMeta`
+ * envelope, which remains the row's self-description; this table is the
+ * derived index over its id facts.
+ */
+export const channelOutboundPosts = sqliteTable(
+  "channel_outbound_posts",
+  {
+    sourceChannel: text("source_channel").notNull(),
+    externalChatId: text("external_chat_id").notNull(),
+    providerMessageId: text("provider_message_id").notNull(),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.sourceChannel,
+        table.externalChatId,
+        table.providerMessageId,
+      ],
+    }),
+    index("idx_channel_outbound_posts_message_id").on(table.messageId),
+    index("idx_channel_outbound_posts_conversation_id").on(
+      table.conversationId,
+    ),
+  ],
+);

@@ -1,6 +1,6 @@
 ---
 name: "llm-cost-optimizer"
-description: "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Cost / Speed) only where they should deviate from shipped defaults."
+description: "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Budget / Fast) only where they should deviate from shipped defaults."
 metadata:
   emoji: "💸"
   vellum:
@@ -16,8 +16,8 @@ This skill walks through analyzing and reducing LLM spend on a Vellum assistant.
 2. **Model profiles** — named presets (provider + model + effort + thinking + contextWindow). Four managed defaults, with UI labels. Note that the keys do not track the labels: read the key, not the name, when pinning a call site.
    - `balanced` → **Balanced** (the general agent-loop profile)
    - `quality-optimized` → **Quality** (the expensive escalation profile)
-   - `cost-optimized` → **Cost** (the cheap utility/background profile, and the one to pin for spend reduction)
-   - `latency-optimized` → **Speed** (the low time-to-first-token profile, used by live voice; faster but not cheaper than Cost)
+   - `cost-optimized` → **Budget** (the cheap utility/background profile, and the one to pin for spend reduction)
+   - `latency-optimized` → **Fast** (the low time-to-first-token profile, used by live voice; faster but not cheaper than Budget)
 3. **Call-site profile pins** (`llm.callSites.<id>.profile`) — optional per-task overrides of the shipped defaults.
 
 The concrete model behind each managed profile depends on the install: platform-managed installs and BYOK installs resolve different providers/models, and the catalog changes over time. **Never assume which model a profile maps to** — read `assistant config get llm.profiles` and the usage breakdown by `model` to see what actually ran.

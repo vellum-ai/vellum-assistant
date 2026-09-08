@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { CompanionSize, CompanionSizeAxis } from "@vellumai/ipc-contract";
 
-import { companionSizeSubmenus } from "./companion-menu";
+import {
+  companionSizeSubmenus,
+  companionVisibilityItem,
+} from "./companion-menu";
 
 /**
  * The size pickers both companion menus draw, built once.
@@ -98,5 +101,58 @@ describe("companionSizeSubmenus", () => {
     expect(
       build(undefined, { enabled: false }).items.map((item) => item.enabled),
     ).toEqual([false, false]);
+  });
+});
+
+/**
+ * The show/hide checkbox both the tray and the application menu draw.
+ *
+ * The same reasoning as the size pickers above: the two callers read one
+ * builder, so the wording, the shape and what a press carries are stated once,
+ * here, rather than argued over in two menus that would drift apart.
+ */
+describe("companionVisibilityItem", () => {
+  /** Only what a menu item is read for here. */
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    click?: (item: { checked: boolean }) => void;
+  };
+
+  const build = (hidden: boolean) => {
+    const asked: boolean[] = [];
+    const item = companionVisibilityItem(hidden, (visible) => {
+      asked.push(visible);
+    }) as MenuItem;
+    return { item, asked };
+  };
+
+  test("is a checkbox, so a menu that hid the surface still says so", () => {
+    expect(build(false).item.type).toBe("checkbox");
+  });
+
+  test("names the surface the same way in every menu that offers it", () => {
+    expect(build(false).item.label).toBe("Show Companion");
+  });
+
+  test("is checked while the surface is shown and unchecked while hidden", () => {
+    expect(build(false).item.checked).toBe(true);
+    expect(build(true).item.checked).toBe(false);
+  });
+
+  /**
+   * Electron flips `checked` before `click` runs, so the item is handed the
+   * state being asked for. Reading the state it was drawn in instead would
+   * make the item a no-op that re-asserts what is already true.
+   */
+  test("carries the state being asked for, not the one it was drawn in", () => {
+    const ticked = build(true);
+    ticked.item.click?.({ checked: true });
+    expect(ticked.asked).toEqual([true]);
+
+    const unticked = build(false);
+    unticked.item.click?.({ checked: false });
+    expect(unticked.asked).toEqual([false]);
   });
 });

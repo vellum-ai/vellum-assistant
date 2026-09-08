@@ -425,7 +425,7 @@ export function SoundsSections() {
           <h3 className="text-title-small text-[var(--content-default)]">
             {t("soundsSections.soundEventsTitle")}
           </h3>
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
+          <p className="text-body-small-lighter text-[var(--content-tertiary)]">
             {t("soundsSections.soundEventsDescription")}
           </p>
         </div>

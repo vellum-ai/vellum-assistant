@@ -169,4 +169,38 @@ describe("AnimatedAvatar streaming morph", () => {
 
     expect(intervalCallbacks).toHaveLength(0);
   });
+
+  test("unknown trait ids render nothing instead of throwing", () => {
+    const { container } = render(
+      <AnimatedAvatar
+        components={BUNDLED_COMPONENTS}
+        traits={{
+          bodyShape: "no-such-body",
+          eyeStyle: "no-such-eyes",
+          color: "no-such-color",
+        }}
+        size={56}
+      />,
+    );
+
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.innerHTML).toBe("");
+  });
+
+  test("retired body shape stout-pour renders nothing instead of throwing", () => {
+    const { container } = render(
+      <AnimatedAvatar
+        components={BUNDLED_COMPONENTS}
+        traits={{
+          bodyShape: "stout-pour",
+          eyeStyle: "grumpy",
+          color: "green",
+        }}
+        size={56}
+      />,
+    );
+
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.innerHTML).toBe("");
+  });
 });

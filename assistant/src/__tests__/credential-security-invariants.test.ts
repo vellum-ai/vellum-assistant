@@ -223,6 +223,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
       "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
+      "runtime/routes/roadmap-routes.ts", // signs public-roadmap calls with the assistant API key (outbound Authorization header only; the value never reaches a response, a log, or the CLI process)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
@@ -238,6 +239,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
       "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential: reveal-equivalent plaintext read, scoped to the in-context plugin's own service
       "tools/credentials/store.ts", // shared credential write path (setSecureKeyAsync only; no reads) behind credentials/set and plugin-facing storeCredential
+      "email/byo-email-credential.ts", // BYO email provider configuration check (credential presence only; value never leaves the helper)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -485,7 +487,6 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
     expect(result.reason).toContain("No tools are currently allowed");
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // Invariant 6 — oauth2ClientSecret never in plaintext metadata

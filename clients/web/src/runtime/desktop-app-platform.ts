@@ -1,9 +1,8 @@
-import type { ElectronHostOS } from "@vellumai/ipc-contract";
 import { useSyncExternalStore } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
 
-export type DesktopAppPlatform = ElectronHostOS;
+export type DesktopAppPlatform = "macos" | "windows";
 
 export function getBrowserPlatform(): string {
   if (typeof navigator === "undefined") {
@@ -23,7 +22,7 @@ export function detectDesktopAppPlatform(): DesktopAppPlatform {
     return "macos";
   }
   if (isElectron() && window.vellum?.hostOS) {
-    return window.vellum.hostOS;
+    return window.vellum.hostOS === "windows" ? "windows" : "macos";
   }
 
   return isWindowsBrowser() ? "windows" : "macos";
@@ -39,7 +38,7 @@ export function isWindowsBrowser(): boolean {
   );
 }
 
-/** True when browser signals identify a desktop OS without a Vellum app. */
+/** Excludes identified desktop systems outside the macOS/Windows promotion. */
 export function isKnownUnsupportedDesktopBrowser(): boolean {
   if (typeof navigator === "undefined") {
     return false;

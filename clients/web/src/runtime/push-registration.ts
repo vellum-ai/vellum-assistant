@@ -46,6 +46,7 @@ import {
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
 import { publish } from "@/lib/event-bus";
+import { resolvePlatformAssistantId } from "@/lib/platform-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ensureAndroidAlertsChannel } from "@/runtime/android-notification-channels";
 import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
@@ -56,7 +57,10 @@ import { createStorageAccessor } from "@/utils/typed-storage";
 interface RegisteredToken {
   token: string;
   bundleId: string;
+  /** Platform UUID used on the upsert/delete path. */
   assistantId: string;
+  /** Id the client passed (slug, `"self"`, or the same UUID). */
+  runtimeAssistantId: string;
 }
 
 interface AndroidPushRegistrationPlugin {
@@ -80,6 +84,10 @@ function parseRegisteredToken(raw: string): RegisteredToken | null {
       token: value.token,
       bundleId: value.bundleId,
       assistantId: value.assistantId,
+      runtimeAssistantId:
+        typeof value.runtimeAssistantId === "string"
+          ? value.runtimeAssistantId
+          : value.assistantId,
     };
   }
   return null;
@@ -160,6 +168,10 @@ export function isRemotePushSupported(): boolean {
  */
 async function upsertToken(token: string, assistantId: string): Promise<void> {
   try {
+    const platformAssistantId = await resolvePlatformAssistantId(assistantId);
+    if (platformAssistantId === null) {
+      return;
+    }
     // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
@@ -179,7 +191,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
           };
 
     const result = await assistantsPushTokensUpsert({
-      path: { assistant_id: assistantId },
+      path: { assistant_id: platformAssistantId },
       body,
       throwOnError: false,
     });
@@ -194,7 +206,12 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     }
 
     const previous = lastRegistered ?? persistedRegistration.load();
-    lastRegistered = { token, bundleId, assistantId };
+    lastRegistered = {
+      token,
+      bundleId,
+      assistantId: platformAssistantId,
+      runtimeAssistantId: assistantId,
+    };
     persistedRegistration.save(lastRegistered);
     if (
       previous &&
@@ -346,7 +363,11 @@ export async function registerForRemotePush(
   // If iOS already handed us a token for this device under a different
   // assistant, re-upsert it now rather than waiting for another registration
   // event (which only fires again on the next `register()`).
-  if (lastRegistered && lastRegistered.assistantId !== assistantId) {
+  if (
+    lastRegistered &&
+    lastRegistered.assistantId !== assistantId &&
+    lastRegistered.runtimeAssistantId !== assistantId
+  ) {
     queueUpsert(lastRegistered.token, assistantId);
   }
 
@@ -455,7 +476,10 @@ export async function unregisterFromRemotePush(): Promise<void> {
 export function hasSessionConfirmedRemotePushRegistration(
   assistantId: string,
 ): boolean {
-  return lastRegistered?.assistantId === assistantId;
+  return (
+    lastRegistered?.assistantId === assistantId ||
+    lastRegistered?.runtimeAssistantId === assistantId
+  );
 }
 
 /** Test-only: reset module + persisted state between cases. */

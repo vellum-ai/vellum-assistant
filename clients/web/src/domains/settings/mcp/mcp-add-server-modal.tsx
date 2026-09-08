@@ -300,7 +300,7 @@ export function McpAddServerModal({
                 </div>
 
                 {authType === "oauth" ? (
-                  <p className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
+                  <p className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2 text-body-small-lighter text-[var(--content-tertiary)]">
                     {t("mcpAddServerModal.oauthHint")}
                   </p>
                 ) : null}

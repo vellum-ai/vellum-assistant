@@ -109,6 +109,12 @@ describe("QdrantManager", () => {
     });
   });
 
+  test("falls back to the x64 zip release on Windows arm64", () => {
+    expect(resolveQdrantReleaseAsset("win32", "arm64")).toEqual(
+      resolveQdrantReleaseAsset("win32", "x64"),
+    );
+  });
+
   // ── getUrl ───────────────────────────────────────────────────
 
   describe("getUrl", () => {

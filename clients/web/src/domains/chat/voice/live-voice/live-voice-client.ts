@@ -34,6 +34,7 @@ import {
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
   type LiveVoiceActivityServerFrame,
+  type LiveVoiceEntry,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
@@ -64,7 +65,9 @@ export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
 
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
-  "connection-failed" | "protocol-error" | "timeout";
+  | "connection-failed"
+  | "protocol-error"
+  | "timeout";
 
 export interface LiveVoiceClientError {
   readonly reason: LiveVoiceClientErrorReason;
@@ -123,6 +126,56 @@ export interface LiveVoiceTextTurnRejected {
 }
 
 /**
+ * A kept camera frame reached the assistant and was refused.
+ *
+ * `unsupported` is the load-bearing half. It means the assistant answered
+ * `unknown_type`, which is what an assistant with no `sight_frame` handler
+ * returns for any frame type it does not know (`assistant/src/live-voice/
+ * protocol.ts`, the `isLiveVoiceClientFrameType` check ahead of the validation
+ * switch). Such an assistant persists nothing and reclaims nothing, so every
+ * further keep would leave an orphaned attachment behind, and the caller has
+ * to stop sending rather than keep trying.
+ *
+ * Anything else is a routine drop from an assistant that does understand the
+ * frame: it could not persist this one, and it has already reclaimed the
+ * attachment itself.
+ */
+/**
+ * The client leg of one kept frame, sent with the `sight_frame` for the
+ * daemon's log. Durations rather than timestamps: the daemon's clock is not
+ * this one, and only this side can say how long its encode and upload took.
+ * Whole milliseconds, never negative. Mirrors `LiveVoiceSightFrameTiming` in
+ * the daemon's `live-voice/protocol.ts`.
+ */
+export interface LiveVoiceSightFrameTiming {
+  /** Why the frame was kept: a gate reason, or a source's own word for it. */
+  readonly reason: string;
+  /** From the arm that asked for this keep to the keep. Forced keeps only. */
+  readonly armToKeepMs?: number;
+  /** From the keep to a JPEG sized for upload. */
+  readonly keepToEncodedMs: number;
+  /** From the JPEG to an attachment id, which is the HTTP upload. */
+  readonly encodedToUploadedMs: number;
+  /** From the id to the send, which is the wait for older keeps to go first. */
+  readonly uploadedToSentMs: number;
+  /** The JPEG that was uploaded, in bytes. */
+  readonly bytes: number;
+}
+
+export interface LiveVoiceSightFrameRejected {
+  readonly unsupported: boolean;
+  /**
+   * The attachment the error named, when the assistant echoes one.
+   *
+   * Optional on the wire and absent from every assistant at the current
+   * version floor, so a consumer has to work without it. With it, a refusal
+   * can be matched to the keep it belongs to; without it, only the shape of
+   * what is outstanding can be reasoned about.
+   */
+  readonly attachmentId: string | null;
+}
+
+/**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
  * can order or dedupe.
@@ -156,6 +209,12 @@ export interface LiveVoiceClientEventMap {
    * client believed it had succeeded, and is the only signal the room gets.
    */
   attachImageRejected: LiveVoiceAttachImageRejected;
+  /**
+   * A kept camera frame was accepted by the transport and refused by the
+   * assistant. Carries whether the refusal means this assistant cannot take
+   * the frame at all, which the session has to latch on.
+   */
+  sightFrameRejected: LiveVoiceSightFrameRejected;
   /**
    * A typed turn was accepted by the transport and refused by the assistant.
    * The only signal a caller gets that the turn it believed it sent will
@@ -193,6 +252,11 @@ export interface LiveVoiceConnectArgs {
    * sent on the `start` frame. Omitted lets the daemon use its default.
    */
   bargeInMinSpeechMs?: number;
+  /**
+   * Which control asked for the session, sent on the `start` frame. Omitted
+   * means the daemon reports the session's entry point as unknown.
+   */
+  entry?: LiveVoiceEntry;
 }
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
@@ -222,6 +286,7 @@ export class LiveVoiceChannelClient {
   private turnDetection: LiveVoiceTurnDetectionMode | undefined;
   private silenceThresholdMs: number | undefined;
   private bargeInMinSpeechMs: number | undefined;
+  private entry: LiveVoiceEntry | undefined;
   // Set once an assistant running daemon code older than the `update_config`
   // frame rejects it with `unknown_type`. We then stop sending config updates
   // for this session so an older assistant is neither killed nor spammed by the
@@ -254,6 +319,7 @@ export class LiveVoiceChannelClient {
     metrics: new Set(),
     archived: new Set(),
     attachImageRejected: new Set(),
+    sightFrameRejected: new Set(),
     textTurnRejected: new Set(),
     busy: new Set(),
     error: new Set(),
@@ -300,6 +366,7 @@ export class LiveVoiceChannelClient {
     turnDetection,
     silenceThresholdMs,
     bargeInMinSpeechMs,
+    entry,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") {
       return;
@@ -309,6 +376,7 @@ export class LiveVoiceChannelClient {
     this.turnDetection = turnDetection;
     this.silenceThresholdMs = silenceThresholdMs;
     this.bargeInMinSpeechMs = bargeInMinSpeechMs;
+    this.entry = entry;
 
     let url: string;
     try {
@@ -422,28 +490,37 @@ export class LiveVoiceChannelClient {
   }
 
   /**
-   * Park a camera frame for the next turn to carry, by the id its upload
-   * already returned, or unpark with `null`. Unlike `attachImage` the daemon
-   * persists nothing on its own: the id waits in a one-slot latest-wins holder
-   * and rides whichever turn launches next, or is given back if none ever does.
+   * Share a camera frame the client's gate kept, by the id its upload already
+   * returned. The daemon persists it into the conversation as its own user
+   * message, tagged as a camera frame, and runs no turn.
    *
-   * `null` clears that slot, which is what a closing viewfinder sends so a
-   * frame from a camera the user put away cannot ride a later turn.
+   * Unlike `attachImage` the frame is the camera's pick rather than the
+   * user's, and unlike a photo it needs no receipt: nothing is staged, every
+   * keep lands, and the transcript's order is the order they landed in.
    *
    * Returns whether the frame went out, which is all a caller can act on. The
    * frame is ambient context rather than something the user asked to send, so
-   * a false is not worth reporting: the next keep parks a newer one anyway.
+   * a false is not worth reporting: the next keep sends a newer one anyway.
    *
-   * Callers MUST gate this on `useSupportsSightFrames`. An assistant that
+   * Callers MUST gate this on `useSupportsSightStream`. An assistant that
    * predates the frame rejects it with `unknown_type`, and while the branch
    * below keeps that out of the `update_config` bucket, an ungated sampler
    * would still be sending a frame every few seconds into a void.
    */
-  attachFrame(attachmentId: string | null): boolean {
+  sightFrame(
+    attachmentId: string,
+    timing?: LiveVoiceSightFrameTiming,
+  ): boolean {
     if (this.state !== "active") {
       return false;
     }
-    return this.trySend(JSON.stringify({ type: "attach_frame", attachmentId }));
+    return this.trySend(
+      JSON.stringify({
+        type: "sight_frame",
+        attachmentId,
+        ...(timing ? { timing } : {}),
+      }),
+    );
   }
 
   /**
@@ -528,6 +605,7 @@ export class LiveVoiceChannelClient {
       // session outright with `credentials_unavailable`, which is precisely
       // the outcome the text-only path exists to avoid.
       textInput: true,
+      ...(this.entry ? { entry: this.entry } : {}),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined
@@ -632,17 +710,33 @@ export class LiveVoiceChannelClient {
           });
           return;
         }
-        if (about === "attach_frame") {
-          // Swallowed rather than emitted, and both shapes land here. An
-          // `unknown_type` from a stale build that passes the version gate
-          // must not reach the `update_config` latch below and turn the
-          // room's settings off for the session; and the daemon's own
-          // `recoverable` refusal (an id it cannot resolve) must not reach the
-          // recoverable-error handler, which returns a hands-free session from
-          // `transcribing` to `listening` and would disturb the turn this
-          // frame was meant to ride. A parked frame is ambient context nobody
-          // asked to send, so a lost one is worth a log and nothing more.
-          console.warn(`live-voice: camera frame not parked: ${frame.message}`);
+        if (about === "sight_frame") {
+          // Kept out of the two buckets below, which is what the attribution
+          // buys. An `unknown_type` here must not reach the `update_config`
+          // latch and turn the room's settings off for the session, and a
+          // `recoverable` refusal must not reach the recoverable-error
+          // handler, which returns a hands-free session from `transcribing` to
+          // `listening` and would disturb a turn over a frame nobody asked to
+          // send.
+          //
+          // The two shapes mean opposite things, so the session is told which
+          // one arrived. `unknown_type` is an assistant that does not know the
+          // frame: it persists nothing and reclaims nothing, so the session
+          // must stop sending. Anything else is one keep an assistant that
+          // does know the frame could not persist, and it has already
+          // reclaimed that attachment itself.
+          console.warn(`live-voice: camera frame not shared: ${frame.message}`);
+          this.emit("sightFrameRejected", {
+            unsupported: frame.code === "unknown_type",
+            // Read defensively: the field is optional, and absent from every
+            // assistant at the version floor this frame is gated on.
+            attachmentId:
+              "attachmentId" in frame &&
+              typeof frame.attachmentId === "string" &&
+              frame.attachmentId.length > 0
+                ? frame.attachmentId
+                : null,
+          });
           return;
         }
         if (about === "text") {
@@ -664,10 +758,9 @@ export class LiveVoiceChannelClient {
         // `unknown_type` falls back to the settings frame. That is the safe
         // guess: it is the only frame this client sends without a version
         // gate, and the camera frames are gated (`useSupportsVoiceCamera`,
-        // `useSupportsSightFrames`) so neither should be in flight against an
-        // assistant that old. Anything
-        // new sent from here needs a gate or a `frameType`, or its rejection
-        // lands in the wrong bucket.
+        // `useSupportsSightStream`) so neither should be in flight against an
+        // assistant that old. Anything new sent from here needs a gate or a
+        // `frameType`, or its rejection lands in the wrong bucket.
         if (frame.code === "unknown_type") {
           this.configUpdatesUnsupported = true;
           console.warn(

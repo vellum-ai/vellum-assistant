@@ -366,12 +366,40 @@ describe("preactivateHostProxySkills logging", () => {
     expect(fields.sourceInterface).toBe("macos");
     expect(fields.decisions).toEqual({
       host_cu: { shouldAttach: true, reason: "native_support" },
+      // Negotiated on the connection rather than implied by the interface, so
+      // with no client advertising it there is nothing to draw on. See the
+      // case below for the same turn once one is connected.
+      host_cu_annotate: {
+        shouldAttach: false,
+        reason: "denied_no_clients",
+        clientCount: 0,
+      },
       host_app_control: { shouldAttach: true, reason: "native_support" },
     });
     expect(fields.preactivatedSkillIds).toEqual([
       "computer-use",
       "app-control",
     ]);
+  });
+
+  /**
+   * The interface table says macOS can draw, which is true of a client new
+   * enough to send the header and false of every build before it. Offering
+   * the skill on the table alone gave an older client a tool whose every call
+   * was refused for having nothing to draw on.
+   */
+  test("offers screen annotation once a client advertises it", () => {
+    const target = makeTarget("conv-macos-annotate");
+    setCapableClient("host_cu_annotate", true);
+
+    preactivateHostProxySkills(target, "macos", "user-1");
+
+    const { fields } = loggedInfoCalls[0];
+    expect(
+      (fields.decisions as Record<string, { shouldAttach: boolean }>)
+        .host_cu_annotate.shouldAttach,
+    ).toBe(true);
+    expect(fields.preactivatedSkillIds).toContain("screen-annotation");
   });
 
   test("log captures denied_no_interface for undefined sourceInterface (silent-gate diagnostic)", () => {
@@ -384,6 +412,10 @@ describe("preactivateHostProxySkills logging", () => {
     expect(fields.sourceInterface).toBeUndefined();
     expect(fields.decisions).toEqual({
       host_cu: { shouldAttach: false, reason: "denied_no_interface" },
+      host_cu_annotate: {
+        shouldAttach: false,
+        reason: "denied_no_interface",
+      },
       host_app_control: { shouldAttach: false, reason: "denied_no_interface" },
     });
     expect(fields.preactivatedSkillIds).toEqual([]);
@@ -409,8 +441,37 @@ describe("preactivateHostProxySkills logging", () => {
       reason: "denied_no_clients",
       clientCount: 0,
     });
+    // Computer use and nothing else. The marks are drawn in a window the
+    // client opens for itself, and a client advertising only the transport
+    // has no such window to draw in.
     expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([
       "computer-use",
+    ]);
+  });
+
+  /**
+   * The case the annotation capability exists for: a web turn is routed to a
+   * desktop client, and only a client that says it can draw is offered the
+   * skill that draws.
+   */
+  test("offers screen annotation to a web source once a client advertises it", () => {
+    setCapableClient("host_cu", true);
+    setCapableClient("host_cu_annotate", true);
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "web", "user-1");
+
+    const decisions = loggedInfoCalls[0].fields.decisions as Record<
+      string,
+      unknown
+    >;
+    expect(decisions.host_cu_annotate).toEqual({
+      shouldAttach: true,
+      reason: "cross_client",
+      clientCount: 1,
+    });
+    expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([
+      "computer-use",
+      "screen-annotation",
     ]);
   });
 

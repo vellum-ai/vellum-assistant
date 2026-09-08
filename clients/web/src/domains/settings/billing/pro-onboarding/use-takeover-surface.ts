@@ -4,8 +4,8 @@ import {
   useAssistantAvatar,
   type AvatarData,
 } from "@/hooks/use-assistant-avatar";
-import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
 import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
@@ -60,7 +60,7 @@ export function useTakeoverSurface(
   // so a multi-assistant org must not aim at the active assistant. Only an
   // omitted prop falls back to active.
   const resolvedId = assistantId === undefined ? activeId : assistantId;
-  const { components, traits, customImageUrl, isLoading } =
+  const { components, traits, customImageUrl, state, isLoading } =
     useAssistantAvatar(resolvedId);
   // Tracking the version, not just mounting once: native checkout opens an
   // external browser without unloading the page, so the billing modal hosting
@@ -103,16 +103,21 @@ export function useTakeoverSurface(
   const effectiveCustomImageUrl = drawnStash ? null : customImageUrl;
   const ready = liveSettled || stashUsable;
 
-  const drawnPalette = effectiveComponents
-    ? effectiveComponents.colors
-    : BUNDLED_COLORS;
+  // The stash carries no manifest, so its accent resolves from the traits
+  // the way the creature it draws does; the live avatar resolves the same
+  // way every other surface does, and matches whatever is on screen.
   const accent =
-    resolveAvatarAccentHex(effectiveComponents, effectiveTraits) ??
-    // ChatAvatar draws from `components ?? bundled`, so the surface tints from
-    // the same source it does — the first bundled color when the query settles
-    // with none — and matches whatever creature is on screen instead of falling
-    // through to neutral.
-    (effectiveCustomImageUrl ? null : (drawnPalette?.[0]?.hex ?? null));
+    resolveAvatarAccentHex({
+      state: drawnStash ? null : state,
+      components: effectiveComponents,
+      traits: effectiveTraits,
+      customImageUrl: effectiveCustomImageUrl,
+    }) ??
+    // A query that settles with nothing at all still draws: ChatAvatar falls
+    // back to the bundled creature in the first bundled color, so the surface
+    // tints from that same source and matches it instead of falling through
+    // to neutral. An image with no colour to read stays neutral.
+    (effectiveCustomImageUrl ? null : (BUNDLED_COLORS[0]?.hex ?? null));
 
   return {
     tintHex: ready && accent ? avatarSurfaceHex(accent) : SURFACE_GROUND,

@@ -14,6 +14,8 @@ import { lazy, useCallback, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
+import { ProgressStack } from "@/domains/chat/components/progress-stack";
+import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
@@ -430,7 +432,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     );
   }
 
-  const chatContent = <ChatMainPanel {...props} />;
+  // The chat column, with the progress surfaces layered over it. `relative` so
+  // the stack anchors to THIS box rather than the viewport: the drawers below
+  // open beside this column, and the controls must stay inside it rather than
+  // floating over whatever opens next to them.
+  //
+  // The boundary measures this column and publishes whether its right gutter
+  // can hold the side controls. Both mounts read that one value: the floating
+  // cluster here, and the fallback row above the composer inside
+  // `ChatMainPanel`. Exactly one draws.
+  const chatContent = (
+    <SideControlPlacementBoundary className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+      <ProgressStack placement="column" />
+      <ChatMainPanel {...props} />
+    </SideControlPlacementBoundary>
+  );
 
   // Right-hand detail panels — document viewer, subagent detail, tool detail,
   // and workflow detail — all share ONE AnimatedRightDrawer so the chat

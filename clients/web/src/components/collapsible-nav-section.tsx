@@ -172,7 +172,35 @@ interface CollapsibleNavSectionSectionProps extends Omit<
 > {
   value: string;
   icon?: LucideIcon;
+  /**
+   * Leading glyph for sections whose mark is not a Lucide icon — currently
+   * the assistant-initiated section, which carries the assistant's own eyes.
+   * Takes the same slot as {@link icon} (same box, same axis, both header
+   * branches) and wins when both are given, so a section states its glyph
+   * once whichever kind it is.
+   *
+   * Sized by the caller: the slot hugs its content rather than scaling it,
+   * because the eye sprite has its own aspect ratio and a forced 12px square
+   * would distort it.
+   */
+  iconNode?: ReactNode;
   label: string;
+  /**
+   * Extra classes for the label span - a section that inks its title
+   * differently states that here. The span keeps its structural classes
+   * (`min-w-0 flex-1 truncate`) either way, so a styled label still fills the
+   * row and still truncates.
+   */
+  labelClassName?: string;
+  /**
+   * Extra classes for the whole header row - for a section that draws its
+   * header on its own surface (the assistant-initiated section's
+   * accent-tinted pill, which spans disc, label, indicator, and chevron).
+   * The title's horizontal geometry is inline style from
+   * `sidebar-nav-geometry`, so a header surface that needs different insets
+   * overrides them with `!` utilities against the title slot.
+   */
+  headerClassName?: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
   /**
@@ -226,7 +254,10 @@ interface CollapsibleNavSectionSectionProps extends Omit<
 function CollapsibleNavSectionSection({
   value,
   icon: Icon,
+  iconNode,
   label,
+  labelClassName,
+  headerClassName,
   trailing,
   contextMenuContent,
   touchMenuContent,
@@ -249,16 +280,25 @@ function CollapsibleNavSectionSection({
   /* One slot for both header branches. The collapsible and non-collapsible
      headers show the same glyph on the same axis, so they read it from here
      rather than each rendering their own copy. */
-  const iconSlot = Icon ? (
+  const glyph = iconNode ?? (Icon ? <Icon size={12} aria-hidden /> : null);
+  const iconSlot = glyph ? (
     <span
       data-slot="collapsible-nav-section-icon"
-      /* Hugs the glyph. A chip-width box with the glyph centred in it padded
-         the icon away from both edges, so the header read as indented from
-         the row surfaces below it. Centring is the collapsed rail's need,
-         and the rail draws its own tiles. */
-      className="relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center"
+      /* A chip-width box with the glyph centred in it padded the icon away
+         from both edges, so the header read as indented from the row surfaces
+         below it. Centring is the collapsed rail's need, and the rail draws
+         its own tiles. */
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center",
+        /* Only the Lucide branch takes the 14px box and the tertiary ink: a
+           Lucide glyph draws in `currentColor` at a known size. A custom node
+           carries its own colour and its own geometry (the assistant
+           section's accent disc is a full row-height circle), so the slot
+           hugs it instead of boxing it. */
+        !iconNode && "h-[14px] w-[14px] text-[var(--content-tertiary)]",
+      )}
     >
-      <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
+      {glyph}
     </span>
   ) : null;
 
@@ -272,7 +312,8 @@ function CollapsibleNavSectionSection({
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
     /* `!` twice over: the shared title classes pin their own weight the same
        way, so a plain utility here loses to them rather than replacing them. */
-    card && "text-body-small-default max-md:text-body-small-default font-[500]!",
+    card &&
+      "text-body-small-default max-md:text-body-small-default font-[500]!",
   );
 
   const titleStyle = {
@@ -284,7 +325,9 @@ function CollapsibleNavSectionSection({
   const titleContent = (
     <>
       {iconSlot}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className={cn("min-w-0 flex-1 truncate", labelClassName)}>
+        {label}
+      </span>
     </>
   );
 
@@ -311,6 +354,7 @@ function CollapsibleNavSectionSection({
            so nothing escapes the card. */
         card && "h-5",
         drag && "cursor-grab active:cursor-grabbing",
+        headerClassName,
       )}
       {...drag?.headerProps}
     >
@@ -499,7 +543,9 @@ function CollapsibleNavSectionSection({
             contentClassName,
           )}
           style={{
-            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingLeft: card
+              ? 0
+              : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
           }}
         >
@@ -517,7 +563,9 @@ function CollapsibleNavSectionSection({
             contentClassName,
           )}
           style={{
-            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingLeft: card
+              ? 0
+              : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
           }}
         >

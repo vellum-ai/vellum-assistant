@@ -2,9 +2,10 @@ import Capacitor
 import Foundation
 
 /// Capacitor plugin the web layer uses to mirror its sidebar conversation
-/// list into `RecentChatsStore`, so the Shortcuts app's chat picker
-/// (`ChatEntityQuery`) has something to offer without a network stack or
-/// auth of its own.
+/// list into `RecentChatsStore` (App Group UserDefaults), so the Shortcuts
+/// app's chat picker (`ChatEntityQuery`) and the share extension's
+/// destination list have something to offer without a network stack or
+/// auth of their own.
 ///
 /// One method:
 /// - `sync({ chats: [{id, title}] })` replaces the whole cache with the given

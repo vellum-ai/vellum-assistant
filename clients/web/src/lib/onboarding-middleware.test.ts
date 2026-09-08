@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { markAssistantOnboarded } from "@/domains/onboarding/onboarded-assistant-record";
 import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import { onboardingCompletedMiddleware } from "@/lib/onboarding-middleware";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { writeSelectedAssistantId } from "@/assistant/selected-assistant-storage";
 import { routes } from "@/utils/routes";
 
 function makeRequest(path: string): Request {
@@ -52,22 +54,23 @@ describe("onboardingCompletedMiddleware", () => {
   // walk as an unmarked re-entry and bounced it to `/assistant`, which sends a
   // local client back to the chooser it started from.
   describe("new-assistant marker", () => {
+    const WEEK_OLD = () =>
+      new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const row = (id: string, hatchedAt: string) => ({
+      id,
+      hatchedAt,
+      isLocal: true,
+      isPlatformHosted: false,
+      isPaired: false,
+    });
+
     beforeEach(() => {
-      // A week-old assistant is what makes `alreadyOnboarded` true.
+      // An onboarded SELECTED assistant is what arms the privacy bounce.
       useResolvedAssistantsStore.setState({
-        assistants: [
-          {
-            id: "asst-old",
-            hatchedAt: new Date(
-              Date.now() - 30 * 24 * 60 * 60 * 1000,
-            ).toISOString(),
-            isLocal: true,
-            isPlatformHosted: false,
-            isPaired: false,
-          },
-        ],
+        assistants: [row("asst-old", WEEK_OLD())],
         assistantsHydrated: true,
       });
+      writeSelectedAssistantId("asst-old");
     });
 
     test("bounces an unmarked privacy entry", async () => {
@@ -82,6 +85,55 @@ describe("onboardingCompletedMiddleware", () => {
         ),
       ).rejects.toThrow();
       expect(next).not.toHaveBeenCalled();
+    });
+
+    // Scoping, at the layer that actually runs the redirect: an established
+    // sibling must not answer for the assistant the user just selected.
+    test("does not bounce when the selected assistant is unonboarded", async () => {
+      useResolvedAssistantsStore.setState({
+        assistants: [
+          row("asst-old", WEEK_OLD()),
+          row("asst-new", new Date().toISOString()),
+        ],
+        assistantsHydrated: true,
+      });
+      writeSelectedAssistantId("asst-new");
+      const next = mock(async () => "ok");
+
+      const result = await onboardingCompletedMiddleware(
+        {
+          request: makeRequest(`${routes.onboarding.privacy}?hosting=local`),
+        } as Parameters<typeof onboardingCompletedMiddleware>[0],
+        next,
+      );
+
+      expect(result).toBe("ok");
+      expect(next).toHaveBeenCalled();
+    });
+
+    // The stamp is read live, not cached on the assistant row: a completion
+    // has to take effect without waiting for the assistant list to be rebuilt
+    // (and reaches other tabs the same way).
+    test("a fresh stamp arms the bounce with no store refresh", async () => {
+      useResolvedAssistantsStore.setState({
+        assistants: [row("asst-new", new Date().toISOString())],
+        assistantsHydrated: true,
+      });
+      writeSelectedAssistantId("asst-new");
+      const request = () =>
+        ({
+          request: makeRequest(`${routes.onboarding.privacy}?hosting=local`),
+        }) as Parameters<typeof onboardingCompletedMiddleware>[0];
+
+      expect(
+        await onboardingCompletedMiddleware(request(), async () => "ok"),
+      ).toBe("ok");
+
+      markAssistantOnboarded("asst-new");
+
+      await expect(
+        onboardingCompletedMiddleware(request(), async () => "ok"),
+      ).rejects.toThrow();
     });
 
     test("lets a marked provisioning walk through", async () => {

@@ -10,7 +10,13 @@ type CallSlackApi = typeof import("./api.js").callSlackApi;
 
 const callSlackApiMock = mock<CallSlackApi>(async () => ({ ok: true }));
 
+// Spread the real module so a factory listing only what today's tests touch
+// cannot break the next import send.ts adds; the stubs below then override
+// exactly the calls this suite asserts on.
+const actualSlackApi = await import("./api.js");
+
 mock.module("./api.js", () => ({
+  ...actualSlackApi,
   callSlackApi: (method: string, body: Record<string, unknown>) =>
     callSlackApiMock(method, body),
   callSlackApiForm: async () => ({}),
@@ -32,8 +38,10 @@ const {
   sendSlackAgentSessionStatus,
   sendSlackReaction,
   sendSlackReply,
+  sendSlackStreamOp,
   updateSlackMessage,
 } = await import("./send.js");
+const { SLACK_STREAM_MARKDOWN_LIMIT } = await import("./api.js");
 
 describe("sendSlackAgentSessionStatus", () => {
   const threadTs = "1700000000.000100";
@@ -440,5 +448,55 @@ describe("sendSlackReply approval fallback", () => {
       }),
     ).rejects.toThrow();
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendSlackStreamOp", () => {
+  const streamTs = "1700000000.000900";
+
+  beforeEach(() => {
+    callSlackApiMock.mockReset();
+    callSlackApiMock.mockImplementation(async () => ({ ok: true }));
+  });
+
+  test("sends one call per operation, whatever the caller hands over", async () => {
+    // Splitting to fit the cap belongs to the caller, which is what tracks how
+    // much of the reply Slack has taken. This layer performs the operation it
+    // is given, once.
+    const appended = "x".repeat(SLACK_STREAM_MARKDOWN_LIMIT);
+    await sendSlackStreamOp("C-STREAM", {
+      action: "append",
+      streamId: streamTs,
+      text: appended,
+      appended,
+    });
+
+    const calls = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.appendStream",
+    );
+    expect(calls).toHaveLength(1);
+    expect((calls[0]![1] as { markdownText?: string }).markdownText).toBe(
+      appended,
+    );
+  });
+
+  test("a plan that moved with no new words still reaches the message", async () => {
+    // `chat.appendStream` documents "One of markdown_text or chunks is
+    // required", so a plan-only call is legal and is what ticks the plan block
+    // during silent work.
+    await sendSlackStreamOp("C-STREAM", {
+      action: "append",
+      streamId: streamTs,
+      text: "unchanged",
+      plan: { steps: [{ label: "Step", status: "completed" }] },
+    });
+
+    const calls = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.appendStream",
+    );
+    expect(calls).toHaveLength(1);
+    const body = calls[0]![1] as { markdownText?: string; tasks?: unknown };
+    expect(body.markdownText).toBeUndefined();
+    expect(body.tasks).toBeDefined();
   });
 });

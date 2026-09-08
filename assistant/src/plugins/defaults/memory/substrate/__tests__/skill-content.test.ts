@@ -119,3 +119,20 @@ describe("augmentMcpSetupDescription", () => {
     expect(out.id).toBe("mcp-setup");
   });
 });
+
+describe("SKILLS_INJECTION_CATALOG_HINT", () => {
+  test("points a missing product at plugin and skill search", async () => {
+    const { SKILLS_INJECTION_CATALOG_HINT } = await import(
+      "../skill-content.js"
+    );
+    expect(SKILLS_INJECTION_CATALOG_HINT).toContain(
+      "assistant plugins search <name>",
+    );
+    expect(SKILLS_INJECTION_CATALOG_HINT).toContain(
+      "assistant skills search <name>",
+    );
+    expect(SKILLS_INJECTION_CATALOG_HINT.toLowerCase()).toContain(
+      "currently in the workspace",
+    );
+  });
+});

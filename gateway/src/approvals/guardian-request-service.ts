@@ -49,7 +49,6 @@ import {
   getGuardianRequest as storeGetGuardianRequest,
   getGuardianRequestByCode as storeGetGuardianRequestByCode,
   getPendingByCallSessionId,
-  getPendingByDestinationMessage,
   isRequestInConversationScope,
   listDeliveries,
   listDeliveriesByChat,
@@ -182,17 +181,6 @@ export function listGuardianRequestDeliveriesByChat(
 // ---------------------------------------------------------------------------
 // Destination + scope lookups
 // ---------------------------------------------------------------------------
-
-/** Reaction routing: the pending request delivered as a specific message. */
-export function getPendingRequestByDestinationMessage(
-  channel: string,
-  chatId: string,
-  messageId: string,
-): GuardianRequestWire | null {
-  return toWireOrNull(
-    getPendingByDestinationMessage(channel, chatId, messageId),
-  );
-}
 
 /**
  * Reply routing: pending requests delivered to a destination conversation

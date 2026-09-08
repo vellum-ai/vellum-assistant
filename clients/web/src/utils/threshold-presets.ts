@@ -16,8 +16,10 @@ export type RiskThreshold =
 export interface ThresholdPreset {
   id: string;
   label: string;
+  labelKey: string;
   riskThreshold: RiskThreshold;
   description: string;
+  descriptionKey: string;
   icon: LucideIcon;
 }
 
@@ -25,32 +27,40 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
   {
     id: "strict",
     label: "Strict",
+    labelKey: "thresholdPresets.strict.label",
     riskThreshold: "none",
     description: "Always ask before acting. No actions are auto-approved.",
+    descriptionKey: "thresholdPresets.strict.description",
     icon: Lock,
   },
   {
     id: "conservative",
     label: "Conservative",
+    labelKey: "thresholdPresets.conservative.label",
     riskThreshold: "low",
     description:
       "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace.",
+    descriptionKey: "thresholdPresets.conservative.description",
     icon: ShieldCheck,
   },
   {
     id: "relaxed",
     label: "Relaxed",
+    labelKey: "thresholdPresets.relaxed.label",
     riskThreshold: "medium",
     description:
       "Auto-approve low and medium-risk actions, like changing files outside its own workspace.",
+    descriptionKey: "thresholdPresets.relaxed.description",
     icon: Shield,
   },
   {
     id: "fullAccess",
     label: "Full access",
+    labelKey: "thresholdPresets.fullAccess.label",
     riskThreshold: "high",
     description:
       "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission.",
+    descriptionKey: "thresholdPresets.fullAccess.description",
     icon: ShieldOff,
   },
 ];

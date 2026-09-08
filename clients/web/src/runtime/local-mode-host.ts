@@ -327,6 +327,36 @@ export async function renameLockfileAssistantHost(
 }
 
 /**
+ * Stamp `onboardedAt` on an existing lockfile entry through the host's
+ * update-only operation, for the same reason {@link renameLockfileAssistantHost}
+ * exists: a completion racing a retire must not resurrect the entry from a
+ * stale renderer snapshot. Older Electron hosts that predate the channel
+ * degrade to a structured failure; the stamp still lands in the renderer's
+ * device-scoped record, which is what the routing guards read.
+ */
+export async function stampLockfileAssistantOnboardedHost(
+  assistantId: string,
+  onboardedAt: string,
+): Promise<LockfileWriteResult> {
+  if (isElectron()) {
+    const stamp = window.vellum!.localMode.stampLockfileAssistantOnboarded;
+    if (!stamp) {
+      return {
+        ok: false,
+        error: "Recording onboarding is not supported by this app version",
+      };
+    }
+    return stamp(assistantId, onboardedAt);
+  }
+
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/lockfile",
+    { onboarded: { assistantId, onboardedAt } },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
  * Replace the platform (`cloud === "vellum"`) assistants in the lockfile with
  * the provided set, preserving local assistants. When `organizationId` is
  * given, only that org's platform entries are replaced — other orgs' entries

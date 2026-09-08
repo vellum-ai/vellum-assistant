@@ -179,6 +179,31 @@ describe("DiscordAdapter.send", () => {
     );
   });
 
+  test("a question with no options is sent as text with its typed-reply instruction", async () => {
+    const adapter = new DiscordAdapter();
+    const result = await adapter.send(
+      makePayload({
+        approvalContext: {
+          requestId: "req-voice-1",
+          actions: [],
+          plainTextFallback:
+            'Reference code: DEF456. Reply "DEF456 <your answer>".',
+          intent: "question",
+        },
+      }),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(true);
+    expect(sendCalls).toHaveLength(1);
+    // No buttons to draw, so no components are attempted and the
+    // instruction joins the text.
+    expect(sendCalls[0].approval).toBeUndefined();
+    expect(sendCalls[0].text).toEndWith(
+      'Reference code: DEF456. Reply "DEF456 <your answer>".',
+    );
+  });
+
   test("a destination without a guardian user id fails without calling the API", async () => {
     const adapter = new DiscordAdapter();
     const result = await adapter.send(

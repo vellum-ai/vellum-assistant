@@ -28,6 +28,7 @@ import {
   ACP_SERVICE,
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
+import { invalidateEmailReadinessForByoCredential } from "../../email/byo-email-credential.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { normalizeSecretValue } from "../../security/secret-normalize.js";
 import {
@@ -175,6 +176,8 @@ export async function storeCredentialValue(
       "Credential stored, but provider rotation refresh failed",
     );
   }
+
+  await invalidateEmailReadinessForByoCredential(service);
 
   return { credentialId: metadata.credentialId, service, field };
 }

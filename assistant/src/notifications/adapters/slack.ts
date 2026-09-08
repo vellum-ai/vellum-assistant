@@ -39,7 +39,11 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
-import { resolveMessageText } from "./shared.js";
+import {
+  appendPlainTextFallback,
+  rendersActions,
+  resolveMessageText,
+} from "./shared.js";
 
 const log = getLogger("notif-adapter-slack");
 
@@ -444,13 +448,19 @@ export class SlackAdapter implements ChannelAdapter {
       // `approval` rides along with the prebuilt card blocks so the send
       // layer treats a rejected Block Kit payload as an approval prompt:
       // its block-free retry re-attaches `plainTextFallback` reply
-      // instructions instead of posting text with no way to respond.
-      const result = payload.approvalContext
+      // instructions instead of posting text with no way to respond. A
+      // context with no buttons to draw is answered by typed reply, so its
+      // instructions join the text up front.
+      const result = rendersActions(payload.approvalContext)
         ? await sendSlackReply(chatId, messageText, {
             blocks: buildApprovalNotificationBlocks(payload, messageText),
             approval: payload.approvalContext,
           })
-        : await sendSlackReply(chatId, messageText, { useBlocks: true });
+        : await sendSlackReply(
+            chatId,
+            appendPlainTextFallback(messageText, payload.approvalContext),
+            { useBlocks: true },
+          );
 
       log.info(
         { sourceEventName: payload.sourceEventName, chatId, ts: result.ts },

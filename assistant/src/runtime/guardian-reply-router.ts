@@ -13,8 +13,8 @@
  * validation, expiry checks, the atomic gateway CAS+outcome commit,
  * kind-specific resolver dispatch, and grant minting.
  *
- * Routing reads (code lookup, pending discovery, reaction addressing) use the
- * degrading gateway-client variants: an unreachable gateway resolves to "no
+ * Routing reads (code lookup, pending discovery) use the degrading
+ * gateway-client variants: an unreachable gateway resolves to "no
  * pending requests", so the message falls through to the normal pipeline
  * instead of failing the inbound turn — decisions themselves still fail
  * loudly inside the primitive.
@@ -23,7 +23,6 @@
  * to allow for incremental migration and independent testability.
  */
 
-import type { InboundReactionPayload } from "@vellumai/gateway-client";
 import { isGuardianRequestExpired } from "@vellumai/gateway-client";
 
 import {
@@ -38,7 +37,6 @@ import type {
 import {
   getGuardianRequestByCodeOrNull,
   getGuardianRequestOrNull,
-  getPendingRequestByDestinationMessageOrNull,
   type GuardianRequestWire,
   listGuardianRequestsOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
@@ -62,7 +60,6 @@ import type {
   ApprovalConversationGenerator,
 } from "./http-types.js";
 import * as pendingInteractions from "./pending-interactions.js";
-import { reactionDecisionForEmoji } from "./routes/channel-route-shared.js";
 
 const log = getLogger("guardian-reply-router");
 
@@ -94,29 +91,16 @@ export type GuardianPendingScope =
 export interface GuardianReplyContext {
   /** The raw message text (trimmed). */
   messageText: string;
-  /** Source channel (telegram, whatsapp, etc.). */
-  channel: string;
   /** Actor identity context for the sender. */
   actor: ActorContext;
   /**
    * Conversation the message arrived in (may be the guardian's own). Only the
-   * text and NL paths read it; reactions and `apr:` callbacks resolve their
-   * target by card address or embedded request id and may pass none.
+   * text and NL paths read it; `apr:` callbacks resolve their target by the
+   * embedded request id and may pass none.
    */
   conversationId?: string;
   /** Callback data from button presses (e.g. `apr:<requestId>:<action>`). */
   callbackData?: string;
-  /**
-   * Structured reaction payload when the inbound event is a reaction; the
-   * reaction branch keys on it and reads nothing off callbackData.
-   */
-  reaction?: InboundReactionPayload;
-  /**
-   * For emoji-reaction decisions: the
-   * channel-native id (e.g. Slack `ts`) of the message the reaction was
-   * attached to. Used to recover the target request from its delivery record.
-   */
-  reactedMessageTs?: string;
   /**
    * How to scope this guardian's pending requests (see {@link
    * GuardianPendingScope}). Omitted is equivalent to
@@ -357,68 +341,13 @@ export async function routeGuardianReply(
 ): Promise<GuardianReplyResult> {
   const {
     messageText,
-    channel,
     actor,
     conversationId,
     callbackData,
-    reactedMessageTs,
     approvalConversationGenerator,
     channelDeliveryContext,
     emissionContext,
   } = ctx;
-
-  // ── 0. Reaction decisions (emoji on a delivered approval card) ──
-  // A reaction carries an emoji plus the message it is attached to. Map the
-  // emoji to an action and recover the target request from that card's
-  // delivery record. Addressing by the reacted message disambiguates precisely
-  // even when several cards are pending in the same chat, so — unlike the
-  // text/NL paths — no clarification prompt is ever needed. `reaction_removed`
-  // never expresses intent and is filtered out before reaching the router.
-  if (ctx.reaction?.op === "added") {
-    const decision = reactionDecisionForEmoji(ctx.reaction.emoji);
-    const guardianChatId = channelDeliveryContext?.guardianChatId;
-    if (!decision || !reactedMessageTs || !guardianChatId) {
-      // Unknown emoji, or missing addressing context — not an actionable
-      // approval reaction. Leave it for the caller to persist as a transcript
-      // signal (it must not trigger an agent turn).
-      return notConsumed();
-    }
-    // A delivery row keys its card by the destination the adapter delivered
-    // to, and channels address that destination in one of two modalities: a
-    // chat (the conversation the reaction arrives from) or a person (the
-    // guardian's own user id, which person-addressed adapters store so a
-    // stale room id can never become a delivery target). The reactor on an
-    // approval card is the person it was delivered to, so their id is the
-    // second probe; identity validation in applyGuardianDecision still
-    // guards the decision itself.
-    const request =
-      (await getPendingRequestByDestinationMessageOrNull(
-        channel,
-        guardianChatId,
-        reactedMessageTs,
-      )) ??
-      (actor.actorExternalUserId
-        ? await getPendingRequestByDestinationMessageOrNull(
-            channel,
-            actor.actorExternalUserId,
-            reactedMessageTs,
-          )
-        : null);
-    if (!request) {
-      // The reacted message is not a known pending approval card (a stray
-      // reaction, or one whose request was already resolved). Never approve
-      // off an unrecognized message.
-      return notConsumed();
-    }
-    return applyDecision(
-      request.id,
-      decision.action,
-      actor,
-      undefined,
-      channelDeliveryContext,
-      emissionContext,
-    );
-  }
 
   const pendingScope: GuardianPendingScope = ctx.pendingScope ?? {
     mode: "identity-fallback",

@@ -282,7 +282,7 @@ Channel bindings follow a three-phase lifecycle:
 
 1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
 
-2. **Route** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
+2. **Route**: Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Slack and Telegram are thread-scoped: a message that arrives in a Slack thread (including every message in a Slack agent DM, which Slack always delivers in a thread) or a Telegram topic resolves to that thread's own conversation, keyed on the chat plus the thread id (`assistant/src/persistence/delivery-crud.ts`, `buildScopedConversationKey`); a thread-less message resolves to the chat's base conversation. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
 
 3. **Rebind** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new.
 
@@ -320,7 +320,7 @@ Public Velay HTTPS/WSS URL
   → Existing gateway route handlers
 ```
 
-The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. Velay-managed `ingress.publicBaseUrl` changes are tagged with `publicBaseUrlManagedBy` so gateway side effects can skip unrelated webhook reconciliation while still refreshing Twilio phone-number webhooks.
+The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. Velay-managed `ingress.publicBaseUrl` changes are tagged with `publicBaseUrlManagedBy` so gateway side effects can skip unrelated webhook reconciliation while still refreshing Twilio phone-number webhooks. While `velay-webhooks` is on, the Telegram reconcile runs on that change too, because the published URL is then the address Telegram is meant to point at; email callback re-registration stays suppressed either way.
 
 Local platform smoke-test flow:
 
@@ -331,6 +331,24 @@ Local platform smoke-test flow:
 5. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
 6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
 7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/media-stream/<callSessionId>/<token>`, then with a real Twilio call after the gateway has registered with Velay.
+
+### Webhook Ingress Route Registry
+
+The whole `/webhooks/` namespace used to be reachable through the tunnel as one wildcard. The registry replaces that with a per-assistant allowlist: an assistant answers exactly the subpaths it has claimed, and nothing else. It is gated on the `velay-webhooks` feature flag; with the flag off every rule below is the pre-registry one.
+
+**Three admission layers**, outermost first. Each is narrower than the one in front of it, and none replaces the others:
+
+1. **Velay edge rules.** Every WebSocket upgrade to Velay carries the `X-Vellum-Velay-Allowed-Paths` header, a JSON array of Go RE2 patterns built in `gateway/src/velay/allowed-paths.ts`. Velay compiles them and drops any request matching none of them before it enters the tunnel. With the flag on, the array carries one exact-match rule per registered row in place of the `^/webhooks/` wildcard.
+2. **Bridge re-validation.** `isAllowedVelayHttpPath` (`gateway/src/velay/bridge-utils.ts`) consults the registry again as the frame arrives, so an edge rule that has gone stale still admits nothing the gateway has stopped claiming.
+3. **Route table and per-route authentication.** An admitted path must still match a registered gateway route, and each provider route runs its own check: Telegram's `secret_token`, Twilio's HMAC-SHA1 signature, a plugin webhook's token.
+
+**Where the registry lives.** One `webhook_ingress_routes` row per path in `gateway.sqlite`, which sits in `GATEWAY_SECURITY_DIR` (the PVC in a managed deployment), so claims survive a pod restart. A row holds the origin-relative path, the owning `type` (`telegram`, `twilio_voice`, `plugin`, and so on), an optional `source` naming the instance within that type, and `last_registered_at`, refreshed on every re-registration so a path nothing claims any more is visible as a stale row. Rows never expire on their own; `unregister_webhook_route` removes one.
+
+**Who claims what.** The daemon claims over IPC (`register_webhook_route`, `gateway/src/ipc/webhook-route-handlers.ts`) for plugin webhooks and its own callback registration. The gateway claims in-process for the channels it owns end to end: Telegram in `telegram/webhook-manager.ts`, Twilio in `twilio/webhook-sync.ts`. Registration is gated on the flag at every call site; revocation and listing are not, so an operator can always see and remove what was claimed while the flag was on. Where no claim is available, because the flag is off, no tunnel URL is published yet, or the write fails, the caller registers a Django-hosted callback route instead (`POST /v1/internal/gateway/callback-routes/register/`), which is the pre-registry behavior and stays the fallback.
+
+**Propagation and its window.** Registering a row that changes the advertised set fires `onWebhookIngressRoutesChanged`, which asks the tunnel client to reconnect so the new rules ride the next upgrade header. That reconnect is debounced 5s and deferred while the tunnel is carrying traffic, so for a short window Velay is still enforcing the previous rules and drops a just-claimed path at the edge. Nothing retries a request the edge dropped, so a path is claimed before its URL is handed to a provider, never after.
+
+**Twilio's static entries.** `^/webhooks/twilio/` stays a prefix rule at the edge and in the bridge, because the media-stream path carries call state in its segments (`/webhooks/twilio/media-stream/<callSessionId>/<token>`) that an exact-match row cannot express. The voice and status paths are exact, and the Twilio webhook sync claims them so the registry describes them. Those claims are bookkeeping toward narrowing the static prefix down to the media-stream subtree.
 
 ### URL Builders
 
@@ -669,11 +687,17 @@ The gateway reads Telegram credentials via its `credential-reader` module (`gate
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
+1. Reads Telegram credentials (bot token, webhook secret) from secure storage via the credential reader, and resolves the URL to register (see the tiers below)
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
-This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change, invalidates the `ConfigFileCache`, and triggers webhook reconciliation directly — no daemon involvement is needed. Manual webhook registration is no longer required.
+**Which URL Telegram is pointed at.** `resolveExpectedTelegramWebhookUrl` (`gateway/src/telegram/webhook-manager.ts`) resolves it, and has to agree tier for tier with `hasWebhookRoutingConfigured` in `assistant/src/config/webhook-routing.ts`, because that derivation is what the daemon reports to the user:
+
+- A **platform pod** with `velay-webhooks` off registers a Django-hosted callback route and never consults ingress. A pod's `ingress.publicBaseUrl` is written by the Velay tunnel client and cleared when the tunnel drops, while Telegram keeps delivering to whatever was last registered, so resolving through that address alone would leave the pod pointed at a dead one.
+- A **platform pod** with the flag on claims `/webhooks/telegram` in the webhook ingress route registry and points Telegram at `<published Velay URL>/webhooks/telegram`. The claim comes first because both admission layers in front of the route consult the registry. No published URL, or a claim that fails, falls back to the Django callback route.
+- **Everyone else** uses a configured `ingress.publicBaseUrl` when there is one (a self-hosted tunnel) and a Django callback route otherwise. An explicit `ingress.enabled: false` deregisters the webhook instead; platform pods are exempt from that flag, having no self-owned ingress to disable.
+
+Reconciliation re-runs when the credential watcher sees Telegram or `vellum` credentials change, when the config file watcher sees an ingress change, on system wake, and when `velay-webhooks` flips. The flag flip and the tunnel publishing its URL are what move a pod between the two addresses, in either direction, so a gradual flag rollout migrates assistants without a restart. Those triggers arrive in bursts, because a tunnel refresh clears `ingress.publicBaseUrl` and republishes it moments later, so `reconcileTelegramWebhook` serializes them: one reconciliation runs, everything that arrives during it collapses into a single rerun, and that rerun re-reads config so the last `setWebhook` is the one holding the settled address. No daemon involvement is needed for any of it, and manual webhook registration is not required.
 
 ### Routing
 
@@ -704,7 +728,7 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 **Event processing** (inbound):
 
 1. Every Socket Mode envelope is ACKed immediately by echoing `{ envelope_id }` back on the WebSocket — this is required by Slack regardless of whether the event is processed.
-2. Only `events_api` envelopes with `app_mention` events are processed in MVP. Other envelope types (slash commands, interactive payloads) are ACKed but ignored.
+2. `events_api` envelopes are admitted per event kind (`processEventPayload` in `socket-mode.ts`): `app_mention` events; every message in a DM or group DM (`message.im`, `message.mpim`); unmentioned replies in a thread the assistant is already part of (mention-then-thread mode); and edits, deletes, and reactions scoped to those rooms. The bot's own echoes are dropped by a single self-filter before routing. Interactive payloads (button presses) are handled separately; slash commands are ACKed and ignored.
 3. Events are deduplicated by a compound key in the SQLite-backed `slack_seen_events` table: every event records its Slack `event_id`, and message-shaped events additionally record `msg:${channel}:${ts}` so the live and reconnect-replay paths dedup symmetrically. Entries TTL out after 24h; a periodic cleanup sweep evicts expired rows.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
@@ -744,14 +768,14 @@ Any persistent-stream transport that does not buffer events for disconnected cli
 
 **Key modules:**
 
-| Module                                     | Purpose                                                                                       |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up |
-| `gateway/src/slack/slack-web.ts`           | `conversations.history` / `conversations.replies` helpers for reconnect catch-up              |
-| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping                  |
-| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`                           |
+| Module                                    | Purpose                                                                                                               |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/slack/socket-mode.ts`        | `SlackSocketModeClient`: WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up                          |
+| `gateway/src/slack/slack-web.ts`          | `conversations.history` / `conversations.replies` helpers for reconnect catch-up                                      |
+| `gateway/src/slack/message-normalizer.ts` | Normalizers per event family (`normalizeSlackAppMention()`, DM, group DM, channel message) with bot-mention stripping |
+| `gateway/src/index.ts`                    | `/deliver/slack` route: outbound message delivery via `chat.postMessage`, thread and message ts on the callback URL   |
 
-**Limitations (MVP):** Text-only — attachments are rejected. Only `app_mention` events are processed (direct messages to the bot are not handled). Rich approval UI (inline buttons) is not supported.
+**What the ingress does not do:** it never forwards the bot's own posts to the daemon (except a deletion of one, which the daemon records), and it never reads history on the daemon's behalf beyond the bounded reconnect catch-up above; the daemon's inbound-triggered backfill hydrates context.
 
 ---
 
@@ -1055,7 +1079,7 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 - Twilio voice/status/media-stream URLs use `ingress.publicBaseUrl`.
 - Velay registration publishes its public assistant URL to `ingress.publicBaseUrl` with `ingress.publicBaseUrlManagedBy: "velay"`.
-- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs also use `ingress.publicBaseUrl`; Velay-managed URL changes are tagged so unrelated reconciliation can be skipped when appropriate.
+- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs also use `ingress.publicBaseUrl`; Velay-managed URL changes are tagged so unrelated reconciliation can be skipped when appropriate. With `velay-webhooks` on, the Telegram reconcile stops skipping them, because a pod's Velay URL is then the address it registers.
 - Module-level assistant state remains a fallback for legacy tunnel start/stop flows.
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.

@@ -102,16 +102,13 @@ export function IntegrationDetailModal({
     (c) => c.provider === providerKey && c.connected,
   );
 
-  const { handleConnect, oauthInProgress, startOAuthPending } = useOAuthConnect(
-    {
-      assistantId,
-      providerKey,
-      displayName,
-      managedAvailable,
-      connectionsQueryKey,
-      allConnections,
-    },
-  );
+  const { handleConnect, oauthInProgress } = useOAuthConnect({
+    assistantId,
+    providerKey,
+    displayName,
+    managedAvailable,
+    connectionsQueryKey,
+  });
 
   const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
@@ -245,7 +242,6 @@ export function IntegrationDetailModal({
                 logoUrl={logoUrl}
                 connections={providerConnections}
                 connectionsLoading={connectionsLoading}
-                startPending={startOAuthPending}
                 oauthInProgress={oauthInProgress}
                 disconnectingId={
                   disconnectOAuth.isPending ? pendingDisconnectId : null

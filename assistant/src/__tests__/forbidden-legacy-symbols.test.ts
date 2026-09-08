@@ -34,11 +34,23 @@ describe("forbidden legacy symbols", () => {
       "twilio_webhook_config",
       "calls.webhookBaseUrl",
     ];
+    // This pattern is POSIX ERE for `git grep -E`, not a JavaScript RegExp:
+    // ERE has no `\x` escapes, so `RegExp.escape` would turn the pattern
+    // into one that matches nothing and the test would pass empty.
     const escapedPattern = forbiddenSymbols
       .map((symbol) => symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
       .join("|");
 
     const repoRoot = resolve(__dirname, "..", "..", "..");
+    // Positive control: the pattern must still match the symbols as written
+    // in this very file, so a broken pattern fails loudly instead of
+    // matching nothing.
+    const selfMatches = execSync(
+      `git grep -c -E "${escapedPattern}" -- "assistant/src/__tests__/forbidden-legacy-symbols.test.ts"`,
+      { cwd: repoRoot, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+    );
+    expect(selfMatches.trim()).not.toBe("");
+
     let matches = "";
     try {
       // Use git grep so only tracked files are searched. This automatically

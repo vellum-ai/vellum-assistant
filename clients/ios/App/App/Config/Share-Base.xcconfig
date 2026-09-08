@@ -1,0 +1,37 @@
+// Share-Base.xcconfig - shared build settings for the three Share
+// extension targets. Per-target xcconfigs #include this file, then
+// override the one key that differs: the bundle ID, which iOS requires
+// to be prefixed by its containing app's ID.
+//
+// This deliberately does NOT #include Base.xcconfig. That file points
+// CODE_SIGN_ENTITLEMENTS, INFOPLIST_FILE and ASSOCIATED_DOMAIN at the
+// app's own values, which are wrong or actively harmful on an appex.
+// Keep DEVELOPMENT_TEAM, SWIFT_VERSION, TARGETED_DEVICE_FAMILY and
+// IPHONEOS_DEPLOYMENT_TARGET in sync with Base.xcconfig and
+// Extension-Base.xcconfig.
+//
+// APP_GROUP_ID, BUNDLE_URL_SCHEME and BUNDLE_DISPLAY_NAME are restated
+// verbatim from the matching App*.xcconfig. The App Group is the inbox
+// this appex writes and the host reads. The URL scheme is used only to
+// *build* the `://share/<id>` pointer; the appex must not register a
+// URL type.
+//
+// The entitlements file is the same App Group-only file the VoiceActivity
+// extension uses. Push stays off. See clients/ios/README.md for the
+// portal App IDs and profiles this target needs before a release can sign.
+
+MARKETING_VERSION = 0.0.0
+CURRENT_PROJECT_VERSION = 1
+
+CODE_SIGN_ENTITLEMENTS = App/Extension.entitlements
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = 7FZDXZR8P5
+INFOPLIST_FILE = ShareExtension/Info.plist
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+
+PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
+
+APPLICATION_EXTENSION_API_ONLY = YES
+SKIP_INSTALL = YES
+SWIFT_VERSION = 5.0
+TARGETED_DEVICE_FAMILY = 1,2

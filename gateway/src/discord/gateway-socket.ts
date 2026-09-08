@@ -895,8 +895,13 @@ export class DiscordGatewayClient {
     // event still rides the full forward path, where the kill switch and
     // per-family stages apply.
     const parentChannelId = this.threadParents.parentOf(reaction.channel_id);
+    // Receipt is the only place that can tell one occurrence of a reaction
+    // from the next, because Discord's payload cannot (see the dedup id in
+    // `normalize.ts`). Minting per dispatch is what makes the ids differ;
+    // minting outside the retry path is what keeps a redelivery's identical.
     const normalized = normalizeDiscordMessageReaction(reaction, {
       op,
+      ingestId: crypto.randomUUID(),
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,
     });

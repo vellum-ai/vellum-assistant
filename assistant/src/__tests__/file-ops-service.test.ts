@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { THRESHOLD_CHARS } from "../context/post-turn-tool-result-truncation.js";
+import { FILE_READ_TOOL_NAMES } from "../context/post-turn-tool-result-truncation.js";
+import { RESULT_TIME_SPOOL_EXEMPT_TOOLS } from "../context/tool-result-spool.js";
 import {
   FileSystemOps,
   type PathPolicy,
@@ -330,8 +331,12 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(body).toBe("abcd");
   });
 
-  test("the read budget stays under the tool-result spool threshold", () => {
-    expect(READ_CHAR_BUDGET).toBeLessThan(THRESHOLD_CHARS);
+  test("file reads are result-time spool-exempt so a full window survives its turn", () => {
+    // The budget exceeds the spool threshold, so without the exemption a
+    // default read of a large file would be stubbed before the model saw it.
+    for (const name of FILE_READ_TOOL_NAMES) {
+      expect(RESULT_TIME_SPOOL_EXEMPT_TOOLS.has(name)).toBe(true);
+    }
   });
 });
 

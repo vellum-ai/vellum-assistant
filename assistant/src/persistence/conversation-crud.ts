@@ -32,6 +32,7 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
@@ -41,7 +42,6 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
-import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
@@ -116,6 +116,7 @@ import {
 } from "./job-handlers/message-lexical.js";
 import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
+import { mergeMessageMetadata } from "./message-metadata.js";
 import {
   rawAll,
   rawExec,
@@ -309,7 +310,7 @@ export const messageMetadataSchema = z
     /**
      * Optional client-side metadata bag attached to user messages at persist
      * time. `os` carries the client-reported OS surface ("web" | "ios" |
-     * "macos" | "windows" | "android") from the request body's `clientOs`
+     * "macos" | "windows" | "linux" | "android") from the request body's `clientOs`
      * field, stamped by `persistQueuedMessageBody`. The transport
      * `userMessageInterface` is
      * "web" for the web, mobile, and desktop apps alike, so this is the only
@@ -416,12 +417,32 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
-    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
-     *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
-     *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
-     *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
-     *  not import the memory feature. */
+    /** Memory-v3 frozen net-new section block (unwrapped), the v3
+     *  counterpart of `memoryInjectedBlock`. A row carries at most one of the
+     *  two. The key matches the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept as a literal here (like
+     *  `memoryInjectedBlock`) so the storage schema does not import the memory
+     *  feature. */
     memoryV3InjectedBlock: z.string().optional(),
+    /** Rendering format of `memoryV3InjectedBlock`, stamped by the build
+     *  that persisted it and compared on read against the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT`; a row carrying the block without
+     *  it holds a legacy compact-card block. The key matches the plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY`, kept as a literal here
+     *  so the storage schema does not import the memory feature. */
+    memoryV3InjectedBlockFormat: z.number().optional(),
+    /** Memory-v3 per-turn `<memory_pointer>` block (wrapped). Rehydrated by
+     *  `loadFromDb` so historical turns keep the pointer they were sent with.
+     *  The key matches the memory plugin's
+     *  `MEMORY_V3_POINTER_BLOCK_METADATA_KEY`, kept as a literal here so the
+     *  storage schema does not import the memory feature. */
+    memoryV3PointerBlock: z.string().optional(),
+    /** Persisted `<memory_spotlight>` text (wrapped) from earlier builds that
+     *  shipped the per-turn spotlight layer. Never written; `loadFromDb`
+     *  rehydrates it verbatim as inert history so the prompts those turns
+     *  were sent with stay byte-identical across the upgrade. The key matches
+     *  the memory plugin's `LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`. */
+    memoryV3SpotlightBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
@@ -491,8 +512,9 @@ export function isProviderErrorMetadata(
 }
 
 /**
- * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
+ * True when an assistant row is a standalone display turn: a system card, a
+ * provider-error notice, a deliberate-silence marker, a reaction, or a row
+ * deleted on its channel. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
@@ -510,11 +532,26 @@ export function isStandaloneAssistantMessage(
       isSystemCardMetadata(parsed) ||
       isProviderErrorMetadata(parsed) ||
       isNoResponseMetadata(parsed) ||
-      isReactionMessageMetadata(parsed)
+      isReactionMessageMetadata(parsed) ||
+      isChannelDeletedMetadata(metadata)
     );
   } catch {
     return false;
   }
+}
+
+/**
+ * True when the row was deleted on its channel after it was stored. The
+ * marker lives in the provider envelope rather than in `messageKind`, so a
+ * merged run would take the anchor's envelope and either drop the deletion
+ * or claim it over text that is still visible. The substring guard keeps the
+ * envelope parse off rows that cannot carry it.
+ */
+function isChannelDeletedMetadata(metadata: string): boolean {
+  return (
+    metadata.includes("deletedAt") &&
+    readProviderMetadata(metadata)?.deletedAt !== undefined
+  );
 }
 
 /**
@@ -753,11 +790,17 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
 });
 
 /**
- * Monotonic timestamp source for message ordering. Two messages saved within
- * the same millisecond (e.g., tool_results user message + assistant message in
- * message_complete) would get the same Date.now(), making their reload order
- * non-deterministic. This counter ensures every call returns a strictly
- * increasing value so insertion order is always preserved.
+ * Monotonic timestamp source for message ordering and conversation creation.
+ * Two messages saved within the same millisecond (e.g., tool_results user
+ * message + assistant message in message_complete) would get the same
+ * Date.now(), making their reload order non-deterministic. This counter
+ * ensures every call returns a strictly increasing value so insertion order is
+ * always preserved.
+ *
+ * Conversation rows draw from it for a second reason: `created_at` is what
+ * tells one incarnation of an id from another, so two creations in one
+ * millisecond must not be able to collide. Sharing the counter with messages
+ * costs nothing, both wanting the same "never twice the same value" guarantee.
  */
 let lastTimestamp = 0;
 function monotonicNow(): number {
@@ -780,6 +823,24 @@ interface InsertedMessage {
   deduplicated: boolean;
 }
 
+/**
+ * Thrown by an insert whose caller's `insertPrecondition` reads false.
+ *
+ * No row was written, so a caller holding resources for the message it asked
+ * for (an uploaded attachment, a pending client receipt) is free to give them
+ * up on this error. Carries no SQLite code, which is what keeps
+ * {@link withSqliteRetry} from mistaking it for contention and retrying an
+ * abort that will only abort again.
+ */
+export class MessageInsertPreconditionError extends Error {
+  constructor(conversationId: string) {
+    super(
+      `Message insert precondition failed for conversation ${conversationId}`,
+    );
+    this.name = "MessageInsertPreconditionError";
+  }
+}
+
 interface InsertMessageCoreParams {
   conversationId: string;
   role: MessageRole;
@@ -793,6 +854,9 @@ interface InsertMessageCoreParams {
    *  `requestId` for user turns) can pass it here so the persisted
    *  row ID matches the runtime request ID. */
   id?: string;
+  /** Answered synchronously at the top of every insert attempt. See
+   *  {@link AddMessageOptions.insertPrecondition}. */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -879,6 +943,7 @@ async function insertMessageCore(
     metadata,
     clientMessageId,
     id,
+    insertPrecondition,
   } = params;
   warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
@@ -905,8 +970,17 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage =>
-      timeSyncSection(
+    (): InsertedMessage => {
+      // Asked at the top of EVERY attempt, and synchronously, because that is
+      // the scope the answer holds for. Contention retries this function after
+      // an awaited backoff, so an answer given once for the call would be
+      // reporting on the world as it stood before a sleep the caller cannot
+      // see. From here to the statement below there is nothing async, so the
+      // answer and the row this attempt writes share one tick.
+      if (insertPrecondition && !insertPrecondition()) {
+        throw new MessageInsertPreconditionError(conversationId);
+      }
+      return timeSyncSection(
         "messages:insert",
         (): InsertedMessage => {
           const now = monotonicNow();
@@ -1016,7 +1090,8 @@ async function insertMessageCore(
           contentBytes:
             typeof content === "string" ? content.length : undefined,
         }),
-      ),
+      );
+    },
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
@@ -1073,7 +1148,12 @@ export function createConversation(
       },
 ) {
   const db = getDb();
-  const now = Date.now();
+  // Monotonic, because `created_at` is a conversation's incarnation identity:
+  // callers holding work for an id compare against the stamp they were
+  // accepted for, so a row deleted and written back under that id has to carry
+  // a later one even when both land in the same millisecond. Per process is
+  // the scope that matters, the holders being in-memory and gone on a restart.
+  const now = monotonicNow();
   const initialSeq = getCurrentSeq();
   const opts =
     typeof titleOrOpts === "string"
@@ -2361,6 +2441,17 @@ export interface AddMessageOptions {
    *  internally. Pass the same value as `requestId` for user turns so
    *  the persisted row ID matches the runtime correlation ID. */
   id?: string;
+  /**
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts with a
+   * {@link MessageInsertPreconditionError} and writes nothing.
+   *
+   * For a caller whose right to write can lapse while the insert is in
+   * flight. Per attempt rather than per call because contention retries the
+   * insert after an awaited backoff, and the world can move under a caller
+   * during that sleep.
+   */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -2374,7 +2465,8 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id, insertPrecondition } =
+    options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
@@ -2382,6 +2474,7 @@ export async function addMessage(
     metadata,
     clientMessageId,
     id,
+    ...(insertPrecondition ? { insertPrecondition } : {}),
   });
 
   if (inserted.deduplicated) {
@@ -2610,6 +2703,44 @@ export function selectSightFrameCaptureTimes(
     }
   }
   return captureTimes;
+}
+
+/**
+ * The newest camera frame in the conversation, by the `createdAt` of the row
+ * that carries it, or null when no row carries one.
+ *
+ * The one-row form of {@link selectSightFrameCaptureTimes}, for a caller that
+ * wants only the latest and runs on every voice turn: every stored frame stays
+ * a row for the life of the conversation, so the full scan grows with the
+ * call. Same narrowing and the same validation, so the two agree on what a
+ * frame is. A row carrying several frames answers with the last attached.
+ */
+export function selectNewestSightFrameCapture(
+  conversationId: string,
+): { attachmentId: string; createdAt: number } | null {
+  const db = getDb();
+  const row = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  if (!row) {
+    return null;
+  }
+  const ids = sightFrameAttachmentIdsFromMetadata(
+    parseMessageMetadata(row.metadata),
+  );
+  const attachmentId = ids.at(-1);
+  return attachmentId === undefined
+    ? null
+    : { attachmentId, createdAt: row.createdAt };
 }
 
 /**
@@ -4104,8 +4235,9 @@ export function finalizeMessageContent(
 }
 
 /**
- * Merge `updates` into the metadata JSON of an existing message.
- * Reads the current metadata, shallow-merges the new fields, and writes back.
+ * Merge `updates` into the metadata JSON of an existing message
+ * ({@link mergeMessageMetadata}). Reads the current metadata, shallow-merges
+ * the new fields, and writes back.
  */
 export function updateMessageMetadata(
   messageId: string,
@@ -4117,11 +4249,8 @@ export function updateMessageMetadata(
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
-  // Sanitized like the transactional sibling above: a malformed stored
-  // envelope must not fail the update that is trying to stamp the row.
-  const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
   db.update(messages)
-    .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
+    .set({ metadata: mergeMessageMetadata(row?.metadata, updates) })
     .where(eq(messages.id, messageId))
     .run();
 }
@@ -4148,11 +4277,10 @@ export function updateMessageContentAndMetadata(
       .from(messages)
       .where(eq(messages.id, messageId))
       .get();
-    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
     tx.update(messages)
       .set({
         content: newContent,
-        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+        metadata: mergeMessageMetadata(row?.metadata, metadataUpdates),
       })
       .where(eq(messages.id, messageId))
       .run();

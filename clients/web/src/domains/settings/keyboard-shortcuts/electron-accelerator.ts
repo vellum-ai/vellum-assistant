@@ -102,7 +102,7 @@ export const eventToAccelerator = (
   }
 
   const modifiers: string[] = [];
-  if (hostOS === "windows") {
+  if (hostOS === "windows" || hostOS === "linux") {
     if (event.ctrlKey) {
       modifiers.push("CmdOrCtrl");
     }
@@ -135,6 +135,7 @@ export const eventToAccelerator = (
 const PRIMARY_ALIASES: Record<ElectronHostOS, ReadonlySet<string>> = {
   macos: new Set(["Command", "Cmd", "CommandOrControl"]),
   windows: new Set(["Control", "Ctrl", "CommandOrControl"]),
+  linux: new Set(["Control", "Ctrl", "CommandOrControl"]),
 };
 
 /** Canonical form of an accelerator for equality checks on `hostOS`. */

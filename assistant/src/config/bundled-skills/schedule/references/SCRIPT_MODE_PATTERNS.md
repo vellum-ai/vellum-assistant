@@ -56,4 +56,6 @@ fi
 
 ## Tips
 
-Both patterns keep scheduled runs fast and cheap — the script exits immediately when nothing interesting happens, and only reaches for the assistant or notification system when there's something to act on. Use `quiet: true` on the schedule to suppress the per-run completion noise.
+Both patterns keep scheduled runs fast and cheap. The script exits immediately when nothing interesting happens, and only reaches for the assistant or notification system when there's something to act on. Use `quiet: true` on the schedule to suppress the per-run completion noise.
+
+A script-mode schedule is still a schedule the user can see, pause, and edit. Do not hand them a standalone file to run themselves.

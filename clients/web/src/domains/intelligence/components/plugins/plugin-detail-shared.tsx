@@ -370,7 +370,7 @@ export function PluginDetailError() {
       <p className="text-body-medium-default">
         {t("pluginDetailShared.loadErrorTitle")}
       </p>
-      <p className="text-body-small-default">
+      <p className="text-body-small-lighter">
         {t("pluginDetailShared.loadErrorDetail")}
       </p>
     </div>

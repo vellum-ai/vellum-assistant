@@ -4,6 +4,7 @@ import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { desktopClientName } from "../client-os.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
@@ -114,8 +115,7 @@ export const hostFileEditTool = {
       !HostFileProxy.instance.isAvailable()
     ) {
       return {
-        content:
-          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file from a non-desktop interface.",
+        content: `Error: no client with host_file capability is connected. Connect a ${desktopClientName(context)} client to use host_file from a non-desktop interface.`,
         isError: true,
       };
     }

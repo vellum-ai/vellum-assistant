@@ -245,7 +245,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
     });
 
     let settled: Response | null = null;
-    const pending = runMiddleware(routes.home).then((res) => {
+    const pending = runMiddleware(routes.identity).then((res) => {
       settled = res;
     });
 
@@ -270,7 +270,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
       platformSession: "absent",
     });
 
-    const res = await runMiddleware(routes.home);
+    const res = await runMiddleware(routes.identity);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(routes.welcome);
   });
@@ -284,7 +284,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
 
     // The probe stays "unknown" for the whole (clamped) wait, so the guard
     // decides on a settled-absent session rather than re-entering the wait.
-    const res = await runMiddleware(routes.home);
+    const res = await runMiddleware(routes.identity);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(routes.welcome);
   });
@@ -296,7 +296,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
       platformSession: "present",
     });
 
-    const res = await runMiddleware(routes.home);
+    const res = await runMiddleware(routes.identity);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(routes.onboarding.hosting);
   });
@@ -328,7 +328,7 @@ describe("authMiddleware — app-access admit gate", () => {
       platformSession: "absent",
     });
 
-    const outcome = await runMiddlewareOutcome(routes.home);
+    const outcome = await runMiddlewareOutcome(routes.identity);
     expect(outcome.admitted).toBe(true);
   });
 
@@ -340,7 +340,7 @@ describe("authMiddleware — app-access admit gate", () => {
       user: null,
       platformSession: "present",
     });
-    expect((await runMiddlewareOutcome(routes.home)).admitted).toBe(true);
+    expect((await runMiddlewareOutcome(routes.identity)).admitted).toBe(true);
 
     // Platform getSession() returns 401 mid-session: platformSession flips to
     // absent, but the local gateway keeps sessionStatus 'authenticated' (the
@@ -350,7 +350,7 @@ describe("authMiddleware — app-access admit gate", () => {
       platformSession: "absent",
     });
 
-    const outcome = await runMiddlewareOutcome(routes.home);
+    const outcome = await runMiddlewareOutcome(routes.identity);
     expect(outcome.admitted).toBe(true);
   });
 
@@ -365,12 +365,12 @@ describe("authMiddleware — app-access admit gate", () => {
       platformSession: "absent",
     });
 
-    const outcome = await runMiddlewareOutcome("/assistant/home");
+    const outcome = await runMiddlewareOutcome("/assistant/identity");
     expect(outcome.admitted).toBe(false);
     if (!outcome.admitted) {
       expect(outcome.response.status).toBe(302);
       expect(outcome.response.headers.get("Location")).toBe(
-        `${routes.account.login}?returnTo=${encodeURIComponent("/assistant/home")}`,
+        `${routes.account.login}?returnTo=${encodeURIComponent("/assistant/identity")}`,
       );
     }
   });
@@ -676,7 +676,7 @@ describe("authMiddleware — hydration timeout", () => {
       // hydration flags forced after the timeout, requireAssistant lands on
       // the consented no-assistant branch) — pre-guard this recursed into the
       // identical wait forever.
-      const res = await runMiddleware(routes.home);
+      const res = await runMiddleware(routes.identity);
       expect(res.status).toBe(302);
       expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
     } finally {

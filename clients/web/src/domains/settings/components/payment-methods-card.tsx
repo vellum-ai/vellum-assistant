@@ -75,7 +75,8 @@ export function PaymentMethodsCard() {
   // That mode comes from the config query, so a failed outcome waits for it to
   // settle. Snapshotting while it is still pending would read no cards, and
   // the updater below preserves that snapshot: the replacement would replay
-  // under the Add title with no card-on-file row for the rest of the visit.
+  // under the Add title with no card named in the subtitle for the rest of
+  // the visit.
   const configSettled = configQuery.isSuccess || configQuery.isError;
   useEffect(() => {
     if (outcome == null) {

@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { avatarRasterQueryKey } from "@/components/channel-avatar-download";
+import { STORY_AVATAR_DATA_URI } from "@/components/channel-avatar-story-decorator";
 import { channelsReadinessGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ChannelSetupPayload } from "@/stores/viewer-store";
 
@@ -72,6 +74,28 @@ export const TelegramSetup: Story = {
     },
   },
   decorators: [withClient(seededClient("telegram", false))],
+};
+
+export const DiscordSetup: Story = {
+  args: {
+    payload: {
+      channel: "discord",
+      assistantId: ASSISTANT_ID,
+      assistantName: "Vellum",
+    },
+  },
+  decorators: [
+    withClient(
+      (() => {
+        const client = seededClient("discord", false);
+        client.setQueryData(
+          avatarRasterQueryKey(ASSISTANT_ID),
+          STORY_AVATAR_DATA_URI,
+        );
+        return client;
+      })(),
+    ),
+  ],
 };
 
 export const PhoneSetup: Story = {

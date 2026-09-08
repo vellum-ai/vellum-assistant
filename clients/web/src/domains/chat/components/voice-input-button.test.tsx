@@ -28,6 +28,7 @@ import {
   MOBILE_CONTROL_CLASS,
   MOBILE_GLYPH_CLASS,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
+import { markHoldDictation } from "@/utils/voice-key";
 
 const addBreadcrumbSpy = mock((_breadcrumb: unknown) => {});
 mock.module("@sentry/react", () => ({
@@ -62,7 +63,10 @@ interface FakeDictationStreamArgs {
 }
 let dictationStreamImpl: (
   args: FakeDictationStreamArgs,
-) => { isLive: () => boolean; stop: () => void } | null = () => null;
+) => {
+  isLive: () => boolean;
+  stop: () => Promise<string | null>;
+} | null = () => null;
 mock.module("@/domains/chat/voice/dictation-stream", () => ({
   startDictationStream: (args: FakeDictationStreamArgs) =>
     dictationStreamImpl(args),
@@ -133,7 +137,7 @@ class FakeMediaRecorder {
 (globalThis as Record<string, unknown>).MediaRecorder = FakeMediaRecorder;
 
 const fakeStream = {
-  getTracks: () => [{ stop: () => {} }],
+  getTracks: () => [{ stop: () => Promise.resolve(null) }],
 } as unknown as MediaStream;
 Object.defineProperty(navigator, "mediaDevices", {
   configurable: true,
@@ -494,7 +498,7 @@ describe("VoiceInputButton — native partials fallback", () => {
       streamOnPartial = args.onPartial;
       // A stream whose daemon is reachable (localhost) but whose provider
       // is not: the handle exists, never goes live, never errors.
-      return { isLive: () => false, stop: () => {} };
+      return { isLive: () => false, stop: () => Promise.resolve(null) };
     };
     nativePartialsImpl = async (onPartial) => {
       onPartial("offline transcript");
@@ -529,7 +533,7 @@ describe("VoiceInputButton — native partials fallback", () => {
     let streamOnPartial: ((text: string) => void) | undefined;
     dictationStreamImpl = (args) => {
       streamOnPartial = args.onPartial;
-      return { isLive: () => false, stop: () => {} };
+      return { isLive: () => false, stop: () => Promise.resolve(null) };
     };
     postSttTranscribeSpy.mockImplementationOnce(async () => ({
       status: "error",
@@ -570,7 +574,7 @@ describe("VoiceInputButton — forced native provider (macOS Native Dictation)",
     let streamStarted = false;
     dictationStreamImpl = () => {
       streamStarted = true;
-      return { isLive: () => true, stop: () => {} };
+      return { isLive: () => true, stop: () => Promise.resolve(null) };
     };
     transcribeBlobImpl = async () => "spoken natively";
 
@@ -708,5 +712,54 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
         screen.getByRole("button", { name: "Start voice input" }),
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * A hold takes the stream's flushed final. The imperative stop runs before
+ * the recorder's own stop event, and the first of the two is the one that
+ * asks the provider to flush; the second has to be handed what the first was
+ * promised, or it finds no handle, takes that for no transcript, and the
+ * flush goes to nobody.
+ */
+describe("VoiceInputButton: a hold takes the stream's final", () => {
+  beforeEach(() => {
+    postSttTranscribeSpy.mockClear();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  afterEach(() => {
+    cleanup();
+    dictationStreamImpl = () => null;
+    markHoldDictation(false);
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  test("inserts the flushed final from the stop that asked for it", async () => {
+    let stops = 0;
+    dictationStreamImpl = () => ({
+      isLive: () => true,
+      stop: () => {
+        stops += 1;
+        return Promise.resolve("the whole sentence, from the provider.");
+      },
+    });
+    markHoldDictation(true);
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+    // The store carries which microphone this is, for the surfaces that only
+    // hear about the recording once the key is already up again.
+    expect(useVoiceRecordingStore.getState().hold).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(onTranscript).toHaveBeenCalled());
+
+    expect(onTranscript).toHaveBeenCalledWith(
+      "the whole sentence, from the provider.",
+    );
+    // Asked once. A second stop would be the flush requested twice.
+    expect(stops).toBe(1);
+    // And never the upload: a hold has no use for a second round trip.
+    expect(postSttTranscribeSpy).not.toHaveBeenCalled();
   });
 });

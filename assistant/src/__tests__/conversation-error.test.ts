@@ -1677,6 +1677,21 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain("Restart the assistant");
   });
 
+  it("classifies adapter_unavailable for a Vellum-hosted GPU model", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "adapter_unavailable",
+      "no adapter",
+      { model: "qwen/qwen3-8b", profileName: "steer" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain("qwen/qwen3-8b");
+    expect(result.userMessage).toContain("Vellum GPU route");
+    expect(result.userMessage).toContain('profile "steer"');
+    expect(result.userMessage).toContain("was not sent through another provider");
+  });
+
   it("classifies missing_credential naming the connection and fix", () => {
     const err = new ConnectionResolutionError(
       "anthropic-personal",

@@ -530,38 +530,6 @@ describe("delivery routes: create / update / list", () => {
 });
 
 describe("destination lookups", () => {
-  test("get_by_destination_message resolves the pending request behind a delivered card", async () => {
-    const created = await createRequest({});
-    await call(METHODS.createDelivery, {
-      requestId: created.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-7",
-    });
-
-    const found = GuardianRequestSchema.parse(
-      await call(METHODS.getByDestinationMessage, {
-        channel: "telegram",
-        chatId: "chat-1",
-        messageId: "msg-7",
-      }),
-    );
-    expect(found.id).toBe(created.id);
-
-    // Resolved requests no longer match (pending-only).
-    await call(METHODS.update, {
-      id: created.id,
-      patch: { status: "approved" },
-    });
-    expect(
-      await call(METHODS.getByDestinationMessage, {
-        channel: "telegram",
-        chatId: "chat-1",
-        messageId: "msg-7",
-      }),
-    ).toBeNull();
-  });
-
   test("list_pending_by_destination: chat form and conversation form with channel narrowing", async () => {
     const a = await createRequest({});
     const b = await createRequest({});
@@ -735,7 +703,6 @@ describe("schema rejection", () => {
       [METHODS.createDelivery, { requestId: "req-x" }], // channel required
       [METHODS.updateDelivery, { id: "d-1" }], // patch required
       [METHODS.listDeliveries, {}],
-      [METHODS.getByDestinationMessage, { channel: "telegram", chatId: "c" }],
       [METHODS.listPendingByDestination, {}], // refine: conversationId or channel+chatId
       [METHODS.listPendingByDestination, { channel: "telegram" }],
       [METHODS.listPendingByScope, {}],

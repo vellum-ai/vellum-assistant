@@ -302,7 +302,7 @@ function DiffPreviewActions({
     if (onDemand.status === "tooLarge") {
       return (
         <p
-          className="mt-1 text-label-default"
+          className="mt-1 text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {t("cacheDiffCard.diffStillTooLarge", {
@@ -314,7 +314,7 @@ function DiffPreviewActions({
     if (!source) {
       return (
         <p
-          className="mt-1 text-label-default"
+          className="mt-1 text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {t("cacheDiffCard.diffTooLarge")}
@@ -328,7 +328,7 @@ function DiffPreviewActions({
     return (
       <div className="mt-1 flex flex-col items-start gap-1">
         <p
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {t("cacheDiffCard.diffLargeDefault")}
@@ -415,7 +415,7 @@ function DiffPreview({
   return (
     <div className="mt-3">
       <p
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("cacheDiffCard.diffLabel", { label })}
@@ -554,7 +554,7 @@ export function CacheDiffCard({
       {chips.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{ color: "var(--content-tertiary)" }}
           >
             {t("cacheDiffCard.changedLabel")}
@@ -575,7 +575,7 @@ export function CacheDiffCard({
 
       {stats ? (
         <p
-          className="mt-2 text-label-default"
+          className="mt-2 text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {stats}

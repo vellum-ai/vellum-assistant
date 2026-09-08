@@ -116,10 +116,10 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Activity renders in both the header title and the body.
+    // The header owns the activity sentence, and the body does not repeat it.
     expect(
-      getAllByText("Spawning subagent to research Toronto's location").length,
-    ).toBeGreaterThan(0);
+      getAllByText("Spawning subagent to research Toronto's location"),
+    ).toHaveLength(1);
     // Friendly tool name (title-cased from snake_case).
     expect(getByText("Subagent Spawn")).toBeDefined();
     // Input JSON + output appear inside <pre> blocks.
@@ -185,23 +185,123 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Create Trust Rule")).toBeNull();
   });
 
-  test("hides the Output section when result is empty", () => {
-    const { queryByText } = render(
+  test("reports an empty result rather than dropping the Output section", () => {
+    const { getByText, getByTestId } = render(
       <ToolDetailPanel detail={makeDetail({ result: "" })} onClose={noop} />,
     );
 
-    expect(queryByText("Output")).toBeNull();
+    expect(getByText("Output")).toBeDefined();
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "The tool returned no output.",
+    );
   });
 
-  test("hides the Output section when result is undefined", () => {
+  test("says a denied call did not run", () => {
+    const { getByText, getByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: undefined, status: "denied" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Output")).toBeDefined();
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+  });
+
+  test("picks up a denial that lands while the drawer is open", () => {
+    // The payload was captured before the guardian answered, so the snapshot
+    // still says the call was running. The live tool call carries the decision.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tc-1",
+            name: "subagent_spawn",
+            confirmationDecision: "denied",
+          },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: undefined, status: "running" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+  });
+
+  test("treats a timed-out confirmation as not approved", () => {
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tc-1",
+            name: "subagent_spawn",
+            confirmationDecision: "timed_out",
+          },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: undefined, status: "running" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+  });
+
+  test("clamps a long result behind Show more", () => {
+    const long = "a line of output\n".repeat(200);
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={makeDetail({ result: long })} onClose={noop} />,
+    );
+
+    const toggle = getByText("Show more");
+    expect(toggle).toBeDefined();
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(getByText("Show less")).toBeDefined();
+    expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("leaves a short result unclamped", () => {
     const { queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: "two words" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("reports no output for a call that finished without a result", () => {
+    const { getByText, getByTestId } = render(
       <ToolDetailPanel
         detail={makeDetail({ result: undefined, status: "completed" })}
         onClose={noop}
       />,
     );
 
-    expect(queryByText("Output")).toBeNull();
+    expect(getByText("Output")).toBeDefined();
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "The tool returned no output.",
+    );
   });
 
   test("shows a Running placeholder while running with no result", () => {
@@ -214,6 +314,41 @@ describe("ToolDetailPanel", () => {
 
     expect(getByText("Output")).toBeDefined();
     expect(getByText("Running…")).toBeDefined();
+  });
+
+  test("collapses whitespace in the header title", () => {
+    // The activity sentence is model-written; a newline in it would render as
+    // a gap in a single-line header.
+    const { container } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          activity: "  Reading the risk helpers\n  and the badge styles  ",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // Asserted on the raw node rather than through `getByText`, whose default
+    // normalizer collapses whitespace itself and so cannot tell a sanitized
+    // title from an unsanitized one.
+    const heading = container.querySelector("[title]");
+    expect(heading?.getAttribute("title")).toBe(
+      "Reading the risk helpers and the badge styles",
+    );
+    expect(heading?.textContent).toBe(
+      "Reading the risk helpers and the badge styles",
+    );
+  });
+
+  test("falls back to the phase title when there is no activity", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ activity: "", title: "Spawning subagent" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Spawning subagent")).toBeDefined();
   });
 
   test("clicking close fires onClose", () => {

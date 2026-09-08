@@ -45,7 +45,7 @@ export const fileReadInputSchema = z.looseObject({
   max_chars: z
     .number()
     .describe(
-      "Maximum number of characters to read. Defaults to 20000, which is also the ceiling. Text files only.",
+      "Maximum number of characters to read. Defaults to 100000, which is also the ceiling. Text files only.",
     )
     .optional()
     .catch(undefined),
@@ -61,7 +61,7 @@ export const fileReadInputSchema = z.looseObject({
 export const fileReadTool = {
   name: "file_read",
   description:
-    "Read the contents of a file on your own machine. Text reads return the first 20000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. To find where something is in a large file, code_search is cheaper than paging through it. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
+    "Read the contents of a file on your own machine. Text reads return the first 100000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. To find where something is in a large file, code_search is cheaper than paging through it. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
   category: "filesystem",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,

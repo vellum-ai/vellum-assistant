@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import { routes } from "@/utils/routes";
 
 const navigateMock = mock((..._args: unknown[]) => {});
@@ -32,13 +33,18 @@ describe("StartScreen", () => {
   // it once setup finishes (see `onboarding-navigation.ts`). This screen is
   // reached only via Back in the first place, so a push here would put it
   // straight back on the stack.
-  test("the single CTA re-enters the funnel at the privacy screen", () => {
+  // The CTA creates an assistant, so it carries the new-assistant marker: this
+  // screen is the Back target out of privacy, and without the marker a user
+  // whose selected assistant is already onboarded is bounced to /assistant on
+  // the way back in.
+  test("the single CTA re-enters the funnel as a new-assistant walk", () => {
     render(<StartScreen />);
 
     fireEvent.click(screen.getByText("Create your assistant"));
 
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.privacy, {
-      replace: true,
-    });
+    expect(navigateMock).toHaveBeenCalledWith(
+      `${routes.onboarding.privacy}?${NEW_ASSISTANT_PARAM}=1`,
+      { replace: true },
+    );
   });
 });

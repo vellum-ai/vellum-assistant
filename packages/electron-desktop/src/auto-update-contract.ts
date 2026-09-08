@@ -47,4 +47,4 @@ export interface AutoUpdateConfig {
   feedUrl: string;
 }
 
-export type UpdateFeedPlatform = "mac-electron" | "win-electron";
+export type UpdateFeedPlatform = "mac-electron" | "win-electron" | "linux-electron";

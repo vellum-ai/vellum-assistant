@@ -7,7 +7,7 @@ import { Menu } from "@vellumai/design-library/components/menu";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
-import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
+import { resolveModelDisplayName } from "@/assistant/model-display";
 import { useTranslation } from "@/i18n";
 import type {
   InferenceProfileSummary,

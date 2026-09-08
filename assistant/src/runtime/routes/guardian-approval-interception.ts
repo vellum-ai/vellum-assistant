@@ -81,11 +81,6 @@ export async function handleApprovalInterception(
     approvalMessageId,
   } = params;
 
-  // Slack emoji reactions are handled by the guardian decision
-  // pipeline (`routeGuardianReply`), invoked from the inbound reaction stage:
-  // it resolves the target request from the reacted card's delivery record.
-  // See `guardian-reply-router.ts`.
-
   // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) {

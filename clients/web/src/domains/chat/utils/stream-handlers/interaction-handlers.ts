@@ -159,6 +159,10 @@ export function handleContactRequest(
     description: event.description,
     role: event.role,
     verify: event.verify,
+    contactId: event.contactId,
+    contactDisplayName: event.contactDisplayName,
+    displayName: event.displayName,
+    notes: event.notes,
   });
 }
 
@@ -177,6 +181,9 @@ export function handleContactRecordRequest(
     currentDisplayName: event.currentDisplayName,
     currentNotes: event.currentNotes,
     channels: event.channels,
+    donorContactId: event.donorContactId,
+    donorDisplayName: event.donorDisplayName,
+    donorChannels: event.donorChannels,
     displayName: event.displayName,
     notes: event.notes,
     notesProposed: event.notesProposed,

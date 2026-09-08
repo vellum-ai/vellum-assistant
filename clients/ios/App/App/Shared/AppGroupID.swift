@@ -8,18 +8,20 @@ import Foundation
 /// `...-ios.dev`), so a hardcoded literal would point a Dev or Staging build
 /// at the production container and let one environment read another's data.
 ///
-/// Shared by the app target and the VoiceActivity widget extension so there is
-/// one implementation. Both read the same ``infoPlistKey`` string, populated
-/// from the very same `$(APP_GROUP_ID)` variable that reaches their
-/// entitlements plists: the entitlement is what actually grants access, but it
-/// is not readable from Swift, so the value is restated in Info.plist for code
-/// to resolve at runtime.
+/// Shared by the app target, the VoiceActivity widget extension, and the
+/// share extension so there is one implementation. Each reads the same
+/// ``infoPlistKey`` string, populated from the very same `$(APP_GROUP_ID)`
+/// variable that reaches their entitlements plists: the entitlement is what
+/// actually grants access, but it is not readable from Swift, so the value
+/// is restated in Info.plist for code to resolve at runtime.
 ///
 /// ``current`` is deliberately optional, mirroring ``BundleURLScheme``: there
 /// is no safe universal fallback. A build that ships no group id cannot open a
 /// container, and naming another environment's group would only trade a no-op
-/// for cross-environment data mixing. Each caller decides explicitly; the one
-/// caller today, ``WidgetSnapshotStore``, degrades to doing nothing.
+/// for cross-environment data mixing. Each caller decides explicitly.
+/// ``WidgetSnapshotStore`` and ``ShareInbox`` degrade to doing nothing;
+/// ``RecentChatsStore`` falls back to `UserDefaults.standard` so in-process
+/// Shortcuts still have a picker.
 enum AppGroupID {
     /// Info.plist key carrying the group id, restated from the entitlement.
     static let infoPlistKey = "VellumAppGroupId"

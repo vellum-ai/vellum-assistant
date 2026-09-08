@@ -9,8 +9,9 @@
 import type { Root, RootContent } from "mdast";
 
 import { parseMarkdown } from "../messaging/content/parse.js";
-import { stripAnsiAndControlChars } from "../util/ansi.js";
+import { stripAnsiAndControlChars, stripAnsiSequences } from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
+import type { RenderedChannelCopy } from "./types.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
 
@@ -238,6 +239,40 @@ function sanitize(value: string, maxLength: number): string {
 }
 
 /**
+ * Collapse horizontal whitespace and blank-line runs while keeping paragraph
+ * breaks. Tabs become spaces. Three or more consecutive newlines collapse to
+ * one blank line so padding does not eat the preview budget.
+ */
+export function collapseHorizontalWhitespace(value: string): string {
+  return value
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Sanitize a notification body that should keep its line breaks.
+ *
+ * ANSI sequences and non-newline control characters are stripped; `\r\n` and
+ * `\r` become `\n`. Horizontal whitespace is collapsed. The result is clamped
+ * to {@link MESSAGE_PREVIEW_MAX_LENGTH}.
+ *
+ * Single-line surfaces (titles, identity fields, channel previews that must
+ * not wrap) should keep using {@link sanitizeMessagePreview}.
+ */
+export function sanitizeMultilineMessagePreview(value: string): string {
+  const normalized = stripAnsiSequences(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]+/g, " ");
+  return truncate(
+    collapseHorizontalWhitespace(normalized),
+    MESSAGE_PREVIEW_MAX_LENGTH,
+  );
+}
+
+/**
  * Sanitize an untrusted identity field for inclusion in notification copy.
  * Strips control characters and clamps to 120 characters.
  */
@@ -270,4 +305,93 @@ export const NOTIFICATION_TITLE_MAX_LENGTH = 60;
  */
 export function sanitizeNotificationTitle(value: string): string {
   return sanitize(value, NOTIFICATION_TITLE_MAX_LENGTH);
+}
+
+/**
+ * Tidy copy after a sentence was cut out of it: trailing spaces before a
+ * line break go, runs of blank lines collapse to one, and the ends trim.
+ */
+export function normalizeStrippedText(value: string): string {
+  return value
+    .replace(/(?<=\S)[ \t]{2,}(?=\S)/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+const DIRECTIVE_VERBS = "approve|reject|verify|trust|block|<your\\s+answer>";
+
+/**
+ * Remove request-code reply mechanics from copy: every sentence that pairs
+ * the code with a reply verb (`Reply "X approve" or "X reject"`, a
+ * paraphrase, a negated form like `Do not reply "X reject"`, and the same
+ * with backticks, smart quotes, or no quotes at all), and every sentence
+ * that names a reference, approval, or request code together with the code
+ * (`Reference code: X.`, `Use reference code X for this request.`).
+ *
+ * Whole sentences go, never a suffix from "reply" onward, so no fragment
+ * like "Alice wants access. Do not" survives. A sentence is text between
+ * line breaks or `.!?` terminators. Sentences that mention other codes or
+ * merely contain the word "reply" are untouched.
+ */
+export function stripRequestCodeDirectives(
+  text: string,
+  requestCode: string,
+): string {
+  const code = RegExp.escape(requestCode);
+  const sentence = (core: string): RegExp =>
+    new RegExp(`[^.!?\\n]*${core}[^.!?\\n]*[.!?]?(?:[ \\t]*\\n)?`, "gi");
+  const next = text
+    .replace(
+      sentence(`(?<![A-Z0-9])${code}\\s+(?:${DIRECTIVE_VERBS})(?![A-Za-z])`),
+      "",
+    )
+    .replace(
+      sentence(
+        `\\b(?:reference|approval|request)\\s+code\\b[^.!?\\n]*?(?<![A-Z0-9])${code}(?![A-Z0-9])`,
+      ),
+      "",
+    );
+  return normalizeStrippedText(next);
+}
+
+/**
+ * Run a reply-mechanics strip over every text field of a channel's copy.
+ * A body, deliveryText, or conversationSeedMessage left empty by the strip
+ * becomes `ask`, the request's own deterministic text, so a card surface
+ * never shows the mechanics it exists to avoid; without one it keeps its
+ * text rather than becoming empty, which downstream reads as missing copy.
+ * A title left empty becomes `headline`, the deterministic title for the
+ * request kind: a title is a headline, never the ask, and the banner shows
+ * it, so a mechanics-only title must not survive either.
+ */
+export function stripReplyMechanicsFromCopy(
+  copy: RenderedChannelCopy,
+  {
+    strip,
+    ask,
+    headline,
+  }: {
+    strip: (text: string) => string;
+    ask: string | undefined;
+    headline: string;
+  },
+): RenderedChannelCopy {
+  const fallback = ask === undefined ? undefined : nonEmpty(ask);
+  const stripField = (text: string): string => {
+    const stripped = strip(text);
+    return stripped.length > 0 ? stripped : (fallback ?? text);
+  };
+  const strippedTitle = strip(copy.title);
+  return {
+    ...copy,
+    title: strippedTitle.length > 0 ? strippedTitle : headline,
+    body: stripField(copy.body),
+    deliveryText: copy.deliveryText
+      ? stripField(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? stripField(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
 }

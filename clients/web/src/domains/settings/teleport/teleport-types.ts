@@ -1,5 +1,7 @@
+import type { ElectronHostOS } from "@/runtime/platform-detection";
+
 /**
- * Pure types and decision logic for the teleport feature — the web/Electron
+ * Pure types and decision logic for the teleport feature in the web/Electron
  * port of the macOS `TeleportSection.swift`.
  *
  * Teleport moves an assistant between hosting environments (local, Docker, or
@@ -103,17 +105,27 @@ export function destinationLabel(destination: TeleportDestination): string {
   }
 }
 
-/** One-line description for a destination, mirroring Swift `description`. */
-export function destinationDescription(
+/** Catalog key for a destination description, mirroring Swift `description`. */
+export function destinationDescriptionKey(
   destination: TeleportDestination,
-): string {
+  hostOS: ElectronHostOS = "macos",
+):
+  | "teleportCard.dockerDescriptionMacos"
+  | "teleportCard.dockerDescriptionWindows"
+  | "teleportCard.platformDescription"
+  | "teleportCard.localDescriptionMacos"
+  | "teleportCard.localDescriptionWindows" {
   switch (destination) {
     case "docker":
-      return "Run your assistant in a Docker container on this Mac.";
+      return hostOS === "windows"
+        ? "teleportCard.dockerDescriptionWindows"
+        : "teleportCard.dockerDescriptionMacos";
     case "platform":
-      return "Run your assistant in the cloud, managed by the Vellum platform.";
+      return "teleportCard.platformDescription";
     case "local":
-      return "Run your assistant locally on this Mac.";
+      return hostOS === "windows"
+        ? "teleportCard.localDescriptionWindows"
+        : "teleportCard.localDescriptionMacos";
   }
 }
 

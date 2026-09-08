@@ -14,6 +14,7 @@ import { notifyParentTool } from "../subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "../system/request-permission.js";
 import { shellTool } from "../terminal/shell.js";
 import { parseToolInput, TOOL_INPUT_SCHEMAS } from "../tool-input-schemas.js";
+import { watchRetroReportTool } from "../watch/watch-retro-report.js";
 
 describe("parseToolInput", () => {
   test("passes input through unchanged for a tool with no registered schema", () => {
@@ -142,6 +143,7 @@ describe("derived input_schema", () => {
     requestSystemPermissionTool,
     notifyParentTool,
     reactToMessageTool,
+    watchRetroReportTool,
   ];
 
   test("every registered schema belongs to a tool whose input_schema is derived from it", () => {

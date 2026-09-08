@@ -35,7 +35,7 @@ export function ShowTipsRow() {
         <div className="text-body-medium-lighter text-[var(--content-default)]">
           {t("showTipsRow.label")}
         </div>
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
+        <p className="text-body-small-lighter text-[var(--content-tertiary)]">
           {t("showTipsRow.description")}
         </p>
       </div>

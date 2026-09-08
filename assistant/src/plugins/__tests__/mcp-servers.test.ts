@@ -137,6 +137,52 @@ describe("readPluginMcpServers", () => {
     });
   });
 
+  test("defaults an omitted type to streamable-http", () => {
+    const dir = makePluginsDir({
+      openseo: {
+        mcpJson: JSON.stringify({
+          mcpServers: {
+            openseo: { url: "https://app.openseo.so/mcp" },
+          },
+        }),
+      },
+    });
+    const { servers, issues } = readPluginMcpServers({
+      workspacePluginsDir: dir,
+    });
+
+    expect(issues).toEqual([]);
+    expect(servers).toHaveLength(1);
+    expect(servers[0].config.transport).toEqual({
+      type: "streamable-http",
+      url: "https://app.openseo.so/mcp",
+    });
+  });
+
+  test("treats the Claude-style http alias as streamable-http", () => {
+    const dir = makePluginsDir({
+      openseo: {
+        mcpJson: JSON.stringify({
+          mcpServers: {
+            openseo: {
+              type: "http",
+              url: "https://app.openseo.so/mcp",
+            },
+          },
+        }),
+      },
+    });
+    const { servers, issues } = readPluginMcpServers({
+      workspacePluginsDir: dir,
+    });
+
+    expect(issues).toEqual([]);
+    expect(servers[0].config.transport).toEqual({
+      type: "streamable-http",
+      url: "https://app.openseo.so/mcp",
+    });
+  });
+
   test("defaults plugin servers to low risk", () => {
     // mcp.json has no risk field, so a host default applies. It is `low`
     // because the review happens at install time — curated marketplace,

@@ -30,6 +30,13 @@ export const ALWAYS_CANDIDATE_CARD_CHARS = 900;
 export const DEFAULT_CARD_CHARS = 500;
 
 /**
+ * One-shot line under injected skill cards. The cards list workspace skills
+ * only, so a missing product is not evidence it is unsupported.
+ */
+export const SKILLS_INJECTION_CATALOG_HINT =
+  "Injected skills are only ones currently in the workspace. Run `assistant plugins search <name>` and `assistant skills search <name>` before concluding a given integration or skill is unsupported";
+
+/**
  * Render the prose-style capability statement embedded into the unified
  * `memory_v2_concept_pages` Qdrant collection (under the `skills/<id>` slug
  * prefix) and rendered in `### Skills You Can Use` / the memory-v3 selector

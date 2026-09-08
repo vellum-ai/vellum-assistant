@@ -39,6 +39,7 @@ import {
   retireLocalAssistantHost,
   renameLockfileAssistantHost,
   saveLockfileAssistantHost,
+  stampLockfileAssistantOnboardedHost,
   unpairAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
@@ -345,6 +346,37 @@ export async function renameLockfileAssistant(
     return true;
   }
   return false;
+}
+
+/**
+ * Stamp `onboardedAt` on an existing entry so the CLI and tray see that this
+ * assistant finished first-run onboarding. Runs through the host's
+ * stamp-if-present operation for the same reason the rename above does: the
+ * host decides against the on-disk registry, so a completion racing a retire
+ * cannot re-create the entry from a stale renderer snapshot. The guards below
+ * are cheap early-outs, not the safety boundary.
+ *
+ * A cloud-only assistant simply has no lockfile entry; the device-scoped
+ * record in `onboarded-assistant-record.ts` is what covers it.
+ */
+export async function markLockfileAssistantOnboarded(
+  assistantId: string,
+  onboardedAt: string,
+): Promise<void> {
+  if (isRemoteGatewayMode() || !isLocalModeHostAvailable()) {
+    return;
+  }
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry || entry.onboardedAt) {
+    return;
+  }
+  const result = await stampLockfileAssistantOnboardedHost(
+    assistantId,
+    onboardedAt,
+  );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
 }
 
 /**

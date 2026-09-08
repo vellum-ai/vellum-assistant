@@ -16,6 +16,19 @@ describe("assistant platform credits", () => {
         unit: "USD",
         stale: false,
         as_of: "2026-07-06T00:00:00.000Z",
+        daily_spend: 3.25,
+        daily_limit: 10,
+        daily_limit_reached: false,
+        daily_limit_snoozed: false,
+        low_balance_threshold: 5,
+        low_balance_warning: false,
+        plan_credit_remaining: 9.1,
+        plan_credit_total: 20,
+        plan_credit_used_fraction: 0.545,
+        plan_credits_spent: false,
+        extra_credit_remaining: 33.07,
+        credits_expiring_soon: 9.1,
+        next_credit_expiry_at: "2026-10-01T00:00:00Z",
       },
     };
   });
@@ -31,6 +44,13 @@ describe("assistant platform credits", () => {
     expect(parsed.pending).toBe(7.83);
     expect(parsed.unit).toBe("USD");
     expect(parsed.stale).toBe(false);
+    expect(parsed.daily_spend).toBe(3.25);
+    expect(parsed.daily_limit).toBe(10);
+    expect(parsed.daily_limit_reached).toBe(false);
+    expect(parsed.low_balance_warning).toBe(false);
+    expect(parsed.plan_credit_remaining).toBe(9.1);
+    expect(parsed.plan_credit_used_fraction).toBe(0.545);
+    expect(parsed.extra_credit_remaining).toBe(33.07);
   });
 
   test("plain text mode does not emit JSON to stdout", async () => {

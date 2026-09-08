@@ -22,7 +22,7 @@
  */
 
 import { Tooltip, cn } from "@vellumai/design-library";
-import type { ReactNode } from "react";
+import type { ComponentProps, MouseEventHandler, ReactNode } from "react";
 
 import { CAMERA_MEDIA_GLASS_CLASS, cameraModeStyle } from "./camera-mode-paint";
 
@@ -141,7 +141,15 @@ function treatmentClass({
   );
 }
 
-export interface VoiceRoomControlProps {
+/**
+ * Anything not named here reaches the underlying `<button>`, `ref` included,
+ * so a primitive that composes through `asChild` (the view-options popover's
+ * trigger) drives this control rather than being swallowed by it.
+ */
+export interface VoiceRoomControlProps extends Omit<
+  ComponentProps<"button">,
+  "aria-label" | "aria-pressed" | "children" | "className" | "onClick" | "type"
+> {
   /** Accessible name, and the tooltip's text unless `tooltip` overrides it. */
   label: string;
   /**
@@ -151,7 +159,7 @@ export interface VoiceRoomControlProps {
    * keeps going").
    */
   tooltip?: string;
-  onClick: () => void;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
   /** The glyph. Sized by the caller, since the shutter's siblings vary. */
   children: ReactNode;
   /**
@@ -198,9 +206,10 @@ export function VoiceRoomControl({
   disabled,
   className,
   "data-testid": testId,
+  ...rest
 }: VoiceRoomControlProps) {
   return (
-    <Tooltip content={tooltip ?? label}>
+    <Tooltip content={tooltip ?? label} {...rest}>
       <button
         type="button"
         onClick={onClick}

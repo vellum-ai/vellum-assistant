@@ -202,15 +202,11 @@ function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
         const typePattern = PARAM_TYPE_PATTERNS[paramTypeMap.get(name) ?? ""];
         return typePattern ? `(${typePattern})` : "([^/]+)";
       }
-      return escapeRegex(segment);
+      return RegExp.escape(segment);
     })
     .join("\\/");
 
   const regex = new RegExp(`^${regexSource}$`);
 
   return { def, regex, paramNames };
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

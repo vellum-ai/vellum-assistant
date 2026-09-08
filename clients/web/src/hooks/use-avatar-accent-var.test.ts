@@ -1,100 +1,135 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type { CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-
 import {
-  getRenderedAvatarAccentHex,
-  resolveAvatarAccentHex,
-  resolveRenderedAvatarAccentHex,
+  AVATAR_ACCENT_CSS_VAR,
+  AVATAR_ACCENT_FILL_CSS_VAR,
+  AVATAR_ACCENT_INK_CSS_VAR,
+  avatarAccentVars,
+  getPublishedAvatarAccentHex,
+  scopedAvatarAccentVars,
   useAvatarAccentVar,
 } from "./use-avatar-accent-var";
 
-const traitsWithColor = (color: string) =>
-  ({ bodyShape: "blob", eyeStyle: "grumpy", color }) as CharacterTraits;
+const ORANGE = "#E9642F";
+/** The palette's light one, where white text is about 1.6:1. */
+const YELLOW = "#E9C91A";
+/** An uploaded image's colour dark enough to take white. */
+const NAVY = "#20336B";
+/** A grey in the band where neither ink clears the small-text floor. */
+const MID_GREY = "#7C7C7C";
+
+const readVar = (name: string) =>
+  document.documentElement.style.getPropertyValue(name);
 
 afterEach(() => {
   cleanup();
+  document.documentElement.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+  document.documentElement.style.removeProperty(AVATAR_ACCENT_FILL_CSS_VAR);
+  document.documentElement.style.removeProperty(AVATAR_ACCENT_INK_CSS_VAR);
 });
 
-describe("resolveRenderedAvatarAccentHex", () => {
-  test("uses the explicit trait color when the avatar has one", () => {
-    const orange = BUNDLED_COMPONENTS.colors.find((c) => c.id === "orange")!.hex;
-    expect(
-      resolveRenderedAvatarAccentHex(
-        BUNDLED_COMPONENTS,
-        traitsWithColor("orange"),
-        null,
-      ),
-    ).toBe(orange);
-  });
-
-  test("falls back to the first palette color for a default (traits-less) avatar — matching what ChatAvatar renders, so accented surfaces don't drift to indigo", () => {
-    const firstColor = BUNDLED_COMPONENTS.colors[0]!.hex;
-    expect(resolveRenderedAvatarAccentHex(BUNDLED_COMPONENTS, null, null)).toBe(
-      firstColor,
+describe("the --avatar-accent custom property", () => {
+  test("is set to the accent and removed again when there is none", () => {
+    const { rerender } = renderHook(
+      ({ hex }: { hex: string | null }) => useAvatarAccentVar(hex),
+      { initialProps: { hex: ORANGE as string | null } },
     );
-    // The strict form is what `--avatar-accent` publishes, and it deliberately
-    // does *not* take that fallback.
-    expect(resolveAvatarAccentHex(BUNDLED_COMPONENTS, null)).toBeNull();
+    expect(readVar(AVATAR_ACCENT_CSS_VAR)).toBe(ORANGE);
+
+    rerender({ hex: null });
+    expect(readVar(AVATAR_ACCENT_CSS_VAR)).toBe("");
   });
 
-  test("returns null when there is no character to color (custom image / not yet loaded)", () => {
-    expect(resolveRenderedAvatarAccentHex(null, null, null)).toBeNull();
-  });
+  test("carries its ink, so a surface filled with it never guesses", () => {
+    const { rerender } = renderHook(
+      ({ hex }: { hex: string | null }) => useAvatarAccentVar(hex),
+      { initialProps: { hex: YELLOW as string | null } },
+    );
+    expect(readVar(AVATAR_ACCENT_INK_CSS_VAR)).toBe("#1A1A1A");
 
-  test("a custom image wins over lingering character components, so no color leaks into accented surfaces", () => {
-    // An uploaded avatar can still carry the character components it replaced.
-    // The image is what renders, so the waves and the iOS Live Activity must
-    // stay uncolored rather than tint themselves to an avatar nobody can see.
-    expect(
-      resolveRenderedAvatarAccentHex(
-        BUNDLED_COMPONENTS,
-        traitsWithColor("orange"),
-        "https://example.com/avatar.png",
-      ),
-    ).toBeNull();
+    rerender({ hex: null });
+    // Cleared together with the accent: an ink with no accent under it would
+    // tell a fallback-coloured surface to paint for a colour it is not wearing.
+    expect(readVar(AVATAR_ACCENT_CSS_VAR)).toBe("");
+    expect(readVar(AVATAR_ACCENT_FILL_CSS_VAR)).toBe("");
+    expect(readVar(AVATAR_ACCENT_INK_CSS_VAR)).toBe("");
   });
 });
 
-describe("publishing the rendered accent", () => {
-  const ORANGE = BUNDLED_COMPONENTS.colors.find((c) => c.id === "orange")!.hex;
+describe("avatarAccentVars", () => {
+  test("carries the accent, the surface it fills, and the ink on that surface", () => {
+    // Light enough that white is about 1.6:1, so the ink is the near-black,
+    // and text reads on the accent itself, so the fill is the accent.
+    expect(avatarAccentVars(YELLOW)).toEqual({
+      [AVATAR_ACCENT_CSS_VAR]: YELLOW,
+      [AVATAR_ACCENT_FILL_CSS_VAR]: YELLOW,
+      [AVATAR_ACCENT_INK_CSS_VAR]: "#1A1A1A",
+    });
+    expect(avatarAccentVars(NAVY)).toEqual({
+      [AVATAR_ACCENT_CSS_VAR]: NAVY,
+      [AVATAR_ACCENT_FILL_CSS_VAR]: NAVY,
+      [AVATAR_ACCENT_INK_CSS_VAR]: "#FFFFFF",
+    });
+  });
 
+  test("a mid-grey keeps its accent and fills with a colour text reads on", () => {
+    // The accent stays what the assistant is, for the chrome drawn over video;
+    // only the surface that has to carry a label moves.
+    const vars = avatarAccentVars(MID_GREY);
+
+    expect(vars[AVATAR_ACCENT_CSS_VAR]).toBe(MID_GREY);
+    expect(vars[AVATAR_ACCENT_FILL_CSS_VAR]).not.toBe(MID_GREY);
+    expect(vars[AVATAR_ACCENT_INK_CSS_VAR]).toBe("#FFFFFF");
+  });
+
+  test("publishes nothing at all for an assistant with no accent", () => {
+    // Not a neutral pair: absent is what leaves every consumer on the fallback
+    // colour AND the fallback ink it was designed with.
+    expect(avatarAccentVars(null)).toEqual({});
+    expect(avatarAccentVars(undefined)).toEqual({});
+  });
+});
+
+describe("scopedAvatarAccentVars", () => {
+  test("carries the same trio as the publisher when there is an accent", () => {
+    expect(scopedAvatarAccentVars(YELLOW)).toEqual(avatarAccentVars(YELLOW));
+  });
+
+  test("shadows all three when there is none, rather than leaving them out", () => {
+    // A nested element that publishes nothing inherits the root's accent,
+    // which belongs to whichever assistant the app has selected rather than
+    // the one this subtree is about. `initial` cuts the inheritance and hands
+    // each consumer back its own fallback, which is the point: they differ.
+    expect(scopedAvatarAccentVars(null)).toEqual({
+      [AVATAR_ACCENT_CSS_VAR]: "initial",
+      [AVATAR_ACCENT_FILL_CSS_VAR]: "initial",
+      [AVATAR_ACCENT_INK_CSS_VAR]: "initial",
+    });
+    expect(scopedAvatarAccentVars(undefined)).toEqual(
+      scopedAvatarAccentVars(null),
+    );
+  });
+});
+
+describe("publishing the accent", () => {
   test("a second publisher unmounting leaves the surviving one's value alone", () => {
-    // "One publisher" is a convention, not something the module enforces — a
+    // "One publisher" is a convention, not something the module enforces: a
     // test harness or a transient double-mount produces two. A cleanup that
     // cleared this would let the departing one null the value the survivor
     // published, and the survivor never re-publishes (its dep did not change),
     // so the island would silently fall back to the native neutral gray.
-    renderHook(() =>
-      useAvatarAccentVar(BUNDLED_COMPONENTS, traitsWithColor("orange"), null),
-    );
-    expect(getRenderedAvatarAccentHex()).toBe(ORANGE);
+    renderHook(() => useAvatarAccentVar(ORANGE));
+    expect(getPublishedAvatarAccentHex()).toBe(ORANGE);
 
-    const second = renderHook(() =>
-      useAvatarAccentVar(BUNDLED_COMPONENTS, traitsWithColor("orange"), null),
-    );
+    const second = renderHook(() => useAvatarAccentVar(ORANGE));
     second.unmount();
 
-    expect(getRenderedAvatarAccentHex()).toBe(ORANGE);
+    expect(getPublishedAvatarAccentHex()).toBe(ORANGE);
   });
 
-  test("a publisher whose avatar loses its color republishes null", () => {
-    // The clearing path that matters is a *publish*, not an unmount: the active
-    // assistant switching to a custom-image or colorless avatar.
-    const initialProps: { traits: CharacterTraits | null } = {
-      traits: traitsWithColor("orange"),
-    };
-    const view = renderHook(
-      ({ traits }: { traits: CharacterTraits | null }) =>
-        useAvatarAccentVar(BUNDLED_COMPONENTS, traits, null),
-      { initialProps },
-    );
-    expect(getRenderedAvatarAccentHex()).toBe(ORANGE);
-
-    view.rerender({ traits: null });
-    // A traits-less avatar still renders in the first palette color.
-    expect(getRenderedAvatarAccentHex()).toBe(BUNDLED_COMPONENTS.colors[0]!.hex);
+  test("a null accent is published as null so readers fall back", () => {
+    renderHook(() => useAvatarAccentVar(null));
+    expect(getPublishedAvatarAccentHex()).toBeNull();
   });
 });

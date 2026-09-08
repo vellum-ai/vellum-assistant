@@ -6,7 +6,15 @@
  * 1. **Signal sources.** Wires each `runtime/event-sources/*` helper
  *    once at mount so DOM visibility, network online/offline,
  *    Capacitor app state, Capacitor deep links, Electron
- *    `powerMonitor`, and Electron deep-link events flow into the bus.
+ *    `powerMonitor`, Electron window attention, and Electron
+ *    deep-link events flow into the bus. Both the DOM visibility source
+ *    and the Electron attention source register unconditionally, and
+ *    only one of them can fire on a given host: Electron disables the
+ *    Page Visibility API and the attention bridge exists nowhere else.
+ *    Both publish the lifecycle edge for the window leaving or
+ *    returning to the screen, and the attention source adds
+ *    `app.attention` for the narrower question of whether the user is
+ *    watching.
  *    The lifecycle diagnostics
  *    recorder is attached in the same effect so those signals are
  *    captured for support bundles, and boot/resume performance
@@ -34,11 +42,13 @@ import { setupQueryFocusManager } from "@/lib/query-focus-manager";
 import { subscribeSwitchTelemetry } from "@/lib/telemetry/switch-telemetry";
 import { publishCapacitorAppStateSource } from "@/runtime/event-sources/capacitor-app-state";
 import { publishCapacitorDeepLinksSource } from "@/runtime/event-sources/capacitor-deep-links";
+import { publishShareInboxSource } from "@/runtime/share-inbox";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
 import { publishElectronConnectivitySource } from "@/runtime/event-sources/electron-connectivity";
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
 import { publishElectronDownloadsSource } from "@/runtime/event-sources/electron-downloads";
 import { publishElectronPowerSource } from "@/runtime/event-sources/electron-power";
+import { publishElectronWindowAttentionSource } from "@/runtime/event-sources/electron-window-attention";
 import { publishWindowOnlineSource } from "@/runtime/event-sources/window-online";
 
 interface UseEventBusInitParams {
@@ -72,10 +82,12 @@ export function useEventBusInit({
       publishWindowOnlineSource(),
       publishCapacitorAppStateSource(),
       publishCapacitorDeepLinksSource(),
+      publishShareInboxSource(),
       publishElectronPowerSource(),
       publishElectronDeepLinksSource(),
       publishElectronDownloadsSource(),
       publishElectronConnectivitySource(),
+      publishElectronWindowAttentionSource(),
       subscribeLifecycleDiagnostics(),
       startBootTelemetry(),
       subscribeSwitchTelemetry(),

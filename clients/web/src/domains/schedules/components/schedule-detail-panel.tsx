@@ -140,7 +140,7 @@ function ScheduleModelProfileField({
           label={t("scheduleDetail.modelProfile")}
           value={t("scheduleDetail.notUsedForWorkflow")}
         />
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
+        <p className="text-body-small-lighter text-[var(--content-tertiary)]">
           {t("scheduleDetail.modelProfileWorkflowNote")}
         </p>
       </>
@@ -497,8 +497,8 @@ export interface ScheduleDetailPanelProps {
 
 /**
  * Inline schedule detail shown in the Schedules page's right pane (mirrors the
- * Activity page's `HomeDetailPanel` so schedule and feed-item details share
- * one consistent side-panel UX).
+ * notification bell's detail so schedule and feed-item details read the same
+ * way).
  */
 export function ScheduleDetailPanel({
   schedule,

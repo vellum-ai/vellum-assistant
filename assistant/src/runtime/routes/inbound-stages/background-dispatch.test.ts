@@ -44,6 +44,7 @@ mock.module("../../../persistence/delivery-channels.js", () => ({
 mock.module("../../../persistence/delivery-crud.js", () => ({
   linkMessage: () => {},
   storeReplyMessageId: (eventId: string, replyMessageId: string) => {
+    operationOrder.push("store-reply-id");
     storedReplyMessageIds.push({ eventId, replyMessageId });
   },
   storeStreamedReplyTs: (eventId: string, messageTs: string) => {
@@ -58,6 +59,7 @@ mock.module("../../../persistence/delivery-status.js", () => ({
     deliveredEvents.push(eventId);
   },
   markProcessed: (eventId: string) => {
+    operationOrder.push("mark-processed");
     markedProcessedEvents.push(eventId);
   },
   recordDeliveryFailure: (eventId: string) => {
@@ -111,12 +113,35 @@ mock.module("../../../messaging/providers/index.js", () => ({
     sentActivity.push(target);
     return setChannelActivityImpl(target);
   },
+  // Slack declares it can stream by implementing the method; whether a given
+  // conversation can is Slack's own answer to `start`, which is why the stub
+  // below models the refusal rather than gating before the call.
+  getTransportForCallback: () => ({
+    streamReply: () => undefined,
+    streamPersists: true,
+  }),
   sendChannelStreamOp: async (
-    _callbackUrl: string,
+    callbackUrl: string,
     _chatId: string,
     op: Record<string, unknown>,
   ) => {
     sentStreamOps.push(op);
+    // `chat.startStream` streams into a thread, and names the reader when the
+    // room has more than one, so a start lacking either is refused. Modelled
+    // here so these tests exercise the fallback the refusal produces.
+    // `chat.startStream` streams into a thread, and a room with more than one
+    // reader must name the reader, so a start lacking either is refused. Slack
+    // ids say which room this is: `D` a DM, `C` a channel. Modelled here so
+    // these tests exercise the fallback a refusal produces, rather than a gate
+    // that no longer exists above the transport.
+    if (op.action === "start") {
+      if (!callbackUrl.includes("threadTs=")) {
+        return { ok: false };
+      }
+      if (/channel=C/.test(callbackUrl) && op.audience === undefined) {
+        return { ok: false };
+      }
+    }
     return sendChannelStreamOpImpl(op);
   },
 }));
@@ -322,6 +347,37 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     expect(deliveredEvents).toEqual(["evt-fast-path"]);
   });
 
+  test("stores the reply id before marking the event processed", async () => {
+    // `processed` is the point stranded-delivery recovery starts considering
+    // an event, and that step reads the reply id from the stored payload. If
+    // the event became eligible first, a crash in between would leave a row
+    // that recovery skips, so its reply would never be delivered.
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-order",
+      assistantMessageId: "assistant-msg-order",
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-order",
+      eventId: "evt-order",
+      content: "hello",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: "C-ORDER",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/slack?channel=C-ORDER",
+    });
+
+    await flush();
+
+    expect(operationOrder.indexOf("store-reply-id")).toBeGreaterThanOrEqual(0);
+    expect(operationOrder.indexOf("store-reply-id")).toBeLessThan(
+      operationOrder.indexOf("mark-processed"),
+    );
+  });
+
   test("suppresses reply delivery when a deduplicated redelivery's prior attempt already delivered", async () => {
     const conversationId = "conv-dedup-delivered";
     const channelId = "C-DEDUP-DELIVERED";
@@ -351,12 +407,15 @@ describe("processChannelMessageInBackground — reply delivery", () => {
 
     await flush();
 
-    // The redelivery is recorded as processed, but the original reply is not
-    // re-delivered — no durable delivery, no terminal delivery transition.
+    // The redelivery is recorded as processed and nothing is re-posted. It
+    // still settles its OWN delivery state: the sibling owns delivery, so a
+    // row left `pending` would read as still owing one and the
+    // stranded-delivery recovery step would re-post the sibling's reply
+    // after a restart.
     expect(markedProcessedEvents).toEqual(["evt-dedup-delivered"]);
     expect(replyDeliveryCalls).toEqual([]);
-    expect(deliveredEvents).toEqual([]);
     expect(deliveredChannelReplies).toEqual([]);
+    expect(deliveredEvents).toEqual(["evt-dedup-delivered"]);
   });
 
   test("skips reply delivery when a deduplicated redelivery's prior attempt failed (sweep owns recovery)", async () => {
@@ -386,10 +445,13 @@ describe("processChannelMessageInBackground — reply delivery", () => {
 
     await flush();
 
+    // Same settlement as the delivered-sibling case. Marking THIS row
+    // delivered does not touch the sibling's `failed` status, so the sweep
+    // still owns and retries the real delivery.
     expect(markedProcessedEvents).toEqual(["evt-dedup-failed"]);
     expect(replyDeliveryCalls).toEqual([]);
-    expect(deliveredEvents).toEqual([]);
     expect(deliveredChannelReplies).toEqual([]);
+    expect(deliveredEvents).toEqual(["evt-dedup-failed"]);
   });
 
   test("recovers the reply when a deduplicated redelivery's prior attempt is stuck pending (crash window)", async () => {
@@ -510,7 +572,8 @@ describe("processChannelMessageInBackground — reply delivery", () => {
 
     await flush();
 
-    expect(slackStreamOps()).toEqual([]);
+    // A start is attempted and refused, so nothing advances past it.
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
     expect(
       deliveredChannelReplies
         .map((entry) => entry.payload.text)
@@ -566,7 +629,6 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: threadTs,
         text: "Streamed DM reply.",
         appended: "Streamed DM reply.",
       },
@@ -648,7 +710,8 @@ describe("processChannelMessageInBackground — reply delivery", () => {
         .map((entry) => entry.payload.text)
         .filter(Boolean),
     ).toEqual([]);
-    expect(slackStreamOps()).toEqual([]);
+    // A start is attempted and refused, so nothing advances past it.
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
     expect(replyDeliveryCalls).toEqual([
       { messageId: "assistant-msg-channel-final", startFromSegment: 0 },
     ]);
@@ -888,6 +951,104 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
     expect(processingFailureEvents).toEqual([]);
     expect(markedProcessedEvents).toEqual([]);
     expect(deliveredEvents).toEqual([]);
+  });
+
+  test("a busy loss with a caller fallback degrades there, never to the sweep", async () => {
+    const processMessage: MessageProcessor = async () => {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    };
+
+    let fellBack = 0;
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-wake-busy",
+      eventId: "evt-wake-busy",
+      content: "Alice reacted with :tada: to your message",
+      sourceChannel: "discord",
+      sourceInterface: "discord",
+      externalChatId: "999000111222333444",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/discord",
+      onTurnLostToBusy: async () => {
+        fellBack++;
+      },
+    });
+
+    await flush();
+
+    // The caller's event stores nothing the sweep could rebuild a turn
+    // from, so its processing lane must never see it: the degradation is
+    // the fallback alone.
+    expect(fellBack).toBe(1);
+    expect(deferredRetryEvents).toEqual([]);
+    expect(retryableFailureEvents).toEqual([]);
+    expect(processingFailureEvents).toEqual([]);
+  });
+
+  test("a non-busy failure with a caller fallback records nothing for the sweep", async () => {
+    const processMessage: MessageProcessor = async () => {
+      throw new Error("provider exploded");
+    };
+
+    let fellBack = 0;
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-wake-error",
+      eventId: "evt-wake-error",
+      content: "Alice reacted with :tada: to your message",
+      sourceChannel: "discord",
+      sourceInterface: "discord",
+      externalChatId: "999000111222333444",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/discord",
+      onTurnLostToBusy: async () => {
+        fellBack++;
+      },
+    });
+
+    await flush();
+
+    // Best-effort turn lost; a failure record would only feed the sweep an
+    // event it cannot rebuild. The fallback is busy-specific and stays uncalled.
+    expect(fellBack).toBe(0);
+    expect(processingFailureEvents).toEqual([]);
+    expect(deferredRetryEvents).toEqual([]);
+  });
+
+  test("ingress row extensions reach processMessage", async () => {
+    let seenOptions: Record<string, unknown> | undefined;
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      options,
+    ) => {
+      seenOptions = options as unknown as Record<string, unknown>;
+      return { messageId: "user-row-1" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-wake-meta",
+      eventId: "evt-wake-meta",
+      content: "Alice reacted with :tada: to your message",
+      sourceChannel: "discord",
+      sourceInterface: "discord",
+      externalChatId: "999000111222333444",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/discord",
+      slackReactionRowMeta: '{"eventKind":"reaction"}',
+      clientMessageId: "reaction:evt-wake-meta",
+      skipUserMessageIndexing: true,
+    });
+
+    await flush();
+
+    expect(seenOptions?.slackReactionRowMeta).toBe('{"eventKind":"reaction"}');
+    expect(seenOptions?.clientMessageId).toBe("reaction:evt-wake-meta");
+    expect(seenOptions?.skipUserMessageIndexing).toBe(true);
   });
 });
 

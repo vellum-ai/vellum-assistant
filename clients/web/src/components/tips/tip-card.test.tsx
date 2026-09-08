@@ -32,6 +32,19 @@ const PLAIN_TIP: Tip = {
   body: "Ask me for a tracker, dashboard, or calculator.",
 };
 
+const QUICK_INPUT_TIP: Tip = {
+  id: "quick-input",
+  kind: "info",
+  source: "curated",
+  eyebrow: "Desktop",
+  title: "Message me anywhere",
+  body: "Send me a quick message from any app.",
+  localizedCopy: {
+    body: "tipCard.quickInputBody",
+    bodyWithoutShortcut: "tipCard.quickInputBodyWithoutShortcut",
+  },
+};
+
 function renderCard(
   tip: Tip,
   overrides?: Partial<{
@@ -87,6 +100,15 @@ describe("TipCard", () => {
     const { container } = renderCard(PLAIN_TIP);
 
     expect(container.querySelector("a")).toBeNull();
+  });
+
+  test("does not advertise an unbound Quick Input shortcut", () => {
+    const { getByText, queryByText } = renderCard(QUICK_INPUT_TIP);
+
+    expect(
+      getByText("Send me a quick message from any app using Quick Input."),
+    ).not.toBeNull();
+    expect(queryByText(/Cmd|Ctrl/)).toBeNull();
   });
 
   test("dismisses through the header X button", () => {

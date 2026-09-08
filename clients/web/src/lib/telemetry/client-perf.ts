@@ -81,9 +81,11 @@ export type ClientPerfCheckName =
  * Posts one `client_*` watchdog event through the daemon relay. Fire and
  * forget: never throws into the caller, so a probe can sit on a hot render
  * or navigation path without adding a failure mode. Transport failures
- * (network, unreachable daemon) are swallowed; a 4xx rejection other than
- * 404 is reported to Sentry once per status per page load, because a batch
- * the daemon refuses is silent data loss otherwise.
+ * (network, unreachable daemon) are swallowed; a contract-class 4xx
+ * rejection (400/422, the wire refusing the event) is reported to Sentry
+ * once per status per page load, because a batch the daemon refuses is
+ * silent data loss otherwise. Auth-layer answers (401/403) and pre-relay
+ * daemons (404) stay quiet, expected states rather than contract breaks.
  *
  * Precision is the caller's: durations arrive already rounded to whole
  * milliseconds, scores keep their decimals, and `value` is null when the
@@ -135,10 +137,20 @@ export function sendClientWatchdogEvent(event: {
     })
       .then(({ response }) => {
         const status = response?.status ?? 0;
-        // 404 is not a reportable condition: a daemon predating the relay
-        // route answers it per event, expected and quiet, and telemetry from
-        // it is simply absent.
-        if (status < 400 || status >= 500 || status === 404) {
+        // Only contract-class rejections are reportable. Not reportable:
+        // 404, a daemon predating the relay route answers it per event, and
+        // telemetry from it is simply absent; 401/403, an auth layer refusing
+        // the caller rather than the wire refusing the event (on the cloud
+        // proxy path an expired or absent platform session answers 403), the
+        // app surfaces signed-out state on its own and every expired-session
+        // page load would otherwise report once, forever.
+        if (
+          status < 400 ||
+          status >= 500 ||
+          status === 401 ||
+          status === 403 ||
+          status === 404
+        ) {
           return;
         }
         if (claimUnreportedConditions([`relay:${status}`]).length === 0) {

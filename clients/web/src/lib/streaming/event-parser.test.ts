@@ -2560,10 +2560,10 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
-  // conversation_list_invalidated (schema-validated)
+  // conversation_list_invalidated (retired — always parses as unknown)
   // ---------------------------------------------------------------------
 
-  test("parses conversation_list_invalidated with each valid reason", () => {
+  test("returns unknown for conversation_list_invalidated regardless of reason", () => {
     for (const reason of [
       "created",
       "renamed",
@@ -2571,11 +2571,12 @@ describe("parseAssistantEvent", () => {
       "reordered",
       "seen_changed",
     ] as const) {
-      const event = parseEvent({
-        type: "conversation_list_invalidated",
-        reason,
+      const data = { type: "conversation_list_invalidated", reason };
+      expect(parseEvent(data)).toEqual({
+        type: "unknown",
+        rawType: "conversation_list_invalidated",
+        data,
       });
-      expect(event).toEqual({ type: "conversation_list_invalidated", reason });
     }
   });
 

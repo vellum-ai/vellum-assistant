@@ -2,7 +2,7 @@ import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
-import { turnStartUserMessageHasSpotlight } from "../context/strip-injections.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -435,15 +435,22 @@ export type AgentEvent =
        * stripped pre-compaction base re-derive it from the start event via
        * `stripInjectionsForCompaction`.
        *
-       * The daemon's event dispatcher commits the stripped pre-compaction
-       * base as the conversation's durable message state. Re-injection (the
-       * post-compaction hook) strips runtime injections before re-applying
-       * them, so it is idempotent whether the loop continues from the
-       * stripped compaction result or from the unchanged injected history.
+       * The daemon's event dispatcher resets the memory-injection ledgers
+       * once the history-stripped marker is durable, and commits the durable
+       * message state in the shape that outcome leaves it: the stripped
+       * pre-compaction base when the ledgers reset (their frozen blocks leave
+       * durable history with the strip whether or not a summary landed), the
+       * injected pre-compaction history when the marker could not be made
+       * durable and the ledgers were left intact. The loop continues from the
+       * same shape (the compaction result; or, for a run that compacted
+       * nothing, its own strip of the uncompacted history when the dispatcher
+       * reports the reset through the run's `injectionLedgerResets`, else that
+       * history with its injections intact), so re-injection (the
+       * post-compaction hook) renders onto a history whose frozen blocks are
+       * exactly the ones the ledgers claim.
        * When `compacted` is set the dispatcher additionally commits the
-       * durable compaction result (DB-record fields, graph-memory side
-       * effects, SSE) and projects Slack provenance from the pre-compaction
-       * base.
+       * durable compaction result (DB-record fields, SSE) and projects Slack
+       * provenance from the pre-compaction base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
@@ -464,15 +471,22 @@ export type AgentEvent =
   | {
       /**
        * Emitted during the loop's compaction ceremony, before the pipeline
-       * runs. The daemon's event dispatcher commits the stripped
-       * pre-compaction base as the durable history and records the
-       * history-stripped marker — a Conversation DB-record field read back at
-       * load time to strip embedded injection prefixes from pre-strip
-       * messages. Best-effort: a transient marker write must not abort the
-       * turn, so unlike `compaction_completed` this event is not treated as
-       * critical.
+       * runs. The daemon's event dispatcher records the history-stripped
+       * marker (a Conversation DB-record field read back at load time to
+       * strip embedded injection prefixes from pre-strip messages) and
+       * carries the write's outcome to the pair's `compaction_completed`
+       * dispatch, which gates the memory-injection ledger reset and the shape
+       * of the durable commit on it. Best-effort: a transient marker write
+       * must not abort the turn, so unlike `compaction_completed` this event
+       * is not treated as critical.
        */
       type: "history_stripped";
+      /**
+       * Correlates this strip with its `context_compacting` /
+       * `compaction_completed` pair, so the dispatcher can carry the marker
+       * write's outcome from this event to the pair's end event.
+       */
+      compactionId: string;
     }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
@@ -553,6 +567,17 @@ interface AgentLoopRunOptionsBase {
   messages: Message[];
   /** Sink the loop streams its {@link AgentEvent}s through as the turn runs. */
   onEvent: (event: AgentEvent) => void | Promise<void>;
+  /**
+   * `compactionId`s whose `compaction_completed` dispatch reset the
+   * memory-injection ledgers. The sink records an entry once the reset runs;
+   * the loop consumes it after the dispatch settles to pick the continuation
+   * base of a pipeline run that compacted nothing: the injection-stripped
+   * history when the ledgers reset, the injected history (the frozen memory
+   * blocks the ledgers still claim left in place) when they did not, so
+   * residency and the live history agree. Absent for a sink that never resets
+   * the ledgers, and such a run never strips.
+   */
+  injectionLedgerResets?: Set<string>;
   signal?: AbortSignal;
   requestId: string;
   /**
@@ -982,16 +1007,25 @@ export class AgentLoop {
    * Calls the default compaction plugin, then re-applies injections via the
    * supplied hooks. Both the budget and overflow paths hand the full injected
    * `history` to the plugin (so the summary call reuses the agent's warm prefix
-   * cache); the POST_COMPACT hook owns re-injection idempotency so continuing
-   * from injected history does not double-stack blocks. When `overflowSignal`
-   * is supplied the plugin routes through the manager's reduction ladder (which
-   * advances one rung per call and reports `exhausted` / `autoCompressApplied`
-   * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
-   * the re-injected history to continue from alongside the ladder's terminal
-   * state. On the ordinary path an exhausted compactor yields a `null` history
-   * (nothing reduced worth continuing from, so the caller proceeds with the
-   * call); the overflow path always returns the rung's reduced history so the
-   * call is retried once at maximum reduction before the turn ends.
+   * cache). The base handed to the POST_COMPACT hook follows the shape the
+   * event dispatcher commits as the durable history: a compacted result (the
+   * summary plus the compactor's stripped tail) as built; a history the
+   * pipeline left uncompacted stripped of its injections when the dispatcher
+   * reports, through `injectionLedgerResets`, that it reset the
+   * memory-injection ledgers, and with its injections intact when it did not
+   * (the ledgers then still claim the frozen memory blocks, so the blocks stay
+   * where their residency pointers expect them). Either way re-injection
+   * renders onto a history whose frozen blocks are exactly the ones the
+   * ledgers claim, and the hook's own tail strip keeps the per-turn blocks
+   * single. When `overflowSignal` is supplied the plugin routes through the
+   * manager's reduction ladder (which advances one rung per call and reports
+   * `exhausted` / `autoCompressApplied` / `injectionMode`); otherwise it runs
+   * ordinary forced compaction. Returns the re-injected history to continue
+   * from alongside the ladder's terminal state. On the ordinary path an
+   * exhausted compactor yields a `null` history (nothing reduced worth
+   * continuing from, so the caller proceeds with the call); the overflow path
+   * always returns the rung's reduced history so the call is retried once at
+   * maximum reduction before the turn ends.
    */
   private async compact(
     history: Message[],
@@ -999,6 +1033,7 @@ export class AgentLoop {
     trust: TrustContext,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
+    injectionLedgerResets: Set<string> | undefined,
     overrideProfile: string | null,
     isNonInteractive: boolean,
     modelProfileKey: string,
@@ -1019,7 +1054,7 @@ export class AgentLoop {
     // The durable pre-compaction base is stripped by the event dispatcher
     // (re-derived from the start event), so record the history-stripped
     // marker for this compaction before the pipeline runs.
-    await onEvent({ type: "history_stripped" });
+    await onEvent({ type: "history_stripped", compactionId });
     // The compaction module owns the per-conversation manager; pass the
     // conversation id and let `defaultCompact` resolve it from the store.
     // The budget gate is reached only when this turn decides to compact in
@@ -1049,10 +1084,12 @@ export class AgentLoop {
         onEvent,
       );
     }
-    // Emit unconditionally: the dispatcher commits the stripped pre-compaction
-    // base (re-derived from the start event) as the durable message base
-    // whether or not the pipeline compacted (re-injection reads it), and runs
-    // the durable compaction commit only when `compacted`.
+    // Emit unconditionally: the dispatcher resets the memory-injection ledgers
+    // (gated on the history-stripped marker) whether or not the pipeline
+    // compacted, commits the pre-compaction base (re-derived from the start
+    // event) as the durable message base in the shape that outcome leaves it,
+    // since re-injection reads both, and runs the durable compaction commit
+    // only when `compacted`.
     await onEvent({
       type: "compaction_completed",
       compactionId,
@@ -1062,22 +1099,50 @@ export class AgentLoop {
       finishedAt: Date.now(),
       ...compactResult,
     });
+    // The dispatcher records the id once its ledger reset ran; consume it here
+    // so the run's set carries no stale entries.
+    const injectionLedgersReset =
+      injectionLedgerResets?.delete(compactionId) ?? false;
     const exhausted = compactResult.exhausted ?? false;
     const autoCompressApplied = compactResult.autoCompressApplied ?? false;
     if (overflowSignal == null && exhausted) {
       return { history: null, exhausted, autoCompressApplied };
     }
-    // The POST_COMPACT hook strips runtime injections from this base and
-    // re-applies them, so continuing from injected history is safe. The
-    // overflow ladder transforms the history on every rung (truncation /
-    // media stubbing / injection downgrade) regardless of whether the summary
-    // ran, so continue from its reduced messages; the ordinary path continues
-    // from the compacted messages when the pipeline compacted, otherwise from
-    // the unchanged injected history.
-    const base =
-      overflowSignal != null || compactResult.compacted
-        ? compactResult.messages
-        : history;
+    // Continue from the shape the dispatcher committed as the durable history.
+    // A compacted result is already the summary plus the compactor's stripped
+    // tail. The overflow ladder's non-summary rungs (truncation / media
+    // stubbing / injection downgrade) return the reduced history with its
+    // injections intact, and the ordinary path leaves the injected history
+    // unchanged; those are stripped here only when the dispatcher reset the
+    // memory-injection ledgers, so the POST_COMPACT hook re-applies the
+    // runtime injections onto a history with no frozen memory block and a
+    // section the reset left unclaimed renders once, on the tail, rather than
+    // beside a frozen copy on an earlier message. When the reset was skipped
+    // (the history-stripped marker could not be made durable, or a ledger
+    // clear failed) the ledgers
+    // still claim those frozen blocks, so the strip is deferred and the
+    // injected history continues: the pointers the hook emits for those
+    // sections point at blocks that are still there, and a reload rehydrates
+    // the same blocks from the persisted rows.
+    const uncompacted =
+      overflowSignal != null ? compactResult.messages : history;
+    let base: Message[];
+    if (compactResult.compacted) {
+      base = compactResult.messages;
+    } else if (injectionLedgersReset) {
+      base = stripInjectionsForCompaction(uncompacted);
+    } else {
+      log.warn(
+        {
+          requestId,
+          conversationId: this.conversationId,
+          compactionId,
+          trigger,
+        },
+        "Injection strip deferred: the memory-injection ledgers were not reset, so the turn continues from the injected history",
+      );
+      base = uncompacted;
+    }
     const postCompactCtx: PostCompactInputContext = {
       history: base,
       requestId,
@@ -1116,6 +1181,7 @@ export class AgentLoop {
       isNonInteractive = false,
       model: runModel,
       latencyTracker,
+      injectionLedgerResets,
     } = options;
     // Snapshot the system prompt once per run. The instance field is mutable
     // (the conversation may update it between turns), but a single run must
@@ -1341,12 +1407,15 @@ export class AgentLoop {
                 preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
               const estimated = this.estimateTokens(history);
               const overflowDriven = overflowSignal !== null;
-              // Proactive compaction fires when the primary run's turn-start
-              // signal (`compactInPlace`) crosses the estimate threshold;
-              // overflow recovery always compacts.
+              // Proactive compaction fires when the estimate crosses the
+              // threshold: on the first call gate only when `compactInPlace` is
+              // set (turn-start compaction), and on every subsequent gate
+              // (post-tool-use iteration) unconditionally. Overflow recovery
+              // always compacts.
               const shouldCompact =
                 overflowDriven ||
-                (compactInPlace && estimated > midLoopThreshold);
+                ((compactInPlace || !isFirstCallGate) &&
+                  estimated > midLoopThreshold);
               const compactionAllowed =
                 overflowDriven ||
                 !isFirstCallGate ||
@@ -1408,6 +1477,7 @@ export class AgentLoop {
                   trust,
                   signal,
                   onEvent,
+                  injectionLedgerResets,
                   resolveEffectiveOverrideProfile() ?? null,
                   isNonInteractive,
                   options.modelProfileKey,
@@ -1551,21 +1621,6 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for turns whose opening message is volatile. The
-        // memory-v3 `<memory_spotlight>` block is the only injected block that
-        // is strip-and-replaced from every user message each turn, so when it
-        // is present that message's bytes do not recur next turn and a
-        // long-TTL breakpoint on it could never be read back. The provider
-        // marks it at the short TTL instead. Derived from the history actually
-        // being sent rather than from configuration, so turns where memory
-        // contributed no spotlight keep a normal anchor. Read off the
-        // turn-starting message, so the signal holds for every request in the
-        // turn rather than flipping once tool results arrive. Only set when
-        // true so the wire/config stays byte-identical when absent.
-        if (turnStartUserMessageHasSpotlight(history)) {
-          providerConfig.mutableLatestUserMessage = true;
-        }
-
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
         // can route through `resolveCallSiteConfig` against
@@ -1652,7 +1707,7 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = timeSyncSection(
+        const sanitizedHistory = timeSyncSection(
           "agent-loop:pre-model-call-sanitize",
           () => preModelCallSanitize(history),
           (sanitized) => ({ messageCount: sanitized.length }),
@@ -1837,7 +1892,7 @@ export class AgentLoop {
         let response: ProviderResponse;
         try {
           response = await traceAsyncSection("agent-loop:provider-send", () =>
-            this.provider.sendMessage(providerHistory, providerOptions),
+            this.provider.sendMessage(sanitizedHistory, providerOptions),
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1855,7 +1910,7 @@ export class AgentLoop {
             // misrepresent both.
             const rawRequest = {
               provider: this.provider.name,
-              messages: providerHistory,
+              messages: sanitizedHistory,
               tools: providerOptions.tools,
               systemPrompt: providerOptions.systemPrompt,
               config: providerOptions.config,

@@ -10,14 +10,15 @@ export const SKIP_RESEARCH_PARAM = "skip_research";
 
 /**
  * Query param marking a funnel walk that is provisioning a NEW assistant. Set
- * by every handoff into the privacy screen that provisions: the hosting
- * screen's cloud Continue, the api-key screen, and the retry off-ramp on a
- * failed managed hatch.
+ * by every handoff into the privacy screen that provisions: the start screen's
+ * CTA, the hosting screen's cloud Continue, the api-key screen, and the retry
+ * off-ramp on a failed managed hatch.
  *
- * `alreadyOnboarded` is a fact about assistants that already exist, so it can
- * never answer for the one this walk is about to create. The privacy route
- * guard and the post-consent destination both defer to this marker rather than
- * skipping a hatch the user explicitly asked for.
+ * The walk's intent, which no fact about an existing assistant can supply: the
+ * one being created does not exist yet, so however established the selected
+ * assistant is, this visit is its first run. The privacy route guard and the
+ * post-consent destination both defer to the marker rather than skipping a
+ * hatch the user explicitly asked for.
  */
 export const NEW_ASSISTANT_PARAM = "new_assistant";
 
@@ -93,17 +94,17 @@ export function withSkipResearch(
  *   gateway readyz → provider key) runs; the hatching screen then redirects into
  *   the research flow, which adopts that just-hatched assistant. Skipping
  *   hatching here would leave the research flow with no assistant to adopt.
- * - **Already onboarded** (hatched at least a week ago) → `/assistant`. The
- *   assistant is already provisioned and past research, including in
- *   production. Yields to a walk that is provisioning a new assistant: that
- *   one does not exist yet, so no existing assistant's age answers for it.
+ * - **Selected assistant already onboarded** → `/assistant`. That assistant is
+ *   provisioned and past research, including in production. Yields to a walk
+ *   that is provisioning a new assistant: that one does not exist yet, so the
+ *   selected assistant cannot answer for it.
  * - **Skip to chat** (non-production) → hatching as well. There is no research
  *   form, so the hatch screen provisions, then hands off to chat.
  */
 export function onboardingDestinationAfterConsent({
   isLocalHatch,
   skipResearch = false,
-  alreadyOnboarded = false,
+  selectedAssistantOnboarded = false,
   newAssistant = false,
   env = import.meta.env.VITE_SENTRY_ENVIRONMENT,
 }: {
@@ -115,10 +116,10 @@ export function onboardingDestinationAfterConsent({
    */
   skipResearch?: boolean;
   /**
-   * The current assistant has already finished first-run onboarding. Skips
+   * The selected assistant has already finished first-run onboarding. Skips
    * research on every build, including production.
    */
-  alreadyOnboarded?: boolean;
+  selectedAssistantOnboarded?: boolean;
   /**
    * This walk is provisioning a new assistant (see {@link NEW_ASSISTANT_PARAM}),
    * so it must reach a hatch rather than short-circuit to an existing one.
@@ -129,7 +130,7 @@ export function onboardingDestinationAfterConsent({
 }): string {
   // `isLocalHatch` counts as provisioning on its own: it names a foreground
   // hatch that has to run, marker or not.
-  if (alreadyOnboarded && !newAssistant && !isLocalHatch) {
+  if (selectedAssistantOnboarded && !newAssistant && !isLocalHatch) {
     return routes.assistant;
   }
   if (skipResearch && canSkipOnboardingResearch(env)) {

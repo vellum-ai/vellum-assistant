@@ -171,22 +171,12 @@ export function LibraryView({
     );
   }
 
-  // --- Render: empty state ---
-  if (apps.length === 0 && documents.length === 0) {
-    return (
-      <LibraryEmptyState
-        accept={bundleAccept}
-        fileInputRef={fileInputRef}
-        isImporting={isImporting}
-        onImportBundle={handleImportBundle}
-        onNewConversation={
-          onNewConversation ? () => onNewConversation() : undefined
-        }
-      />
-    );
-  }
+  // Import is the only way a `.vellum` recipient gets their first app, so the
+  // header control renders above the empty/populated split rather than inside
+  // the populated branch.
+  const isEmpty = apps.length === 0 && documents.length === 0;
 
-  // --- Render: main library grid ---
+  // --- Render: library ---
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="mb-4 flex shrink-0 items-center justify-end gap-4">
@@ -214,85 +204,100 @@ export function LibraryView({
         </div>
       </div>
 
-      <div className="mb-6 shrink-0">
-        <Input
-          fullWidth
-          type="text"
-          placeholder={t("libraryView.searchPlaceholder")}
-          value={searchText}
-          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-            setSearchText(e.target.value)
-          }
-          leftIcon={<Search size={16} />}
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {filteredApps.length === 0 && filteredDocuments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <Search size={32} className="mb-4 text-[var(--content-tertiary)]" />
-            <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              {t("libraryView.noMatches", { query: searchText })}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-8">
-            <LibraryGridSection
-              title={t("libraryView.pinned")}
-              apps={pinnedApps}
-              assistantId={assistantId}
-              pinnedAppIds={pinnedAppIds}
-              onOpen={onOpenApp}
-              onPin={handlePinToggle}
-              onDelete={setAppPendingDelete}
-              onDeploy={handleDeploy}
+      {isEmpty ? (
+        <div className="min-h-0 flex-1">
+          <LibraryEmptyState
+            onNewConversation={
+              onNewConversation ? () => onNewConversation() : undefined
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div className="mb-6 shrink-0">
+            <Input
+              fullWidth
+              type="text"
+              placeholder={t("libraryView.searchPlaceholder")}
+              value={searchText}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                setSearchText(e.target.value)
+              }
+              leftIcon={<Search size={16} />}
             />
-            <LibraryGridSection
-              title={t("libraryView.recents")}
-              apps={recentApps}
-              assistantId={assistantId}
-              pinnedAppIds={pinnedAppIds}
-              onOpen={onOpenApp}
-              onPin={handlePinToggle}
-              onDelete={setAppPendingDelete}
-              onDeploy={handleDeploy}
-            />
-            {filteredDocuments.length > 0 ? (
-              <section>
-                <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
-                  {t("libraryView.documents")}
-                </h2>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6">
-                  {filteredDocuments.map((doc) => (
-                    <LibraryDocumentCard
-                      key={doc.surfaceId}
-                      document={doc}
-                      onOpen={(documentSurfaceId) => {
-                        if (onOpenDocument) {
-                          onOpenDocument(documentSurfaceId);
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
           </div>
-        )}
-      </div>
 
-      <DeployDialogs
-        assistantId={assistantId}
-        assistantName={assistantName}
-        onStartConversation={onNewConversation}
-      />
+          <div className="flex-1 overflow-y-auto">
+            {filteredApps.length === 0 && filteredDocuments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <Search
+                  size={32}
+                  className="mb-4 text-[var(--content-tertiary)]"
+                />
+                <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+                  {t("libraryView.noMatches", { query: searchText })}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-8">
+                <LibraryGridSection
+                  title={t("libraryView.pinned")}
+                  apps={pinnedApps}
+                  assistantId={assistantId}
+                  pinnedAppIds={pinnedAppIds}
+                  onOpen={onOpenApp}
+                  onPin={handlePinToggle}
+                  onDelete={setAppPendingDelete}
+                  onDeploy={handleDeploy}
+                />
+                <LibraryGridSection
+                  title={t("libraryView.recents")}
+                  apps={recentApps}
+                  assistantId={assistantId}
+                  pinnedAppIds={pinnedAppIds}
+                  onOpen={onOpenApp}
+                  onPin={handlePinToggle}
+                  onDelete={setAppPendingDelete}
+                  onDeploy={handleDeploy}
+                />
+                {filteredDocuments.length > 0 ? (
+                  <section>
+                    <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
+                      {t("libraryView.documents")}
+                    </h2>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6">
+                      {filteredDocuments.map((doc) => (
+                        <LibraryDocumentCard
+                          key={doc.surfaceId}
+                          document={doc}
+                          onOpen={(documentSurfaceId) => {
+                            if (onOpenDocument) {
+                              onOpenDocument(documentSurfaceId);
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            )}
+          </div>
 
-      <DeleteAppDialog
-        app={appPendingDelete}
-        isDeleting={isDeleting}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleCancelDelete}
-      />
+          <DeployDialogs
+            assistantId={assistantId}
+            assistantName={assistantName}
+            onStartConversation={onNewConversation}
+          />
+
+          <DeleteAppDialog
+            app={appPendingDelete}
+            isDeleting={isDeleting}
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -9,12 +9,19 @@ export interface DiscordSetupInviteStepProps {
    */
   inviteUrl?: string;
   onOpenInvite: (url: string) => void;
+  /**
+   * The user says the bot joined. Discord's authorization finishes in a popup
+   * this app cannot observe (the token is dropped after save, deliberately),
+   * so their word is the only completion signal available.
+   */
+  onConfirmJoined: () => void;
 }
 
 /** Invite the bot to a server. */
 export function DiscordSetupInviteStep({
   inviteUrl,
   onOpenInvite,
+  onConfirmJoined,
 }: DiscordSetupInviteStepProps) {
   const { t } = useTranslation();
 
@@ -34,9 +41,14 @@ export function DiscordSetupInviteStep({
         {t("discordSetupInviteStep.instructions")}
       </Typography>
 
-      <Button type="button" onClick={() => onOpenInvite(inviteUrl)}>
-        {t("discordSetupInviteStep.openInvite")}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" onClick={() => onOpenInvite(inviteUrl)}>
+          {t("discordSetupInviteStep.openInvite")}
+        </Button>
+        <Button type="button" variant="outlined" onClick={onConfirmJoined}>
+          {t("discordSetupInviteStep.confirmJoined")}
+        </Button>
+      </div>
     </div>
   );
 }

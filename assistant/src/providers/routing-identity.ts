@@ -39,7 +39,8 @@ export class ConnectionResolutionError extends ConfigError {
       | "model_incompatible"
       | "missing_credential"
       | "platform_unauthenticated"
-      | "unroutable_managed_model",
+      | "unroutable_managed_model"
+      | "adapter_unavailable",
     message: string,
     options?: { cause?: unknown; model?: string; profileName?: string },
   ) {

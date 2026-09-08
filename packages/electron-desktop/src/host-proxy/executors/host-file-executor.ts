@@ -29,7 +29,7 @@ const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
  * `tools/shared/filesystem/file-ops-service.ts`, which owns the value and the
  * wording of the notice below.
  */
-const READ_CHAR_BUDGET = 20_000;
+const READ_CHAR_BUDGET = 100_000;
 
 const isHighSurrogate = (code: number): boolean =>
   code >= 0xd800 && code <= 0xdbff;

@@ -146,6 +146,19 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     expect(result.map((m) => m.id)).toEqual(["empty-asst"]);
   });
 
+  test("never drops a user row deleted on its channel", () => {
+    // The tombstone renders whatever the content holds, so an emptied row
+    // is still a row.
+    const deleted = makeMessage({
+      id: "deleted",
+      role: "user",
+      ...textBody(""),
+      deletedAt: 1725100001000,
+    });
+    const result = sanitizeDisplayMessages([deleted]);
+    expect(result.map((m) => m.id)).toEqual(["deleted"]);
+  });
+
   test("never drops queued user rows", () => {
     const queued = makeMessage({
       id: "queued",
@@ -184,6 +197,27 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
 
     const result = sanitizeDisplayMessages([server, orphan]);
     expect(result.map((m) => m.id)).toEqual(["msg-1"]);
+  });
+
+  test("never drops a channel-deleted row against an identical neighbour, in either order", () => {
+    const twin = (id: string, deletedAt?: number) =>
+      makeMessage({
+        id,
+        role: "assistant",
+        textSegments: ["Final answer"],
+        timestamp: 1000,
+        ...(deletedAt !== undefined ? { deletedAt } : {}),
+      });
+    expect(
+      sanitizeDisplayMessages([twin("live"), twin("gone", 1725100001000)]).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["live", "gone"]);
+    expect(
+      sanitizeDisplayMessages([twin("gone", 1725100001000), twin("live")]).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["gone", "live"]);
   });
 
   test("keeps both rows when only one is the assistant", () => {

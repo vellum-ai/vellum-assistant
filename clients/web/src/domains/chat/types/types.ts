@@ -183,6 +183,10 @@ export interface DisplayMessage {
    *  the upsell card instead of a persona bubble; other categories keep the
    *  plain rendering. */
   providerError?: { code?: string; category?: string };
+  /** Unix ms at which the message was deleted on its channel after the
+   *  daemon stored it. Mirrors `ConversationMessage["deletedAt"]`; renders as
+   *  a tombstone in place of the stored content, which stays for Inspect. */
+  deletedAt?: number;
 }
 
 /**

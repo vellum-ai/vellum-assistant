@@ -712,11 +712,36 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     return html.slice(open, close + 1);
   };
 
-  test("rail body reserves no bottom padding", () => {
+  test("rail body reserves nothing under its list", () => {
     const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
 
+    expect(tag).not.toContain("mb-24");
+    expect(tag).not.toContain("margin-bottom");
+  });
+
+  test("the overlay scrollport rounds its cut onto the card's corners", () => {
+    // The cut lands mid-card whenever the list outruns the drawer, so it
+    // carries the card's own radius.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("clip-path:inset(");
+    expect(tag).toContain("var(--radius-xl)");
+    expect(sliceBodyOpeningTag(renderMenu({ conversations }))).not.toContain(
+      "clip-path",
+    );
+  });
+
+  test("the overlay reserve ends the scrollport rather than padding it", () => {
+    // A margin, so the reserve ends the scrollport: padding belongs to the
+    // scrollable box, and a card taller than the drawer paints through it.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("mb-24");
     expect(tag).not.toContain("pb-24");
-    expect(tag).not.toContain("padding-bottom");
   });
 
   test("reserves the measured floating-column height once mounted", async () => {
@@ -781,7 +806,7 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
       );
 
       // happy-dom's CSSStyleDeclaration drops values containing `env()`,
-      // so the composed `padding-bottom` calc is unobservable here; the
+      // so the composed `margin-bottom` calc is unobservable here; the
       // measured height feeding it is asserted via its custom property,
       // which happy-dom stores verbatim.
       const measuredReserve = () => {

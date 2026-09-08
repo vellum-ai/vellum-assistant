@@ -41,9 +41,10 @@ import {
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
-import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
-import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
+import {
+  ToolDetailBody,
+  toolDetailHeaderTitle,
+} from "@/domains/chat/components/tool-detail-panel";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
@@ -263,9 +264,7 @@ export function SubagentDetailPanel({
   // The nested step's label — the breadcrumb tail and the header title while a
   // detail is open. Mirrors the main-chat tool detail panel's `activity ||
   // title` precedence.
-  const detailTitle = activeDetail
-    ? activeDetail.activity || activeDetail.title
-    : "";
+  const detailTitle = activeDetail ? toolDetailHeaderTitle(activeDetail) : "";
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
@@ -369,25 +368,15 @@ export function SubagentDetailPanel({
             <>
               {/* Navigation back to the timeline lives in the header (Back button)
               and the breadcrumb; this body only renders the step's detail.
-              Thinking steps render their full reasoning markdown statically
-              (subagent detail isn't a live chat-session source); web_search
-              steps render their query + source links; web_fetch gets a
-              result-shaped view; other tools fall back to the shared
-              technical-details/output body. */}
+              Thinking steps render their reasoning markdown statically, because
+              subagent detail is not a live chat-session source; every tool goes
+              through `ToolDetailBody`, which picks its renderer. */}
               {activeDetail.kind === "thinking" ? (
                 <ChatMarkdownMessage
                   content={activeDetail.thinkingText ?? ""}
                   hardLineBreaks
                   assistantId={assistantId}
                 />
-              ) : activeDetail.kind === "web_search" &&
-                activeDetail.status !== "error" ? (
-                // A successful search shows query + sources; a FAILED one falls
-                // through to `ToolDetailBody`, which renders its full, untruncated
-                // error in the Output section — parity with a failed tool.
-                <WebSearchDetailView detail={activeDetail} />
-              ) : activeDetail.toolName === "web_fetch" ? (
-                <WebFetchDetailView detail={activeDetail} />
               ) : (
                 <ToolDetailBody
                   detail={activeDetail}

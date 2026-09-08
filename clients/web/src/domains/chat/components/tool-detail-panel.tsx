@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
@@ -47,7 +46,10 @@ import {
   getRiskNoticeTone,
   getRiskToleranceHint,
 } from "@/domains/chat/utils/risk";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import {
+  isToolCallDenied,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -68,12 +70,6 @@ const ICON_MAP: Record<IconName, LucideIcon> = {
   bolt: Bolt,
   brain: Brain,
 };
-
-// Re-exported for the panels that already imported these from here
-// (`background-task-detail-panel`, `acp-run-detail-panel`, …). They now live in
-// `@/components/detail-primitives` so tool-specific renderers can use them
-// without importing this module and forming a cycle.
-export { CodeBlock, SectionLabel };
 
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
@@ -139,11 +135,20 @@ export function ToolDetailBody({
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
-  const hasResult = result !== undefined && result !== "";
+  // An empty string is a result: the tool ran and returned nothing. Only an
+  // absent result means the call has not produced one yet.
+  const hasResult = result !== undefined;
+  const isEmptyResult = result === "";
   const isRunning = liveTc
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
   const isError = liveTc?.isError ?? detail.status === "error";
+  // Live, like the two flags above: the decision can be stamped on the
+  // transcript while this drawer is open. `isToolCallDenied` covers a prompt
+  // that expired as well as one refused, so the copy below is true of both.
+  const isDenied = liveTc
+    ? isToolCallDenied(liveTc)
+    : detail.status === "denied";
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
@@ -154,9 +159,20 @@ export function ToolDetailBody({
   const riskHint = getRiskToleranceHint(riskLevel);
   const riskStyle = getRiskBadgeWeakStyle(riskLevel);
 
+  // What the Output section says when it has no text to show. Every terminal
+  // call that produced nothing lands on `emptyOutput`, including one that was
+  // force-completed with no result at all, so the section always answers "what
+  // came back" rather than disappearing.
+  const outputNoticeKey =
+    isDenied && !hasResult
+      ? "toolDetailPanel.denied"
+      : isRunning
+        ? "toolDetailPanel.running"
+        : "toolDetailPanel.emptyOutput";
+
   // Tools with purpose-built activity UI replace the generic name/activity/JSON
   // block; those that also own their output suppress the shared Output section.
-  const renderer = getToolActivityRenderer(detail.toolName);
+  const renderer = getToolActivityRenderer(detail);
 
   return (
     <>
@@ -203,15 +219,6 @@ export function ToolDetailBody({
           >
             {titleCaseToolName(detail.toolName)}
           </Typography>
-          {detail.activity && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="mt-0.5 text-[var(--content-secondary)]"
-            >
-              {detail.activity}
-            </Typography>
-          )}
           <div className="mt-2">
             <CodeBlock text={inputJson} />
           </div>
@@ -221,11 +228,14 @@ export function ToolDetailBody({
       {/* Output — the final result once present, else the live streamed tail
           while running, else a bare running placeholder. Suppressed for tools
           whose renderer already presents the result itself. */}
-      {!renderer?.ownsOutput && (hasResult || isRunning) && (
+      {!renderer?.ownsOutput && (
         <div className="mt-5">
           <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          {hasResult ? (
-            <CodeBlock text={result as string} />
+          {hasResult && !isEmptyResult ? (
+            <CodeBlock
+              text={result as string}
+              tone={isError ? "error" : "default"}
+            />
           ) : hasStreamedOutput ? (
             <CodeBlock text={streamedOutput as string} />
           ) : (
@@ -233,14 +243,30 @@ export function ToolDetailBody({
               variant="body-small-default"
               as="p"
               className="text-[var(--content-tertiary)]"
+              data-testid="tool-output-notice"
             >
-              {t("toolDetailPanel.running")}
+              {t(outputNoticeKey)}
             </Typography>
           )}
         </div>
       )}
     </>
   );
+}
+
+/**
+ * Title the panel hosting a tool detail shows for it: the activity sentence
+ * when the call carries one, else the phase title.
+ *
+ * Every host of `ToolDetailBody` renders its own header, and the body relies on
+ * all of them showing this, which is why the body itself does not repeat the
+ * activity underneath the tool name.
+ */
+export function toolDetailHeaderTitle(detail: ToolDetailPayload): string {
+  // The activity sentence is written by the model, so it can carry newlines or
+  // runs of spaces that a single-line header would render as gaps. Collapse
+  // them here rather than at each of the three panels that show it.
+  return (detail.activity || detail.title).replace(/\s+/g, " ").trim();
 }
 
 export function ToolDetailPanel({
@@ -273,7 +299,7 @@ export function ToolDetailPanel({
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
-  const title = detail.activity || detail.title;
+  const title = toolDetailHeaderTitle(detail);
 
   return (
     <DetailShell

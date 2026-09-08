@@ -7,8 +7,7 @@ import type { FeedItemStatus } from "@vellumai/assistant-api";
 /**
  * The read/unread toggle a notification offers, in one definition every
  * surface renders from: the recap row's action list (its inline buttons,
- * swipe, and long-press sheet), the Activity page's detail panel, and the
- * notification bell's detail header.
+ * swipe, and long-press sheet) and the notification bell's detail header.
  */
 export interface ReadToggle {
   /** Names the item's current state, per `readStateIcon`. */

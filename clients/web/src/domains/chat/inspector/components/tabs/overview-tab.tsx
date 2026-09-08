@@ -311,7 +311,7 @@ function CardHeader({
       </span>
       {subtitle ? (
         <span
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {subtitle}
@@ -379,7 +379,7 @@ function MetadataRowItem({ row }: { row: MetadataRow }): ReactNode {
       }
     >
       <span
-        className="shrink-0 text-label-default"
+        className="shrink-0 text-label-medium-default"
         style={{
           color: row.indent
             ? "var(--content-tertiary)"

@@ -1134,12 +1134,16 @@ function normalizeInstalledManifest(
  * (`buildPluginFromDir`) hard-requires a `package.json` validated against
  * `PluginPackageJsonSchema` and silently skips the plugin when it's missing.
  *
- * The synthesized manifest carries the install name and the default
- * `@vellumai/plugin-api` peer dependency range. No foreign-ecosystem manifest
- * data is read — the install name is the only identity we trust for an
- * untrusted direct install.
+ * Used by both the GitHub clone path and the platform tarball path. The
+ * synthesized manifest carries the install name and the default
+ * `@vellumai/plugin-api` peer dependency range. No foreign-ecosystem
+ * manifest data is read: the install name is the only identity we trust
+ * when upstream ships no Vellum package.json.
  */
-function synthesizeMinimalPackageJson(name: string, stagingDir: string): void {
+export function synthesizeMinimalPackageJson(
+  name: string,
+  stagingDir: string,
+): void {
   const manifestPath = join(stagingDir, "package.json");
 
   const manifest: PackageManifest = {

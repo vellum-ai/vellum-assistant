@@ -729,7 +729,9 @@ function resolveTurnClientOs(ctx: Conversation): {
   const clientOs = pin
     ? pin.clientOs
     : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" || transportInterface === "windows"
+      (transportInterface === "macos" ||
+      transportInterface === "windows" ||
+      transportInterface === "linux"
         ? transportInterface
         : undefined));
   return { clientOs, transportInterface };
@@ -900,7 +902,12 @@ export function isToolActiveForContext(
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
     const { clientOs } = resolveTurnClientOs(ctx);
-    return (clientOs === "macos" || clientOs === "windows") && !hasNoClient;
+    return (
+      (clientOs === "macos" ||
+        clientOs === "windows" ||
+        clientOs === "linux") &&
+      !hasNoClient
+    );
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;

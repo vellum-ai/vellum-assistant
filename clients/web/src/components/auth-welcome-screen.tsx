@@ -60,6 +60,83 @@ export function WelcomeScreenShell({
 }
 
 /**
+ * The welcome screen's copy and its action column, with no auth flow behind
+ * it: the heading, the body line, a failed handoff's message, and whatever
+ * buttons the caller hands it.
+ *
+ * Exported because the two front doors reach the provider by different
+ * routes. The browser navigates the page away (`useOnboardingLogin`); the
+ * Capacitor shells stay mounted and hand off to the platform browser through
+ * their own `NativeAuth` plugin, because Google refuses OAuth in an embedded
+ * WebView. The screen either one puts around that handoff is the same, so it
+ * lives here and each caller supplies only its own buttons.
+ */
+export function WelcomeScreenCopy({
+  error,
+  children,
+}: {
+  /** Message from a handoff that failed, if the flow reported one. */
+  error?: string | null;
+  /** The action column: the primary button, and any secondary beneath it. */
+  children: ReactNode;
+}) {
+  const { t } = useTranslation("onboarding");
+
+  return (
+    <>
+      {/*
+        Only the tablet split is tight enough to wrap the heading: the
+        column is widest on the single-column layout, and wide again once
+        the wave settles at half width.
+      */}
+      <h1
+        className="text-5xl font-normal tracking-tight md:text-4xl lg:text-5xl xl:text-6xl"
+        style={{
+          fontFamily: "var(--font-serif)",
+          animation: "fadeInUp 0.5s ease-out 0.1s both",
+        }}
+      >
+        {t("welcome.title")}
+      </h1>
+      {/*
+        Centred, not just centre-aligned as a block: the column is
+        `items-center`, so an unwrapped line already sits in the middle and
+        this looks like a no-op on a wide split. It is not one on a phone,
+        where the line wraps and its second half would otherwise hang off to
+        the left of the first.
+      */}
+      <p
+        className="mt-3 text-center text-body-large-lighter text-[var(--content-tertiary)]"
+        style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
+      >
+        {t("welcome.body")}
+      </p>
+
+      {error && (
+        <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
+          {error}
+        </p>
+      )}
+
+      {/*
+        A failed handoff is the one thing that grows this column, and the wrap
+        composition has about a button's worth of room under it on a 640-tall
+        phone before the returning crowd. Spend the gap above the buttons on
+        the message rather than adding to the column: the error sits next to
+        what it is about either way, and the buttons stay clear of the crowd
+        through a message long enough to wrap three times.
+      */}
+      <div
+        className={`${error ? "mt-4" : "mt-15"} flex w-full max-w-sm flex-col gap-3`}
+        style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
+
+/**
  * The screen a visit that has not signed in yet starts on, shared by the two
  * front doors that offer it: `/assistant/welcome` (local clients) and
  * `/account/login` (the platform). Both put the same log-in button on screen
@@ -140,45 +217,7 @@ export function AuthWelcomeScreen({
 
   return (
     <WelcomeScreenShell animateAvatarWaveIn fillsViewport={fillsViewport}>
-      {/*
-        Only the tablet split is tight enough to wrap the heading: the
-        column is widest on the single-column layout, and wide again once
-        the wave settles at half width.
-      */}
-      <h1
-        className="text-5xl font-normal tracking-tight md:text-4xl lg:text-5xl xl:text-6xl"
-        style={{
-          fontFamily: "var(--font-serif)",
-          animation: "fadeInUp 0.5s ease-out 0.1s both",
-        }}
-      >
-        {t("welcome.title")}
-      </h1>
-      <p
-        className="mt-3 text-body-large-lighter text-[var(--content-tertiary)]"
-        style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
-      >
-        {t("welcome.body")}
-      </p>
-
-      {error && (
-        <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
-          {error}
-        </p>
-      )}
-
-      {/*
-        A failed handoff is the one thing that grows this column, and the wrap
-        composition has about a button's worth of room under it on a 640-tall
-        phone before the returning crowd. Spend the gap above the buttons on
-        the message rather than adding to the column: the error sits next to
-        what it is about either way, and the buttons stay clear of the crowd
-        through a message long enough to wrap three times.
-      */}
-      <div
-        className={`${error ? "mt-4" : "mt-15"} flex w-full max-w-sm flex-col gap-3`}
-        style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
-      >
+      <WelcomeScreenCopy error={error}>
         <Button
           variant="primary"
           size="regular"
@@ -190,7 +229,7 @@ export function AuthWelcomeScreen({
           {loading && cancellable ? t("actions.cancel") : t("actions.logIn")}
         </Button>
         {secondaryButton}
-      </div>
+      </WelcomeScreenCopy>
     </WelcomeScreenShell>
   );
 }

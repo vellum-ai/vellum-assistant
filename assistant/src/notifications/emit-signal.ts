@@ -547,14 +547,11 @@ export async function emitNotificationSignal<TEventName extends string>(
     const vellumDelivery = dispatchResult.deliveryResults.find(
       (r) => r.channel === "vellum",
     );
-    await writeHomeFeedItemForSignal(
-      signal,
-      decision,
-      vellumDelivery,
-      dispatchResult.deliveryResults,
-    ).catch((err) => {
-      log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
-    });
+    await writeHomeFeedItemForSignal(signal, decision, vellumDelivery).catch(
+      (err) => {
+        log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
+      },
+    );
 
     log.info(
       {

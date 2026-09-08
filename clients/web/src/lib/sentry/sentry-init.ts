@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import type { BrowserOptions } from "@sentry/react";
 
 import { snapshotCommitPressure } from "@/lib/commit-pressure";
+import { getRunningChannel } from "@/lib/preview-channel";
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import {
   installSentryControlListeners,
@@ -40,9 +41,14 @@ function isReactError185(message: string): boolean {
 /** Resolve the Sentry DSN for the current host. */
 function resolveDsn(): string | undefined {
   if (isElectron()) {
-    return detectElectronHostOS() === "windows"
-      ? import.meta.env.VITE_SENTRY_DSN_WINDOWS
-      : import.meta.env.VITE_SENTRY_DSN_MACOS;
+    const hostOS = detectElectronHostOS();
+    if (hostOS === "windows") {
+      return import.meta.env.VITE_SENTRY_DSN_WINDOWS;
+    }
+    if (hostOS === "linux") {
+      return import.meta.env.VITE_SENTRY_DSN_LINUX;
+    }
+    return import.meta.env.VITE_SENTRY_DSN_MACOS;
   }
   if (isNativePlatform()) {
     const platform = Capacitor.getPlatform();
@@ -207,10 +213,17 @@ export function initSentry(): void {
   // DSN otherwise can't distinguish mobile-web (iOS/Android phone browsers)
   // from desktop. Shares the product `detectClientOs()` so Sentry, analytics,
   // and the assistant's `client_os` context all agree.
+  const { channel } = getRunningChannel();
   const resolved: BrowserOptions = {
     ...options,
     dsn: resolveDsn(),
-    initialScope: { tags: { client_os: detectClientOs() } },
+    initialScope: {
+      tags: {
+        client_os: detectClientOs(),
+        // Only preview builds carry a channel tag.
+        ...(channel === "preview" ? { channel } : {}),
+      },
+    },
   };
   syncSentryClient(resolved);
   installSentryControlListeners(resolved);

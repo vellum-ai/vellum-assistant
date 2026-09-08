@@ -41,7 +41,7 @@ export interface CreateFloatingWindowOptions {
 
 export interface FloatingWindowDependencies {
   createWindow: (options: CreateWindowOptions) => BrowserWindow;
-  platform: "darwin" | "win32";
+  platform: "darwin" | "win32" | "linux";
   resolveRoute: (route: string) => string;
 }
 
@@ -69,6 +69,25 @@ export const getFloatingWindow = (kind: string): BrowserWindow | null => {
   }
   floatingWindows.delete(kind);
   return null;
+};
+
+/**
+ * Every floating window still alive, in no particular order.
+ *
+ * For callers that act on the surfaces as a group rather than on one by kind:
+ * hiding the application takes all of them off the screen, and putting them
+ * back is a statement about the set.
+ */
+export const listFloatingWindows = (): BrowserWindow[] => {
+  const alive: BrowserWindow[] = [];
+  for (const [kind, win] of floatingWindows) {
+    if (isAlive(win)) {
+      alive.push(win);
+    } else {
+      floatingWindows.delete(kind);
+    }
+  }
+  return alive;
 };
 
 const applyPosition = (

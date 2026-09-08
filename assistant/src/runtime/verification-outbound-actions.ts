@@ -575,27 +575,23 @@ export function deliverVerificationEmail(
         return;
       }
 
-      const listResponse = await client.fetch(
-        `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-      );
-      if (!listResponse.ok) {
+      const { listEmailAddresses } =
+        await import("../email/registered-inbox.js");
+      const list = await listEmailAddresses(client);
+      if (!list.ok) {
         log.error(
-          { status: listResponse.status },
+          { status: list.status, detail: list.detail },
           "Failed to list email addresses for verification",
         );
         return;
       }
-      const listData = (await listResponse.json()) as {
-        results: { address: string }[];
-      };
-      const addresses = listData.results ?? [];
-      if (addresses.length === 0) {
+      const fromAddress = list.addresses[0]?.address;
+      if (!fromAddress) {
         log.error(
-          "No email address registered — cannot deliver verification email",
+          "No email address registered; cannot deliver verification email",
         );
         return;
       }
-      const fromAddress = addresses[0].address;
 
       const { markdownToEmailHtml } = await import("../email/html-renderer.js");
       const html = markdownToEmailHtml(text);

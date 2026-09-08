@@ -4,9 +4,11 @@ import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
   mergeSlackMetadata,
+  providerMetadataOfPreSendSlackEnvelope,
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
+  slackViewOfProviderMetadata,
   writeSlackMetadata,
 } from "./message-metadata.js";
 
@@ -392,5 +394,136 @@ describe("mergeSlackMetadata", () => {
     const parsed = readSlackMetadata(merged);
     expect(parsed?.reaction).toEqual(reactionMeta.reaction);
     expect(parsed?.displayName).toBe("Bob");
+  });
+});
+
+describe("providerMetadataOfPreSendSlackEnvelope", () => {
+  test("reads a pre-send Slack envelope as the neutral shape, Slack's own fields riding along", () => {
+    expect(
+      providerMetadataOfPreSendSlackEnvelope({
+        slackMeta: JSON.stringify({
+          source: "slack",
+          eventKind: "message",
+          channelId: "C1",
+          threadTs: "1700000000.000001",
+          timestampTimezone: "America/New_York",
+        }),
+      }),
+    ).toEqual({
+      source: "slack",
+      conversationExternalId: "C1",
+      eventKind: "message",
+      threadId: "1700000000.000001",
+      timestampTimezone: "America/New_York",
+    });
+  });
+
+  test("reads as null for a reconciled row, a non-Slack envelope, and a row without slackMeta", () => {
+    expect(
+      providerMetadataOfPreSendSlackEnvelope({
+        slackMeta: JSON.stringify({
+          source: "slack",
+          eventKind: "message",
+          channelId: "C1",
+          channelTs: "1700000000.000002",
+        }),
+      }),
+    ).toBeNull();
+    expect(
+      providerMetadataOfPreSendSlackEnvelope({
+        slackMeta: JSON.stringify({ source: "telegram", channelId: "C1" }),
+      }),
+    ).toBeNull();
+    expect(providerMetadataOfPreSendSlackEnvelope({})).toBeNull();
+  });
+});
+
+describe("slackViewOfProviderMetadata", () => {
+  test("maps a Slack reply row's neutral envelope onto the Slack view, extras included", () => {
+    const view = slackViewOfProviderMetadata({
+      source: "slack",
+      conversationExternalId: "C123",
+      messageId: "1700000000.000100",
+      threadId: "1700000000.000001",
+      eventKind: "message",
+      timestampTimezone: "America/New_York",
+      timestampTimezoneLabel: "ET",
+      slackFiles: [{ name: "report.pdf", mimetype: "application/pdf" }],
+      deletedAt: 1700000001000,
+    });
+    expect(view).toEqual({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      threadTs: "1700000000.000001",
+      eventKind: "message",
+      timestampTimezone: "America/New_York",
+      timestampTimezoneLabel: "ET",
+      slackFiles: [{ name: "report.pdf", mimetype: "application/pdf" }],
+      deletedAt: 1700000001000,
+    });
+  });
+
+  test("a reaction row's view stores the reacted message's ts as channelTs", () => {
+    const view = slackViewOfProviderMetadata({
+      source: "slack",
+      conversationExternalId: "C123",
+      eventKind: "reaction",
+      actorExternalId: "U1",
+      displayName: "Alice",
+      reaction: {
+        targetMessageId: "1700000000.000100",
+        emoji: "tada",
+        op: "added",
+        actorDisplayName: "Alice",
+      },
+    });
+    expect(view).toEqual({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      actorExternalUserId: "U1",
+      displayName: "Alice",
+      eventKind: "reaction",
+      reaction: {
+        emoji: "tada",
+        op: "added",
+        targetChannelTs: "1700000000.000100",
+        actorDisplayName: "Alice",
+      },
+    });
+  });
+
+  test("a row naming no post yet, or another channel's row, has no Slack view", () => {
+    expect(
+      slackViewOfProviderMetadata({
+        source: "slack",
+        conversationExternalId: "C123",
+        eventKind: "message",
+      }),
+    ).toBeNull();
+    expect(
+      slackViewOfProviderMetadata({
+        source: "discord",
+        conversationExternalId: "999",
+        messageId: "1",
+        eventKind: "message",
+      }),
+    ).toBeNull();
+  });
+
+  test("readSlackMetadataFromMessageMetadata serves the neutral envelope before the nested one", () => {
+    const metadata = JSON.stringify({
+      assistantMessageChannel: "slack",
+      providerMeta: JSON.stringify({
+        source: "slack",
+        conversationExternalId: "C123",
+        messageId: "1700000000.000100",
+        eventKind: "message",
+      }),
+    });
+    expect(readSlackMetadataFromMessageMetadata(metadata)?.channelTs).toBe(
+      "1700000000.000100",
+    );
   });
 });

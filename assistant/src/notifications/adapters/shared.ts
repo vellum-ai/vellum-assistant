@@ -35,10 +35,23 @@ export function resolveMessageText(payload: ChannelDeliveryPayload): string {
 }
 
 /**
- * Append an approval's typed-command instructions to the message text, when
- * the copy does not already carry them. Used by adapters delivering an
- * approval without live buttons (Discord always; Telegram when its rich
- * delivery fails), so the guardian still knows how to decide.
+ * Whether an approval context has buttons to draw. A context with no actions
+ * (an option-less question) is answered by typed reply, so it takes the
+ * plain-text path with {@link appendPlainTextFallback} rather than a card
+ * with nothing on it.
+ */
+export function rendersActions(
+  approval: ChannelDeliveryPayload["approvalContext"],
+): approval is NonNullable<ChannelDeliveryPayload["approvalContext"]> {
+  return approval != null && approval.actions.length > 0;
+}
+
+/**
+ * Append an approval's typed-reply instructions to the message text, when
+ * the text does not already carry them. This is the only place reply
+ * mechanics join a message: composed copy never carries them, so an adapter
+ * sending text without live buttons (no actions to draw, or a rich delivery
+ * that failed) appends them here and the guardian still knows how to answer.
  */
 export function appendPlainTextFallback(
   text: string,

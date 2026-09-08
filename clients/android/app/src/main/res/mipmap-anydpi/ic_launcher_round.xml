@@ -9,9 +9,9 @@
         android:pathData="M54,0A54,54 0,1 0,54 108A54,54 0,1 0,54 0" />
     <!--
         The quirky eye pair, copied verbatim from the eyeStyles table in
-        assistant/src/avatar/character-components.ts (source viewBox 724x691,
-        eye center 335,352). The group puts that center on the icon center and
-        scales the pair to 54dp, half of the 108dp this pre-adaptive icon fills.
+        packages/avatar-catalog (source viewBox 724x691, eye center 335,352).
+        The group puts that center on the icon center and scales the pair to
+        54dp, half of the 108dp this pre-adaptive icon fills.
     -->
     <group
         android:pivotX="335"

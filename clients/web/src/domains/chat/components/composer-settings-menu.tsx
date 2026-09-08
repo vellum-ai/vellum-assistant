@@ -19,6 +19,7 @@ import {
 import { t, useTranslation } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
+  managedProfileModelName,
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
@@ -41,6 +42,7 @@ import {
   saveComposerPillProfileLabel,
   useComposerPillSnapshot,
 } from "@/domains/chat/utils/composer-pill-storage";
+import { useHoverCapable } from "@/hooks/use-hover-affordance";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
@@ -99,6 +101,11 @@ export function ComposerSettingsMenu({
 }: Props) {
   const isMobile = useIsMobile();
   const isTouchMobile = useTouchMobile();
+  // Whether a managed profile's model can live behind a hover at all. Capability,
+  // never viewport: an iPad in landscape reports `hover: none` at 1024px, so it
+  // takes the menu branch below and would be left with no way to read the model
+  // if this asked how wide the window is.
+  const hoverCapable = useHoverCapable();
   const { t: tChat } = useTranslation("chat");
   // A composer too narrow for two labelled triggers folds both segments into
   // one hamburger menu. The composer mounts a single instance in that mode
@@ -799,11 +806,14 @@ export function ComposerSettingsMenu({
   // geometry survives a trigger whose label hasn't resolved. `px-1.5` is the
   // design's 6px inset around the glyph, which fills the 32px box exactly.
   const pillIconOnlyClass = `${pillBaseClass} w-8 px-1.5`;
-  // The pills carry a 20px glyph (Figma 7840-8818), wider than the Button's
-  // own icon box, so the glyph rides as a child instead. The Button's
-  // `gap-1.5` then supplies the design's 6px between glyph and label.
+  // The glyph rides as a child rather than in the Button's own icon box, so
+  // the Button's `gap-1.5` supplies the design's 6px between glyph and label.
+  //
+  // 16px, matching the status controls sharing this row. The desktop variants
+  // of these same two triggers sit at 14px, so a larger glyph here reads as a
+  // size out of step with everything around it.
   const pillIconClass =
-    "flex size-5 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-5";
+    "flex size-4 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-4";
 
   // A trigger showing a stored level before its fetch lands is inert, not
   // spent: it names the level it holds at full contrast, and only stops
@@ -818,8 +828,9 @@ export function ComposerSettingsMenu({
   // Access trigger: the active preset's name beside its icon, as a floating
   // pill on mobile (Figma 7840-8819) and as an action-row button on desktop
   // (Figma 7471-25243).
+  const activePresetLabel = t(activePreset.labelKey, activePreset.label);
   const accessLabel = tChat("composerSettingsMenu.accessAria", {
-    label: activePreset.label,
+    label: activePresetLabel,
   });
   const accessTrigger = isMobile ? (
     <Button
@@ -835,7 +846,7 @@ export function ComposerSettingsMenu({
       <span aria-hidden="true" className={pillIconClass}>
         <AccessIcon />
       </span>
-      {activePreset.label}
+      {activePresetLabel}
     </Button>
   ) : (
     <Button
@@ -846,7 +857,7 @@ export function ComposerSettingsMenu({
       className={`${triggerClass} ${triggerLabelClass} ${inertActionRowTriggerClass} shrink-0`}
       disabled={!accessLive}
     >
-      {activePreset.label}
+      {activePresetLabel}
     </Button>
   );
 
@@ -924,6 +935,8 @@ export function ComposerSettingsMenu({
   // the two layouts can never drift apart.
   const accessMenuItems = accessItems.map(({ preset, isActive, isDefault }) => {
     const PresetIcon = preset.icon;
+    const presetLabel = t(preset.labelKey, preset.label);
+    const presetDesc = t(preset.descriptionKey, preset.description);
     return (
       <Menu.Item
         key={preset.id}
@@ -942,9 +955,9 @@ export function ComposerSettingsMenu({
             <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
           ) : undefined
         }
-        title={preset.description}
+        title={presetDesc}
       >
-        {preset.label}
+        {presetLabel}
         {isDefault && (
           <span className="ml-1 text-[var(--content-tertiary)]">
             {tChat("composerSettingsMenu.defaultSuffix")}
@@ -956,7 +969,8 @@ export function ComposerSettingsMenu({
 
   const profileMenuItems = visibleProfileEntries.map((entry) => {
     const isActive = entry.name === profileActiveKey;
-    return (
+    const modelName = managedProfileModelName(entry);
+    const item = (
       <Menu.Item
         key={entry.name}
         onSelect={() => handleProfileSelect(entry.name)}
@@ -972,18 +986,34 @@ export function ComposerSettingsMenu({
           ) : undefined
         }
       >
-        {profilePickerLabel(entry)}
+        <ProfileRowLabel
+          label={profilePickerLabel(entry)}
+          modelName={hoverCapable ? null : modelName}
+        />
       </Menu.Item>
+    );
+    if (!modelName || !hoverCapable) {
+      return item;
+    }
+    // `side="right"` keeps the label clear of the rows above and below, which
+    // a menu this dense would otherwise cover. The key moves to the wrapper
+    // because it is the element the list renders.
+    return (
+      <Tooltip key={entry.name} content={modelName} side="right">
+        {item}
+      </Tooltip>
     );
   });
 
   // The profile list grows with the workspace and the menu has no ceiling of
   // its own, so a long one runs off the top of the composer. Cap it at about
-  // seven rows and scroll the rest, with the design library's edge fade
-  // signalling that there is more below. Radix keeps the focused row in view
-  // as the arrow keys walk past the cap.
+  // seven rows and scroll the rest, with a top fade signalling that there is
+  // more above. Only the top edge fades: the bottom row sits against the
+  // menu's own padded edge, where a fade dims the active row instead of
+  // reading as an overflow cue. Radix keeps the focused row in view as the
+  // arrow keys walk past the cap.
   const profileMenuList = (
-    <ScrollShadow className="max-h-[13rem]" size={16}>
+    <ScrollShadow className="max-h-[13rem]" size={16} fadeEdges="start">
       {profileMenuItems}
     </ScrollShadow>
   );
@@ -1012,7 +1042,7 @@ export function ComposerSettingsMenu({
     // the real one lands; the trigger itself is always mounted, so the profile
     // section below it is reachable either way.
     const activeSummary = [
-      accessSettled ? activePreset.label : null,
+      accessSettled ? activePresetLabel : null,
       displayProfileLabel,
     ]
       .filter(Boolean)
@@ -1071,30 +1101,33 @@ export function ComposerSettingsMenu({
                 <SectionLabel>
                   {tChat("composerSettingsMenu.assistantAccess")}
                 </SectionLabel>
-                {accessItems.map(({ preset, isActive, isDefault }) => (
-                  <PanelItem
-                    key={preset.id}
-                    icon={preset.icon}
-                    label={
-                      isDefault
-                        ? tChat("composerSettingsMenu.defaultLabel", {
-                            label: preset.label,
-                          })
-                        : preset.label
-                    }
-                    active={isActive}
-                    className="max-md:[&>span:first-child]:gap-[11px]"
-                    trailingAction={
-                      isActive ? (
-                        <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
-                      ) : undefined
-                    }
-                    onSelect={() => {
-                      handleSelect(preset);
-                      setAccessOpen(false);
-                    }}
-                  />
-                ))}
+                {accessItems.map(({ preset, isActive, isDefault }) => {
+                  const presetLabel = t(preset.labelKey, preset.label);
+                  return (
+                    <PanelItem
+                      key={preset.id}
+                      icon={preset.icon}
+                      label={
+                        isDefault
+                          ? tChat("composerSettingsMenu.defaultLabel", {
+                              label: presetLabel,
+                            })
+                          : presetLabel
+                      }
+                      active={isActive}
+                      className="max-md:[&>span:first-child]:gap-[11px]"
+                      trailingAction={
+                        isActive ? (
+                          <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
+                        ) : undefined
+                      }
+                      onSelect={() => {
+                        handleSelect(preset);
+                        setAccessOpen(false);
+                      }}
+                    />
+                  );
+                })}
               </BottomSheet.Body>
             </BottomSheet.Content>
           </BottomSheet.Root>
@@ -1120,7 +1153,12 @@ export function ComposerSettingsMenu({
                     <PanelItem
                       key={entry.name}
                       icon={Sparkles}
-                      label={profilePickerLabel(entry)}
+                      label={
+                        <ProfileRowLabel
+                          label={profilePickerLabel(entry)}
+                          modelName={managedProfileModelName(entry)}
+                        />
+                      }
                       active={isActive}
                       className="max-md:[&>span:first-child]:gap-[11px]"
                       trailingAction={
@@ -1166,6 +1204,38 @@ export function ComposerSettingsMenu({
         </Menu.Root>
       )}
     </>
+  );
+}
+
+/**
+ * A profile row's text, with the model name inline when the surface has to
+ * carry it there rather than behind a hover.
+ *
+ * `modelName` is what the row should show inline, not what the profile has:
+ * a caller that hands its model to a tooltip instead passes null here. Both
+ * the menu and the bottom sheet render through this so the inline treatment
+ * is written once.
+ *
+ * The name shrinks last and the label truncates first, since a tier label is
+ * short and predictable while the model id behind it is neither.
+ */
+function ProfileRowLabel({
+  label,
+  modelName,
+}: {
+  label: string;
+  modelName: string | null;
+}) {
+  if (!modelName) {
+    return label;
+  }
+  return (
+    <span className="flex min-w-0 items-baseline gap-2">
+      <span className="truncate">{label}</span>
+      <span className="shrink-0 text-label-small-default text-[var(--content-tertiary)]">
+        {modelName}
+      </span>
+    </span>
   );
 }
 

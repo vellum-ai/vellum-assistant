@@ -69,6 +69,35 @@ describe("assistant platform connect", () => {
     expect(parsed.showPlatformLogin).toBe(true);
   });
 
+  // A stored key the platform rejects is a recovery, not a first setup: the
+  // outcome has to reach the caller in the response, since the daemon's login
+  // signal has no shipped consumer.
+  test("a rejected stored credential is reported as such", async () => {
+    mockResponse = {
+      ok: true,
+      result: { showPlatformLogin: true, credentialRejected: true },
+    };
+
+    const program = buildProgram();
+    const stdoutChunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      await program.parseAsync(["node", "assistant", "connect", "--json"]);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    const parsed = JSON.parse(stdoutChunks.join(""));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.credentialRejected).toBe(true);
+    expect(parsed.alreadyConnected).toBeUndefined();
+  });
+
   test("already connected returns success with existing base URL", async () => {
     mockResponse = {
       ok: true,

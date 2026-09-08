@@ -347,7 +347,7 @@ function McpPageInner() {
           <h2 className="text-title-small text-[var(--content-default)]">
             {t("mcpPage.title")}
           </h2>
-          <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+          <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
             {t("mcpPage.subtitle")}
           </p>
         </div>
@@ -409,7 +409,7 @@ function McpPageInner() {
           <p className="text-body-medium-default text-[var(--content-default)]">
             {t("mcpPage.emptyTitle")}
           </p>
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
+          <p className="text-body-small-lighter text-[var(--content-tertiary)]">
             {mcpAddServerEnabled
               ? t("mcpPage.emptyAddSubtitle")
               : t("mcpPage.emptyChatSubtitle")}

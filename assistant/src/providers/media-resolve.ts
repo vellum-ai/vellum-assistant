@@ -28,6 +28,7 @@ import {
   sniffImageMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
+import { keepFileAsWorkspaceRef } from "./content-block-size.js";
 import {
   attachmentIdFragment,
   type Base64MediaSource,
@@ -265,6 +266,16 @@ async function resolveImageBlock(
 }
 
 function resolveFileBlock(block: FileContent): ContentBlock {
+  // Video and over-cap text stay a workspace file. Do not load bytes or
+  // carry extracted_text into the provider prompt: serializers name the
+  // file and stop there.
+  if (keepFileAsWorkspaceRef(block.source)) {
+    if (block.extracted_text === undefined) {
+      return block;
+    }
+    const { extracted_text: _extracted, ...rest } = block;
+    return rest;
+  }
   if (block.source.type === "base64") {
     return block;
   }
@@ -356,6 +367,9 @@ function contentNeedsResolution(
         : base64ImageNeedsRewrite(block.source, options);
     }
     if (block.type === "file") {
+      if (keepFileAsWorkspaceRef(block.source)) {
+        return block.extracted_text !== undefined;
+      }
       return block.source.type === "workspace_ref";
     }
     if (block.type === "tool_result" && block.contentBlocks?.length) {

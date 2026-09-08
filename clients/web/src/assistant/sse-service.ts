@@ -27,7 +27,12 @@
 import * as Sentry from "@sentry/react";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { publish, subscribe, type AppResumeSignal } from "@/lib/event-bus";
+import {
+  publish,
+  subscribe,
+  type AppHiddenSignal,
+  type AppResumeSignal,
+} from "@/lib/event-bus";
 import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import {
   clearSseReconnectHandler,
@@ -345,7 +350,18 @@ export const sseService: SseService = {
     // this timer; if the tab is still hidden when it fires, tear down for
     // real. Idempotent — a repeat `app.hidden` while already scheduled is
     // ignored.
-    const handleAppHidden = () => {
+    const handleAppHidden = ({ signal }: { signal: AppHiddenSignal }) => {
+      if (signal === "window_attention") {
+        // A desktop window off screen is not a backgrounded client. Nothing
+        // froze this renderer: the Electron host reported its own window
+        // minimized or hidden, and the assistant broadcasts notifications
+        // fire-and-forget with no queue, no redelivery, and no push fallback
+        // on the desktop. Tearing down here would drop every notification
+        // published while the window was away, which is the failure a
+        // minimized window most needs this stream to avoid. Every other
+        // signal means the client itself went away and still tears down.
+        return;
+      }
       if (!current) {
         return;
       }

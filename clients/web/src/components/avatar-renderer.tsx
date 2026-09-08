@@ -21,13 +21,10 @@ export function AvatarRenderer({
   size = 56,
   className,
 }: AvatarRendererProps) {
-  const svgString = useMemo(() => {
-    try {
-      return composeSvg(components, bodyShapeId, eyeStyleId, colorId, size);
-    } catch {
-      return null;
-    }
-  }, [components, bodyShapeId, eyeStyleId, colorId, size]);
+  const svgString = useMemo(
+    () => composeSvg(components, bodyShapeId, eyeStyleId, colorId, size),
+    [components, bodyShapeId, eyeStyleId, colorId, size],
+  );
 
   if (!svgString) {
     return null;

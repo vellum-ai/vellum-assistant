@@ -224,6 +224,7 @@ export function ChannelPanel({
         return (
           <DiscordSetupWizard
             assistantId={assistantId}
+            assistantName={assistantName}
             saveStatus={discordSaveStatus}
             saveError={discordSaveError}
             onSave={onSaveDiscordToken}

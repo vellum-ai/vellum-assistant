@@ -2,13 +2,12 @@ import { useState } from "react";
 import { useLocation } from "react-router";
 
 import { useTranslation } from "@/i18n";
-import { NativeSplash } from "@/components/native-splash";
 import {
   AuthWelcomeScreen,
+  WelcomeScreenCopy,
   WelcomeScreenShell,
 } from "@/components/auth-welcome-screen";
 import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
-import { LoginErrorText } from "@/domains/account/components/login-shell";
 import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
 import {
   isUserCancelledAuthError,
@@ -23,12 +22,19 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
 /**
- * Capacitor native login: single "Sign in" button inside NativeSplash.
- * Opens the platform browser auth surface with no provider hint; WorkOS
- * AuthKit handles Apple / Google / email selection.
+ * Capacitor native login. Opens the platform browser auth surface with no
+ * provider hint; WorkOS AuthKit handles Apple / Google / email selection.
  *
- * Kept apart from the shared welcome screen the browser gets: the splash is
- * the native app's own launch surface, sized to the device's safe areas.
+ * Renders the welcome shell the browser renders, including the avatar wave
+ * that wraps around the content on a phone, and puts a single button in it.
+ * The button is a constraint, not a layout choice: AuthKit hosts the provider
+ * selection so the app never names a provider itself, and nothing else sits
+ * beside it. See `docs/CAPACITOR.md`, "Native auth on iOS".
+ *
+ * The handoff is the part that is native. `startNativeLogin` goes out through
+ * the `NativeAuth` plugin instead of navigating the page, because Google
+ * refuses OAuth in an embedded WebView, so this screen stays mounted for the
+ * whole flow and the button goes inert rather than the page going away.
  */
 function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
   const { t } = useTranslation("account");
@@ -65,25 +71,21 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
   };
 
   return (
-    <NativeSplash>
-      <div className="z-10 mt-8 flex w-full max-w-[320px] flex-col items-center gap-3">
-        {errorMessage && (
-          <LoginErrorText className="max-w-[280px]">
-            {errorMessage}
-          </LoginErrorText>
-        )}
+    <WelcomeScreenShell animateAvatarWaveIn fillsViewport>
+      <WelcomeScreenCopy error={errorMessage}>
         <Button
           type="button"
           variant="primary"
+          size="regular"
           fullWidth
+          className="h-11 text-base"
           onClick={handleSignIn}
           disabled={loading}
-          className="max-w-[300px]"
         >
           {t("loginPage.signIn")}
         </Button>
-      </div>
-    </NativeSplash>
+      </WelcomeScreenCopy>
+    </WelcomeScreenShell>
   );
 }
 
@@ -131,11 +133,13 @@ export function LoginPage() {
   const isNative = useIsNativePlatform();
   const shortCircuit = useReturnToShortCircuit();
 
+  // Both builds wait inside the shell they are about to fill in, and the wait
+  // is what plays the wave in. `AvatarWave` pours once per session, so a wait
+  // that rendered settled would leave the entrance for the screen behind it
+  // and restart the crowd the moment the probe resolved.
   if (shortCircuit.kind === "wait") {
-    return isNative ? (
-      <NativeSplash />
-    ) : (
-      <WelcomeScreenShell fillsViewport>
+    return (
+      <WelcomeScreenShell animateAvatarWaveIn fillsViewport>
         <AuthWaitSpinner />
       </WelcomeScreenShell>
     );

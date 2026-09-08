@@ -10,6 +10,24 @@ type ToolCallTimingFields = Pick<
   "previewStartedAt" | "startedAt"
 >;
 
+type ToolCallDecisionFields = Pick<
+  ConversationMessageToolCall,
+  "confirmationDecision"
+>;
+
+/**
+ * A tool call that never ran because the guardian did not approve it: either
+ * declined outright, or a confirmation prompt that expired unanswered. The two
+ * are separate decisions but the same outcome, and no consumer has yet needed
+ * to tell them apart.
+ */
+export function isToolCallDenied(tc: ToolCallDecisionFields): boolean {
+  return (
+    tc.confirmationDecision === "denied" ||
+    tc.confirmationDecision === "timed_out"
+  );
+}
+
 /**
  * The user-perceived start of a tool call: when its first byte was recognized
  * (`previewStartedAt`), falling back to its execution start (`startedAt`) for

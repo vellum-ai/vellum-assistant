@@ -15,7 +15,9 @@ import {
 } from "react-router";
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
+import { assistantStateCanServeChat } from "@/assistant/lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   selectChatFocusActive,
   selectHeaderCenterHidden,
@@ -89,6 +91,8 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
+import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
 import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
 import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -101,7 +105,6 @@ import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier"
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
-import { SightTile } from "@/domains/chat/sight/sight-tile";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
@@ -200,7 +203,15 @@ export function ChatLayout({
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
-  const isAssistantActive = assistantStateKind === "active";
+  const selfHostedChatEnabled =
+    useClientFeatureFlagStore.use.selfHostedAssistant();
+  // `active` and flagged `self_hosted` both serve the conversation list.
+  // Gating on `active` alone leaves self-hosted queries pending forever,
+  // so the Home Screen widgets never receive a snapshot.
+  const isAssistantActive = assistantStateCanServeChat(
+    assistantStateKind,
+    selfHostedChatEnabled,
+  );
 
   // Live-voice session controller. Owned at layout scope — not by the
   // composer — so a session survives every chat-side navigation (thread
@@ -213,7 +224,7 @@ export function ChatLayout({
   useSeedLiveVoiceSnapshot();
 
   // Subscribe to the sidebar conversation list at the layout level so every
-  // chat-layout child route (home, library, contacts, identity, chat)
+  // chat-layout child route (library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
   // `isLoading` (first fetch actually in flight), not `isPending`: the query
@@ -221,8 +232,9 @@ export function ChatLayout({
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
   //
-  // `isAssistantActive` is the assistant record: does this assistant exist and
-  // is it provisioned. Whether its pod is reachable is a separate question,
+  // `isAssistantActive` is whether this assistant can serve chat: a
+  // provisioned `active` record, or a `self_hosted` one with the chat
+  // flag on. Whether its pod is reachable is a separate question,
   // answered inside the query hook itself, since these keys are shared with
   // call sites that pass no gate of their own.
   const {
@@ -260,7 +272,7 @@ export function ChatLayout({
   // Track processing/attention indicators for every conversation in
   // the sidebar, on every chat-layout child route. Mounted at layout
   // scope so the bus-driven `interaction_resolved` subscriber and the
-  // post-reconnect reconcile sweep stay live across home, library,
+  // post-reconnect reconcile sweep stay live across library,
   // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
     assistantId,
@@ -325,8 +337,8 @@ export function ChatLayout({
   // supplements are present and no explicit `topBarCenter` override
   // exists, ChatLayout renders ChatConversationHeader with conversation
   // actions from the shared useConversationActions instance.
-  // Non-chat routes (e.g. HomePageRoute) write `null` to topBarCenter
-  // and never set supplements, so they get an empty center as before.
+  // Non-chat routes write `null` to topBarCenter and never set
+  // supplements, so they get an empty center as before.
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
@@ -566,6 +578,9 @@ export function ChatLayout({
   // sidebar until the session ends or the room is minimized (the session
   // then continues behind the composer voice bar / title-bar pill).
   const voiceRoomVisible = useIsVoiceRoomVisible();
+  // The sleep stage covers this same box; while it is up the thread under it
+  // leaves the tab order and the accessibility tree, as it does for the room.
+  const sleepStageVisible = useAssistantSleepStageStore.use.visible();
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -683,7 +698,7 @@ export function ChatLayout({
   // handlers; without them the popover renders empty (every menu item
   // resolves to `null`). The CRUD hook lives at the layout level so the
   // sidebar's action wiring stays live on every chat-layout child route
-  // (home, library, contacts, identity) — not only inside a conversation
+  // (library, contacts, identity), not only inside a conversation
   // where ChatPage is mounted.
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
@@ -866,9 +881,6 @@ export function ChatLayout({
     sidebarToggle: () => {
       toggleSidebar();
     },
-    home: () => {
-      void navigate(routes.home);
-    },
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
@@ -955,7 +967,7 @@ export function ChatLayout({
 
   // Sidebar pinned-app open. The viewer panel only renders under ChatPage
   // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
-  // pinned-app click from home / library / identity / inspector etc. would
+  // pinned-app click from library / identity / inspector etc. would
   // mutate the viewer store with no surface to display against. Navigate
   // to a chat route first when off-chat, then run the shared open flow.
   //
@@ -1102,7 +1114,7 @@ export function ChatLayout({
   const chatContent = (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col"
-      inert={voiceRoomVisible}
+      inert={voiceRoomVisible || sleepStageVisible}
     >
       <Outlet />
     </div>
@@ -1171,6 +1183,9 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             {chatContent}
+            {/* Self-gates on the conversation route and the assistant's
+                sleeping/waking status. */}
+            <AssistantSleepStage />
             {/* A popout narrowed below the mobile breakpoint lands in this
                 branch, still headerless, so it still needs the floating
                 session surface (see the desktop popout branch below). */}
@@ -1264,6 +1279,9 @@ export function ChatLayout({
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
         >
           {chatContent}
+          {/* A pop-out is a conversation like any other: without this the stage
+              would come and go as the window crosses the mobile breakpoint. */}
+          <AssistantSleepStage />
           {/* Pop-outs render no header, but they DO support in-window
               conversation switching (Cmd+Up/Down) — so a live session started
               here can lose its owning composer exactly like in the main
@@ -1296,6 +1314,10 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             {chatContent}
+            {/* Self-gates on the conversation route and the assistant's
+                sleeping/waking status. Mounted ahead of the voice room so the
+                room paints over it when both are up. */}
+            <AssistantSleepStage />
             {/* Live-voice room, desktop: an inset panel scoped to the content
                 area, so the title bar above and the sidenav beside it stay
                 visible and interactive. Self-gates on
@@ -1303,12 +1325,6 @@ export function ChatLayout({
                 transcript render underneath, hidden by it. */}
             <VoiceRoom variant="content" />
           </main>
-          {/* The Eyes viewfinder, a sibling of `<main>` rather than a child:
-              it is a fixed corner tile, and nesting it under a box that can
-              take a filter would make that box the containing block for its
-              `position: fixed` and park it against `<main>`'s rectangle
-              instead of the viewport. Self-gates on the camera's status. */}
-          <SightTile />
         </div>
       )}
 

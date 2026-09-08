@@ -87,6 +87,18 @@ describe("useAssistantSupports", () => {
     expect(check("0.10.1-dev.1", "0.10.0-dev.202606211252.5cf8576")).toBe(true);
   });
 
+  test("treats local builds like dev builds, ordered by stamp", () => {
+    // A `vel up` image is stamped `local.YYYYMMDDHHMMSS.sha`: commits on
+    // top of the base like a dev build, read to the minute against one.
+    const min = "0.11.8-dev.202609021456.e7361b7";
+    expect(check("0.11.8-local.20260902150000.abcdef", min)).toBe(true);
+    expect(check("0.11.8-local.20260902145600.abcdef", min)).toBe(true);
+    expect(check("0.11.8-local.20260902145500.abcdef", min)).toBe(false);
+    expect(check("0.11.8-local.20260902150000.abcdef", "0.11.8")).toBe(true);
+    expect(check("0.11.8", "0.11.8-local.20260902150000.abcdef")).toBe(false);
+    expect(check("0.11.6-local.20260902150000.abcdef", min)).toBe(false);
+  });
+
   test("stable is behind dev with same base", () => {
     // 0.10.0 stable was released before the dev changes.
     expect(check("0.10.0", "0.10.0-dev.202606211252.5cf8576")).toBe(false);

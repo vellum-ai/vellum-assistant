@@ -183,6 +183,58 @@ describe("partitionChannelTranscript", () => {
     expect(entries.map((e) => e.id)).toEqual(["s3"]);
   });
 
+  test("moves the assistant's own lossless reply into the channel lane", () => {
+    // The end of the outbound chain: the reply posted to Slack carries the
+    // envelope its row gained from post-send reconciliation, so the drawer
+    // shows the assistant's message where the reader saw it. A tool-bearing
+    // row from the same turn stays in the Vellum lane.
+    const reply: DisplayMessage = {
+      ...slackRow("a1", "here is the answer"),
+      role: "assistant",
+    };
+    const toolTurn: DisplayMessage = {
+      ...slackRow("a2", "checking"),
+      role: "assistant",
+      contentBlocks: [
+        { type: "text", text: "checking" },
+        {
+          type: "tool_use",
+          toolCall: { id: "t1", name: "web_search", input: {} },
+        },
+      ],
+    };
+
+    const { vellumMessages, entries } = partitionChannelTranscript({
+      messages: [toolTurn, reply],
+      conversation: slackConversation,
+    });
+
+    expect(vellumMessages.map((m) => m.id)).toEqual(["a2"]);
+    expect(entries.map((e) => e.id)).toEqual(["a1"]);
+    expect(entries[0]!.provenance.externalMessageId).toBe("a1.000100");
+  });
+
+  test("keeps an unattributed assistant reply in the Vellum lane", () => {
+    // A row whose envelope never arrived (reconciliation lost, backfill not
+    // run) is indistinguishable to the client from a Vellum-only row. The
+    // classifier must not fill that gap from the conversation's binding or
+    // from the row being an assistant reply: `null` provenance keeps the row
+    // where it is, which is the conservative failure the partition relies on.
+    const unstamped: DisplayMessage = {
+      id: "a3",
+      role: "assistant",
+      contentBlocks: [{ type: "text", text: "posted, but unattributed" }],
+    };
+
+    const { vellumMessages, entries } = partitionChannelTranscript({
+      messages: [unstamped],
+      conversation: slackConversation,
+    });
+
+    expect(vellumMessages.map((m) => m.id)).toEqual(["a3"]);
+    expect(entries).toEqual([]);
+  });
+
   test("carries reaction events through as their own kind", () => {
     const { entries } = partitionChannelTranscript({
       messages: [

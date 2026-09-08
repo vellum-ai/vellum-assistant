@@ -195,6 +195,7 @@ export const DiscordMessageReactionSchema = z.object({
     .object({
       id: z.string().nullable().optional().catch(undefined),
       name: z.string().nullable().optional().catch(undefined),
+      animated: z.boolean().optional().catch(undefined),
     })
     .optional()
     .catch(undefined),

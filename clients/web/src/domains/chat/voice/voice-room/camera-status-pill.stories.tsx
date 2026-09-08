@@ -19,6 +19,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { CSSProperties } from "react";
 
 // The dot's blink is a hand-written keyframe in the app stylesheet, which
 // Storybook's preview.css does not pull in.
@@ -28,8 +29,20 @@ import {
   CAMERA_STORY_FEED_DIM,
   overFakeFeed,
 } from "@/domains/chat/voice/camera-story-feed";
+import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 import { CameraStatusPill } from "./camera-status-pill";
+
+/** Palette accents to draw the camera chrome under. */
+const paletteHex = (id: string, fallback: string) =>
+  BUNDLED_COMPONENTS.colors.find((c) => c.id === id)?.hex ?? fallback;
+
+/** As far from the camera's own crimson as the palette goes. */
+const AVATAR_ACCENT_TEAL = paletteHex("teal", "#0E9B8B");
+
+/** The light one: white on it is about 1.6:1, so its ink is the near-black. */
+const AVATAR_ACCENT_YELLOW = paletteHex("yellow", "#E9C91A");
 
 const meta: Meta<typeof CameraStatusPill> = {
   title: "Chat/Voice/CameraStatusPill",
@@ -143,10 +156,58 @@ export const LongAssistantName: Story = {
 /**
  * Streaming rather than sampling. Filled with the capture accent, because "this
  * is going out continuously" is the one thing about the surface that has to be
- * legible without reading. Not reachable from the app yet: the room opens the
- * photo mode only.
+ * legible without reading. What the room raises once the shutter has been held.
  */
 export const Live: Story = { args: { mode: "live" } };
+
+/**
+ * The chrome under an assistant that has a colour of its own: the Live fill,
+ * the speaking dot, and the ink the fill takes.
+ *
+ * Every other story sets no `--avatar-accent`, so they draw the crimson the
+ * camera falls back to, in white. The room publishes the call assistant's
+ * accent on its own box together with the ink that reads on it, which is what
+ * `avatarAccentVars` sets here. Two accents, because the ink is the part worth
+ * seeing switch: teal and the palette's yellow both take the near-black, where
+ * the crimson fallback above keeps white.
+ */
+export const AvatarAccent: Story = {
+  argTypes: {
+    mode: { table: { disable: true } },
+    voiceState: { table: { disable: true } },
+    statusLabel: { table: { disable: true } },
+  },
+  render: (args) => (
+    <>
+      {[AVATAR_ACCENT_TEAL, AVATAR_ACCENT_YELLOW].map((hex) => (
+        <div
+          key={hex}
+          className="flex flex-col items-center gap-4"
+          style={avatarAccentVars(hex) as CSSProperties}
+        >
+          <CameraStatusPill
+            {...args}
+            mode="live"
+            voiceState="idle"
+            statusLabel="Listening…"
+          />
+          <CameraStatusPill
+            {...args}
+            mode="live"
+            voiceState="assistant"
+            statusLabel="Speaking…"
+          />
+          <CameraStatusPill
+            {...args}
+            mode="photo"
+            voiceState="assistant"
+            statusLabel="Speaking…"
+          />
+        </div>
+      ))}
+    </>
+  ),
+};
 
 /** Every combination the pill can be in, stacked, in both modes. */
 export const StateMatrix: Story = {

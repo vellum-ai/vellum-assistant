@@ -105,7 +105,7 @@ function SkillCard({ skill, loads, buildCallHref }: SkillCardProps): ReactNode {
           {skill}
         </span>
         <span
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{ color: "var(--content-secondary)" }}
         >
           {t("skillsTab.loadCount", { count: loads.length })}
@@ -116,7 +116,7 @@ function SkillCard({ skill, loads, buildCallHref }: SkillCardProps): ReactNode {
           <li key={`${load.logId}-${load.sectionIndex}`}>
             <a
               href={buildCallHref(load.logId)}
-              className="inline-flex items-baseline gap-2 rounded px-2 py-1 text-label-default hover:bg-[var(--surface-overlay)]"
+              className="inline-flex items-baseline gap-2 rounded px-2 py-1 text-label-medium-default hover:bg-[var(--surface-overlay)]"
               style={{ color: "var(--content-default)" }}
             >
               <span style={{ color: "var(--content-secondary)" }}>

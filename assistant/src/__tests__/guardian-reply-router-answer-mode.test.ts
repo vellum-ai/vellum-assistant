@@ -44,7 +44,6 @@ mock.module("../channels/gateway-guardian-requests.js", () => ({
   getGuardianRequestOrNull: (id: string) =>
     Promise.resolve(requestsById.get(id) ?? null),
   getGuardianRequestByCodeOrNull: () => Promise.resolve(null),
-  getPendingRequestByDestinationMessageOrNull: () => Promise.resolve(null),
   listGuardianRequestsOrEmpty: () => Promise.resolve(pendingList),
 }));
 
@@ -91,7 +90,6 @@ function makeRequest(
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
     messageText: "",
-    channel: "telegram",
     actor: {
       actorPrincipalId: "prin-guardian",
       actorExternalUserId: "tg-guardian",

@@ -439,3 +439,27 @@ export async function pickFilesNative(
   const { files } = await FilePicker.pickFiles();
   return readPicked(files, onFile);
 }
+
+/**
+ * Read host-cache files the share-inbox plugin exported, as `File`s the
+ * composer already accepts. Same slice read and size bounds as a native
+ * picker; each path is deleted after it is read.
+ */
+export async function filesFromNativePaths(
+  files: Array<{ name: string; mimeType: string; path: string }>,
+): Promise<File[]> {
+  const collected: File[] = [];
+  await readPicked(
+    files.map((file) => ({
+      name: file.name,
+      mimeType: file.mimeType,
+      path: file.path,
+      size: 0,
+    })),
+    (file) => {
+      collected.push(file);
+      return true;
+    },
+  );
+  return collected;
+}

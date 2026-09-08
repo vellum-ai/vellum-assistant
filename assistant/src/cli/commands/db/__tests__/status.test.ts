@@ -169,6 +169,8 @@ describe("assistant db status — happy path", () => {
     // (memory_checkpoints has 3 rows.)
     expect(stdout).toContain("Largest tables");
     expect(stdout.indexOf("messages")).toBeLessThan(stdout.indexOf("small"));
+    expect(stdout).toContain("Schema contract");
+    expect(stdout).toContain("missing");
   });
 
   test("reports the latest 'completed' migration, ignoring 'started'", async () => {
@@ -212,6 +214,26 @@ describe("assistant db status — happy path", () => {
     expect(parsed.db.largest.length).toBeGreaterThan(0);
     // Either 'bytes' (if dbstat is available) or 'rows' fallback.
     expect(["bytes", "rows"]).toContain(parsed.db.sizingMethod);
+    expect(Array.isArray(parsed.schemaContract.missingTables)).toBe(true);
+    expect(Array.isArray(parsed.schemaContract.missingColumns)).toBe(true);
+    // The seed is a 3-table stub, so the drizzle catalog reports misses.
+    expect(parsed.schemaContract.missingTables.length).toBeGreaterThan(0);
+  });
+
+  test("reports conversations.fork_strategy when the table exists without that column", async () => {
+    seedDb();
+    const db = new Database(dbPath);
+    try {
+      db.exec(`CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT)`);
+    } finally {
+      db.close();
+    }
+
+    const { stdout, exitCode } = await runStatus(["status"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Schema contract");
+    expect(stdout).toContain("conversations.fork_strategy");
   });
 });
 

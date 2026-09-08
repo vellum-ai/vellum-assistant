@@ -21,22 +21,28 @@
  */
 
 import {
+  endLiveVoiceSession,
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
 import {
   firstRunCardIntercepts,
   publishConfigNotice,
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
+import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { endVoiceActivity } from "@/runtime/desktop-voice-activity";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+import { toast } from "@vellumai/design-library/components/toast";
+import { VOICE_START_REQUEST_TTL_MS } from "@vellumai/ipc-contract";
 
 /**
  * How long a parked start-voice request stays live.
@@ -48,8 +54,12 @@ import { routes } from "@/utils/routes";
  * until some unrelated `ChatLayout` mount drains it and a full-screen voice
  * session opens out of nowhere. A minute is far longer than any legitimate
  * cold launch and far shorter than "later".
+ *
+ * The contract's number, because the companion's dial is drawn against it:
+ * the shell holds the dial for longer than this, so a request that could
+ * still become a session is never one the pill has stopped showing.
  */
-export const PENDING_VOICE_START_TTL_MS = 60_000;
+export const PENDING_VOICE_START_TTL_MS = VOICE_START_REQUEST_TTL_MS;
 
 /**
  * The navigation a start needs from its caller: a path, and whether it
@@ -93,6 +103,25 @@ function bindFreshConversation(navigate: VoiceStartNavigate): string {
 }
 
 /**
+ * What a start-voice request carries besides the request itself.
+ */
+export interface VoiceStartRequestOptions {
+  /**
+   * Which control asked for the session. Required, because it is the one
+   * thing the drain cannot work out for itself: by the time the request is
+   * served, the press that made it is long gone.
+   */
+  entry: LiveVoiceEntry;
+  /**
+   * A question to put to the session as its first turn, spoken back and then
+   * done: the session ends once the reply has been heard. For a press that
+   * already knows what the user wants to say, such as a hold made over a
+   * selection. The turn is the user's own words, so it renders as theirs.
+   */
+  ask?: string;
+}
+
+/**
  * Ask for a live-voice session.
  *
  * Always parks first, then drains: one code path for both the warm case (a
@@ -102,8 +131,14 @@ function bindFreshConversation(navigate: VoiceStartNavigate): string {
  * `navigate` serves the warm case only. A parked request is drained by the
  * controller, which navigates with its own.
  */
-export function requestVoiceStart(navigate: VoiceStartNavigate): void {
-  usePendingDeepLinkStore.getState().setPendingVoiceStart();
+export function requestVoiceStart(
+  navigate: VoiceStartNavigate,
+  options: VoiceStartRequestOptions,
+): void {
+  usePendingDeepLinkStore.getState().setPendingVoiceStart({
+    entry: options.entry,
+    ...(options.ask !== undefined ? { ask: options.ask } : {}),
+  });
   void drainPendingVoiceStart(navigate);
 }
 
@@ -128,12 +163,95 @@ export function requestVoiceStart(navigate: VoiceStartNavigate): void {
  *   exception is the first-run card below: it asks a question, and a question
  *   drawn behind whatever the user is working in is a press that did nothing.
  */
-export function startVoiceFromSurface(navigate: VoiceStartNavigate): void {
+export function startVoiceFromSurface(
+  navigate: VoiceStartNavigate,
+  options: VoiceStartRequestOptions,
+): void {
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
     return;
   }
   void navigate(routes.assistant);
-  requestVoiceStart(navigate);
+  requestVoiceStart(navigate, options);
+}
+
+/**
+ * Start a session, or end the one that is running: the keyboard's version of
+ * Talk.
+ *
+ * A key differs from a button in one way: the same press has to undo itself,
+ * because a global gesture is often the only voice control within reach of
+ * someone working in another app. Talk stays start-only, since the surface
+ * that draws it also draws a way to stop. Both the voice mode shortcut and
+ * the voice key's double tap come through here, so the two cannot drift.
+ */
+export function toggleVoiceFromSurface(
+  navigate: VoiceStartNavigate,
+  entry: LiveVoiceEntry,
+): void {
+  if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+    endLiveVoiceSession();
+    return;
+  }
+  startVoiceFromSurface(navigate, { entry });
+}
+
+/**
+ * Take back a start that has been asked for and not yet served.
+ *
+ * What ending the companion's dial means: the request behind it is either
+ * still parked or partway through its preflight, and spending it here is what
+ * stops that preflight from opening the room a second after the user closed
+ * the pill. Reached through the `cancelVoiceStart` command, which the root
+ * layout consumes on every route, so the press lands whether or not the
+ * layout that owns sessions is mounted yet. The companion itself closes on
+ * the press; this is the half it cannot reach.
+ */
+export function cancelPendingVoiceStart(): void {
+  usePendingDeepLinkStore
+    .getState()
+    .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
+}
+
+/**
+ * Say that a question asked out loud could not be taken.
+ *
+ * The question came from another application, and the answer was going to
+ * come back through the companion. A notice drawn in the app's window sits
+ * behind whatever the user is working in, so this is the one refusal that
+ * raises the window: the alternative is a hold that did nothing.
+ */
+export function announceAskRefused(): void {
+  void ensureMainWindowVisible();
+  toast.error(formatVoiceError("voice-ask-unavailable"), {
+    id: "voice-error:voice-ask-unavailable",
+  });
+}
+
+/**
+ * Put a question to the assistant out loud, from a surface outside the chat.
+ *
+ * A session already running is the one the user is in, so the question goes
+ * to it as a turn and the session carries on as it was. Otherwise one is
+ * started for the question alone: it asks, the reply is spoken, and it ends,
+ * so a question asked from another application does not leave the user on an
+ * open call they did not reach for.
+ *
+ * Returns whether the question was taken. A running session that cannot take
+ * typed turns (an older assistant) declines rather than dropping the words
+ * silently.
+ */
+export function askVoiceFromSurface(
+  navigate: VoiceStartNavigate,
+  ask: string,
+  entry: LiveVoiceEntry,
+): boolean {
+  const store = useLiveVoiceStore.getState();
+  if (isLiveVoiceSessionActive(store.state)) {
+    return store.starter?.sendText(ask) === true;
+  }
+  void navigate(routes.assistant);
+  requestVoiceStart(navigate, { entry, ask });
+  return true;
 }
 
 /**
@@ -202,15 +320,37 @@ export async function drainPendingVoiceStart(
   // the things that can still become true (a controller that has not
   // registered yet, an assistant switched away from mid-preflight) leave the
   // request parked rather than losing it.
-  const consume = (): boolean =>
+  const consume = () =>
     usePendingDeepLinkStore
       .getState()
       .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
+  // A plain start that stops here has handed the user something to look at
+  // instead (no button, the card, the notice). A question that stops here has
+  // been dropped, and the user who asked it from another application is
+  // watching the companion for an answer, so the drop is said where they can
+  // see it.
+  //
+  // Either way the companion is told. Its Talk draws a dial the moment it is
+  // pressed and holds it until a session answers, and a refusal is the answer
+  // "none is coming": with no session running, `end` is exactly that, and the
+  // pill closes on it rather than on a timeout. Only for a request actually
+  // spent here: the drain runs on every mount and every switch of assistant,
+  // and a refusal of nothing is not an answer to anything.
+  const refuse = () => {
+    const consumed = consume();
+    if (consumed === null) {
+      return;
+    }
+    if (consumed.ask !== null) {
+      announceAskRefused();
+    }
+    endVoiceActivity();
+  };
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the
   // composer renders no voice button.
   if (!supportsLiveVoice(assistantId)) {
-    consume();
+    refuse();
     return;
   }
   // The same two guards the composer's voice button runs. Without them a
@@ -226,7 +366,7 @@ export async function drainPendingVoiceStart(
     // beat: there is something to answer. Fire and forget, since nothing below
     // depends on the window being up.
     void ensureMainWindowVisible();
-    consume();
+    refuse();
     return;
   }
   const readiness = await voiceReadiness(assistantId);
@@ -243,7 +383,14 @@ export async function drainPendingVoiceStart(
   // it finds already running: the starter would refuse a second anyway, and
   // navigating would only leave the composer that owns it.
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
-    consume();
+    // That session is the one the user is in, so a question goes to it.
+    const ask = consume()?.ask ?? null;
+    if (
+      ask !== null &&
+      useLiveVoiceStore.getState().starter?.sendText(ask) !== true
+    ) {
+      announceAskRefused();
+    }
     return;
   }
   // A switch to another assistant mid-preflight, on the other hand, is a race
@@ -258,7 +405,7 @@ export async function drainPendingVoiceStart(
   }
   publishConfigNotice(readiness.notice);
   if (!readiness.allowed) {
-    consume();
+    refuse();
     return;
   }
   // Re-read across the readiness await, as above: a controller that unmounted
@@ -267,12 +414,28 @@ export async function drainPendingVoiceStart(
   if (readyStarter === null) {
     return;
   }
-  if (!consume()) {
+  const consumed = consume();
+  if (consumed === null) {
     return;
   }
   // No `prewarm()` here, unlike the composer: prewarming exists to unlock
   // playback while a user gesture is still active, and this path has no gesture
   // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
   // its own player when none was reserved.
-  readyStarter.start(assistantId, bindFreshConversation(navigate));
+  const conversationId = bindFreshConversation(navigate);
+  // The control that parked the request, carried to the daemon's telemetry.
+  // Absent only from a park written by code that predates the field.
+  const entry = consumed.entry ? { entry: consumed.entry } : {};
+  if (consumed.ask === null) {
+    readyStarter.start(assistantId, conversationId, entry);
+    return;
+  }
+  // The question is the user's own words, so it renders as theirs, and the
+  // session is for the question alone: it ends once the reply has been heard.
+  readyStarter.start(assistantId, conversationId, {
+    ...entry,
+    seedText: consumed.ask,
+    seedVisible: true,
+    endAfterSeedReply: true,
+  });
 }

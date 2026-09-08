@@ -44,18 +44,38 @@ mock.module("@/runtime/android-notification-channels", () => ({
   ANDROID_ALERTS_CHANNEL_ID: "vellum-alerts",
   ensureAndroidAlertsChannel: ensureAndroidAlertsChannelMock,
 }));
+mock.module("@/i18n", () => ({
+  t: (key: string) =>
+    key === "localNotification.goToConversation"
+      ? "Go to Conversation"
+      : key,
+}));
 
 // ── @capacitor/local-notifications ───────────────────────────────────────────
 
 interface ScheduleArg {
-  notifications: Array<{ id: number; title: string; body: string; channelId?: string }>;
+  notifications: Array<{
+    id: number;
+    title: string;
+    body: string;
+    channelId?: string;
+    actionTypeId?: string;
+  }>;
+}
+interface RegisterActionTypesArg {
+  types: Array<{
+    id: string;
+    actions: Array<{ id: string; title: string; foreground?: boolean }>;
+  }>;
 }
 const scheduleMock = mock(async (_arg: ScheduleArg) => {});
+const registerActionTypesMock = mock(async (_arg: RegisterActionTypesArg) => {});
 mock.module("@capacitor/local-notifications", () => ({
   LocalNotifications: {
     checkPermissions: async () => ({ display: "granted" }),
     requestPermissions: async () => ({ display: "granted" }),
     schedule: scheduleMock,
+    registerActionTypes: registerActionTypesMock,
     addListener: async () => ({ remove: async () => {} }),
   },
 }));
@@ -77,6 +97,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 const {
+  NOTIFICATION_INTENT_ACTION_TYPE_ID,
+  NOTIFICATION_INTENT_VIEW_ACTION_ID,
   postForegroundRemotePush,
   postLocalNotification,
   __resetNotificationsStateForTests,
@@ -101,6 +123,7 @@ beforeEach(() => {
   nativeAndroid = false;
   sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
+  registerActionTypesMock.mockClear();
   ackMock.mockClear();
   ackArgs.length = 0;
   ensureAndroidAlertsChannelMock.mockClear();
@@ -283,5 +306,40 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     await Promise.all([first, waiter]);
     expect(scheduleMock).toHaveBeenCalledTimes(2);
     expect(ackArgs.map(({ body }) => body.success)).toEqual([true, true]);
+  });
+
+  test("registers a go-to-conversation action and attaches it when a conversation is present", async () => {
+    await postLocalNotification({
+      ...baseArgs,
+      deepLinkMetadata: { conversationId: "conv-xyz" },
+    });
+
+    expect(registerActionTypesMock).toHaveBeenCalledTimes(1);
+    expect(registerActionTypesMock.mock.calls[0]?.[0]).toEqual({
+      types: [
+        {
+          id: NOTIFICATION_INTENT_ACTION_TYPE_ID,
+          actions: [
+            {
+              id: NOTIFICATION_INTENT_VIEW_ACTION_ID,
+              title: "Go to Conversation",
+              foreground: true,
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      scheduleMock.mock.calls[0]?.[0].notifications[0]?.actionTypeId,
+    ).toBe(NOTIFICATION_INTENT_ACTION_TYPE_ID);
+  });
+
+  test("registers the action type even when the banner has no conversation", async () => {
+    await postLocalNotification(baseArgs);
+
+    expect(registerActionTypesMock).toHaveBeenCalledTimes(1);
+    expect(
+      scheduleMock.mock.calls[0]?.[0].notifications[0]?.actionTypeId,
+    ).toBeUndefined();
   });
 });

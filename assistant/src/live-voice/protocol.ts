@@ -9,6 +9,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "update_config",
   "attach_image",
   "attach_frame",
+  "sight_frame",
   "text",
 ] as const;
 
@@ -134,6 +135,39 @@ export interface LiveVoiceClientStartFrame {
    * load-bearing for what a voice turn may do.
    */
   readonly client?: ClientOs;
+  /**
+   * Which control the session was asked from, as distinct from which client
+   * (`client`) it was asked on. The macOS app alone has three: the chat's
+   * voice button (`composer`), the companion surface's Talk (`companion`),
+   * and the voice key (`voice_key`, or `voice_key_ask` for a hold made over a
+   * selection). `deep_link` is Siri, a widget, the Action Button or a Live
+   * Activity tap, and `cli` the terminal client. Absent from clients that
+   * predate the field.
+   *
+   * Analytics only, exactly like `client`, and unlike `client` an open string
+   * rather than a closed set: the values are minted where the controls are,
+   * in the clients, and a daemon older than the client that sent one must
+   * carry the value through rather than erase it. The parser bounds the shape
+   * instead ({@link parseLiveVoiceEntry}) and drops anything outside it, so a
+   * malformed value costs a chart facet and never the session.
+   */
+  readonly entry?: string;
+}
+
+/**
+ * The shape a start frame's `entry` must have: a short snake_case token.
+ *
+ * The bound is set by where the value lands. The started telemetry row stamps
+ * `started_<client>:<entry>` into a 64-character wire field, and the longest
+ * `ClientOs` is seven characters, so 32 leaves the stamp well inside it.
+ */
+const LIVE_VOICE_ENTRY_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+
+/** Parse a start frame's `entry`. Returns `null` for anything off-shape. */
+export function parseLiveVoiceEntry(value: unknown): string | null {
+  return typeof value === "string" && LIVE_VOICE_ENTRY_PATTERN.test(value)
+    ? value
+    : null;
 }
 
 /**
@@ -248,6 +282,77 @@ export interface LiveVoiceClientAttachFrameFrame {
 }
 
 /**
+ * An ambient camera frame the client's gate kept, already uploaded over the
+ * normal attachment route and sent here as an id alone for the same reason
+ * {@link LiveVoiceClientAttachImageFrame} sends one.
+ *
+ * Three client frames carry an image and they mean three different things:
+ *
+ * - `attach_image` is a photo the user deliberately snapped. It persists
+ *   standalone the moment it arrives and drives the client's receipt strip.
+ * - `attach_frame` parks one frame on the session for the next spoken turn's
+ *   own user message to carry, and persists nothing by itself.
+ * - `sight_frame` persists an ambient keep immediately as its own user
+ *   message, tagged as a camera frame, and runs no turn.
+ *
+ * A keep is tagged so retention can age it out of the model's context (newest
+ * few stay images, older ones become timestamped stubs) while the transcript
+ * keeps every one of them. The transcript is therefore the record of what the
+ * assistant saw, and the model correlates a frame with speech by adjacency
+ * rather than by any attachment to a turn.
+ *
+ * A frame the attachment store does not know is refused with `frameType:
+ * "sight_frame"` and `recoverable: true`: the session is fine and only this
+ * frame failed. Attributing it is what lets the client retract the preview it
+ * already showed instead of filing the error with the transient transcriber
+ * and TTS blips that share `recoverable`. The refusal echoes the frame's
+ * `attachmentId` too, because keeps overlap: see that field on
+ * {@link LiveVoiceErrorServerFrame}.
+ */
+export interface LiveVoiceClientSightFrameFrame {
+  readonly type: "sight_frame";
+  readonly attachmentId: string;
+  /**
+   * How long the client's half of the frame took, for the daemon's log. The
+   * daemon adds its own half and the distance from the speech onset it
+   * announced, which is what makes a frame that answered the wrong question
+   * legible after the fact. Optional: an older client sends none.
+   */
+  readonly timing?: LiveVoiceSightFrameTiming;
+}
+
+/**
+ * The client leg of one kept frame, as durations between its own marks.
+ *
+ * Durations rather than timestamps because the two clocks are not the same
+ * clock: the client stamps from `performance.now` and the daemon from wall
+ * time, and only the client can say how long its encode and upload took.
+ * Every field is a non-negative whole number of milliseconds.
+ */
+export interface LiveVoiceSightFrameTiming {
+  /**
+   * Why the gate kept the frame: `forced` is the keep a speech onset asked
+   * for, everything else is the ambient cadence. Free-form so a new gate
+   * reason needs no daemon change to be logged.
+   */
+  readonly reason: string;
+  /**
+   * From the arm that asked for this keep to the keep itself. Present only on
+   * a forced keep, where it is the distance from the client hearing
+   * `speech_started` to a frame that postdates it.
+   */
+  readonly armToKeepMs?: number;
+  /** From the keep to a JPEG in hand, sized for upload. */
+  readonly keepToEncodedMs: number;
+  /** From the JPEG to the attachment id, which is the HTTP upload. */
+  readonly encodedToUploadedMs: number;
+  /** From the id to the send, which is the wait for older keeps to go first. */
+  readonly uploadedToSentMs: number;
+  /** The JPEG that was uploaded, in bytes. */
+  readonly bytes: number;
+}
+
+/**
  * A user turn the client already has as text, taken without the microphone.
  *
  * The session runs it through the same pipeline a spoken turn takes, joining
@@ -295,6 +400,7 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientUpdateConfigFrame
   | LiveVoiceClientAttachImageFrame
   | LiveVoiceClientAttachFrameFrame
+  | LiveVoiceClientSightFrameFrame
   | LiveVoiceClientTextTurnFrame;
 
 interface LiveVoiceBinaryAudioFrame {
@@ -556,10 +662,11 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    *
    * It exists so an `unknown_type` is attributable. A client that sends more
    * than one optional frame (today: `update_config`, `attach_image`,
-   * `attach_frame`, and `text`) gets the same code for any of them, and
-   * without this has to assume which one was refused. The wrong assumption is
-   * silent in both directions: settings stop applying for a session, or a
-   * photo the user watched themselves take is dropped with nothing said.
+   * `attach_frame`, `sight_frame`, and `text`) gets the same code for any of
+   * them, and without this has to assume which one was refused. The wrong
+   * assumption is silent in both directions: settings stop applying for a
+   * session, or a photo the user watched themselves take is dropped with
+   * nothing said.
    */
   readonly frameType?: string;
   /**
@@ -568,6 +675,23 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    * from older daemons) means the error is terminal for the session.
    */
   readonly recoverable?: boolean;
+  /**
+   * The attachment the refused frame named, present on `sight_frame`
+   * rejections so the client can retire the exact keep that failed.
+   *
+   * `frameType` alone only narrows a rejection to the keep stream, and that
+   * stream is the one place several sends are routinely outstanding at once:
+   * the camera keeps shooting while a persist waits out a running turn, so a
+   * client holding three unacknowledged keeps cannot tell which of them this
+   * error is about. Naming the id is what turns "a frame failed" into "this
+   * preview comes down".
+   *
+   * Optional, and no other error path populates it: a parse failure has no
+   * id to name, and the other frames carrying an attachment have at most one
+   * in flight, which `frameType` already identifies. Clients must tolerate
+   * an absent id and must not gate any behavior on its presence.
+   */
+  readonly attachmentId?: string;
 }
 
 export type LiveVoiceServerFrame =
@@ -698,6 +822,8 @@ export function validateLiveVoiceClientFrame(
       return validateAttachImageFrame(value);
     case "attach_frame":
       return validateAttachFrameFrame(value);
+    case "sight_frame":
+      return validateSightFrameFrame(value);
     case "text":
       return validateTextTurnFrame(value);
   }
@@ -818,6 +944,94 @@ function validateAttachFrameFrame(
   return {
     ok: true,
     frame: { type: "attach_frame", attachmentId: value.attachmentId },
+  };
+}
+
+function validateSightFrameFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightFrameFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "sight_frame frame is missing required field attachmentId",
+      "attachmentId",
+      "sight_frame",
+    );
+  }
+
+  // No null form, unlike `attach_frame`. Nothing is staged for a keep to give
+  // up: it persisted on arrival, so a closing viewfinder has nothing to clear.
+  if (!isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "sight_frame frame field attachmentId must be a non-empty string",
+      "attachmentId",
+      "sight_frame",
+    );
+  }
+
+  if (!("timing" in value) || value.timing === undefined) {
+    return {
+      ok: true,
+      frame: { type: "sight_frame", attachmentId: value.attachmentId },
+    };
+  }
+
+  const timing = validateSightFrameTiming(value.timing);
+  if (timing === null) {
+    return protocolError(
+      "invalid_field",
+      "sight_frame frame field timing must carry non-negative integer durations and a reason",
+      "timing",
+      "sight_frame",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "sight_frame", attachmentId: value.attachmentId, timing },
+  };
+}
+
+/**
+ * Parse a `sight_frame`'s `timing`. Null for anything off-shape: a timing is
+ * for the log, so nothing about it is coerced, but a malformed one still
+ * refuses the frame, since a client that sends one means to send a whole one.
+ */
+function validateSightFrameTiming(
+  value: unknown,
+): LiveVoiceSightFrameTiming | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const isDuration = (duration: unknown): duration is number =>
+    isIntInRange(duration, 0, Number.MAX_SAFE_INTEGER);
+  const {
+    reason,
+    armToKeepMs,
+    keepToEncodedMs,
+    encodedToUploadedMs,
+    uploadedToSentMs,
+    bytes,
+  } = record;
+  if (
+    !isNonEmptyString(reason) ||
+    !isDuration(keepToEncodedMs) ||
+    !isDuration(encodedToUploadedMs) ||
+    !isDuration(uploadedToSentMs) ||
+    !isDuration(bytes) ||
+    (armToKeepMs !== undefined && !isDuration(armToKeepMs))
+  ) {
+    return null;
+  }
+  return {
+    reason,
+    ...(armToKeepMs !== undefined ? { armToKeepMs } : {}),
+    keepToEncodedMs,
+    encodedToUploadedMs,
+    uploadedToSentMs,
+    bytes,
   };
 }
 
@@ -1004,6 +1218,8 @@ function validateStartFrame(
   // analytics dimension, and failing a session's startup over it would trade a
   // gap in a chart for a user who cannot talk to their assistant.
   const client = parseClientOs(value.client);
+  // Same policy for the same reason: a dimension, not a capability.
+  const entry = parseLiveVoiceEntry(value.entry);
 
   return {
     ok: true,
@@ -1013,6 +1229,7 @@ function validateStartFrame(
         ? { conversationId: value.conversationId }
         : {}),
       ...(client ? { client } : {}),
+      ...(entry ? { entry } : {}),
       audio: audioConfig.frame,
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }

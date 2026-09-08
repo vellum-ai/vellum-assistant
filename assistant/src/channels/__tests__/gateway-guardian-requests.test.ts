@@ -327,21 +327,6 @@ describe("request lookups", () => {
     });
   });
 
-  test("getPendingRequestByDestinationMessageOrNull maps the destination triple", async () => {
-    ipcResponse = null;
-    expect(
-      await client.getPendingRequestByDestinationMessageOrNull(
-        "telegram",
-        "chat-456",
-        "msg-1",
-      ),
-    ).toBeNull();
-    expect(ipcCalls[0]).toEqual({
-      method: "guardian_requests_get_by_destination_message",
-      params: { channel: "telegram", chatId: "chat-456", messageId: "msg-1" },
-    });
-  });
-
   test("getPendingRequestByCallSession and getRequestByPendingQuestionOrNull map params", async () => {
     const request = makeWireRequest({ callSessionId: "call-1" });
     ipcResponse = request;
@@ -379,17 +364,10 @@ describe("request lookups", () => {
     ipcError = new Error("gateway unavailable");
     expect(await client.getGuardianRequestByCodeOrNull("AB12")).toBeNull();
     expect(
-      await client.getPendingRequestByDestinationMessageOrNull(
-        "telegram",
-        "chat-456",
-        "msg-1",
-      ),
-    ).toBeNull();
-    expect(
       await client.getPendingRequestByCallSessionOrNull("call-1"),
     ).toBeNull();
     expect(await client.getRequestByPendingQuestionOrNull("pq-1")).toBeNull();
-    expect(warnCalls).toHaveLength(5);
+    expect(warnCalls).toHaveLength(4);
   });
 
   test("OrNull variants pass successful reads through untouched", async () => {

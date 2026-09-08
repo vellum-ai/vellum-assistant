@@ -9,6 +9,13 @@
  * the binding, and dictation takes any valid actor, which is why that pin is a
  * route opt-in rather than part of the shared gate.
  *
+ * A managed assistant is reached through velay, which validates the browser's
+ * own token and attests the caller to the bridge; there is no edge JWT on that
+ * path to validate. So a velay-attested caller with the bridge proof is
+ * admitted here the way live voice and watch admit one, minus their guardian
+ * check: velay only mints a token for a user with access to this assistant,
+ * which is the same standing an actor token proves.
+ *
  * The rest of what is this route's own is the query it accepts and carries
  * upstream.
  */
@@ -18,8 +25,13 @@ import {
   createRuntimeAudioStreamHandlers,
   type RuntimeAudioStreamState,
 } from "./runtime-audio-stream.js";
+import {
+  extractVelayAttestedContext,
+  isPlatformManaged,
+} from "./guardian-pin.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
+import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
 
 const log = getLogger("stt-stream-ws");
 
@@ -59,9 +71,33 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
     // to a transcriber and back; it is not a guardian-only surface, and the
     // watch stream's `guardian-pin` check is exactly what this route does not
     // want.
-    const auth = authorizeRuntimeAudioStream(req, config, log);
-    if (!auth.ok) {
-      return auth.response;
+    //
+    // The managed path first, as live voice and watch take it. A direct
+    // request to a reachable gateway can spoof the X-Velay-* names but cannot
+    // know the bridge proof, and an attestation without the proof falls
+    // through to the token gate rather than being trusted.
+    let managedCaller = false;
+    if (isPlatformManaged() && config.runtimeProxyRequireAuth) {
+      const velayContext = extractVelayAttestedContext(req);
+      if (velayContext) {
+        if (requestHasVelayBridgeAuth(req)) {
+          log.info(
+            { userId: velayContext.userId, orgId: velayContext.orgId },
+            "STT stream WS: authenticated via velay-attested managed context",
+          );
+          managedCaller = true;
+        } else {
+          log.warn(
+            "STT stream WS: ignoring velay context without bridge proof",
+          );
+        }
+      }
+    }
+    if (!managedCaller) {
+      const auth = authorizeRuntimeAudioStream(req, config, log);
+      if (!auth.ok) {
+        return auth.response;
+      }
     }
 
     // ── Query parameters ──

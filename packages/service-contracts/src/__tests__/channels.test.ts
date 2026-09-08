@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { CHANNEL_IDS, isChannelId } from "../channels.js";
+import {
+  CHANNEL_BOT_PROVIDER,
+  CHANNEL_IDS,
+  isChannelBotProvider,
+  isChannelUserIntegration,
+  isChannelId,
+} from "../channels.js";
 
 describe("isChannelId", () => {
   test("accepts every canonical channel id", () => {
@@ -32,5 +38,38 @@ describe("isChannelId", () => {
     expect(isChannelId(undefined)).toBe(false);
     expect(isChannelId(null)).toBe(false);
     expect(isChannelId(42)).toBe(false);
+  });
+});
+
+describe("isChannelUserIntegration", () => {
+  test("names the grant standing beside a bot of the same brand", () => {
+    expect(isChannelUserIntegration("slack")).toBe(true);
+    expect(isChannelUserIntegration("discord")).toBe(true);
+  });
+
+  test("excludes a channel whose bot is its own key", () => {
+    // `telegram` names the bot, so no second provider carries the brand and
+    // there is nothing to mistake for it.
+    expect(isChannelUserIntegration("telegram")).toBe(false);
+  });
+
+  test("excludes the bots themselves and unrelated providers", () => {
+    expect(isChannelUserIntegration("slack_channel")).toBe(false);
+    expect(isChannelUserIntegration("discord_channel")).toBe(false);
+    expect(isChannelUserIntegration("google")).toBe(false);
+  });
+
+  test("is the complement of isChannelBotProvider over the map", () => {
+    // The two questions partition the brands that have both halves: a key is
+    // one or the other, never both, so a caller picking the wrong one gets an
+    // empty answer rather than a plausible wrong one.
+    for (const [channelId, botProviderKey] of Object.entries(
+      CHANNEL_BOT_PROVIDER,
+    )) {
+      expect(isChannelUserIntegration(channelId)).toBe(
+        channelId !== botProviderKey,
+      );
+      expect(isChannelBotProvider(botProviderKey)).toBe(true);
+    }
   });
 });

@@ -88,6 +88,7 @@ export {
   inboundEventRefersToAnotherMessage,
   isInboundEventKind,
   resolveInboundEventKind,
+  parseDiscordEmojiMention,
   resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";
 export type {
@@ -245,7 +246,6 @@ export {
   ExpireInteractionBoundIpcResponseSchema,
   GetGuardianRequestByCallSessionIpcParamsSchema,
   GetGuardianRequestByCodeIpcParamsSchema,
-  GetGuardianRequestByDestinationMessageIpcParamsSchema,
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GetGuardianRequestIpcParamsSchema,
   GUARDIAN_REQUESTS_IPC_METHODS,
@@ -286,7 +286,6 @@ export type {
   ExpireInteractionBoundIpcResponse,
   GetGuardianRequestByCallSessionIpcParams,
   GetGuardianRequestByCodeIpcParams,
-  GetGuardianRequestByDestinationMessageIpcParams,
   GetGuardianRequestByPendingQuestionIpcParams,
   GetGuardianRequestIpcParams,
   GuardianRequestAclOutcome,

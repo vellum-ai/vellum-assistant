@@ -3,6 +3,7 @@ import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
+import { SetupStepList } from "@/components/setup-step-list";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface TelegramSetupCreateStepProps {
@@ -97,7 +98,7 @@ export function TelegramSetupCreateStep({
       >
         {t("telegramSetupCreateStep.inBotFather")}
       </Typography>
-      <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
+      <SetupStepList>
         <li>
           <Trans
             ns="common"
@@ -120,7 +121,7 @@ export function TelegramSetupCreateStep({
             components={{ strong: <strong /> }}
           />
         </li>
-      </ol>
+      </SetupStepList>
 
       <ChannelAvatarDownload assistantId={assistantId} channel="telegram" />
     </div>

@@ -28,7 +28,15 @@ describe("ScrollShadow", () => {
     const html = renderToStaticMarkup(
       <ScrollShadow hideScrollBar>x</ScrollShadow>,
     );
-    expect(html).toContain("scrollbar-width:none");
+    // Inline as well as by class: the inline property is what holds in an
+    // app that never generates the class.
+    expect(html).toMatch(/style="[^"]*scrollbar-width:none/);
+    expect(html).toContain("[&amp;::-webkit-scrollbar]:hidden");
+  });
+
+  test("leaves the scrollbar alone by default", () => {
+    const html = renderToStaticMarkup(<ScrollShadow>x</ScrollShadow>);
+    expect(html).not.toContain("scrollbar-width:none");
   });
 
   test("applies a mask when enabled and omits it when disabled", () => {
@@ -39,5 +47,27 @@ describe("ScrollShadow", () => {
       <ScrollShadow isEnabled={false}>x</ScrollShadow>,
     );
     expect(disabled).not.toContain("mask-image");
+  });
+
+  test("fadeEdges drops the stops for the edge it opts out of", () => {
+    const both = renderToStaticMarkup(<ScrollShadow size={16}>x</ScrollShadow>);
+    expect(both).toContain("#000 16px");
+    expect(both).toContain("calc(100% - 16px)");
+
+    const startOnly = renderToStaticMarkup(
+      <ScrollShadow size={16} fadeEdges="start">
+        x
+      </ScrollShadow>,
+    );
+    expect(startOnly).toContain("#000 16px");
+    expect(startOnly).not.toContain("calc(100% - 16px)");
+
+    const endOnly = renderToStaticMarkup(
+      <ScrollShadow size={16} fadeEdges="end">
+        x
+      </ScrollShadow>,
+    );
+    expect(endOnly).not.toContain("#000 16px");
+    expect(endOnly).toContain("calc(100% - 16px)");
   });
 });

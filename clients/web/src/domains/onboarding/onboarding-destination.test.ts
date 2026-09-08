@@ -69,21 +69,21 @@ describe("onboardingDestinationAfterConsent", () => {
     ).toBe(routes.onboarding.research);
   });
 
-  test("an already-onboarded assistant skips research on every build", () => {
+  test("an onboarded selected assistant skips research on every build", () => {
     expect(
       onboardingDestinationAfterConsent({
         isLocalHatch: false,
-        alreadyOnboarded: true,
+        selectedAssistantOnboarded: true,
         env: "production",
       }),
     ).toBe(routes.assistant);
   });
 
-  test("a new-assistant walk hatches even when another assistant is onboarded", () => {
+  test("a new-assistant walk hatches even when the selected assistant is onboarded", () => {
     expect(
       onboardingDestinationAfterConsent({
         isLocalHatch: false,
-        alreadyOnboarded: true,
+        selectedAssistantOnboarded: true,
         newAssistant: true,
         env: "production",
       }),
@@ -91,19 +91,19 @@ describe("onboardingDestinationAfterConsent", () => {
     expect(
       onboardingDestinationAfterConsent({
         isLocalHatch: true,
-        alreadyOnboarded: true,
+        selectedAssistantOnboarded: true,
         newAssistant: true,
         env: "production",
       }),
     ).toBe(routes.onboarding.hatching);
   });
 
-  test("a local hatch outranks the already-onboarded shortcut without the marker", () => {
+  test("a local hatch outranks the onboarded shortcut without the marker", () => {
     expect(
       onboardingDestinationAfterConsent({
         isLocalHatch: true,
         skipResearch: true,
-        alreadyOnboarded: true,
+        selectedAssistantOnboarded: true,
         env: "staging",
       }),
     ).toBe(routes.onboarding.hatching);

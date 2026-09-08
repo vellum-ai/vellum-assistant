@@ -3,7 +3,6 @@ import type { ElectronHostOS } from "@vellumai/ipc-contract";
 import { useSyncExternalStore } from "react";
 
 import {
-  detectDesktopAppPlatform,
   getBrowserPlatform,
   isKnownUnsupportedDesktopBrowser,
 } from "@/runtime/desktop-app-platform";
@@ -165,6 +164,7 @@ export type { ElectronHostOS };
 const CLIENT_OS_DISPLAY_NAMES: Readonly<Record<ClientOs, string>> = {
   macos: "macOS",
   windows: "Windows",
+  linux: "Linux",
   ios: "iOS",
   android: "Android",
   web: "Web",
@@ -183,7 +183,22 @@ export function detectElectronHostOS(): ElectronHostOS | null {
   if (!isElectron()) {
     return null;
   }
-  return detectDesktopAppPlatform();
+  if (window.vellum?.hostOS) {
+    return window.vellum.hostOS;
+  }
+  const platform = navigator.platform.toLowerCase();
+  if (platform.includes("win")) {
+    return "windows";
+  }
+  if (platform.includes("linux")) {
+    return "linux";
+  }
+  return "macos";
+}
+
+/** Resolve desktop copy to macOS unless the Windows client is detected. */
+export function resolveDesktopHostOS(): ElectronHostOS {
+  return detectElectronHostOS() ?? "macos";
 }
 
 /**

@@ -162,6 +162,14 @@ mock.module("@/generated/api/sdk.gen", () => ({
   assistantsPushTokensDelete: deleteMock,
 }));
 
+const PLATFORM_ASSISTANT_ID = "11111111-1111-4111-8111-111111111111";
+const resolvePlatformAssistantIdMock = mock(
+  async (assistantId: string) => assistantId as string | null,
+);
+mock.module("@/lib/platform-assistant-id", () => ({
+  resolvePlatformAssistantId: resolvePlatformAssistantIdMock,
+}));
+
 // ── Sentry capture-error ─────────────────────────────────────────────────────
 
 const captureErrorMock = mock(() => {});
@@ -233,6 +241,10 @@ beforeEach(() => {
   upsertMock.mockClear();
   deleteMock.mockClear();
   captureErrorMock.mockClear();
+  resolvePlatformAssistantIdMock.mockClear();
+  resolvePlatformAssistantIdMock.mockImplementation(
+    async (assistantId: string) => assistantId,
+  );
   __resetPushRegistrationStateForTests();
 });
 
@@ -251,7 +263,7 @@ describe("isRemotePushSupported", () => {
 describe("registerForRemotePush", () => {
   test("no-ops off native iOS — never touches the plugin or SDK", async () => {
     isNative = false;
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     await flushMicrotasks();
 
     expect(requestPermissionsMock).not.toHaveBeenCalled();
@@ -260,7 +272,7 @@ describe("registerForRemotePush", () => {
   });
 
   test("requests permission, registers, and upserts the token on registration", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
 
     expect(requestPermissionsMock).toHaveBeenCalledTimes(1);
     expect(registerMock).toHaveBeenCalledTimes(1);
@@ -271,7 +283,7 @@ describe("registerForRemotePush", () => {
 
     expect(upsertMock).toHaveBeenCalledTimes(1);
     expect(lastUpsertArg).toEqual({
-      path: { assistant_id: "assistant-1" },
+      path: { assistant_id: "11111111-1111-4111-8111-111111111111" },
       body: {
         token: "apns-token-abc",
         platform: "ios",
@@ -290,7 +302,7 @@ describe("registerForRemotePush", () => {
     androidRegisterMock.mockImplementationOnce(async () => {
       callOrder.push("register");
     });
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "fcm-token-abc" });
     await flushMicrotasks();
 
@@ -310,7 +322,7 @@ describe("registerForRemotePush", () => {
     platform = "android";
     androidPushRegistrationAvailable = false;
 
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
 
     expect(addListenerMock).toHaveBeenCalledTimes(4);
     expect(requestPermissionsMock).not.toHaveBeenCalled();
@@ -325,7 +337,7 @@ describe("registerForRemotePush", () => {
       throw new Error("Firebase is unavailable");
     });
 
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(registerMock).not.toHaveBeenCalled();
@@ -333,7 +345,7 @@ describe("registerForRemotePush", () => {
 
   test("does not register when notification permission is denied", async () => {
     permissionState = "denied";
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     await flushMicrotasks();
 
     expect(registerMock).not.toHaveBeenCalled();
@@ -342,7 +354,7 @@ describe("registerForRemotePush", () => {
 
   test("reports an upsert error to Sentry instead of throwing", async () => {
     upsertError = { detail: "boom" };
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-abc" });
     await flushMicrotasks();
 
@@ -350,12 +362,39 @@ describe("registerForRemotePush", () => {
   });
 
   test("registrationError from APNs is reported, not thrown", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationErrorHandler?.({ error: "APNs failed" });
     await flushMicrotasks();
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  test("upserts under the resolved platform UUID for a lockfile slug", async () => {
+    resolvePlatformAssistantIdMock.mockImplementationOnce(
+      async () => PLATFORM_ASSISTANT_ID,
+    );
+    await registerForRemotePush("local-slug");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(lastUpsertArg?.path.assistant_id).toBe(PLATFORM_ASSISTANT_ID);
+    expect(
+      hasSessionConfirmedRemotePushRegistration("local-slug"),
+    ).toBe(true);
+    expect(
+      hasSessionConfirmedRemotePushRegistration(PLATFORM_ASSISTANT_ID),
+    ).toBe(true);
+  });
+
+  test("skips upsert when no platform UUID can be resolved", async () => {
+    resolvePlatformAssistantIdMock.mockImplementationOnce(async () => null);
+    await registerForRemotePush("self");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(upsertMock).not.toHaveBeenCalled();
+    expect(hasSessionConfirmedRemotePushRegistration("self")).toBe(false);
   });
 });
 
@@ -363,7 +402,7 @@ describe("APNs environment wiring", () => {
   test("upsert body carries the resolver's result for the build's bundle id", async () => {
     resolvedApnsEnvironment = "development";
 
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-dev" });
     await flushMicrotasks();
 
@@ -387,21 +426,31 @@ describe("pushNotificationActionPerformed tap routing", () => {
 
   test("routes an Android JSON deep_link through the same event", async () => {
     platform = "android";
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     tap({ deep_link: '{"conversationId":"conv-android"}' });
 
     expect(published).toEqual([{ threadId: "conv-android" }]);
   });
 
   test("falls back to a top-level data.conversationId", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     tap({ conversationId: "conv-456" });
 
     expect(published).toEqual([{ threadId: "conv-456" }]);
   });
 
-  test("publishes nothing for absent or malformed data", async () => {
+  test("routes a Go to Conversation action the same as a tap", async () => {
     await registerForRemotePush("assistant-1");
+    actionPerformedHandler?.({
+      actionId: "view",
+      notification: { data: { deep_link: { conversationId: "conv-view" } } },
+    });
+
+    expect(published).toEqual([{ threadId: "conv-view" }]);
+  });
+
+  test("publishes nothing for absent or malformed data", async () => {
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     tap(undefined);
     tap(null);
     tap("not-an-object");
@@ -461,21 +510,21 @@ describe("extractPushConversationId", () => {
 
 describe("hasSessionConfirmedRemotePushRegistration", () => {
   test("false when nothing has been registered", () => {
-    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(
+    expect(hasSessionConfirmedRemotePushRegistration("11111111-1111-4111-8111-111111111111")).toBe(
       false,
     );
   });
 
   test("true after a successful upsert for the same assistant", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-abc" });
     await flushMicrotasks();
 
-    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(true);
+    expect(hasSessionConfirmedRemotePushRegistration("11111111-1111-4111-8111-111111111111")).toBe(true);
   });
 
   test("false for a different assistant than the registered one", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-abc" });
     await flushMicrotasks();
 
@@ -503,13 +552,13 @@ describe("hasSessionConfirmedRemotePushRegistration", () => {
   });
 
   test("false again after unregister clears the registration", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-abc" });
     await flushMicrotasks();
 
     await unregisterFromRemotePush();
 
-    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(
+    expect(hasSessionConfirmedRemotePushRegistration("11111111-1111-4111-8111-111111111111")).toBe(
       false,
     );
   });
@@ -517,7 +566,7 @@ describe("hasSessionConfirmedRemotePushRegistration", () => {
 
 describe("unregisterFromRemotePush", () => {
   test("deletes the last-registered token with bundle-scoped query", async () => {
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-abc" });
     await flushMicrotasks();
 
@@ -525,7 +574,7 @@ describe("unregisterFromRemotePush", () => {
 
     expect(deleteMock).toHaveBeenCalledTimes(1);
     expect(lastDeleteArg).toEqual({
-      path: { assistant_id: "assistant-1", token: "apns-token-abc" },
+      path: { assistant_id: "11111111-1111-4111-8111-111111111111", token: "apns-token-abc" },
       query: { bundle_id: "ai.vocify-inc.vellum-assistant-ios" },
       throwOnError: false,
     });
@@ -534,7 +583,7 @@ describe("unregisterFromRemotePush", () => {
   test("replaces a rotated token and unregisters FCM on logout", async () => {
     platform = "android";
     bundleId = "ai.vellum.assistant.dev";
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "fcm-old" });
     await flushMicrotasks();
     registrationHandler?.({ value: "fcm-new" });
@@ -587,7 +636,7 @@ describe("unregisterFromRemotePush", () => {
       releaseUpsert = resolve;
     });
 
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     // iOS delivers the token; the upsert starts but hasn't resolved yet.
     registrationHandler?.({ value: "race-token" });
     await Promise.resolve();
@@ -608,7 +657,7 @@ describe("unregisterFromRemotePush", () => {
       releaseUpsert = resolve;
     });
 
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     // Two overlapping upserts (e.g. manual re-upsert + cached token re-emit).
     registrationHandler?.({ value: "token-A" });
     registrationHandler?.({ value: "token-B" });
@@ -626,7 +675,7 @@ describe("unregisterFromRemotePush", () => {
 
   test("reports a failed delete to Sentry instead of silently dropping it", async () => {
     deleteError = { detail: "server error" };
-    await registerForRemotePush("assistant-1");
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     registrationHandler?.({ value: "apns-token-abc" });
     await flushMicrotasks();
     captureErrorMock.mockClear();

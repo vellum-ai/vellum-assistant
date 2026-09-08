@@ -34,7 +34,7 @@ import type {
   ManagedOAuthConnectClient,
   ManagedOAuthConnectOptions,
   ManagedOAuthConnectResult,
-} from "@/domains/chat/api/managed-oauth";
+} from "@/lib/auth/managed-oauth";
 import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { Surface } from "@/domains/chat/types/types";
@@ -277,6 +277,9 @@ describe("OAuthConnectSurface", () => {
         providerKey: "google",
         providerLabel: "Google",
         requestedScopes: ["gmail.readonly"],
+        // Returns the card to `idle` if COOP disowns the popup, so Connect and
+        // Dismiss stay usable while the flow runs on in the background.
+        onDetached: expect.any(Function),
       });
       expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
         status: "connected",
@@ -413,7 +416,10 @@ describe("OAuthConnectSurface", () => {
   test("does not double the verb when displayName already includes 'Connect'", () => {
     const oauthClient: ManagedOAuthConnectClient = {
       fetchProvider: mock(async () => null),
-      connect: mock(async () => ({ status: "cancelled" as const })),
+      connect: mock(async () => ({
+        status: "cancelled" as const,
+        reason: "popup-closed" as const,
+      })),
     };
 
     const { getByText, queryByText } = renderWithQueryClient(
@@ -446,7 +452,10 @@ describe("OAuthConnectSurface", () => {
     const onAction = mock(() => {});
     const oauthClient: ManagedOAuthConnectClient = {
       fetchProvider: mock(async () => null),
-      connect: mock(async () => ({ status: "cancelled" as const })),
+      connect: mock(async () => ({
+        status: "cancelled" as const,
+        reason: "popup-closed" as const,
+      })),
     };
 
     const { getByRole, invalidateQueries } = renderWithQueryClient(
@@ -479,7 +488,10 @@ describe("OAuthConnectSurface", () => {
     const onAction = mock(() => {});
     const oauthClient: ManagedOAuthConnectClient = {
       fetchProvider: mock(async () => null),
-      connect: mock(async () => ({ status: "cancelled" as const })),
+      connect: mock(async () => ({
+        status: "cancelled" as const,
+        reason: "popup-closed" as const,
+      })),
     };
 
     const { getByRole, invalidateQueries } = renderWithQueryClient(
@@ -512,6 +524,7 @@ describe("OAuthConnectSurface", () => {
       fetchProvider: mock(async () => null),
       connect: mock(async () => ({
         status: "error" as const,
+        reason: "authorization-failed" as const,
         message: "Authorization failed.",
       })),
     };
@@ -529,8 +542,9 @@ describe("OAuthConnectSurface", () => {
     );
 
     fireEvent.click(getByRole("button", { name: "Connect" }));
-    // Error surfaces its message and never emits a surface action.
-    expect(await findByText("Authorization failed.")).toBeTruthy();
+    // The card shows catalog copy for the reason, not the engine's diagnostic
+    // English, and never emits a surface action.
+    expect(await findByText("Google authorization failed")).toBeTruthy();
 
     expect(onAction).not.toHaveBeenCalled();
     expect(invalidateQueries).not.toHaveBeenCalled();

@@ -147,6 +147,34 @@ describe("guardian-verify-setup skill: proactive auto-check polling", () => {
   });
 });
 
+describe("guardian-verify-setup skill: Discord DM code wording", () => {
+  /**
+   * A plain DM containing the code completes verification; Discord's reply
+   * affordance is not required, and instructions that say "reply" made a
+   * live-QA user hesitate over whether a plain message would count.
+   */
+  const discordBullets = (body: string) =>
+    body.split("\n").filter((line) => /^\s*-\s+\*\*Discord\*\*/.test(line));
+
+  for (const [step, from, to] of [
+    ["Step 3", "## Step 3", "## Step 4"],
+    ["Step 4", "## Step 4", "## Step 5"],
+  ] as const) {
+    test(`${step}'s Discord bullets say to send the code, not reply with it`, () => {
+      const bullets = discordBullets(section(from, to));
+      expect(bullets.length).toBeGreaterThanOrEqual(1);
+      for (const bullet of bullets) {
+        expect(bullet).toContain("send that 6-digit code in this DM");
+        // The instruction forms are what misled: "reply with the code" /
+        // "reply to the DM". Prose *about* the reply feature ("reply feature
+        // is not required") is the clarification and stays.
+        expect(bullet.toLowerCase()).not.toContain("reply with");
+        expect(bullet.toLowerCase()).not.toContain("reply to the dm");
+      }
+    });
+  }
+});
+
 describe("guardian-verify-setup skill: channel coverage", () => {
   test("every channel the CLI accepts is offered in Step 1", () => {
     const step1 = section("## Step 1", "## Step 2");

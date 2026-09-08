@@ -167,14 +167,11 @@ export function HostingOptionsContent() {
           <div id="user-hosted-remote">
             <SectionHeading id="user-hosted-remote" level={3}>
               User-Hosted Remote
-              <span className="ml-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
-                Coming soon
-              </span>
             </SectionHeading>
             <p className="mb-4 text-stone-600 dark:text-stone-400">
               Your assistant runs on cloud infrastructure that you own and
-              manage: your GCP project, your AWS account, or even a Mac Mini
-              running at home that you connect to remotely.
+              manage: your GCP project, or even a Mac Mini running at home
+              that you connect to remotely.
             </p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-stone-600 dark:text-stone-400">
               <li>
@@ -306,7 +303,7 @@ export function HostingOptionsContent() {
               <p className="m-0 text-sm text-stone-600 dark:text-stone-400">
                 If you want 24/7 availability, full data ownership, and
                 you&apos;re comfortable managing cloud infrastructure, deploy
-                to your own GCP or AWS account. It&apos;s more work to set up,
+                to your own GCP project. It&apos;s more work to set up,
                 but you get the best of both worlds: always-on and
                 self-managed.
               </p>
@@ -346,15 +343,15 @@ export function HostingOptionsContent() {
             </Link>
 
             <Link
-              href="/docs/hosting-options/advanced-options"
+              href="/docs/hosting-options/gcp"
               className="rounded-xl border border-stone-200 p-5 no-underline transition-colors hover:border-stone-300 dark:border-moss-600/50 dark:hover:border-moss-600"
             >
               <h3 className="mb-2 font-sans text-lg font-semibold text-stone-900 dark:text-stone-100">
-                Advanced options
+                GCP
               </h3>
               <p className="m-0 text-sm text-stone-600 dark:text-stone-400">
-                User-Hosted Remote: GCP, AWS, and Mac Mini. For users
-                who want 24/7 availability on infrastructure they own.
+                Step by step: provision a Compute Engine VM, hatch on it,
+                and reach it from your phone and laptop.
               </p>
             </Link>
           </div>

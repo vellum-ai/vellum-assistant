@@ -380,7 +380,8 @@ function calculateUsageCost(
     directInputCost +
     outputCost +
     calculateTokenCost(
-      effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.read,
+      effectivePricing.cacheReadPer1M ??
+        effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.read,
       usage.cacheReadInputTokens,
     ) +
     calculateTokenCost(

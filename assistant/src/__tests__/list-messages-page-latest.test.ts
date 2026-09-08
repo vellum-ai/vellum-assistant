@@ -491,6 +491,133 @@ describe("handleListMessages page=latest", () => {
     });
   });
 
+  test("an assistant row still carrying the partial pre-send envelope projects no slackMessage", async () => {
+    // The row an outbound Slack reply is reserved with names no id of its own:
+    // `channelTs` is back-filled by the post-send reconciliation. Until that
+    // lands, the strict reader rejects the envelope and the row projects
+    // nothing, so a client cannot attribute it to Slack. This is the silent
+    // half of the reconciliation gap, pinned so a reader that starts
+    // tolerating the partial form has to justify it here.
+    const conv = createConversation();
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack-partial",
+        conversationId: conv.id,
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Posted to Slack" }]),
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          slackMeta: JSON.stringify({
+            source: "slack",
+            eventKind: "message",
+            channelId: "C123ABCDEF",
+            threadTs: "1710000000.000100",
+            timestampTimezone: "America/New_York",
+            timestampTimezoneLabel: "ET",
+          }),
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = await callList({ conversationId: conv.id, page: "latest" });
+
+    expect(body.messages[0].slackMessage).toBeUndefined();
+  });
+
+  test("a reconciled assistant row on the neutral envelope projects the same slackMessage", async () => {
+    // The row a Slack reply is written with today: the neutral envelope,
+    // Slack's own fields on its passthrough, `messageId` back-filled by the
+    // post-send reconciliation. The wire projection reads it through the
+    // envelope's Slack view, so the client sees exactly what a legacy
+    // `slackMeta` row projects.
+    const conv = createConversation();
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack-neutral",
+        conversationId: conv.id,
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Posted to Slack" }]),
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: "C123ABCDEF",
+            messageId: "1710000000.000200",
+            threadId: "1710000000.000100",
+            eventKind: "message",
+            timestampTimezone: "America/New_York",
+            timestampTimezoneLabel: "ET",
+          }),
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = await callList({ conversationId: conv.id, page: "latest" });
+
+    const slackMessage = body.messages[0].slackMessage;
+    expect(slackMessage).toBeDefined();
+    expect(slackMessage?.channelId).toBe("C123ABCDEF");
+    expect(slackMessage?.channelTs).toBe("1710000000.000200");
+    expect(slackMessage?.threadTs).toBe("1710000000.000100");
+    expect(slackMessage?.eventKind).toBe("message");
+    expect(slackMessage?.messageLink).toBeDefined();
+  });
+
+  test("the reconciled assistant row projects slackMessage with the post's own ts", async () => {
+    // The other half of the same chain: once reconciliation stamps the ts the
+    // transport returned, the identical row projects a full envelope. Built by
+    // running the production reconciliation merge over the partial form rather
+    // than hand-writing the result, so the two stay in step.
+    const conv = createConversation();
+    const partial = {
+      source: "slack",
+      eventKind: "message" as const,
+      channelId: "C123ABCDEF",
+      threadTs: "1710000000.000100",
+      timestampTimezone: "America/New_York",
+      timestampTimezoneLabel: "ET",
+    };
+    const reconciled = JSON.stringify({
+      ...partial,
+      channelTs: "1710000000.000200",
+      source: "slack",
+    });
+
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack-reconciled",
+        conversationId: conv.id,
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Posted to Slack" }]),
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          slackMeta: reconciled,
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = await callList({ conversationId: conv.id, page: "latest" });
+
+    const slackMessage = body.messages[0].slackMessage;
+    expect(slackMessage).toBeDefined();
+    expect(slackMessage?.channelId).toBe("C123ABCDEF");
+    expect(slackMessage?.channelTs).toBe("1710000000.000200");
+    expect(slackMessage?.threadTs).toBe("1710000000.000100");
+    expect(slackMessage?.eventKind).toBe("message");
+    // The deep link is what the drawer's "open the source" action needs, and
+    // it is derivable only from the reconciled ts.
+    expect(slackMessage?.messageLink).toBeDefined();
+  });
+
   test("top-level Slack messages with matching threadTs use plain permalinks", async () => {
     const conv = createConversation();
     const db = getDb();

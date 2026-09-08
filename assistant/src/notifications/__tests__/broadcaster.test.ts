@@ -15,6 +15,8 @@ import type {
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
+  DestinationBindingContext,
+  NotificationChannel,
   NotificationDecision,
 } from "../types.js";
 
@@ -62,14 +64,35 @@ mock.module("../conversation-pairing.js", () => ({
 }));
 
 // Status writes are inert by default; tests that need a failing store swap
-// the implementation in.
-let updateDeliveryStatusImpl: (status: string) => void = () => {};
+// the implementation in, and tests that need the patch read it.
+let updateDeliveryStatusImpl: (
+  status: string,
+  patch?: { messageId?: string; canonicalMessageId?: string },
+) => void = () => {};
 
 mock.module("../deliveries-store.js", () => ({
   createDelivery: () => {},
-  updateDeliveryStatus: (_deliveryId: string, status: string) =>
-    updateDeliveryStatusImpl(status),
+  updateDeliveryStatus: (
+    _deliveryId: string,
+    status: string,
+    _error?: unknown,
+    patch?: { messageId?: string; canonicalMessageId?: string },
+  ) => updateDeliveryStatusImpl(status, patch),
   findDeliveryByDecisionAndChannel: () => undefined,
+}));
+
+// The post-acknowledgement row write is observed, never performed: the
+// broadcaster's contract is when it calls this and with what.
+let recordedPosts: Array<Record<string, unknown>> = [];
+let recordDeliveredChannelPostImpl: (
+  post: Record<string, unknown>,
+) => Promise<{ messageId: string }> = async () => ({ messageId: "row-1" });
+
+mock.module("../delivered-post-record.js", () => ({
+  recordDeliveredChannelPost: async (post: Record<string, unknown>) => {
+    recordedPosts.push(post);
+    return recordDeliveredChannelPostImpl(post);
+  },
 }));
 
 mock.module("../adapters/macos.js", () => ({
@@ -85,12 +108,21 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 // Mock destination-resolver so platform channel tests get a destination
-// without needing guardian-delivery data.
+// without needing guardian-delivery data. A channel listed in
+// `destinationBindingContexts` gets that binding context, as a resolved
+// external chat would.
+let destinationBindingContexts: Record<string, DestinationBindingContext> = {};
 mock.module("../destination-resolver.js", () => ({
   resolveDestinations: (channels: readonly string[], _guardians: unknown) => {
     const map = new Map();
     for (const ch of channels) {
-      map.set(ch, { channel: ch, endpoint: ch, metadata: {} });
+      const bindingContext = destinationBindingContexts[ch];
+      map.set(ch, {
+        channel: ch,
+        endpoint: bindingContext?.externalChatId ?? ch,
+        metadata: {},
+        ...(bindingContext ? { bindingContext } : {}),
+      });
     }
     return map;
   },
@@ -142,7 +174,7 @@ interface CapturedSend {
 }
 
 function makeCapturingAdapter(
-  channel: "vellum" | "platform",
+  channel: NotificationChannel,
   result: DeliveryResult = { success: true },
 ): {
   adapter: ChannelAdapter;
@@ -168,6 +200,9 @@ beforeEach(() => {
   pairingByChannel = {};
   pairingErrorByChannel = {};
   updateDeliveryStatusImpl = () => {};
+  destinationBindingContexts = {};
+  recordedPosts = [];
+  recordDeliveredChannelPostImpl = async () => ({ messageId: "row-1" });
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -268,6 +303,135 @@ describe("NotificationBroadcaster delivery status recording", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.status).toBe("sent");
     expect(results[0]?.errorMessage).toBeUndefined();
+  });
+});
+
+describe("NotificationBroadcaster records a channel delivery after acknowledgement", () => {
+  const slackHome: PairingResult = {
+    conversationId: "conv-home",
+    messageId: null,
+    strategy: "continue_existing_conversation",
+    createdNewConversation: false,
+    conversationFallbackUsed: false,
+  };
+
+  test("a successful Slack send is recorded with the channel's message id, and the audit names the row", async () => {
+    composeFallbackReturn = {
+      slack: { title: "Check-in", body: "Two items need your eyes today." },
+    };
+    pairingByChannel = { slack: slackHome };
+    destinationBindingContexts = {
+      slack: { sourceChannel: "slack", externalChatId: "D0123456789" },
+    };
+    const patches: Array<{
+      status: string;
+      patch?: { messageId?: string; canonicalMessageId?: string };
+    }> = [];
+    updateDeliveryStatusImpl = (status, patch) => {
+      patches.push({ status, patch });
+    };
+
+    const { adapter, sends } = makeCapturingAdapter("slack", {
+      success: true,
+      messageId: "1756800000.000100",
+    });
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({ selectedChannels: ["slack"], renderedCopy: {} }),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(results[0]?.status).toBe("sent");
+    expect(recordedPosts).toHaveLength(1);
+    expect(recordedPosts[0]).toEqual({
+      conversationId: "conv-home",
+      channel: "slack",
+      externalChatId: "D0123456789",
+      text: "Two items need your eyes today.",
+      providerMessageId: "1756800000.000100",
+    });
+    const sent = patches.find((p) => p.status === "sent");
+    expect(sent?.patch).toEqual({
+      messageId: "1756800000.000100",
+      canonicalMessageId: "row-1",
+    });
+  });
+
+  test("a failed Slack send records nothing", async () => {
+    composeFallbackReturn = {
+      slack: { title: "Check-in", body: "Two items need your eyes today." },
+    };
+    pairingByChannel = { slack: slackHome };
+    destinationBindingContexts = {
+      slack: { sourceChannel: "slack", externalChatId: "D0123456789" },
+    };
+
+    const { adapter } = makeCapturingAdapter("slack", {
+      success: false,
+      error: "channel_not_found",
+    });
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({ selectedChannels: ["slack"], renderedCopy: {} }),
+    );
+
+    expect(results[0]?.status).toBe("failed");
+    expect(recordedPosts).toHaveLength(0);
+  });
+
+  test("a successful send whose row write fails still reads as sent, without a row reference", async () => {
+    composeFallbackReturn = {
+      slack: { title: "Check-in", body: "Two items need your eyes today." },
+    };
+    pairingByChannel = { slack: slackHome };
+    destinationBindingContexts = {
+      slack: { sourceChannel: "slack", externalChatId: "D0123456789" },
+    };
+    recordDeliveredChannelPostImpl = async () => {
+      throw new Error("messages table is locked");
+    };
+    const patches: Array<{
+      status: string;
+      patch?: { messageId?: string; canonicalMessageId?: string };
+    }> = [];
+    updateDeliveryStatusImpl = (status, patch) => {
+      patches.push({ status, patch });
+    };
+
+    const { adapter } = makeCapturingAdapter("slack", {
+      success: true,
+      messageId: "1756800000.000100",
+    });
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({ selectedChannels: ["slack"], renderedCopy: {} }),
+    );
+
+    expect(results[0]?.status).toBe("sent");
+    const sent = patches.find((p) => p.status === "sent");
+    expect(sent?.patch).toEqual({ messageId: "1756800000.000100" });
+  });
+
+  test("a vellum delivery is not recorded through this path", async () => {
+    composeFallbackReturn = {
+      vellum: { title: "Reminder", body: "Time to drink water" },
+    };
+
+    const { adapter } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({ renderedCopy: {} }),
+    );
+
+    expect(recordedPosts).toHaveLength(0);
   });
 });
 
@@ -718,7 +882,7 @@ describe("NotificationBroadcaster question option actions", () => {
     expect(approval?.plainTextFallback).toContain("your answer");
   });
 
-  test("an option-less pending_question (voice) carries no card actions", async () => {
+  test("an option-less pending_question (voice) carries the typed-reply instruction and no actions", async () => {
     const { adapter, sends } = makeCapturingAdapter("platform");
     const broadcaster = new NotificationBroadcaster([adapter]);
 
@@ -735,9 +899,40 @@ describe("NotificationBroadcaster question option actions", () => {
     );
 
     expect(sends.length).toBe(1);
-    // Answer-mode without options renders as plain text with request-code
-    // instructions — no approve/reject pair is ever attached to a question.
-    expect(sends[0]?.payload.approvalContext).toBeUndefined();
+    // No buttons to draw, so the transports send text and append the
+    // instruction; an approve/reject pair is never attached to a question.
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.requestId).toBe("req-v1");
+    expect(approval?.actions).toEqual([]);
+    expect(approval?.intent).toBe("question");
+    expect(approval?.plainTextFallback).toBe(
+      'Reference code: DEF456. Reply "DEF456 <your answer>".',
+    );
+  });
+
+  test("a coded question that fails strict parsing still carries its typed-reply instruction", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "pending_question",
+        requestId: "req-lenient-1",
+        requestCode: "abc999",
+        // A null requester id fails the strict schema (string | undefined).
+        requesterExternalUserId: null,
+        questionText: "What time works?",
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.requestId).toBe("req-lenient-1");
+    expect(approval?.actions).toEqual([]);
+    expect(approval?.plainTextFallback).toBe(
+      'Reference code: ABC999. Reply "ABC999 <your answer>".',
+    );
   });
 
   test("tool_approval payloads keep the approve/reject action pair", async () => {

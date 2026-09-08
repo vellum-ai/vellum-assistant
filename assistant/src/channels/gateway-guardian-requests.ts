@@ -302,28 +302,6 @@ export async function listGuardianRequestDeliveriesByChat(
 }
 
 /**
- * Reaction routing: the pending request whose delivered card is the
- * reacted-to message. Throws on transport failure.
- */
-async function getPendingRequestByDestinationMessage(
-  channel: string,
-  chatId: string,
-  messageId: string,
-): Promise<GuardianRequestWire | null> {
-  return callGateway(
-    GUARDIAN_REQUESTS_IPC_METHODS.getByDestinationMessage,
-    { channel, chatId, messageId },
-    GuardianRequestLookupIpcResponseSchema,
-  );
-}
-
-/** `getPendingRequestByDestinationMessage` deny-path variant: degrades to null. */
-export const getPendingRequestByDestinationMessageOrNull = degradeOnFailure(
-  getPendingRequestByDestinationMessage,
-  null,
-);
-
-/**
  * Reply routing: pending requests delivered to a destination conversation
  * (`conversationId`, optionally narrowed by `channel`) or chat
  * (`channel` + `chatId`). Throws on transport failure.

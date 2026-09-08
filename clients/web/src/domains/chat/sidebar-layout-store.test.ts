@@ -137,11 +137,14 @@ describe("SidebarLayoutStore", () => {
     expect(localStorage.length).toBe(0);
   });
 
-  test("openPrimary defaults to Pinned + Chats open when nothing is stored", () => {
+  test("openPrimary defaults to every primary section open when nothing is stored", () => {
     useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    // `assistant` is inert until its flag-gated section renders - see
+    // PRIMARY_SECTION_KEYS for why it is a default-open key regardless.
     expect(useSidebarLayoutStore.getState().openPrimary).toEqual([
       "pinned",
       "recents",
+      "assistant",
     ]);
   });
 

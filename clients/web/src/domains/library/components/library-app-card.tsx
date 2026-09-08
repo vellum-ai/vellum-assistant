@@ -110,7 +110,7 @@ export function LibraryAppCard({
   const trailingActions: SwipeAction[] = [
     {
       id: "pin",
-      label: isPinned ? "Unpin" : "Pin",
+      label: isPinned ? t("libraryAppCard.unpin") : t("libraryAppCard.pin"),
       icon: isPinned ? PinOff : Pin,
       onSelect: () => onPin(app),
     },
@@ -118,7 +118,7 @@ export function LibraryAppCard({
       ? ([
           {
             id: "delete",
-            label: "Delete",
+            label: t("libraryAppCard.delete"),
             icon: Trash2,
             variant: "destructive",
             onSelect: () => deleteAction(app),

@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+build/
+resources/bun
+resources/web-dist
+resources/cli-lockfile

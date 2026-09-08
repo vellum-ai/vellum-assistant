@@ -15,6 +15,7 @@ import {
   getLocalAssistantStatus,
   readLockfileAssistantAvatar,
   renameLockfileAssistantIfPresent,
+  stampLockfileAssistantOnboardedIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
@@ -360,6 +361,13 @@ function lockfileMiddleware(
             lockfilePaths,
             rename.assistantId as string,
             rename.name as string,
+          );
+        } else if (body.onboarded && typeof body.onboarded === "object") {
+          const onboarded = body.onboarded as Record<string, unknown>;
+          result = stampLockfileAssistantOnboardedIfPresent(
+            lockfilePaths,
+            onboarded.assistantId as string,
+            onboarded.onboardedAt as string,
           );
         } else {
           result = upsertRendererLockfileAssistant(

@@ -5,7 +5,7 @@
  */
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
-import { MAX_VISIBLE_SUBAGENT_AVATARS } from "@/domains/chat/components/subagent-inline-progress-card/subagent-avatar-row";
+import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -74,7 +74,7 @@ export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
         className="[&:not(:first-child)]:-ml-1 [&:not(:first-child)]:rounded-full [&:not(:first-child)]:bg-[var(--surface-lift)] [&:not(:first-child)]:ring-2 [&:not(:first-child)]:ring-[var(--surface-lift)]"
       />
     ),
-    max: MAX_VISIBLE_SUBAGENT_AVATARS,
+    max: MAX_VISIBLE_STACKED_CHIPS,
   },
   overlayTitle: (n) => `${n} Active Subagent${n === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active subagents",

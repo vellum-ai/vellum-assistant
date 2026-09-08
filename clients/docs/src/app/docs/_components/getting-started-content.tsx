@@ -162,8 +162,8 @@ export function GettingStartedContent() {
           <p className="mb-4 text-zinc-600">
             Want to run Vellum entirely on your own machine or your own infrastructure? You can.
             The runtime is open source and supports local-only mode (workspace at{" "}
-            <code>~/.vellum/workspace/</code>) as well as remote deployment to your own GCP or
-            AWS environment.
+            <code>~/.vellum/workspace/</code>) as well as remote deployment to your own
+            GCP project or any Linux host.
           </p>
           <p className="mb-6 text-zinc-600">
             Head to{" "}

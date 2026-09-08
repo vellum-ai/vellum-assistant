@@ -74,6 +74,8 @@
     "unsupportedLabel": "Unavailable"
   },
   "appIcon": {
+    "androidApplyNote": "Alternate icons ship with the app. Android applies your choice once you leave the app, and switching can reset a shortcut you pinned to your home screen.",
+    "androidError": "Android did not change your home screen icon. You can try again.",
     "apply": "Set app icon",
     "change": "Change",
     "color": "Color",
@@ -246,15 +248,24 @@
     "adjust": "Adjust",
     "capProgress": " / {cap} this month",
     "connectCardBanner": "Auto-reload requires you to connect a credit card.",
+    "dailyLimitLookupError": "Couldn't check your daily credit limit, which auto-reload requires. Retry to continue.",
     "declinedCutoffNotice": "We paused automatic reloads after several declined payments. Add a new payment method to turn auto-reload back on.",
     "disableError": "Failed to disable auto-reload. Please try again.",
     "dismiss": "Dismiss",
     "loadError": "Failed to load auto-reload configuration.",
     "loading": "Loading…",
+    "retry": "Retry",
     "summary": "Add {amount} when balance falls under {threshold}",
     "toggleHelper": "Auto reloads only occur when plan based usage is exhausted",
     "toggleLabel": "Enable auto-reload",
     "updateError": "Failed to save auto-reload settings. Please try again."
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "Turn off auto-reload",
+    "message": "Auto-reload requires a daily credit limit. Set one to save your auto-reload settings, or turn auto-reload off.",
+    "save": "Save",
+    "saving": "Saving…",
+    "title": "Set a daily credit limit"
   },
   "autoTopUpDisableConfirm": {
     "disable": "Disable",
@@ -273,24 +284,30 @@
   "autoTopUpPaymentMethodModal": {
     "addSubtitle": "Kept on file for auto-reload and your Pro plan.",
     "addTitle": "Add a card",
-    "addressFormLoadError": "Failed to load the billing address form. Please close and reopen this dialog.",
+    "addressFormLoadError": "Failed to load the billing address form. Please try again.",
     "cancel": "Cancel",
-    "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
-    "cardOnFileNote": "Replaced on save",
     "close": "Close",
     "confirmFailed": "Failed to save payment method.",
     "confirmingWithBank": "Confirming with your bank…",
     "declined": "Your bank declined this card. Try another, or contact them.",
-    "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
+    "loadingLabel": "Loading payment fields",
+    "paymentFormLoadError": "Failed to load the payment form. Please try again.",
     "primaryAdd": "Save card",
     "primaryReplace": "Replace card",
     "primarySubmitting": "Saving",
     "replaceSubtitle": "The new card takes over immediately.",
+    "replaceSubtitleCard": "Replacing {brand} •••• {last4}. The new card takes over immediately.",
+    "replaceSubtitleCardExpiry": "Replacing {brand} •••• {last4} · {month} / {year}. The new card takes over immediately.",
+    "replaceSubtitleCardNoBrand": "Replacing the card ending in {last4}. The new card takes over immediately.",
+    "replaceSubtitleCardNoBrandExpiry": "Replacing the card ending in {last4} · {month} / {year}. The new card takes over immediately.",
+    "replaceSubtitleCardNoLast4": "Replacing your {brand} card. The new card takes over immediately.",
+    "replaceSubtitleCardNoLast4Expiry": "Replacing your {brand} card · {month} / {year}. The new card takes over immediately.",
     "replaceTitle": "Replace your card",
     "savedSubtitle": "Auto-reload is active again",
     "savedTitle": "{brand} •••• {last4} saved",
     "savedTitleGeneric": "Card saved",
+    "savedTitleNoBrand": "Card ending in {last4} saved",
     "setupError": "Failed to start card setup. Please try again.",
     "termsAdd": "Vellum can charge this card for auto-reload and subscription renewals. Remove it any time from Billing.",
     "termsReplace": "Your old card stays with Stripe until you remove it from Billing; Vellum stops charging it now.",
@@ -438,12 +455,12 @@
     "urlPlaceholder": "Paste callback URL here..."
   },
   "checkoutBonusModal": {
-    "body": "Claim a one-time {amount} credit and we'll add it straight to your account balance. No payment required.",
-    "claim": "Claim {amount} in credits",
+    "body": "Claim {amount} in one-time extra usage and we'll add it straight to your usage balance. No payment required.",
+    "claim": "Claim {amount} in extra usage",
     "decline": "No thanks",
-    "errorToast": "Could not add the credits. Please try again.",
-    "grantedToast": "{amount} in credits added to your account.",
-    "title": "Here's {amount} on us",
+    "errorToast": "Could not add the extra usage. Please try again.",
+    "grantedToast": "{amount} in extra usage added to your usage balance.",
+    "title": "Here's {amount} of extra usage on us",
     "unavailableToast": "This offer is no longer available."
   },
   "checkoutPage": {
@@ -637,6 +654,16 @@
     "loginNotice": "Log in to the Vellum platform to manage backups.",
     "noAssistant": "No assistant found. Hatch an assistant to access debug controls.",
     "onboardingClearedToast": "Onboarding flags cleared.",
+    "previewDescription": "Serve this browser the preview UI build instead of the stable one. Toggling reloads the page.",
+    "previewOffAriaLabel": "Preview channel is off",
+    "previewOnAriaLabel": "Preview channel is on",
+    "previewRequestedPreview": "Requested: preview",
+    "previewRequestedStable": "Requested: stable",
+    "previewRunningPreview": "Running: preview build {version}",
+    "previewRunningStable": "Running: stable build {version}",
+    "previewTitle": "Preview channel (Vellum-only)",
+    "previewUnavailableHint": "No preview build is being served, so this browser is still on stable. Delete the vellum_preview cookie in devtools to reset.",
+    "previewVersionUnknown": "unknown",
     "replay": "Replay",
     "replayDescription": "Clear local onboarding flags and re-walk the privacy → hatch screens. Your existing assistant is preserved.",
     "replayTitle": "Replay onboarding (Vellum-only)",
@@ -1347,6 +1374,7 @@
     "keyboardShortcutsTitle": "Keyboard Shortcuts",
     "launchAtLoginAriaLabel": "Launch at Login",
     "launchAtLoginDescription": "Automatically start Vellum when you log in to your Mac.",
+    "launchAtLoginDescriptionWindows": "Automatically start Vellum when you log in to Windows.",
     "launchAtLoginTitle": "Launch at Login",
     "sendWithCmdEnter": "Send with Cmd+Enter",
     "sendWithCmdEnterHelper": "When enabled, Enter inserts a new line and Cmd+Enter sends.",
@@ -1459,8 +1487,9 @@
     "modelNoMatches": "No matching models",
     "modelPlaceholder": "Search models…",
     "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
-    "providerCountMeta": "{count, plural, one {# provider} other {# providers}}",
     "providerLabel": "Provider",
+    "recommendedMeta": "Recommended",
+    "seeLess": "See less",
     "seeMore": "See more",
     "setUpTag": "Set up",
     "signInTag": "Sign in",
@@ -1534,6 +1563,18 @@
     "selectModelError": "Select a model.",
     "selectModelPlaceholder": "Select a model",
     "selectProviderPlaceholder": "Select a provider…"
+  },
+  "profileModalitiesSection": {
+    "audio": "Audio",
+    "enableAria": "Enable {modality}",
+    "enabledColumn": "Enabled",
+    "helper": "The model receives a modality only when it is enabled and marked as supported. Images that are not sent this way are captioned.",
+    "image": "Image",
+    "resolvedOff": "Not sent to the model",
+    "resolvedOn": "Sent to the model",
+    "supportedAria": "Model supports {modality}",
+    "supportedColumn": "Model supports it",
+    "title": "Modalities"
   },
   "profileRow": {
     "actionsAriaLabel": "Actions for {displayName}",
@@ -1644,7 +1685,7 @@
     "customTag": "Custom",
     "customTagTitle": "A provider you created, served by an OpenAI-compatible endpoint.",
     "defaultTag": "Default",
-    "defaultTagTitle": "Built-in profiles (Balanced, Quality, Cost, Speed) use this provider.",
+    "defaultTagTitle": "Built-in profiles (Balanced, Quality, Budget, Fast) use this provider.",
     "delete": "Delete",
     "edit": "Edit",
     "localTag": "Local",
@@ -1903,6 +1944,11 @@
     "confirmAndSwitch": "Confirm & Switch",
     "confirmLabel": "Teleport",
     "confirmMessage": "Your data will be copied to the new environment. The current assistant will remain available until you confirm the new one works.",
+    "dockerDescriptionMacos": "Run your assistant in a Docker container on this Mac.",
+    "dockerDescriptionWindows": "Run your assistant in a Docker container on this PC.",
+    "localDescriptionMacos": "Run your assistant locally on this Mac.",
+    "localDescriptionWindows": "Run your assistant locally on this PC.",
+    "platformDescription": "Run your assistant in the cloud, managed by the Vellum platform.",
     "progressAriaLabel": "Teleport progress",
     "subtitle": "Move your assistant to a different hosting environment.",
     "title": "Teleport",
@@ -2174,8 +2220,6 @@
     "customKey": "Custom",
     "defaultBadge": "Default",
     "enableVoiceShortcut": "Enable voice mode shortcut",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn needs Input Monitoring. Grant it in System Settings, or set a custom shortcut.",
     "focusedTabNote": "Push-to-Talk only works while this tab is focused, and browsers may intercept some shortcuts (e.g. Ctrl+T) before the page can see them. For always-on PTT, use the Vellum desktop app.",
     "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
     "interruptSensitivityAriaLabel": "Interrupt sensitivity",
@@ -2193,7 +2237,6 @@
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",
     "pressShortcut": "Press a shortcut…",
-    "recommendedBadge": "Recommended",
     "recordingPrompt": "Press a chord or keystroke…",
     "resetToDefaults": "Reset to defaults",
     "savedMicrophone": "Saved microphone",
@@ -2216,7 +2259,22 @@
     "turnTakingTitle": "Turn taking",
     "voiceShortcutSubtitle": "Press the shortcut to start or end a voice conversation, from anywhere in the app.",
     "voiceShortcutSubtitleDesktop": "Global shortcut for starting/ending a voice conversation.",
-    "voiceShortcutTitle": "Voice Mode Shortcut"
+    "voiceShortcutTitle": "Voice Mode Shortcut",
+    "captionsRecommendation": "We recommend keeping both off to start. It feels more like a real conversation."
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "Allow Input Monitoring",
+    "customHint": "Hold two or more of Cmd, Ctrl, Option, and Shift, then let go.",
+    "customLabel": "Custom",
+    "fnDictationNote": "If macOS Dictation starts on a double press of Fn, turn that off under Keyboard in System Settings.",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "The key cannot be watched until Input Monitoring is allowed.",
+    "offLabel": "Off",
+    "recordingPrompt": "Hold modifier keys…",
+    "refusedNote": "The key could not be watched. Restart the app to try again.",
+    "subtitle": "Hold it to dictate at your cursor or ask about a selection. Double-tap it to start or end a call.",
+    "title": "Voice Key",
+    "voiceOverNote": "Control and Option is VoiceOver's modifier key. If you use VoiceOver, its commands will take these keys first."
   },
   "voicePickerCard": {
     "changeButton": "Change",
@@ -2289,5 +2347,65 @@
     "redirectHint": "Add this URL to your OAuth app's redirect settings.",
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Waiting for authorization..."
+  },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Companion",
+        "right": "Coworker"
+      },
+      "executeCollaborate": {
+        "left": "Independent",
+        "right": "Collaborative"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Playful",
+        "right": "Serious"
+      },
+      "politeUnfiltered": {
+        "left": "Polite",
+        "right": "Unfiltered"
+      }
+    },
+    "loadError": "Could not load personality sliders.",
+    "rangeAriaLabel": "{left} to {right}",
+    "save": "Save",
+    "saveErrorToast": "Could not save personality sliders. Please try again.",
+    "saveSuccessToast": "Personality sliders saved.",
+    "saving": "Saving…",
+    "subtitle": "Save the slider values to this assistant. This does not rewrite identity files.",
+    "title": "Personality"
+  },
+  "sidebar": {
+    "general": "General",
+    "model": "Models & Services",
+    "integrations": "Integrations",
+    "credentials": "Credentials",
+    "notifications": "Notifications",
+    "voice": "Voice",
+    "sounds": "Sounds",
+    "privacy": "Permissions & Privacy",
+    "bookmarks": "Bookmarks",
+    "usage": "Usage",
+    "billingUsage": "Billing & Usage",
+    "community": "Community",
+    "debug": "Debug",
+    "developer": "Developer",
+    "personality": "Personality",
+    "logout": "Log Out",
+    "login": "Log In",
+    "title": "Settings"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "General",
+      "terminal": "Terminal",
+      "doctor": "Doctor",
+      "conversations": "Conversations"
+    }
   }
 }

@@ -31,6 +31,10 @@ import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stag
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { resolveAvatarVoice } from "@/domains/onboarding/onboarding-avatar-voices";
+import {
+  pickAssistantName,
+  type AssistantNamingSource,
+} from "@/domains/onboarding/prechat-names";
 import { useUnscopedManagedVoices } from "@/lib/tts/use-managed-voices";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -47,11 +51,18 @@ export interface GiveMeAFaceValues {
    * which case the assistant keeps the platform default.
    */
   voiceModel: string | null;
+  /**
+   * How the name was chosen. Set on every continue so the face-step funnel
+   * event can tell a kept random pick from a typed or shuffled name.
+   */
+  naming?: { source: AssistantNamingSource };
 }
 
 interface GiveMeAFaceScreenProps {
   onContinue: (values: GiveMeAFaceValues) => void;
   onBack: () => void;
+  /** Name already chosen on this step. Restores it after a step back. */
+  initialName?: string;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
@@ -61,9 +72,6 @@ interface GiveMeAFaceScreenProps {
    */
   canAuditionVoice?: boolean;
 }
-
-/** Prefill names, cycled across the pool and swapped in as you change avatars. */
-const ASSISTANT_NAMES = ["Ziggy", "Quill", "Luna", "Remy", "Cleo", "Cade"];
 
 /** The carousel arrangement: who's centered + who sits in each edge slot. */
 interface Arrangement {
@@ -84,6 +92,7 @@ function initialArrangement(count: number, centerChar: number): Arrangement {
 export function GiveMeAFaceScreen({
   onContinue,
   onBack,
+  initialName,
   onForward,
   canAuditionVoice = true,
 }: GiveMeAFaceScreenProps) {
@@ -103,12 +112,12 @@ export function GiveMeAFaceScreen({
   }, [components, ensureGenerated]);
 
   const count = characters.length;
+  const restoredName = initialName?.trim() ?? "";
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => restoredName || pickAssistantName());
   const [editingName, setEditingName] = useState(false);
-  // Once the user edits the name, stop prefilling it from the avatar's default
-  // so their custom name survives cycling through avatars.
-  const nameCustomized = useRef(false);
+  // A restored or edited/shuffled name sticks across avatar cycling.
+  const nameCustomized = useRef(restoredName.length > 0);
   const nameInputRef = useRef<HTMLInputElement>(null);
   // The current swap: the newly selected char + the slot it came from
   // (entering), and the old center + the slot it's heading to (exiting).
@@ -131,14 +140,7 @@ export function GiveMeAFaceScreen({
     }
   }, [arrangement, setSelectedIndex]);
 
-  // Prefill the name for the centered avatar, swapping it as you cycle — but
-  // never clobber a name the user has typed.
   const centerChar = arrangement?.centerChar;
-  useEffect(() => {
-    if (centerChar != null && !nameCustomized.current) {
-      setName(ASSISTANT_NAMES[centerChar % ASSISTANT_NAMES.length]!);
-    }
-  }, [centerChar]);
 
   // Focus (and select) the field when entering edit mode.
   useEffect(() => {
@@ -223,23 +225,19 @@ export function GiveMeAFaceScreen({
         traits: centeredTraits,
         name: name.trim(),
         voiceModel: centeredVoice?.model ?? null,
+        naming: {
+          source: nameCustomized.current ? "custom" : "randomized",
+        },
       });
     }
   }
 
   // Reroll both the name and the centered avatar's traits, each guaranteed to
   // differ from the current one. The name counts as a deliberate pick, so
-  // (like editing) it sticks across avatar cycling instead of being
-  // re-prefilled from the centered avatar.
+  // (like editing) it sticks across avatar cycling.
   function randomizeCharacter() {
     nameCustomized.current = true;
-    setName((current) => {
-      const options = ASSISTANT_NAMES.filter(
-        (candidate) => candidate !== current,
-      );
-      const pool = options.length > 0 ? options : ASSISTANT_NAMES;
-      return pool[Math.floor(Math.random() * pool.length)]!;
-    });
+    setName((current) => pickAssistantName({ exclude: current }));
     if (components && arrangement && centeredTraits) {
       let traits = randomCharacterTraits(components);
       while (

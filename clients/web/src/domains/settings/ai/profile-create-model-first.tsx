@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
+import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 import {
   SearchableSelect,
   SEARCHABLE_SELECT_MENU_MIN_REACH,
@@ -14,7 +15,10 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import { CHATGPT_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
+import {
+  CHATGPT_CONNECTION_PROVIDER,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
 import {
   collapseSectionRows,
   customModelProviderCandidates,
@@ -153,9 +157,9 @@ export function ProfileCreateModelFirst({
     [groups],
   );
 
-  // Sections the user has unfolded. A section stays unfolded for the rest of
-  // the visit: folding it back under them would move the row they were about
-  // to click.
+  // Sections the user has unfolded. The control that unfolds one sits on its
+  // heading rather than under its rows, so folding it back is a deliberate
+  // second press on the same control and never moves what is under the hand.
   const [unfoldedGroups, setUnfoldedGroups] = useState<readonly string[]>([]);
 
   // "Save As New" opens create mode on a profile that already has a provider
@@ -282,7 +286,9 @@ export function ProfileCreateModelFirst({
       // Acts on the list rather than answering it, so the draft is untouched.
       const group = value.slice(SEE_MORE_PREFIX.length);
       setUnfoldedGroups((previous) =>
-        previous.includes(group) ? previous : [...previous, group],
+        previous.includes(group)
+          ? previous.filter((key) => key !== group)
+          : [...previous, group],
       );
       return;
     }
@@ -327,16 +333,6 @@ export function ProfileCreateModelFirst({
       group,
       folded: state === "folded",
       disclosed: state === "disclosed",
-      suffix: (
-        <PickerMeta
-          text={
-            option.soleProviderLabel ??
-            t("profileCreateModelFirst.providerCountMeta", {
-              count: option.providerCount,
-            })
-          }
-        />
-      ),
     });
     for (const group of groups) {
       const { shown, hidden } = collapseSectionRows(group.options);
@@ -351,12 +347,15 @@ export function ProfileCreateModelFirst({
           modelRow(option, group.label, unfolded ? "disclosed" : "folded"),
         );
       }
-      if (hidden.length > 0 && !unfolded) {
+      if (hidden.length > 0) {
         rows.push({
           value: `${SEE_MORE_PREFIX}${group.key}`,
-          label: t("profileCreateModelFirst.seeMore"),
+          label: unfolded
+            ? t("profileCreateModelFirst.seeLess")
+            : t("profileCreateModelFirst.seeMore"),
           group: group.label,
           listAction: true,
+          expanded: unfolded,
         });
       }
     }
@@ -390,13 +389,48 @@ export function ProfileCreateModelFirst({
         ? MODEL_LIST_ROOM
         : MODEL_LIST_MIN_ROOM;
 
+  // The list opens on the field's own focus, and the room above is held for
+  // it, so a field nothing focused opens the dialog on an empty box. The
+  // dialog's own opening focus does land here, but the surface that opened it
+  // takes the focus back: the composer's profile menu restores focus to its
+  // trigger as it closes, on a timer queued before this effect runs. Claiming
+  // the field on a later turn is what outlasts that restore. Only where the
+  // room is reserved, which is the dialog; the sidepanel is full height and
+  // reserves none.
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuBoundary) {
+      return;
+    }
+    let selection = 0;
+    const claim = setTimeout(() => {
+      const field = modelFieldRef.current?.querySelector("input");
+      if (!field) {
+        return;
+      }
+      field.focus();
+      // The field selects what it holds on focus, and WebKit drops a
+      // selection made during a programmatic focus, so a seeded model name is
+      // taken again on the next frame. The first keystroke over it then
+      // starts a query instead of editing a name nobody meant to edit. See
+      // `docs/CAPACITOR.md`.
+      selection = requestAnimationFrame(() => {
+        field.setSelectionRange(0, field.value.length);
+      });
+    }, 0);
+    return () => {
+      clearTimeout(claim);
+      cancelAnimationFrame(selection);
+    };
+  }, [menuBoundary]);
+
   return (
     <div
       className="space-y-4"
       data-testid="model-first-fields"
       style={roomForList === null ? undefined : { minHeight: roomForList }}
     >
-      <div className="space-y-1">
+      <div className="space-y-1" ref={modelFieldRef}>
         <label className={fieldLabelClass}>
           {t("profileCreateModelFirst.modelLabel")}
         </label>
@@ -498,6 +532,8 @@ function ProviderStep({
 }: ProviderStepProps) {
   const { t } = useTranslation("settings");
   const soleCandidate = candidates.length === 1 ? candidates[0] : null;
+  // Namespaces this group's radio ids, which the card's own label points at.
+  const radioIdPrefix = useId();
 
   // Keyed by the route it connects: the create form reads its provider,
   // label, name, and credential from props once, at mount, so a section
@@ -583,44 +619,78 @@ function ProviderStep({
           {connectSection}
         </div>
       ) : (
-        <RadioGroup
-          value={selectedCandidate?.value ?? ""}
-          onValueChange={onSelect}
-          aria-labelledby="profile-create-provider-label"
-        >
-          {candidates.map((candidate) => {
-            const selected = candidate.value === selectedCandidate?.value;
-            return (
-              <div
-                key={candidate.value}
-                data-testid="provider-candidate"
-                data-candidate={candidate.value}
-                className={`space-y-3 rounded-lg border px-3 py-2 ${
-                  selected
-                    ? "border-[var(--border-active)]"
-                    : "border-[var(--border-element)]"
-                }`}
-              >
-                <div className="flex min-h-9 items-center justify-between gap-2">
-                  <Radio
-                    value={candidate.value}
-                    label={
-                      <span className="flex items-center gap-2">
-                        <span>{candidate.label}</span>
-                        {candidate.meta ? (
-                          <PickerMeta text={candidate.meta} />
-                        ) : null}
-                      </span>
-                    }
-                  />
-                  {candidateTag(candidate)}
+        // A custom model id is served by every route there is, so the cards
+        // scroll inside a cap rather than growing the dialog past the ceiling
+        // its own body sets: what the dialog asks of the window stays a
+        // fraction of it whatever the list costs, its footer keeps clear of
+        // the window edge, and the fade says there is more below. Inert for
+        // the handful of routes a catalog model has, which never reach the
+        // cap.
+        <ScrollShadow className="max-h-[40vh]" size={16}>
+          <RadioGroup
+            value={selectedCandidate?.value ?? ""}
+            onValueChange={onSelect}
+            aria-labelledby="profile-create-provider-label"
+          >
+            {candidates.map((candidate) => {
+              const selected = candidate.value === selectedCandidate?.value;
+              const meta = candidateMeta(candidate, t);
+              const radioId = `${radioIdPrefix}-${candidate.value}`;
+              const setup = selected ? setupAction(candidate) : null;
+              const connect = selected ? connectSection : null;
+              return (
+                <div
+                  key={candidate.value}
+                  data-testid="provider-candidate"
+                  data-candidate={candidate.value}
+                  className={`rounded-lg border ${
+                    selected
+                      ? "border-[var(--border-active)]"
+                      : "border-[var(--border-element)]"
+                  }`}
+                >
+                  {/* The whole row is the radio's label, so its padding and
+                      the space between the name and the tag select the route
+                      too. It stops at the row: a browser ignores a label
+                      click that lands on interactive content, but the connect
+                      form below carries labels of its own, which cannot nest
+                      inside this one. */}
+                  <label
+                    htmlFor={radioId}
+                    className={`flex min-h-9 cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 ${
+                      selected ? "" : "hover:bg-[var(--surface-hover)]"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Radio
+                        id={radioId}
+                        value={candidate.value}
+                        // The label element names the whole row, tag
+                        // included, so the route says its own name.
+                        aria-label={
+                          meta ? `${candidate.label} ${meta}` : candidate.label
+                        }
+                      />
+                      <Typography variant="body-medium-lighter" as="span">
+                        {candidate.label}
+                      </Typography>
+                      {meta ? <PickerMeta text={meta} /> : null}
+                    </span>
+                    {candidateTag(candidate)}
+                  </label>
+                  {/* `pt-1` over the row's own `pb-2` is the gap the card
+                      keeps between the route and what it expands into. */}
+                  {setup || connect ? (
+                    <div className="space-y-3 px-3 pt-1 pb-2">
+                      {setup}
+                      {connect}
+                    </div>
+                  ) : null}
                 </div>
-                {selected ? setupAction(candidate) : null}
-                {selected ? connectSection : null}
-              </div>
-            );
-          })}
-        </RadioGroup>
+              );
+            })}
+          </RadioGroup>
+        </ScrollShadow>
       )}
 
       {editor.newProviderNote ? (
@@ -634,6 +704,23 @@ function ProviderStep({
       ) : null}
     </div>
   );
+}
+
+/**
+ * The row's annotation as this flow says it. The shared picker encoding calls
+ * the Vellum route "Managed", which is what the provider-first picker and the
+ * Providers section keep saying; a person choosing a model first is being
+ * pointed at a route rather than told how it is run, so here the same row
+ * reads "Recommended". Every other annotation passes through untouched.
+ */
+function candidateMeta(
+  candidate: ProviderCandidate,
+  t: TFunction<"settings">,
+): string | undefined {
+  if (candidate.meta && candidate.provider === VELLUM_CONNECTION_PROVIDER) {
+    return t("profileCreateModelFirst.recommendedMeta");
+  }
+  return candidate.meta;
 }
 
 /** What an unconnected route still needs, as the tag and the action say it. */

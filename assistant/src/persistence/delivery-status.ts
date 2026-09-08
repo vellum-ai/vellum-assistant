@@ -14,7 +14,26 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from "./job-utils.js";
+import type { ChannelDeliveryStatus } from "./schema.js";
 import { channelInboundEvents } from "./schema.js";
+
+/**
+ * Whether a delivery status means the row owes no further delivery.
+ *
+ * A total map over the union rather than a `!== "pending"` comparison: adding
+ * a status is then a compile error until its terminality is decided, and that
+ * decision is load-bearing. `isDeduplicatedDeliveryOwnedBySibling` reads it to
+ * decide whether a sibling event already owns this turn's reply, and the
+ * stranded-delivery recovery step treats a non-terminal row as a reply still
+ * owed. A new status silently defaulting to one side or the other either
+ * double-posts a reply or drops one.
+ */
+const DELIVERY_STATUS_IS_TERMINAL: Record<ChannelDeliveryStatus, boolean> = {
+  pending: false,
+  delivered: true,
+  failed: true,
+  dead_letter: true,
+};
 
 /**
  * How long {@link deferRetryUntilIdle} pushes `retryAfter` forward. Shorter than
@@ -327,7 +346,7 @@ export function getRetryableDeliveryEvents(limit = 20): Array<{
 export function getSiblingEventDeliveryStatuses(
   messageId: string,
   excludeEventId: string,
-): string[] {
+): ChannelDeliveryStatus[] {
   const db = getDb();
   return db
     .select({ deliveryStatus: channelInboundEvents.deliveryStatus })
@@ -355,7 +374,7 @@ export function isDeduplicatedDeliveryOwnedBySibling(
   excludeEventId: string,
 ): boolean {
   return getSiblingEventDeliveryStatuses(messageId, excludeEventId).some(
-    (status) => status !== "pending",
+    (status) => DELIVERY_STATUS_IS_TERMINAL[status],
   );
 }
 

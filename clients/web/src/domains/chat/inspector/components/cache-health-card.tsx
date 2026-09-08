@@ -172,7 +172,7 @@ interface LegendItemProps {
 function LegendItem({ color, label, value }: LegendItemProps): ReactNode {
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-label-default"
+      className="inline-flex items-center gap-1.5 text-label-medium-default"
       style={{ color: "var(--content-secondary)" }}
     >
       <span
@@ -289,7 +289,7 @@ export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
             {formatPercent(breakdown.hitRate)}
           </span>
           <span
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{ color: "var(--content-tertiary)" }}
           >
             {t("cacheHealthCard.cached")}

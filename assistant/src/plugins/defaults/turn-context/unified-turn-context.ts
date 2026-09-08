@@ -33,6 +33,19 @@ export interface UnifiedTurnContextOptions {
     pluginName?: string;
   } | null;
   channelName?: string;
+  /**
+   * Channel-native id of the chat this turn arrived through (a Slack `D…` or
+   * `C…` id, a Telegram chat id). Rendered as the `chat_id:` line for channel
+   * turns only, so a request that needs the chat's own history starts from
+   * the id the turn already carries instead of discovering it.
+   */
+  chatId?: string | null;
+  /**
+   * Channel-native thread id of the message that started this turn, when it
+   * arrived in a thread (a Slack `thread_ts`). Rendered as the `thread_id:`
+   * line beside `chat_id:`; absent for an un-threaded turn.
+   */
+  threadId?: string | null;
   actorContext?: InboundActorContext | null;
   configuredUserTimezone?: string | null;
   clientTimezone?: string | null;
@@ -128,6 +141,17 @@ export function buildUnifiedTurnContextBlock(
     lines.push(
       `visible_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", slug: "${sanitizeInlineContextValue(app.slug)}"). The user has this app open on screen; unqualified references to "the app" mean this one.${provenance}`,
     );
+  }
+
+  // Where the turn is: the chat, and the thread within it when there is one.
+  // Channel turns only; an app turn has no external chat.
+  if (options.channelName && options.channelName !== "vellum") {
+    if (options.chatId) {
+      lines.push(`chat_id: ${sanitizeInlineContextValue(options.chatId)}`);
+    }
+    if (options.threadId) {
+      lines.push(`thread_id: ${sanitizeInlineContextValue(options.threadId)}`);
+    }
   }
 
   // Actor identity and trust fields — only for non-guardian turns.

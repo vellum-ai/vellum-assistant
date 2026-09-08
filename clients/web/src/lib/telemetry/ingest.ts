@@ -59,6 +59,13 @@ export function postTelemetryEvents(events: readonly object[]): void {
     .then(({ data, response }) => {
       if (!response?.ok) {
         const status = response?.status ?? null;
+        // 401/403 are the auth layer refusing the caller (an expired or
+        // absent platform session), not the contract refusing the batch. The
+        // app surfaces signed-out state on its own, and every expired-session
+        // page load would otherwise report once, forever.
+        if (status === 401 || status === 403) {
+          return;
+        }
         if (
           claimUnreportedConditions([`rejected:${status ?? "no-response"}`])
             .length

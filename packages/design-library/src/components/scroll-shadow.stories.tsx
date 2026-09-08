@@ -10,6 +10,10 @@ const meta: Meta<typeof ScrollShadow> = {
       control: "inline-radio",
       options: ["vertical", "horizontal"],
     },
+    fadeEdges: {
+      control: "inline-radio",
+      options: ["both", "start", "end"],
+    },
     size: { control: { type: "number", min: 0, max: 80 } },
     offset: { control: { type: "number", min: 0, max: 40 } },
     hideScrollBar: { control: "boolean" },

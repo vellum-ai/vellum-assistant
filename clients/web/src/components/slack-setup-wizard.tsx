@@ -10,6 +10,7 @@ import { SlackSetupNameStep } from "@/components/slack-setup-name-step";
 import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
 import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
+import { useClearOnSaveSuccess } from "@/hooks/use-clear-on-save-success";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
@@ -86,16 +87,7 @@ export function SlackSetupWizard({
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
-  // Drop the credentials once they are saved. The Channels page keeps this
-  // wizard mounted on success, so without this both tokens stay in their
-  // fields, recoverable from a mounted component long after they were handed
-  // over. The chat drawer closes on success and unmounts either way.
-  useEffect(() => {
-    if (saveStatus === "success") {
-      setBotToken("");
-      setAppToken("");
-    }
-  }, [saveStatus]);
+  useClearOnSaveSuccess(saveStatus, setBotToken, setAppToken);
 
   const { copy, copied } = useCopyToClipboard({
     errorMessage: t("slackSetupWizard.copyError"),

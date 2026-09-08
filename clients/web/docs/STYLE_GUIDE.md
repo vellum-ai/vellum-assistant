@@ -244,6 +244,60 @@ If the color is a UI surface, text, or border that users see across themes — u
 
 ---
 
+## Typography
+
+### Use a real variant name
+
+The typography utilities are the `@utility text-*` blocks in
+`packages/design-library/src/tokens.css`. That file is the list. Don't keep a
+copy of it anywhere, including in your head.
+
+The `--text-*` variables sit in a plain `:root`, not `@theme`, so Tailwind
+generates **nothing else**. A plausible-looking name that isn't defined there
+matches no CSS at all, and the element silently falls back to the inherited
+16px/400 rather than failing. This is not hypothetical.
+
+### `<Typography>` is the preferred form; the class is the fallback
+
+Reach for `<Typography variant="...">` first. The variant prop is a typed
+union, so a wrong name is a compile error in your editor. A class string
+is just a string: nothing checks it at the point of use.
+
+The class form stays available for the case a prop genuinely can't express:
+variant-prefixing for responsive or state changes, such as
+`max-md:text-body-large-default`. That is a small minority of class-string
+usage, so treat it as the exception rather than the default.
+
+`no-restricted-syntax` errors on any `text-{title,body,label,chat}-*` class
+that isn't a real variant, parsing `tokens.css` at lint time so it tracks the
+real utilities rather than a list that can drift. Note what that rule is: a
+guard on the fallback path, not the reason the fallback is fine. New code
+should not need it.
+
+### Check the leading before text that wraps
+
+The split is by line-height, not by the `-lighter` / `-default` suffix. Read
+the `line-height` on the variant in `tokens.css`: some carry real leading and
+wrap safely, while the tighter rungs are `line-height: 1` and are single-line
+only. On text that wraps, those collapse the line boxes onto each other.
+`line-clamp-2` and above count as wrapping.
+
+### Rebinding one facet of a variant
+
+To change a single property of a variant on one element, rebind its CSS
+variable rather than stacking a second utility that sets the same property:
+
+```tsx
+<span className="text-label-medium-default [--text-label-medium-default-weight:600]">
+```
+
+Both a `font-semibold` and the utility set `font-weight`, and which wins is
+Tailwind's generation order rather than the order you wrote. Rebinding the
+variable is unambiguous. The lint rule ignores custom properties, so this
+form isn't flagged.
+
+---
+
 ## TypeScript
 
 ### Strict mode

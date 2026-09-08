@@ -25,30 +25,13 @@
  */
 
 import { getLogger } from "../../util/logger.js";
-import { readDaemonBootTime } from "../daemon-boot-time.js";
-import { openRecoveryDb } from "./db.js";
+import { withBootFencedRecoveryDb } from "./db.js";
 
 const log = getLogger("recovery-orphaned-channel-events");
 
 export function recoverOrphanedChannelEvents(): void {
-  const bootTime = readDaemonBootTime();
-  if (bootTime == null) {
-    // Without the fence we cannot tell a dead process's orphan from a live
-    // daemon's just-arrived pending row, so skip; the next restart reconciles.
-    log.warn(
-      "Skipping orphaned-channel-event recovery — daemon boot time unavailable",
-    );
-    return;
-  }
-
-  const db = openRecoveryDb();
-  if (db == null) {
-    return;
-  }
-  try {
+  withBootFencedRecoveryDb("orphaned-channel-events", (db, bootTime) => {
     const now = Date.now();
-    // Throws here (missing column) propagate to the orchestrator as "schema not
-    // ready yet" and retry on the next monitor run.
     const result = db
       .query(
         `UPDATE channel_inbound_events
@@ -66,7 +49,5 @@ export function recoverOrphanedChannelEvents(): void {
         "Promoted orphaned pending channel events onto the retry sweep",
       );
     }
-  } finally {
-    db.close();
-  }
+  });
 }

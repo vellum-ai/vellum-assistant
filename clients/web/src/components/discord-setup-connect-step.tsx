@@ -15,6 +15,11 @@ export interface DiscordSetupConnectStepProps {
  *
  * Saving is not the end of setup: the bot still has to be invited to a server
  * before it can receive anything, which is the step after this one.
+ *
+ * The portal greets a fresh app with a loud App Verification page ("missing
+ * 4 criteria"). That gate only applies past 100 servers, and the user meets
+ * it while fetching the token, so this step carries the callout that defuses
+ * it rather than letting it read as a step the wizard forgot.
  */
 export function DiscordSetupConnectStep({
   botToken,
@@ -35,6 +40,13 @@ export function DiscordSetupConnectStep({
       >
         {t("discordSetupConnectStep.instructions")}
       </Typography>
+
+      <Notice
+        tone="warning"
+        title={t("discordSetupConnectStep.verificationNoticeTitle")}
+      >
+        {t("discordSetupConnectStep.verificationNoticeBody")}
+      </Notice>
 
       <Input
         label={t("discordSetupConnectStep.botTokenLabel")}

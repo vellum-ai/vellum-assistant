@@ -7,7 +7,7 @@ import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 const BADGE_STYLES: Record<string, string> = {
   Quality: "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-300",
   Balanced: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300",
-  "Cost Optimized": "bg-stone-100 text-stone-600 dark:bg-stone-500/20 dark:text-stone-400",
+  Budget: "bg-stone-100 text-stone-600 dark:bg-stone-500/20 dark:text-stone-400",
 };
 
 function ProfileBadge({ profile }: { profile: string }) {
@@ -95,14 +95,14 @@ export function ModelProfilesContent() {
                 </tr>
                 <tr>
                   <td className="py-3 pr-4">
-                    <span className="font-semibold text-stone-900 dark:text-stone-100">Speed</span>
+                    <span className="font-semibold text-stone-900 dark:text-stone-100">Fast</span>
                   </td>
                   <td className="py-3 pr-4">GPT-5.6 Luna</td>
                   <td className="py-3">Fast replies with reasoning off, for real-time surfaces like voice</td>
                 </tr>
                 <tr>
                   <td className="py-3 pr-4">
-                    <span className="font-semibold text-stone-900 dark:text-stone-100">Cost</span>
+                    <span className="font-semibold text-stone-900 dark:text-stone-100">Budget</span>
                   </td>
                   <td className="py-3 pr-4">DeepSeek V4 Flash</td>
                   <td className="py-3">Simple, short, or structural tasks run at high volume</td>
@@ -287,7 +287,7 @@ export function ModelProfilesContent() {
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Conversation starters</td>
                   <td className="py-3 pr-4">Generates suggested openers for new conversations</td>
-                  <td className="py-3"><ProfileBadge profile="Cost Optimized" /></td>
+                  <td className="py-3"><ProfileBadge profile="Budget" /></td>
                 </tr>
                 {/* Workspace */}
                 <tr>
@@ -298,7 +298,7 @@ export function ModelProfilesContent() {
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Conversation title</td>
                   <td className="py-3 pr-4">Generates a title for each conversation</td>
-                  <td className="py-3"><ProfileBadge profile="Cost Optimized" /></td>
+                  <td className="py-3"><ProfileBadge profile="Budget" /></td>
                 </tr>
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Commit message generator</td>
@@ -319,7 +319,7 @@ export function ModelProfilesContent() {
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Empty-state greeting</td>
                   <td className="py-3 pr-4">Generates the greeting shown on an empty conversation</td>
-                  <td className="py-3"><ProfileBadge profile="Cost Optimized" /></td>
+                  <td className="py-3"><ProfileBadge profile="Budget" /></td>
                 </tr>
                 {/* Notifications */}
                 <tr>
@@ -356,7 +356,7 @@ export function ModelProfilesContent() {
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Watch summary</td>
                   <td className="py-3 pr-4">Generates brief summaries surfaced on Apple Watch</td>
-                  <td className="py-3"><ProfileBadge profile="Cost Optimized" /></td>
+                  <td className="py-3"><ProfileBadge profile="Budget" /></td>
                 </tr>
                 {/* Utility */}
                 <tr>
@@ -367,7 +367,7 @@ export function ModelProfilesContent() {
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Interaction classifier</td>
                   <td className="py-3 pr-4">Classifies the type of each inbound message to route it correctly</td>
-                  <td className="py-3"><ProfileBadge profile="Cost Optimized" /></td>
+                  <td className="py-3"><ProfileBadge profile="Budget" /></td>
                 </tr>
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Style analyzer</td>
@@ -382,7 +382,7 @@ export function ModelProfilesContent() {
                 <tr className="border-t border-stone-100 dark:border-moss-700">
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">Skill category inference</td>
                   <td className="py-3 pr-4">Automatically categorizes installed skills</td>
-                  <td className="py-3"><ProfileBadge profile="Cost Optimized" /></td>
+                  <td className="py-3"><ProfileBadge profile="Budget" /></td>
                 </tr>
                 {/* Skills */}
                 <tr>

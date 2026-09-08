@@ -20,7 +20,10 @@ import {
   nonEmpty,
   sanitizeIdentityField,
   sanitizeMessagePreview,
+  stripReplyMechanicsFromCopy,
+  stripRequestCodeDirectives,
 } from "./notification-utils.js";
+import type { RenderedChannelCopy } from "./types.js";
 
 // ── Zod schema for access-request payloads ──────────────────────────────────
 
@@ -150,7 +153,7 @@ export function isHandshakeOfferedForPayload(
 }
 
 /** Internal typed implementation — avoids re-parsing when called from
- *  buildAccessRequestContractText which has already parsed the payload. */
+ *  buildAccessRequestContextText which has already parsed the payload. */
 function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
   const requester = sanitizeIdentityField(p.senderIdentifier || "Someone");
   const callerName = nonEmpty(p.actorDisplayName);
@@ -235,112 +238,25 @@ export function buildAccessRequestInviteDirective(): string {
 }
 
 /**
- * Normalize text before running directive-matching regexes.
+ * Guardian-facing context for an access request: who is asking, what they
+ * said, any warnings, where it came from, and the invite-flow directive.
+ * The invite directive is context rather than mechanics because no surface
+ * offers a button for it: typing "open invite flow" is the only way to start
+ * it anywhere, so every surface has to say so. The request-code directive
+ * is {@link buildAccessRequestReplyMechanics}, and only the broadcaster's
+ * `plainTextFallback` holds it, so a transport appends it exactly when it
+ * sends text without buttons.
  *
- * - Replaces smart/curly apostrophes (\u2018, \u2019, \u201B) with ASCII `'`
- *   so contractions like "Don\u2019t" are matched by the `n't` lookbehind.
- * - Collapses runs of whitespace into a single space so "Do not   reply"
- *   is matched by the single-space negative lookbehind.
- * - Trims leading/trailing whitespace.
+ * Channel-agnostic by design: this reads the generic `contextPayload` and
+ * renders the same on every channel. When `guardianResolutionSource` is
+ * present and not `"source-channel-contact"`, the guardian was resolved via
+ * fallback (e.g. vellum anchor) rather than a verified same-channel contact,
+ * and the copy says so.
  */
-export function normalizeForDirectiveMatching(text: string): string {
-  return text
-    .replace(/[\u2018\u2019\u201B]/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Build a negated-lookbehind directive regex for `reply ... "CODE <verb>"`. */
-function buildCodeDirectiveRegex(escapedCode: string, verb: string): RegExp {
-  return new RegExp(
-    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+${verb}"`,
-    "i",
-  );
-}
-
-/**
- * Check whether a text contains the required access-request instruction
- * elements for the introduction card:
- * 1. Trust directive: Reply "CODE trust"
- * 2. Verify directive: Reply "CODE verify" — only when the handshake is
- *    offered for this requester (never for bots / workspace-vouched members)
- * 3. Leave-unverified directive: Reply "CODE reject"
- * 4. Block directive: Reply "CODE block"
- * 5. Invite directive: Reply "open invite flow"
- *
- * Each directive is matched independently using negative lookbehind to reject
- * matches preceded by negation words ("not", "n't", "never"). This prevents
- * contradictory copy like `Do not reply "CODE reject"` from satisfying the
- * check even when a positive directive exists nearby.
- *
- * The text is normalized before matching to handle smart apostrophes and
- * multiple whitespace characters that would otherwise bypass negation detection.
- */
-export function hasAccessRequestInstructions(
-  text: string | undefined,
-  requestCode: string,
-  options?: { handshakeOffered?: boolean },
-): boolean {
-  if (typeof text !== "string") {
-    return false;
-  }
-  const handshakeOffered = options?.handshakeOffered ?? true;
-  const normalized = normalizeForDirectiveMatching(text);
-  const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Each directive must follow "reply" without a preceding negation word.
-  // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
-  const trustRe = buildCodeDirectiveRegex(escapedCode, "trust");
-  const verifyRe = buildCodeDirectiveRegex(escapedCode, "verify");
-  const rejectRe = buildCodeDirectiveRegex(escapedCode, "reject");
-  const blockRe = buildCodeDirectiveRegex(escapedCode, "block");
-  const inviteRe =
-    /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
-
-  return (
-    trustRe.test(normalized) &&
-    (!handshakeOffered || verifyRe.test(normalized)) &&
-    rejectRe.test(normalized) &&
-    blockRe.test(normalized) &&
-    inviteRe.test(normalized)
-  );
-}
-
-/**
- * Check whether text contains the invite-flow directive ("open invite flow")
- * using the same normalized negative-lookbehind pattern as the full check.
- * This is used for enforcement when requestCode is absent but the invite
- * directive should still be present.
- */
-export function hasInviteFlowDirective(text: string | undefined): boolean {
-  if (typeof text !== "string") {
-    return false;
-  }
-  const normalized = normalizeForDirectiveMatching(text);
-  const inviteRe =
-    /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
-  return inviteRe.test(normalized);
-}
-
-// ── Contract text builder ───────────────────────────────────────────────────
-
-/**
- * Build the deterministic access-request contract text from payload fields.
- * This is the canonical baseline that enforcement can append when generated
- * copy is missing required elements.
- *
- * Channel-agnostic by design: this function reads from the generic
- * `contextPayload` and works identically regardless of which channel
- * (Slack, Telegram, desktop, etc.) the notification is delivered to.
- * When `guardianResolutionSource` is present and not `"source-channel-contact"`,
- * the guardian was resolved via fallback (e.g. vellum anchor) rather than
- * a verified same-channel contact — downstream copy or routing can use
- * this to append verification CTAs like "Was this you?".
- */
-export function buildAccessRequestContractText(
+export function buildAccessRequestContextText(
   payload: Record<string, unknown>,
 ): string {
   const p = parseAccessRequestPayload(payload);
-  const requestCode = nonEmpty(p.requestCode);
 
   const lines: string[] = [];
   lines.push(buildIdentityLineFromParsed(p));
@@ -371,18 +287,6 @@ export function buildAccessRequestContractText(
     lines.push(source);
   }
 
-  if (requestCode) {
-    const code = requestCode.toUpperCase();
-    if (isHandshakeOfferedForPayload(p)) {
-      lines.push(
-        `Reply "${code} verify" to send them a verification code, "${code} trust" to trust them without one, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
-      );
-    } else {
-      lines.push(
-        `Reply "${code} trust" to trust them, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
-      );
-    }
-  }
   lines.push(buildAccessRequestInviteDirective());
 
   if (
@@ -395,6 +299,114 @@ export function buildAccessRequestContractText(
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * The typed-reply mechanics for an access request: the request-code
+ * directive (verify, trust, reject, block; or trust, reject, block when no
+ * handshake is offered). This is the broadcaster's `plainTextFallback` for
+ * the card, appended to a message only by a transport that sends text
+ * without buttons. Empty when the request carries no code, since there is
+ * then nothing to type.
+ */
+export function buildAccessRequestReplyMechanics(
+  payload: Record<string, unknown>,
+): string {
+  const p = parseAccessRequestPayload(payload);
+  const requestCode = nonEmpty(p.requestCode);
+  if (!requestCode) {
+    return "";
+  }
+  const code = requestCode.toUpperCase();
+  return isHandshakeOfferedForPayload(p)
+    ? `Reply "${code} verify" to send them a verification code, "${code} trust" to trust them without one, "${code} reject" to leave them unverified, or "${code} block" to block them.`
+    : `Reply "${code} trust" to trust them, "${code} reject" to leave them unverified, or "${code} block" to block them.`;
+}
+
+/**
+ * Remove request-code reply mechanics the model wrote into composed copy
+ * ({@link stripRequestCodeDirectives}). The invite-flow directive is context
+ * and stays.
+ */
+export function stripAccessRequestReplyMechanics(
+  text: string,
+  payload: Record<string, unknown>,
+): string {
+  const requestCode = nonEmpty(parseAccessRequestPayload(payload).requestCode);
+  return requestCode ? stripRequestCodeDirectives(text, requestCode) : text;
+}
+
+/**
+ * The text-only rendering of an access request: the context, then the
+ * typed directive when the request carries a code. This is the card's text
+ * sibling, what a client without buttons (the CLI, search, the model) sees
+ * in place of the card.
+ */
+export function buildAccessRequestTextFallback(
+  payload: Record<string, unknown>,
+): string {
+  const mechanics = buildAccessRequestReplyMechanics(payload);
+  const context = buildAccessRequestContextText(payload);
+  return mechanics ? `${context}\n${mechanics}` : context;
+}
+
+/**
+ * Whether text carries a positive invite-flow directive: a "reply ..."
+ * sentence naming the phrase, not preceded by a negation. A bare mention
+ * ("the open invite flow is disabled") or a negated form ("do not reply
+ * ...") does not count, so the canonical directive still gets appended.
+ */
+export function hasInviteFlowDirective(text: string): boolean {
+  const normalized = text
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .replace(/\s+/g, " ");
+  return /(?<!not )(?<!n't )(?<!never )reply\b[^.!?\n]*?"open invite flow"/i.test(
+    normalized,
+  );
+}
+
+/**
+ * Ensure the invite-flow directive is in every text field of a channel's
+ * access-request copy. It is context rather than mechanics (no surface has
+ * an invite button, so the sentence is the only way to start the flow), and
+ * model-composed copy can omit, negate, or merely mention it, so the
+ * canonical sentence is appended whenever no positive directive is present.
+ * A title stays a title.
+ */
+export function ensureAccessRequestInviteDirectiveInCopy(
+  copy: RenderedChannelCopy,
+): RenderedChannelCopy {
+  const ensure = (text: string): string =>
+    hasInviteFlowDirective(text)
+      ? text
+      : `${text.trim()}\n${buildAccessRequestInviteDirective()}`;
+  return {
+    ...copy,
+    body: ensure(copy.body),
+    deliveryText: copy.deliveryText
+      ? ensure(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? ensure(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
+}
+
+/**
+ * {@link stripAccessRequestReplyMechanics} over every text field of a
+ * channel's copy; a field left empty becomes the requester context.
+ */
+export function stripAccessRequestReplyMechanicsFromCopy(
+  copy: RenderedChannelCopy,
+  payload: Record<string, unknown>,
+): RenderedChannelCopy {
+  const requestCode = nonEmpty(parseAccessRequestPayload(payload).requestCode);
+  return stripReplyMechanicsFromCopy(copy, {
+    strip: (text) =>
+      requestCode ? stripRequestCodeDirectives(text, requestCode) : text,
+    ask: buildAccessRequestContextText(payload),
+    headline: accessRequestCardTitle(isAdmittedIntroduction(payload)),
+  });
 }
 
 // ── Card view model ─────────────────────────────────────────────────────────

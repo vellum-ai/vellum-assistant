@@ -4,6 +4,7 @@ import {
   type ClipboardSnapshot,
   type TextInsertionDeps,
   typeIntoFrontAppWithDeps,
+  undoInFrontAppWithDeps,
 } from "./textInsertion";
 
 type Harness = {
@@ -14,8 +15,6 @@ type Harness = {
   flushTimers: () => void;
   writes: string[];
   restoredSnapshots: ClipboardSnapshot[];
-  hideApp: ReturnType<typeof mock>;
-  showApp: ReturnType<typeof mock>;
   runAppleScript: ReturnType<typeof mock>;
   warn: ReturnType<typeof mock>;
 };
@@ -30,11 +29,14 @@ const textSnapshot = (text: string): ClipboardSnapshot => ({
 
 const createHarness = ({
   focused = false,
+  takesText = true,
   initialClipboard = "previous clipboard",
   initialClipboardSnapshot,
   runAppleScript = () => Promise.resolve(),
 }: {
   focused?: boolean;
+  /** Whether the application in front has somewhere for the words to go. */
+  takesText?: boolean;
   initialClipboard?: string;
   initialClipboardSnapshot?: ClipboardSnapshot;
   runAppleScript?: () => Promise<unknown>;
@@ -44,14 +46,13 @@ const createHarness = ({
   const timers: Array<() => void> = [];
   const writes: string[] = [];
   const restoredSnapshots: ClipboardSnapshot[] = [];
-  const hideApp = mock(() => undefined);
-  const showApp = mock(() => undefined);
   const runAppleScriptMock = mock((_script: string) => runAppleScript());
   const warn = mock(() => undefined);
 
   return {
     deps: {
       getFocusedWindow: () => (focused ? ({} as never) : null),
+      frontAppTakesText: () => Promise.resolve(takesText),
       readClipboardSnapshot: () => clipboardSnapshot,
       restoreClipboardSnapshot: (snapshot: ClipboardSnapshot) => {
         clipboardSnapshot = snapshot;
@@ -64,8 +65,6 @@ const createHarness = ({
         clipboardSnapshot = textSnapshot(text);
         writes.push(text);
       },
-      hideApp,
-      showApp,
       runAppleScript: runAppleScriptMock,
       warn,
       setTimeout: (callback: () => void) => {
@@ -84,8 +83,6 @@ const createHarness = ({
     },
     writes,
     restoredSnapshots,
-    hideApp,
-    showApp,
     runAppleScript: runAppleScriptMock,
     warn,
   };
@@ -100,7 +97,6 @@ describe("typeIntoFrontApp", () => {
     ).resolves.toEqual({ status: "vellum-focused" });
 
     expect(harness.runAppleScript).not.toHaveBeenCalled();
-    expect(harness.hideApp).not.toHaveBeenCalled();
     expect(harness.writes).toEqual([]);
   });
 
@@ -146,6 +142,39 @@ describe("typeIntoFrontApp", () => {
     expect(harness.getClipboardText()).toBe("new user copy");
   });
 
+  /**
+   * A hold that ends over a web page or a file list has nowhere to put its
+   * words. The paste is withheld rather than sent into whatever the keystroke
+   * happens to mean there, and the status says so, so the caller knows it
+   * still holds the words.
+   */
+  test("sends no paste when nothing in front takes text", async () => {
+    const harness = createHarness({ takesText: false });
+
+    await expect(
+      typeIntoFrontAppWithDeps("dictated text", harness.deps),
+    ).resolves.toEqual({ status: "no-text-field" });
+
+    expect(harness.runAppleScript).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The user has not asked for their clipboard to be spent, and the words are
+   * about to be offered to them instead. A clipboard taken for a paste that
+   * never happens is a cost with nothing bought by it.
+   */
+  test("leaves the clipboard alone when it withholds the paste", async () => {
+    const harness = createHarness({
+      takesText: false,
+      initialClipboard: "user clipboard",
+    });
+
+    await typeIntoFrontAppWithDeps("dictated text", harness.deps);
+
+    expect(harness.writes).toEqual([]);
+    expect(harness.getClipboardText()).toBe("user clipboard");
+  });
+
   test("maps Automation denial to a settings result", async () => {
     const error = Object.assign(new Error("execution failed"), {
       stderr: "Not authorized to send Apple events to System Events. (-1743)",
@@ -160,7 +189,35 @@ describe("typeIntoFrontApp", () => {
 
     harness.flushTimers();
     expect(harness.getClipboardText()).toBe("previous clipboard");
-    expect(harness.showApp).toHaveBeenCalledTimes(1);
     expect(harness.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("undoInFrontAppWithDeps", () => {
+  test("sends the undo keystroke to the application in front", async () => {
+    const harness = createHarness();
+    const result = await undoInFrontAppWithDeps(harness.deps);
+
+    expect(result).toEqual({ status: "inserted" });
+    expect(harness.runAppleScript).toHaveBeenCalledWith(
+      'tell application "System Events" to keystroke "z" using command down',
+    );
+  });
+
+  test("does nothing while a Vellum window is in front", async () => {
+    const harness = createHarness({ focused: true });
+    const result = await undoInFrontAppWithDeps(harness.deps);
+
+    expect(result).toEqual({ status: "vellum-focused" });
+    expect(harness.runAppleScript).not.toHaveBeenCalled();
+  });
+
+  test("reads a refused keystroke as blocked", async () => {
+    const harness = createHarness({
+      runAppleScript: () => Promise.reject(new Error("no")),
+    });
+    expect(await undoInFrontAppWithDeps(harness.deps)).toEqual({
+      status: "blocked",
+    });
   });
 });

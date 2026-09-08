@@ -48,7 +48,7 @@ export function AdvisorProfileRow({
           <p className="text-body-medium-default font-medium text-[var(--content-default)]">
             {t("advisorProfileRow.title")}
           </p>
-          <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+          <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
             {t("advisorProfileRow.description")}
           </p>
         </div>

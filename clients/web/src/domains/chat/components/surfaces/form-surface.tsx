@@ -87,7 +87,7 @@ function FormFieldInput({
             placeholder={field.placeholder}
             className={cn(inputClasses, errorClasses)}
           />
-          <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
+          <p className="mt-1 flex items-center gap-1 text-body-small-lighter text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
             {t("formSurface.secureHint")}
           </p>

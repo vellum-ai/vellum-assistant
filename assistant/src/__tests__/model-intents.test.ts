@@ -20,7 +20,7 @@ describe("model intents", () => {
       "claude-haiku-4-5-20251001",
     );
     expect(resolveModelIntent("anthropic", "quality-optimized")).toBe(
-      "claude-fable-5",
+      "claude-fable-5-1",
     );
     expect(resolveModelIntent("anthropic", "vision-optimized")).toBe(
       "claude-opus-4-6",
@@ -47,7 +47,7 @@ describe("model intents", () => {
       "anthropic/claude-haiku-4.5",
     );
     expect(resolveModelIntent("vercel-ai-gateway", "quality-optimized")).toBe(
-      "anthropic/claude-fable-5",
+      "anthropic/claude-fable-5.1",
     );
     expect(resolveModelIntent("vercel-ai-gateway", "vision-optimized")).toBe(
       "anthropic/claude-opus-4.6",

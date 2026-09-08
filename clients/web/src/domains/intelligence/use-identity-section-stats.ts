@@ -117,7 +117,7 @@ export function useIdentitySectionStats(
     ...common,
   });
   // Shares the schedules cache entry owned by `fetchSchedules` (Settings
-  // and the Activity page key it identically with a `Schedule[]` payload)
+  // and the Schedules page key it identically with a `Schedule[]` payload)
   // — registering the generated options' raw `{schedules}` shape under the
   // same key crashes those pages when they read our cached copy.
   const schedules = useQuery({

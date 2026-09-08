@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { type StepperStep } from "@vellumai/design-library";
 import {
@@ -8,6 +8,7 @@ import {
 import { TelegramSetupConnectStep } from "@/components/telegram-setup-connect-step";
 import { TelegramSetupCreateStep } from "@/components/telegram-setup-create-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
+import { useClearOnSaveSuccess } from "@/hooks/use-clear-on-save-success";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
@@ -55,14 +56,7 @@ export function TelegramSetupWizard({
     useChannelSetupSteps(WIZARD_STEP_IDS);
   const [botToken, setBotToken] = useState("");
 
-  // Drop the credential once it is saved. Neither surface unmounts this wizard
-  // on success, so without this a submitted bot token stays in the field,
-  // recoverable from a mounted component long after it was handed over.
-  useEffect(() => {
-    if (saveStatus === "success") {
-      setBotToken("");
-    }
-  }, [saveStatus]);
+  useClearOnSaveSuccess(saveStatus, setBotToken);
 
   const { copy, copied } = useCopyToClipboard({
     errorMessage: t("telegramSetupWizard.copyError"),
@@ -103,6 +97,7 @@ export function TelegramSetupWizard({
 
       {stepId === "connect" && (
         <TelegramSetupConnectStep
+          assistantId={assistantId}
           botToken={botToken}
           saveStatus={saveStatus}
           saveError={saveError}

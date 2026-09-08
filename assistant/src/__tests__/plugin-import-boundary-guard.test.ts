@@ -86,6 +86,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../../messaging/providers/slack/message-metadata.js",
     "../../../../../persistence/auto-analysis-constants.js",
     "../../../../../persistence/checkpoints.js",
+    "../../../../../persistence/conversation-types.js",
     "../../../../../persistence/db-connection.js",
     "../../../../../persistence/embeddings/embed.js",
     "../../../../../persistence/embeddings/embedding-backend.js",
@@ -159,6 +160,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../skills/catalog-cache.js",
     "../../../../telemetry/watchdog-events-store.js",
     "../../../../tools/skills/delete-managed.js",
+    "../../../../util/json.js",
     "../../../../util/logger.js",
     "../../../../util/platform.js",
     "../../../channels/types.js",
@@ -440,7 +442,7 @@ const NAMESPACE_IMPORT = "*";
  *  namespace import yields the {@link NAMESPACE_IMPORT} sentinel — it reaches
  *  the whole surface, so it must not slip past the anti-backslide check. */
 function symbolsImportedFrom(source: string, hostPathSuffix: string): string[] {
-  const escaped = hostPathSuffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = RegExp.escape(hostPathSuffix);
   const from = String.raw`\s*from\s*['"]([^'"]*` + escaped + String.raw`)['"]`;
   const namedRegex = new RegExp(
     String.raw`import\s+(?:type\s+)?\{([^}]*)\}` + from,

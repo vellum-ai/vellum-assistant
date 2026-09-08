@@ -104,11 +104,11 @@ export function AccessConsentSetting() {
           <div className="text-body-medium-default text-[var(--content-default)]">
             {t("accessConsentSetting.title")}
           </div>
-          <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
+          <p className="mt-1 text-body-small-lighter text-[var(--content-tertiary)]">
             {t("accessConsentSetting.description")}
           </p>
           {platformGate === "full" && isError && (
-            <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
+            <p className="mt-1 text-body-small-lighter text-[var(--system-negative-strong)]">
               {t("accessConsentSetting.loadError")}
             </p>
           )}

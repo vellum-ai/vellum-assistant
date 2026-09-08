@@ -125,7 +125,7 @@ function ToolCallCard({ section }: ResponseSectionCardProps): ReactNode {
       {section.bodyText ? (
         <div className="mt-3">
           <p
-            className="mb-1 text-label-default"
+            className="mb-1 text-label-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
             {t("responseTab.argumentsPreview")}
@@ -146,7 +146,7 @@ function ToolCallCard({ section }: ResponseSectionCardProps): ReactNode {
         </p>
       )}
       <div
-        className="mt-3 rounded-md px-3 py-2 text-label-default"
+        className="mt-3 rounded-md px-3 py-2 text-label-medium-default"
         style={{
           background: "var(--surface-overlay)",
           color: "var(--content-secondary)",
@@ -217,7 +217,7 @@ function SectionHeader({
 function MetadataChip({ label }: { label: string }): ReactNode {
   return (
     <span
-      className="inline-block rounded px-2 py-0.5 text-label-default"
+      className="inline-block rounded px-2 py-0.5 text-label-medium-default"
       style={{
         background: "var(--surface-overlay)",
         color: "var(--content-secondary)",

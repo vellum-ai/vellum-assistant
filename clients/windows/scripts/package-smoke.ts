@@ -132,7 +132,7 @@ const main = async (): Promise<void> => {
     );
   }
   for (const [relative, label] of [
-    ["web-dist/index.html", "Web renderer bundle"],
+    ["cli-runtime/web-dist/index.html", "Web renderer bundle"],
     ["cli-runtime/runtime.json", "Runtime manifest"],
     [`native-helper/${arch}/Vellum.WindowsHelper.exe`, "Native helper"],
     ["preview-handler/Vellum.PreviewHandler.dll", "Preview handler DLL"],

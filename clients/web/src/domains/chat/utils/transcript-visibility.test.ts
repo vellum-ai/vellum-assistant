@@ -27,7 +27,7 @@ describe("isTranscriptOnScreen", () => {
     for (const pathname of [
       "/assistant/library",
       "/assistant/identity",
-      "/assistant/home",
+      "/assistant/identity",
       "/assistant/settings/general",
       // A conversation subroute: the inspector renders instead of the
       // transcript, not beside it.

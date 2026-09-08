@@ -387,7 +387,7 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.event.message.content).toBe("");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.message.externalMessageId).toBe(
-      "C456:1234567890.123456:thumbsup:U123",
+      "C456:1234567890.123456:thumbsup:U123:evt-1",
     );
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.messageId).toBe("1234567890.123456");
@@ -464,7 +464,7 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.threadTs).toBe("1700000000.999999");
     expect(result!.routing.assistantId).toBe("ast-1");
     expect(result!.event.message.externalMessageId).toBe(
-      "C500:1700000000.999999:thumbsup:U123",
+      "C500:1700000000.999999:thumbsup:U123:evt-expand",
     );
   });
 });
@@ -483,7 +483,7 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(result!.event.message.reaction?.op).toBe("removed");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.message.externalMessageId).toBe(
-      "C456:1234567890.123456:thumbsup:U123:removed",
+      "C456:1234567890.123456:thumbsup:U123:removed:evt-r-1",
     );
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.messageId).toBe("1234567890.123456");
@@ -558,7 +558,7 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("D999");
     expect(result!.event.message.externalMessageId).toBe(
-      "D999:111.222:thumbsup:U123:removed",
+      "D999:111.222:thumbsup:U123:removed:evt-r-8",
     );
   });
 
@@ -575,7 +575,7 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(result!.event.message.reaction?.emoji).toBe("thumbsup");
     expect(result!.event.message.reaction?.op).toBe("removed");
     expect(result!.event.message.externalMessageId).toBe(
-      "D789:1700000000.000001:thumbsup:U123:removed",
+      "D789:1700000000.000001:thumbsup:U123:removed:evt-r-9",
     );
   });
 
@@ -597,7 +597,7 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe("ast-1");
     expect(result!.event.message.externalMessageId).toBe(
-      "C500:1700000000.999999:thumbsup:U123:removed",
+      "C500:1700000000.999999:thumbsup:U123:removed:evt-r-10",
     );
   });
 
@@ -613,10 +613,13 @@ describe("normalizeSlackReactionRemoved", () => {
       reaction: "fire",
       messageTs: "111.222",
     });
-    const addResult = normalizeSlackReactionAdded(addEvent, "evt-add", config);
+    // One event id across both, so the op suffix is the only thing that can
+    // separate the two ids. Distinct event ids would separate them on their
+    // own and the assertion would hold even if the suffix were dropped.
+    const addResult = normalizeSlackReactionAdded(addEvent, "evt-op", config);
     const removeResult = normalizeSlackReactionRemoved(
       removeEvent,
-      "evt-remove",
+      "evt-op",
       config,
     );
 
@@ -624,6 +627,43 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(removeResult).not.toBeNull();
     expect(addResult!.event.message.externalMessageId).not.toBe(
       removeResult!.event.message.externalMessageId,
+    );
+  });
+
+  it("add, remove and re-add are three events, not two", () => {
+    // Three acts, three ids. The addressing parts are identical across all
+    // three, so `event_id` is the only thing separating them.
+    const config = makeConfig();
+    const ids = [
+      normalizeSlackReactionAdded(makeReactionAddedEvent(), "Ev001", config),
+      normalizeSlackReactionRemoved(
+        makeReactionRemovedEvent(),
+        "Ev002",
+        config,
+      ),
+      normalizeSlackReactionAdded(makeReactionAddedEvent(), "Ev003", config),
+    ].map((result) => result!.event.message.externalMessageId);
+
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it("a redelivered event keeps its id, so redelivery still dedups", () => {
+    // The other half of the contract: Slack re-sends the same event payload,
+    // `event_id` and all, so the two normalize to one id.
+    const config = makeConfig();
+    const first = normalizeSlackReactionAdded(
+      makeReactionAddedEvent(),
+      "Ev001",
+      config,
+    );
+    const redelivered = normalizeSlackReactionAdded(
+      makeReactionAddedEvent(),
+      "Ev001",
+      config,
+    );
+
+    expect(redelivered!.event.message.externalMessageId).toBe(
+      first!.event.message.externalMessageId,
     );
   });
 });
@@ -1640,6 +1680,9 @@ describe("normalizeSlackMessageDelete", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("slack-system");
+    // No author means no identity claim: the daemon applies the delete to a
+    // row it can resolve in the chat instead of gating it on membership.
+    expect(result!.event.source.actorUnattributed).toBe(true);
   });
 
   it("resolves an unrouted channel delete to the local assistant", () => {
@@ -1693,9 +1736,11 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result!.event.source.chatType).toBeUndefined();
   });
 
-  it("does not filter deletes by bot user (handled upstream)", () => {
-    // Self-authored deletes are filtered in processEventPayload's single
-    // self-filter, not in the normalizer.
+  it("forwards a delete of the assistant's own post unattributed when the caller says so", () => {
+    // Which author is the assistant is the caller's knowledge (the
+    // self-filter in processEventPayload); the normalizer only turns that
+    // answer into the wire fact. Slack names the post's author and never who
+    // deleted it, so the bot's own id is not an actor to enforce.
     const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
@@ -1706,11 +1751,24 @@ describe("normalizeSlackMessageDelete", () => {
         ts: "1700000000.000100",
       },
     });
-    // Self-authored deletes are now filtered upstream in processEventPayload.
-    const result = normalizeSlackMessageDelete(event, "evt-del-self", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-self", config, {
+      selfAuthored: true,
+    });
 
     expect(result).not.toBeNull();
-    expect(result!.event.actor.actorExternalId).toBe("UBOT");
+    expect(result!.event.actor.actorExternalId).toBe("slack-system");
+    expect(result!.event.source.actorUnattributed).toBe(true);
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+
+    // Without the caller's answer the author stays the actor, as for any
+    // member's post.
+    const attributed = normalizeSlackMessageDelete(
+      event,
+      "evt-del-self-2",
+      config,
+    );
+    expect(attributed!.event.actor.actorExternalId).toBe("UBOT");
+    expect(attributed!.event.source.actorUnattributed).toBeUndefined();
   });
 });
 

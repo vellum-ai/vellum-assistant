@@ -14,7 +14,6 @@ import {
   getGuardianRequest,
   getGuardianRequestByCode,
   getPendingByCallSessionId,
-  getPendingByDestinationMessage,
   GuardianRequestIntegrityError,
   isRequestInConversationScope,
   listDeliveries,
@@ -705,50 +704,6 @@ describe("deliveries", () => {
 // ---------------------------------------------------------------------------
 // By-destination reads
 // ---------------------------------------------------------------------------
-
-describe("getPendingByDestinationMessage", () => {
-  test("recovers the pending request behind a delivered card message", () => {
-    const req = createRequest();
-    const other = createRequest();
-    createDelivery({
-      requestId: req.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-1",
-    });
-    createDelivery({
-      requestId: other.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-2",
-    });
-
-    expect(
-      getPendingByDestinationMessage("telegram", "chat-1", "msg-1")?.id,
-    ).toBe(req.id);
-    expect(
-      getPendingByDestinationMessage("telegram", "chat-1", "msg-3"),
-    ).toBeNull();
-    expect(
-      getPendingByDestinationMessage("slack", "chat-1", "msg-1"),
-    ).toBeNull();
-  });
-
-  test("returns null when the matched request is no longer pending", () => {
-    const req = createRequest();
-    createDelivery({
-      requestId: req.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-1",
-    });
-    resolveGuardianRequest(req.id, "pending", { status: "approved" });
-
-    expect(
-      getPendingByDestinationMessage("telegram", "chat-1", "msg-1"),
-    ).toBeNull();
-  });
-});
 
 describe("listPendingByDestinationChat", () => {
   test("returns pending requests for the (channel, chatId) pair, deduplicated", () => {

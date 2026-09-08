@@ -25,8 +25,8 @@ import {
   cleanup,
   fireEvent,
   render,
+  screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
@@ -104,29 +104,20 @@ import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
 
 /**
- * Expand every collapsed `SubagentSpawnGroup` in the tree so its per-subagent
- * `InlineProcessCardRow` rows mount. The resting state shows the avatar
- * summary; clicking each "Details" toggle reveals the rows. A group already
- * expanded (e.g. across a rerender that preserves state) has no toggle and is
- * left untouched, so the helper is safe to re-run.
+ * Open every spawn group's control so its session rows mount.
  *
- * The spawn group crossfades collapsed ↔ expanded with `AnimatePresence
- * mode="wait"`, which defers mounting the expanded rows until the collapsed
- * view finishes its exit animation. So after clicking we await the rows
- * appearing rather than asserting synchronously.
+ * The group now renders the same marks-pill the floating cluster does, and the
+ * rows live in the popover behind it, so a test that wants the rows has to
+ * open it, and the rows land in a body portal rather than inside `container`.
  */
 async function expandSubagentSummary(container: HTMLElement) {
-  const toggles = container.querySelectorAll<HTMLButtonElement>(
-    '[data-testid="subagent-avatar-row-details"]',
+  const triggers = container.querySelectorAll<HTMLButtonElement>(
+    '[data-testid="subagent-spawn-group-trigger"]',
   );
-  if (toggles.length === 0) {
-    return;
-  } // already expanded — nothing to wait for
-  toggles.forEach((toggle) => fireEvent.click(toggle));
-  // mode="wait" defers mounting the expanded cards until the collapse exit completes
+  triggers.forEach((trigger) => fireEvent.click(trigger));
   await waitFor(() =>
     expect(
-      within(container).queryAllByTestId("subagent-inline-card").length,
+      screen.queryAllByTestId("subagent-inline-card").length,
     ).toBeGreaterThan(0),
   );
 }
@@ -273,41 +264,28 @@ function assistantMessageWithMixedSpawns(
   return { kind: "message", key: id, message: withContentBlocks(msg) };
 }
 
-describe("Transcript — collapsible subagent spawn group", () => {
-  test("renders a collapsed avatar summary (one badge per spawn) by default, no rows", () => {
+describe("Transcript: subagent spawn group", () => {
+  test("renders one inline row per spawn, in spawn order, with no disclosure", async () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn two agents"),
       assistantMessageWithSpawn("a1", ["sa-1", "sa-2"]),
     ];
 
-    const { getAllByTestId, queryAllByTestId } = render(
+    const { container, queryAllByTestId } = render(
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
-    // Resting state: the avatar summary is shown, the boxed rows are not.
-    expect(getAllByTestId("subagent-avatar-badge").length).toBe(2);
-    expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
-  });
-
-  test("expanding the summary renders one inline row per spawn, in spawn order", async () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "spawn two agents"),
-      assistantMessageWithSpawn("a1", ["sa-1", "sa-2"]),
-    ];
-
-    const { container, getAllByTestId, queryAllByTestId } = render(
-      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
-    );
-
-    expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
     await expandSubagentSummary(container);
 
-    const cards = getAllByTestId("subagent-inline-card");
+    const cards = screen.getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(2);
     expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
       "sa-1",
       "sa-2",
     ]);
+    // The avatar summary that used to gate these rows is gone: the chat has
+    // one place to expand a set of agents, and it is not the transcript.
+    expect(queryAllByTestId("subagent-avatar-badge").length).toBe(0);
   });
 
   test("row open + stop fire the transcript callbacks end-to-end after expansion", async () => {
@@ -319,7 +297,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
       assistantMessageWithSpawn("a1", ["sa-1"]),
     ];
 
-    const { container, getByTestId } = render(
+    const { container } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -332,10 +310,13 @@ describe("Transcript — collapsible subagent spawn group", () => {
     await expandSubagentSummary(container);
 
     act(() => {
-      fireEvent.click(getByTestId("subagent-inline-card-open"));
+      fireEvent.click(screen.getByTestId("subagent-inline-card-open"));
     });
+
+    // Opening a row closes the panel, so stopping needs it reopened.
+    await expandSubagentSummary(container);
     act(() => {
-      fireEvent.click(getByTestId("subagent-inline-card-stop"));
+      fireEvent.click(screen.getByTestId("subagent-inline-card-stop"));
     });
 
     expect(opened).toEqual(["sa-1"]);
@@ -356,7 +337,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
   });
 
-  test("spawn-only group renders the avatar summary and suppresses the redundant progress card", () => {
+  test("spawn-only group renders its row and suppresses the redundant progress card", () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn one"),
       assistantMessageWithSpawn("a1", ["sa-1"]),
@@ -366,8 +347,8 @@ describe("Transcript — collapsible subagent spawn group", () => {
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
-    // The subagent renders inline (collapsed avatar summary)...
-    expect(getByTestId("subagent-avatar-badge")).toBeTruthy();
+    // The subagent renders inline as its own marks control...
+    expect(getByTestId("subagent-spawn-group-trigger")).toBeTruthy();
     // ...and the unified progress card is suppressed: with the spawn filtered
     // out of its body it would have no renderable steps, leaving just the
     // leading-thinking preamble (already shown as message text) — pure noise.
@@ -394,12 +375,12 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       assistantMessageWithRunningSpawns("a1", 1),
     ];
 
-    const { container, getAllByTestId } = render(
+    const { container } = render(
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     await expandSubagentSummary(container);
-    const cards = getAllByTestId("subagent-inline-card");
+    const cards = screen.getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-running-1");
   });
@@ -424,12 +405,12 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       ]),
     ];
 
-    const { container, getAllByTestId } = render(
+    const { container } = render(
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     await expandSubagentSummary(container);
-    const cards = getAllByTestId("subagent-inline-card");
+    const cards = screen.getAllByTestId("subagent-inline-card");
     expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
       "sa-running",
       "sa-completed",
@@ -468,12 +449,12 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       { kind: "message", key: "a1", message: withContentBlocks(msg) },
     ];
 
-    const { container, getAllByTestId } = render(
+    const { container } = render(
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     await expandSubagentSummary(container);
-    const cards = getAllByTestId("subagent-inline-card");
+    const cards = screen.getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-reloaded");
   });
@@ -533,7 +514,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
       { kind: "message", key: "a1", message: withContentBlocks(msg) },
     ];
 
-    const { getAllByTestId, container } = render(
+    const { container } = render(
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
@@ -543,7 +524,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     ).toBeNull();
 
     await expandSubagentSummary(container);
-    const cards = getAllByTestId("subagent-inline-card");
+    const cards = screen.getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
   });
@@ -603,24 +584,34 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       { kind: "message", key: "a1", message: withContentBlocks(msg) },
     ];
 
-    const { container, getAllByTestId } = render(
+    const { container } = render(
       <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // The two spawns land in distinct activity groups (split by the interleaved
-    // text), so each renders its own collapsible group with its own toggle.
-    expect(
-      container.querySelectorAll('[data-testid="subagent-avatar-row-details"]')
-        .length,
-    ).toBe(2);
-    await expandSubagentSummary(container);
+    // text), so each renders its own control. They are separate popovers, and
+    // opening one dismisses the other, so the claim under test (that the two
+    // groups map 1:1 onto distinct ids with no duplication) is checked one
+    // group at a time rather than by counting both at once.
+    const triggers = container.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="subagent-spawn-group-trigger"]',
+    );
+    expect(triggers.length).toBe(2);
 
-    const cards = getAllByTestId("subagent-inline-card");
-    expect(cards.length).toBe(2);
-    expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
-      "sa-first",
-      "sa-second",
-    ]);
+    const seen: (string | null)[] = [];
+    for (const trigger of triggers) {
+      fireEvent.click(trigger);
+      const cards = await waitFor(() => {
+        const found = screen.getAllByTestId("subagent-inline-card");
+        expect(found.length).toBe(1);
+        return found;
+      });
+      seen.push(cards[0]!.getAttribute("data-subagent-id"));
+      // Close it again so the next group's popover starts from a clean slate.
+      fireEvent.click(trigger);
+    }
+
+    expect(seen).toEqual(["sa-first", "sa-second"]);
   });
 });
 

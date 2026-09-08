@@ -54,6 +54,7 @@ import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-syn
 import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 import { useDeepLinkThreadSend } from "@/domains/chat/hooks/use-deep-link-thread-send";
+import { useShareInboxSend } from "@/domains/chat/hooks/use-share-inbox-send";
 import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
@@ -311,6 +312,13 @@ export function ActiveChatView() {
   // demote it to a pre-fill when the target is gone). Needs the loader's
   // existence verdict and `sendMessage`, hence this placement.
   useDeepLinkThreadSend({
+    assistantId,
+    isAssistantActive: assistantState.kind === "active",
+    activeConversationId,
+    conversationExistsOnServer,
+    sendMessage,
+  });
+  useShareInboxSend({
     assistantId,
     isAssistantActive: assistantState.kind === "active",
     activeConversationId,

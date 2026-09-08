@@ -45,7 +45,9 @@ const calculateRuntimeBuildId = (runtimeDir: string): string => {
     );
     for (const entry of entries) {
       const absolute = path.join(dir, entry.name);
-      const relative = path.relative(runtimeDir, absolute).replaceAll("\\", "/");
+      const relative = path
+        .relative(runtimeDir, absolute)
+        .replaceAll("\\", "/");
       const stat = lstatSync(absolute);
       if (stat.isSymbolicLink()) {
         hash.update(relative);
@@ -278,12 +280,35 @@ if (cliVersionCheck.status !== 0 || cliVersionOutput !== expectedCliVersion) {
     `Packaged CLI version check failed: expected ${expectedCliVersion}, got ${cliVersionOutput || "no output"} (${diagnostics}).`,
   );
 }
+// Copies only git-tracked files so gitignored residue (skill node_modules
+// can run to hundreds of MB on a dev checkout) never ships in the runtime.
+const copyTrackedFiles = (source: string, destination: string): void => {
+  const listing = spawnSync(
+    "git",
+    ["-C", repoRoot, "ls-files", "-z", "--", source],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true },
+  );
+  if (listing.status !== 0) {
+    throw new Error(
+      `git ls-files failed for ${source} (exit ${listing.status}).`,
+    );
+  }
+  const files = listing.stdout.split("\0").filter(Boolean);
+  if (files.length === 0) {
+    throw new Error(`No tracked files found under ${source}.`);
+  }
+  for (const file of files) {
+    const target = path.join(destination, path.relative(source, file));
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(path.join(repoRoot, file), target);
+  }
+};
+copyTrackedFiles("skills", path.join(outputDir, "first-party-skills"));
 for (const [source, name] of [
   ["assistant/src/prompts/templates", "templates"],
   ["assistant/src/config/bundled-skills", "bundled-skills"],
   ["assistant/src/runtime/routes/brain-graph", "brain-graph"],
   ["assistant/src/plugins/defaults", "default-plugins"],
-  ["skills", "first-party-skills"],
   ["clients/windows/resources/web-dist", "web-dist"],
 ] as const) {
   cpSync(path.join(repoRoot, source), path.join(outputDir, name), {

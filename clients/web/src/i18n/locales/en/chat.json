@@ -90,12 +90,25 @@
   "assistantNavItem": {
     "newChat": "New Chat"
   },
+  "assistantSection": {
+    "emptyTitle": "Nothing on my mind yet.",
+    "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
     "navAria": "Assistant navigation",
     "search": "Search",
     "searchShortcut": "Search ({shortcut})"
+  },
+  "assistantSleepStage": {
+    "dismissLabel": "Hide the sleep screen",
+    "sleeping": "Your assistant is asleep",
+    "sleepingNamed": "{name} is asleep",
+    "waking": "Your assistant is waking up…",
+    "wakingNamed": "{name} is waking up…",
+    "woke": "Your assistant just woke up",
+    "wokeNamed": "{name} just woke up"
   },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
@@ -259,6 +272,12 @@
     "unsupported": "This device can't open a camera.",
     "uploadFailed": "Couldn't send that photo."
   },
+  "cameraShutterHint": {
+    "live": "Live · Tap to stop",
+    "liveDescription": "Tap to stop live video.",
+    "photo": "Tap photo · Hold for live",
+    "photoDescription": "Hold to start live video."
+  },
   "cameraStatusPill": {
     "announceLive": "Live. {status}",
     "announceLiveMuted": "Live. Muted. {status}",
@@ -271,6 +290,14 @@
     "live": "Live",
     "photo": "Photo",
     "yourAssistant": "Your assistant"
+  },
+  "cameraViewOptions": {
+    "buttonAria": "Camera view options",
+    "gateHudDescription": "The tuning readout for what Live keeps.",
+    "gateHudTitle": "Frame gate readout",
+    "keptFrameDescription": "The last frame Live sent, beside your photos. Live keeps sending either way.",
+    "keptFrameTitle": "Kept frame",
+    "title": "Show"
   },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
@@ -379,10 +406,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Ask the Doctor",
-    "copyCliFix": "Copy CLI fix",
     "goToDoctor": "Go to Doctor",
     "openPage": "Open page",
-    "suggestionFallback": "Suggestion"
+    "suggestionFallback": "Suggestion",
+    "copyCliFix": "Copy CLI fix"
   },
   "chatRuleEditorModal": {
     "applyTo": "Apply to",
@@ -506,27 +533,37 @@
   },
   "contactPromptCard": {
     "addContact": "Add a contact",
+    "addingToContact": "Adding a channel to {name}",
     "cancel": "Cancel",
     "contactSaved": "Contact saved",
-    "dismiss": "Dismiss",
     "enterAddress": "Enter {channel} address",
     "markVerified": "Mark this address verified",
     "markVerifiedHelp": "A verified address is allowed to message your assistant.",
+    "namePlaceholder": "Name",
+    "notesLabel": "Notes",
     "save": "Save",
     "saving": "Saving…"
   },
   "contactRecordCard": {
     "cancel": "Cancel",
+    "channelType": "{channel}:",
     "contactDeleted": "Contact deleted",
+    "contactMerged": "Contacts merged",
     "contactSaved": "Contact saved",
     "createTitle": "Add a contact",
     "delete": "Delete",
     "deleteTitle": "Delete {name}?",
     "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
-    "dismiss": "Dismiss",
+    "merge": "Merge",
+    "mergeDonorChannels": "Moving from {name}",
+    "mergeSurvivorChannels": "Already on {name}",
+    "mergeTitle": "Merge {donor} into {survivor}?",
+    "mergeWarning": "These channels move to {survivor}, and the {donor} record is deleted.",
+    "nameLabel": "Name",
     "namePlaceholder": "Name",
     "noChannels": "This contact has no channels.",
-    "notesPlaceholder": "Notes (optional)",
+    "notesLabel": "Notes",
+    "notesPlaceholder": "Add custom note",
     "save": "Save",
     "saving": "Saving…",
     "updateTitle": "Update {name}"
@@ -566,11 +603,6 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
-  },
-  "conversationActivityPill": {
-    "activity": "Activity",
-    "recent": "Recent",
-    "running": "Running"
   },
   "conversationAssetActions": {
     "delete": "Delete",
@@ -638,6 +670,9 @@
     "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
     "title": "Delete conversation",
     "untitled": "Untitled"
+  },
+  "deletedMessageRow": {
+    "label": "This message was deleted"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
@@ -739,6 +774,50 @@
     "secureHint": "This value will be sent securely and will not be stored in your browser.",
     "selectPlaceholder": "Select..."
   },
+  "frameGateHud": {
+    "collapse": "Hide the frame gate readout",
+    "decisionOrder": "Decision order",
+    "detailLabel": "Detail (luma SD)",
+    "expand": "Show the frame gate readout",
+    "forcedNoveltyThresholdLabel": "Asked-for threshold",
+    "keep": "Keep",
+    "keptFrameAlt": "Kept frame",
+    "maxIntervalLabel": "Heartbeat interval",
+    "minDetailLabel": "Detail floor",
+    "motionLabel": "Motion vs previous frame",
+    "noKeeps": "No frames kept yet.",
+    "noveltyLabel": "Novelty vs last kept",
+    "noveltyThresholdLabel": "Novelty threshold",
+    "overridden": "Moved off the default",
+    "reasonAnswered": "Asked for, but the last photo already shows this.",
+    "reasonFeatureless": "Too little detail to compare.",
+    "reasonFirst": "Nothing kept yet, and the view settled.",
+    "reasonForced": "Kept for the question being asked right now.",
+    "reasonHeartbeat": "Nothing changed, but the last photo is old.",
+    "reasonMoving": "The view is still moving.",
+    "reasonNovel": "Enough changed since the last photo.",
+    "reasonSettling": "Stopped, but not held still long enough yet.",
+    "reasonUnchanged": "Settled, recent, and much the same as the last photo.",
+    "reasonWarmup": "Still inside the exposure warmup.",
+    "recentFrames": "Recent frames",
+    "recentKeeps": "Recent keeps",
+    "reset": "Reset",
+    "settleThresholdLabel": "Settle threshold",
+    "skip": "Skip",
+    "stepAnswered": "Already shown",
+    "stepFeatureless": "Detail floor",
+    "stepFirst": "First keep",
+    "stepForced": "Asked for",
+    "stepHeartbeat": "Heartbeat",
+    "stepMoving": "Settled",
+    "stepNovel": "Novelty",
+    "stepSettling": "Held still",
+    "stepUnchanged": "Unchanged",
+    "stepWarmup": "Warmup",
+    "surfaceVoice": "Voice room camera",
+    "thresholds": "Thresholds",
+    "valueAbsent": "n/a"
+  },
   "groupActions": {
     "archiveAll": "Archive All…",
     "copyGroupId": "Copy group ID",
@@ -823,6 +902,7 @@
     "startVoiceMode": "Start voice mode"
   },
   "liveVoiceStatus": {
+    "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
     "connecting": "Connecting…",
     "ending": "Ending…",
     "listening": "Listening…",
@@ -954,6 +1034,12 @@
     "breakdownSource": "source",
     "breakdownSpreadDelta": "spread Δ",
     "breakdownStatus": "status",
+    "candidatePoolChosenChip": "selected",
+    "candidatePoolNoneBody": "No candidate pool was recorded for this turn.",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, one {# candidate} other {# candidates}} passed through without a selector judgment · selector disabled",
+    "candidatePoolSelectorNotRunBody": "The selector did not run this turn.",
+    "candidatePoolSubtitle": "{poolSize, plural, one {# candidate} other {# candidates}} shown to the selector · {selectedCount, plural, one {# page selected} other {# pages selected}}",
+    "candidatePoolTitle": "Candidate pool",
     "candidateScores": "sem {semantic} · rec {recency}",
     "carriedPill": "Carried: {count}",
     "conceptActivationsSubtitle": "Sorted by final activation. Skill entries appear with the `skills/` slug prefix; expand a row for the activation breakdown.",
@@ -1002,8 +1088,6 @@
     "pillMemoryV2": "Memory V2",
     "pillMemoryV3": "Memory V3",
     "pillRecallV1": "Recall (v1)",
-    "pinnedChip": "pinned",
-    "pinnedPill": "Pinned: {count}",
     "providerLabel": "Provider",
     "queryContextSubtitle": "The text embedded as the search vector for semantic retrieval.",
     "queryContextTitle": "Query context",
@@ -1236,6 +1320,14 @@
     "goToFile": "Go to file",
     "noPreviewForType": "No preview for this file type"
   },
+  "progressRail": {
+    "agentsLabel": "Agents",
+    "agentsToggleAria": "Agents: {running, plural, =0 {none running} one {# running} other {# running}}, {completed, plural, =0 {none finished} one {# finished} other {# finished}}",
+    "railAria": "Progress",
+    "stepCounter": "{current} of {total}",
+    "title": "Progress",
+    "titleFinished": "Finished"
+  },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
   },
@@ -1433,17 +1525,6 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
-  "sightTile": {
-    "close": "Close camera",
-    "interrupted": "The camera was disconnected.",
-    "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
-    "unavailable": "No camera is available."
-  },
-  "sightToggle": {
-    "busyInCall": "The voice call is using the camera",
-    "turnOff": "Turn off camera vision",
-    "turnOn": "Turn on camera vision"
-  },
   "singleActivity": {
     "webSearch": "Web Search"
   },
@@ -1475,9 +1556,7 @@
   },
   "skillLoadOutput": {
     "output": "Output",
-    "outputFormatAria": "Output format",
-    "showLess": "Show less",
-    "showMore": "Show more"
+    "outputFormatAria": "Output format"
   },
   "skillToolList": {
     "fromSkill": "From {name}"
@@ -1497,10 +1576,6 @@
   },
   "storeCredentialDialog": {
     "successToast": "Stored securely. The key never entered the chat."
-  },
-  "subagentAvatarRow": {
-    "details": "Details",
-    "showDetailsAria": "Show subagent details"
   },
   "subagentDetailPanel": {
     "backToTimelineAria": "Back to timeline",
@@ -1523,8 +1598,6 @@
     "workedFor": "Worked for {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Collapse",
-    "collapseDetailsAria": "Collapse subagent details",
     "stopSubagentAria": "Stop subagent"
   },
   "suggestionCard": {
@@ -1597,6 +1670,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Close tool details",
+    "denied": "This tool call was not approved, so it did not run.",
+    "emptyOutput": "The tool returned no output.",
     "output": "Output",
     "riskLevel": "Risk Level",
     "running": "Running…"
@@ -1654,6 +1729,7 @@
     "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
+    "askUnavailable": "Your assistant can’t take a spoken question right now.",
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
   "voiceFirstRunCard": {
@@ -1682,12 +1758,15 @@
     "flashOff": "Flash off",
     "flashOn": "Flash on",
     "flipCamera": "Flip camera",
+    "lightOff": "Light off",
+    "lightOn": "Light on",
     "minimizeAria": "Minimize voice room",
     "minimizeTooltip": "Minimize (session keeps going)",
     "muteAssistant": "Mute assistant",
     "muteMicrophone": "Mute microphone",
     "mutedState": "Muted. {state}",
     "showCamera": "Show the camera",
+    "stopLive": "Stop live",
     "takePhoto": "Take a photo",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
@@ -1770,5 +1849,37 @@
     "reactionAdded": "{name} reacted with {emoji}",
     "reactionRemoved": "{name} removed their {emoji} reaction",
     "reactionSomeone": "Someone"
+  },
+  "watchRetroSurface": {
+    "back": "Back",
+    "doneDiscarded": "Not saved",
+    "doneNotRight": "Flagged as not right",
+    "doneSaved": "Skill saved",
+    "dontSave": "Don't save",
+    "looksRight": "Looks right",
+    "next": "Next",
+    "recommended": "Recommended",
+    "save": "Save skill",
+    "skip": "Skip",
+    "somethingOff": "Something's off",
+    "stepCount": "{count, plural, one {# step} other {# steps}}",
+    "stepQuestion": "Question {number}",
+    "stepRecap": "Recap",
+    "stepSummary": "Save",
+    "summarySay": "Say",
+    "summarySteps": "Steps",
+    "summaryTitle": "Ready to save",
+    "summaryUnanswered": "Not set",
+    "untitledTask": "What I saw"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "Restore access",
+    "restoring": "Restoring...",
+    "restored": "Restored. Vellum-managed models are working again.",
+    "failedNoAssistant": "Select an assistant, then try again.",
+    "failedCannotActHere": "This app cannot restore the credential for this assistant. Open the assistant on the computer that runs it.",
+    "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
+    "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
+    "failedGeneric": "Could not restore access. Try again in a moment."
   }
 }

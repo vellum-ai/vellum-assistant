@@ -11,6 +11,7 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { useTranslation } from "@/i18n";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { resolveEffectiveTraits } from "@/utils/avatar-render";
+import { canResolveDefinitions } from "@/utils/avatar-svg-compositor";
 import { AnimatedAvatar } from "./animated-avatar";
 
 export interface ChatAvatarProps {
@@ -78,12 +79,23 @@ function ChatAvatarComponent({
 
   // Shared with every off-screen surface that draws this assistant, so the
   // default character here is the one the widgets and icons draw too.
+  // Trait ids that the served palette does not carry (legacy or hand-written
+  // sidecars) are not a character: unknown ids fall through to the uploaded
+  // image, then the letter mark.
   const effectiveTraits = useMemo(
     () => resolveEffectiveTraits(components, traits),
     [traits, components],
   );
 
-  const hasCharacter = !!components && !!effectiveTraits;
+  const hasCharacter =
+    !!components &&
+    !!effectiveTraits &&
+    canResolveDefinitions(
+      components,
+      effectiveTraits.bodyShape,
+      effectiveTraits.eyeStyle,
+      effectiveTraits.color,
+    );
   const preferCharacter = hasCharacter && (!!traits || !customImageUrl);
 
   const wrapperStyle: CSSProperties = {

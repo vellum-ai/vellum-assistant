@@ -60,6 +60,15 @@ describe("eventToAccelerator", () => {
     ).toBe("Super+K");
   });
 
+  it("maps Ctrl to CmdOrCtrl and Super to Super on Linux", () => {
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", ctrlKey: true }), "linux"),
+    ).toBe("CmdOrCtrl+K");
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", metaKey: true }), "linux"),
+    ).toBe("Super+K");
+  });
+
   it("resolves arrows, digits, and punctuation from the physical code", () => {
     expect(
       eventToAccelerator(keydown({ code: "ArrowUp", metaKey: true })),
@@ -94,11 +103,11 @@ describe("eventToAccelerator", () => {
 describe("findConflict", () => {
   const catalog = [
     hotkey("newConversation", "CmdOrCtrl+N"),
-    hotkey("home", "CmdOrCtrl+Shift+H"),
+    hotkey("popOut", "CmdOrCtrl+Shift+H"),
   ];
 
   it("finds another command bound to the same accelerator", () => {
-    expect(findConflict(catalog, "home", "CmdOrCtrl+N")?.key).toBe(
+    expect(findConflict(catalog, "popOut", "CmdOrCtrl+N")?.key).toBe(
       "newConversation",
     );
   });
@@ -108,16 +117,16 @@ describe("findConflict", () => {
   });
 
   it("treats a free accelerator as conflict-free", () => {
-    expect(findConflict(catalog, "home", "CmdOrCtrl+J")).toBeNull();
+    expect(findConflict(catalog, "popOut", "CmdOrCtrl+J")).toBeNull();
   });
 
   it("never reports a conflict for a disabled binding", () => {
-    expect(findConflict(catalog, "home", "")).toBeNull();
+    expect(findConflict(catalog, "popOut", "")).toBeNull();
   });
 
   it("flags a collision with a reserved, non-rebindable command", () => {
     const withReserved = [...catalog, hotkey("find", "CmdOrCtrl+F", false)];
-    const clash = findConflict(withReserved, "home", "CmdOrCtrl+F");
+    const clash = findConflict(withReserved, "popOut", "CmdOrCtrl+F");
     expect(clash?.key).toBe("find");
     expect(clash?.rebindable).toBe(false);
   });
@@ -125,8 +134,8 @@ describe("findConflict", () => {
   it("treats a legacy Windows Control override as CmdOrCtrl", () => {
     const catalog = [hotkey("newConversation", "Control+Shift+N")];
     expect(
-      findConflict(catalog, "home", "CmdOrCtrl+Shift+N", "windows")?.key,
+      findConflict(catalog, "popOut", "CmdOrCtrl+Shift+N", "windows")?.key,
     ).toBe("newConversation");
-    expect(findConflict(catalog, "home", "CmdOrCtrl+Shift+N")).toBeNull();
+    expect(findConflict(catalog, "popOut", "CmdOrCtrl+Shift+N")).toBeNull();
   });
 });

@@ -166,6 +166,29 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
       };
     }
 
+    if (parsed.searchParams.get("channel") === "C_FLAKY_BOT_HISTORY") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000004.000100",
+            bot_id: "B_FLAKY",
+            text: "first alert",
+          },
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000004.000200",
+            bot_id: "B_FLAKY",
+            text: "second alert",
+          },
+        ],
+      };
+    }
+
     if (parsed.searchParams.get("channel") === "C_BOT_HISTORY") {
       return {
         ok: true,
@@ -282,6 +305,11 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
     botsInfoCalls.push(botId);
     if (botId === "B_ASSISTANT") {
       return { ok: true, bot: { id: "B_ASSISTANT", name: "CI Notifier" } };
+    }
+    // An unmapped transient failure: thrown immediately (no in-transport
+    // retry, unlike rate limits) and evicted from the cross-batch cache.
+    if (botId === "B_FLAKY") {
+      return { ok: false, error: "fatal_error" };
     }
     return { ok: false, error: "bot_not_found" };
   }
@@ -480,6 +508,25 @@ describe("Slack adapter mention rendering", () => {
     expect(
       botsInfoCalls.filter((botId) => botId === "B_ASSISTANT"),
     ).toHaveLength(1);
+  });
+
+  test("a transient bots.info failure is attempted once per batch and falls back to the bot id", async () => {
+    const messages = await slackProvider.getHistory(
+      undefined,
+      "C_FLAKY_BOT_HISTORY",
+    );
+
+    expect(messages).toHaveLength(2);
+    expect(messages.map((message) => message.sender)).toEqual([
+      { id: "B_FLAKY", name: "B_FLAKY" },
+      { id: "B_FLAKY", name: "B_FLAKY" },
+    ]);
+    // The transient failure is evicted from the cross-batch cache (so a later
+    // page retries), but within one page the batch memo pins the first
+    // attempt: two rows from the same bot cost one bots.info call.
+    expect(botsInfoCalls.filter((botId) => botId === "B_FLAKY")).toHaveLength(
+      1,
+    );
   });
 
   test("getHistory caches Slack user info and maps timezone metadata", async () => {

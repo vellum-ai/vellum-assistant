@@ -405,7 +405,7 @@ function Header({
         </Button>
         <div className="order-3 flex w-full min-w-0 flex-col md:order-2 md:w-auto md:flex-1">
           <h1
-            className="truncate text-body-large-bold md:text-title-medium"
+            className="truncate text-title-small md:text-title-medium"
             style={{ color: "var(--content-default)" }}
           >
             {tChat("inspectPage.title")}
@@ -431,7 +431,7 @@ function Header({
           </Button>
           {callCount != null ? (
             <span
-              className="hidden text-label-default md:inline"
+              className="hidden text-label-medium-default md:inline"
               style={{ color: "var(--content-secondary)" }}
             >
               {tChat("inspectPage.llmCallCount", { count: callCount })}
@@ -476,7 +476,7 @@ function ScopeSubtitle({
   if (messageId) {
     return (
       <p
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         <span
@@ -497,7 +497,7 @@ function ScopeSubtitle({
   }
   return (
     <p
-      className="text-label-default"
+      className="text-body-small-lighter"
       style={{ color: "var(--content-secondary)" }}
     >
       {tChat("inspectPage.conversationScopeSubtitle")}
@@ -554,14 +554,14 @@ function ScopeControls({
     <div className="flex flex-wrap items-center justify-end gap-2">
       <label
         htmlFor="inspector-scope-select"
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {tChat("inspectPage.filterToMessage")}
       </label>
       <select
         id="inspector-scope-select"
-        className="w-full min-w-0 truncate rounded-md border px-2 py-1 text-label-default sm:w-auto sm:max-w-md"
+        className="w-full min-w-0 truncate rounded-md border px-2 py-1 text-label-medium-default sm:w-auto sm:max-w-md"
         style={{
           borderColor: "var(--border-base)",
           background: "var(--surface-base)",
@@ -908,7 +908,7 @@ function CenteredMessage({
     tone === "muted" ? "var(--content-tertiary)" : "var(--content-secondary)";
   return (
     <div
-      className="flex h-full w-full items-center justify-center p-8 text-label-default"
+      className="flex h-full w-full items-center justify-center p-8 text-label-medium-default"
       style={{ color }}
     >
       {children}
@@ -937,7 +937,7 @@ function EmptyState({ messageId }: EmptyStateProps): ReactNode {
         {title}
       </h2>
       <p
-        className="max-w-md text-label-default"
+        className="max-w-md text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {body}
@@ -1013,7 +1013,7 @@ function LoggingDisabledState({
         {tChat("inspectPage.loggingDisabledTitle")}
       </h2>
       <p
-        className="max-w-md text-label-default"
+        className="max-w-md text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {tChat("inspectPage.loggingDisabledBody")}
@@ -1057,7 +1057,7 @@ function ErrorState({ error, onRetry }: ErrorStateProps): ReactNode {
         {tChat("inspectPage.loadFailedTitle")}
       </h2>
       <p
-        className="max-w-md text-label-default"
+        className="max-w-md text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {message}

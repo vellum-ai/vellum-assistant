@@ -236,6 +236,55 @@ function seedFailedSlackEvent(opts: {
   return inbound.eventId;
 }
 
+function seedFailedTelegramEvent(opts: {
+  content: string;
+  externalChatId: string;
+  messageId: string;
+  threadId?: string;
+  /** Sender display name as `storePayload` records it at ingress. */
+  senderName?: string;
+  /** Stands in for the `channelInbound` the live path captures onto the payload. */
+  channelInbound?: Record<string, unknown>;
+}): string {
+  const inbound = deliveryCrud.recordInbound(
+    "telegram",
+    opts.externalChatId,
+    opts.messageId,
+  );
+  deliveryCrud.storePayload(inbound.eventId, {
+    content: opts.content,
+    sourceChannel: "telegram",
+    interface: "telegram",
+    externalChatId: opts.externalChatId,
+    externalMessageId: opts.messageId,
+    sourceMetadata: {
+      messageId: opts.messageId,
+      ...(opts.threadId ? { threadId: opts.threadId } : {}),
+    },
+    ...(opts.senderName ? { senderName: opts.senderName } : {}),
+    ...(opts.channelInbound ? { channelInbound: opts.channelInbound } : {}),
+    trustCtx: {
+      trustClass: "guardian",
+      sourceChannel: "telegram",
+      requesterExternalUserId: "user-1",
+      requesterChatId: opts.externalChatId,
+      guardianPrincipalId: "principal-1",
+    },
+  });
+
+  getDb()
+    .update(channelInboundEvents)
+    .set({
+      processingStatus: "failed",
+      processingAttempts: 1,
+      retryAfter: Date.now() - 1,
+    })
+    .where(eq(channelInboundEvents.id, inbound.eventId))
+    .run();
+
+  return inbound.eventId;
+}
+
 describe("channel-retry-sweep", () => {
   beforeEach(() => {
     resetTables();
@@ -352,6 +401,37 @@ describe("channel-retry-sweep", () => {
     expect(eventRow?.processingStatus).toBe("processed");
   });
 
+  test("restores the triggering message's id and thread on replay", async () => {
+    seedFailedEventWithTrustClass("guardian", {
+      sourceMessageId: "1700000000.000200",
+      sourceThreadId: "1700000000.000100",
+    });
+
+    let capturedTrust: Record<string, unknown> | undefined;
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedTrust = (options as { trustContext?: Record<string, unknown> })
+        .trustContext;
+      const messageId = "message-location";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // The replayed turn names the same message and thread the live turn
+    // did, so the turn's chat and thread lines and approval-card source
+    // links read the same on a retry as on the first attempt.
+    expect(capturedTrust?.sourceMessageId).toBe("1700000000.000200");
+    expect(capturedTrust?.sourceThreadId).toBe("1700000000.000100");
+  });
+
   test("fences a non-guardian Slack replay in external_content and carries the ingress idempotency key", async () => {
     seedFailedSlackEvent({
       trustClass: "unverified_contact",
@@ -440,6 +520,125 @@ describe("channel-retry-sweep", () => {
     expect(capturedOptions?.displayContent).toBeUndefined();
     // The idempotency key is still reconstructed so guardian replays dedup too.
     expect(capturedOptions?.slackInbound?.channelTs).toBe("1700000000.000200");
+  });
+
+  test("replays a captured channelInbound envelope verbatim", async () => {
+    const captured = {
+      source: "telegram",
+      conversationExternalId: "chat-500",
+      messageId: "tg-msg-1",
+      threadId: "topic-3",
+      actorExternalId: "user-77",
+      displayName: "Alice",
+      eventKind: "message",
+    };
+    seedFailedTelegramEvent({
+      content: "retry me",
+      externalChatId: "chat-500",
+      messageId: "tg-msg-1",
+      channelInbound: captured,
+    });
+
+    let capturedOptions:
+      | { channelInbound?: Record<string, unknown> }
+      | undefined;
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      capturedOptions = options as {
+        channelInbound?: Record<string, unknown>;
+      };
+      const messageId = "message-tg-captured";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // The captured envelope is the EXACT object the live turn used, so the
+    // replayed row persists an identical providerMeta.
+    expect(capturedOptions?.channelInbound).toEqual(captured);
+  });
+
+  test("reconstructs channelInbound from the stored payload when no capture exists", async () => {
+    // The crash window: `storePayload` ran at ingress but the daemon died
+    // before `storeInboundChannelMetadata`. Recovery must rebuild the same
+    // envelope the live turn would have persisted, sender fields included.
+    seedFailedTelegramEvent({
+      content: "retry me",
+      externalChatId: "chat-501",
+      messageId: "tg-msg-2",
+      threadId: "topic-9",
+      senderName: "Alice",
+    });
+
+    let capturedOptions:
+      | { channelInbound?: Record<string, unknown> }
+      | undefined;
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      capturedOptions = options as {
+        channelInbound?: Record<string, unknown>;
+      };
+      const messageId = "message-tg-fallback";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    expect(capturedOptions?.channelInbound).toEqual({
+      source: "telegram",
+      conversationExternalId: "chat-501",
+      messageId: "tg-msg-2",
+      threadId: "topic-9",
+      displayName: "Alice",
+      actorExternalId: "user-1",
+      eventKind: "message",
+    });
+  });
+
+  test("a Slack replay carries no channelInbound (Slack keeps slackMeta)", async () => {
+    seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "hello",
+      externalChatId: "C0000001",
+      channelTs: "1700000001.000100",
+    });
+
+    let capturedOptions:
+      | { channelInbound?: Record<string, unknown> }
+      | undefined;
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      capturedOptions = options as {
+        channelInbound?: Record<string, unknown>;
+      };
+      const messageId = "message-slack-no-neutral";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    expect(capturedOptions?.channelInbound).toBeUndefined();
   });
 
   test("replays the sender's Slack app context from the captured slackInbound", async () => {

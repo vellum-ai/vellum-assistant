@@ -23,7 +23,8 @@ export function SkillsReferenceScheduleContent() {
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             Sets up recurring and one-shot scheduled actions using cron syntax, RRULE patterns, or
-            simple timestamps. Your assistant can do things on a schedule without you asking.
+            simple timestamps. Your assistant can do things on a schedule without you asking,
+            including recurring monitoring of a page, dashboard, or status check.
           </p>
         </section>
 
@@ -88,6 +89,14 @@ export function SkillsReferenceScheduleContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
+                    &ldquo;Watch this status page and alert me if a branch is late&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Creates a recurring schedule that checks the page and notifies on exceptions
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2">
                     &ldquo;Show me my active schedules&rdquo;
                   </td>
                   <td className="px-3 py-2">
@@ -139,6 +148,11 @@ export function SkillsReferenceScheduleContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
+              <strong>Recurring monitoring.</strong> Ask the assistant to watch a page or
+              dashboard. It creates a schedule you can pause and edit, not a script to run
+              yourself.
+            </li>
+            <li>
               <strong>Persistent across conversations.</strong> Schedules persist across
               conversations &mdash; set it once and it runs until you cancel it.
             </li>
@@ -154,6 +168,13 @@ export function SkillsReferenceScheduleContent() {
               <strong>Same permission rules.</strong> Scheduled actions run with the same permission
               rules as interactive actions &mdash; your assistant won&apos;t do anything it
               couldn&apos;t do in a normal conversation.
+            </li>
+            <li>
+              <strong>Results reach you.</strong> A schedule that produces output &mdash; a digest,
+              a report, a check whose answer is &ldquo;nothing changed&rdquo; &mdash; delivers it the
+              way you asked: a notification, an email, a Slack post. If a run finishes with output
+              and delivered it nowhere, the assistant sends you its final reply as a notification,
+              so a scheduled run never finishes silently in a conversation you don&apos;t have open.
             </li>
           </ul>
         </section>

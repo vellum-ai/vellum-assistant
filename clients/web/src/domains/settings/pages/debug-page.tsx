@@ -9,14 +9,15 @@ import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-c
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
 import { resolveDebugTabParam } from "@/domains/settings/pages/debug-page.helpers";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 
 const ALL_TABS = [
-  { id: "general", label: "General" },
-  { id: "terminal", label: "Terminal" },
-  { id: "doctor", label: "Doctor" },
-  { id: "conversations", label: "Conversations" },
+  { id: "general", labelKey: "debugPage.tabs.general", defaultLabel: "General" },
+  { id: "terminal", labelKey: "debugPage.tabs.terminal", defaultLabel: "Terminal" },
+  { id: "doctor", labelKey: "debugPage.tabs.doctor", defaultLabel: "Doctor" },
+  { id: "conversations", labelKey: "debugPage.tabs.conversations", defaultLabel: "Conversations" },
 ] as const;
 
 type DebugTabId = (typeof ALL_TABS)[number]["id"];
@@ -24,6 +25,7 @@ type DebugTabId = (typeof ALL_TABS)[number]["id"];
 const DEFAULT_TAB: DebugTabId = "general";
 
 export function DebugPage() {
+  const { t } = useTranslation("settings");
   const [searchParams, setSearchParams] = useSearchParams();
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
@@ -91,7 +93,7 @@ export function DebugPage() {
         <Tabs.List>
           {tabs.map((tab) => (
             <Tabs.Trigger key={tab.id} value={tab.id}>
-              {tab.label}
+              {t(tab.labelKey, tab.defaultLabel)}
             </Tabs.Trigger>
           ))}
         </Tabs.List>

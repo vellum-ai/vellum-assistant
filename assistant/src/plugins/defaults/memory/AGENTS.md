@@ -129,6 +129,107 @@ including the v3 pair defined in `v3/injector.ts` — so `plugins/defaults/index
 imports the array and nothing else. A new tier injector is added to that array,
 never registered from the host.
 
+**v3 injection invariants.** The mechanics are documented in the modules
+that own them (`v3/injector.ts`, `v3/prune.ts`, `v3/ever-injected-store.ts`,
+`v3/plugin-schema.ts`, `substrate/injected-block-slugs.ts`,
+`hooks/injection-metadata.ts`); these are the rules an outside change must
+not break.
+
+- **The section is the unit.** Each turn the `memory-v3` injector renders
+  every section selected for each selected page (its lead when the page was
+  selected with no section; a capability slug renders its whole capability
+  content) into one frozen `<memory>` block, net-new only: a
+  `(conversation, slug, section key)` pair resident in
+  `memory_v3_injected_sections` is never re-rendered. The key is
+  `v3/types.ts`'s `sectionKey()` (`""` for the lead, the trimmed heading title
+  otherwise, `title#<n>` for the n-th repeat of a heading and `~<n>` appended
+  for the n-th chunk of an over-long section, with literal `#` and `~` in
+  titles doubled so the encoding is a bijection), and `sectionRefId()` there
+  is the one string encoding of a `(slug, key)` pair for keying maps and
+  sets. Do not add another.
+- **The block grammar has one owner.** `substrate/injected-block-slugs.ts`
+  writes the `# memory/concepts/<slug>.md § <key>` section header (the bare
+  page header for a lead), escapes every chunk body (`escapeInjectedBody`:
+  one leading backslash on a line that would otherwise read as a boundary,
+  so page or skill text can never forge one) and parses blocks
+  (`parseInjectedSections`). The prune valve, the `loadFromDb` rehydration
+  filter, the truncated-fork seed, and the retry anchor merge all read
+  through it; do not add a second header matcher or chunk splitter. The one
+  exception is `LEGACY_CARD_HEADER_REGEX` in the same file, the pre-stamp
+  card grammar that `parseLegacyCards` alone reads for legacy blocks.
+- **A block's format is explicit provenance, never inferred from its
+  content.** The persisting build stamps `memoryV3InjectedBlockFormat`
+  beside `memoryV3InjectedBlock`; a row is current exactly when its stamp
+  equals the plugin's `MEMORY_V3_INJECTED_BLOCK_FORMAT`, and a row carrying
+  the block without the stamp is legacy (`InjectedBlockFormat` in
+  `v3/types.ts`). A legacy block is read with the card grammar of the build
+  that rendered it (`filterLegacyCards`), each card under its lead ref
+  `(slug, "")`: a card whose lead is tombstoned, or whose lead a current
+  block re-injected after a prune, leaves; nothing else in it is parsed,
+  pruned, counted, indexed, or fork-seeded, and it ages out at compaction.
+- **A block claims its sections only through its commit.** The section
+  record (`recordInjected`) and the prune-valve schedule ride the commit
+  callback the block carries (`memoryV3Commit`), which runtime assembly
+  invokes only where the block persists; re-entry, run-messages-replacement,
+  and post-compaction assemblies attach blocks in memory only and claim
+  nothing, so a turn's sections are recorded once.
+- **Pointers are per message.** Sections re-selected while resident are
+  listed, paths only, in the `memory-v3-pointer` injector's `<memory_pointer>`
+  block, persisted under `memoryV3PointerBlock` on the user message that was
+  sent with it and rehydrated with it; a fresh pointer is spliced only onto
+  the new tail, no historical message is ever rewritten, and the hook's
+  metadata update states the turn's layout including its deletions (a retry
+  re-runs onto its anchor row). The legacy `memoryV3SpotlightBlock` is never
+  written and rehydrates verbatim.
+- **Pruning is tombstones plus filters, never a metadata rewrite.** The prune
+  valve (`v3/prune.ts`, `memory.v3.prune`) evicts by each section row's own
+  `last_selected_at` (the injector stamps every section a turn selects) with
+  no lane exemptions, marks rows `pruned_at`, and strips the pruned sections
+  from the live history and at rehydration; both filter points also keep only
+  each section's newest persisted copy. The live strip owns a `<memory>`
+  block by object identity (`markV3LiveBlock` / `isV3LiveBlock` in
+  `v3/types.ts`), never by text, so a pre-cutover v2 block byte-identical to
+  a v3 entry is left alone.
+- **The store resets only behind a durable strip marker.** The reset
+  (`clearConversation`, through `ConversationGraphMemory.onCompacted`) runs
+  whenever the durable history is injection-stripped, not only when a summary
+  lands: `resetInjectionLedgersForStrip` (in
+  `daemon/conversation-agent-loop-handlers.ts`) runs it from the loop's
+  `compaction_completed` dispatch on a run that compacted nothing and from
+  `applyCompactionResult` on a real compaction, `/clean` runs it the same way,
+  and every reset precedes the re-injection. The reset is gated on the
+  `historyStrippedAt` marker being durable, since a reload with no marker
+  rehydrates the frozen blocks the reset unclaimed: the loop's
+  `history_stripped` dispatch writes the marker at the strip, a write that
+  succeeds there counts for the pair, and when no write succeeds a run that
+  compacted nothing keeps the store intact and commits the injected
+  pre-compaction history instead (the dispatcher reports the outcome to the
+  loop through its run's `injectionLedgerResets`, and the loop continues from
+  the injected history), so residency and the live history agree either way.
+  A compacted result has already lost its frozen blocks to the summary, so
+  there, once the compaction commit has landed, the store resets even without
+  the marker (a reload may rehydrate the
+  kept tail's blocks unclaimed once, until the newest-copy filter retires them
+  behind a re-injected copy), and a reset whose ledger clear fails reports
+  that the same way a missing marker does.
+- **The store is plugin-owned.** `memory_v3_injected_sections`,
+  `memory_v3_pools`, and the `section_key` column of `memory_v3_selections`
+  are created by `v3/plugin-schema.ts` (`ensureMemoryV3PluginSchema` from the
+  `init` hook, and each store's once-per-connection ensure on first use),
+  never by the global migration chain, and every read goes through its
+  fail-soft `memoryReader`, so an unavailable memory database degrades a
+  store to no-ops rather than failing a turn or readiness. The superseded
+  `memory_v3_ever_injected` has exactly one reader, the sections ensure's
+  one-time copy of its rows into the section store as zero-byte lead entries
+  (checkpoint `memory_v3_injected_sections:legacy_copy_done`, below), and
+  two writers, the compaction reset (`clearConversation`) and the
+  conversation purge, which delete a conversation's rows so no later copy
+  re-imports leads whose blocks are gone.
+- **Lanes and caps.** The finder lanes surface in a fixed order and only ever
+  add lines; a page carries at most `memory.v3.finderSectionsPerPage` capped
+  lines plus its entity and rare-term lines (the lane rules are under
+  `memory_v3_pools` below).
+
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
 import disappears fails loudly instead of lingering. Related guards:
@@ -246,26 +347,114 @@ which outlives the v2 engine.
 
 Persisted rows; a rename orphans every existing install.
 
-| Table                             | Owner                               |
-| --------------------------------- | ----------------------------------- |
-| `memory_graph_nodes`              | all-tier (`graph/store.ts`)         |
-| `memory_graph_edges`              | all-tier                            |
-| `memory_graph_triggers`           | all-tier                            |
-| `memory_graph_node_edits`         | all-tier                            |
-| `memory_segments`                 | v1 indexing                         |
-| `memory_summaries`                | v1 indexing                         |
-| `memory_embeddings`               | shared embedding cache              |
-| `memory_checkpoints`              | shared (all durable checkpoints)    |
-| `memory_jobs`                     | shared job queue                    |
-| `memory_recall_logs`              | shared recall audit                 |
-| `conversation_graph_memory_state` | `graph/graph-memory-state-store.ts` |
-| `activation_state`                | v2 per-conversation activation      |
-| `memory_v2_activation_logs`       | v2 inspector/harness                |
-| `memory_v2_injection_events`      | v2 scoring feedback                 |
-| `memory_v3_selections`            | v3 selection log                    |
-| `memory_v3_ever_injected`         | v3 card dedup                       |
-| `memory_retrospective_state`      | retrospective (tier-agnostic)       |
-| `activation_sessions`             | onboarding activation rail          |
+| Table                             | Owner                                                           |
+| --------------------------------- | --------------------------------------------------------------- |
+| `memory_graph_nodes`              | all-tier (`graph/store.ts`)                                     |
+| `memory_graph_edges`              | all-tier                                                        |
+| `memory_graph_triggers`           | all-tier                                                        |
+| `memory_graph_node_edits`         | all-tier                                                        |
+| `memory_segments`                 | v1 indexing                                                     |
+| `memory_summaries`                | v1 indexing                                                     |
+| `memory_embeddings`               | shared embedding cache                                          |
+| `memory_checkpoints`              | shared (all durable checkpoints)                                |
+| `memory_jobs`                     | shared job queue                                                |
+| `memory_recall_logs`              | shared recall audit                                             |
+| `conversation_graph_memory_state` | `graph/graph-memory-state-store.ts`                             |
+| `activation_state`                | v2 per-conversation activation                                  |
+| `memory_v2_activation_logs`       | v2 inspector/harness                                            |
+| `memory_v2_injection_events`      | v2 scoring feedback                                             |
+| `memory_v3_selections`            | v3 selection log (`section_key` column plugin-added, see below) |
+| `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
+| `memory_v3_injected_sections`     | v3 section dedup, prune bytes + recency (plugin-created, below) |
+| `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
+| `memory_retrospective_state`      | retrospective (tier-agnostic)                                   |
+| `activation_sessions`             | onboarding activation rail                                      |
+
+`memory_v3_pools` and `memory_v3_injected_sections` are the plugin's own
+tables, created by the plugin rather than by the global migration chain
+(`v3/plugin-schema.ts`): the memory plugin's `init` hook ensures both on every
+boot, and each store ensures again on the first use of a connection in its
+process (the memory worker is a separate process), idempotently and fail-open,
+so a memory database that cannot be opened degrades the stores to no-ops
+instead of failing database readiness. The sections ensure adds the
+`last_selected_at` column (the prune valve's recency stamp) to a table created
+before it existed, and copies the legacy `memory_v3_ever_injected` rows in as
+zero-byte lead entries, once per database: the first ensure that finds the
+legacy table copies (`INSERT OR IGNORE`) and records
+`memory_v3_injected_sections:legacy_copy_done`
+in `memory_checkpoints`, later ensures skip on that record, and a ledger that
+cannot be read skips the copy rather than repeating it. The compaction reset
+(`clearConversation`) and the conversation purge delete a conversation's
+legacy rows with its section rows, so a copy can never bring back leads whose
+blocks compaction stripped. `memory_v3_selections` itself is created by migration
+338, but its
+`section_key` column is plugin-owned the same way: the selection log's writer
+(`writeTurnLog`) and the inspector's reader (`v3/selection-log-store.ts`) add
+it on the first use of a connection, and the `init` hook at boot. Every
+selection row records one section per slug, the selection's first selected
+section, as its `sectionKey` beside the title and ordinal (an inspector and
+frecency record only; the prune valve's recency lives on the section store's
+rows, see the v3 injection invariants above), and the inspector
+resolves a row by that key first (exactly, so a repeated heading's other
+occurrence is never substituted), falling back to title-then-ordinal only for
+rows written before the column existed.
+
+`memory_v3_pools` (`v3/pool-log-store.ts`) holds one row per turn: the
+selector's full candidate pool (every stable-prefix card and finder line, in
+pool order, with lane, matched section, and a per-line verdict) for the
+inspector's Memory tab, plus `selector_ran`. A page carries one finder line
+per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
+surfacing order (needle, dense, reply, span) plus its entity and rare-term
+lines, and selecting a line selects that section; the selection log keeps
+one row per slug, so the pool row is where the per-section verdicts live. A
+turn whose selector never judged a pool (the injection gate hard-skipped it,
+or nothing was pooled) persists an empty pool with `selector_ran = 0`, and a
+turn that logged no selections is still reachable by its stamped
+`message_id`, so the inspector shows negative verdicts too. The pool row and
+the turn's `memory_v3_selections` rows are
+written in one transaction (`writeTurnLog` in `v3/shadow-plugin.ts`), and a
+turn observed again replaces both, so the pool's `chosen` flags and the
+selection rows always describe the same observation. Rows are per-turn
+diagnostics, roughly 10KB each, with no retention job; a conversation delete
+purges them with the other conversation-keyed tables
+(`conversation-memory-purge.ts`).
+
+**v3 finder lanes.** The per-turn finder lanes (`v3/orchestrate.ts`) surface
+candidates in a fixed order, needle, dense, reply, span, entity, rare, then
+edge and learned, and each only ever adds lines. The entity lane
+(`v3/entity-lane.ts`, `memory.v3.entity`) and the rare-term lane
+(`v3/rare-term-lane.ts`, `memory.v3.rareTerm`) key on one strong token rather
+than the whole message: a distinctive `## ` heading token the message names,
+and a query word rare across the corpus, which surfaces its top `perTerm`
+sections by single-term BM25F (`SectionNeedle.df` and `scoreTerm`), rarest
+words first up to `cap` per turn, with no token-shape filtering (a word the
+corpus does not hold has df 0 and drops out on its own; bigram terms are never
+eligible). Rare is corpus-relative: a word qualifies when its df is at most
+`min(maxDf, max(1, floor(sectionCount * maxDfFraction)))` (defaults 12 and
+0.002), so a corpus of 6,000 sections or more runs at `maxDf` and a corpus of
+a few hundred sections counts only a word unique to one section as rare; an
+absolute ceiling would make most ordinary words of a small corpus rare and
+fill `cap` with noise every turn. Both are synchronous in-memory passes that
+feed neither the injection gate nor the edge seeds, and pool through the same
+`(page, section key)` dedupe as every other lane, so a section another lane
+already pooled is a no-op. Both lanes' lines are outside the per-page cap
+(`memory.v3.finderSectionsPerPage`), neither counted against it nor
+displaced by it, because each lane runs after every lane that fills the cap
+and a page already carrying that many bulk-theme lines would otherwise drop
+exactly the line the lane exists to surface. The lanes' own caps bound what
+they add instead (`entityCap` articles per turn for the entity lane,
+`perTerm` and `cap` for the rare-term lane), so a page carries at most
+`finderSectionsPerPage` capped lines plus its entity and rare lines,
+`finderSectionsPerPage + entityCap + rareTerm.cap` in all. The entity lane runs
+at every corpus size (the lean profile does not switch it off); the
+rare-term lane runs only when the selector does (`v3/shadow-plugin.ts`
+threads `rareTerm` only
+with `selectorEnabled`), because rare lines are candidates for a judge, not
+evidence strong enough to inject unjudged, and with the selector off every
+pooled line is injected. A rare hit's pool line is
+tagged `(rare: <word>)` with a keyword-in-context snippet centered on the
+word, and its selection records `source = 'rare'`; the pool record and the
+selection log carry the lane name with no other change.
 
 ### Job types (`memory_jobs.type`)
 
@@ -317,6 +506,50 @@ failure record and the section re-embed high-water:
   absent the maintain job re-embeds EVERY page, so losing or renaming it forces
   a full rebuild. Distinct from the `memory_v3_maintain_last_run` cadence key
   despite the shared prefix
+- `memory_v3_maintain:section_chunker_version`
+  (`v3/section-dense-store.ts`'s `SECTION_CHUNKER_VERSION_KEY`, current value
+  `SECTION_CHUNKER_VERSION`): the chunker version the stored section vectors
+  were built with. `ensureSectionChunkerVersion` (run at dense lane init and
+  by the maintain job and the backfill before an embed pass) clears the
+  high-water above on a mismatch so the collection is rebuilt from every
+  page, since point ids and dense hits key on `(article, ordinal)`. A store
+  with no version on record counts as stale, not fresh, when a high-water or
+  the pending marker below is on record or the collection already holds
+  points; only an empty collection records the version with nothing to
+  rebuild
+- `memory_v3_maintain:section_rebuild_pending`
+  (`v3/section-dense-store.ts`'s `SECTION_REBUILD_PENDING_KEY`): written
+  before that high-water reset (the marker is the only signal that survives
+  the reset, so an interruption between the two writes leaves the hold in
+  place and the next check finishes the transition) and cleared by
+  `commitSectionEmbedHighWater`, the commit that ends a zero-failure re-embed
+  pass (the maintain job's and the backfill's). While it is set the dense lane
+  serves no hits (`holdSectionDenseReadsUntilRebuilt` at lane init,
+  `sectionDenseReadsHeld` on every dense read), the check that first reports
+  it in this process (at lane init, or retried from the dense read path)
+  enqueues `memory_v3_maintain` at once instead of waiting out the
+  cadence key, and the maintain pass it names re-embeds every capability row
+  the store holds (the change delta never names one) before its commit
+  clears the marker: a stored row whose body renders empty in that process
+  holds the commit until the deleted-page prune removes it, so the marker
+  never clears over points built by the previous chunker. The pass runs in
+  the memory worker, whose skill and CLI caches are never seeded, so a
+  version rebuild there prunes every capability row (its page index lists
+  none) and commits over a store with no capability points, which
+  `backfill-sections` (run in the daemon, caches seeded) restores. A version
+  check that throws (Qdrant unreachable for the collection
+  probe, an unreadable ledger) holds dense reads as indeterminate: the hold
+  ignores the marker's absence, which is what the failed check left unproven,
+  and the dense read path (`settleSectionDenseReadHold`) retries the check at
+  most once a minute (`SECTION_VERSION_CHECK_RETRY_MS`) until one completes,
+  which marks the rebuild pending and kicks it, or releases the hold
+- `memory_v3_injected_sections:legacy_copy_done`
+  (`v3/plugin-schema.ts`'s `SECTIONS_LEGACY_COPY_DONE_KEY`): the legacy
+  `memory_v3_ever_injected` rows were copied into
+  `memory_v3_injected_sections` once on this database, and every later
+  sections ensure skips the copy on it. Losing it repeats the copy, which is
+  idempotent (`INSERT OR IGNORE`) and cannot resurrect a conversation the
+  compaction reset or a purge cleared, since both delete its legacy rows too
 - v1: `graph_maintenance:{decay,consolidate,pattern_scan,narrative}:last_run`,
   `pkb_filing_last_run`, `pkb_compaction_last_run`,
   `graph_bootstrap:*`, `memory:backfill:*`
@@ -333,16 +566,16 @@ failure record and the section re-embed high-water:
 
 ### Wire-visible strings
 
-| Name                                                                                    | Kind                                  | Why frozen                                                          |
-| --------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
-| `memory_v2_consolidation`                                                               | `conversations.source` value          | persisted on every consolidation run                                |
-| `memory_retrospective`                                                                  | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
-| `skill-authored-card`                                                                   | message kind                          | persisted on skill-card messages                                    |
-| `memoryV2Consolidation`, `memoryRetrospective`                                          | LLM call-site ids                     | logging/attribution buckets                                         |
-| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
-| `memory-v2-static`                                                                      | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
-| `MEMORY_V2_DISABLED`                                                                    | error code                            | clients branch on it                                                |
-| `memory.v2.sweep`                                                                       | notification job identifier           | surfaced in `activity.failed`                                       |
+| Name                                                                                                                                                                                         | Kind                                  | Why frozen                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
+| `memory_v2_consolidation`                                                                                                                                                                    | `conversations.source` value          | persisted on every consolidation run                                |
+| `memory_retrospective`                                                                                                                                                                       | request origin / `TitleOrigin` member | the permission checker's skill-authoring auto-grant is scoped to it |
+| `skill-authored-card`                                                                                                                                                                        | message kind                          | persisted on skill-card messages                                    |
+| `memoryV2Consolidation`, `memoryRetrospective`                                                                                                                                               | LLM call-site ids                     | logging/attribution buckets                                         |
+| `memoryInjectedBlock`, `memoryV2StaticBlock`, `memoryV3InjectedBlock`, `memoryV3InjectedBlockFormat`, `memoryV3PointerBlock`, `memoryV3SpotlightBlock` (legacy, read-only), `memoryV3Commit` | message-metadata keys                 | persisted on messages; drives re-injection and the strip            |
+| `memory-v2-static`                                                                                                                                                                           | injector + block id                   | `daemon/conversation-runtime-assembly.ts` matches on it             |
+| `MEMORY_V2_DISABLED`                                                                                                                                                                         | error code                            | clients branch on it                                                |
+| `memory.v2.sweep`                                                                                                                                                                            | notification job identifier           | surfaced in `activity.failed`                                       |
 
 ### HTTP surface
 

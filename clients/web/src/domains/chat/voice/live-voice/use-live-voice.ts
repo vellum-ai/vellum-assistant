@@ -86,6 +86,7 @@ import {
   LiveVoiceChannelClient,
   RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
+  type LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
   LiveVoiceAudioCapture,
@@ -97,6 +98,8 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
+import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
+import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
   type LiveVoiceErrorRecovery,
@@ -187,6 +190,12 @@ export interface UseLiveVoiceResult {
   ) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
+  /**
+   * Put a typed turn to the running session, as the user's own words. `false`
+   * when there is no session up to take it or the assistant does not take
+   * typed turns; the caller keeps the text either way.
+   */
+  sendText: (text: string) => boolean;
 }
 
 /** Per-session options for {@link UseLiveVoiceResult.start}. */
@@ -197,6 +206,12 @@ export interface LiveVoiceStartOptions {
    * socket. Defaults to the legacy per-turn push-to-talk flow.
    */
   handsFree?: boolean;
+  /**
+   * Which control asked for the session, for the daemon's telemetry. Sent on
+   * every connect the session makes, reconnects included: a socket blip does
+   * not change where the user started from.
+   */
+  entry?: LiveVoiceEntry;
   /**
    * A first turn to take on the session's behalf, sent once the microphone is
    * live, so the assistant speaks without waiting for the user.
@@ -211,7 +226,29 @@ export interface LiveVoiceStartOptions {
    * assistant greet twice.
    */
   seedText?: string;
+  /**
+   * Render the seed as the user's own message rather than hiding it. For a
+   * seed that is their words, such as a question they asked from another
+   * application, which reads as theirs in the transcript.
+   */
+  seedVisible?: boolean;
+  /**
+   * End the session once the reply to the seed has been heard, so a question
+   * asked from outside the room is answered and done rather than leaving the
+   * user on an open call. The end waits out a short quiet after playback
+   * drains, since a reply that runs a tool speaks in more than one piece.
+   */
+  endAfterSeedReply?: boolean;
 }
+
+/**
+ * How long a session that ends after its seed's reply waits, once the reply's
+ * audio has drained, for the turn to prove over. A reply that acknowledges and
+ * then runs a tool speaks twice, with the daemon's `thinking` frame for the
+ * tool run arriving inside this window; the user starting to speak lands
+ * inside it too. Either one keeps the session up.
+ */
+export const END_AFTER_SEED_REPLY_QUIET_MS = 2000;
 
 /** Injectable factories so tests can supply mock primitives. */
 export interface UseLiveVoiceOptions {
@@ -248,6 +285,12 @@ export interface UseLiveVoiceOptions {
    * uses {@link HELD_PLAYBACK_TIMEOUT_MS}.
    */
   heldPlaybackTimeoutMs?: number;
+  /**
+   * Override how long a session that ends after its seed's reply waits for the
+   * turn to prove over. Primarily a test seam; production uses
+   * {@link END_AFTER_SEED_REPLY_QUIET_MS}.
+   */
+  endAfterSeedReplyQuietMs?: number;
 }
 
 /**
@@ -270,6 +313,8 @@ interface SessionContext {
    * to `listening` instead of tearing down.
    */
   handsFree: boolean;
+  /** Where the session was started from; reused verbatim on reconnect. */
+  entry: LiveVoiceEntry | undefined;
   /**
    * In-flight (or settled) mic acquisition — `capture.start()` kicked off at
    * connect time by {@link beginCaptureStartup} so getUserMedia + the worklet
@@ -300,6 +345,12 @@ interface SessionContext {
   responseEpoch: number;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
+  /**
+   * Whether the session ends once the reply to its seed has been heard (see
+   * `LiveVoiceStartOptions.endAfterSeedReply`). Set when the seed goes out and
+   * spent by the end that follows, so a reconnect never inherits it.
+   */
+  endAfterReply: boolean;
   /** Whether an automatic ptt_release is already in flight for this utterance. */
   releaseInFlight: boolean;
   /** Accumulated speech duration (ms) in the current utterance. */
@@ -452,7 +503,14 @@ export function useLiveVoice(
   // reconnect path and greets a second time on a socket blip. The ref outlives
   // every attempt, so a connect that fails before `ready` still owes the
   // greeting to whichever attempt finally lands.
-  const pendingSeedTextRef = useRef<string | null>(null);
+  //
+  // The seed's own options ride with it, since the connect attempts that
+  // follow the first carry no start options of their own.
+  const pendingSeedRef = useRef<{
+    text: string;
+    visible: boolean;
+    endAfterReply: boolean;
+  } | null>(null);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -661,14 +719,21 @@ export function useLiveVoice(
   }, []);
 
   /**
-   * Park a sampled camera frame for the next turn, or unpark with `null`.
-   * Returns whether it reached the transport, which the caller may ignore: a
-   * frame dropped in the reconnect gap is replaced by the next keep a few
-   * seconds later, and unlike a photo nobody pressed anything to produce it.
+   * Share a kept camera frame, which the daemon persists as its own message.
+   * Returns whether it reached the transport, which the caller may ignore
+   * where a photo's false has to be surfaced: nobody pressed anything, and the
+   * next keep is a few seconds away. A frame dropped in the
+   * reconnect gap is right to drop, since the fresh session is the one that
+   * would persist it and the moment it belonged to has passed.
    */
-  const attachFrame = useCallback((attachmentId: string | null): boolean => {
-    return sessionRef.current?.client.attachFrame(attachmentId) ?? false;
-  }, []);
+  const sightFrame = useCallback(
+    (attachmentId: string, timing?: LiveVoiceSightFrameTiming): boolean => {
+      return (
+        sessionRef.current?.client.sightFrame(attachmentId, timing) ?? false
+      );
+    },
+    [],
+  );
 
   const createPlayer = useCallback(
     () =>
@@ -766,7 +831,7 @@ export function useLiveVoice(
         setOutputMuted,
         updateConfig,
         attachImage,
-        attachFrame,
+        sightFrame,
       });
 
       const opts = optionsRef.current;
@@ -805,11 +870,13 @@ export function useLiveVoice(
         unsubscribes: [],
         generation: 0,
         handsFree: startOptions.handsFree === true,
+        entry: startOptions.entry,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
         responseEpoch: 0,
         interruptSent: false,
+        endAfterReply: false,
         releaseInFlight: false,
         speechMs: 0,
         silenceMs: 0,
@@ -829,14 +896,6 @@ export function useLiveVoice(
         onChunk: (buf) => handleChunk(session, buf),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
-        // Full-duplex capture runs without AGC. Barge-in is decided on the
-        // daemon by comparing mean absolute amplitude against a threshold on
-        // the absolute 16-bit scale, and AGC is a moving gain in front of that
-        // fixed number: it lifts a quiet room's noise floor toward the level
-        // speech reaches in a loud one, so ordinary room noise clears the gate
-        // and cancels the reply. Every other consumer of this capture pipeline
-        // is half-duplex and keeps the default (JARVIS-1694).
-        autoGainControl: false,
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -861,6 +920,32 @@ export function useLiveVoice(
       const generation = session.generation;
       const live = () =>
         sessionRef.current === session && session.generation === generation;
+
+      // The reply to the seed has been heard. Wait out the quiet before
+      // ending, and end only if nothing has started since: a `thinking`
+      // frame for a tool run bumps the epoch, an utterance the user has
+      // open keeps the session for them, and an accepted one disarms the
+      // end outright. Runs again after a discarded utterance, since room
+      // noise that opened one and was retracted is not the user carrying on.
+      const endAfterReplyWhenQuiet = (): void => {
+        if (!live() || !session.endAfterReply) {
+          return;
+        }
+        const epoch = session.responseEpoch;
+        setTimeout(() => {
+          if (
+            !live() ||
+            !session.endAfterReply ||
+            session.responseEpoch !== epoch ||
+            session.utteranceOpen ||
+            useLiveVoiceStore.getState().state !== "listening"
+          ) {
+            return;
+          }
+          session.endAfterReply = false;
+          void stop();
+        }, opts.endAfterSeedReplyQuietMs ?? END_AFTER_SEED_REPLY_QUIET_MS);
+      };
 
       session.unsubscribes.push(
         client.on("ready", (frame) => {
@@ -918,15 +1003,33 @@ export function useLiveVoice(
             if (!live() || !session.captureRunning) {
               return;
             }
-            const seedText = pendingSeedTextRef.current;
-            pendingSeedTextRef.current = null;
-            if (seedText !== null) {
-              // `hidden`: the seed is an instruction, not something the user
-              // typed, so it drives the turn and stays in the model's context
-              // while never rendering in the transcript. An assistant too old
-              // to know the field persists it visibly instead, which is why
-              // the copy still reads as a sentence a person could have sent.
-              sendTextTurn(session, seedText, { hidden: true });
+            const seed = pendingSeedRef.current;
+            pendingSeedRef.current = null;
+            if (seed !== null) {
+              // `hidden`: a seed that is an instruction rather than something
+              // the user typed drives the turn and stays in the model's
+              // context while never rendering in the transcript. An assistant
+              // too old to know the field persists it visibly instead, which
+              // is why the copy still reads as a sentence a person could have
+              // sent. A seed that is the user's own words renders as theirs.
+              const sent = sendTextTurn(session, seed.text, {
+                hidden: !seed.visible,
+              });
+              if (sent && seed.endAfterReply) {
+                session.endAfterReply = true;
+              }
+              // A session that exists for its seed has nothing to do when
+              // the assistant cannot take the turn (one that predates typed
+              // turns declines it at `sendText`'s gate). Left up, it would
+              // be an open microphone with the question silently gone, so
+              // it fails instead and says why.
+              if (!sent && seed.endAfterReply) {
+                finishWithError(
+                  session,
+                  teardown,
+                  fixedT("chat")("liveVoiceStatus.askUnsupported"),
+                );
+              }
             }
           });
         }),
@@ -960,6 +1063,11 @@ export function useLiveVoice(
           session.utteranceOpen = false;
           const s = useLiveVoiceStore.getState();
           s.setUtteranceOpen(false);
+          // The user carrying on is the conversation continuing: a session
+          // that was to end after its seed's reply stays up for as long as
+          // they want it. An accepted utterance rather than an onset, since
+          // server VAD opens one for room noise too.
+          session.endAfterReply = false;
           // End of user speech: stamp the client-heard latency start; the
           // response's first tts_audio consumes it (see
           // beginAssistantAudioIfNeeded). Manual mode stamps at the
@@ -978,6 +1086,12 @@ export function useLiveVoice(
           // The discarded utterance never becomes a turn: drop its
           // end-of-speech stamp so it can't pair with a later turn's audio.
           session.speechEndedAtMs = null;
+          // The onset that opened this utterance also held off the end of a
+          // session that was to end after its reply. Nothing was said, so the
+          // end is owed again once whatever is playing has been heard.
+          void session.player.waitUntilDrained().then(() => {
+            endAfterReplyWhenQuiet();
+          });
           // The utterance the barge-in opened held no speech, so the barge-in
           // was wrong: put the flushed reply back rather than leaving silence
           // where the answer was. Resuming sets `speaking` itself.
@@ -1146,7 +1260,9 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
-          void finishResponseAfterPlayback(session, teardown);
+          void finishResponseAfterPlayback(session, teardown).then(() => {
+            endAfterReplyWhenQuiet();
+          });
         }),
         client.on("minimizeRoom", () => {
           if (!live()) {
@@ -1229,6 +1345,17 @@ export function useLiveVoice(
           // room retract the thumbnail it has already shown as sent.
           useLiveVoiceStore.getState().notePhotoRejected(rejected.reason);
         }),
+        client.on("sightFrameRejected", (rejected) => {
+          if (!live()) {
+            return;
+          }
+          // The room's sight surface is the only thing that can act on this:
+          // it owns the uploads and the frame on screen. The store works out
+          // which of the two the refusal calls for.
+          useLiveVoiceStore
+            .getState()
+            .noteSightFrameRefused(rejected.unsupported, rejected.attachmentId);
+        }),
         client.on("busy", (frame) => {
           if (!live()) {
             return;
@@ -1299,7 +1426,7 @@ export function useLiveVoice(
                 setOutputMuted,
                 updateConfig,
                 attachImage,
-                attachFrame,
+                sightFrame,
               });
               console.warn(
                 `live-voice: initial connect failed (${err.reason}); retrying ` +
@@ -1309,6 +1436,7 @@ export function useLiveVoice(
                 reconnectTimerRef.current = null;
                 void connectSessionRef.current?.(assistantId, conversationId, {
                   handsFree: true,
+                  ...(session.entry ? { entry: session.entry } : {}),
                 });
               }, delayMs);
               return;
@@ -1368,7 +1496,7 @@ export function useLiveVoice(
               setOutputMuted,
               updateConfig,
               attachImage,
-              attachFrame,
+              sightFrame,
             });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
@@ -1378,6 +1506,7 @@ export function useLiveVoice(
               reconnectTimerRef.current = null;
               void connectSessionRef.current?.(assistantId, conversationId, {
                 handsFree: true,
+                ...(session.entry ? { entry: session.entry } : {}),
               });
             }, delayMs);
             return;
@@ -1401,6 +1530,7 @@ export function useLiveVoice(
       await client.connect({
         assistantId,
         conversationId,
+        ...(session.entry ? { entry: session.entry } : {}),
         ...(session.handsFree
           ? {
               turnDetection: "server_vad" as const,
@@ -1421,7 +1551,7 @@ export function useLiveVoice(
       setOutputMuted,
       updateConfig,
       attachImage,
-      attachFrame,
+      sightFrame,
       createPlayer,
     ],
   );
@@ -1459,7 +1589,15 @@ export function useLiveVoice(
       // Armed here rather than inside `connectSession`, which the reconnect
       // path also enters carrying the same `startOptions`: a session that
       // already greeted must not greet again when its socket comes back.
-      pendingSeedTextRef.current = startOptions?.seedText?.trim() || null;
+      const seedText = startOptions?.seedText?.trim() || null;
+      pendingSeedRef.current =
+        seedText === null
+          ? null
+          : {
+              text: seedText,
+              visible: startOptions?.seedVisible === true,
+              endAfterReply: startOptions?.endAfterSeedReply === true,
+            };
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],
@@ -1470,6 +1608,19 @@ export function useLiveVoice(
   // non-idle phase (which would keep dictation disabled via the composer) and
   // cancels any pending reconnect so it can't fire after unmount.
   useEffect(() => () => teardown(), [teardown]);
+
+  /**
+   * Put a typed turn to the running session, as the user's own words.
+   * `false` when there is no session up to take it, or the assistant does
+   * not take typed turns; the caller keeps the text either way.
+   */
+  const sendText = useCallback((text: string): boolean => {
+    const session = sessionRef.current;
+    if (!session) {
+      return false;
+    }
+    return sendTextTurn(session, text);
+  }, []);
 
   return {
     state,
@@ -1482,6 +1633,7 @@ export function useLiveVoice(
     cancelPrewarmedPlayback,
     start,
     stop,
+    sendText,
   };
 }
 

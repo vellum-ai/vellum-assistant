@@ -86,21 +86,31 @@ describe("LoginPage native split", () => {
     expect(screen.queryByText("Welcome to Vellum")).toBeNull();
   });
 
-  test("the wait holds the native splash on native", () => {
+  test("the wait holds the same welcome shell on native", () => {
     authEntry.initializing = true;
     authEntry.native = true;
     renderEntry();
 
-    expect(screen.getAllByAltText("Vellum").length).toBeGreaterThan(0);
-    expect(screen.queryByLabelText("Loading")).toBeNull();
+    expect(screen.getByLabelText("Loading")).toBeTruthy();
+    expect(screen.queryByText("Welcome to Vellum")).toBeNull();
   });
 
-  test("the native sign-in screen offers the splash CTA, not the welcome screen", () => {
+  /**
+   * The phone builds are a shell around this same app, so their front door is
+   * the browser's front door: the heading, the body line, and the avatar wave
+   * behind them. Only the handoff is native, and only the secondary action
+   * differs: signup is a web route the native shell does not offer.
+   */
+  test("the native sign-in screen is the welcome screen, minus the signup link", () => {
     authEntry.native = true;
     renderEntry();
 
+    expect(screen.getByText("Welcome to Vellum")).toBeTruthy();
+    // AuthKit hosts the provider selection, so the native screen offers this
+    // one button and nothing beside it. See `docs/CAPACITOR.md`.
     expect(screen.getByText("Sign in")).toBeTruthy();
-    expect(screen.queryByText("Welcome to Vellum")).toBeNull();
+    expect(screen.queryByText("Sign up")).toBeNull();
+    expect(screen.queryByText("Continue without account")).toBeNull();
   });
 });
 

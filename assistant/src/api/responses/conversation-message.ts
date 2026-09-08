@@ -22,6 +22,7 @@
  * gateway, evals) import via `@vellumai/assistant-api`.
  */
 
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import {
@@ -358,6 +359,7 @@ const SlackMessageLinkSchema = z.object({
 
 const SlackReactionSchema = z.object({
   emoji: z.string(),
+  ...ReactionEmojiFieldsSchema.shape,
   op: z.enum(["added", "removed"]),
   actorDisplayName: z.string().optional(),
   targetChannelTs: z.string(),
@@ -621,6 +623,7 @@ export const ConversationMessageSchema = z.object({
   reaction: z
     .object({
       emoji: z.string(),
+      ...ReactionEmojiFieldsSchema.shape,
       op: z.enum(["added", "removed"]),
       targetMessageId: z.string(),
       actorDisplayName: z.string().optional(),
@@ -639,6 +642,11 @@ export const ConversationMessageSchema = z.object({
     })
     .optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
+  /** Unix ms at which the message was deleted on its channel after the daemon
+   *  stored it (a Slack or Discord deletion the gateway forwarded). The stored
+   *  content stays for audit and the Inspect view; clients render a tombstone
+   *  in place of the content, mirroring what the channel now shows. */
+  deletedAt: z.number().optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's
    * in-memory queue (enqueued while the agent was mid-turn, not yet drained or

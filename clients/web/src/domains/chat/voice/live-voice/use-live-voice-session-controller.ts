@@ -30,6 +30,11 @@
  * audio focus ({@link useNativeAudioSessionLifecycle}) and both halves of the
  * platform status surface — what it shows ({@link useLiveActivityMirror}) and
  * what its buttons do ({@link useLiveActivityControls}).
+ *
+ * And it is where duties that must outlive the room UI live, because this
+ * mount does: {@link useSightFrameReclaimer} gives back camera-frame uploads
+ * an assistant refused, which the room cannot be trusted to do while it is
+ * minimized and therefore unmounted.
  */
 
 import { useEffect, useLayoutEffect, useRef } from "react";
@@ -48,6 +53,8 @@ import {
 import { drainPendingVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useLiveActivityControls } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
+import { useLiveVoiceScreenShare } from "@/domains/chat/voice/live-voice/use-live-voice-screen-share";
+import { useSightFrameReclaimer } from "@/domains/chat/voice/live-voice/use-sight-frame-reclaimer";
 import {
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
@@ -172,10 +179,11 @@ export function useLiveVoiceSessionController(
   // `observeAudioState: false` — the controller consumes nothing reactive
   // beyond the low-frequency `state`/`error` fields, so high-frequency
   // amplitude/transcript updates must not re-render the mounting layout.
-  const { start, prewarmPlayback, cancelPrewarmedPlayback } = useLiveVoice({
-    ...options,
-    observeAudioState: false,
-  });
+  const { start, sendText, prewarmPlayback, cancelPrewarmedPlayback } =
+    useLiveVoice({
+      ...options,
+      observeAudioState: false,
+    });
 
   // A parked start-voice request is drained here, and the drain lands on the
   // conversation it mints for the session (see `start-voice-request.ts`). Held
@@ -199,8 +207,12 @@ export function useLiveVoiceSessionController(
         // when the daemon's `ready` doesn't echo `server_vad`.
         void start(assistantId, conversationId ?? undefined, {
           handsFree: true,
+          ...(options?.entry ? { entry: options.entry } : {}),
           ...(options?.seedText ? { seedText: options.seedText } : {}),
+          ...(options?.seedVisible ? { seedVisible: true } : {}),
+          ...(options?.endAfterSeedReply ? { endAfterSeedReply: true } : {}),
         }),
+      sendText,
     });
     // A start-voice deep link that arrived before this mount (cold launch from
     // Siri / the Action Button / a Live Activity tap) is parked; now that a
@@ -211,7 +223,7 @@ export function useLiveVoiceSessionController(
     return () => {
       useLiveVoiceStore.getState().setStarter(null);
     };
-  }, [start, prewarmPlayback, cancelPrewarmedPlayback]);
+  }, [start, sendText, prewarmPlayback, cancelPrewarmedPlayback]);
 
   // The drain's second trigger, and the only one a parked request has once the
   // starter is registered: the effect above runs on the starter's identity, not
@@ -247,4 +259,12 @@ export function useLiveVoiceSessionController(
   // The island's inbound half. Separate from the mirror because it reaches the
   // session and the mirror may not; see `use-live-activity-controls.ts`.
   useLiveActivityControls();
+  // Camera-frame cleanup. Here rather than in the room because a minimized
+  // room is not mounted, and an upload refused while it is minimized would
+  // otherwise be stranded when the call ends.
+  useSightFrameReclaimer();
+  // The screen the companion's share control shows the session. Here rather
+  // than in the room for the reason the reclaimer is: on a companion call the
+  // room is not open at all.
+  useLiveVoiceScreenShare();
 }

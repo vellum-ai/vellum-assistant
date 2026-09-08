@@ -2,7 +2,7 @@
  * UI surface tool definitions.
  *
  * These tools allow the model to show, update, and dismiss just-in-time UI
- * surfaces (cards, tables, forms, confirmations) on a connected macOS client.
+ * surfaces (cards, tables, forms, confirmations) on a connected desktop client.
  * They are proxy tools -- execution is forwarded to the client and never
  * handled locally by the daemon.
  */
@@ -13,6 +13,7 @@ import {
 } from "../../api/surfaces.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
+import { desktopClientName } from "../client-os.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -37,7 +38,7 @@ const APP_BUILDER_BUILD_RE =
   /\b(build|building|built|create|creating|created|make|making|made|generate|generating|generated)\b/i;
 
 /**
- * Forward execution to the connected macOS client via the request-bound
+ * Forward execution to the connected desktop client via the request-bound
  * `proxyToolResolver`. Returns a structured error when no resolver is
  * configured (e.g. no client connected) so callers see a normal tool
  * failure rather than an unhandled throw.
@@ -88,7 +89,7 @@ function proxyExecute(toolName: string) {
 
     if (!context.proxyToolResolver) {
       return {
-        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected macOS client).`,
+        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected ${desktopClientName(context)} client).`,
         isError: true,
       };
     }

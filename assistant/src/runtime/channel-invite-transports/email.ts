@@ -2,16 +2,18 @@
  * Email channel invite adapter.
  *
  * Resolves the assistant's email address for use in invite instructions.
- * Reads the address from workspace config (`email.address`). Returns
- * `undefined` when no address is configured, which causes the invite
+ * The address is a managed inbox registration, which lives on the platform
+ * (nothing about one lands in workspace config), so it resolves through the
+ * shared registered-inbox reader. Returns `undefined` when no address is
+ * registered or the platform cannot be asked, which causes the invite
  * instruction generator to emit generic "on Email" wording.
  *
  * Email invites use the universal 6-digit code path for redemption, so
- * this adapter only implements `resolveChannelHandleAsync` — no
+ * this adapter only implements `resolveChannelHandleAsync`, with no
  * `buildShareLink` or `extractInboundToken` needed.
  */
 
-import { getNestedValue, loadRawConfig } from "../../config/loader.js";
+import { resolveRegisteredInbox } from "../../email/registered-inbox.js";
 import type { ChannelInviteAdapter } from "../channel-invite-types.js";
 
 // ---------------------------------------------------------------------------
@@ -23,13 +25,12 @@ export const emailInviteAdapter: ChannelInviteAdapter = {
 
   async resolveChannelHandleAsync(): Promise<string | undefined> {
     try {
-      const raw = loadRawConfig();
-      const address = getNestedValue(raw, "email.address");
-      if (typeof address === "string" && address.length > 0) {
-        return address;
+      const inbox = await resolveRegisteredInbox();
+      if (inbox.status === "registered") {
+        return inbox.address;
       }
     } catch {
-      // Config unavailable
+      // Platform unavailable; fall through to generic wording
     }
     return undefined;
   },

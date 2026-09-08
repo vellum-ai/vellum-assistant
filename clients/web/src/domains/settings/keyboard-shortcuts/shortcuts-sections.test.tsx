@@ -56,7 +56,13 @@ beforeEach(() => {
   catalog = [
     hotkey("globalHotkey", "Open Vellum", "global", "CmdOrCtrl+Shift+G"),
     hotkey("newConversation", "New chat", "menu", "CmdOrCtrl+N"),
-    hotkey("home", "Home", "menu", "CmdOrCtrl+Alt+H", "CmdOrCtrl+Alt+H"),
+    hotkey(
+      "popOut",
+      "Pop out conversation",
+      "menu",
+      "CmdOrCtrl+Alt+H",
+      "CmdOrCtrl+Alt+H",
+    ),
     // Reserved (non-rebindable) — must not render a row but must block binds.
     hotkey("find", "Find", "menu", "CmdOrCtrl+F", null, false),
   ];
@@ -122,7 +128,9 @@ describe("ShortcutsSections", () => {
 
   test("blocks binding over a reserved accelerator", async () => {
     render(<ShortcutsSections />);
-    fireEvent.click(await screen.findByLabelText("Record shortcut for Home"));
+    fireEvent.click(
+      await screen.findByLabelText("Record shortcut for Pop out conversation"),
+    );
 
     // CmdOrCtrl+F is reserved for Find, which the UI does not list as a row.
     fireEvent.keyDown(document.body, { code: "KeyF", metaKey: true });
@@ -147,20 +155,22 @@ describe("ShortcutsSections", () => {
 
   test("Reset clears the override with null", async () => {
     render(<ShortcutsSections />);
-    fireEvent.click(await screen.findByLabelText("Reset Home to default"));
+    fireEvent.click(
+      await screen.findByLabelText("Reset Pop out conversation to default"),
+    );
 
-    expect(setHotkey).toHaveBeenCalledWith("home", null);
+    expect(setHotkey).toHaveBeenCalledWith("popOut", null);
   });
 
   test("blocks a reset whose default is now used by another command", async () => {
-    // Home was moved off its default, and that freed default was since claimed
-    // by New chat. Resetting Home must not resurrect the now-occupied default
-    // (which would leave both commands bound to it), the same guard recording
-    // applies.
+    // Pop out was moved off its default, and that freed default was since
+    // claimed by New chat. Resetting it must not resurrect the now-occupied
+    // default (which would leave both commands bound to it), the same guard
+    // recording applies.
     catalog = [
       hotkey(
-        "home",
-        "Home",
+        "popOut",
+        "Pop out conversation",
         "menu",
         "CmdOrCtrl+Alt+J",
         "CmdOrCtrl+Alt+J",
@@ -177,7 +187,9 @@ describe("ShortcutsSections", () => {
     ];
 
     render(<ShortcutsSections />);
-    fireEvent.click(await screen.findByLabelText("Reset Home to default"));
+    fireEvent.click(
+      await screen.findByLabelText("Reset Pop out conversation to default"),
+    );
 
     expect(setHotkey).not.toHaveBeenCalled();
     expect(

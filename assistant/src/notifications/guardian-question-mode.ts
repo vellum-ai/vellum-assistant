@@ -14,7 +14,12 @@ import { z } from "zod";
 
 import { externalSourceLinkSchema } from "../messaging/channel-binding-schema.js";
 import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
-import { nonEmpty } from "./notification-utils.js";
+import {
+  nonEmpty,
+  stripReplyMechanicsFromCopy,
+  stripRequestCodeDirectives,
+} from "./notification-utils.js";
+import type { RenderedChannelCopy } from "./types.js";
 
 // ── Schema primitives ──────────────────────────────────────────────────
 
@@ -99,6 +104,8 @@ export const PendingQuestionPayloadSchema =
 const sourceReferenceFields = {
   /** Channel-native chat/conversation id the request originated from. */
   sourceChatId: z.string().optional(),
+  /** Display name of the originating chat, when ingress captured one. */
+  sourceChatName: z.string().optional(),
   /** Deep link to the originating message/thread, when derivable. */
   sourceLink: externalSourceLinkSchema.optional(),
 };
@@ -162,6 +169,7 @@ export const LenientToolApprovalPayloadSchema = z.object({
   riskLevel: z.string().nullable().optional(),
   commandPreview: z.string().nullable().optional(),
   sourceChatId: z.string().nullable().optional(),
+  sourceChatName: z.string().nullable().optional(),
   sourceLink: sourceReferenceFields.sourceLink.nullable(),
 });
 
@@ -190,6 +198,8 @@ export const ToolApprovalSourceViewSchema = z.object({
   channel: z.string(),
   /** Channel-native chat id, when the payload carries one. */
   chatId: z.string().optional(),
+  /** Display name of the originating chat, when ingress captured one. */
+  chatName: z.string().optional(),
   /** Whether the source chat is a Slack direct message (`false` for other channels). */
   isSlackDm: z.boolean(),
   /** Link to the originating message/thread, when derivable. */
@@ -205,10 +215,36 @@ export type ToolApprovalSourceView = z.infer<
  * facts. Returns `undefined` when the payload names no chat and carries no
  * link — renderers then fall back to the plain channel label.
  */
+/**
+ * Bare display label for the source chat, derived once for every
+ * renderer: `Direct message` for a DM, `#name` for a named channel,
+ * `#<id>` when only the id is known, empty when the view names no chat.
+ * Slack-scoped like the facts it reads; surfaces add their own framing
+ * (the card prefixes the channel word, the bell uses it bare).
+ */
+export function describeSlackChatLabel(
+  view: Pick<ToolApprovalSourceView, "chatId" | "chatName" | "isSlackDm">,
+): string {
+  if (view.isSlackDm) {
+    return "Direct message";
+  }
+  if (view.chatName) {
+    return `#${view.chatName}`;
+  }
+  if (view.chatId) {
+    return `#${view.chatId}`;
+  }
+  return "";
+}
+
 export function buildToolApprovalSourceView(
   p: Pick<
     LenientToolApprovalPayload,
-    "sourceChannel" | "sourceChatId" | "sourceLink" | "requesterChatId"
+    | "sourceChannel"
+    | "sourceChatId"
+    | "sourceChatName"
+    | "sourceLink"
+    | "requesterChatId"
   >,
 ): ToolApprovalSourceView | undefined {
   const channel = nonEmpty(p.sourceChannel);
@@ -225,6 +261,7 @@ export function buildToolApprovalSourceView(
   return {
     channel,
     chatId,
+    chatName: nonEmpty(p.sourceChatName),
     isSlackDm:
       channel === "slack" && chatId != null && isSlackDmConversation(chatId),
     permalink,
@@ -271,7 +308,6 @@ export function buildQuestionOptionActionId(index: number): string {
  */
 export function buildQuestionDeliveryText(p: {
   questionText: string;
-  requestCode?: string;
   options?: readonly { label: string }[];
 }): string {
   const parts = [p.questionText];
@@ -281,12 +317,6 @@ export function buildQuestionDeliveryText(p: {
       options
         .map((option, index) => `${index + 1}. ${option.label}`)
         .join("\n"),
-    );
-  }
-  const requestCode = p.requestCode?.trim();
-  if (requestCode) {
-    parts.push(
-      buildGuardianRequestCodeInstruction(requestCode.toUpperCase(), "answer"),
     );
   }
   return parts.join("\n\n");
@@ -565,100 +595,6 @@ export function buildGuardianDisambiguationExample(
   return `For ${category}: ${replyDirective.replace(/^Reply/, "reply")}`;
 }
 
-export function hasGuardianRequestCodeInstruction(
-  text: string | undefined,
-  requestCode: string,
-  mode: GuardianQuestionInstructionMode,
-): boolean {
-  if (typeof text !== "string") {
-    return false;
-  }
-  const upper = text.toUpperCase();
-  const normalizedCode = requestCode.toUpperCase();
-
-  switch (mode) {
-    case "approval":
-      return (
-        upper.includes(`${normalizedCode} APPROVE`) &&
-        upper.includes(`${normalizedCode} REJECT`)
-      );
-    case "answer": {
-      const hasAnswerInstruction = upper.includes(
-        `${normalizedCode} <YOUR ANSWER>`,
-      );
-      const hasApprovalInstruction =
-        upper.includes(`${normalizedCode} APPROVE`) ||
-        upper.includes(`${normalizedCode} REJECT`);
-      return hasAnswerInstruction && !hasApprovalInstruction;
-    }
-    default: {
-      const _never: never = mode;
-      return _never;
-    }
-  }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function normalizeInstructionText(value: string): string {
-  return value
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function buildApprovalInstructionPattern(escapedCode: string): RegExp {
-  return new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
-    "ig",
-  );
-}
-
-function buildAnswerInstructionPattern(escapedCode: string): RegExp {
-  return new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
-    "ig",
-  );
-}
-
-export function stripConflictingGuardianRequestInstructions(
-  text: string,
-  requestCode: string,
-  mode: GuardianQuestionInstructionMode,
-): string {
-  const escapedCode = escapeRegExp(requestCode);
-  const next =
-    mode === "answer"
-      ? text.replace(buildApprovalInstructionPattern(escapedCode), "")
-      : text.replace(buildAnswerInstructionPattern(escapedCode), "");
-
-  return normalizeInstructionText(next);
-}
-
-/**
- * Remove every request-code reply instruction (both modes) plus bare
- * "Reference code: X." / "Approval code: X." mentions from copy destined
- * for a surface that renders interactive Approve/Reject buttons, where
- * code-reply instructions are redundant noise.
- */
-export function stripGuardianRequestCodeInstructions(
-  text: string,
-  requestCode: string,
-): string {
-  const escapedCode = escapeRegExp(requestCode);
-  const next = text
-    .replace(buildApprovalInstructionPattern(escapedCode), "")
-    .replace(buildAnswerInstructionPattern(escapedCode), "")
-    .replace(
-      new RegExp(`(?:Reference|Approval)\\s+code:\\s*${escapedCode}\\.?`, "ig"),
-      "",
-    );
-
-  return normalizeInstructionText(next);
-}
-
 /**
  * Parse a guardian.question payload that renders channel-native
  * Approve/Reject actions on button-capable channels: it parses strictly,
@@ -679,6 +615,35 @@ export function parseInteractiveApprovalPayload(
   }
   return nonEmpty(parsed.requestId) ? parsed : null;
 }
+
+// ── Reply mechanics ─────────────────────────────────────────────────────
+
+/**
+ * Remove request-code reply mechanics from one channel's copy of a
+ * `guardian.question` signal. Composed copy never carries them: the
+ * broadcaster's `plainTextFallback` does, and a transport appends it only
+ * when it sends text without buttons. What this removes is the model's own
+ * echo of the mechanics, in either mode, plus bare code mentions; a field
+ * left empty becomes the request's question text.
+ */
+export function stripGuardianReplyMechanicsFromCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+  questionText: string | undefined,
+): RenderedChannelCopy {
+  return stripReplyMechanicsFromCopy(copy, {
+    strip: (text) => stripRequestCodeDirectives(text, requestCode),
+    ask: questionText,
+    headline: GUARDIAN_QUESTION_TITLE,
+  });
+}
+
+/**
+ * The deterministic title for a `guardian.question` notification: the
+ * template composer's own, and what a title that was nothing but reply
+ * mechanics becomes.
+ */
+export const GUARDIAN_QUESTION_TITLE = "Guardian Question";
 
 /**
  * Resolve guardian reply instruction mode from a raw context payload.

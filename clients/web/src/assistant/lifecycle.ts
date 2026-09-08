@@ -1,6 +1,7 @@
 import { extractErrorMessage } from "@/utils/api-errors";
 
 import type { GetAssistantResult } from "@/assistant/api";
+import type { AssistantState } from "@/assistant/types";
 
 export type ResolvedAssistantLifecycleState =
   | { kind: "active" }
@@ -42,6 +43,25 @@ export function isTransportShapedError(
   }
   const detail = typeof error.detail === "string" ? error.detail : "";
   return detail.includes("net::ERR_");
+}
+
+/**
+ * Whether this lifecycle kind can serve chat queries and the surfaces
+ * that mirror them (sidebar, Home Screen widgets, dock badge).
+ *
+ * `active` is a running assistant. `self_hosted` is too, once the
+ * self-hosted chat flag is on: the platform record is provisioned and
+ * the daemon is the runtime, so the same conversation list that ChatPage
+ * already renders must also reach the layout-owned queries.
+ */
+export function assistantStateCanServeChat(
+  kind: AssistantState["kind"],
+  selfHostedChatEnabled: boolean,
+): boolean {
+  return (
+    kind === "active" ||
+    (kind === "self_hosted" && selfHostedChatEnabled)
+  );
 }
 
 export function resolveAssistantLifecycleState(

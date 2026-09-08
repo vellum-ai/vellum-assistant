@@ -3,15 +3,14 @@ import type { MessageAudience } from "@vellumai/gateway-client";
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
-import { readProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { editChannelMessage } from "../messaging/providers/index.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getMessageById,
   getMessages,
-  updateMessageMetadata,
+  parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { isReactionMessageMetadata } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
@@ -20,6 +19,7 @@ import {
   containsNoResponseMarker,
   stripNoResponseMarkers,
 } from "./no-response.js";
+import { makeSentMessageIdReconciler } from "./outbound-post-reconciliation.js";
 
 const log = getLogger("channel-reply-delivery");
 
@@ -48,8 +48,10 @@ type DeliverRenderedReplyParams = {
    *  identified by this ts instead of posting a new one (Slack-specific). */
   messageTs?: string;
   /** Called with the ts of the delivered/updated message so callers
-   *  can use it for subsequent updates. */
-  onMessageTs?: (ts: string) => void;
+   *  can use it for subsequent updates. Awaited when it returns a promise,
+   *  so an async handler (the sent-message-id reconciler) completes its
+   *  durable write before the next segment posts. */
+  onMessageTs?: (ts: string) => void | Promise<void>;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -172,7 +174,7 @@ export async function deliverRenderedReplyViaCallback(
         },
       );
       if (result.ts) {
-        onMessageTs?.(result.ts);
+        await onMessageTs?.(result.ts);
       }
     }
     return;
@@ -191,10 +193,10 @@ export async function deliverRenderedReplyViaCallback(
       );
       const deliveredTs = result.ts ?? messageTs;
       if (deliveredTs) {
-        onMessageTs?.(deliveredTs);
+        await onMessageTs?.(deliveredTs);
       }
     } else if (messageTs) {
-      onMessageTs?.(messageTs);
+      await onMessageTs?.(messageTs);
     }
     return;
   }
@@ -255,7 +257,7 @@ export async function deliverRenderedReplyViaCallback(
 
     if (result.ts) {
       currentMessageTs = result.ts;
-      onMessageTs?.(result.ts);
+      await onMessageTs?.(result.ts);
     }
 
     onSegmentDelivered?.(i + 1);
@@ -282,16 +284,55 @@ export type DeliverReplyOptions = {
   audience?: MessageAudience;
   /** Update an existing message instead of posting a new one. */
   messageTs?: string;
-  /** Called with the ts of the delivered/updated message. */
-  onMessageTs?: (ts: string) => void;
+  /** Called with the ts of the delivered/updated message. Awaited when it
+   *  returns a promise. */
+  onMessageTs?: (ts: string) => void | Promise<void>;
 };
 
 type PersistedMessage = ReturnType<typeof getMessages>[number];
 
+/**
+ * A row read that contributes nothing to deliver. Spelled out rather than
+ * rendered from empty content so the read stays independent of the renderer;
+ * the annotation is what keeps it complete as the shape grows.
+ */
+const NO_REPLY_CONTENT: RenderedHistoryContent = {
+  text: "",
+  toolCalls: [],
+  toolCallsBeforeText: false,
+  textSegments: [],
+  contentOrder: [],
+  surfaces: [],
+  thinkingSegments: [],
+  attachments: [],
+  contentBlocks: [],
+};
+
+/**
+ * Read a persisted assistant row as a candidate channel reply.
+ *
+ * A reaction row reads as empty on purpose. Its `"[reaction]"` body is a
+ * storage sentinel for an emoji the react tool already delivered to the
+ * channel, not speech the turn owes anyone, and the row is drained at the
+ * turn boundary, so it is the newest assistant row of any turn that
+ * reacted. Read literally, its non-empty text counts as a real deliverable
+ * reply and outranks the turn's actual reply (or its `<no_response/>`
+ * silence) in every newest-first scan below, posting the raw sentinel to the
+ * channel as visible text. Reading it as empty is what makes a reaction-only
+ * turn silent, and it is the one seam every delivery path shares: the turn
+ * scan, the unbounded fallback sweep, and the targeted `messageId` path,
+ * which needs it too because the sweep durably stores whatever the scan
+ * returns. The history renderers project these rows as a structured reaction
+ * fact for the same reason; delivery owes the channel nothing for them.
+ */
 function readPersistedAssistantReply(msg: PersistedMessage): {
   rendered: RenderedHistoryContent;
   replyAttachments: RuntimeAttachmentMetadata[];
 } {
+  if (isReactionMessageMetadata(parseMessageMetadata(msg.metadata))) {
+    return { rendered: NO_REPLY_CONTENT, replyAttachments: [] };
+  }
+
   const parsed: unknown = msg.content;
   const rendered = renderHistoryContent(parsed);
 
@@ -387,17 +428,15 @@ async function deliverPersistedAssistantMessageViaCallback(
   // Compose an `onMessageTs` that reconciles the persisted assistant row's
   // provider message ids as the transport reports the authoritative ones.
   // The assistant row is written BEFORE the gateway POST, so its pre-send
-  // envelope names no id of its own: a Slack row's partial `slackMeta` lacks
-  // `channelTs` and reads as null through `readSlackMetadata`, and a
-  // neutral-envelope row lacks the `messageId` a later reaction
-  // naming it resolves by. A reply split into several segments reports one
-  // id per posted provider message, all reconciled onto this one row; see
-  // `makeSentMessageIdReconciler` for the per-envelope rules.
+  // envelope lacks the `messageId` a later reaction or delete naming it
+  // resolves by. A reply split into several segments reports one id per
+  // posted provider message, all reconciled onto this one row; see
+  // `makeSentMessageIdReconciler`.
   const reconcileOnMessageTs = makeSentMessageIdReconciler(msg.id);
   const callerOnMessageTs = options?.onMessageTs;
-  const composedOnMessageTs = (ts: string): void => {
-    reconcileOnMessageTs(ts);
-    callerOnMessageTs?.(ts);
+  const composedOnMessageTs = async (ts: string): Promise<void> => {
+    await reconcileOnMessageTs(ts);
+    await callerOnMessageTs?.(ts);
   };
 
   await deliverRenderedReplyViaCallback({
@@ -489,137 +528,4 @@ export async function deliverReplyViaCallback(
       break;
     }
   }
-}
-
-/**
- * Build an `onMessageTs` handler that reconciles the persisted assistant
- * row's provider message ids from the transport's authoritative ones:
- * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` plus
- * `additionalMessageIds` for a row carrying the neutral envelope (Discord
- * today, any transport whose delivery result reports the sent id). The
- * back-filled ids are what let a later reaction naming the
- * assistant's own post resolve back to this row.
- *
- * Behavior:
- * - A Slack row acts on the first invocation only: `channelTs` is the one
- *   id its envelope names, and later split segments are independent Slack
- *   messages it cannot carry.
- * - A neutral-envelope row records every reported id: the first as
- *   `messageId`, the rest under `additionalMessageIds`, all naming this
- *   same row. An id already recorded (a redelivery) is skipped.
- * - No-op when the row was persisted with neither envelope (e.g. vellum
- *   outbound).
- * - Failures are logged and swallowed so a transient DB error cannot break
- *   the outbound delivery itself.
- */
-function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
-  let slackApplied = false;
-  return (ts: string): void => {
-    if (!ts) {
-      return;
-    }
-    try {
-      // Re-read the row's current metadata so a concurrent edit-propagation
-      // write (e.g. `editedAt`) is not clobbered. `updateMessageMetadata`
-      // shallow-merges into the top-level envelope, and the per-channel
-      // sub-object is merged manually below so we can preserve fields on
-      // the partial pre-send envelope (`mergeSlackMetadata` would call
-      // `readSlackMetadata` which rejects the partial form for lacking
-      // channelTs, exactly the state we are reconciling).
-      const row = getMessageById(messageId);
-      if (row === null || row.metadata === null) {
-        return;
-      }
-      let envelope: Record<string, unknown>;
-      try {
-        envelope = JSON.parse(row.metadata) as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      const slackMetaRaw =
-        typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
-      if (slackMetaRaw === null) {
-        reconcileProviderMessageId(messageId, envelope, ts);
-        return;
-      }
-      if (slackApplied) {
-        return;
-      }
-      slackApplied = true;
-      // If the existing slackMeta already parses cleanly via the strict
-      // reader, channelTs is already present (a prior reconciliation ran,
-      // or backfill stamped the field) — nothing to do.
-      if (readSlackMetadata(slackMetaRaw) !== null) {
-        return;
-      }
-      // Lenient parse of the partial slackMeta so we can preserve every
-      // field already written by `handleMessageComplete` (source,
-      // eventKind, channelId, threadTs, ...) while patching channelTs in.
-      let existingSlackMeta: Record<string, unknown>;
-      try {
-        const parsed = JSON.parse(slackMetaRaw) as unknown;
-        if (
-          parsed === null ||
-          typeof parsed !== "object" ||
-          Array.isArray(parsed)
-        ) {
-          return;
-        }
-        existingSlackMeta = parsed as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      const mergedSlackMeta = JSON.stringify({
-        ...existingSlackMeta,
-        channelTs: ts,
-        // Force `source: "slack"` for parity with `mergeSlackMetadata`'s
-        // invariant — the reader rejects anything else and we never want a
-        // reconciled row to slip through with a stale source.
-        source: "slack",
-      });
-      updateMessageMetadata(messageId, { slackMeta: mergedSlackMeta });
-    } catch (err) {
-      log.warn(
-        { err, messageId },
-        "Failed to reconcile slackMeta.channelTs on outbound assistant row",
-      );
-    }
-  };
-}
-
-/**
- * The neutral-envelope arm of the reconciliation: record the transport's
- * sent-message id on the row's `providerMeta`. The first reported id
- * becomes `messageId`; further ids (a reply split at tool boundaries posts
- * several provider messages) accumulate under `additionalMessageIds`. An id
- * the envelope already names is a redelivery and is skipped, and a row
- * carrying no valid neutral envelope is left untouched.
- */
-function reconcileProviderMessageId(
-  messageId: string,
-  envelope: Record<string, unknown>,
-  ts: string,
-): void {
-  const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
-  if (providerMeta === null) {
-    return;
-  }
-  if (providerMeta.messageId === undefined) {
-    updateMessageMetadata(messageId, {
-      providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),
-    });
-    return;
-  }
-  if (
-    providerMeta.messageId === ts ||
-    providerMeta.additionalMessageIds?.includes(ts)
-  ) {
-    return;
-  }
-  updateMessageMetadata(messageId, {
-    providerMeta: JSON.stringify({
-      ...providerMeta,
-      additionalMessageIds: [...(providerMeta.additionalMessageIds ?? []), ts],
-    }),
-  });
 }

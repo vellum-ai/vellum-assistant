@@ -177,6 +177,7 @@ describe("installPluginFromPlatform — success", () => {
     );
     expect(existsSync(join(target, "README.md"))).toBe(true);
     expect(existsSync(join(target, "skills", "read", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(target, "package.json"))).toBe(true);
 
     // Provenance records the pinned commit and the verified ETag.
     const meta = readInstallMeta(target);
@@ -184,6 +185,77 @@ describe("installPluginFromPlatform — success", () => {
     expect(meta?.source.repo).toBe("reading-pal");
     expect(meta?.source.owner).toBe("vellum-ai");
     expect(meta?.etag?.startsWith('"sha256:')).toBe(true);
+  });
+
+  test("synthesizes a minimal package.json when the tarball ships none", async () => {
+    const fetchFn = makeInstallFetch({
+      entries: [
+        {
+          name: "skills/keyword-research/SKILL.md",
+          content:
+            "---\nname: keyword-research\ndescription: Discover keyword opportunities.\n---\n",
+        },
+        {
+          name: "mcp.json",
+          content: JSON.stringify({
+            mcpServers: { openseo: { url: "https://app.openseo.so/mcp" } },
+          }),
+        },
+      ],
+      ref: "c".repeat(40),
+      repo: "every-app/open-seo",
+      sourcePath: "plugins/openseo",
+    });
+
+    const result = await installPluginFromPlatform(
+      { name: "openseo" },
+      {
+        fetch: fetchFn,
+        platformBaseUrl: PLATFORM,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    const target = join(pluginsDir, "openseo");
+    expect(result.fileCount).toBe(2);
+    expect(
+      existsSync(join(target, "skills", "keyword-research", "SKILL.md")),
+    ).toBe(true);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf-8"));
+    expect(pkg.name).toBe("openseo");
+    expect(pkg.version).toBe("0.0.0");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
+  });
+
+  test("leaves an upstream package.json in place", async () => {
+    const fetchFn = makeInstallFetch({
+      entries: [
+        {
+          name: "package.json",
+          content: JSON.stringify({
+            name: "reading-pal",
+            version: "1.2.3",
+            peerDependencies: { "@vellumai/plugin-api": ">=0.8.0" },
+          }),
+        },
+        { name: "README.md", content: "# reading pal" },
+      ],
+    });
+
+    await installPluginFromPlatform(
+      { name: "reading-pal" },
+      {
+        fetch: fetchFn,
+        platformBaseUrl: PLATFORM,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    const pkg = JSON.parse(
+      readFileSync(join(pluginsDir, "reading-pal", "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("reading-pal");
+    expect(pkg.version).toBe("1.2.3");
   });
 
   test("sends the API key as an Api-Key Authorization header when present", async () => {

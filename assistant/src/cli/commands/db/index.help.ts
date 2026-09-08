@@ -12,7 +12,7 @@ export const dbHelp: CliCommandHelp = {
     {
       name: "status",
       description:
-        "Show database path, size, key pragmas, and the 5 largest tables",
+        "Show database path, size, key pragmas, largest tables, and drizzle schema misses",
     },
     {
       name: "repair",

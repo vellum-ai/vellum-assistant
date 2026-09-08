@@ -181,7 +181,7 @@ function LoadingState(): ReactNode {
   return (
     <div className="flex h-48 w-full flex-col items-center justify-center gap-2">
       <p
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {t("rawTab.loading")}
@@ -212,7 +212,7 @@ function ErrorState({ message, onRetry }: ErrorStateProps): ReactNode {
         {t("rawTab.loadErrorTitle")}
       </p>
       <p
-        className="max-w-xs text-label-default"
+        className="max-w-xs text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {message}

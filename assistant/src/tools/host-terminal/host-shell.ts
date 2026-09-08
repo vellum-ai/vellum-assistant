@@ -39,6 +39,7 @@ import {
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
+import { desktopClientName } from "../client-os.js";
 import {
   attachBoundedStdio,
   MAX_OUTPUT_LENGTH,
@@ -225,8 +226,7 @@ export const hostShellTool = {
       !HostBashProxy.instance.isAvailable()
     ) {
       return {
-        content:
-          "Error: no client with host_bash capability is connected. Connect a macOS client to use host_bash from a non-desktop interface.",
+        content: `Error: no client with host_bash capability is connected. Connect a ${desktopClientName(context)} client to use host_bash from a non-desktop interface.`,
         isError: true,
       };
     }

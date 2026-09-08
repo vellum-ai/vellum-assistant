@@ -64,9 +64,10 @@ describe("DISCORD_GATEWAY_INTENTS", () => {
   });
 
   test("subscribes to reactions in both guild channels and DMs", () => {
-    // A guardian's approval-by-reaction can land on an approval card in
-    // either place; without these bits the reaction path is deaf while the
-    // rest of the channel works, which nothing at IDENTIFY would surface.
+    // A reaction annotates a stored message in either place, and one on the
+    // assistant's own post wakes a turn; without these bits the reaction path
+    // is deaf while the rest of the channel works, which nothing at IDENTIFY
+    // would surface.
     expect(
       DISCORD_GATEWAY_INTENTS & DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS,
     ).not.toBe(0);

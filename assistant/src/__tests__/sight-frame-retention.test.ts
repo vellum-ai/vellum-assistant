@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  KEEP_LATEST_SIGHT_FRAMES,
+  MAX_SIGHT_KEEP_LATEST_FRAMES,
+} from "../config/schemas/sight.js";
 import { applySightFrameRetention } from "../daemon/conversation-runtime-assembly.js";
 import {
   getAttachmentMetadataForMessage,
@@ -17,6 +21,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations } from "../persistence/schema.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
@@ -182,6 +187,71 @@ describe("applySightFrameRetention", () => {
     ];
 
     expect(applySightFrameRetention(assembled, conversationId)).toBe(assembled);
+  });
+});
+
+describe("configured retention budget", () => {
+  afterEach(() => {
+    setConfig("sight", {});
+  });
+
+  /** One tagged standalone frame per row, the shape a keep stream leaves. */
+  async function seedFrames(
+    conversationId: string,
+    count: number,
+  ): Promise<Message[]> {
+    ensureConversation(conversationId);
+    const assembled: Message[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const attachmentId = `${conversationId}-att-${index}`;
+      await addMessage(conversationId, "user", frameContent(attachmentId), {
+        metadata: { sightFrameAttachmentIds: [attachmentId] },
+      });
+      assembled.push({
+        role: "user",
+        content: [referenceImage(attachmentId)],
+      });
+    }
+    return assembled;
+  }
+
+  function imageCount(messages: Message[]): number {
+    return messages.filter((message) => message.content[0].type === "image")
+      .length;
+  }
+
+  test("keeps the number of frames the workspace configured", async () => {
+    setConfig("sight", { keepLatestFrames: 4 });
+    const conversationId = "conv-sight-budget-configured";
+    const assembled = await seedFrames(conversationId, 6);
+
+    const retained = applySightFrameRetention(assembled, conversationId);
+
+    expect(imageCount(retained)).toBe(4);
+    expect(retained.length - imageCount(retained)).toBe(2);
+    // The survivors are the newest, which is what recency buys the model.
+    expect(retained.slice(2).every((m) => m.content[0].type === "image")).toBe(
+      true,
+    );
+  });
+
+  test("caps a configured value above the ceiling", async () => {
+    setConfig("sight", { keepLatestFrames: 99 });
+    const conversationId = "conv-sight-budget-capped";
+    const assembled = await seedFrames(conversationId, 8);
+
+    const retained = applySightFrameRetention(assembled, conversationId);
+
+    expect(imageCount(retained)).toBe(MAX_SIGHT_KEEP_LATEST_FRAMES);
+  });
+
+  test("falls back to the default when the workspace configures nothing", async () => {
+    const conversationId = "conv-sight-budget-default";
+    const assembled = await seedFrames(conversationId, 5);
+
+    const retained = applySightFrameRetention(assembled, conversationId);
+
+    expect(imageCount(retained)).toBe(KEEP_LATEST_SIGHT_FRAMES);
   });
 });
 

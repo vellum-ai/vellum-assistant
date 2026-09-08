@@ -16,6 +16,7 @@ import type {
   AnyBlock,
   ContextBlock,
   HeaderBlock,
+  MarkdownBlock,
   MessageAttachment,
   SectionBlock,
 } from "@slack/types";
@@ -41,6 +42,9 @@ export function slackMessageRawText(
 }
 
 function slackAttachmentText(attachment: MessageAttachment): string {
+  // An attachment carrying Block Kit blocks renders them as its body, so
+  // they lead; the legacy fields still contribute when both are present.
+  const blockParts = slackBlocksText(attachment.blocks);
   const title = trimmed(attachment.title);
   const titleLink = trimmed(attachment.title_link);
   const fieldLines = (attachment.fields ?? []).map((field) => {
@@ -52,6 +56,7 @@ function slackAttachmentText(attachment: MessageAttachment): string {
     return fieldTitle ?? fieldValue ?? "";
   });
   const structured = [
+    ...blockParts,
     trimmed(attachment.pretext),
     trimmed(attachment.author_name),
     title && titleLink ? `${title} (${titleLink})` : title,
@@ -75,6 +80,10 @@ function isHeaderBlock(block: AnyBlock): block is HeaderBlock {
 
 function isContextBlock(block: AnyBlock): block is ContextBlock {
   return block.type === "context";
+}
+
+function isMarkdownBlock(block: AnyBlock): block is MarkdownBlock {
+  return block.type === "markdown";
 }
 
 /**
@@ -111,6 +120,11 @@ function slackBlocksText(blocks: readonly AnyBlock[] | undefined): string[] {
         .join(" ");
       if (contextText) {
         parts.push(contextText);
+      }
+    } else if (isMarkdownBlock(block)) {
+      const text = trimmed(block.text);
+      if (text) {
+        parts.push(text);
       }
     }
   }

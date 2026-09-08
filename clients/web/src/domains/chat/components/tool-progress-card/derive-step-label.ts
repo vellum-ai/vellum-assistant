@@ -58,7 +58,7 @@ function readString(input: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
     const value = input[key];
     if (typeof value === "string" && value.trim().length > 0) {
-      return value;
+      return value.trim();
     }
   }
   return "";

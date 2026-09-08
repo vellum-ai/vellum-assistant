@@ -32,7 +32,9 @@ import { setDictationOverlayState } from "@/runtime/dictation-overlay";
  * composer — the overlay must show the error, not a success check, or the
  * user would believe the paste landed in the app they were dictating into.
  */
-export function useDictationOverlaySync(): void {
+export function useDictationOverlaySync({
+  suppressed = false,
+}: { suppressed?: boolean } = {}): void {
   const phase = useVoiceRecordingStore.use.phase();
   const errorCode = useVoiceRecordingStore.use.errorCode();
   const interim = useVoiceRecordingStore.use.interimTranscript();
@@ -40,6 +42,13 @@ export function useDictationOverlaySync(): void {
   const insertionError = useVoiceRecordingStore.use.dictationInsertionError();
 
   useEffect(() => {
+    // Suppressed where another surface is already saying this. Dismissed
+    // rather than left alone, so a dictation that begins in the app and is
+    // taken over mid-flight does not leave a panel behind.
+    if (suppressed) {
+      setDictationOverlayState({ kind: "dismiss" });
+      return;
+    }
     switch (phase) {
       case "recording":
         setDictationOverlayState({
@@ -68,7 +77,7 @@ export function useDictationOverlaySync(): void {
         setDictationOverlayState({ kind: "dismiss" });
         break;
     }
-  }, [phase, interim, audioLevel, errorCode, insertionError]);
+  }, [suppressed, phase, interim, audioLevel, errorCode, insertionError]);
 
   // Mount-scoped (not in the effect above — its cleanup runs on every dep
   // change, which would hide and re-show the overlay between interim

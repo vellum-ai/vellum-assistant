@@ -12,9 +12,10 @@ import { createElement } from "react";
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import type {
-  FeedItem,
-  FeedItemGuardianRequest,
+import {
+  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+  type FeedItem,
+  type FeedItemGuardianRequest,
 } from "@vellumai/assistant-api";
 
 import { feedItem } from "../feed-test-fixtures";
@@ -38,6 +39,13 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   }),
 }));
 
+// The decision hook refreshes the feed after every outcome, which needs a
+// query client the card has no provider for. The mocked mutation above never
+// settles, so no outcome (and no toast) is ever reached from here.
+mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
+  useInvalidateHomeFeed: () => () => {},
+}));
+
 mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
   store.use = {
@@ -48,6 +56,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 const { HomeGuardianRequestCard } =
   await import("./home-guardian-request-card");
+const { useGuardianDecisionStore } = await import("../guardian-decision-store");
 
 function guardianItem(
   projection: Partial<FeedItemGuardianRequest>,
@@ -71,6 +80,7 @@ function guardianItem(
 
 beforeEach(() => {
   mutateCalls.length = 0;
+  useGuardianDecisionStore.getState().reset();
 });
 
 describe("HomeGuardianRequestCard", () => {
@@ -85,10 +95,13 @@ describe("HomeGuardianRequestCard", () => {
       }),
     );
 
-    expect(screen.getByText("Alice")).toBeTruthy();
-    expect(
-      screen.getByText("linear_graphql · Slack #user-feedback"),
-    ).toBeTruthy();
+    // The panel header names the request; the card leads with the ask.
+    expect(screen.queryByText("Guardian action needed")).toBeNull();
+    // Source context and requester share the meta line under the title.
+    expect(screen.getByText(/Slack #user-feedback · Alice/)).toBeTruthy();
+    // A waiting request names the decision in the present tense.
+    expect(screen.getByText("Requesting to run")).toBeTruthy();
+    expect(screen.getByText("linear_graphql")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Approve"));
     expect(mutateCalls).toEqual([
@@ -114,20 +127,44 @@ describe("HomeGuardianRequestCard", () => {
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
     expect(
-      screen.getByText("Answer this question from the source conversation."),
+      screen.getByText("Go to the conversation to answer this question."),
     ).toBeTruthy();
   });
 
-  test.each([
-    [{ status: "approved", decidedByLabel: "Bob" } as const, "Approved by Bob"],
-    [{ status: "denied", decidedByLabel: "Bob" } as const, "Rejected by Bob"],
-    [{ status: "expired" } as const, "Expired"],
-    [{ status: "denied", terminalReason: "superseded" } as const, "Superseded"],
+  test("a question summary keeps its options on their own lines", () => {
+    render(
+      createElement(HomeGuardianRequestCard, {
+        item: guardianItem(
+          { intent: "question", kind: "pending_question" },
+          { summary: "Which venue?\n\n1. The lodge\n2. The hotel" },
+        ),
+      }),
+    );
+    expect(screen.getByText("Which venue?")).toBeTruthy();
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(["The lodge", "The hotel"]);
+  });
+
+  const TERMINAL_RECEIPTS: [Partial<FeedItemGuardianRequest>, string][] = [
+    [{ status: "approved", toolName: "linear_graphql" }, "Request approved"],
+    [{ status: "denied" }, "Request rejected"],
+    [{ status: "expired" }, "Request expired"],
+    [{ status: "cancelled" }, "Request cancelled"],
     [
-      { status: "denied", decidedAction: "leave_unverified" } as const,
+      {
+        status: "denied",
+        terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+      },
+      "Request superseded",
+    ],
+    [
+      { status: "denied", decidedAction: "leave_unverified" },
       "Left unverified",
     ],
-  ])(
+  ];
+
+  test.each(TERMINAL_RECEIPTS)(
     "a terminal projection renders its receipt and no buttons",
     (projection, expected) => {
       render(
@@ -135,11 +172,17 @@ describe("HomeGuardianRequestCard", () => {
           item: guardianItem(projection),
         }),
       );
-      expect(screen.getByTestId("guardian-request-receipt").textContent).toBe(
-        expected,
-      );
+      expect(
+        screen.getByTestId("guardian-request-receipt").textContent,
+      ).toContain(expected);
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
+      // A settled request states the decision in the past tense. Only the
+      // approved case carries a tool, so the tense is asserted there.
+      if (projection.toolName) {
+        expect(screen.getByText(/Requested to run/)).toBeTruthy();
+        expect(screen.queryByText(/Requesting to run/)).toBeNull();
+      }
     },
   );
 

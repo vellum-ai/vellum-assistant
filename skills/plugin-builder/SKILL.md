@@ -58,10 +58,6 @@ The two extensibility patterns serve different goals. **Plugins are for distribu
 
 Several surfaces that plugins contribute run in the same process as the main Assistant process. They can import all internal methods from the Assistant from the single public package, [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api), which is the only supported contract. Anything not exported from there is internal and can change without notice. See `references/plugins.md` for the full export surface.
 
-## Coming from another harness?
-
-Vellum's plugin model was designed to line up with the agent harnesses you may already use. The shared vocabulary is deliberate to be as portable as possible with the other entrants in the industry.
-
 ## Before you write a single file
 
 Ask before building. Six questions, in this order. Stop if the user is unclear on any of them.

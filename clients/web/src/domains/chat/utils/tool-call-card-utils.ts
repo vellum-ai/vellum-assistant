@@ -7,6 +7,7 @@
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import {
+  isToolCallDenied,
   isToolCallRunning,
   perceivedStartedAt,
 } from "@/domains/chat/utils/tool-call-status";
@@ -379,10 +380,7 @@ function isFailedEmptyWebSearch(
 function deriveToolStepStatus(
   tc: ChatMessageToolCall,
 ): "running" | "completed" | "error" | "denied" {
-  if (
-    tc.confirmationDecision === "denied" ||
-    tc.confirmationDecision === "timed_out"
-  ) {
+  if (isToolCallDenied(tc)) {
     return "denied";
   }
   if (tc.isError) {

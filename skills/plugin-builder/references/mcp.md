@@ -23,7 +23,9 @@ Place `mcp.json` at the plugin root, next to `package.json`:
 }
 ```
 
-`stdio`, `sse`, and `streamable-http` transports are supported:
+`stdio`, `sse`, and `streamable-http` transports are supported. An omitted
+`type`, or the Claude-style `http` alias, defaults to `streamable-http`.
+Write `stdio` or `sse` explicitly.
 
 ```json
 {

@@ -22,7 +22,6 @@ import {
   GUARDIAN_REQUESTS_IPC_METHODS,
   GetGuardianRequestByCallSessionIpcParamsSchema,
   GetGuardianRequestByCodeIpcParamsSchema,
-  GetGuardianRequestByDestinationMessageIpcParamsSchema,
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GetGuardianRequestIpcParamsSchema,
   GuardianRequestInScopeIpcParamsSchema,
@@ -46,7 +45,6 @@ import {
   getGuardianRequest,
   getGuardianRequestByCode,
   getPendingRequestByCallSession,
-  getPendingRequestByDestinationMessage,
   getRequestByPendingQuestion,
   isGuardianRequestInScope,
   listGuardianRequestDeliveries,
@@ -199,17 +197,6 @@ export const guardianRequestRoutes: IpcRoute[] = [
       const { channel, chatId } =
         ListGuardianRequestDeliveriesByChatIpcParamsSchema.parse(params);
       return listGuardianRequestDeliveriesByChat(channel, chatId);
-    },
-  },
-  {
-    // Reaction routing: the pending request whose delivered card is the
-    // reacted-to message.
-    method: GUARDIAN_REQUESTS_IPC_METHODS.getByDestinationMessage,
-    schema: GetGuardianRequestByDestinationMessageIpcParamsSchema,
-    handler: (params?: Record<string, unknown>) => {
-      const { channel, chatId, messageId } =
-        GetGuardianRequestByDestinationMessageIpcParamsSchema.parse(params);
-      return getPendingRequestByDestinationMessage(channel, chatId, messageId);
     },
   },
   {

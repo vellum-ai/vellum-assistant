@@ -23,7 +23,11 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
-import { appendPlainTextFallback, resolveMessageText } from "./shared.js";
+import {
+  appendPlainTextFallback,
+  rendersActions,
+  resolveMessageText,
+} from "./shared.js";
 
 const log = getLogger("notif-adapter-telegram");
 
@@ -50,7 +54,7 @@ export class TelegramAdapter implements ChannelAdapter {
     const approval = payload.approvalContext;
 
     try {
-      if (approval) {
+      if (rendersActions(approval)) {
         // Attempt rich delivery with inline keyboard buttons.
         // On failure, fall back to plain text below.
         try {
@@ -72,8 +76,8 @@ export class TelegramAdapter implements ChannelAdapter {
         }
       }
 
-      // When falling back from rich delivery, append the plain-text
-      // instructions so the guardian still knows how to approve/reject.
+      // Text without buttons carries the typed-reply instructions, whether
+      // the rich delivery failed or the request never had buttons to draw.
       const sent = await sendTelegramReply(
         chatId,
         appendPlainTextFallback(messageText, approval),

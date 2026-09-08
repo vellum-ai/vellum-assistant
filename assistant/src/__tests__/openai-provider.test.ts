@@ -1962,7 +1962,7 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
   test('DeepSeek V4 Pro accepts "max" unclamped', async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/deepseek-v4-pro",
+      "accounts/fireworks/models/deepseek-v4-pro-0813",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -1974,7 +1974,7 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
   test('DeepSeek V4 Pro accepts "xhigh" unclamped', async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/deepseek-v4-pro",
+      "accounts/fireworks/models/deepseek-v4-pro-0813",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -2015,7 +2015,7 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
   test("effort below ceiling is forwarded verbatim", async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/deepseek-v4-pro",
+      "accounts/fireworks/models/deepseek-v4-pro-0813",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -2045,7 +2045,7 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       systemPrompt: "system",
       config: {
         effort: "max",
-        model: "accounts/fireworks/models/deepseek-v4-pro",
+        model: "accounts/fireworks/models/deepseek-v4-pro-0813",
       },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("max");
@@ -2110,7 +2110,7 @@ describe("FireworksProvider sparse reasoning_effort support (GLM 5.3)", () => {
 
   test("models without supportedEfforts are unaffected", async () => {
     expect(
-      await send("accounts/fireworks/models/deepseek-v4-pro", "medium"),
+      await send("accounts/fireworks/models/deepseek-v4-pro-0813", "medium"),
     ).toBe("medium");
   });
 });

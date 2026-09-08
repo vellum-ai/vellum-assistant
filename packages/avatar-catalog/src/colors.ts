@@ -17,3 +17,11 @@ export const AVATAR_COLORS: ColorDefinition[] = [
   { id: "teal", hex: "#0E9B8B" },
   { id: "yellow", hex: "#E9C91A" },
 ];
+
+/** The palette hex for a colour id, or null for an id the palette does not have. */
+export function accentHexForColorId(colorId: string | null | undefined): string | null {
+  if (!colorId) {
+    return null;
+  }
+  return AVATAR_COLORS.find((c) => c.id === colorId)?.hex ?? null;
+}

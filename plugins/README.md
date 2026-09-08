@@ -680,7 +680,10 @@ A plugin declares MCP servers in a root `mcp.json`, per the [Agent Plugins
 }
 ```
 
-`stdio`, `sse`, and `streamable-http` transports are supported. In a `stdio`
+`stdio`, `sse`, and `streamable-http` transports are supported. An omitted
+`type`, or the Claude-style `http` alias, defaults to `streamable-http`
+(MCP's current remote transport). Agent Plugins still requires `type` for
+authored plugins; write `stdio` or `sse` explicitly. In a `stdio`
 entry, `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` interpolate in `args`, `env`
 values, and `cwd` — never in `command`, a URL, or a header, so a manifest
 cannot use them to build the executable path itself. `cwd` is accepted by the
@@ -696,8 +699,12 @@ disabling a plugin reconnects the set as part of that operation — its servers
 come up and go down with the plugin, no restart involved — exactly like editing
 `config.json` does.
 
-Three host behaviours worth knowing when authoring one:
+Host behaviours worth knowing when authoring one:
 
+- **Omitted `type` defaults to `streamable-http`.** Agent Plugins requires
+  `type` and names no default. This host fills omitted `type` and the
+  Claude-style `http` alias as MCP's current remote transport. Write
+  `stdio` or `sse` explicitly.
 - **Risk defaults to `low`,** so the tools run without prompting under the
   default auto-approve threshold. `mcp.json` has no risk field — the spec
   defines none — and the review is the marketplace whitelist plus the user's

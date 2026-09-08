@@ -104,6 +104,7 @@ import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
   buildSlackTimezoneMetadata,
   readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
@@ -360,12 +361,13 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       out.push(blank);
       continue;
     }
-    const slackMetaRaw = envelope.slackMeta;
-    if (typeof slackMetaRaw !== "string") {
+    // Either envelope: a person's row still writes `slackMeta`, a
+    // bot-authored row the neutral envelope with Slack's fields riding it.
+    const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata);
+    if (slackMeta === null) {
       out.push(blank);
       continue;
     }
-    const slackMeta = readSlackMetadata(slackMetaRaw);
     out.push({
       role: row.role,
       content: unwrapExternalContent(row.content),

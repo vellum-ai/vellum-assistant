@@ -45,10 +45,13 @@ import {
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import {
+  activityHasDedicatedCard,
   activityItemsToCardData,
   type ContentBlockActivityItem,
+  finalResponseStartIndex,
   groupContentBlocks,
   isSubagentSpawnCall,
+  isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { ResponseArtifactCard } from "@/domains/chat/transcript/response-artifact-card";
@@ -436,9 +439,10 @@ export function TranscriptMessageBody({
    * question with nothing to show are all not card-backed, so they keep the
    * chip instead of vanishing from the transcript.
    *
-   * Read by all three places that must agree on this: the chip filter, the
-   * group's suppression set, and the collapse guard that keeps a card-backed
-   * group out of the "Earlier activity" disclosure.
+   * Read by the places that must agree on this: the chip filter, the group's
+   * suppression set, the collapse guard that keeps a card-backed group out of
+   * the "Earlier activity" disclosure, and the final-response boundary that
+   * treats a dedicated card as visible output.
    */
   const isCardBacked = (tc: ChatMessageToolCall): boolean =>
     cardBackedWorkflowRunId(tc) !== null ||
@@ -796,10 +800,20 @@ export function TranscriptMessageBody({
     surface: ConversationMessageSurface,
     key: string,
   ): ReactNode => {
+    const displaySurface = wireSurfaceToDisplay(surface);
+    // The plan card has one home now, and it is not the transcript: the
+    // progress rail (desktop) / sticky card (mobile) follows the newest plan
+    // from a fixed position, so it stays readable while the assistant works
+    // instead of scrolling away mid-run. Drawing it here too would leave a
+    // stale second copy of a card that is already on screen. See
+    // `useLatestTaskProgress`.
+    if (isTaskProgressSurface(displaySurface)) {
+      return null;
+    }
     return (
       <div key={key} className="w-full">
         <SurfaceRouter
-          surface={wireSurfaceToDisplay(surface)}
+          surface={displaySurface}
           onAction={onSurfaceAction}
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
@@ -1007,6 +1021,25 @@ export function TranscriptMessageBody({
   };
 
   /**
+   * Whether a group draws anything the user can see. Timeline rows
+   * (`groupRendersRow`) plus dedicated inline cards that the timeline
+   * predicate excludes: those cards are not chips, but they are visible
+   * output and bound the final-response walk.
+   */
+  const groupDrawsVisibleOutput = (
+    group: (typeof groups)[number],
+    groupIndex: number,
+  ): boolean => {
+    if (groupRendersRow(group, groupIndex)) {
+      return true;
+    }
+    if (group.type !== "activity") {
+      return false;
+    }
+    return activityHasDedicatedCard(group.items, isCardBacked);
+  };
+
+  /**
    * Timeline glyph for one group inside an "Earlier activity" disclosure: the
    * first renderable step's icon, a globe for a web run (`deriveStepLabel`
    * covers non-web tools only), a brain for a thinking-only run, and none for
@@ -1164,8 +1197,9 @@ export function TranscriptMessageBody({
     );
   }
 
-  const finalResponseGroupIndex = groups.findLastIndex(
-    (group) => group.type === "text" && group.text.trim().length > 0,
+  const finalResponseGroupIndex = finalResponseStartIndex(
+    groups,
+    groupDrawsVisibleOutput,
   );
   // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
   // no group is collapsible, so the whole response renders inline at full
@@ -1199,12 +1233,11 @@ export function TranscriptMessageBody({
         message.attachments,
         embeddedImageNames,
       ).length > 0 ||
+      activityHasDedicatedCard(group.items, isCardBacked) ||
       toolCalls.some(
         (toolCall) =>
           isToolCallRunning(toolCall) ||
           toolCall.pendingConfirmation !== undefined ||
-          isSubagentSpawnCall(toolCall) ||
-          isCardBacked(toolCall) ||
           acpConnectToolUseId === toolCall.id ||
           unknownNudgeToolCallIds?.has(toolCall.id) === true,
       );

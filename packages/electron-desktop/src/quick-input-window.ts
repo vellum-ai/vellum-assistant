@@ -38,7 +38,7 @@ export interface QuickInputWindowDependencies {
   dispatchToMain: (command: VellumCommand) => void;
   ensureMainWindowVisible: () => void | Promise<void>;
   handle: IpcHandle;
-  platform: "darwin" | "win32";
+  platform: "darwin" | "win32" | "linux";
   resolveRoute: (route: string) => string;
 }
 

@@ -13,7 +13,12 @@
  *   innermost trigger wins and a right-click on a row opens the row's menu
  *   only. This wrapper is what that behavior exists for.
  * - The wrapper stretches (`flex-1`) to fill the scrollport, so the empty area
- *   under the sections is part of the target rather than dead space.
+ *   under the sections is part of the target rather than dead space. It pairs
+ *   that with `min-h-0` so it also forwards the scrollport's bounded height:
+ *   without it the wrapper's `auto` minimum sizes it to its content, the last
+ *   section's flex-fill has nothing to fill, and the list runs past the
+ *   overlay drawer's floating action pills instead of scrolling inside its
+ *   own card.
  *
  * Desktop-only for now: on touch, Radix arms this on long-press, the same
  * gesture the conversation rows and section headers already use for their
@@ -52,7 +57,7 @@ export function SidebarListContextMenu({
             on has to be reproduced here. */}
         <div
           data-slot="sidebar-list-context-target"
-          className="flex flex-1 flex-col gap-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
         >
           {children}
         </div>

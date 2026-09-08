@@ -128,11 +128,11 @@ describe("ActivityStepsPanel — level 2 drill-in", () => {
     expect(getByText("Bash")).toBeTruthy();
     expect(getByText("On branch main")).toBeTruthy();
     // The timeline is replaced, and the header swaps to the step's title with
-    // the back chevron on its left (the run summary is gone). The activity
-    // label appears twice: the header title and the detail body's subtitle.
+    // the back chevron on its left (the run summary is gone). The header owns
+    // the activity sentence, so it renders once and the body does not echo it.
     expect(queryByTestId("phase-header")).toBeNull();
     expect(queryByText(/Worked for/)).toBeNull();
-    expect(getAllByText("Checking git status").length).toBeGreaterThan(1);
+    expect(getAllByText("Checking git status")).toHaveLength(1);
     expect(getByRole("button", { name: /back to all steps/i })).toBeTruthy();
   });
 

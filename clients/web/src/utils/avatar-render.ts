@@ -60,30 +60,28 @@ export function resolveEffectiveTraits(
 
 /**
  * Composite the character, or null when the traits name components the palette
- * does not have. `composeSvg` throws on unknown trait IDs, which is treated as
- * "no character avatar available" rather than as an error.
+ * does not have.
  */
 function composeCharacter(
   components: CharacterComponents,
   traits: CharacterTraits,
   size: number,
 ): AvatarRender | null {
-  try {
-    const svg = composeSvg(
-      components,
-      traits.bodyShape,
-      traits.eyeStyle,
-      traits.color,
-      size,
-    );
-    return {
-      kind: "character",
-      svg,
-      dataUri: `data:image/svg+xml,${encodeURIComponent(svg)}`,
-    };
-  } catch {
+  const svg = composeSvg(
+    components,
+    traits.bodyShape,
+    traits.eyeStyle,
+    traits.color,
+    size,
+  );
+  if (!svg) {
     return null;
   }
+  return {
+    kind: "character",
+    svg,
+    dataUri: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+  };
 }
 
 /**

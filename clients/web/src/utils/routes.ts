@@ -131,7 +131,6 @@ export const routes = {
     research: r("/assistant/onboarding/research"),
   },
 
-  home: r("/assistant/home"),
   /**
    * Schedules surface — a drill-down section under the assistant overview
    * (`identity`), sharing the About Assistant chrome with Skills, Plugins,
@@ -260,6 +259,7 @@ export const routes = {
     },
     community: r("/assistant/settings/community"),
     developer: r("/assistant/settings/developer"),
+    personality: r("/assistant/settings/personality"),
     mcp: r("/assistant/settings/mcp"),
     debug: r("/assistant/settings/debug"),
     dangerZone: r("/assistant/settings/danger-zone"),

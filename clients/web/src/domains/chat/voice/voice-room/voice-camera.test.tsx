@@ -12,7 +12,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useRef } from "react";
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import {
   fakeStream,
@@ -45,9 +52,13 @@ mock.module("@/runtime/native-voice-camera", () => ({
 
 const { useVoiceCamera } = await import("./voice-camera");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { publish } = await import("@/lib/event-bus");
 
 /** What a camera with a working flash answers the probe with. */
 const FLASH_CAPABLE = ["off", "on", "auto"];
+
+/** What a rear camera that also carries a lamp answers the probe with. */
+const TORCH_CAPABLE = ["off", "on", "auto", "torch"];
 
 /** The camera hook driven from the outside, the way the room drives it. */
 function Probe({ flash = true }: { flash?: boolean }) {
@@ -58,8 +69,13 @@ function Probe({ flash = true }: { flash?: boolean }) {
       <span data-testid="flash-available">
         {camera.flashAvailable ? "yes" : "no"}
       </span>
+      <span data-testid="torch-supported">
+        {camera.torchSupported ? "yes" : "no"}
+      </span>
       <span data-testid="facing">{camera.facing}</span>
       <span data-testid="flipping">{camera.flipping ? "yes" : "no"}</span>
+      <span data-testid="open-state">{camera.open ? "yes" : "no"}</span>
+      <span data-testid="native-state">{camera.native ? "yes" : "no"}</span>
       <button
         type="button"
         data-testid="open"
@@ -81,12 +97,29 @@ function Probe({ flash = true }: { flash?: boolean }) {
       >
         flip
       </button>
+      <button
+        type="button"
+        data-testid="torch-on"
+        onClick={() => camera.setTorch(true)}
+      >
+        torch on
+      </button>
+      <button
+        type="button"
+        data-testid="torch-off"
+        onClick={() => camera.setTorch(false)}
+      >
+        torch off
+      </button>
     </div>
   );
 }
 
 const flashAvailable = () =>
   screen.getByTestId("flash-available").textContent === "yes";
+
+const torchSupported = () =>
+  screen.getByTestId("torch-supported").textContent === "yes";
 
 const facing = () => screen.getByTestId("facing").textContent;
 
@@ -97,6 +130,20 @@ async function press(testId: string) {
     screen.getByTestId(testId).click();
   });
 }
+
+/**
+ * The same press, and the same read, scoped to one of two probes on screen at
+ * once. The bare helpers above go through `screen`, which spans the whole
+ * document and so finds both copies of a test id.
+ */
+async function pressIn(container: HTMLElement, testId: string) {
+  await act(async () => {
+    within(container).getByTestId(testId).click();
+  });
+}
+
+const readIn = (container: HTMLElement, testId: string) =>
+  within(container).getByTestId(testId).textContent;
 
 /** Render the probe and open a native camera, settling the capability probe. */
 async function openNativeCamera() {
@@ -110,6 +157,7 @@ beforeEach(() => {
   startSpy.mockClear();
   startSpy.mockImplementation(async () => true);
   stopSpy.mockClear();
+  stopSpy.mockImplementation(async () => {});
   flipSpy.mockClear();
   flipSpy.mockImplementation(async () => true);
   getFlashModesSpy.mockClear();
@@ -298,6 +346,139 @@ describe("useVoiceCamera: handing the flash back", () => {
     // to what that camera happened to support.
     await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("auto"));
     expect(useVoicePrefsStore.getState().flashMode).toBe("auto");
+  });
+});
+
+describe("useVoiceCamera: the lamp Live runs on", () => {
+  test("lights it when Live asks and the preference says on", async () => {
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+
+    await press("torch-on");
+
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("torch"));
+  });
+
+  test("leaves auto to the capture flash", async () => {
+    // A lamp has no "when the scene is dark enough" state, so auto is a mode
+    // Live runs with the lamp out rather than one it reinterprets.
+    useVoicePrefsStore.setState({ flashMode: "auto" });
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await waitFor(() => expect(torchSupported()).toBe(true));
+
+    await press("torch-on");
+
+    expect(setFlashModeSpy).toHaveBeenCalledWith("auto");
+    expect(setFlashModeSpy).not.toHaveBeenCalledWith("torch");
+  });
+
+  test("never asks a camera that reported no lamp to hold one", async () => {
+    // The rule the rest of this file is built on: Android reads the supported
+    // list without a null check, so a mode the probe did not name is a throw
+    // out of the bridge that never settles.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    await openNativeCamera();
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+
+    await press("torch-on");
+
+    expect(torchSupported()).toBe(false);
+    expect(setFlashModeSpy).not.toHaveBeenCalledWith("torch");
+  });
+
+  test("hands the lamp back before a flip", async () => {
+    // `flip()` puts the lamp out on both platforms, and Android re-applies the
+    // saved flash parameter to the camera that arrives, so a lamp left engaged
+    // comes back up on a camera nobody asked to light.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await press("torch-on");
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("torch"));
+    setFlashModeSpy.mockClear();
+
+    await press("flip");
+
+    expect(setFlashModeSpy.mock.calls[0]).toEqual(["off"]);
+    expect(flipSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("re-lights on flipping back to a camera that has a lamp", async () => {
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await press("torch-on");
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("torch"));
+
+    getFlashModesSpy.mockImplementation(async () => []);
+    await press("flip");
+    await waitFor(() => expect(torchSupported()).toBe(false));
+
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    setFlashModeSpy.mockClear();
+    await press("flip");
+
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("torch"));
+  });
+
+  test("puts the capture flash back when Live ends", async () => {
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await press("torch-on");
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("torch"));
+    setFlashModeSpy.mockClear();
+
+    await press("torch-off");
+
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+  });
+
+  test("re-applies the mode when the app comes back to the front", async () => {
+    // iOS restores nothing of its own across a backgrounding, so the mode the
+    // camera comes back holding is whatever the shell left on the device.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await press("torch-on");
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("torch"));
+    setFlashModeSpy.mockClear();
+
+    await act(async () => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    expect(setFlashModeSpy).toHaveBeenCalledWith("torch");
+  });
+
+  test("says nothing on a resume with the lamp and the flash both out", async () => {
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await waitFor(() => expect(torchSupported()).toBe(true));
+    setFlashModeSpy.mockClear();
+
+    await act(async () => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    expect(setFlashModeSpy).not.toHaveBeenCalled();
+  });
+
+  test("reports the lamp only on a camera that named one", async () => {
+    getFlashModesSpy.mockImplementation(async () => TORCH_CAPABLE);
+    await openNativeCamera();
+    await waitFor(() => expect(torchSupported()).toBe(true));
+
+    getFlashModesSpy.mockImplementation(async () => FLASH_CAPABLE);
+    await press("flip");
+
+    // The capture flash and the lamp are separate answers: this camera can
+    // fire one and cannot hold the other.
+    await waitFor(() => expect(torchSupported()).toBe(false));
+    expect(flashAvailable()).toBe(true);
   });
 });
 
@@ -645,6 +826,60 @@ describe("useVoiceCamera: an open superseded while the bridge starts it", () => 
     await waitFor(() => expect(flashAvailable()).toBe(true));
   });
 
+  test("a failed replacement start still clears a canceled start's survivor", async () => {
+    // Start A resolves after a close and a reopen, and defers its cleanup to
+    // the reopen's pending start B. When B then fails, B is the newest call
+    // and posts the stop that clears whatever A left running; nothing else
+    // owns a native source that would.
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+    render(<Probe />);
+    await press("open");
+    await press("close");
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    const secondStart = deferredCall<boolean>();
+    startSpy.mockImplementation(secondStart.answer);
+    await press("open");
+
+    await settle(() => firstStart.resolve(true));
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    await settle(() => secondStart.resolve(false));
+    expect(stopSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test("waits for the survivor's release before asking the browser", async () => {
+    // The same failure, on a shell that has `getUserMedia` to fall back to.
+    // The device the fallback is about to ask for is the one the survivor is
+    // still holding, and a request that overlaps the release comes back
+    // `NotReadableError`, which closes the viewfinder it was opening.
+    const getUserMedia = mock(async () => fakeStream());
+    stubMediaDevices(getUserMedia);
+
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+    render(<Probe />);
+    await press("open");
+    await press("close");
+
+    const secondStart = deferredCall<boolean>();
+    startSpy.mockImplementation(secondStart.answer);
+    await press("open");
+    await settle(() => firstStart.resolve(true));
+
+    const release = deferredCall<undefined>();
+    stopSpy.mockImplementation(release.answer);
+    await settle(() => secondStart.resolve(false));
+
+    expect(stopSpy).toHaveBeenCalledTimes(2);
+    expect(getUserMedia).not.toHaveBeenCalled();
+
+    await settle(() => release.resolve(undefined));
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
   test("stops the camera nothing owns when only a close follows", async () => {
     // The other half of the discipline: with no reopen behind it, the
     // superseded start is the last owner standing, and the stop it posts
@@ -659,6 +894,31 @@ describe("useVoiceCamera: an open superseded while the bridge starts it", () => 
     await settle(() => slowStart.resolve(true));
 
     expect(stopSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useVoiceCamera: a start the plugin refuses", () => {
+  test("leaves a preview another surface is showing alone", async () => {
+    // Both plugin implementations refuse a start while a preview is running,
+    // so a second surface raising its camera over a live one fails by design.
+    // That failure raised nothing and owns nothing: the hardware it collided
+    // with is the viewfinder the first surface is still reporting open, and a
+    // stop posted for it would be the room's camera going dark because the
+    // composer's overlay asked for one.
+    stubMediaDevices(null);
+    const owner = render(<Probe />);
+    await pressIn(owner.container, "open");
+    await waitFor(() => expect(getFlashModesSpy).toHaveBeenCalled());
+    expect(readIn(owner.container, "open-state")).toBe("yes");
+    stopSpy.mockClear();
+
+    startSpy.mockImplementation(async () => false);
+    const intruder = render(<Probe />);
+    await pressIn(intruder.container, "open");
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(readIn(owner.container, "open-state")).toBe("yes");
+    expect(readIn(owner.container, "native-state")).toBe("yes");
   });
 });
 

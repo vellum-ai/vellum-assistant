@@ -44,15 +44,17 @@ The script outputs JSON: `{ "configured": boolean, "details": string, "error"?: 
 
 ## Step 0.5: Prefer the In-Product Wizard
 
-If an interactive client is connected, call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "discord" }`. This opens the Discord setup wizard in the side panel: create the app, connect the token through a masked field, and add the bot to a server, all without the token entering chat. The wizard is non-blocking and auto-notifies you when it is closed.
+If an interactive client is connected, call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "discord" }`. This opens the Discord setup wizard in the side panel: create the app, connect the token through a masked field, add the bot to a server, and finish with a hand-back to identity verification, all without the token entering chat. The wizard is non-blocking and auto-notifies you when it is closed.
 
 ⚠️ **Tool call first, announcement second, in the same turn.** Do not claim the wizard is open until the `ui_show` call has returned success. After success, tell the user:
 
-> I've opened the Discord setup wizard in the side panel. It walks you through creating the app, connecting its bot token, and adding the bot to a server. It will notify me when you close it; ask me here if you hit a snag.
+> I've opened the Discord setup wizard in the side panel. It walks you through creating the app, connecting its bot token, and adding the bot to a server, and its last step hands verification back to me. It will notify me when you close it; ask me here if you hit a snag.
 
-When the wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored. A stored token completes Steps 1 through 4; the invite (Step 5) happens on the wizard's last step, and closing the panel does not prove it happened. Ask the user directly:
+When a notification saying the user **completed the wizard and asked to verify their identity** arrives, the wizard's finish step was reached: the user confirmed the bot joined a server and pressed its Verify me action. Re-run the Step 0 check script to confirm a token was stored, then skip the invite question below and go straight to Step 6 (identity verification) without re-asking which channel.
 
-> Did you add the bot to a server on the wizard's last step? If not, I can give you the install link again.
+When a plain wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored. A stored token completes Steps 1 through 4; the invite (Step 5) happens on the wizard's Add to server step, and closing the panel does not prove it happened. Ask the user directly:
+
+> Did you add the bot to a server in the wizard? If not, I can give you the install link again.
 
 If they did not, run the Step 5 invite script and have them complete it before continuing. Only then continue at Step 6 (identity verification). Do not mark setup complete while the bot is in no server.
 

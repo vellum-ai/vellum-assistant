@@ -155,4 +155,22 @@ describe("useDictationOverlaySync", () => {
     });
     expect(messages[messages.length - 1]).toEqual({ kind: "done" });
   });
+
+  /**
+   * The companion surface carries the status while the hold is bound, so the
+   * panel would be the same fact drawn twice. Dismissed rather than skipped: a
+   * dictation begun in the app and taken over mid-flight must not strand one.
+   */
+  test("dismisses instead of drawing while suppressed", () => {
+    act(() => {
+      store().startRecording();
+    });
+    messages.length = 0;
+
+    renderHook(() => useDictationOverlaySync({ suppressed: true }));
+
+    // The live recording draws nothing, and what it does publish takes the
+    // panel away rather than leaving whatever was there.
+    expect(messages).toEqual([{ kind: "dismiss" }]);
+  });
 });

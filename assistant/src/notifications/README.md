@@ -15,7 +15,9 @@ Producer → NotificationSignal → Source-Active Gate → Candidate Generation 
 
 A producer calls `emitNotificationSignal()` with a free-form event name, attention hints (urgency, requiresAction, deadlineAt), and a context payload. The signal is persisted as a `notification_events` row.
 
-Immediately after persistence, a **source-active pre-gate** runs (`checkSourceActiveSuppression`): when `visibleInSourceNow` is set — a hard, signal-only invariant the decision engine cannot override — the signal is suppressed and short-circuits here, before candidate generation and the LLM decision. This keeps an always-suppressed signal (e.g. trusted-contact `verification_sent`) from spending an LLM inference whose result would be discarded. The `notification_events` row is still written for the audit trail.
+Immediately after persistence, a **source-active pre-gate** runs (`checkSourceActiveSuppression`): when `visibleInSourceNow` is set, a hard signal-only invariant the decision engine cannot override, the signal is suppressed and short-circuits here, before candidate generation and the LLM decision. This keeps an always-suppressed signal (e.g. trusted-contact `verification_sent`) from spending an LLM inference whose result would be discarded. The `notification_events` row is still written for the audit trail.
+
+The hint is not a static `false` for every producer. A conversation-scoped producer derives it per signal through `resolveVisibleInSourceNow()` in `resolve-visible-in-source.ts`, so the same producer suppresses or notifies depending on what the user has on screen. The bar for deriving it rather than passing `false` is high; see [Choosing `visibleInSourceNow`](#choosing-visibleinsourcenow).
 
 ### 2. Candidate Generation
 
@@ -57,8 +59,7 @@ Hard invariants that the LLM cannot override:
 
 **Post-generation enforcement** (`decision-engine.ts`):
 
-- **Guardian question request-code enforcement** — `enforceGuardianRequestCode()` ensures request-code instructions (approve/reject or free-text answer) appear in all `guardian.question` notification copy, even when the LLM omits them. Exception: for approval-mode questions the Slack adapter renders an interactive card with Approve/Reject buttons, so Slack copy is instead **stripped** of request-code instructions and bare code mentions (`stripGuardianRequestCodeInstructions()`).
-- **Access-request instruction enforcement** — `enforceAccessRequestInstructions()` validates that `ingress.access_request` copy contains: (1) the request-code approve/reject directive, (2) the exact "open invite flow" phrase. If any required element is missing, the full deterministic contract text is appended. This prevents model-generated copy from dropping security-critical action directives.
+- **Reply mechanics never ride in copy**: `stripReplyMechanics()` removes request-code reply instructions the model wrote into any channel's `guardian.question` or `ingress.access_request` copy, as whole sentences (`Reference code: X`, `Reply "X approve"`, a paraphrase or negation of either, `Reply "X trust"`, `Use reference code X`). The mechanics live in exactly one place, the broadcaster's `plainTextFallback` (`buildGuardianRequestCodeInstruction` for questions and approvals, `buildAccessRequestReplyMechanics` for access requests), and a transport appends it only when it sends text without buttons: a rich delivery that failed, or a request with no actions to draw (an option-less voice question, or a coded question that failed strict parsing). The bell, the banner, the push, and every card with buttons therefore show the ask alone. The access-request invite-flow directive is context, not mechanics: no surface has a button for it, so it stays in `buildAccessRequestContextText` on every surface and is ensured into model-composed copy that leaves it out (`ensureAccessRequestInviteDirectiveInCopy`).
 
 **Pre-send gate checks** (`deterministic-checks.ts`) — these all depend on the decision, so they run here, after it:
 
@@ -293,7 +294,7 @@ The notification system delivers to three channel types:
 
 ### Vellum (always connected)
 
-Local SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
+Local SSE via the assistant's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
 
 - `sourceEventName` -- the event that triggered the notification
 - `title` and `body` -- rendered notification copy
@@ -309,7 +310,7 @@ HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` s
 
 Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
 
-- **Vellum** is always considered connected (HTTP transport is always available when the daemon is running)
+- **Vellum** is always considered connected (HTTP transport is always available when the assistant is running)
 - **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
 
 ## Conversation Materialization
@@ -377,7 +378,7 @@ When the decision engine routes multiple guardian questions to the **same** conv
 
 ### How Request Codes Work
 
-Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time, generated gateway-side during `guardian_requests_create` (`generateRequestCode()` in `gateway/src/db/guardian-request-store.ts`). The code is included in the notification copy delivered to the guardian.
+Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time, generated gateway-side during `guardian_requests_create` (`generateRequestCode()` in `gateway/src/db/guardian-request-store.ts`). The guardian sees the code only where they need to type it: in the plain-text fallback a transport appends when it sends a request without buttons, and in the router's disambiguation reply when several requests are pending.
 
 ### Disambiguation Flow
 
@@ -450,6 +451,10 @@ await emitNotificationSignal({
     requiresAction: true,
     urgency: "high",
     isAsyncBackground: false,
+    // `false` is the correct default. Only a producer that can prove this
+    // arrival already rendered the event in the conversation may resolve the
+    // hint instead, and each one needs a flag that names it. See
+    // "Choosing `visibleInSourceNow`" below.
     visibleInSourceNow: false,
   },
   contextPayload: {
@@ -464,6 +469,15 @@ await emitNotificationSignal({
 3. Optionally add a fallback copy template in `copy-composer.ts` keyed by your `sourceEventName`. Without a template, the generic fallback produces a human-readable version of the event name.
 
 The call is fire-and-forget safe by default -- errors are caught and logged internally unless you pass `throwOnError: true`.
+
+### Choosing `visibleInSourceNow`
+
+Step 1 suppresses on this hint before anything else runs, and nothing downstream can rescue a signal it swallows, so a wrong `true` deletes the notification outright. All four rules below must hold before a producer resolves the hint instead of passing `false`.
+
+- **Opt in only when the notification duplicates something that conversation has already rendered, and only behind a flag that names your producer.** `resolveVisibleInSourceNow()` reads `activity-presence-suppression`, which gates the background-activity failure producer alone, so a new producer needs its own flag or an extension of that one before it calls the resolver. Otherwise the flag silently governs a producer its description does not cover. Having a conversation id in scope is not sufficient; the producer must know that _this_ arrival put the announced thing on screen there. `runtime/background-job-runner.ts` is the worked example: one catch block is reached from several directions, and it passes `presenceConversationId` only when the failure carries a `turnFailure`, the one arrival whose conversation is guaranteed to have emitted a `conversation_error` the user can read. A runner timeout leaves the turn still rendering as in progress and a bootstrap throw never reaches the agent loop, so both keep notifying.
+- **Pass a literal `false` for global and infra signals.** Heartbeat, credential health, webhook health, and worker liveness have no source surface to watch, so there is nothing to duplicate.
+- **Never opt in a `guardian.question` producer.** The card _is_ the prompt, so a `true` suppresses the question's only rendering and the tool hangs until the prompt timeout. `runtime/question-request-guardian-bridge.ts` carries the rationale at its hint block, and three regression pins hold the line: `runtime/__tests__/question-request-guardian-bridge.test.ts`, `__tests__/confirmation-request-guardian-bridge.test.ts`, and `__tests__/notification-guardian-path.test.ts`.
+- **A producer running inside the schedule worker cannot read presence at all.** `schedule/worker.ts` is a standalone OS process and the sole runner of schedule execution, while the resolver reads `assistantEventHub` through `isWebConversationFocused()` and that hub's SSE clients exist only in the assistant process. Every presence read from the worker resolves `false`, whatever the user is watching. The trap is in testing: a test that drives the producer and mocks presence in one process passes while the shipped worker suppresses nothing. Tracked as JARVIS-1711.
 
 ## How to Add a New Channel
 
@@ -552,4 +566,4 @@ from the unified `llm` block. Override defaults by setting either of:
 
 When a call site override is unset, the resolver falls back to the shipped call-site default profile.
 
-The notification pipeline is always active -- signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.
+The notification pipeline is always active -- signals are processed and dispatched as soon as the assistant is running. The audit trail (events, decisions, deliveries) is written for every signal.

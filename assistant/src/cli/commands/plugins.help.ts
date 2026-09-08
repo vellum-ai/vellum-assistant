@@ -8,14 +8,18 @@ import {
   PLUGIN_UPGRADE_STRATEGIES,
 } from "../lib/plugin-constants.js";
 
+export const PLUGINS_SEARCH_INSTALL_HINT =
+  "Install the plugin with `assistant plugins install <name>`.";
+
 export const pluginsHelp: CliCommandHelp = {
   name: "plugins",
-  description: "List, search, install, and manage plugins.",
+  description:
+    "Manage external plugins, which bundle apps, channels, MCPs, skills and more from other Vellum users",
   helpText: `
-Plugins are superpowers: installable extensions that add skills, tools, integrations,
-and so much more from the Vellum Community. When the user asks to set up,
-install, connect, or integrate a product, service, or app, run
-'assistant plugins search <name>' first before searching the web.`,
+Plugins are superpowers: installable extensions that add apps, channels, MCPs,
+skills, tools, integrations, and so much more from other Vellum users. When the
+user asks to set up, install, connect, or integrate a product, service, or app,
+run 'assistant plugins search <name>' first before searching the web.`,
   subcommands: [
     {
       name: "install",
@@ -165,7 +169,7 @@ Arguments:
            user sentence. Use the product or plugin name. Anchors like
            ^example work.
 
-If a match is found, install it with 'assistant plugins install <name>'.
+${PLUGINS_SEARCH_INSTALL_HINT}
 If nothing matches, try 'assistant skills search <query>', then web search.
 
 Examples:

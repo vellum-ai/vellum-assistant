@@ -60,10 +60,18 @@ export interface VoiceRecordingState {
    * success check. Cleared on the next `startRecording`.
    */
   dictationInsertionError: string | null;
+  /**
+   * Whether a held key opened this microphone rather than a control in the
+   * app. Set as the recording starts and kept for as long as it runs, so a
+   * consumer that only hears about the recording once it is under way can
+   * still tell the two apart: the key itself is up again before a short
+   * recording has finished starting.
+   */
+  hold: boolean;
 }
 
 export interface VoiceRecordingActions {
-  startRecording: () => void;
+  startRecording: (options?: { hold?: boolean }) => void;
   stopRecording: () => void;
   finalize: () => void;
   fail: (code: string) => void;
@@ -108,8 +116,9 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
   interimTranscript: "",
   audioLevel: 0,
   dictationInsertionError: null,
+  hold: false,
 
-  startRecording: () => {
+  startRecording: (options) => {
     clearDismissTimer();
     set({
       phase: "recording",
@@ -117,6 +126,7 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
       interimTranscript: "",
       audioLevel: 0,
       dictationInsertionError: null,
+      hold: options?.hold ?? false,
     });
   },
 
@@ -156,6 +166,7 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
       interimTranscript: "",
       audioLevel: 0,
       dictationInsertionError: null,
+      hold: false,
     });
   },
 

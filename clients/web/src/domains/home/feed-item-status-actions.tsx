@@ -19,12 +19,11 @@ export interface FeedItemStatusActionsProps {
 /**
  * The status controls a notification's detail header carries: the read/unread
  * toggle, then dismiss (or restore, for an item already dismissed). Rendered
- * by the Activity page's detail panel and by the notification bell's detail.
+ * by the notification bell's detail.
  *
- * A fragment rather than a row: the two headers seat the pair differently
- * (the bell holds its width opposite a back control, the panel pushes it to
- * the trailing edge of a nav bar), so the container stays with each of them
- * and only the controls are shared.
+ * A fragment rather than a row: the header seats the pair against a back
+ * control and holds its own width, so the container stays with the caller and
+ * only the controls live here.
  */
 export function FeedItemStatusActions({
   item,

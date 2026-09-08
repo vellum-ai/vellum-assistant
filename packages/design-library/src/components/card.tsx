@@ -53,7 +53,7 @@ function rootClasses({
 }): string {
   return cn(
     BASE_SURFACE_CLASSES,
-    bordered ? "border border-[var(--border-base)]" : "border border-transparent",
+    bordered ? "border border-[var(--border-subtle)]" : "border border-transparent",
     elevated ? "shadow-sm" : null,
     clipContents ? "overflow-hidden" : null,
     !hasSections && !noPadding ? PADDING_CLASSES[padding] : null,

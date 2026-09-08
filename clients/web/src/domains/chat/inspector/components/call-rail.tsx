@@ -62,7 +62,7 @@ export function CallRail({
   if (!logs.length) {
     return (
       <div
-        className="flex h-full items-center justify-center p-4 text-label-default"
+        className="flex h-full items-center justify-center p-4 text-body-small-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("callRail.empty")}
@@ -78,7 +78,7 @@ export function CallRail({
       aria-label={t("callRail.navAriaLabel")}
     >
       <div
-        className="px-1 text-label-default"
+        className="px-1 text-label-medium-default"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("callRail.callCount", { count: logs.length })}
@@ -175,7 +175,7 @@ function CallRow({
         </span>
         {isFailed ? (
           <span
-            className="rounded-[4px] px-1.5 py-0.5 text-label-default"
+            className="rounded-[4px] px-1.5 py-0.5 text-label-medium-default"
             style={{
               background: "var(--system-negative-weak)",
               color: "var(--system-negative-strong)",
@@ -186,7 +186,7 @@ function CallRow({
         ) : null}
         {isCompaction ? (
           <span
-            className="rounded-[4px] px-1.5 py-0.5 text-label-default"
+            className="rounded-[4px] px-1.5 py-0.5 text-label-medium-default"
             style={{
               background: "var(--system-info-weak)",
               color: "var(--system-info-strong)",
@@ -197,7 +197,7 @@ function CallRow({
         ) : null}
         {isLatest ? (
           <span
-            className="rounded-[4px] px-1.5 py-0.5 text-label-default"
+            className="rounded-[4px] px-1.5 py-0.5 text-label-medium-default"
             style={{
               background: "var(--surface-base)",
               color: "var(--primary-default, var(--content-default))",
@@ -209,7 +209,7 @@ function CallRow({
       </div>
       <Tooltip content={subtitle}>
         <div
-          className="line-clamp-2 text-label-default"
+          className="line-clamp-2 text-body-small-lighter"
           style={{
             color: isSynthetic
               ? "var(--system-negative-strong)"
@@ -220,7 +220,7 @@ function CallRow({
         </div>
       </Tooltip>
       <div
-        className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-default"
+        className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-medium-default"
         style={{ color: "var(--content-tertiary)" }}
       >
         <span

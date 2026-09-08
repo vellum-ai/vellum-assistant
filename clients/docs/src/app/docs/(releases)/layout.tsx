@@ -13,6 +13,8 @@ import { DocsMobileMenuButton } from "@/app/docs/_components/docs-mobile-menu-bu
 import { WWW_DOMAIN } from "@/lib/domains";
 import { fetchReleases } from "@/lib/releases-server";
 
+import { CodeBlockCopy } from "@/app/docs/_components/code-block-copy";
+
 import "@/app/docs/docs-theme.css";
 
 export const metadata: Metadata = {
@@ -32,6 +34,7 @@ export default async function ReleasesLayout({
   return (
     <DocsNavProvider>
       <div className="docs-shell min-h-screen">
+        <CodeBlockCopy />
         <header className="docs-header sticky top-0 z-20 border-b backdrop-blur">
           {/* Top row in centered band */}
           <div className="mx-auto max-w-[1280px]">

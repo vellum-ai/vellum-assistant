@@ -208,7 +208,9 @@ function SurfaceRouterInner({
         <SurfaceContainer surface={surface} onAction={onAction}>
           <p className="text-body-medium-lighter text-[var(--content-quiet)]">
             {surface.surfaceType
-              ? t("surfaceRouter.unsupportedType", { type: surface.surfaceType })
+              ? t("surfaceRouter.unsupportedType", {
+                  type: surface.surfaceType,
+                })
               : t("surfaceRouter.unknownSurface")}
           </p>
         </SurfaceContainer>

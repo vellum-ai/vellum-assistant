@@ -7,18 +7,19 @@
  * shutter carries no fill of its own, and the only interesting question about a
  * white ring is which frames it survives.
  *
- * `Live` is the one state the app cannot reach, since the capture path is
- * photo-only. It is part of this component's contract, and this is where it is
- * exercised.
+ * The hold is exercised here too. Press and keep pressing (or focus the shutter
+ * and hold Space): at 500ms `onHold` fires, and the release does not also take
+ * a photo, which is the half of the gesture only this component can guarantee.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 
 // The morph timings and the capture keyframe are hand-written in the app
 // stylesheet, which Storybook's preview.css does not pull in.
 import "@/index.css";
 
-import { CameraShutter } from "./camera-shutter";
+import { CameraShutter, type CameraShutterProps } from "./camera-shutter";
 import { CameraRowScene, overFakeFeed } from "./camera-story-feed";
 
 const meta: Meta<typeof CameraShutter> = {
@@ -36,7 +37,7 @@ const meta: Meta<typeof CameraShutter> = {
       options: ["photo", "live"],
       control: { type: "inline-radio" },
       description:
-        "The sampling policy the press acts on. Live is unreachable in the app.",
+        "The sampling policy the press acts on. A tap takes a photo; a tap while live stops the stream.",
     },
   },
 };
@@ -69,11 +70,45 @@ export const Sending: Story = {
  * record-button language every camera on the platform already uses: a crimson
  * dot that says "running, tap to stop" rather than "tap to take one".
  *
- * Not reachable in the app. Flip the `mode` control to watch the morph both
- * ways, which is the part the overshoot exists for.
+ * Flip the `mode` control to watch the morph both ways, which is the part the
+ * overshoot exists for.
  */
 export const Live: Story = {
   args: { mode: "live", ariaLabel: "Stop live" },
+};
+
+/**
+ * The gesture the app ships, wired to its own state: hold to enter Live, tap to
+ * leave.
+ *
+ * The two things to check are the two the component owns. The release of a hold
+ * takes no photo, so the pulse fires on a tap and never at the end of a hold;
+ * and a press that wanders more than 10px, or leaves the button, is a press
+ * that never became one. Space holds too, which is the whole keyboard path.
+ */
+function HoldableShutter(args: CameraShutterProps) {
+  const [live, setLive] = useState(false);
+  const mode = live ? "live" : "photo";
+  return (
+    <CameraRowScene
+      hint={{ mode }}
+      shutter={{
+        ...args,
+        mode,
+        ariaLabel: live ? "Stop live" : "Take photo",
+        onHold: live ? undefined : () => setLive(true),
+        onClick: () => {
+          if (live) {
+            setLive(false);
+          }
+        },
+      }}
+    />
+  );
+}
+
+export const HoldForLive: Story = {
+  render: (args) => <HoldableShutter {...args} />,
 };
 
 /**

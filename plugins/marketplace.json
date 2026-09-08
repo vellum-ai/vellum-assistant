@@ -319,6 +319,20 @@
       "icon": "💳"
     },
     {
+      "name": "openseo",
+      "source": {
+        "source": "github",
+        "repo": "every-app/open-seo",
+        "path": "plugins/openseo",
+        "ref": "c469a48ae90ab58413b198fe3d1ac1aa90a9b070"
+      },
+      "description": "Keyword research, competitor analysis, site audits, backlinks, and rank tracking with real SEO data, plus guided workflow skills and the hosted OpenSEO MCP server.",
+      "category": "marketing",
+      "homepage": "https://openseo.so",
+      "license": "MIT",
+      "icon": "🔎"
+    },
+    {
       "name": "originkit",
       "source": {
         "source": "github",

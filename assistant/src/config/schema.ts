@@ -54,6 +54,7 @@ import {
 import { PluginUpdatesConfigSchema } from "./schemas/plugin-updates.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
+import { SightConfigSchema } from "./schemas/sight.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
 import {
   RateLimitConfigSchema,
@@ -118,6 +119,7 @@ export const AssistantConfigSchema = z.object({
   twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
   calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
   liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
+  sight: SightConfigSchema.default(SightConfigSchema.parse({})),
   whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
   telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
   slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),

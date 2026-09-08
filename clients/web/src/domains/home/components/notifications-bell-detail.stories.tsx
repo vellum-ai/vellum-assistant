@@ -1,11 +1,10 @@
 /**
  * `NotificationsBellDetail` is one notification opened inside the bell in the
- * top bar, which is a different surface from the Activity page's
- * `HomeDetailPanel` even though the two share their body renderers. This is
- * the one that appears under the bell icon.
+ * top bar. It is the only surface a notification's full detail has, so these
+ * stories are where every body kind is seen at its real width.
  *
  * The decorator stands in for the popover the bell renders this into: the
- * same `w-96` box and padding as `notifications-bell.tsx`, so the footer's
+ * same 435px box and surface as `notifications-bell.tsx`, so the footer's
  * links are seen at the width they actually have to fit. The bell itself owns
  * the queries, so the props here are what the real bell passes down after
  * `useFeedItemEntityLinks` has resolved.
@@ -41,9 +40,9 @@ const meta = {
   component: NotificationsBellDetail,
   parameters: { layout: "padded" },
   args: {
-    // The bell's own content budget: five compact cards plus their gaps.
-    contentHeight: "397px",
-    contentMaxHeight: "calc(100dvh - 176px)",
+    // The bell's own content budget: six rows plus their gaps.
+    contentHeight: "400px",
+    contentMaxHeight: "calc(100dvh - 192px)",
     validConversationIds: FIXTURE_VALID_CONVERSATIONS,
     areConversationListsPending: false,
     entityLinks: [],
@@ -58,7 +57,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="w-96 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
+      <div className="flex w-[435px] min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]">
         <Story />
       </div>
     ),
@@ -177,8 +176,9 @@ export const LinksPending: Story = {
 /**
  * A pending guardian approval: the canonical "Needs attention" item for a
  * request raised from a channel. The body is the guardian card with
- * requester and source context first, then Approve/Reject against the
- * canonical request, with the source-thread jump in the footer.
+ * the ask and where it came from first, then the tool the request would
+ * run, then Approve/Reject against the canonical request, with the
+ * source-thread link under them.
  */
 export const GuardianApprovalPending: Story = {
   args: {
@@ -201,20 +201,24 @@ export const GuardianApprovalPending: Story = {
         sourceChannel: "slack",
         sourceContextLabel: "Slack #user-feedback",
         sourceUrl: "https://slack.com/archives/C0123456789/p1725100000000100",
-        slackCardUrl:
-          "https://slack.com/archives/D0AAAAAAAAA/p1725100001000100",
       },
     }),
   },
 };
 
-/** A pending guardian question routes to the source conversation to answer. */
+/**
+ * A pending guardian question routes to the source conversation to answer.
+ * The summary is the question with its options on their own lines, which is
+ * all the bell shows: the reply mechanics a chat channel needs are stripped
+ * before the copy reaches this surface.
+ */
 export const GuardianQuestionPending: Story = {
   args: {
     item: feedItem({
       id: "guardian:req-question",
       title: "Which venue should I book?",
-      summary: "Vex needs an answer before booking the offsite venue.",
+      summary:
+        "Which venue should I book for the offsite? The two on the shortlist differ on price and travel time.\n\n1. The lakeside lodge\n2. The downtown hotel\n3. Either, your call",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "permissionChat" },
@@ -253,7 +257,6 @@ export const GuardianApprovalResolved: Story = {
         requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceContextLabel: "Slack #user-feedback",
-        decidedByLabel: "Bob",
         decidedAt: "2026-08-31T13:00:00.000Z",
       },
     }),

@@ -28,7 +28,7 @@ describe("PROCESS_KINDS registry", () => {
 
 describe("OVERLAY_PROCESS_KINDS", () => {
   it("excludes subagents and ACP runs", () => {
-    // The header's ConversationActivityPill carries them. Adding either here
+    // The progress stack's ProgressAgentsCard carries them. Adding either here
     // gives one process two entry points and puts a floating banner back on top
     // of incoming messages (LUM-2800).
     const kinds = OVERLAY_PROCESS_KINDS.map((descriptor) => descriptor.kind);

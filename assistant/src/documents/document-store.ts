@@ -470,10 +470,6 @@ export type ReplaceInDocumentResult =
   | { success: true; replacements_made: number; content_changed: boolean }
   | { success: false; error: string };
 
-function escapeRegExpChars(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Find and replace text within a document — like sed.
  * Supports literal text and regex patterns with optional backreferences.
@@ -497,7 +493,7 @@ export function replaceInDocument(
     const flags = "g" + (options.caseSensitive === true ? "" : "i");
     const pattern = options.regex
       ? new RegExp(find, flags)
-      : new RegExp(escapeRegExpChars(find), flags);
+      : new RegExp(RegExp.escape(find), flags);
 
     const totalMatches = [...row.content.matchAll(pattern)].length;
     if (

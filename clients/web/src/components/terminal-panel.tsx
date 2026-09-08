@@ -90,7 +90,7 @@ export function TerminalPanel({
       />
 
       {isMaintenanceActive && (
-        <div className="border-b border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)] px-3 py-2 text-body-small-default text-[var(--system-mid-strong)]">
+        <div className="border-b border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)] px-3 py-2 text-body-small-lighter text-[var(--system-mid-strong)]">
           {t("terminalPanel.recoveryModeBanner")}
         </div>
       )}

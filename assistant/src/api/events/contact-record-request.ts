@@ -2,9 +2,12 @@
  * `contact_record_request` SSE event.
  *
  * Server to client form asking the guardian to confirm a contact record write
- * the assistant proposed: a create, an update, or a delete. Emitted by the
- * `contacts/record-prompt` IPC route while a `pendingContactPrompts` entry
+ * the assistant proposed: a create, an update, a delete, or a merge. Emitted by
+ * the `contacts/record-prompt` IPC route while a `pendingContactPrompts` entry
  * awaits a reply.
+ *
+ * On a merge, `contactId` is the survivor and `displayName` is the name the
+ * survivor ends up with; the donor is carried in the `donor*` fields.
  *
  * The proposed values are a starting point, not a decision. The guardian may
  * edit the name and notes before submitting, and the client posts the result
@@ -25,8 +28,8 @@ import { z } from "zod";
 export const ContactRecordRequestEventSchema = z.object({
   type: z.literal("contact_record_request"),
   requestId: z.string(),
-  operation: z.enum(["create", "update", "delete"]),
-  /** Target of an update or delete. Absent on create. */
+  operation: z.enum(["create", "update", "delete", "merge"]),
+  /** Target of an update, delete or merge. Absent on create. */
   contactId: z.string().optional(),
   /** Current name of the target, so the form can show what is changing. */
   currentDisplayName: z.string().optional(),
@@ -40,6 +43,15 @@ export const ContactRecordRequestEventSchema = z.object({
    * same-named contacts it is about, and what access is about to be lost.
    */
   channels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
+    .optional(),
+
+  /** The contact being merged away. Present only on a merge. */
+  donorContactId: z.string().optional(),
+  /** That contact's name, so the confirmation can say who is being absorbed. */
+  donorDisplayName: z.string().optional(),
+  /** The channels moving to the survivor. */
+  donorChannels: z
     .array(z.object({ type: z.string(), address: z.string() }))
     .optional(),
 

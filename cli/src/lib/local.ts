@@ -49,6 +49,7 @@ import {
   executableName,
   isProcessAlive,
   pathListDelimiter,
+  readProcessCommandLine,
   resolveProcessState,
   stopProcess,
   stopProcessByPidFile,
@@ -1965,13 +1966,8 @@ export async function startGateway(
 /** Check whether a PID belongs to an ngrok process via its command line. */
 function isNgrokProcess(pid: number): boolean {
   try {
-    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    }).trim();
-    return /ngrok/.test(output);
+    const output = readProcessCommandLine(pid);
+    return /ngrok/i.test(output);
   } catch {
     return false;
   }

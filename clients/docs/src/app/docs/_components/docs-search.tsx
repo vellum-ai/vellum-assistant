@@ -41,7 +41,7 @@ const SUGGESTED_SECTIONS = [
   },
   {
     label: "Hosting options",
-    description: "Compare local, Apple Container, GCP, and AWS hosting choices",
+    description: "Compare local, Apple Container, and GCP hosting choices",
     url: "/docs/hosting-options",
     icon: Globe,
   },

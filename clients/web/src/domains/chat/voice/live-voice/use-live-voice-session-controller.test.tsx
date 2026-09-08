@@ -287,7 +287,9 @@ describe("starter registration", () => {
     });
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
     useConversationStore.getState().setActiveConversationId("conv-1");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
 
     const h = renderPersistentController();
     await act(async () => {
@@ -307,6 +309,7 @@ describe("starter registration", () => {
       assistantId: "assistant-1",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
@@ -357,7 +360,9 @@ describe("re-draining on an assistant switch", () => {
 
   test("a request reparked mid-preflight starts on the assistant switched to", async () => {
     activeAssistant("assistant-1");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     let releasePreflight: () => void = () => {};
     preflightLiveVoice.mockImplementationOnce(
       () =>
@@ -389,6 +394,7 @@ describe("re-draining on an assistant switch", () => {
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     // Spent, rather than left parked for the TTL to throw away.
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
@@ -405,7 +411,9 @@ describe("re-draining on an assistant switch", () => {
     await flushDrains();
 
     // Parked directly, so nothing drains it until the switch does.
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     act(() => {
       useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
     });
@@ -435,6 +443,7 @@ describe("re-draining on an assistant switch", () => {
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
+      entry: "deep_link",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
@@ -457,7 +466,9 @@ describe("re-draining on an assistant switch", () => {
     // The park is one-shot, so the trigger cannot turn every later switch into
     // a session the user never asked for.
     activeAssistant("assistant-1");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     const h = renderPersistentController();
     await flushDrains();
     expect(h.clients).toHaveLength(1);
@@ -809,5 +820,54 @@ describe("native audio session", () => {
     });
 
     expect(h.renderCount()).toBe(renders);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Camera-frame cleanup outlives the room
+// ---------------------------------------------------------------------------
+
+/**
+ * The room's sight surface is unmounted whenever the room is minimized, so the
+ * duty to give back a refused upload cannot live there. It is mounted here,
+ * beside the session, and this pins the wiring: without it the queue would sit
+ * untouched until a session teardown discarded it, stranding the uploads.
+ *
+ * Asserts the drain rather than the delete, so the case stays about lifetime
+ * and needs no stub for the attachment API.
+ */
+describe("camera-frame reclaim runs at session scope", () => {
+  test("drains a refused upload with no room mounted", async () => {
+    const { view } = renderPersistentController();
+
+    await act(async () => {
+      const store = useLiveVoiceStore.getState();
+      store.setSessionContext("asst_sight", "conv_sight");
+      store.noteSightFrameSent("att-1");
+      store.noteSightFrameRefused(true);
+      await Promise.resolve();
+    });
+
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
+    view.unmount();
+  });
+
+  test("leaves a routine refusal's frames alone", async () => {
+    const { view } = renderPersistentController();
+
+    await act(async () => {
+      const store = useLiveVoiceStore.getState();
+      // The queue is deliberately not session state, so an earlier case's
+      // entries would otherwise still be sitting in it.
+      store.takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
+      store.setSessionContext("asst_sight", "conv_sight");
+      store.noteSightFrameSent("att-1");
+      store.noteSightFrameRefused(false);
+      await Promise.resolve();
+    });
+
+    // Nothing was queued: that assistant reclaims what it could not persist.
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
+    view.unmount();
   });
 });

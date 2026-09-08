@@ -23,6 +23,7 @@
  */
 
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { clearCameraGateDebug } from "@/stores/camera-gate-debug-store";
 import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 const USER_PREFIX = "vellum:";
@@ -79,6 +80,11 @@ export function clearUserScopedStorage(): void {
   // Same shape: a typed-storage accessor holds a value in memory when the
   // device refuses writes, so the key sweep below has nothing to remove.
   clearUserScopedOverrides();
+
+  // And again: the camera gate's tuning readout keeps its enable bit in a
+  // store slice and its thresholds in the record the gate reads, neither of
+  // which the key sweep reaches.
+  clearCameraGateDebug();
 
   try {
     sessionStorage.clear();

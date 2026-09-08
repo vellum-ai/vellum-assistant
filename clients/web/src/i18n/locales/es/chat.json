@@ -97,6 +97,15 @@
     "search": "Buscar",
     "searchShortcut": "Buscar ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Ocultar la pantalla de reposo",
+    "sleeping": "Tu asistente está durmiendo",
+    "sleepingNamed": "{name} está durmiendo",
+    "waking": "Tu asistente se está despertando…",
+    "wakingNamed": "{name} se está despertando…",
+    "woke": "Tu asistente acaba de despertarse",
+    "wokeNamed": "{name} acaba de despertarse"
+  },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
     "currentAssistant": "{name}, asistente actual",
@@ -259,6 +268,12 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraShutterHint": {
+    "live": "En vivo · Toca para detener",
+    "liveDescription": "Toca para detener el video en vivo.",
+    "photo": "Toca para foto · Mantén para en vivo",
+    "photoDescription": "Mantén pulsado para iniciar el video en vivo."
+  },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",
     "announceLiveMuted": "En vivo. Silenciado. {status}",
@@ -271,6 +286,14 @@
     "live": "En vivo",
     "photo": "Foto",
     "yourAssistant": "Tu asistente"
+  },
+  "cameraViewOptions": {
+    "buttonAria": "Opciones de vista de la cámara",
+    "gateHudDescription": "El panel de ajuste de lo que conserva el modo en vivo.",
+    "gateHudTitle": "Lectura del filtro de fotogramas",
+    "keptFrameDescription": "El último fotograma enviado en vivo, junto a tus fotos. El envío continúa igualmente.",
+    "keptFrameTitle": "Último fotograma",
+    "title": "Mostrar"
   },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
@@ -379,10 +402,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Preguntar al Doctor",
-    "copyCliFix": "Copiar corrección de CLI",
     "goToDoctor": "Ir al Doctor",
     "openPage": "Abrir página",
-    "suggestionFallback": "Sugerencia"
+    "suggestionFallback": "Sugerencia",
+    "copyCliFix": "Copiar corrección de CLI"
   },
   "chatRuleEditorModal": {
     "applyTo": "Aplicar a",
@@ -506,27 +529,37 @@
   },
   "contactPromptCard": {
     "addContact": "Añadir un contacto",
+    "addingToContact": "Añadiendo un canal a {name}",
     "cancel": "Cancelar",
     "contactSaved": "Contacto guardado",
-    "dismiss": "Descartar",
     "enterAddress": "Introduce la dirección de {channel}",
     "markVerified": "Marcar esta dirección como verificada",
     "markVerifiedHelp": "Una dirección verificada puede enviar mensajes a tu asistente.",
+    "namePlaceholder": "Nombre",
+    "notesLabel": "Notas",
     "save": "Guardar",
     "saving": "Guardando…"
   },
   "contactRecordCard": {
     "cancel": "Cancelar",
+    "channelType": "{channel}:",
     "contactDeleted": "Contacto eliminado",
+    "contactMerged": "Contactos combinados",
     "contactSaved": "Contacto guardado",
     "createTitle": "Añadir un contacto",
     "delete": "Eliminar",
     "deleteTitle": "¿Eliminar a {name}?",
     "deleteWarning": "Esto también elimina sus canales, por lo que ya no podrá contactar con tu asistente.",
-    "dismiss": "Descartar",
+    "merge": "Combinar",
+    "mergeDonorChannels": "Se trasladan de {name}",
+    "mergeSurvivorChannels": "Ya están en {name}",
+    "mergeTitle": "¿Combinar a {donor} con {survivor}?",
+    "mergeWarning": "Estos canales pasan a {survivor} y se elimina el registro de {donor}.",
+    "nameLabel": "Nombre",
     "namePlaceholder": "Nombre",
     "noChannels": "Este contacto no tiene canales.",
-    "notesPlaceholder": "Notas (opcional)",
+    "notesLabel": "Notas",
+    "notesPlaceholder": "Añadir una nota",
     "save": "Guardar",
     "saving": "Guardando…",
     "updateTitle": "Actualizar a {name}"
@@ -566,11 +599,6 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
-  },
-  "conversationActivityPill": {
-    "activity": "Actividad",
-    "recent": "Recientes",
-    "running": "En ejecución"
   },
   "conversationAssetActions": {
     "delete": "Eliminar",
@@ -638,6 +666,9 @@
     "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
     "title": "Eliminar conversación",
     "untitled": "Sin título"
+  },
+  "deletedMessageRow": {
+    "label": "Este mensaje fue eliminado"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
@@ -738,6 +769,10 @@
   "formSurface": {
     "secureHint": "Este valor se enviará de forma segura y no se guardará en tu navegador.",
     "selectPlaceholder": "Seleccionar..."
+  },
+  "frameGateHud": {
+    "collapse": "Ocultar la lectura del filtro de fotogramas",
+    "expand": "Mostrar la lectura del filtro de fotogramas"
   },
   "groupActions": {
     "archiveAll": "Archivar todas…",
@@ -954,6 +989,12 @@
     "breakdownSource": "fuente",
     "breakdownSpreadDelta": "spread Δ",
     "breakdownStatus": "estado",
+    "candidatePoolChosenChip": "seleccionada",
+    "candidatePoolNoneBody": "No se registró ningún grupo de candidatos para este turno.",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, one {# candidato admitido directamente} other {# candidatos admitidos directamente}} sin evaluación del selector · selector desactivado",
+    "candidatePoolSelectorNotRunBody": "El selector no se ejecutó en este turno.",
+    "candidatePoolSubtitle": "{poolSize, plural, one {# candidato mostrado} other {# candidatos mostrados}} al selector · {selectedCount, plural, one {# página seleccionada} other {# páginas seleccionadas}}",
+    "candidatePoolTitle": "Grupo de candidatos",
     "candidateScores": "sem {semantic} · rec {recency}",
     "carriedPill": "Arrastradas: {count}",
     "conceptActivationsSubtitle": "Ordenadas por activación final. Las entradas de habilidades aparecen con el prefijo `skills/`; expande una fila para ver el desglose de activación.",
@@ -1002,8 +1043,6 @@
     "pillMemoryV2": "Memoria V2",
     "pillMemoryV3": "Memoria V3",
     "pillRecallV1": "Recuperación (v1)",
-    "pinnedChip": "fijada",
-    "pinnedPill": "Fijadas: {count}",
     "providerLabel": "Proveedor",
     "queryContextSubtitle": "El texto incrustado como vector de búsqueda para la recuperación semántica.",
     "queryContextTitle": "Contexto de consulta",
@@ -1236,6 +1275,14 @@
     "goToFile": "Ir al archivo",
     "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
+  "progressRail": {
+    "agentsLabel": "Agentes",
+    "agentsToggleAria": "Agentes: {running, plural, =0 {ninguno en curso} one {# en curso} other {# en curso}}, {completed, plural, =0 {ninguno terminado} one {# terminado} other {# terminados}}",
+    "railAria": "Progreso",
+    "stepCounter": "{current} de {total}",
+    "title": "Progreso",
+    "titleFinished": "Terminado"
+  },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
   },
@@ -1464,9 +1511,7 @@
   },
   "skillLoadOutput": {
     "output": "Salida",
-    "outputFormatAria": "Formato de salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más"
+    "outputFormatAria": "Formato de salida"
   },
   "skillToolList": {
     "fromSkill": "De {name}"
@@ -1486,10 +1531,6 @@
   },
   "storeCredentialDialog": {
     "successToast": "Guardado de forma segura. La clave nunca entró en el chat."
-  },
-  "subagentAvatarRow": {
-    "details": "Detalles",
-    "showDetailsAria": "Mostrar detalles del subagente"
   },
   "subagentDetailPanel": {
     "backToTimelineAria": "Volver a la línea de tiempo",
@@ -1512,8 +1553,6 @@
     "workedFor": "Trabajó durante {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Contraer",
-    "collapseDetailsAria": "Contraer detalles del subagente",
     "stopSubagentAria": "Detener subagente"
   },
   "suggestionCard": {
@@ -1586,6 +1625,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Cerrar detalles de la herramienta",
+    "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
+    "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "output": "Salida",
     "riskLevel": "Nivel de riesgo",
     "running": "Ejecutando…"
@@ -1671,12 +1712,15 @@
     "flashOff": "Flash desactivado",
     "flashOn": "Flash activado",
     "flipCamera": "Voltear la cámara",
+    "lightOff": "Luz apagada",
+    "lightOn": "Luz encendida",
     "minimizeAria": "Minimizar la sala de voz",
     "minimizeTooltip": "Minimizar (la sesión sigue activa)",
     "muteAssistant": "Silenciar el asistente",
     "muteMicrophone": "Silenciar el micrófono",
     "mutedState": "Silenciado. {state}",
     "showCamera": "Mostrar la cámara",
+    "stopLive": "Detener en vivo",
     "takePhoto": "Tomar una foto",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
@@ -1759,5 +1803,21 @@
     "reactionAdded": "{name} reaccionó con {emoji}",
     "reactionRemoved": "{name} quitó su reacción {emoji}",
     "reactionSomeone": "Alguien"
+  },
+  "watchRetroSurface": {
+    "doneDiscarded": "No se guardó",
+    "doneNotRight": "Marcado como incorrecto",
+    "doneSaved": "Habilidad guardada",
+    "recommended": "Recomendado"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "Restaurar acceso",
+    "restoring": "Restaurando...",
+    "restored": "Restaurado. Los modelos gestionados por Vellum vuelven a funcionar.",
+    "failedNoAssistant": "Selecciona un asistente y vuelve a intentarlo.",
+    "failedCannotActHere": "Esta aplicación no puede restaurar la credencial de este asistente. Abre el asistente en el equipo que lo ejecuta.",
+    "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
+    "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
+    "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
   }
 }

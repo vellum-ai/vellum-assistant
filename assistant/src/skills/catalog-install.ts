@@ -18,7 +18,7 @@ import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { isBunVirtualPath } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { addToPathEnv, getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import {
   isSkillCompatibleWithPlatform,
@@ -416,12 +416,13 @@ export async function installSkillDependenciesIfPresent(
   if (!existsSync(join(skillDir, "package.json"))) {
     return;
   }
-  const bunPath = `${homedir()}/.bun/bin`;
+  const env = { ...process.env };
+  addToPathEnv(env, [join(homedir(), ".bun", "bin")]);
   await new Promise<void>((resolve, reject) => {
     const child = spawn("bun", ["install"], {
       cwd: skillDir,
       stdio: "inherit",
-      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+      env,
       windowsHide: true,
     });
     child.on("error", reject);

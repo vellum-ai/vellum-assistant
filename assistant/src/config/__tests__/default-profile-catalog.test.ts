@@ -59,9 +59,9 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
-  test("the managed Balanced profile routes GLM 5.2 through Fireworks", () => {
+  test("the managed Balanced profile routes GLM 5.3 Flash through Fireworks", () => {
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
-    expect(balanced.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(balanced.model).toBe("accounts/fireworks/models/glm-5p3-flash");
     expect(resolveRoutingIdentity(balanced.provider, balanced.model)).toEqual({
       connectionName: "vellum",
       expectedProvider: "fireworks",
@@ -440,7 +440,7 @@ describe("resolveDefaultProfileForProvider", () => {
       expect(entry?.provider_connection).toBeUndefined();
       expect(entry?.source).toBe("managed");
     }
-    // Cost and Speed both opt fully out of reasoning.
+    // Budget and Fast both opt fully out of reasoning.
     expect(effective["cost-optimized"]?.effort).toBe("none");
     expect(effective["latency-optimized"]?.effort).toBe("none");
     expect(effective.balanced?.thinking?.enabled).toBe(true);

@@ -2,11 +2,6 @@
 
 This skill uses `assistant browser` CLI commands (via `host_bash`) for navigation/extraction and `host_bash` helper scripts for deterministic parsing and ranking.
 
-## Transport policy
-
-- Allowed browser transport: `assistant browser` CLI commands only.
-- Forbidden transport: relay-backed subprocess clients.
-
 ## Helper script contract
 
 All helper scripts support:

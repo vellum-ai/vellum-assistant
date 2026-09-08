@@ -3602,6 +3602,8 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     "claude-sonnet-5",
     "anthropic/claude-sonnet-5",
     "claude-fable-5",
+    "claude-fable-5-1",
+    "anthropic/claude-fable-5.1",
   ]) {
     test(`strips temperature, top_p, and top_k for ${model}`, async () => {
       const provider = new AnthropicProvider("sk-ant-test", model);

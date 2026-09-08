@@ -17,7 +17,7 @@ import {
   accessRequestCardSubtitle,
   accessRequestCardTitle,
   buildAccessRequestCardView,
-  buildAccessRequestContractText,
+  buildAccessRequestTextFallback,
   buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
@@ -31,6 +31,7 @@ import {
   buildGuardianRequestCodeInstruction,
   buildQuestionDeliveryText,
   buildToolApprovalSourceView,
+  describeSlackChatLabel,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
   LenientToolApprovalPayloadSchema,
@@ -151,12 +152,17 @@ function sourceMetadataRow(
   channel: string | undefined,
   slackChatId: string | undefined,
   isSlackDm: boolean,
+  chatName?: string,
 ): { label: string; value: string } | undefined {
-  if (channel === "slack" && slackChatId) {
-    return {
-      label: "Source",
-      value: isSlackDm ? "Slack — Direct message" : `Slack — #${slackChatId}`,
-    };
+  if (channel === "slack") {
+    const chat = describeSlackChatLabel({
+      chatId: slackChatId,
+      chatName,
+      isSlackDm,
+    });
+    if (chat) {
+      return { label: "Source", value: `Slack · ${chat}` };
+    }
   }
   if (channel) {
     return { label: "Source", value: channel };
@@ -232,7 +238,10 @@ function resolveAccessRequestCard(
     metadata,
     requestId: view.requestId,
     actions,
-    fallbackText: buildAccessRequestContractText(payload),
+    // The card's text sibling is what a client without buttons sees (the
+    // CLI, search, the model), so it is the one place the card itself
+    // carries the typed directive beside the context.
+    fallbackText: buildAccessRequestTextFallback(payload),
   };
 }
 
@@ -298,6 +307,7 @@ function extractToolApprovalCard(
     nonEmpty(p.sourceChannel),
     sourceView?.chatId,
     sourceView?.isSlackDm ?? false,
+    sourceView?.chatName,
   );
   if (sourceRow) {
     metadata.push(sourceRow);
@@ -315,24 +325,18 @@ function extractToolApprovalCard(
       ? bodyParts.join("\n\n")
       : "No additional context available.";
 
-  // Fallback text with request-code instructions for older clients.
   const baseFallback =
     p.questionText ??
     `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
-  let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
-  if (requestCode) {
-    const modeResolution = resolveGuardianInstructionModeFromFields(
+  const fallbackText = withTypedInstruction(
+    baseFallback,
+    requestCode,
+    resolveGuardianInstructionModeFromFields(
       p.requestKind,
       "toolName" in p ? (p.toolName ?? undefined) : undefined,
-    );
-    const mode = modeResolution?.mode ?? "approval";
-    const instruction = buildGuardianRequestCodeInstruction(
-      requestCode.trim().toUpperCase(),
-      mode,
-    );
-    fallbackText = `${baseFallback}\n\n${instruction}`;
-  }
+    )?.mode ?? "approval",
+  );
 
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
@@ -344,6 +348,24 @@ function extractToolApprovalCard(
     requestId: nonEmpty(p.requestId),
     fallbackText,
   };
+}
+
+/**
+ * The card's text sibling: the ask, then the typed instruction when the
+ * request carries a code. A client that cannot draw the card sees only this
+ * block, so it is the one place the card itself carries the instruction.
+ */
+function withTypedInstruction(
+  text: string,
+  requestCode: string | undefined,
+  mode: "approval" | "answer",
+): string {
+  return requestCode
+    ? `${text}\n\n${buildGuardianRequestCodeInstruction(
+        requestCode.trim().toUpperCase(),
+        mode,
+      )}`
+    : text;
 }
 
 /**
@@ -364,6 +386,7 @@ function extractQuestionCard(
     nonEmpty(p.sourceChannel),
     sourceView?.chatId,
     sourceView?.isSlackDm ?? false,
+    sourceView?.chatName,
   );
   if (sourceRow) {
     metadata.push(sourceRow);
@@ -401,7 +424,11 @@ function extractQuestionCard(
     // button on this card would be inert; channel buttons come from the
     // broadcaster, whose taps the guardian reply router does resolve.
     actions: [],
-    fallbackText: buildQuestionDeliveryText(p),
+    fallbackText: withTypedInstruction(
+      buildQuestionDeliveryText(p),
+      nonEmpty(p.requestCode),
+      "answer",
+    ),
   };
 }
 

@@ -38,7 +38,10 @@ import {
   PhaseGroupedStepList,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
-import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
+import {
+  ToolDetailBody,
+  toolDetailHeaderTitle,
+} from "@/domains/chat/components/tool-detail-panel";
 import {
   WebSearchErrorRow,
   WebSearchStepRow,
@@ -114,7 +117,7 @@ export function ActivityStepsPanel({
   const stepDetailTitle = stepDetail
     ? stepDetail.kind === "thinking"
       ? "Thinking"
-      : stepDetail.activity || stepDetail.title
+      : toolDetailHeaderTitle(stepDetail)
     : "";
 
   return (

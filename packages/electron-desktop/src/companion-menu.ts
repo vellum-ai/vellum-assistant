@@ -72,3 +72,32 @@ export const companionSizeSubmenus = (
       },
     })),
   }));
+
+/**
+ * The show/hide item, as every menu that is also a way back draws it.
+ *
+ * A checkbox rather than an action, because such a menu is the only thing left
+ * saying the surface exists once it is hidden, so the item has to show which
+ * state it is in. The surface's own right-click is the deliberate exception and
+ * says "Hide Companion" instead: there is a companion in front of the user
+ * there, so that item only ever has to take it away.
+ *
+ * One builder rather than a literal per menu, for the reason
+ * {@link companionSizeSubmenus} is one. The tray and the application menu are
+ * two doors onto a single switch, and wording or click behaviour changed at one
+ * of them would otherwise leave the two describing it differently.
+ *
+ * Electron flips `checked` before `click` runs, so the item hands on the state
+ * being asked for rather than the one it was drawn in.
+ */
+export const companionVisibilityItem = (
+  hidden: boolean,
+  setVisible: (visible: boolean) => void,
+): MenuItemConstructorOptions => ({
+  label: "Show Companion",
+  type: "checkbox",
+  checked: !hidden,
+  click: (item) => {
+    setVisible(item.checked);
+  },
+});

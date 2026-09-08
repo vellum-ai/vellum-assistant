@@ -62,6 +62,19 @@ beforeEach(() => {
   __resetForTesting();
 });
 
+describe("installHotkeysIpc with an exclusion", () => {
+  test("a shell that excludes a command offers no row and takes no override", () => {
+    installHotkeysIpc({ ...ipc, exclude: ["toggleVoice"] });
+
+    const catalog = invoke("vellum:hotkeys:get", []) as Array<{ key: string }>;
+    expect(catalog.map((c) => c.key)).not.toContain("toggleVoice");
+    expect(() =>
+      invoke("vellum:hotkeys:set", ["toggleVoice", "CmdOrCtrl+Shift+T"]),
+    ).toThrow("Unknown hotkey command: toggleVoice");
+    expect(hotkeys).toEqual({});
+  });
+});
+
 describe("resolveHotkeyCatalog", () => {
   test("returns every rebindable command with its compiled default", () => {
     const catalog = resolveHotkeyCatalog();
@@ -75,7 +88,6 @@ describe("resolveHotkeyCatalog", () => {
       "togglePinConversation",
       "sidebarToggle",
       "popOut",
-      "home",
       "previousConversation",
       "nextConversation",
     ]);
@@ -121,10 +133,10 @@ describe("vellum:hotkeys:set", () => {
   });
 
   test("persists a valid accelerator, merging into existing overrides", () => {
-    hotkeys = { home: "CmdOrCtrl+Shift+H" };
+    hotkeys = { popOut: "CmdOrCtrl+Shift+O" };
     invoke("vellum:hotkeys:set", ["newConversation", "CmdOrCtrl+Alt+T"]);
     expect(hotkeys).toEqual({
-      home: "CmdOrCtrl+Shift+H",
+      popOut: "CmdOrCtrl+Shift+O",
       newConversation: "CmdOrCtrl+Alt+T",
     });
   });
@@ -135,9 +147,12 @@ describe("vellum:hotkeys:set", () => {
   });
 
   test("clears an override when passed null", () => {
-    hotkeys = { newConversation: "CmdOrCtrl+Alt+T", home: "CmdOrCtrl+Shift+H" };
+    hotkeys = {
+      newConversation: "CmdOrCtrl+Alt+T",
+      popOut: "CmdOrCtrl+Shift+O",
+    };
     invoke("vellum:hotkeys:set", ["newConversation", null]);
-    expect(hotkeys).toEqual({ home: "CmdOrCtrl+Shift+H" });
+    expect(hotkeys).toEqual({ popOut: "CmdOrCtrl+Shift+O" });
   });
 
   test("rejects an invalid accelerator without writing", () => {

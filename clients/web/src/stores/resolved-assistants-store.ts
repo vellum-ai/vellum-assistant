@@ -47,6 +47,12 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   hatchedAt?: string;
+  /**
+   * When this assistant finished first-run onboarding, as recorded on the
+   * lockfile entry. The device-scoped record is the other half of the answer
+   * and is read live, not cached here: see `onboarded-assistant.ts`.
+   */
+  onboardedAt?: string;
   cloud?: string;
   runtimeVersion?: string;
   currentReleaseVersion?: string | null;
@@ -182,6 +188,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
+        onboardedAt: a.onboardedAt,
         cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
         avatarUrl: existingById.get(a.assistantId)?.avatarUrl,
@@ -221,6 +228,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               id: a.id,
               name: a.name,
               hatchedAt: a.created,
+              onboardedAt: lockfileFields.onboardedAt,
               cloud: lockfileFields.cloud,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
@@ -250,6 +258,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
+          onboardedAt: lockfileFields.onboardedAt,
           ingressUrl: assistant.ingress_url,
           avatarUrl: apiAvatarUrl(assistant),
           currentReleaseVersion: assistant.current_release_version,
@@ -380,6 +389,7 @@ function classifyApiEntry(
 function getLockfileFields(assistantId: string): {
   cloud?: string;
   organizationId?: string;
+  onboardedAt?: string;
   runtimeVersion?: string;
   runtimeUrl?: string;
   platformAssistantId?: string;
@@ -394,6 +404,7 @@ function getLockfileFields(assistantId: string): {
   return {
     cloud: entry?.cloud,
     organizationId: entry?.organizationId,
+    onboardedAt: entry?.onboardedAt,
     runtimeVersion: entry?.resources?.runtimeVersion,
     runtimeUrl: entry?.runtimeUrl,
     platformAssistantId: entry?.platformAssistantId,

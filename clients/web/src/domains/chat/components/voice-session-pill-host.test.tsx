@@ -196,7 +196,7 @@ describe("VoiceSessionPillHost — visibility", () => {
     useConversationStore
       .getState()
       .setActiveConversationId(OWNING_CONVERSATION_ID);
-    mockPathname = routes.home;
+    mockPathname = routes.identity;
     render(<VoiceSessionPillHost />);
     expect(pill()).not.toBeNull();
   });
@@ -250,7 +250,7 @@ describe("VoiceSessionPillHost — failure surface", () => {
 
   test("failure while on a composer-less route shows the dismissible error chip", () => {
     startSession("listening");
-    mockPathname = routes.home;
+    mockPathname = routes.identity;
     useLiveVoiceStore.getState().fail("Microphone capture could not start.");
     render(<VoiceSessionPillHost />);
     expect(errorChip()).not.toBeNull();
@@ -275,7 +275,7 @@ describe("VoiceSessionPillHost — failure surface", () => {
 
   test("dismissing the chip resets the store to idle, mirroring the composer Notice", () => {
     startSession("listening");
-    mockPathname = routes.home;
+    mockPathname = routes.identity;
     useLiveVoiceStore.getState().fail("boom");
     render(<VoiceSessionPillHost />);
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
@@ -285,7 +285,7 @@ describe("VoiceSessionPillHost — failure surface", () => {
   });
 
   test("no chip without an error message", () => {
-    mockPathname = routes.home;
+    mockPathname = routes.identity;
     useLiveVoiceStore.getState().setState("failed");
     const { container } = render(<VoiceSessionPillHost />);
     expect(container.firstChild).toBeNull();
@@ -344,7 +344,7 @@ describe("VoiceSessionPillHost — standalone variant (headerless pop-outs)", ()
 
   test("floats the error chip for a failure on a composer-less route", () => {
     startSession("listening");
-    mockPathname = routes.home;
+    mockPathname = routes.identity;
     useLiveVoiceStore.getState().fail("boom");
     render(<VoiceSessionPillHost variant="standalone" />);
     expect(screen.queryByRole("alert")).not.toBeNull();
@@ -373,7 +373,7 @@ describe("VoiceSessionPillHost: row variant (above the phone header)", () => {
     // The chip carries its own pill-shaped fill, so full-bleed placement would
     // leave it floating against the page edge.
     startSession("listening");
-    mockPathname = routes.home;
+    mockPathname = routes.identity;
     useLiveVoiceStore.getState().fail("boom");
     const { container } = render(<VoiceSessionPillHost variant="row" />);
     expect((container.firstChild as HTMLElement).className).toContain("px-4");

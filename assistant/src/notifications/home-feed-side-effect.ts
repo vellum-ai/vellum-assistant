@@ -85,7 +85,6 @@ export async function writeHomeFeedItemForSignal(
   signal: NotificationSignal,
   decision: NotificationDecision,
   vellumDelivery?: NotificationDeliveryResult,
-  deliveryResults?: NotificationDeliveryResult[],
 ): Promise<FeedItem | null> {
   const { mirror, sourceConversationId, sourceScheduleJobId } =
     resolveHomeFeedMirror(signal, vellumDelivery?.conversationId);
@@ -178,9 +177,6 @@ export async function writeHomeFeedItemForSignal(
   )
     ? buildPendingGuardianProjection(
         signal.contextPayload,
-        deliveryResults?.find(
-          (r) => r.channel === "slack" && r.status === "sent",
-        ),
         signal.sourceEventName === "ingress.access_request"
           ? "access_request"
           : undefined,
@@ -446,6 +442,7 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "activity.complete": "background",
   "watcher.notification": "system",
   "schedule.notify": "scheduling",
+  "schedule.result": "scheduling",
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
