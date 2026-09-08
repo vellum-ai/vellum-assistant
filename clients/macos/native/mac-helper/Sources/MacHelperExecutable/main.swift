@@ -612,9 +612,7 @@ final class MacHelper: @unchecked Sendable {
                 }
             let outcome = AXTargetMatch.locate(
                 query: query,
-                among: elements.map {
-                    AXTargetMatch.Candidate(label: $0.title ?? "", role: $0.role)
-                }
+                among: elements.map { AXTargetMatch.Candidate(label: $0.title ?? "") }
             )
 
             switch outcome {
