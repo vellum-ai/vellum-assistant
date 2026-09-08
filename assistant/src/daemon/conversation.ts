@@ -284,6 +284,7 @@ import {
   isPersonalMemoryAllowed,
 } from "./trust-context.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { turnActorPrincipalId } from "./turn-actor.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -577,6 +578,13 @@ export class Conversation {
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
+  /**
+   * Whether this turn resolved its own actor and found none, which is not the
+   * same as a turn that never looked. See {@link turnActorPrincipalId}.
+   *
+   * @internal
+   */
+  currentTurnActorFallbackSuppressed = false;
   /** @internal */ private _currentTurnSourceActorPrincipalId?: string;
   /**
    * How many times the actor stamp has been written on this conversation.
@@ -3108,11 +3116,7 @@ export class Conversation {
    * correctly. Returns `undefined` when no actor identity is known.
    */
   getTurnActorPrincipalId(): string | undefined {
-    return (
-      this.currentTurnSourceActorPrincipalId ??
-      this.currentTurnAuthContext?.actorPrincipalId ??
-      this.authContext?.actorPrincipalId
-    );
+    return turnActorPrincipalId(this);
   }
 
   setVoiceCallControlPrompt(prompt: string | null): void {

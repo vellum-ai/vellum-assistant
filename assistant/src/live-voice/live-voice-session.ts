@@ -7275,7 +7275,13 @@ async function defaultStartVoiceTurn(
   );
   return startVoiceTurn({
     ...options,
-    ...(actorPrincipalId ? { actorPrincipalId } : {}),
+    ...(actorPrincipalId
+      ? { actorPrincipalId }
+      : // The session asked and got no answer, so the conversation's resting
+        // identity must not stand in: it may name the guardian this one was
+        // rebound from, and the host proxies would follow it to that user's
+        // desktop.
+        { actorFallbackSuppressed: true }),
     ...(trustContext ? { trustContext } : {}),
   });
 }

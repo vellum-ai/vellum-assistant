@@ -89,6 +89,7 @@ import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
+import { turnActorPrincipalId } from "./turn-actor.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -2998,10 +2999,7 @@ export async function surfaceProxyResolver(
     // validate at the tool-resolution layer for the same reason. The proxy
     // re-checks same-user (single authoritative gate); using the shared
     // helper keeps log payload and error wording identical at both layers.
-    const sourceActorPrincipalId =
-      ctx.currentTurnSourceActorPrincipalId ??
-      ctx.currentTurnAuthContext?.actorPrincipalId ??
-      ctx.authContext?.actorPrincipalId;
+    const sourceActorPrincipalId = turnActorPrincipalId(ctx);
     const target = resolveHostCuTarget({
       toolName,
       targetClientId,
@@ -3076,10 +3074,7 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    const sourceActorPrincipalId =
-      ctx.currentTurnSourceActorPrincipalId ??
-      ctx.currentTurnAuthContext?.actorPrincipalId ??
-      ctx.authContext?.actorPrincipalId;
+    const sourceActorPrincipalId = turnActorPrincipalId(ctx);
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {

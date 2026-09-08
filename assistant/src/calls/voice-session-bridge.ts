@@ -365,6 +365,22 @@ export interface VoiceTurnOptions {
    * owner's machine.
    */
   actorPrincipalId?: string;
+  /**
+   * Whether this turn resolved its own actor and found none, so the
+   * conversation's resting identity must not stand in for it.
+   *
+   * A live-voice turn whose guardian read failed knows the resting principal
+   * and knows it cannot vouch for it: the gateway may have admitted a
+   * guardian the daemon has not caught up with. Without this the host-proxy
+   * chain walks on to `currentTurnAuthContext` and `authContext`, which an
+   * ordinary text turn leaves populated, and hands the turn the previous
+   * occupant's desktop.
+   *
+   * A phone call sets neither this nor an actor: it never resolved one, and
+   * the resting identity is the machine owner's, which is the answer that
+   * path has always used.
+   */
+  actorFallbackSuppressed?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -1202,7 +1218,10 @@ export async function startVoiceTurn(
    * host-proxy calls would be refused, which is the failure the stamp exists
    * to prevent.
    */
-  const releaseActorStamp = (next: string | undefined): void => {
+  const releaseActorStamp = (
+    next: string | undefined,
+    nextSuppressed = false,
+  ): void => {
     if (
       installedActorStampGeneration === null ||
       conversation.currentTurnActorStampGeneration !==
@@ -1211,6 +1230,7 @@ export async function startVoiceTurn(
       return;
     }
     conversation.currentTurnSourceActorPrincipalId = next;
+    conversation.currentTurnActorFallbackSuppressed = nextSuppressed;
     installedActorStampGeneration = null;
   };
   const voiceTurnValues = {
@@ -1218,6 +1238,7 @@ export async function startVoiceTurn(
     callSessionId: voiceSessionId,
     trustContext: opts.trustContext ?? null,
     actorPrincipalId: opts.actorPrincipalId ?? null,
+    actorFallbackSuppressed: opts.actorFallbackSuppressed === true,
     turnChannelContext,
     turnInterfaceContext,
     // Resolved from the channel, with no voice-specific override.
@@ -1244,6 +1265,8 @@ export async function startVoiceTurn(
     conversation.setTrustContext(voiceTurnValues.trustContext);
     conversation.currentTurnSourceActorPrincipalId =
       voiceTurnValues.actorPrincipalId ?? undefined;
+    conversation.currentTurnActorFallbackSuppressed =
+      voiceTurnValues.actorFallbackSuppressed;
     installedActorStampGeneration =
       conversation.currentTurnActorStampGeneration;
     conversation.setCommandIntent(null);
@@ -1266,6 +1289,7 @@ export async function startVoiceTurn(
     callSessionId: conversation.callSessionId,
     trustContext: conversation.trustContext,
     actorPrincipalId: conversation.currentTurnSourceActorPrincipalId,
+    actorFallbackSuppressed: conversation.currentTurnActorFallbackSuppressed,
     commandIntent: conversation.commandIntent,
     turnChannelContext: conversation.getTurnChannelContext?.() ?? null,
     turnInterfaceContext: conversation.getTurnInterfaceContext?.() ?? null,
@@ -1306,7 +1330,10 @@ export async function startVoiceTurn(
       conversation.setTrustContext(snap.trustContext ?? null);
     }
     // Through the same guard the release uses: see `releaseActorStamp`.
-    releaseActorStamp(snap.actorPrincipalId ?? undefined);
+    releaseActorStamp(
+      snap.actorPrincipalId ?? undefined,
+      snap.actorFallbackSuppressed,
+    );
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);
     }

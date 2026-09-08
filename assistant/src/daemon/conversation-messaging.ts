@@ -234,6 +234,8 @@ export interface MessagingConversationContext {
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
+  /** See {@link turnActorPrincipalId}. */
+  currentTurnActorFallbackSuppressed?: boolean;
   /**
    * OS surface reported by the connected client, re-applied from transport
    * metadata on every inbound message.
@@ -1521,8 +1523,7 @@ export async function persistQueuedMessageBody(
 
     // Same list enrichMessageWithSourcePaths sees, so history reload rebuilds
     // an identical annotation block (prefix-cache parity).
-    const attachmentStoredPaths =
-      extractAttachmentStoredPaths(sentAttachments);
+    const attachmentStoredPaths = extractAttachmentStoredPaths(sentAttachments);
     if (attachmentStoredPaths) {
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
