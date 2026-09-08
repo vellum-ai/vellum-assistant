@@ -191,7 +191,7 @@ const log = getLogger("chat-completions");
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
  *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
  *  `params.reasoning_effort` casts through this union. */
-type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const REASONING_EFFORT_RANK: Record<ReasoningEffortWire, number> = {
   none: 0,
