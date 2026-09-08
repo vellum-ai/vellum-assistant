@@ -34,12 +34,14 @@ struct AXClipTests {
         )
     }
 
-    /// An app that cannot say where its pane is has not said the pane is
-    /// empty, and cropping to nothing would hide every row under it.
-    @Test("a cropping ancestor with no area is passed over")
+    /// A collapsed pane keeps its rows at the frames they had while it was
+    /// open, so a pane reporting no area is a pane showing none of them.
+    @Test("a cropping ancestor with no area leaves nothing")
     func noArea() {
-        #expect(AXClip.narrowed(Self.pane, by: .zero, clips: true) == Self.pane)
-        #expect(AXClip.narrowed(nil, by: .zero, clips: true) == nil)
+        #expect(AXClip.narrowed(Self.pane, by: .zero, clips: true)!.isEmpty)
+        #expect(AXClip.narrowed(nil, by: .zero, clips: true)!.isEmpty)
+        let collapsed = AXClip.narrowed(nil, by: .zero, clips: true)!
+        #expect(!AXDisplayMatch.frame(Self.visibleRow, standsOn: collapsed))
     }
 
     /// The point of carrying the clip down: a row above the pane reads as an

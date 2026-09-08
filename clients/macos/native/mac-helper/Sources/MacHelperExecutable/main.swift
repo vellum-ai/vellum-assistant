@@ -733,35 +733,42 @@ final class MacHelper: @unchecked Sendable {
             // content, and both while the answer says it landed exactly.
             // Neither is a candidate, and a query that named one comes back
             // with the labels that can be seen instead.
-            let elements = flattened
-                .filter { candidate in
-                    let element = candidate.element
-                    guard let title = element.title, !title.isEmpty else { return false }
-                    guard element.frame.width > 0, element.frame.height > 0 else { return false }
-                    if let visible = candidate.visible,
-                       !AXDisplayMatch.frame(element.frame, standsOn: visible) {
-                        return false
-                    }
-                    guard let surface else { return true }
-                    return AXDisplayMatch.frame(element.frame, standsOn: surface)
+            //
+            // What comes back is the part that can be seen, not the whole
+            // frame. A control half over the seam between two monitors is
+            // worth pointing at from the shared one, but its middle can be on
+            // the other, and the caller aims at the middle of what it is
+            // given: clipped here, every answer is a rectangle wholly on the
+            // surface it will be measured against.
+            let elements = flattened.compactMap {
+                candidate -> (element: AXElement, frame: CGRect)? in
+                let element = candidate.element
+                guard let title = element.title, !title.isEmpty else { return nil }
+                guard element.frame.width > 0, element.frame.height > 0 else { return nil }
+                var seen = element.frame
+                for bound in [candidate.visible, surface] {
+                    guard let bound else { continue }
+                    seen = seen.intersection(bound)
                 }
-                .map(\.element)
+                guard !seen.isEmpty else { return nil }
+                return (element: element, frame: seen)
+            }
             let outcome = AXTargetMatch.locate(
                 query: query,
-                among: elements.map { AXTargetMatch.Candidate(label: $0.title ?? "") }
+                among: elements.map { AXTargetMatch.Candidate(label: $0.element.title ?? "") }
             )
 
             switch outcome {
             case let .found(index):
-                let element = elements[index]
+                let (element, frame) = elements[index]
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": true,
                     "label": element.title ?? "",
                     "role": element.role,
-                    "x": Double(element.frame.origin.x),
-                    "y": Double(element.frame.origin.y),
-                    "width": Double(element.frame.width),
-                    "height": Double(element.frame.height),
+                    "x": Double(frame.origin.x),
+                    "y": Double(frame.origin.y),
+                    "width": Double(frame.width),
+                    "height": Double(frame.height),
                 ]))
             case let .ambiguous(labels):
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
