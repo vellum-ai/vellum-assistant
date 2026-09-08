@@ -26,7 +26,7 @@ export function isPreviewRequested(): boolean {
 
 /** Opt this browser into or out of the preview build. Takes effect on the next load. */
 export function setPreviewRequested(on: boolean): void {
-  // A past expiry clears the cookie; happy-dom ignores max-age=0.
+  // A past expiry clears the cookie.
   const lifetime = on
     ? `max-age=${ONE_YEAR_SECONDS}`
     : `expires=${EXPIRED_COOKIE_DATE}`;
