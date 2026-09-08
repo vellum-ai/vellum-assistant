@@ -673,9 +673,10 @@ final class MacHelper: @unchecked Sendable {
             // sharing their screen and naming a control means the one they are
             // looking at, which is the same window computer use reads.
             let enumerator = AccessibilityTreeEnumerator()
+            let windowId = (params["windowId"] as? NSNumber).map { CGWindowID($0.uint32Value) }
             let displayId = (params["displayId"] as? NSNumber)?.uint32Value
-            let located = if let windowId = (params["windowId"] as? NSNumber)?.uint32Value {
-                await enumerator.enumerateWindow(windowId: CGWindowID(windowId))
+            let located = if let windowId {
+                await enumerator.enumerateWindow(windowId: windowId)
             } else {
                 await enumerator.enumerateCurrentWindow()
             }
@@ -687,8 +688,17 @@ final class MacHelper: @unchecked Sendable {
                 return
             }
 
+            // The rectangle the caller is going to measure against: the
+            // display's bounds or the window's, whichever is being shared.
+            // Nothing outside it is on the surface, whatever the tree says.
+            let surface: CGRect? = if let displayId {
+                CGDisplayBounds(CGDirectDisplayID(displayId))
+            } else if let windowId {
+                enumerator.serverWindow(for: windowId)?.bounds
+            } else {
+                nil
+            }
             let flattened = AccessibilityTreeEnumerator.flattenElements(tree.elements)
-            let displayBounds = displayId.map { CGDisplayBounds(CGDirectDisplayID($0)) }
 
             // Focus is one thing across every monitor, so the window it names
             // can be standing on a different screen from the one asked about.
@@ -698,8 +708,11 @@ final class MacHelper: @unchecked Sendable {
             // Read off the whole tree rather than the candidates below, since
             // where a window is and what it has worth pointing at are two
             // questions.
-            if let displayBounds,
-               !AXDisplayMatch.tree(at: flattened.map(\.frame), standsOn: displayBounds) {
+            if let displayId,
+               !AXDisplayMatch.tree(
+                   at: flattened.map(\.frame),
+                   standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
+               ) {
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": false,
                     "reason": "no-tree",
@@ -711,18 +724,19 @@ final class MacHelper: @unchecked Sendable {
             // pointed at, interactive or not: a value someone is reading is as
             // legitimate a target as a button they are about to press.
             //
-            // On the shared display, though. A window can lie across the seam
-            // between two monitors, and a control on the half that is not
-            // being shared is not on the surface: normalised against the
-            // shared display its frame falls outside 0 to 1, so pointing at
-            // it draws at a clamped edge. It is not a candidate, and a query
-            // that named it comes back with the labels that are on the
-            // display instead.
+            // On the shared surface, though. A tree reaches past what is being
+            // shown: a window can lie across the seam between two monitors,
+            // and a scroll view keeps the rows above and below the ones on
+            // screen, at the frames they would have. Such an element
+            // normalises to a fraction outside 0 to 1, so pointing at it draws
+            // at a clamped edge while the answer says it landed exactly. It is
+            // not a candidate, and a query that named it comes back with the
+            // labels that are on the surface instead.
             let elements = flattened.filter { element in
                 guard let title = element.title, !title.isEmpty else { return false }
                 guard element.frame.width > 0, element.frame.height > 0 else { return false }
-                guard let displayBounds else { return true }
-                return AXDisplayMatch.frame(element.frame, standsOn: displayBounds)
+                guard let surface else { return true }
+                return AXDisplayMatch.frame(element.frame, standsOn: surface)
             }
             let outcome = AXTargetMatch.locate(
                 query: query,
