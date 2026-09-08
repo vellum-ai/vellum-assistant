@@ -164,6 +164,23 @@ describe("ChatInfoSection", () => {
     expect(seeAll()).not.toBeNull();
   });
 
+  test("counts the strip's reclaimed right inset toward the narrow-window fit", () => {
+    // A 402px phone leaves a 362px column; the strip shows 382px of tiles.
+    isMobileRef.value = true;
+    widthRef.value = 362;
+
+    const fitted = renderSection({
+      items: makeItems(2),
+      count: 2,
+      tileWidth: APP_TILE_WIDTH,
+    });
+    expect(seeAll()).toBeNull();
+    fitted.unmount();
+
+    renderSection({ items: makeItems(3), count: 3, tileWidth: APP_TILE_WIDTH });
+    expect(seeAll()).not.toBeNull();
+  });
+
   test("calls onSeeAll when the control is activated", () => {
     let seeAllCalls = 0;
     renderSection({

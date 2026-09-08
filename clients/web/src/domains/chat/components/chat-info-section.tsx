@@ -18,6 +18,12 @@ import { useTranslation } from "@/i18n";
 /** Gutter between tiles, the pixel value behind the rows' `gap-2`. */
 export const CHAT_INFO_TILE_GAP_PX = 8;
 
+/**
+ * How far the narrow-window strip runs past the measured column on the right:
+ * `DetailShell`'s 20px body inset, which the strip's `-mx-5 px-5` reclaims.
+ */
+const MOBILE_STRIP_BLEED_PX = 20;
+
 /** Whole tiles that fit on one line of `rowWidth`, never fewer than one. */
 export function fitTileCount(
   rowWidth: number,
@@ -59,7 +65,11 @@ export function ChatInfoSection<T>({
   const { t } = useTranslation("chat");
   const { ref, size } = useElementSize();
   const isMobile = useIsMobile();
-  const fit = fitTileCount(size.w, tileWidth);
+  // The strip runs through the body's right inset, so that width counts too.
+  const fit = fitTileCount(
+    isMobile ? size.w + MOBILE_STRIP_BLEED_PX : size.w,
+    tileWidth,
+  );
   const showSeeAll = count > fit;
 
   return (
