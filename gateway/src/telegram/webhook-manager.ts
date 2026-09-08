@@ -260,6 +260,81 @@ async function resolveExpectedTelegramWebhookUrl(
   return registerManagedTelegramCallbackRoute(caches);
 }
 
+/** The request waiting to run, holding the caches of whoever asked last. */
+let pendingReconcile: { caches?: WebhookManagerCaches } | undefined;
+/** The drain currently running, so a second request latches instead of racing. */
+let reconcileDrain: Promise<void> | undefined;
+
+/**
+ * Reconcile the Telegram webhook, one reconciliation at a time.
+ *
+ * Every trigger routes through here because the address a reconciliation
+ * resolves depends on config that moves underneath it. A Velay rules refresh
+ * clears `ingress.publicBaseUrl` and republishes it moments later, and each
+ * write fires a config change. Run concurrently, the clear-time reconciliation
+ * resolves the managed callback route while the republish-time one resolves
+ * Velay, and whichever setWebhook lands last decides where Telegram delivers.
+ * A stale winner leaves the pod on the fallback address until some later
+ * trigger happens to correct it.
+ *
+ * So requests coalesce: one reconciliation runs, any that arrive during it
+ * collapse into a single rerun, and that rerun reads config again and settles
+ * on the address the churn ended at. A burst of triggers therefore costs at
+ * most two reconciliations, and the last one always sees the final state.
+ *
+ * The returned promise resolves when the drain finishes, so awaiting a call
+ * means the state it asked about has been reconciled.
+ */
+export function reconcileTelegramWebhook(
+  caches?: WebhookManagerCaches,
+): Promise<void> {
+  // The newest request wins the slot. An older latched request would resolve
+  // against config that has already moved on, which is the race itself.
+  pendingReconcile = { caches };
+  if (!reconcileDrain) {
+    reconcileDrain = drainReconcileRequests();
+  }
+  return reconcileDrain;
+}
+
+async function drainReconcileRequests(): Promise<void> {
+  let failure: unknown;
+  let failed = false;
+  let isRerun = false;
+
+  try {
+    while (pendingReconcile) {
+      const request = pendingReconcile;
+      pendingReconcile = undefined;
+      if (isRerun) {
+        // This run was latched while the config that decides the address was
+        // still moving, and the cache it reads through serves a snapshot.
+        // Re-read so the resolver sees where the churn settled.
+        request.caches?.configFile?.refreshNow();
+      }
+      try {
+        await reconcileTelegramWebhookNow(request.caches);
+      } catch (err) {
+        // Keep draining. A latched request describes newer config than the one
+        // that just failed, and dropping it would strand Telegram on whatever
+        // the failed run left registered.
+        failure = err;
+        failed = true;
+      }
+      isRerun = true;
+    }
+  } finally {
+    // Released here rather than off the returned promise, so the slot is free
+    // the moment the loop stops looking for work. A request that landed in
+    // between would otherwise latch onto a drain that has already finished.
+    reconcileDrain = undefined;
+  }
+
+  if (failed) {
+    throw failure;
+  }
+}
+
 /**
  * Reconciles the Telegram webhook registration against the expected state
  * derived from the configured public ingress URL or managed platform callback
@@ -270,7 +345,7 @@ async function resolveExpectedTelegramWebhookUrl(
  * would be invisible to us, causing all deliveries to fail with 401.
  * setWebhook is idempotent, so calling it unconditionally is safe.
  */
-export async function reconcileTelegramWebhook(
+async function reconcileTelegramWebhookNow(
   caches?: WebhookManagerCaches,
 ): Promise<void> {
   // Resolve credentials from cache

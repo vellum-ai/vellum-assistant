@@ -997,3 +997,173 @@ describe("reconcileTelegramWebhook", () => {
     expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
   });
 });
+
+const VELAY_BASE_URL = `https://velay.vellum.ai/${PLATFORM_ASSISTANT_ID}`;
+const VELAY_WEBHOOK_URL = `${VELAY_BASE_URL}/webhooks/telegram`;
+
+/**
+ * Platform caches that read the published ingress URL live, so a reconcile
+ * latched behind another one resolves against whatever the tunnel settled on
+ * rather than the value that was current when it was queued.
+ */
+function makeLivePlatformCaches(readIngressUrl: () => string | undefined) {
+  const credentialMap: Record<string, string | undefined> = {
+    [credentialKey("telegram", "bot_token")]: "test-bot-token",
+    [credentialKey("telegram", "webhook_secret")]: "test-webhook-secret",
+    [credentialKey("vellum", "platform_base_url")]:
+      "https://platform.example.com",
+    [credentialKey("vellum", "assistant_api_key")]: "ast-managed-key",
+    [credentialKey("vellum", "platform_assistant_id")]: PLATFORM_ASSISTANT_ID,
+  };
+  const credentials = {
+    get: async (key: string) => credentialMap[key],
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  let refreshCount = 0;
+  const configFile = {
+    getString: (section: string, key: string) =>
+      section === "ingress" && key === "publicBaseUrl"
+        ? readIngressUrl()
+        : undefined,
+    getNumber: () => undefined,
+    getBoolean: () => undefined,
+    getRecord: () => undefined,
+    refreshNow: () => {
+      refreshCount += 1;
+    },
+  } as unknown as ConfigFileCache;
+  return {
+    caches: { credentials, configFile },
+    refreshes: () => refreshCount,
+  };
+}
+
+/** Yield until a condition holds, so a test can act mid-reconcile. */
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+describe("reconcileTelegramWebhook serialization", () => {
+  test("a reconcile latched behind a slow one settles on the newer address", async () => {
+    process.env.IS_PLATFORM = "true";
+    velayWebhooksEnabled = true;
+
+    // The tunnel clears its published URL and republishes it moments later.
+    // The first reconcile sees the cleared state and resolves the managed
+    // callback route; the second must win with the Velay URL.
+    const published: { ingressUrl?: string } = {};
+    const { caches, refreshes } = makeLivePlatformCaches(
+      () => published.ingressUrl,
+    );
+
+    const registeredUrls: string[] = [];
+    let releaseFirstSetWebhook = () => {};
+    const firstSetWebhookHeld = new Promise<void>((resolve) => {
+      releaseFirstSetWebhook = resolve;
+    });
+
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.includes("/getMe")) {
+          return makeTelegramResponse({ username: "test_bot" });
+        }
+        if (url.includes("/callback-routes/register/")) {
+          return new Response(
+            JSON.stringify({ callback_url: MANAGED_CALLBACK_URL }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/getWebhookInfo")) {
+          return makeTelegramResponse({
+            url: registeredUrls[registeredUrls.length - 1] ?? "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body
+            ? (JSON.parse(init.body as string) as { url?: string })
+            : undefined;
+          registeredUrls.push(body?.url ?? "");
+          if (registeredUrls.length === 1) {
+            await firstSetWebhookHeld;
+          }
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    const first = reconcileTelegramWebhook(caches);
+    await waitFor(() => registeredUrls.length === 1);
+
+    published.ingressUrl = VELAY_BASE_URL;
+    const second = reconcileTelegramWebhook(caches);
+    releaseFirstSetWebhook();
+    await Promise.all([first, second]);
+
+    // The managed registration is the stale one, so it must not be what
+    // Telegram is left pointed at.
+    expect(registeredUrls).toEqual([MANAGED_CALLBACK_URL, VELAY_WEBHOOK_URL]);
+    expect(claimedRoutes).toEqual([
+      { path: "/webhooks/telegram", type: "telegram" },
+    ]);
+    // The rerun re-reads config rather than trusting the snapshot the first
+    // run was resolved against.
+    expect(refreshes()).toBe(1);
+  });
+
+  test("a burst of triggers costs at most two reconciles", async () => {
+    const caches = makeCaches();
+    let setWebhookCount = 0;
+    let releaseFirstSetWebhook = () => {};
+    const firstSetWebhookHeld = new Promise<void>((resolve) => {
+      releaseFirstSetWebhook = resolve;
+    });
+
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/getWebhookInfo")) {
+        return makeTelegramResponse({
+          url: "",
+          has_custom_certificate: false,
+          pending_update_count: 0,
+        });
+      }
+      if (url.includes("/setWebhook")) {
+        setWebhookCount += 1;
+        if (setWebhookCount === 1) {
+          await firstSetWebhookHeld;
+        }
+        return makeTelegramResponse(true);
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    const pending = [reconcileTelegramWebhook(caches)];
+    await waitFor(() => setWebhookCount === 1);
+    for (let i = 0; i < 5; i++) {
+      pending.push(reconcileTelegramWebhook(caches));
+    }
+    releaseFirstSetWebhook();
+    await Promise.all(pending);
+
+    // One in flight plus one latched, no matter how many triggers land.
+    expect(setWebhookCount).toBe(2);
+  });
+});
