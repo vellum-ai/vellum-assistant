@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "./helpers/set-config.js";
+import { hasSetConstructs } from "../schedule/recurrence-engine.js";
 
 // Default the warm-pool gate to OPEN — these tests probe disk-pressure
 // behavior, not the pre-first-message guard.
@@ -30,6 +31,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
 }));
 
 mock.module("../schedule/recurrence-engine.js", () => ({
+  hasSetConstructs,
   computeNextRunAt: () => Date.now() + 60_000,
 }));
 
