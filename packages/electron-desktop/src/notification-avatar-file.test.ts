@@ -55,11 +55,13 @@ describe("ensureNotificationAvatarFile", () => {
 
   test("leaves an already-written avatar alone", () => {
     const file = ensureNotificationAvatarFile(userDataDir, PNG, HASH);
-    const written = statSync(file).ctimeMs;
+    // A rewrite renames a fresh file over this one, so a stable inode is what
+    // says the bytes were re-used rather than written again.
+    const inode = statSync(file).ino;
 
     expect(ensureNotificationAvatarFile(userDataDir, PNG, HASH)).toBe(file);
     expect(readFileSync(file)).toEqual(PNG);
-    expect(statSync(file).ctimeMs).toBe(written);
+    expect(statSync(file).ino).toBe(inode);
   });
 
   test("stamps the mtime on a hit so the prune sees it as newly used", () => {
