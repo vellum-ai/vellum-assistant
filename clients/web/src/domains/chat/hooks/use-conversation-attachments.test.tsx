@@ -92,6 +92,34 @@ describe("useConversationAttachments", () => {
     expect(result.current.totalFiles).toBe(1);
   });
 
+  test("keeps legacy rehydrated ids from different rows apart", () => {
+    // Rows reloaded without structured metadata synthesize ids per message.
+    messagesRef.value = [
+      makeMessage({
+        id: "msg-old",
+        timestamp: 1_000,
+        attachments: [
+          makeDisplayAttachment({ id: "rehydrated:0", filename: "old.pdf" }),
+        ],
+      }),
+      makeMessage({
+        id: "msg-new",
+        timestamp: 2_000,
+        attachments: [
+          makeDisplayAttachment({ id: "rehydrated:0", filename: "new.pdf" }),
+        ],
+      }),
+    ];
+
+    const { result } = renderHook(() => useConversationAttachments(TARGET));
+
+    expect(result.current.entries.map((entry) => entry.messageId)).toEqual([
+      "msg-new",
+      "msg-old",
+    ]);
+    expect(result.current.totalFiles).toBe(2);
+  });
+
   test("reports a null capture time for a row with no timestamp", () => {
     messagesRef.value = [
       makeMessage({ attachments: [makeDisplayAttachment({ id: "att-1" })] }),

@@ -1,14 +1,11 @@
 /**
  * Every attachment a conversation carries, newest first.
  *
- * This path reads the rendered transcript, which is the loaded pages only, so
+ * Read from the rendered transcript, which is the loaded pages only, so
  * `totalFiles` counts what is loaded rather than what the conversation holds.
- * It also cannot see the camera-frame tag: that lives in daemon message
- * metadata which never crosses the message wire, so `sightFrame` is always
- * false and `totalFrames` is always 0 here. A later PR puts a daemon list
- * route in front of this path with exact counts and a real frame flag; the
- * `assistantId` and `conversationId` arguments are unused today and exist for
- * that route to scope its query by.
+ * The transcript also cannot see the camera-frame tag: that lives in daemon
+ * message metadata which never crosses the message wire, so `sightFrame` is
+ * always false and `totalFrames` is always 0 on this source.
  */
 
 import { useMemo } from "react";
@@ -16,7 +13,7 @@ import { useMemo } from "react";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
-/** Frames per page on the daemon path. */
+/** Page size for a paged attachment listing. */
 export const ATTACHMENT_PAGE_SIZE = 200;
 
 export interface ConversationAttachmentEntry {
@@ -50,8 +47,8 @@ export function useConversationAttachments(target: {
   assistantId: string;
   conversationId: string;
 }): ConversationAttachments {
-  // The transcript is already the open conversation's, so nothing here reads
-  // `target`; the daemon route that lands in front of this path scopes by it.
+  // The transcript is already the open conversation's, so this source has
+  // nothing to scope by; `target` names the conversation the entries belong to.
   void target;
 
   const messages = useTranscriptMessages();
@@ -64,10 +61,16 @@ export function useConversationAttachments(target: {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]!;
       for (const attachment of message.attachments ?? []) {
-        if (seen.has(attachment.id)) {
+        // A legacy row without structured metadata gets `rehydrated:N` ids
+        // that restart per message, so those are only duplicates within their
+        // own row; real attachment ids are unique across the conversation.
+        const key = attachment.id.startsWith("rehydrated:")
+          ? `${message.id}:${attachment.id}`
+          : attachment.id;
+        if (seen.has(key)) {
           continue;
         }
-        seen.add(attachment.id);
+        seen.add(key);
         collected.push({
           attachment,
           messageId: message.id,
