@@ -2884,6 +2884,14 @@ describe("successful daemon traffic", () => {
     expect(activity.lastSuccess).toBeGreaterThan(activity.lastStatus);
   });
 
+  test.each(["btw", "conversations/123/stream", "future-stream"])("stream headers from %s do not clear sleep", async (path) => {
+    const request = await daemonRequestInterceptor(new Request(`https://app.example.test/v1/assistants/123/${path}`));
+    assistantActivityResponseInterceptor(new Response(null, { headers: { "Content-Type": "text/event-stream" } }), request);
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+    assistantActivityResponseInterceptor(new Response(null), request, { parseAs: "stream" });
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+  });
+
   test("an aborted request cannot clear sleep", async () => {
     const controller = new AbortController();
     const request = await daemonRequestInterceptor(

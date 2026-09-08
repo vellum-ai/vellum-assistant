@@ -423,9 +423,13 @@ const NON_SERVING_DAEMON_PATHS = new Set([
 export function assistantActivityResponseInterceptor(
   response: Response,
   request: Request,
+  options?: { parseAs?: string },
 ): Response {
   const observation = assistantRequestObservations.get(request);
-  if (response.ok && !request.signal.aborted && observation) {
+  const isStream =
+    options?.parseAs === "stream" ||
+    response.headers.get("content-type")?.includes("text/event-stream");
+  if (response.ok && !request.signal.aborted && !isStream && observation) {
     if (observation.isStatus) {
       recordAssistantStatusObservation(observation.observation);
     } else {
