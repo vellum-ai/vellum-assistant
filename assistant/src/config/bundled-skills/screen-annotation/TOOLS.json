@@ -29,6 +29,7 @@
               "properties": {
                 "target": {
                   "type": "string",
+                  "minLength": 1,
                   "maxLength": 120,
                   "description": "The control's label, written the way the label itself is written: \"color balance\", \"Send\". Looked up on the surface, so the arrow lands on it."
                 },
