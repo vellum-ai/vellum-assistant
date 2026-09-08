@@ -283,13 +283,14 @@ experience works. Do not enable it.
 The Xcode project has three _app_ targets — one per environment. Each has its own
 bundle ID, display name, and icon colour so they can be installed side by
 side on the same device. Each also embeds its own `VoiceActivity` widget
-extension (`<app bundle id>.VoiceActivity`) and `Share` extension
-(`<app bundle id>.Share`). With the host-less `AppTests` logic-test
-bundle, `xcodegen generate` produces ten targets and four schemes in
-total; of those, the three app schemes are the ones worth building,
-since the extensions build as embedded dependencies. See
+extension (`<app bundle id>.VoiceActivity`), `Share` extension
+(`<app bundle id>.Share`), and `NotificationService` extension
+(`<app bundle id>.NotificationService`). With the host-less `AppTests`
+logic-test bundle, `xcodegen generate` produces thirteen targets and four
+schemes in total; of those, the three app schemes are the ones worth
+building, since the extensions build as embedded dependencies. See
 [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for the widget extension
-and [Signing: three profiles per environment](#signing-three-profiles-per-environment)
+and [Signing: four profiles per environment](#signing-four-profiles-per-environment)
 for what the extra App IDs cost at release time.
 
 | Target | Bundle ID | Display Name | Icon | Server |
@@ -668,22 +669,24 @@ workflow called from the release pipelines — it intentionally has no
 extracted into their own reusable workflow because it's the only iOS
 workflow.
 
-### Signing: three profiles per environment
+### Signing: four profiles per environment
 
-Each app target embeds a `VoiceActivity` widget extension and a `Share`
-extension, each whose bundle ID is prefixed by its host app's
-(`<app bundle id>.VoiceActivity`, `<app bundle id>.Share`). Apple treats
+Each app target embeds a `VoiceActivity` widget extension, a `Share`
+extension, and a `NotificationService` extension, each whose bundle ID is
+prefixed by its host app's (`<app bundle id>.VoiceActivity`,
+`<app bundle id>.Share`, `<app bundle id>.NotificationService`). Apple treats
 each appex as its own App ID with its own provisioning profile, so
-**every environment signs with three profiles, not one**: the app's and
+**every environment signs with four profiles, not one**: the app's and
 one per embedded extension.
 
 That has three consequences in the pipeline:
 
-- The **install step** writes all three profiles into
+- The **install step** writes all four profiles into
   `~/Library/MobileDevice/Provisioning Profiles/` under distinct
   filenames (`ios_distribution.mobileprovision`,
-  `ios_distribution_ext.mobileprovision`, and
-  `ios_distribution_share.mobileprovision`). Writing two to one name
+  `ios_distribution_ext.mobileprovision`,
+  `ios_distribution_share.mobileprovision`, and
+  `ios_distribution_nse.mobileprovision`). Writing two to one name
   silently clobbers the first.
 - **`ExportOptions.plist`** carries a `provisioningProfiles` entry for
   each bundle ID. `xcodebuild -exportArchive` fails when an embedded
@@ -692,7 +695,8 @@ That has three consequences in the pipeline:
   override.** A CLI override applies to every target in the archive,
   which would push the app profile onto the appex it does not cover.
   Instead each target's specifier lives in its own xcconfig
-  (`App/App/Config/App*.xcconfig` and `Extension*.xcconfig`), next to the
+  (`App/App/Config/App*.xcconfig`, `Extension*.xcconfig`,
+  `Share*.xcconfig`, and `NotificationService*.xcconfig`), next to the
   `PRODUCT_BUNDLE_IDENTIFIER` it has to agree with. Those files set
   `PROVISIONING_PROFILE_SPECIFIER_Manual` and resolve
   `PROVISIONING_PROFILE_SPECIFIER =
@@ -703,10 +707,28 @@ That has three consequences in the pipeline:
   machines.
 
 Profile names are therefore written down in three places that must agree
-character for character: the Apple Developer portal, the xcconfig, and
-the `profile_name` / `ext_profile_name` / `share_profile_name` outputs of
-the `config` step in `release-ios.yaml`. A mismatch fails the build with
-an unhelpful message.
+character for character: the Apple Developer portal, the xcconfig, and the
+`profile_name` / `ext_profile_name` / `share_profile_name` /
+`nse_profile_name` outputs of the `config` step in `release-ios.yaml`. A
+mismatch fails the build with an unhelpful message.
+
+#### The NotificationService extension also changes the app's own App ID
+
+The other two appexes need only their own App IDs. This one also makes the
+containing app claim a restricted entitlement,
+`com.apple.developer.usernotifications.communication`, which is what lets
+`UNNotificationContent.updating(from:)` rewrite a push into a Communication
+Notification. That capability has to be enabled on the three **main app**
+App IDs, and a capability added to an App ID does not reach profiles already
+issued against it, so the three main app distribution profiles must be
+reissued and their `IOS_PROVISIONING_PROFILE*` secrets replaced. Skipping
+that leaves the app signing against a profile that does not grant the
+entitlement, and the manual-signing archive fails on the app itself even
+once every extension row is complete.
+
+The appex's own entitlements file stays App Group-only, the same file the
+other two extensions use: the extension reads cached avatars out of the
+shared container and needs nothing more.
 
 ### Manual Apple Developer portal setup
 
@@ -742,18 +764,29 @@ build of the affected environment fails while signing or exporting.
 | production | `ai.vocify-inc.vellum-assistant-ios.Share` | `Vellum Assistant iOS Share Distribution` | `IOS_PROVISIONING_PROFILE_SHARE` |
 | staging | `ai.vocify-inc.vellum-assistant-ios.staging.Share` | `Vellum Assistant iOS Staging Share Distribution` | `IOS_PROVISIONING_PROFILE_SHARE_STAGING` |
 | dev | `ai.vocify-inc.vellum-assistant-ios.dev.Share` | `Vellum Assistant iOS Dev Share Distribution` | `IOS_PROVISIONING_PROFILE_SHARE_DEV` |
+| production | `ai.vocify-inc.vellum-assistant-ios.NotificationService` | `Vellum Assistant iOS NotificationService Distribution` | `IOS_PROVISIONING_PROFILE_NSE` |
+| staging | `ai.vocify-inc.vellum-assistant-ios.staging.NotificationService` | `Vellum Assistant iOS Staging NotificationService Distribution` | `IOS_PROVISIONING_PROFILE_NSE_STAGING` |
+| dev | `ai.vocify-inc.vellum-assistant-ios.dev.NotificationService` | `Vellum Assistant iOS Dev NotificationService Distribution` | `IOS_PROVISIONING_PROFILE_NSE_DEV` |
 
 The containing app App IDs already exist, and each one already carries
-the App Group from the VoiceActivity row. A new Share App ID still
-needs that same group assigned. A capability added to an App ID does
-not reach profiles already issued against it, so a first-time Share
-row also issues the Share distribution profile:
+the App Group from the VoiceActivity row. A new Share or
+NotificationService App ID still needs that same group assigned. A
+capability added to an App ID does not reach profiles already issued
+against it, so a first-time extension row also issues that extension's
+distribution profile:
 
 | Environment | App bundle ID | Profile name (exact) | GitHub secret |
 |-------------|--------------|----------------------|---------------|
 | production | `ai.vocify-inc.vellum-assistant-ios` | `Vellum Assistant iOS Distribution` | `IOS_PROVISIONING_PROFILE` |
 | staging | `ai.vocify-inc.vellum-assistant-ios.staging` | `Vellum Assistant iOS Staging Distribution` | `IOS_PROVISIONING_PROFILE_STAGING` |
 | dev | `ai.vocify-inc.vellum-assistant-ios.dev` | `Vellum Assistant iOS Dev Distribution` | `IOS_PROVISIONING_PROFILE_DEV` |
+
+For the NotificationService rows only, step 2 below also enables
+**Communication Notifications** on the containing app's App ID, and step 4
+is what carries that capability into the app's profile. Both are required:
+the app entitlements file now declares
+`com.apple.developer.usernotifications.communication`, and a build
+declaring an entitlement its profile does not grant fails to sign.
 
 Repeat these steps once per row (start with **dev** — it is the only
 track that releases hourly, so it is the fastest way to prove the setup):
@@ -777,7 +810,9 @@ track that releases hourly, so it is the fastest way to prove the setup):
    **Identifiers** → the app bundle ID from the second table →
    **App Groups** → tick it, **Edit**, and assign the same group as
    step 1 → **Save**. A container is shared only between bundles naming
-   the identical group, so both bundle IDs carry the same one.
+   the identical group, so both bundle IDs carry the same one. On a
+   NotificationService row, also tick **Communication Notifications** on
+   this same App ID (not on the extension's) before saving.
 3. **Create the extension's distribution profile.** **Profiles** → **+**
    → **Distribution → App Store Connect** → pick the App ID from step 1 →
    pick the Apple Distribution certificate that matches the
@@ -837,6 +872,7 @@ All iOS signing secrets are stored as GitHub Actions secrets:
 - `IOS_PROVISIONING_PROFILE_STAGING` / `_DEV` — Per-environment profiles
 - `IOS_PROVISIONING_PROFILE_EXT` / `_EXT_STAGING` / `_EXT_DEV` — Per-environment profiles for the embedded `VoiceActivity` widget extension. See [Manual Apple Developer portal setup](#manual-apple-developer-portal-setup).
 - `IOS_PROVISIONING_PROFILE_SHARE` / `_SHARE_STAGING` / `_SHARE_DEV` — Per-environment profiles for the embedded Share Sheet extension. Same portal setup as VoiceActivity (App Group only; no push).
+- `IOS_PROVISIONING_PROFILE_NSE` / `_NSE_STAGING` / `_NSE_DEV`: per-environment profiles for the embedded Notification Service Extension. Same portal setup as Share (App Group only), plus Communication Notifications on the containing app's App ID and reissued `IOS_PROVISIONING_PROFILE*` secrets. See [Manual Apple Developer portal setup](#manual-apple-developer-portal-setup).
 - `APPLE_APP_ID_PROD` / `_STAGING` / `_DEV` — Numeric App Store Connect app IDs (e.g. `123456789`), passed as `--apple-id` to [`xcrun altool --upload-package`](https://keith.github.io/xcode-man-pages/altool.7.html). Each environment has its own ASC app record with its own ID.
 - `SLACK_WEBHOOK_URL` — Slack incoming webhook for `#build-alerts` notifications
 
