@@ -31,6 +31,7 @@ let workspaceDir = "";
 let registeredWebhookPaths: string[] = [];
 let velayWebhooksEnabled = false;
 let webhookRouteReadError: Error | undefined;
+let webhookRouteReads = 0;
 
 mock.module("../credential-reader.js", () => ({
   getWorkspaceDir: () => workspaceDir,
@@ -39,6 +40,7 @@ mock.module("../credential-reader.js", () => ({
 
 mock.module("../db/webhook-ingress-route-store.js", () => ({
   listWebhookIngressRoutes: () => {
+    webhookRouteReads++;
     if (webhookRouteReadError) {
       throw webhookRouteReadError;
     }
@@ -243,6 +245,7 @@ beforeEach(() => {
   registeredWebhookPaths = [];
   velayWebhooksEnabled = false;
   webhookRouteReadError = undefined;
+  webhookRouteReads = 0;
 });
 
 afterEach(() => {
@@ -1531,12 +1534,25 @@ describe("advertised path rules", () => {
     await flushPromises();
 
     expect(headerValue(sockets[0])).toBe(
-      buildVelayAllowedPathsHeaderValue(["/webhooks/telegram"]),
+      buildVelayAllowedPathsHeaderValue(() => ["/webhooks/telegram"]),
     );
     expect(JSON.parse(headerValue(sockets[0]) as string)).toEqual([
       ...VELAY_STATIC_ALLOWED_PATHS,
       "^/webhooks/telegram$",
     ]);
+    await client.stop();
+  });
+
+  test("does not read the registry on connect while the flag is off", async () => {
+    registeredWebhookPaths = ["/webhooks/telegram"];
+    const sockets: FakeWebSocket[] = [];
+    const client = makeClient({ sockets });
+
+    client.start();
+    await flushPromises();
+
+    expect(headerValue(sockets[0])).toBe(VELAY_ALLOWED_PATHS_HEADER_VALUE);
+    expect(webhookRouteReads).toBe(0);
     await client.stop();
   });
 
@@ -1550,7 +1566,9 @@ describe("advertised path rules", () => {
     await flushPromises();
 
     expect(sockets.length).toBe(1);
-    expect(headerValue(sockets[0])).toBe(buildVelayAllowedPathsHeaderValue([]));
+    expect(headerValue(sockets[0])).toBe(
+      buildVelayAllowedPathsHeaderValue(() => []),
+    );
     await client.stop();
   });
 

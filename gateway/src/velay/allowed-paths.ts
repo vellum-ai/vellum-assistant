@@ -119,20 +119,23 @@ function escapeForRe2(value: string): string {
 }
 
 /**
- * The header value to advertise for a tunnel serving `registeredPaths`.
+ * The header value to advertise for a tunnel serving the paths
+ * `readRegisteredPaths` returns.
  *
- * With `velay-webhooks` off this is the wildcard allowlist. With it on the
- * webhook namespace narrows to exactly the registered paths, so Velay drops
- * anything else under `/webhooks/` before it reaches the gateway.
+ * With `velay-webhooks` off this is the wildcard allowlist, and the thunk is
+ * never called: the registry has no bearing on those rules, so a flag-off
+ * connect does not touch the database. With the flag on the webhook namespace
+ * narrows to exactly the registered paths, so Velay drops anything else under
+ * `/webhooks/` before it reaches the gateway.
  */
 export function buildVelayAllowedPathsHeaderValue(
-  registeredPaths: string[],
+  readRegisteredPaths: () => string[],
 ): string {
   if (!isFeatureFlagEnabled("velay-webhooks")) {
     return VELAY_ALLOWED_PATHS_HEADER_VALUE;
   }
   return JSON.stringify([
     ...VELAY_STATIC_ALLOWED_PATHS,
-    ...registeredPaths.map((path) => `^${escapeForRe2(path)}$`),
+    ...readRegisteredPaths().map((path) => `^${escapeForRe2(path)}$`),
   ]);
 }

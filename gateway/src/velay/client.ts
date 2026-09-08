@@ -360,7 +360,7 @@ export class VelayTunnelClient {
           // webhook routes registered since the last one. See
           // ./allowed-paths.ts for the route inventory and the platform-side
           // enforcement (ATL-402).
-          [VELAY_ALLOWED_PATHS_HEADER]: buildVelayAllowedPathsHeaderValue(
+          [VELAY_ALLOWED_PATHS_HEADER]: buildVelayAllowedPathsHeaderValue(() =>
             this.readRegisteredWebhookPaths(),
           ),
         },

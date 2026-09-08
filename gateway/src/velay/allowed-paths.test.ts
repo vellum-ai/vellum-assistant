@@ -48,7 +48,7 @@ describe("VELAY_ALLOWED_PATHS", () => {
     const patterns = [
       ...VELAY_ALLOWED_PATHS,
       ...decode(
-        buildVelayAllowedPathsHeaderValue([
+        buildVelayAllowedPathsHeaderValue(() => [
           "/webhooks/plugins/example/realtime",
           "/webhooks/plugins/ex.am+ple/(realtime)",
         ]),
@@ -188,19 +188,36 @@ describe("the registration allowlist and the bridge's WebSocket allowlist", () =
 
 describe("buildVelayAllowedPathsHeaderValue", () => {
   it("advertises the legacy list verbatim while the flag is off", () => {
-    expect(buildVelayAllowedPathsHeaderValue([])).toBe(
+    expect(buildVelayAllowedPathsHeaderValue(() => [])).toBe(
       VELAY_ALLOWED_PATHS_HEADER_VALUE,
     );
-    expect(buildVelayAllowedPathsHeaderValue(["/webhooks/telegram"])).toBe(
+    expect(
+      buildVelayAllowedPathsHeaderValue(() => ["/webhooks/telegram"]),
+    ).toBe(VELAY_ALLOWED_PATHS_HEADER_VALUE);
+  });
+
+  it("does not read the registry while the flag is off", () => {
+    let reads = 0;
+    const read = () => {
+      reads++;
+      return ["/webhooks/telegram"];
+    };
+
+    expect(buildVelayAllowedPathsHeaderValue(read)).toBe(
       VELAY_ALLOWED_PATHS_HEADER_VALUE,
     );
+    expect(reads).toBe(0);
+
+    velayWebhooksEnabled = true;
+    buildVelayAllowedPathsHeaderValue(read);
+    expect(reads).toBe(1);
   });
 
   it("drops the webhook wildcard for the statics plus one exact rule per registered path", () => {
     velayWebhooksEnabled = true;
 
     const rules = decode(
-      buildVelayAllowedPathsHeaderValue([
+      buildVelayAllowedPathsHeaderValue(() => [
         "/webhooks/telegram",
         "/webhooks/plugins/example/realtime",
       ]),
@@ -220,7 +237,7 @@ describe("buildVelayAllowedPathsHeaderValue", () => {
   it("advertises only the statics when nothing is registered", () => {
     velayWebhooksEnabled = true;
 
-    expect(decode(buildVelayAllowedPathsHeaderValue([]))).toEqual([
+    expect(decode(buildVelayAllowedPathsHeaderValue(() => []))).toEqual([
       ...VELAY_STATIC_ALLOWED_PATHS,
     ]);
   });
@@ -229,7 +246,7 @@ describe("buildVelayAllowedPathsHeaderValue", () => {
     velayWebhooksEnabled = true;
     const path = "/webhooks/plugins/a.b+c*d?e|f(g)h[i]j{k}^l$m\\n";
 
-    const rules = decode(buildVelayAllowedPathsHeaderValue([path]));
+    const rules = decode(buildVelayAllowedPathsHeaderValue(() => [path]));
     const generated = rules[rules.length - 1];
     const compiled = new RegExp(generated);
 

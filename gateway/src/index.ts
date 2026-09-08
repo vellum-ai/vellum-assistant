@@ -2910,10 +2910,16 @@ async function main() {
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
     const onlyVelayPublicBaseUrlChanged = isOnlyVelayPublicBaseUrlChange(event);
+    // A Velay-only publicBaseUrl change is the tunnel registering. While
+    // `velay-webhooks` is on that URL is what Telegram must be pointed at, so
+    // the suppression that keeps a tunnel address out of provider config is
+    // exactly what has to lift.
+    const telegramSuppressed =
+      onlyVelayPublicBaseUrlChanged && !isFeatureFlagEnabled("velay-webhooks");
 
     if (
       event.changedKeys.has("ingress") &&
-      !onlyVelayPublicBaseUrlChanged &&
+      !telegramSuppressed &&
       isTelegramConfigured()
     ) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -3014,6 +3020,17 @@ async function main() {
     if (enabled !== velayWebhooksEnabled) {
       velayWebhooksEnabled = enabled;
       velayTunnelClient?.requestRulesRefresh("velay-webhooks-flag-changed");
+      // The flag also decides which address a pod hands Telegram, and nothing
+      // else re-runs the reconcile when it moves. One call covers a flip in
+      // either direction because the resolver reads the new value.
+      if (isTelegramConfigured()) {
+        reconcileTelegramWebhook(telegramCaches).catch((err) => {
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after velay-webhooks flag change",
+          );
+        });
+      }
     }
   };
 
