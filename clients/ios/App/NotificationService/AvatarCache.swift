@@ -40,11 +40,19 @@ struct AvatarCache {
         )
     }
 
+    /// The cached bytes for `hash`, or `nil` when nothing is stored under it.
+    ///
+    /// A hit stamps the file with the current time so eviction, which ranks by
+    /// modification date, treats a recently used avatar as recent.
     func data(forHash hash: String) -> Data? {
-        guard let url = fileURL(forHash: hash) else {
+        guard let url = fileURL(forHash: hash), let data = try? Data(contentsOf: url) else {
             return nil
         }
-        return try? Data(contentsOf: url)
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date()],
+            ofItemAtPath: url.path
+        )
+        return data
     }
 
     /// Store `data` under `hash`, or do nothing when the bytes do not hash to
@@ -70,8 +78,10 @@ struct AvatarCache {
     /// notification unchanged.
     ///
     /// The URL arrives in the push payload, so only `https` is followed and only
-    /// bytes that hash to `hash` are used. The whole body is read into memory,
-    /// bounded by ``maxBytes`` on the way out and by `timeout` on the way in.
+    /// bytes that hash to `hash` are used. The body is streamed and abandoned
+    /// the moment it goes past ``maxBytes``, which keeps an oversized or
+    /// malformed response from filling the extension's memory budget, and
+    /// `timeout` bounds how long the read may take.
     func fetch(url: URL, hash: String, timeout: TimeInterval = defaultTimeout) async -> Data? {
         guard Self.isValidHash(hash), url.scheme == "https" else {
             return nil
@@ -81,15 +91,40 @@ struct AvatarCache {
             cachePolicy: .reloadIgnoringLocalCacheData,
             timeoutInterval: timeout
         )
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse,
+        guard let (bytes, response) = try? await URLSession.shared.bytes(for: request) else {
+            return nil
+        }
+        guard let http = response as? HTTPURLResponse,
               http.statusCode == 200,
-              data.count <= Self.maxBytes,
+              http.expectedContentLength <= Int64(Self.maxBytes)
+        else {
+            bytes.task.cancel()
+            return nil
+        }
+        guard let data = try? await Self.readAtMost(Self.maxBytes, from: bytes),
               Self.sha256Hex(data) == hash
         else {
+            bytes.task.cancel()
             return nil
         }
         store(data, hash: hash)
+        return data
+    }
+
+    /// Collect `bytes` until the sequence ends, or return `nil` as soon as more
+    /// than `limit` bytes arrive so an oversized body is never held whole.
+    static func readAtMost<Bytes: AsyncSequence>(
+        _ limit: Int,
+        from bytes: Bytes
+    ) async throws -> Data? where Bytes.Element == UInt8 {
+        var data = Data()
+        data.reserveCapacity(min(limit, 32 * 1024))
+        for try await byte in bytes {
+            if data.count >= limit {
+                return nil
+            }
+            data.append(byte)
+        }
         return data
     }
 
