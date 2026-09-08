@@ -163,6 +163,7 @@ import {
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
+  daemonUnreachableInterceptor,
   localGatewayAuthRecoveryInterceptor,
   platformAuthRecoveryInterceptor,
   platformFeaturesGate,
@@ -2825,7 +2826,18 @@ describe("successful daemon traffic", () => {
     );
   });
 
-  test.each(["health", "healthz", "events", "background-wake/prepare-sleep"])(
+  test.each([
+    "health",
+    "healthz",
+    "events",
+    "background-wake/prepare-sleep",
+    "backups",
+    "backups/create",
+    "trust-rules",
+    "trust-rules/suggest",
+    "contacts",
+    "future-gateway-route",
+  ])(
     "%s is not proof that normal daemon requests are serving",
     async (path) => {
       const request = await daemonRequestInterceptor(
@@ -2884,13 +2896,25 @@ describe("successful daemon traffic", () => {
     expect(activity.lastSuccess).toBeGreaterThan(activity.lastStatus);
   });
 
-  test.each(["btw", "conversations/123/stream", "future-stream"])("stream headers from %s do not clear sleep", async (path) => {
-    const request = await daemonRequestInterceptor(new Request(`https://app.example.test/v1/assistants/123/${path}`));
-    assistantActivityResponseInterceptor(new Response(null, { headers: { "Content-Type": "text/event-stream" } }), request);
-    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
-    assistantActivityResponseInterceptor(new Response(null), request, { parseAs: "stream" });
-    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
-  });
+  test.each(["btw", "conversations/123/stream", "future-stream"])(
+    "stream headers from %s do not clear sleep",
+    async (path) => {
+      const request = await daemonRequestInterceptor(
+        new Request(`https://app.example.test/v1/assistants/123/${path}`),
+      );
+      assistantActivityResponseInterceptor(
+        new Response(null, {
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+        request,
+      );
+      expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+      assistantActivityResponseInterceptor(new Response(null), request, {
+        parseAs: "stream",
+      });
+      expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+    },
+  );
 
   test("an aborted request cannot clear sleep", async () => {
     const controller = new AbortController();
@@ -2915,6 +2939,8 @@ describe("successful daemon traffic", () => {
 
   test.each([
     ["daemon", daemonClient, "conversations", true],
+    ["daemon backups", daemonClient, "backups", false],
+    ["daemon trust rules", daemonClient, "trust-rules", false],
     ["gateway", gatewayClient, "contacts", false],
     ["platform status", platformClient, "operational/status/", false],
     ["platform runtime proxy", platformClient, "conversations", true],
@@ -2936,4 +2962,108 @@ describe("successful daemon traffic", () => {
       );
     },
   );
+});
+
+describe("request failure ordering", () => {
+  beforeEach(() => {
+    resetAssistantRequestActivity("123");
+    isPlatformDisabledMock.mockReturnValue(false);
+    setSelfHostedConnection(null);
+  });
+  afterEach(() => resetAssistantRequestActivity(null));
+
+  const start = (path = "conversations") =>
+    daemonRequestInterceptor(
+      new Request(`https://app.example.test/v1/assistants/123/${path}`),
+    );
+
+  test.each([502, 503, 504])(
+    "HTTP %i prevents an older success from clearing the failure",
+    async (status) => {
+      const oldRequest = await start();
+      const failedRequest = await start();
+      const event = mock(() => {});
+      const unsubscribe = subscribe("assistant.unreachable", event);
+      try {
+        daemonUnreachableInterceptor(
+          new Response(null, { status }),
+          failedRequest,
+        );
+        assistantActivityResponseInterceptor(new Response("{}"), oldRequest);
+        const activity = useAssistantRequestActivity.getState();
+        expect(activity.lastStatus).toBeGreaterThan(activity.lastSuccess);
+        expect(event).toHaveBeenCalledTimes(1);
+        const recovery = await start();
+        assistantActivityResponseInterceptor(new Response("{}"), recovery);
+        expect(
+          useAssistantRequestActivity.getState().lastSuccess,
+        ).toBeGreaterThan(activity.lastStatus);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  test("a late failure cannot undo a newer successful request", async () => {
+    const oldRequest = await start();
+    const newerRequest = await start();
+    assistantActivityResponseInterceptor(new Response("{}"), newerRequest);
+    const event = mock(() => {});
+    const unsubscribe = subscribe("assistant.unreachable", event);
+    try {
+      daemonUnreachableInterceptor(
+        new Response(null, { status: 503 }),
+        oldRequest,
+      );
+      expect(event).not.toHaveBeenCalled();
+      expect(useAssistantRequestActivity.getState().lastStatus).toBe(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("failures from a previous assistant session cannot affect the current one", async () => {
+    const request = await start();
+    resetAssistantRequestActivity("456");
+    resetAssistantRequestActivity("123");
+    const event = mock(() => {});
+    const unsubscribe = subscribe("assistant.unreachable", event);
+    try {
+      daemonUnreachableInterceptor(
+        new Response(null, { status: 503 }),
+        request,
+      );
+      expect(event).not.toHaveBeenCalled();
+      expect(useAssistantRequestActivity.getState().lastStatus).toBe(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("a failed health probe also supersedes an older ordinary response", async () => {
+    const request = await start();
+    const health = await start("healthz");
+    daemonUnreachableInterceptor(new Response(null, { status: 503 }), health);
+    assistantActivityResponseInterceptor(new Response("{}"), request);
+    const activity = useAssistantRequestActivity.getState();
+    expect(activity.lastStatus).toBeGreaterThan(activity.lastSuccess);
+  });
+});
+
+test("a gateway OPTIONS response is not daemon readiness", async () => {
+  resetAssistantRequestActivity("123");
+  try {
+    const request = await daemonRequestInterceptor(
+      new Request("https://app.example.test/v1/assistants/123/conversations", {
+        method: "OPTIONS",
+      }),
+    );
+    assistantActivityResponseInterceptor(
+      new Response(null, { status: 204 }),
+      request,
+    );
+    expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
+  } finally {
+    resetAssistantRequestActivity(null);
+  }
 });

@@ -461,9 +461,11 @@ function localHealthBannerConfig(
       };
     case "unreachable":
       return {
-        tone: "neutral",
+        tone: wakeError ? "error" : "neutral",
         title: t("statusBanner.reconnecting"),
         icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
+        children: wakeError,
+        actions: wakeAction,
       };
     case "unhealthy":
       return {
@@ -486,7 +488,9 @@ function doctorAction(): ReactNode {
 }
 
 function canWakeLocalHealth(health: LocalAssistantHealth | null): boolean {
-  return health === "sleeping" || health === "crashed";
+  return (
+    health === "sleeping" || health === "crashed" || health === "unreachable"
+  );
 }
 
 function BannerNotice({
@@ -588,6 +592,47 @@ function useAssistantBannerConfig(): BannerConfig | null {
   } = statusQuery;
 
   const isResumeGraceActive = useResumeGrace();
+
+  // Remember only the transition context, never a replacement server snapshot.
+  const [unreachableGrace, setUnreachableGrace] = useState<{
+    assistantId: string;
+    kind: "reconnecting" | "waking";
+  } | null>(null);
+  useEffect(() => {
+    const state = operationalStatus?.state;
+    if (!assistantId || operationalStatus?.detail_state === "failed") {
+      setUnreachableGrace(null);
+    } else if (
+      state === "active" ||
+      state === "sleeping" ||
+      state === "waking"
+    ) {
+      setUnreachableGrace({
+        assistantId,
+        kind: state === "active" ? "reconnecting" : "waking",
+      });
+    } else if (state !== "unreachable") {
+      setUnreachableGrace(null);
+    } else {
+      setUnreachableGrace((previous) =>
+        previous?.assistantId === assistantId ? previous : null,
+      );
+    }
+  }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
+  const graceKind =
+    unreachableGrace?.assistantId === assistantId
+      ? unreachableGrace.kind
+      : null;
+  useEffect(() => {
+    if (!graceKind || operationalStatus?.state !== "unreachable") {
+      return;
+    }
+    const timeout = setTimeout(
+      () => setUnreachableGrace(null),
+      graceKind === "waking" ? 60_000 : 15_000,
+    );
+    return () => clearTimeout(timeout);
+  }, [assistantId, graceKind, operationalStatus?.state]);
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
@@ -792,8 +837,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
   ) {
     return {
       tone: "neutral",
-      title: "Your assistant runs locally",
-      icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+      title:
+        localHealth === "unreachable"
+          ? t("statusBanner.reconnecting")
+          : "Your assistant runs locally",
+      icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
       children:
         "Open the Vellum desktop app or run vellum wake in your terminal to start it.",
     };
@@ -895,8 +943,14 @@ function useAssistantBannerConfig(): BannerConfig | null {
   if (
     effectiveStatus?.state === "unreachable" &&
     effectiveStatus.detail_state !== "failed" &&
-    isResumeGraceActive
+    (isResumeGraceActive || graceKind)
   ) {
+    if (graceKind === "waking") {
+      return operationalStatusBannerConfig(
+        { ...effectiveStatus, state: "waking" },
+        showDoctorAction,
+      );
+    }
     return {
       tone: "neutral",
       title: t("statusBanner.reconnecting"),

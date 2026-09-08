@@ -75,11 +75,28 @@ export function recordAssistantStatusObservation(
 export function hasAssistantRespondedSince(
   observation: AssistantRequestObservation | null,
 ): boolean {
+  const state = useAssistantRequestActivity.getState();
   return (
     observation !== null &&
     isCurrent(observation) &&
-    useAssistantRequestActivity.getState().lastSuccess > observation.sequence
+    state.lastSuccess > Math.max(observation.sequence, state.lastStatus)
   );
+}
+
+/** A current failure supersedes older successes, including ones still in flight. */
+export function recordAssistantRequestFailure(
+  observation: AssistantRequestObservation | null,
+): boolean {
+  const state = useAssistantRequestActivity.getState();
+  if (
+    !observation ||
+    !isCurrent(observation) ||
+    observation.sequence <= Math.max(state.lastStatus, state.lastSuccess)
+  ) {
+    return false;
+  }
+  recordAssistantStatusObservation(observation);
+  return true;
 }
 
 export function useAssistantRespondedSinceStatus(

@@ -29,6 +29,7 @@
  */
 import {
   beginAssistantRequest,
+  recordAssistantRequestFailure,
   recordAssistantRequestSuccess,
   recordAssistantStatusObservation,
   type AssistantRequestObservation,
@@ -273,7 +274,7 @@ function relocateRemoteGatewayPushRequest(request: Request): Request {
  * @param options.skipSegmentAllowlist — when `true`, all assistant
  *   sub-resource paths are forwarded regardless of
  *   {@link RUNTIME_PROXIED_FIRST_SEGMENTS}. The daemon client sets this
- *   because every daemon SDK endpoint is a daemon route by definition.
+ *   for both daemon routes and gateway-owned compatibility routes.
  *   The platform client leaves it `false` to avoid forwarding
  *   platform-owned routes (maintenance-mode, system-events, etc.);
  *   {@link FLATTENED_FIRST_SEGMENTS} are forwarded regardless.
@@ -410,14 +411,21 @@ export function authorizeRemoteGatewayRequest(
 
 const assistantRequestObservations = new WeakMap<
   Request,
-  { observation: AssistantRequestObservation; isStatus: boolean }
+  {
+    observation: AssistantRequestObservation;
+    isStatus: boolean;
+    provesReadiness: boolean;
+  }
 >();
-// Health responses need payload validation; streams and sleep acknowledgments do not prove readiness.
-const NON_SERVING_DAEMON_PATHS = new Set([
-  "health",
-  "healthz",
-  "events",
-  "background-wake",
+// These resources reach the daemon through the gateway runtime proxy.
+// SDK membership alone is insufficient: backups and trust rules are gateway-owned.
+const SERVING_DAEMON_PATHS = new Set([
+  "conversations",
+  "messages",
+  "apps",
+  "config",
+  "avatar",
+  "workspace",
 ]);
 
 export function assistantActivityResponseInterceptor(
@@ -429,10 +437,16 @@ export function assistantActivityResponseInterceptor(
   const isStream =
     options?.parseAs === "stream" ||
     response.headers.get("content-type")?.includes("text/event-stream");
-  if (response.ok && !request.signal.aborted && !isStream && observation) {
+  if (
+    response.ok &&
+    request.method !== "OPTIONS" &&
+    !request.signal.aborted &&
+    !isStream &&
+    observation
+  ) {
     if (observation.isStatus) {
       recordAssistantStatusObservation(observation.observation);
-    } else {
+    } else if (observation.provesReadiness) {
       recordAssistantRequestSuccess(observation.observation);
     }
   }
@@ -442,8 +456,7 @@ export function assistantActivityResponseInterceptor(
 /**
  * Builds a request interceptor for a HeyAPI client.
  *
- * @param isDaemonClient `true` for the daemon + gateway clients, where every
- *   endpoint is a daemon route by definition. Two things follow from it: all
+ * @param isDaemonClient `true` for the daemon + gateway clients. All
  *   assistant sub-resource paths are forwarded to the self-hosted gateway
  *   without consulting {@link RUNTIME_PROXIED_FIRST_SEGMENTS}, and every
  *   request counts toward the post-resume burst. `false` for the platform and
@@ -563,21 +576,25 @@ function createInterceptor({
     const isStatus =
       !isDaemonClient &&
       /\/v1\/assistants\/[^/]+\/operational\/status\/?$/.test(pathname);
-    const match = observeDaemonActivity
-      ? /\/v1\/assistants\/([^/]+)\/([^/?#]+)/.exec(pathname)
-      : null;
+    const match =
+      observeDaemonActivity || isDaemonClient
+        ? /\/v1\/assistants\/([^/]+)\/([^/?#]+)/.exec(pathname)
+        : null;
     const observation =
-      observeDaemonActivity &&
       match &&
-      !NON_SERVING_DAEMON_PATHS.has(match[2]) &&
       (isStatus ||
         isDaemonClient ||
         RUNTIME_PROXIED_FIRST_SEGMENTS.has(match[2]))
         ? beginAssistantRequest(match[1])
         : null;
     const outgoing = await route(request);
-    if (observation) {
-      assistantRequestObservations.set(outgoing, { observation, isStatus });
+    if (observation && match) {
+      assistantRequestObservations.set(outgoing, {
+        observation,
+        isStatus,
+        provesReadiness:
+          observeDaemonActivity && SERVING_DAEMON_PATHS.has(match[2]),
+      });
     }
     try {
       if (shouldCount(request.url, outgoing)) {
@@ -614,14 +631,19 @@ const gatewayRequestInterceptor = createInterceptor({
 const UNREACHABLE_STATUS_CODES = new Set<number>([502, 503, 504]);
 
 /**
- * Daemon-only response interceptor. Publishes `assistant.unreachable` on
- * gateway-class errors. No URL filtering needed because every daemon
- * SDK request targets the assistant runtime by definition. Not
- * installed on platform/auth clients (a 502 from Django is a
- * different failure domain).
+ * Records gateway-class failures before prompting a scoped reachability probe.
+ * Not installed on platform/auth clients, whose 502s can come from Django.
  */
-export function daemonUnreachableInterceptor(response: Response): Response {
-  if (UNREACHABLE_STATUS_CODES.has(response.status)) {
+export function daemonUnreachableInterceptor(
+  response: Response,
+  request: Request,
+): Response {
+  const observation = assistantRequestObservations.get(request)?.observation;
+  if (
+    UNREACHABLE_STATUS_CODES.has(response.status) &&
+    !request.signal.aborted &&
+    recordAssistantRequestFailure(observation ?? null)
+  ) {
     publish("assistant.unreachable", {});
   }
   return response;

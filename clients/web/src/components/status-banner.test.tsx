@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import {
@@ -17,6 +18,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { type ComponentType, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { __setResumeGraceMsForTesting } from "@/hooks/use-resume-grace";
@@ -83,6 +85,7 @@ let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
 }>;
+let AssistantSleepStage: ComponentType;
 let useAssistantSleepPhase: () => "sleeping" | "waking" | null;
 const setResumeGraceMs = __setResumeGraceMsForTesting;
 const DEFAULT_RESUME_GRACE_MS = 15_000;
@@ -108,6 +111,7 @@ mock.module("@/runtime/is-electron", () => ({
 }));
 
 mock.module("react-router", () => ({
+  useLocation: () => ({ pathname: "/assistant" }),
   Link: (props: { to: string; children: ReactNode }) => (
     <a href={props.to}>{props.children}</a>
   ),
@@ -211,9 +215,31 @@ mock.module("@vellumai/design-library/components/button", () => ({
   ),
 }));
 
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+  }),
+}));
+mock.module(
+  "@/domains/chat/voice/voice-room/use-is-voice-room-visible",
+  () => ({
+    useIsVoiceRoomVisible: () => false,
+  }),
+);
+mock.module("@/lib/avatar-last-seen-cache", () => ({
+  readLastSeenAvatar: async () => null,
+}));
+mock.module("@/stores/assistant-identity-store", () => ({
+  useAssistantIdentityStore: { use: { name: () => "Mel" } },
+}));
+
 beforeAll(async () => {
   ({ StatusBanner, useAssistantSleepPhase } =
     await import("@/components/status-banner"));
+  ({ AssistantSleepStage } =
+    await import("@/domains/chat/components/assistant-sleep-stage"));
 });
 
 beforeEach(() => {
@@ -616,7 +642,7 @@ describe("StatusBanner", () => {
     };
     rerender(<StatusBanner />);
 
-    expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    expect(screen.getByText("Reconnecting to your assistant…")).toBeTruthy();
     expect(screen.queryByText("Assistant is sleeping")).toBeNull();
   });
 
@@ -843,7 +869,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("Reconnecting to your assistant…");
-      expect(html).not.toContain("Wake up");
+      expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
       expect(html).not.toContain("asleep");
     });
@@ -1229,7 +1255,7 @@ describe("StatusBanner", () => {
 });
 
 describe("sleep stage phase", () => {
-  test("network failures never put the chat into a sleep or wake stage", () => {
+  test("a confirmed sleep retains its wake phase through a readiness gap", () => {
     operationalStatusQueryMock = {
       data: { state: "sleeping" },
       isError: false,
@@ -1241,7 +1267,7 @@ describe("sleep stage phase", () => {
       isError: false,
     };
     rerender();
-    expect(result.current).toBeNull();
+    expect(result.current).toBe("waking");
     localHealthMock = "unreachable";
     rerender();
     expect(result.current).toBeNull();
@@ -1257,5 +1283,176 @@ describe("sleep stage phase", () => {
     operationalStatusQueryMock = { data: { state: "active" }, isError: false };
     rerender();
     expect(result.current).toBeNull();
+  });
+});
+
+describe("cloud transition recovery", () => {
+  test.each([
+    ["active", 15_000, "Reconnecting to your assistant…"],
+    ["sleeping", 60_000, "Assistant is waking"],
+    ["waking", 60_000, "Assistant is waking"],
+  ] as const)(
+    "%s tolerates a readiness gap but eventually exposes failure",
+    (state, duration, title) => {
+      const realSetTimeout = globalThis.setTimeout;
+      let expire: (() => void) | undefined;
+      const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+        callback: () => void,
+        delay?: number,
+      ) => {
+        if (delay === duration) {
+          expire = callback;
+        }
+        return realSetTimeout(callback, delay);
+      }) as typeof setTimeout);
+      try {
+        operationalStatusQueryMock = { data: { state }, isError: false };
+        const view = render(<StatusBanner />);
+        operationalStatusQueryMock = {
+          data: { state: "unreachable" },
+          isError: false,
+        };
+        view.rerender(<StatusBanner />);
+        expect(screen.getByText(title)).toBeTruthy();
+        expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+        expect(expire).toBeDefined();
+        act(() => expire!());
+        expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+        expect(screen.getByText("Go to Doctor")).toBeTruthy();
+      } finally {
+        timer.mockRestore();
+      }
+    },
+  );
+
+  test("sleep starts without an intermediate error banner", () => {
+    operationalStatusQueryMock = { data: { state: "active" }, isError: false };
+    const view = render(<StatusBanner />);
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    view.rerender(<StatusBanner />);
+    expect(screen.getByText("Reconnecting to your assistant…")).toBeTruthy();
+    operationalStatusQueryMock = {
+      data: { state: "sleeping" },
+      isError: false,
+    };
+    view.rerender(<StatusBanner />);
+    expect(screen.getByText("Assistant is sleeping")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("wake grace never hides an explicit failure", () => {
+    operationalStatusQueryMock = { data: { state: "waking" }, isError: false };
+    const view = render(<StatusBanner />);
+    operationalStatusQueryMock = {
+      data: { state: "waking", detail_state: "failed" },
+      isError: false,
+    };
+    view.rerender(<StatusBanner />);
+    expect(screen.getByText("Assistant failed to wake")).toBeTruthy();
+  });
+
+  test("wake grace cannot cross assistant selection or survive a switch back", () => {
+    operationalStatusQueryMock = { data: { state: "waking" }, isError: false };
+    const view = render(<StatusBanner />);
+    activeAssistantIdMock = "another";
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    view.rerender(<StatusBanner />);
+    expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    activeAssistantIdMock = "assistant-123";
+    view.rerender(<StatusBanner />);
+    expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+  });
+});
+
+describe("local reconnect recovery", () => {
+  test("an unreachable assistant without a host has actionable guidance", () => {
+    localHealthMock = "unreachable";
+    isLocalModeHostAvailableMock = false;
+    render(<StatusBanner />);
+    expect(screen.getByText("Reconnecting to your assistant…")).toBeTruthy();
+    expect(screen.getByText(/Open the Vellum desktop app/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
+    expect(screen.queryByText(/asleep/)).toBeNull();
+  });
+
+  test("a failed wake stays visible when the next probe is unreachable", async () => {
+    localHealthMock = "sleeping";
+    wakeLocalAssistantHostMock = mock(async () => ({
+      ok: false,
+      error: "Wake rejected by host",
+    }));
+    const view = render(<StatusBanner />);
+    fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
+    await waitFor(() =>
+      expect(screen.getByText("Wake rejected by host")).toBeTruthy(),
+    );
+    localHealthMock = "unreachable";
+    view.rerender(<StatusBanner />);
+    expect(screen.getByText("Wake rejected by host")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Wake up" })).toBeTruthy();
+    localHealthMock = "healthy";
+    view.rerender(<StatusBanner />);
+    expect(screen.queryByText("Wake rejected by host")).toBeNull();
+  });
+});
+
+describe("banner and sleep screen together", () => {
+  function renderSurface() {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const tree = () => (
+      <QueryClientProvider client={client}>
+        <StatusBanner />
+        <AssistantSleepStage />
+      </QueryClientProvider>
+    );
+    const view = render(tree());
+    return { repoll: () => view.rerender(tree()) };
+  }
+
+  test("a cloud wake never announces success or shows Doctor during its readiness gap", () => {
+    operationalStatusQueryMock = {
+      data: { state: "sleeping" },
+      isError: false,
+    };
+    const view = renderSurface();
+    expect(screen.getByText("Mel is asleep")).toBeTruthy();
+    operationalStatusQueryMock = { data: { state: "waking" }, isError: false };
+    view.repoll();
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    view.repoll();
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+    expect(screen.queryByText("Mel just woke up")).toBeNull();
+    expect(screen.queryByText("Go to Doctor")).toBeNull();
+    operationalStatusQueryMock = { data: { state: "active" }, isError: false };
+    view.repoll();
+    expect(screen.getByText("Mel just woke up")).toBeTruthy();
+    expect(screen.queryByText("Mel is waking up…")).toBeNull();
+  });
+
+  test("a failed cloud wake closes the sleep screen without a success outro", () => {
+    operationalStatusQueryMock = { data: { state: "waking" }, isError: false };
+    const view = renderSurface();
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+    operationalStatusQueryMock = {
+      data: { state: "waking", detail_state: "failed" },
+      isError: false,
+    };
+    view.repoll();
+    expect(screen.queryByText("Mel just woke up")).toBeNull();
+    expect(screen.queryByText("Mel is waking up…")).toBeNull();
+    expect(screen.getByText("Assistant failed to wake")).toBeTruthy();
+    expect(screen.getByText("Go to Doctor")).toBeTruthy();
   });
 });

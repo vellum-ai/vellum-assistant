@@ -4,6 +4,7 @@ import {
   beginAssistantRequest,
   hasAssistantRespondedSince,
   recordAssistantRequestSuccess,
+  recordAssistantRequestFailure,
   recordAssistantStatusObservation,
   resetAssistantRequestActivity,
   useAssistantRequestActivity,
@@ -61,4 +62,15 @@ test("logout clears evidence and rejects pending requests", () => {
   recordAssistantRequestSuccess(request);
   expect(useAssistantRequestActivity.getState().lastSuccess).toBe(0);
   expect(beginAssistantRequest("a")).toBeNull();
+});
+
+test("a success superseded by failure cannot suppress an older pending probe", () => {
+  const probe = beginAssistantRequest("a");
+  const request = beginAssistantRequest("a");
+  const failure = beginAssistantRequest("a");
+  expect(recordAssistantRequestFailure(failure)).toBe(true);
+  recordAssistantRequestSuccess(request);
+  expect(hasAssistantRespondedSince(probe)).toBe(false);
+  recordAssistantRequestSuccess(beginAssistantRequest("a"));
+  expect(hasAssistantRespondedSince(probe)).toBe(true);
 });
