@@ -7290,16 +7290,28 @@ async function defaultStartVoiceTurn(
  * Who a live-voice turn runs as: the local guardian's actor principal, and the
  * {@link TrustContext} resolved for it.
  *
- * Both are empty when no vellum guardian binding exists or the gateway is
- * unreachable, and the turn then runs exactly as an unstamped one does.
+ * The two answer different questions and are withheld under different
+ * conditions, so a turn can carry one without the other.
  *
- * The two are reported separately because they answer different questions and
- * fail independently. The principal is the identity the binding names, and the
- * host proxies match connected clients against it. The trust class is a policy
- * answer about that principal, so a binding that resolves to something other
- * than `guardian` still names the actor the turn belongs to: withholding the
- * principal there would refuse the owner access to their own machine over a
- * question about what they are allowed to do once they have it.
+ * The principal says whose machine a tool may reach, and the host proxies
+ * match connected clients against it. The trust class is a policy answer about
+ * that principal, saying what the turn may do once it has one. A binding that
+ * resolves to something other than `guardian` still names the actor the turn
+ * belongs to: withholding the principal there would refuse the owner access to
+ * their own machine over a question about what they are allowed to do with it.
+ *
+ * **The common partial answer is trust without an actor**, and it is the one
+ * to recognise in an incident. A session whose own guardian read settled
+ * nothing still resolves trust from the cached binding, because what a turn
+ * may do is a question about the machine's owner and the cache answers it; the
+ * actor is withheld because the cache cannot say whether the gateway admitted
+ * that guardian or one it was rebound from. Such a turn talks and acts
+ * normally and only its host-proxy calls are refused, which reads as computer
+ * use being unavailable rather than as an untrusted turn.
+ *
+ * Both are empty only when no vellum guardian binding exists at all, or the
+ * gateway answers nothing to either read, and the turn then runs exactly as an
+ * unstamped one does.
  */
 export async function resolveLocalLiveVoiceIdentity(
   conversationId: string,
