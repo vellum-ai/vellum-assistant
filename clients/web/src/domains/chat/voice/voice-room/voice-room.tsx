@@ -823,8 +823,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const flashMode = useVoicePrefsStore.use.flashMode();
   const setFlashMode = useVoicePrefsStore.use.setFlashMode();
   // What the one button stands for right now. Live drives a lamp, so it shows
-  // two states and names them as a light; photo mode is the three-state cycle
-  // it has always been. The preference underneath is the same either way: a
+  // two states and names them as a light; photo mode cycles all three states.
+  // The preference underneath is the same either way: a
   // stored `auto` reads as off here and stays `auto` on disk, so the photo
   // taken after Live still fires the mode the user chose for one.
   const shownFlashMode = live ? liveFlashMode(flashMode) : flashMode;

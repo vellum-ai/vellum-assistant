@@ -3127,7 +3127,7 @@ describe("VoiceRoom: camera", () => {
         );
       });
 
-      test("leaves photo mode the three-state cycle it always was", async () => {
+      test("keeps photo mode on the three-state cycle", async () => {
         await openNativeCamera(TORCH_CAPABLE);
 
         const labels: (string | null)[] = [];
