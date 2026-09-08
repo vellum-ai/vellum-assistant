@@ -33,6 +33,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { useTranslation, Trans } from "@/i18n";
+import { useSupportsProfileInputModalities } from "@/lib/backwards-compat/profile-input-modalities";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -85,6 +86,7 @@ export function ProfileEditorFields({
   const modelFirstCreate = useModelFirstProfileCreate();
   const isCreate = editor.effectiveMode === "create";
   const flat = variant === "panel";
+  const supportsInputModalities = useSupportsProfileInputModalities();
 
   // Create-mode Advanced disclosure (modal variant only). Local state is
   // fine: hosts remount the fields on each open, matching the old reset.
@@ -93,10 +95,9 @@ export function ProfileEditorFields({
   // The Name lives under Advanced, so a Name the user has to fix cannot be
   // left hidden behind a collapsed disclosure.
   const createAdvancedOpen = advancedExpanded || Boolean(editor.nameError);
-  const showModalities = profileUsesFreeTextModel(
-    editor.provider,
-    editor.model,
-  );
+  const showModalities =
+    supportsInputModalities &&
+    profileUsesFreeTextModel(editor.provider, editor.model);
 
   const modalitiesNode = showModalities ? (
     <ProfileModalitiesSection

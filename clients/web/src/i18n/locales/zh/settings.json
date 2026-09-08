@@ -1542,9 +1542,7 @@
     "resolvedOn": "发送给模型",
     "supportedAria": "模型支持{modality}",
     "supportedColumn": "模型支持",
-    "text": "文本",
-    "title": "模态",
-    "video": "视频"
+    "title": "模态"
   },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的操作",

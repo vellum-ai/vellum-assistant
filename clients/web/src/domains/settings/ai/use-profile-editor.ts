@@ -58,6 +58,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { assistantSupportsEntryProviderBinding } from "@/lib/backwards-compat/entry-provider-binding";
+import { resolveSupportsProfileInputModalities } from "@/lib/backwards-compat/profile-input-modalities";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
 
@@ -575,9 +576,7 @@ export function useProfileEditor({
       return;
     }
     setModel(newModel);
-    if (!profileUsesFreeTextModel(provider, newModel)) {
-      setInputModalities({});
-    }
+    setInputModalities({});
     // Reset token sliders when model changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
@@ -887,15 +886,17 @@ export function useProfileEditor({
       ) {
         entry.thinking = { enabled: true, level: thinkingLevel };
       }
-      if (profileUsesFreeTextModel(provider, nativeModel || model)) {
-        const modalities = serializeInputModalities(inputModalities);
-        if (modalities) {
-          entry.inputModalities = modalities;
+      if (await resolveSupportsProfileInputModalities(assistantId)) {
+        if (profileUsesFreeTextModel(provider, nativeModel || model)) {
+          const modalities = serializeInputModalities(inputModalities);
+          if (modalities) {
+            entry.inputModalities = modalities;
+          } else if (effectiveMode === "edit") {
+            entry.inputModalities = null;
+          }
         } else if (effectiveMode === "edit") {
           entry.inputModalities = null;
         }
-      } else if (effectiveMode === "edit") {
-        entry.inputModalities = null;
       }
       // Status - always include in edit mode; omit in create when active
       if (effectiveMode === "edit") {

@@ -25,10 +25,8 @@ export interface ProfileModalitiesSectionProps {
 }
 
 const MODALITY_LABEL_KEYS = {
-  text: "profileModalitiesSection.text",
   image: "profileModalitiesSection.image",
   audio: "profileModalitiesSection.audio",
-  video: "profileModalitiesSection.video",
 } as const;
 
 function setOverride(
@@ -113,13 +111,7 @@ export function ProfileModalitiesSection({
                     })}
                     onChange={(nextEnabled) => {
                       if (!nextEnabled) {
-                        onChange(
-                          setOverride(
-                            value,
-                            modality,
-                            modality === "text" ? { enabled: false } : undefined,
-                          ),
-                        );
+                        onChange(setOverride(value, modality, undefined));
                         return;
                       }
                       onChange(

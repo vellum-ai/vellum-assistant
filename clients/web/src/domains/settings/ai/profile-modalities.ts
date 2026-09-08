@@ -3,7 +3,12 @@ import {
   parseVellumRoutedModel,
 } from "@/assistant/llm-model-catalog";
 
-export const INPUT_MODALITIES = ["text", "image", "audio", "video"] as const;
+/**
+ * Modalities the editor can declare. Image and audio have send-path
+ * enforcement; text is always sent and video is still converted to a file
+ * note, so those rows are not configurable here.
+ */
+export const INPUT_MODALITIES = ["image", "audio"] as const;
 export type InputModality = (typeof INPUT_MODALITIES)[number];
 
 export type ModalityOverride = {
@@ -37,14 +42,18 @@ export function profileUsesFreeTextModel(
 }
 
 export function catalogSupportedForFreeText(modality: InputModality): boolean {
-  return modality === "text";
+  switch (modality) {
+    case "image":
+    case "audio":
+      return false;
+  }
 }
 
 export function modalityEnabled(
   modality: InputModality,
   override: ModalityOverride | undefined,
 ): boolean {
-  return override?.enabled ?? modality === "text";
+  return override?.enabled ?? catalogSupportedForFreeText(modality);
 }
 
 export function modalitySupported(
@@ -86,9 +95,9 @@ export function parseInputModalities(value: unknown): InputModalities {
 }
 
 /**
- * Persist only rows that differ from the free-text defaults (text on and
- * supported; other modalities off). Returns `null` when every row is default
- * so an edit can clear a previously stored override.
+ * Persist only rows that differ from the free-text defaults (image and
+ * audio off). Returns `null` when every row is default so an edit can clear
+ * a previously stored override.
  */
 export function serializeInputModalities(
   state: InputModalities,
@@ -98,9 +107,8 @@ export function serializeInputModalities(
   for (const modality of INPUT_MODALITIES) {
     const enabled = modalityEnabled(modality, state[modality]);
     const supported = modalitySupported(modality, state[modality], enabled);
-    const defaultEnabled = modality === "text";
     const catalog = catalogSupportedForFreeText(modality);
-    if (enabled === defaultEnabled && supported === catalog) {
+    if (!enabled && supported === catalog) {
       continue;
     }
     out[modality] = enabled

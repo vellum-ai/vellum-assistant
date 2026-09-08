@@ -59,24 +59,14 @@ describe("serializeInputModalities", () => {
       image: { enabled: true, supported: true },
     });
   });
-
-  test("persists disabled text as an explicit policy", () => {
-    expect(
-      serializeInputModalities({
-        text: { enabled: false },
-      }),
-    ).toEqual({
-      text: { enabled: false },
-    });
-  });
 });
 
 describe("display helpers", () => {
-  test("text starts enabled and supported; image starts off and unsupported", () => {
-    expect(catalogSupportedForFreeText("text")).toBe(true);
+  test("image and audio start off and unsupported", () => {
     expect(catalogSupportedForFreeText("image")).toBe(false);
-    expect(modalityEnabled("text", undefined)).toBe(true);
+    expect(catalogSupportedForFreeText("audio")).toBe(false);
     expect(modalityEnabled("image", undefined)).toBe(false);
+    expect(modalityEnabled("audio", undefined)).toBe(false);
     expect(modalitySupported("image", undefined, false)).toBe(false);
     expect(
       modalitySupported("image", { enabled: true, supported: true }, true),

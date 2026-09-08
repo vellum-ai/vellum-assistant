@@ -1547,9 +1547,7 @@
     "resolvedOn": "Отправляется модели",
     "supportedAria": "Модель поддерживает {modality}",
     "supportedColumn": "Модель поддерживает",
-    "text": "Текст",
-    "title": "Модальности",
-    "video": "Видео"
+    "title": "Модальности"
   },
   "profileRow": {
     "actionsAriaLabel": "Действия для {displayName}",

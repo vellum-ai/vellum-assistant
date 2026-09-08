@@ -1542,9 +1542,7 @@
     "resolvedOn": "傳給模型",
     "supportedAria": "模型支援{modality}",
     "supportedColumn": "模型支援",
-    "text": "文字",
-    "title": "模態",
-    "video": "影片"
+    "title": "模態"
   },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的動作",

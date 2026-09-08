@@ -1564,9 +1564,7 @@
     "resolvedOn": "Sent to the model",
     "supportedAria": "Model supports {modality}",
     "supportedColumn": "Model supports it",
-    "text": "Text",
-    "title": "Modalities",
-    "video": "Video"
+    "title": "Modalities"
   },
   "profileRow": {
     "actionsAriaLabel": "Actions for {displayName}",

@@ -1564,9 +1564,7 @@
     "resolvedOn": "Se envía al modelo",
     "supportedAria": "El modelo admite {modality}",
     "supportedColumn": "El modelo lo admite",
-    "text": "Texto",
-    "title": "Modalidades",
-    "video": "Vídeo"
+    "title": "Modalidades"
   },
   "profileRow": {
     "actionsAriaLabel": "Acciones para {displayName}",
