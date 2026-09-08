@@ -514,12 +514,12 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
         // Emptiness, not nil, is what makes an attribute worth falling past:
         // icon-only controls routinely carry `AXTitle` as "" and keep the name
-        // a user would say in `AXDescription` or the tooltip. See `AXLabel`.
-        let title = AXLabel.firstMeaningful(
-            getStringAttribute(element, kAXTitleAttribute as CFString),
-            getStringAttribute(element, kAXDescriptionAttribute as CFString),
-            getStringAttribute(element, kAXHelpAttribute as CFString)
-        )
+        // a user would say in `AXDescription` or the tooltip. Chained through
+        // `??` so an element that answers on its title costs one read: each of
+        // these is synchronous IPC into the target app, run per element.
+        let title = AXLabel.nonBlank(getStringAttribute(element, kAXTitleAttribute as CFString))
+            ?? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
+            ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
         let value = getValueAttribute(element)
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
@@ -739,10 +739,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 }
                 interactive.append(line)
             } else if isText {
+                // Kept whole, unlike a name: this is what the user is reading,
+                // and the tail of it can be the half of an error message that
+                // says what to do about the first half.
                 if let title = element.title, !title.isEmpty {
-                    staticTexts.append(AXLabel.singleLine(title))
+                    staticTexts.append(AXLabel.collapsed(title))
                 } else if let value = element.value, !value.isEmpty {
-                    staticTexts.append(AXLabel.singleLine(value))
+                    staticTexts.append(AXLabel.collapsed(value))
                 }
             }
 
