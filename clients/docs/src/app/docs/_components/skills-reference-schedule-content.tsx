@@ -169,6 +169,12 @@ export function SkillsReferenceScheduleContent() {
               rules as interactive actions &mdash; your assistant won&apos;t do anything it
               couldn&apos;t do in a normal conversation.
             </li>
+            <li>
+              <strong>In-app links in Vellum chat.</strong> In Vellum chat, schedule and
+              conversation names the assistant mentions are links to their details. Those
+              links work in the Vellum app only, not in Slack, Telegram, Discord, email, or
+              notifications.
+            </li>
           </ul>
         </section>
       </DocsContent>
