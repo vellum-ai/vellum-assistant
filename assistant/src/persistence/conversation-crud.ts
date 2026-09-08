@@ -94,6 +94,7 @@ import {
   isNoResponseMetadata,
   isReactionMessageMetadata,
   isSystemCardMetadata,
+  messageMetadataIsAmbientSightKeep,
   PINNED_GROUP_ID,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
   sightFrameAttachmentIdsFromMetadata,
@@ -127,6 +128,7 @@ import {
   rawTelemetryRun,
 } from "./raw-query.js";
 import {
+  attachments,
   channelInboundEvents,
   conversations,
   llmRequestLogs,
@@ -2703,6 +2705,108 @@ export function selectSightFrameCaptureTimes(
     }
   }
   return captureTimes;
+}
+
+/** One attachment linked to a conversation's messages, as the listing serves it. */
+export interface ConversationAttachmentListing {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: string;
+  thumbnailBase64: string | null;
+  fileBacked: boolean;
+  messageId: string;
+  /** The carrying row's `created_at`, which is the capture time for a camera frame. */
+  createdAt: number;
+  /** The attachment is named by the carrying row's `sightFrameAttachmentIds`: the camera gate captured it. */
+  sightFrame: boolean;
+  /** The row is a standalone keep (`messageMetadataIsAmbientSightKeep`): nobody spoke it. A frame that rode a spoken turn is `sightFrame` without `ambientKeep`. */
+  ambientKeep: boolean;
+}
+
+/**
+ * Every attachment linked to a conversation's messages, newest first, across
+ * fork lineage. Metadata only: `data_base64` is never selected, so a page of
+ * listings costs no bytes. Callers fetch content from the attachment content
+ * route.
+ *
+ * Driven from `messages` so the lineage predicate rides
+ * `idx_messages_conversation_created_at`. An attachment linked to more than
+ * one row is listed once, on the newest row that carries it.
+ */
+export function listConversationAttachments(
+  conversationId: string,
+  options: { sightFrames?: "only" | "exclude"; limit: number; offset: number },
+): { attachments: ConversationAttachmentListing[]; total: number } {
+  const rows = getDb()
+    .select({
+      id: attachments.id,
+      originalFilename: attachments.originalFilename,
+      mimeType: attachments.mimeType,
+      sizeBytes: attachments.sizeBytes,
+      kind: attachments.kind,
+      thumbnailBase64: attachments.thumbnailBase64,
+      filePath: attachments.filePath,
+      messageId: messages.id,
+      messageCreatedAt: messages.createdAt,
+      role: messages.role,
+      metadata: messages.metadata,
+    })
+    .from(messages)
+    .innerJoin(
+      messageAttachments,
+      eq(messageAttachments.messageId, messages.id),
+    )
+    .innerJoin(attachments, eq(attachments.id, messageAttachments.attachmentId))
+    .where(and(lineageFilter(conversationId), eq(messages.finalized, 1)))
+    .orderBy(desc(messages.createdAt), asc(messageAttachments.position))
+    .all();
+
+  const seen = new Set<string>();
+  const listings: ConversationAttachmentListing[] = [];
+  for (const row of rows) {
+    if (row.role !== "user" && row.role !== "assistant") {
+      continue;
+    }
+    if (seen.has(row.id)) {
+      continue;
+    }
+    const parsed = parseMessageMetadata(row.metadata);
+    if (isHiddenMessageMetadata(parsed)) {
+      continue;
+    }
+    seen.add(row.id);
+    const sightFrame = sightFrameAttachmentIdsFromMetadata(parsed).includes(
+      row.id,
+    );
+    const ambientKeep =
+      sightFrame && messageMetadataIsAmbientSightKeep(row.metadata);
+    if (options.sightFrames === "only" && !sightFrame) {
+      continue;
+    }
+    if (options.sightFrames === "exclude" && sightFrame) {
+      continue;
+    }
+    listings.push({
+      id: row.id,
+      originalFilename: row.originalFilename,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      kind: row.kind,
+      thumbnailBase64: row.thumbnailBase64 ?? null,
+      fileBacked: row.filePath != null,
+      messageId: row.messageId,
+      createdAt: row.messageCreatedAt,
+      sightFrame,
+      ambientKeep,
+    });
+  }
+
+  return {
+    attachments: listings.slice(options.offset, options.offset + options.limit),
+    total: listings.length,
+  };
 }
 
 /**

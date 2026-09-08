@@ -1713,6 +1713,99 @@ paths:
       responses:
         "204":
           description: Successful response
+    get:
+      operationId: attachments_get
+      summary: List conversation attachments
+      description:
+        Return metadata for every attachment linked to a conversation's messages, newest first, across fork
+        lineage. Camera frames kept by live vision are flagged. Bytes come from GET /attachments/{id}/content.
+      tags:
+        - attachments
+      parameters:
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Conversation whose attachments to list
+        - name: sightFrames
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - only
+              - exclude
+          description: Restrict to camera frames, or leave them out
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Page size, default 200, max 1000
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        mimeType:
+                          type: string
+                        sizeBytes:
+                          type: number
+                        kind:
+                          type: string
+                        messageId:
+                          type: string
+                        createdAt:
+                          type: number
+                          description: "Capture time: the carrying message's created_at"
+                        fileBacked:
+                          type: boolean
+                        thumbnailData:
+                          type: string
+                        sightFrame:
+                          type: boolean
+                        ambientKeep:
+                          type: boolean
+                      required:
+                        - id
+                        - filename
+                        - mimeType
+                        - sizeBytes
+                        - kind
+                        - messageId
+                        - createdAt
+                        - sightFrame
+                        - ambientKeep
+                      additionalProperties: false
+                  total:
+                    type: number
+                  hasMore:
+                    type: boolean
+                required:
+                  - attachments
+                  - total
+                  - hasMore
+                additionalProperties: false
+        "400":
+          description: Missing or invalid query
     post:
       operationId: attachments_post
       summary: Upload attachment

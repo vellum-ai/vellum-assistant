@@ -32,6 +32,7 @@ import {
   getFilePathForAttachment,
   validateAttachmentUpload,
 } from "../../persistence/attachments-store.js";
+import { listConversationAttachments } from "../../persistence/conversation-crud.js";
 import {
   isHeifImage,
   jpegFilenameFor,
@@ -151,6 +152,21 @@ export const attachmentMetadataSchema = z.object({
   mimeType: z.string(),
   sizeBytes: z.number(),
   kind: z.string(),
+});
+
+/**
+ * One row of the conversation attachment listing: the shared metadata plus
+ * where it hangs in the transcript and whether live vision captured it.
+ */
+export const conversationAttachmentSchema = attachmentMetadataSchema.extend({
+  messageId: z.string(),
+  createdAt: z
+    .number()
+    .describe("Capture time: the carrying message's created_at"),
+  fileBacked: z.boolean().optional(),
+  thumbnailData: z.string().optional(),
+  sightFrame: z.boolean(),
+  ambientKeep: z.boolean(),
 });
 
 /**
@@ -726,6 +742,60 @@ function handleAttachmentLookup({ body = {} }: RouteHandlerArgs) {
   return { filePath: result };
 }
 
+/** Page bounds when the caller names none, or names one out of range. */
+const DEFAULT_ATTACHMENT_LIST_LIMIT = 200;
+const MAX_ATTACHMENT_LIST_LIMIT = 1000;
+
+function handleListAttachmentsRoute({ queryParams }: RouteHandlerArgs) {
+  const conversationId = queryParams?.conversationId;
+  if (!conversationId) {
+    throw new BadRequestError("conversationId is required");
+  }
+
+  const sightFramesRaw = queryParams?.sightFrames;
+  let sightFrames: "only" | "exclude" | undefined;
+  if (sightFramesRaw === "only" || sightFramesRaw === "exclude") {
+    sightFrames = sightFramesRaw;
+  } else if (sightFramesRaw !== undefined) {
+    throw new BadRequestError("sightFrames must be 'only' or 'exclude'");
+  }
+
+  const limitRaw = queryParams?.limit;
+  const limit = limitRaw
+    ? Math.min(
+        Math.max(Math.floor(Number(limitRaw)), 1),
+        MAX_ATTACHMENT_LIST_LIMIT,
+      )
+    : DEFAULT_ATTACHMENT_LIST_LIMIT;
+  const offsetRaw = queryParams?.offset;
+  const offset = offsetRaw ? Math.max(Math.floor(Number(offsetRaw)), 0) : 0;
+
+  const { attachments: rows, total } = listConversationAttachments(
+    conversationId,
+    { ...(sightFrames ? { sightFrames } : {}), limit, offset },
+  );
+
+  const attachments = rows.map((row) => ({
+    id: row.id,
+    filename: row.originalFilename,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    kind: row.kind,
+    messageId: row.messageId,
+    createdAt: row.createdAt,
+    fileBacked: row.fileBacked,
+    thumbnailData: row.thumbnailBase64 ?? undefined,
+    sightFrame: row.sightFrame,
+    ambientKeep: row.ambientKeep,
+  }));
+
+  return {
+    attachments,
+    total,
+    hasMore: offset + attachments.length < total,
+  };
+}
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "attachment_content",
@@ -765,6 +835,50 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseStatus: "204",
     handler: handleDeleteAttachmentRoute,
+  },
+  {
+    operationId: "attachment_list",
+    endpoint: "attachments",
+    method: "GET",
+    policy: {
+      requiredScopes: ["attachments.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List conversation attachments",
+    description:
+      "Return metadata for every attachment linked to a conversation's messages, newest first, across fork lineage. Camera frames kept by live vision are flagged. Bytes come from GET /attachments/{id}/content.",
+    tags: ["attachments"],
+    queryParams: [
+      {
+        name: "conversationId",
+        type: "string",
+        required: true,
+        description: "Conversation whose attachments to list",
+      },
+      {
+        name: "sightFrames",
+        type: "string",
+        required: false,
+        schema: { type: "string", enum: ["only", "exclude"] },
+        description: "Restrict to camera frames, or leave them out",
+      },
+      {
+        name: "limit",
+        type: "integer",
+        required: false,
+        description: "Page size, default 200, max 1000",
+      },
+      { name: "offset", type: "integer", required: false },
+    ],
+    responseBody: z.object({
+      attachments: z.array(conversationAttachmentSchema),
+      total: z.number(),
+      hasMore: z.boolean(),
+    }),
+    additionalResponses: {
+      "400": { description: "Missing or invalid query" },
+    },
+    handler: handleListAttachmentsRoute,
   },
   {
     operationId: "attachment_get",
