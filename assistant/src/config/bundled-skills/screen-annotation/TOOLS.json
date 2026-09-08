@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "screen_point_at",
-      "description": "Point at something on the screen the user is sharing with the call: draws a ring around it, with a short caption beside it. Replaces whatever is currently drawn.\n\nCoordinates are fractions of the shared surface, 0 to 1, measured against the picture of that surface you were last shown. Give the bounds of the thing itself; the ring is drawn around them.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
+      "description": "Point at something on the screen the user is sharing with the call: draws a ring around it, with a short caption beside it. Replaces whatever is currently drawn.\n\nName what to point at with `target` and it is found on the surface itself, at exactly the right place: \"color balance\", \"the Send button\", \"the search field\". Prefer this always. If the name is not on the surface you are told what is, so you can point again or say it out loud.\n\nGive `x`/`y`/`width`/`height` only for something with no label to find it by \u2014 a region of an image, a spot on a canvas, a plugin's own drawing. They are fractions of the shared surface, 0 to 1, measured against the picture you were last shown, and they are a guess at where the thing is rather than a reading of it.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
       "category": "screen-annotation",
       "risk": "low",
       "input_schema": {
@@ -15,14 +15,20 @@
             "maxItems": 4,
             "items": {
               "type": "object",
+              "description": "One thing to point at: either `target` naming it, or bounds giving its rectangle. Naming is exact; bounds are estimated, so name it whenever it has a name.",
               "properties": {
+                "target": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "What to point at, in words: the label on the control, or a phrase containing it (\"the stabilization button\"). Found on the surface itself, so it lands exactly. Leave out only when the thing has no label."
+                },
                 "x": {
                   "type": "number",
-                  "description": "Left edge, as a fraction of the shared surface's width (0 to 1)."
+                  "description": "Left edge as a fraction of the shared surface's width (0 to 1). Only for something `target` cannot name."
                 },
                 "y": {
                   "type": "number",
-                  "description": "Top edge, as a fraction of the shared surface's height (0 to 1)."
+                  "description": "Top edge as a fraction of the shared surface's height (0 to 1). Only for something `target` cannot name."
                 },
                 "width": {
                   "type": "number",
@@ -37,8 +43,7 @@
                   "maxLength": 80,
                   "description": "A short imperative for what to do with it, e.g. \"Click Share\". Say the rest out loud."
                 }
-              },
-              "required": ["x", "y", "width", "height"]
+              }
             }
           },
           "target_client_id": {

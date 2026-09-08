@@ -35,6 +35,11 @@ import {
   WATCH_FLAG,
   companionLowerReachFor,
   type CoachmarkRefusal,
+  type CoachmarkRequest,
+  type CoachmarkResult,
+  type CoachmarkUnresolved,
+  namesATarget,
+  type PlacedCoachmark,
   type CompanionCardGrowth,
   type CompanionCoachmark,
   type CompanionGrowth,
@@ -79,6 +84,7 @@ import {
 import {
   captureSourceThumbnail,
   captureTargetFrame,
+  locateOnTarget,
   listCaptureSources,
   resolveCapturePick,
   windowBoundsFor,
@@ -1247,14 +1253,58 @@ const syncCapturedTarget = (): void => {
  * down anyway. Refusing those would leave marks standing that nothing could
  * reach, which is the failure this whole entrance exists to avoid.
  */
-export const showCompanionCoachmarks = (
-  marks: readonly CompanionCoachmark[],
+export const showCompanionCoachmarks = async (
+  requests: readonly CoachmarkRequest[],
   conversationId?: string,
-): CoachmarkRefusal | null => {
-  if (marks.length === 0) {
+): Promise<CoachmarkResult> => {
+  if (requests.length === 0) {
     setCoachmarks(NO_COACHMARKS);
-    return null;
+    return { kind: "placed", marks: [] };
   }
+  const refusal = whyNotToDraw(conversationId);
+  if (refusal !== null) {
+    return { kind: "refused", refusal };
+  }
+  const share = context.screenShare;
+  if (share === undefined) {
+    return { kind: "refused", refusal: "unshared" };
+  }
+
+  const marks: PlacedCoachmark[] = [];
+  for (const request of requests) {
+    if (!namesATarget(request)) {
+      marks.push(request);
+      continue;
+    }
+    const placed = await placeOnNamedTarget(share, request);
+    if ("reason" in placed) {
+      return { kind: "unresolved", unresolved: placed };
+    }
+    marks.push(placed);
+  }
+
+  // Asked again after the awaits above. Resolving a name is a round trip to
+  // the helper and the user is still working the whole time: a share that
+  // moved in that window would take these marks, measured against the surface
+  // they were resolved on, onto whatever replaced it.
+  const moved = whyNotToDraw(conversationId);
+  if (moved !== null) {
+    return { kind: "refused", refusal: moved };
+  }
+  // The name a mark resolved from is for the caller to read back, not for the
+  // frame to draw: what goes on screen is a rectangle, and the renderer has
+  // no use for the label it came from.
+  setCoachmarks(marks.map(({ matched: _matched, ...mark }) => mark));
+  return { kind: "placed", marks };
+};
+
+/**
+ * Why the marks cannot go up, or `null` when they can.
+ *
+ * Pulled out because it is asked twice: once before resolving a name and once
+ * after, since resolving takes long enough for the answer to change.
+ */
+const whyNotToDraw = (conversationId?: string): CoachmarkRefusal | null => {
   if (!framesTheShare()) {
     return "unshared";
   }
@@ -1267,8 +1317,58 @@ export const showCompanionCoachmarks = (
   if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
     return "stale-surface";
   }
-  setCoachmarks(marks);
   return null;
+};
+
+/**
+ * One named control as a mark, or why it could not be one.
+ *
+ * The conversion is the whole point of resolving through the tree: the helper
+ * answers in screen points, the surface has bounds in the same space, and a
+ * fraction is the difference between them. Nothing here estimates anything.
+ */
+const placeOnNamedTarget = async (
+  share: WatchCaptureTarget,
+  request: { target: string; caption?: string },
+): Promise<PlacedCoachmark | CoachmarkUnresolved> => {
+  const located = await locateOnTarget(share, request.target);
+  if (!located.found) {
+    return {
+      target: request.target,
+      reason: located.reason,
+      candidates: located.ambiguous ?? located.available ?? [],
+    };
+  }
+  const bounds = await surfaceBounds(share);
+  if (bounds === null) {
+    return { target: request.target, reason: "no-tree", candidates: [] };
+  }
+  return {
+    x: (located.x - bounds.x) / bounds.width,
+    y: (located.y - bounds.y) / bounds.height,
+    width: located.width / bounds.width,
+    height: located.height / bounds.height,
+    ...(request.caption === undefined ? {} : { caption: request.caption }),
+    matched: located.label,
+  };
+};
+
+/**
+ * Where the shared surface is, in the screen points a located control is in.
+ *
+ * The same bounds the frame is placed on, for the same reason: a fraction of
+ * the surface only means anything against the rectangle the frame draws.
+ */
+const surfaceBounds = async (
+  share: WatchCaptureTarget,
+): Promise<Rectangle | null> => {
+  if (share.kind === "display") {
+    return (
+      screen.getAllDisplays().find((d) => d.id === share.displayId)?.bounds ??
+      null
+    );
+  }
+  return windowBoundsFor(share.windowId);
 };
 
 /**

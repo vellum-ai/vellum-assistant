@@ -478,6 +478,9 @@ final class MacHelper: @unchecked Sendable {
             case "capture.frame":
                 dispatchCaptureFrame(line: line)
                 return
+            case "ax.locate":
+                dispatchAxLocate(line: line)
+                return
             case "appControl.perform":
                 dispatchAppControlPerform(line: line)
                 return
@@ -552,6 +555,93 @@ final class MacHelper: @unchecked Sendable {
             self.writeResponse(
                 JsonRpcCodec.successResponse(id: id, result: payload.toDictionary())
             )
+        }
+    }
+
+    /// Where in a window the control someone named actually is.
+    ///
+    /// The point of the whole errand: the accessibility tree knows every
+    /// labelled control's frame exactly, so a caller that wants to draw around
+    /// one never has to estimate where it is from a picture. The frame comes
+    /// back in screen points, which is the space the window's own bounds are
+    /// in, so the caller can express it against whatever surface it is drawing
+    /// on without knowing anything about this one.
+    ///
+    /// A query that fits more than one control is refused rather than resolved
+    /// (see `AXTargetMatch`), and both refusals carry labels: `ambiguous` the
+    /// ones that fit, `available` everything there was. A caller with no match
+    /// can then say what is on the surface instead of pointing at a guess.
+    private func dispatchAxLocate(line: String) {
+        Task { @MainActor in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            guard let query = params["query"] as? String else {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "ax.locate requires query, and windowId or displayId"
+                ))
+                return
+            }
+            // A window names its own tree. A display does not have one, so the
+            // frontmost window standing on it is the tree to read: a person
+            // sharing their screen and naming a control means the one they are
+            // looking at, which is the same window computer use reads.
+            let enumerator = AccessibilityTreeEnumerator()
+            let located = if let windowId = (params["windowId"] as? NSNumber)?.uint32Value {
+                await enumerator.enumerateWindow(windowId: CGWindowID(windowId))
+            } else {
+                await enumerator.enumerateCurrentWindow()
+            }
+            guard let tree = located else {
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-tree",
+                ]))
+                return
+            }
+
+            // Anything named and actually on screen is a thing that can be
+            // pointed at, interactive or not: a value someone is reading is as
+            // legitimate a target as a button they are about to press.
+            let elements = AccessibilityTreeEnumerator.flattenElements(tree.elements)
+                .filter { element in
+                    guard let title = element.title, !title.isEmpty else { return false }
+                    return element.frame.width > 0 && element.frame.height > 0
+                }
+            let outcome = AXTargetMatch.locate(
+                query: query,
+                among: elements.map {
+                    AXTargetMatch.Candidate(label: $0.title ?? "", role: $0.role)
+                }
+            )
+
+            switch outcome {
+            case let .found(index):
+                let element = elements[index]
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": true,
+                    "label": element.title ?? "",
+                    "role": element.role,
+                    "x": Double(element.frame.origin.x),
+                    "y": Double(element.frame.origin.y),
+                    "width": Double(element.frame.width),
+                    "height": Double(element.frame.height),
+                ]))
+            case let .ambiguous(labels):
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "ambiguous",
+                    "ambiguous": labels,
+                ]))
+            case let .notFound(labels):
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-match",
+                    "available": labels,
+                ]))
+            }
         }
     }
 

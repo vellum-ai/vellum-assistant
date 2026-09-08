@@ -34,11 +34,22 @@ mock.module("../sidecar/shared-cu-helper", () => ({
 // null for marks that did.
 let refusal: CoachmarkRefusal | null = null;
 const showCoachmarks = mock(
-  (_marks: readonly unknown[], _conversationId?: string) => refusal,
+  async (
+    marks: readonly unknown[],
+    _conversationId?: string,
+  ): Promise<CoachmarkResult> =>
+    refusal === null
+      ? {
+          kind: "placed",
+          marks: marks as CoachmarkResult extends { marks: infer M }
+            ? M
+            : never,
+        }
+      : { kind: "refused", refusal },
 );
 
 import { createHostCuExecutor, POINT_AT_TOOL } from "./host-cu-executor";
-import type { CoachmarkRefusal } from "@vellumai/ipc-contract";
+import type { CoachmarkRefusal, CoachmarkResult } from "@vellumai/ipc-contract";
 import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 
@@ -199,7 +210,8 @@ describe("pointing at the shared surface", () => {
     expect(showCoachmarks.mock.calls[0]?.[1]).toBe("conv-1");
     expect(postCuResult.mock.calls[0]?.[0]).toMatchObject({
       requestId: "req-1",
-      executionResult: "Drew 1 mark on the shared surface.",
+      executionResult:
+        "Drew 1 mark on the shared surface: a ring over 10%,20% to 40%,30%. Coordinates are fractions of the surface.",
     });
   });
 
