@@ -2304,6 +2304,38 @@
     "redirectUrl": "重定向 URL",
     "waitingAuthorization": "等待授权..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "伙伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "独立",
+        "right": "协作"
+      },
+      "genzBoomer": {
+        "left": "Z世代",
+        "right": "婴儿潮一代"
+      },
+      "playfulSerious": {
+        "left": "活泼",
+        "right": "严肃"
+      },
+      "politeUnfiltered": {
+        "left": "礼貌",
+        "right": "直率"
+      }
+    },
+    "loadError": "无法加载个性滑块。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "保存",
+    "saveErrorToast": "无法保存个性滑块。请重试。",
+    "saveSuccessToast": "个性滑块已保存。",
+    "saving": "正在保存…",
+    "subtitle": "将这些滑块值保存到此助手。这不会改写身份文件。",
+    "title": "个性"
+  },
   "sidebar": {
     "general": "常规",
     "model": "模型与服务",
@@ -2319,6 +2351,7 @@
     "community": "社区",
     "debug": "调试",
     "developer": "开发者",
+    "personality": "个性",
     "logout": "退出登录",
     "login": "登录",
     "title": "设置"

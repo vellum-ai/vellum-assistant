@@ -92,6 +92,26 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     );
   });
 
+  test("Link does not ship a Stripe publishable key to BYO installs", () => {
+    // Link's authorize endpoint needs a `key` param naming the Stripe account
+    // behind the client_id. Vellum's belongs only in the platform registry,
+    // where it pairs with the platform's own client. Seeding it here would
+    // send our merchant identity from every self-hosted install.
+    const link = PROVIDER_SEED_DATA.stripe_link;
+    expect(link).toBeDefined();
+    expect(link.managedServiceConfigKey).toBe("stripe-link-oauth");
+    expect(link.authorizeParams).toBeUndefined();
+    expect(JSON.stringify(link)).not.toContain("pk_live_");
+  });
+
+  test("Link identity falls back to phone when a wallet has no email", () => {
+    // /userinfo returns no id field, so email is the account handle and phone
+    // is the only backstop. Losing these paths breaks connection keying.
+    const link = PROVIDER_SEED_DATA.stripe_link;
+    expect(link.identityUrl).toBe("https://api.link.com/userinfo");
+    expect(link.identityResponsePaths).toEqual(["email", "phone"]);
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in

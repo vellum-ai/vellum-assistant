@@ -145,24 +145,51 @@ export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
 /** Catalog keys naming a guardian request. */
 export type GuardianLabelKey =
   | "category.guardianAction"
+  | "category.guardianAnswer"
   | "category.guardianQuestion"
   | "category.guardianRequest";
 
 /**
  * What to call a guardian-request item, on the row and on the panel it
- * opens. A waiting approval asks for something ("Guardian action
- * needed"); once it is settled nothing is needed of anyone, so it is
- * named for what it was. A question is a question either way. Null for
- * every other item, which is named by its own title.
+ * opens. A waiting request is named by what it needs of the user ("Needs
+ * your approval", "Needs your answer"); once it is settled nothing is
+ * needed of anyone, so it is named for what it was. Null for every other
+ * item, which is named by its own title.
  */
 export function guardianLabelKey(item: FeedItem): GuardianLabelKey | null {
   if (!item.guardianRequest) {
     return null;
   }
+  const isPending = isPendingGuardianFeedItem(item);
   if (item.guardianRequest.intent === "question") {
-    return "category.guardianQuestion";
+    return isPending ? "category.guardianAnswer" : "category.guardianQuestion";
   }
-  return isPendingGuardianFeedItem(item)
-    ? "category.guardianAction"
-    : "category.guardianRequest";
+  return isPending ? "category.guardianAction" : "category.guardianRequest";
+}
+
+/** Source labels that name nothing a reader could recognise a thread by. */
+const GENERIC_SOURCE_LABELS = new Set(["Conversation", "Other"]);
+
+/**
+ * The thread a feed item came from, as the reader knows it: the title of its
+ * conversation when the conversation lists carry one, otherwise the source the
+ * daemon labelled it with (a schedule's name, "Heartbeat"). Null when neither
+ * says anything, so the row leaves the line out rather than printing a
+ * placeholder.
+ */
+export function resolveThreadName(
+  item: Pick<FeedItem, "conversationId" | "sourceLabel">,
+  conversationTitles: ReadonlyMap<string, string>,
+): string | null {
+  const conversationTitle =
+    item.conversationId !== undefined
+      ? conversationTitles.get(item.conversationId)
+      : undefined;
+  if (conversationTitle !== undefined && conversationTitle.length > 0) {
+    return conversationTitle;
+  }
+  if (item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)) {
+    return item.sourceLabel;
+  }
+  return null;
 }

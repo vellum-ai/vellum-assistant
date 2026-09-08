@@ -739,4 +739,33 @@ describe("the screen share the companion mirror publishes", () => {
       expect(latest().screenShare).toBeUndefined();
     });
   });
+
+  /**
+   * The marks the assistant places name a rectangle and nothing else, so the
+   * shell needs to be told whose call the surface belongs to before it can
+   * refuse one that came from anywhere else.
+   */
+  test("names the conversation whose call is sharing", async () => {
+    render(<Mirror />);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: "conv-abc",
+      });
+    });
+    await waitFor(() => {
+      expect(latest().callConversationId).toBe("conv-abc");
+    });
+    // Withheld with the share it qualifies: an id beside a share that cannot
+    // flow would name a conversation with nothing to own.
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    await waitFor(() => {
+      expect(latest().callConversationId).toBeUndefined();
+    });
+  });
 });

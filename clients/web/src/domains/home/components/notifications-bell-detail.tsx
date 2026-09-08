@@ -25,7 +25,7 @@ import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
  * when they swap.
  */
 export const NOTIFICATIONS_PANEL_HEADER_CLASS =
-  "mb-[var(--app-spacing-sm)] flex min-h-8 items-center gap-[var(--app-spacing-xs)]";
+  "flex min-h-8 items-center gap-[var(--app-spacing-xs)] border-b border-[var(--border-subtle)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)]";
 
 /**
  * Notification bodies read as prose here, so paragraphs and list items take a
@@ -199,7 +199,7 @@ export function NotificationsBellDetail({
       <div
         data-testid="notifications-bell-detail-content"
         style={{ height: contentHeight, maxHeight: contentMaxHeight }}
-        className="overflow-y-auto px-[var(--app-spacing-md)]"
+        className="overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]"
       >
         {item.detailPanel?.kind === "toolPermission" ? (
           <HomeToolPermissionCard item={item} />
@@ -249,7 +249,7 @@ export function NotificationsBellDetail({
       */}
       <div
         data-testid="notifications-bell-detail-footer"
-        className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]"
+        className="flex flex-wrap items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-subtle)] p-[var(--app-spacing-lg)]"
       >
         <Typography
           variant="body-small-lighter"

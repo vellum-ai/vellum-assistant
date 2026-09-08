@@ -18,6 +18,7 @@ import { z } from "zod";
 import {
   ASSISTANT_STATUSES,
   COMPANION_ANNOTATION_MAX_POINTS,
+  COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
@@ -169,6 +170,23 @@ export const companionAnnotationInkSchema = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/);
 
+/**
+ * One thing the assistant is pointing at on the shared surface.
+ *
+ * Bounded per axis rather than as a rectangle inside the surface: a mark that
+ * runs past an edge is a real answer (a control against the side of a
+ * window), and the frame's window draws whatever part of it is on screen. A
+ * corner outside `0`..`1` is a mark measured against some other surface, and
+ * that is what the bounds refuse.
+ */
+export const companionCoachmarkSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1),
+  height: z.number().min(0).max(1),
+  caption: z.string().max(COMPANION_COACHMARK_CAPTION_MAX).optional(),
+});
+
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),
@@ -200,6 +218,10 @@ export const companionContextSchema = z.object({
   // shape it can hold names something being shared, and absence is the only
   // way to say nothing is.
   screenShare: watchCaptureTargetSchema.optional(),
+  // Optional for the reason `screenShare` is, and it travels with it: an id
+  // with no share names a conversation that owns nothing, and a share with no
+  // id is a surface no conversation can claim.
+  callConversationId: z.string().optional(),
   // Defaulted for the reason `watchTargets` is: a publisher that does not say
   // whether its call can be shown the screen is one whose call cannot.
   screenShareEnabled: z.boolean().default(false),

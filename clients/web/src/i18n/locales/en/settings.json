@@ -2326,6 +2326,38 @@
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Waiting for authorization..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Companion",
+        "right": "Coworker"
+      },
+      "executeCollaborate": {
+        "left": "Independent",
+        "right": "Collaborative"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Playful",
+        "right": "Serious"
+      },
+      "politeUnfiltered": {
+        "left": "Polite",
+        "right": "Unfiltered"
+      }
+    },
+    "loadError": "Could not load personality sliders.",
+    "rangeAriaLabel": "{left} to {right}",
+    "save": "Save",
+    "saveErrorToast": "Could not save personality sliders. Please try again.",
+    "saveSuccessToast": "Personality sliders saved.",
+    "saving": "Saving…",
+    "subtitle": "Save the slider values to this assistant. This does not rewrite identity files.",
+    "title": "Personality"
+  },
   "sidebar": {
     "general": "General",
     "model": "Models & Services",
@@ -2341,6 +2373,7 @@
     "community": "Community",
     "debug": "Debug",
     "developer": "Developer",
+    "personality": "Personality",
     "logout": "Log Out",
     "login": "Log In",
     "title": "Settings"

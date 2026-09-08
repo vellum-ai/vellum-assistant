@@ -73,6 +73,9 @@ export type SameActorOp =
   | "host_bash"
   | "host_file"
   | "host_cu"
+  // Rides the host_cu transport but is granted separately, so a rejection
+  // logged as host_cu would name a capability the caller may well hold.
+  | "host_cu_annotate"
   | "host_browser"
   | "host_app_control"
   | "host_transfer"
@@ -138,9 +141,7 @@ function detectRejection(
     ? args.hub.getActorPrincipalIdForClient(targetClientId)
     : (args.targetActorPrincipalId ??
       (isHttpAuthDisabled()
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
-            targetClientId,
-          )
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
         : undefined));
 
   let reason: RejectionReason | undefined;

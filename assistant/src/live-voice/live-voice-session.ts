@@ -281,6 +281,19 @@ export type LiveVoiceStreamingTranscriberResolver = (
 export type LiveVoiceCredentialReadinessResolver =
   () => Promise<LiveVoiceCredentialReadiness>;
 
+/**
+ * What a session's own guardian read settled on, which is not the same as no
+ * read having happened.
+ *
+ * Present with an undefined `principalId` means the session asked past the
+ * cache and got no answer; the turn then runs with no actor rather than with
+ * the cached one. Absent means nothing asked, which is the background
+ * continuation, and only its trust answer is used.
+ */
+export interface LiveVoiceSessionGuardian {
+  principalId: string | undefined;
+}
+
 export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
@@ -6975,7 +6988,9 @@ export function createLiveVoiceSession(
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
         : options.resolveCredentialReadiness,
-    startVoiceTurn: options.startVoiceTurn ?? defaultStartVoiceTurn,
+    startVoiceTurn:
+      options.startVoiceTurn ??
+      makeDefaultStartVoiceTurn(context.guardianPrincipalId),
     streamTtsAudio:
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
@@ -7022,7 +7037,7 @@ export async function defaultSpawnBackgroundContinuation(args: {
   // trust the foreground turn ran under and pass it explicitly (resolution
   // itself stays fail-closed: on a miss the continuation runs as `unknown`,
   // exactly as an unstamped turn does).
-  const trustContext = await resolveLocalLiveVoiceTrustContext(
+  const { trustContext } = await resolveLocalLiveVoiceIdentity(
     args.parentConversationId,
   );
   // getOrCreateConversation (not a raw registry read): it rebuilds a stale
@@ -7132,8 +7147,34 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
   return resolveLiveVoiceCredentialReadiness();
 }
 
+/**
+ * The default turn starter, bound to the guardian this session was admitted
+ * for.
+ *
+ * **The gateway's principal is authoritative and nothing here re-resolves
+ * it.** The admission decision is made against the gateway's own binding and
+ * the principal travels down on the upstream dial. The daemon is reached
+ * through a service token, so every socket arrives as the same caller and any
+ * identity worked out here would be a separate, later reading of a binding
+ * that can change in between, leaving a session admitted for one guardian
+ * running as another.
+ *
+ * Absent when the gateway named nobody, and the session's turns then run with
+ * no actor.
+ *
+ * Exported for its tests, which are the only way to reach this: every caller
+ * of `createLiveVoiceSession` in the suite injects its own `startVoiceTurn`,
+ * so this starter is never driven there.
+ */
+export function makeDefaultStartVoiceTurn(
+  guardianPrincipalId?: string,
+): LiveVoiceTurnStarter {
+  return (options) => defaultStartVoiceTurn(options, guardianPrincipalId);
+}
+
 async function defaultStartVoiceTurn(
   options: VoiceTurnOptions,
+  guardianPrincipalId: string | undefined,
 ): Promise<VoiceTurnHandle> {
   // On the first turn of a brand-new chat the client's conversation id has no
   // persisted `conversations` row yet — the live-voice session adopts the id
@@ -7143,8 +7184,8 @@ async function defaultStartVoiceTurn(
   // exists (idempotent) before persisting. Lives in the production wiring, not
   // the session state machine, so session unit tests stay DB-free.
   // Native: this is the local live-voice session, which adopts a conversation
-  // id the app supplied. Its trust context resolves through
-  // `resolveLocalLiveVoiceTrustContext`, and a phone call reaches the assistant
+  // id the app supplied. Its guardian identity resolves through
+  // `resolveLocalLiveVoiceIdentity`, and a phone call reaches the assistant
   // through the telephony path rather than here.
   const createdConversation = ensureConversationExists(
     options.conversationId,
@@ -7160,18 +7201,21 @@ async function defaultStartVoiceTurn(
       options.conversationId,
     );
   }
-  // Stamp the turn with the guardian's trust context — the same resolution the
-  // text-send route runs for a local vellum principal. A local live-voice
-  // session only exists for the guardian's own authenticated client (the
-  // gateway pins the `/v1/live-voice` upgrade to the bound guardian), but the
-  // live-voice ingress bypasses the send-message route, so without this stamp
-  // the turn resolved to the fail-closed `unknown` trust class and every
-  // sensitive tool was denied. Resolution stays fail-closed: a gateway miss /
-  // missing binding leaves the context unset (`unknown`), never a blind grant.
+  // Stamp the turn with the guardian's identity: the trust context that says
+  // what it may do, and the actor principal that says whose machine it may
+  // reach. A local live-voice session only exists for the guardian's own
+  // authenticated client (the gateway pins the `/v1/live-voice` upgrade to the
+  // bound guardian), but the live-voice ingress bypasses the send-message
+  // route, which is where both are normally established. Without the trust
+  // stamp the turn runs fail-closed as `unknown` and every sensitive tool is
+  // denied; without the actor stamp it matches no connected client and every
+  // host-proxy call is refused. Resolution stays fail-closed on both: a
+  // gateway miss or missing binding leaves them unset, never a blind grant.
   const trustStartedAt = performance.now();
-  const trustContext = await resolveLocalLiveVoiceTrustContext(
-    options.conversationId,
-  );
+  const { actorPrincipalId, trustContext } =
+    await resolveLocalLiveVoiceIdentity(options.conversationId, {
+      principalId: guardianPrincipalId,
+    });
   const trustMs = Math.round(performance.now() - trustStartedAt);
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
   log.info(
@@ -7185,35 +7229,82 @@ async function defaultStartVoiceTurn(
   );
   return startVoiceTurn({
     ...options,
+    ...(actorPrincipalId
+      ? { actorPrincipalId }
+      : // The session asked and got no answer, so the conversation's resting
+        // identity must not stand in: it may name the guardian this one was
+        // rebound from, and the host proxies would follow it to that user's
+        // desktop.
+        { actorFallbackSuppressed: true }),
     ...(trustContext ? { trustContext } : {}),
   });
 }
 
 /**
- * Resolve the local guardian's {@link TrustContext} for a live-voice turn, or
- * `undefined` when it cannot be established (no vellum guardian binding, or
- * the gateway is unreachable) — the turn then runs under the fail-closed
- * `unknown` capability set, exactly as an unstamped turn does.
+ * Who a live-voice turn runs as: the local guardian's actor principal, and the
+ * {@link TrustContext} resolved for it.
+ *
+ * The two answer different questions and are withheld under different
+ * conditions, so a turn can carry one without the other.
+ *
+ * The principal says whose machine a tool may reach, and the host proxies
+ * match connected clients against it. The trust class is a policy answer about
+ * that principal, saying what the turn may do once it has one. A binding that
+ * resolves to something other than `guardian` still names the actor the turn
+ * belongs to: withholding the principal there would refuse the owner access to
+ * their own machine over a question about what they are allowed to do with it.
+ *
+ * **The common partial answer is trust without an actor**, and it is the one
+ * to recognise in an incident. A session whose own guardian read settled
+ * nothing still resolves trust from the cached binding, because what a turn
+ * may do is a question about the machine's owner and the cache answers it; the
+ * actor is withheld because the cache cannot say whether the gateway admitted
+ * that guardian or one it was rebound from. Such a turn talks and acts
+ * normally and only its host-proxy calls are refused, which reads as computer
+ * use being unavailable rather than as an untrusted turn.
+ *
+ * Both are empty only when no vellum guardian binding exists at all, or the
+ * gateway answers nothing to either read, and the turn then runs exactly as an
+ * unstamped one does.
  */
-async function resolveLocalLiveVoiceTrustContext(
+export async function resolveLocalLiveVoiceIdentity(
   conversationId: string,
-): Promise<TrustContext | undefined> {
+  session?: LiveVoiceSessionGuardian,
+): Promise<{
+  actorPrincipalId?: string;
+  trustContext?: TrustContext;
+}> {
   const { findLocalGuardianPrincipalId } =
     await import("../runtime/local-actor-identity.js");
   const { resolveLocalPrincipalTrustContext } =
     await import("../runtime/local-principal-trust.js");
-  const guardianPrincipalId = await findLocalGuardianPrincipalId();
-  if (!guardianPrincipalId) {
-    return undefined;
+  // Trust is a question about the machine's own owner, so the cached binding
+  // answers it whenever the session's read settled nothing. The actor is a
+  // question about whose desktop a tool may reach, and only a read the
+  // gateway's admission was reconciled with answers that one.
+  const trustPrincipalId =
+    session?.principalId ?? (await findLocalGuardianPrincipalId());
+  if (!trustPrincipalId) {
+    return {};
   }
   const trustContext = await resolveLocalPrincipalTrustContext({
-    actorPrincipalId: guardianPrincipalId,
+    actorPrincipalId: trustPrincipalId,
     sourceChannel: "vellum",
     conversationExternalId: conversationId,
   });
-  // Only stamp a positive guardian resolution; the resolver's own
-  // fail-closed `unknown` carries no more information than no stamp.
-  return trustContext.trustClass === "guardian" ? trustContext : undefined;
+  // **Unset beats stale.** A session whose read settled nothing knows the
+  // cached binding, but not whether the gateway admitted that guardian or one
+  // it was just rebound from. Stamping the cached answer risks the turn
+  // reaching another user's desktop; stamping nothing costs this session its
+  // host proxies, which is where a voice session carrying no actor already
+  // sits, and leaves the call itself untouched either way.
+  const actorPrincipalId = session ? session.principalId : trustPrincipalId;
+  return {
+    ...(actorPrincipalId ? { actorPrincipalId } : {}),
+    // Only stamp a positive guardian resolution; the resolver's own
+    // fail-closed `unknown` carries no more information than no stamp.
+    ...(trustContext.trustClass === "guardian" ? { trustContext } : {}),
+  };
 }
 
 async function defaultStreamLiveVoiceTtsAudio(

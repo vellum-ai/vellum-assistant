@@ -15,11 +15,41 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
+let velayWebhooksEnabled = false;
+let claimedRoutes: { path: string; type: string }[] = [];
+let claimError: Error | undefined;
+
+// Stubbing the store keeps this suite on the resolver, and the claim log is
+// where the ordering against setWebhook is asserted. Module mocks are visible
+// to every file in the run, so the untouched exports are spread through rather
+// than dropped.
+const actualRouteStore = await import("../db/webhook-ingress-route-store.js");
+mock.module("../db/webhook-ingress-route-store.js", () => ({
+  ...actualRouteStore,
+  registerWebhookIngressRoute: (input: { path: string; type: string }) => {
+    if (claimError) {
+      throw claimError;
+    }
+    claimedRoutes.push(input);
+    return input;
+  },
+}));
+
+const actualFlagResolver = await import("../feature-flag-resolver.js");
+mock.module("../feature-flag-resolver.js", () => ({
+  ...actualFlagResolver,
+  isFeatureFlagEnabled: (flag: string) =>
+    flag === "velay-webhooks" ? velayWebhooksEnabled : false,
+}));
+
 const { reconcileTelegramWebhook } =
   await import("../telegram/webhook-manager.js");
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  velayWebhooksEnabled = false;
+  claimedRoutes = [];
+  claimError = undefined;
   delete process.env.IS_CONTAINERIZED;
   delete process.env.IS_PLATFORM;
   delete process.env.VELLUM_PLATFORM_URL;
@@ -91,6 +121,81 @@ function makeCaches(
     refreshNow: () => {},
   } as unknown as ConfigFileCache;
   return { credentials, configFile };
+}
+
+const PLATFORM_ASSISTANT_ID = "11111111-2222-4333-8444-555555555555";
+const MANAGED_CALLBACK_URL = `https://platform.example.com/v1/gateway/callbacks/${PLATFORM_ASSISTANT_ID}/webhooks/telegram/`;
+
+/** Caches for a pod holding platform credentials, with the published URL varied. */
+function makePlatformCaches(ingressUrl: string | undefined) {
+  return makeCaches({
+    ingressUrl,
+    platformBaseUrl: "https://platform.example.com",
+    assistantApiKey: "ast-managed-key",
+    platformAssistantId: PLATFORM_ASSISTANT_ID,
+  });
+}
+
+/**
+ * Answer every endpoint a reconcile can reach, in call order. Managed callback
+ * registration 404s unless `callbackUrl` is given, so a test expecting the
+ * Velay tier fails loudly if the resolver falls back instead.
+ */
+function mockReconcileFetch(opts: { callbackUrl?: string } = {}): {
+  calls: string[];
+  result: { registeredUrl?: string; claimsAtSetWebhook?: number };
+} {
+  const calls: string[] = [];
+  const result: { registeredUrl?: string; claimsAtSetWebhook?: number } = {};
+
+  fetchMock = mock(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/getMe")) {
+        // Managed registration looks the bot up for a display name. Answered
+        // but not recorded, so `calls` stays a record of the resolution order.
+        return makeTelegramResponse({ username: "test_bot" });
+      }
+      if (url.includes("/callback-routes/register/")) {
+        calls.push("registerCallbackRoute");
+        if (!opts.callbackUrl) {
+          return new Response("Not found", { status: 404 });
+        }
+        return new Response(
+          JSON.stringify({ callback_url: opts.callbackUrl }),
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if (url.includes("/getWebhookInfo")) {
+        calls.push("getWebhookInfo");
+        return makeTelegramResponse({
+          url: "",
+          has_custom_certificate: false,
+          pending_update_count: 0,
+        });
+      }
+      if (url.includes("/setWebhook")) {
+        calls.push("setWebhook");
+        result.claimsAtSetWebhook = claimedRoutes.length;
+        result.registeredUrl = init?.body
+          ? (JSON.parse(init.body as string) as { url?: string }).url
+          : undefined;
+        return makeTelegramResponse(true);
+      }
+      calls.push(`unexpected:${url}`);
+      return new Response("Not found", { status: 404 });
+    },
+  );
+
+  return { calls, result };
 }
 
 describe("reconcileTelegramWebhook", () => {
@@ -612,6 +717,81 @@ describe("reconcileTelegramWebhook", () => {
     expect(registeredUrl).toBe(
       "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
     );
+    expect(claimedRoutes).toEqual([]);
+  });
+
+  test("points a pod at its published Velay URL and claims the path first when the flag is on", async () => {
+    process.env.IS_PLATFORM = "true";
+    velayWebhooksEnabled = true;
+    const { calls, result } = mockReconcileFetch();
+
+    await reconcileTelegramWebhook(
+      makePlatformCaches(
+        "https://velay.vellum.ai/11111111-2222-4333-8444-555555555555/",
+      ),
+    );
+
+    expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
+    expect(claimedRoutes).toEqual([
+      { path: "/webhooks/telegram", type: "telegram" },
+    ]);
+    // The claim is what makes the URL reachable, so it has to land first.
+    expect(result.claimsAtSetWebhook).toBe(1);
+    expect(result.registeredUrl).toBe(
+      "https://velay.vellum.ai/11111111-2222-4333-8444-555555555555/webhooks/telegram",
+    );
+  });
+
+  test("falls back to the managed callback route when the path claim fails", async () => {
+    process.env.IS_PLATFORM = "true";
+    velayWebhooksEnabled = true;
+    claimError = new Error("database disk image is malformed");
+    const { calls, result } = mockReconcileFetch({
+      callbackUrl: MANAGED_CALLBACK_URL,
+    });
+
+    await reconcileTelegramWebhook(
+      makePlatformCaches(
+        "https://velay.vellum.ai/11111111-2222-4333-8444-555555555555",
+      ),
+    );
+
+    expect(calls).toEqual([
+      "registerCallbackRoute",
+      "getWebhookInfo",
+      "setWebhook",
+    ]);
+    expect(result.registeredUrl).toBe(MANAGED_CALLBACK_URL);
+  });
+
+  test("falls back to the managed callback route when the flag is on but no URL is published", async () => {
+    process.env.IS_PLATFORM = "true";
+    velayWebhooksEnabled = true;
+    const { calls, result } = mockReconcileFetch({
+      callbackUrl: MANAGED_CALLBACK_URL,
+    });
+
+    await reconcileTelegramWebhook(makePlatformCaches(undefined));
+
+    expect(calls).toEqual([
+      "registerCallbackRoute",
+      "getWebhookInfo",
+      "setWebhook",
+    ]);
+    expect(claimedRoutes).toEqual([]);
+    expect(result.registeredUrl).toBe(MANAGED_CALLBACK_URL);
+  });
+
+  test("does not claim a path for a self-hosted ingress URL", async () => {
+    velayWebhooksEnabled = true;
+    const { result } = mockReconcileFetch();
+
+    await reconcileTelegramWebhook(makeCaches());
+
+    expect(claimedRoutes).toEqual([]);
+    expect(result.registeredUrl).toBe(
+      "https://example.ngrok.io/webhooks/telegram",
+    );
   });
 
   test("does not call Telegram when ingress is disabled but credentials are absent", async () => {
@@ -815,5 +995,175 @@ describe("reconcileTelegramWebhook", () => {
     await reconcileTelegramWebhook(caches);
 
     expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
+  });
+});
+
+const VELAY_BASE_URL = `https://velay.vellum.ai/${PLATFORM_ASSISTANT_ID}`;
+const VELAY_WEBHOOK_URL = `${VELAY_BASE_URL}/webhooks/telegram`;
+
+/**
+ * Platform caches that read the published ingress URL live, so a reconcile
+ * latched behind another one resolves against whatever the tunnel settled on
+ * rather than the value that was current when it was queued.
+ */
+function makeLivePlatformCaches(readIngressUrl: () => string | undefined) {
+  const credentialMap: Record<string, string | undefined> = {
+    [credentialKey("telegram", "bot_token")]: "test-bot-token",
+    [credentialKey("telegram", "webhook_secret")]: "test-webhook-secret",
+    [credentialKey("vellum", "platform_base_url")]:
+      "https://platform.example.com",
+    [credentialKey("vellum", "assistant_api_key")]: "ast-managed-key",
+    [credentialKey("vellum", "platform_assistant_id")]: PLATFORM_ASSISTANT_ID,
+  };
+  const credentials = {
+    get: async (key: string) => credentialMap[key],
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  let refreshCount = 0;
+  const configFile = {
+    getString: (section: string, key: string) =>
+      section === "ingress" && key === "publicBaseUrl"
+        ? readIngressUrl()
+        : undefined,
+    getNumber: () => undefined,
+    getBoolean: () => undefined,
+    getRecord: () => undefined,
+    refreshNow: () => {
+      refreshCount += 1;
+    },
+  } as unknown as ConfigFileCache;
+  return {
+    caches: { credentials, configFile },
+    refreshes: () => refreshCount,
+  };
+}
+
+/** Yield until a condition holds, so a test can act mid-reconcile. */
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+describe("reconcileTelegramWebhook serialization", () => {
+  test("a reconcile latched behind a slow one settles on the newer address", async () => {
+    process.env.IS_PLATFORM = "true";
+    velayWebhooksEnabled = true;
+
+    // The tunnel clears its published URL and republishes it moments later.
+    // The first reconcile sees the cleared state and resolves the managed
+    // callback route; the second must win with the Velay URL.
+    const published: { ingressUrl?: string } = {};
+    const { caches, refreshes } = makeLivePlatformCaches(
+      () => published.ingressUrl,
+    );
+
+    const registeredUrls: string[] = [];
+    let releaseFirstSetWebhook = () => {};
+    const firstSetWebhookHeld = new Promise<void>((resolve) => {
+      releaseFirstSetWebhook = resolve;
+    });
+
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.includes("/getMe")) {
+          return makeTelegramResponse({ username: "test_bot" });
+        }
+        if (url.includes("/callback-routes/register/")) {
+          return new Response(
+            JSON.stringify({ callback_url: MANAGED_CALLBACK_URL }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/getWebhookInfo")) {
+          return makeTelegramResponse({
+            url: registeredUrls[registeredUrls.length - 1] ?? "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body
+            ? (JSON.parse(init.body as string) as { url?: string })
+            : undefined;
+          registeredUrls.push(body?.url ?? "");
+          if (registeredUrls.length === 1) {
+            await firstSetWebhookHeld;
+          }
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    const first = reconcileTelegramWebhook(caches);
+    await waitFor(() => registeredUrls.length === 1);
+
+    published.ingressUrl = VELAY_BASE_URL;
+    const second = reconcileTelegramWebhook(caches);
+    releaseFirstSetWebhook();
+    await Promise.all([first, second]);
+
+    // The managed registration is the stale one, so it must not be what
+    // Telegram is left pointed at.
+    expect(registeredUrls).toEqual([MANAGED_CALLBACK_URL, VELAY_WEBHOOK_URL]);
+    expect(claimedRoutes).toEqual([
+      { path: "/webhooks/telegram", type: "telegram" },
+    ]);
+    // The rerun re-reads config rather than trusting the snapshot the first
+    // run was resolved against.
+    expect(refreshes()).toBe(1);
+  });
+
+  test("a burst of triggers costs at most two reconciles", async () => {
+    const caches = makeCaches();
+    let setWebhookCount = 0;
+    let releaseFirstSetWebhook = () => {};
+    const firstSetWebhookHeld = new Promise<void>((resolve) => {
+      releaseFirstSetWebhook = resolve;
+    });
+
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/getWebhookInfo")) {
+        return makeTelegramResponse({
+          url: "",
+          has_custom_certificate: false,
+          pending_update_count: 0,
+        });
+      }
+      if (url.includes("/setWebhook")) {
+        setWebhookCount += 1;
+        if (setWebhookCount === 1) {
+          await firstSetWebhookHeld;
+        }
+        return makeTelegramResponse(true);
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    const pending = [reconcileTelegramWebhook(caches)];
+    await waitFor(() => setWebhookCount === 1);
+    for (let i = 0; i < 5; i++) {
+      pending.push(reconcileTelegramWebhook(caches));
+    }
+    releaseFirstSetWebhook();
+    await Promise.all(pending);
+
+    // One in flight plus one latched, no matter how many triggers land.
+    expect(setWebhookCount).toBe(2);
   });
 });

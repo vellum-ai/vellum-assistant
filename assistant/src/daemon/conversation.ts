@@ -284,6 +284,7 @@ import {
   isPersonalMemoryAllowed,
 } from "./trust-context.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { turnActorPrincipalId } from "./turn-actor.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -577,7 +578,40 @@ export class Conversation {
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
-  /** @internal */ currentTurnSourceActorPrincipalId?: string;
+  /**
+   * Whether this turn resolved its own actor and found none, which is not the
+   * same as a turn that never looked. See {@link turnActorPrincipalId}.
+   *
+   * @internal
+   */
+  currentTurnActorFallbackSuppressed = false;
+  /** @internal */ private _currentTurnSourceActorPrincipalId?: string;
+  /**
+   * How many times the actor stamp has been written on this conversation.
+   *
+   * A turn that stamped the actor and later needs to know whether its own
+   * stamp is still the one standing cannot ask the value: two turns for the
+   * same guardian write the identical string, so the field cannot say who
+   * wrote it. Every write moves this counter, whoever makes it, so a reader
+   * that remembers the count at its own write can tell "still mine" from
+   * "someone stamped after me" without every writer having to cooperate.
+   *
+   * Behind the accessor below rather than bumped at the call sites, because
+   * the writers are spread across the routes and the turn pipeline and a
+   * counter they had to remember to move is one they would eventually not.
+   *
+   * @internal
+   */
+  currentTurnActorStampGeneration = 0;
+  /** @internal */
+  get currentTurnSourceActorPrincipalId(): string | undefined {
+    return this._currentTurnSourceActorPrincipalId;
+  }
+  /** @internal */
+  set currentTurnSourceActorPrincipalId(value: string | undefined) {
+    this._currentTurnSourceActorPrincipalId = value;
+    this.currentTurnActorStampGeneration += 1;
+  }
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ loadedHistoryStale = false;
@@ -3082,11 +3116,7 @@ export class Conversation {
    * correctly. Returns `undefined` when no actor identity is known.
    */
   getTurnActorPrincipalId(): string | undefined {
-    return (
-      this.currentTurnSourceActorPrincipalId ??
-      this.currentTurnAuthContext?.actorPrincipalId ??
-      this.authContext?.actorPrincipalId
-    );
+    return turnActorPrincipalId(this);
   }
 
   setVoiceCallControlPrompt(prompt: string | null): void {

@@ -53,6 +53,15 @@ const inkOf = (container: HTMLElement): HTMLElement | null =>
     "[data-testid='companion-share-annotation']",
   );
 
+const marksOf = (container: HTMLElement): HTMLElement[] =>
+  Array.from(
+    container.querySelectorAll<HTMLElement>(
+      "[data-testid='companion-coachmark']",
+    ),
+  );
+
+const MARK = { x: 0.1, y: 0.2, width: 0.2, height: 0.1 };
+
 const LISTENING_CALL = {
   phase: "listening" as const,
   label: "Listening",
@@ -289,6 +298,58 @@ describe("the frame around what is read", () => {
       pushState({ ...STATE, annotating: true });
       pushState({ ...STATE, annotating: false });
       expect(inkOf(container)).toBeNull();
+    });
+  });
+
+  /**
+   * What the assistant points at, which is drawn off the share rather than
+   * off the mode: nothing about it takes the mouse, and what it needs is for
+   * this window to be around the surface the marks were measured against.
+   */
+  describe("what the assistant points at", () => {
+    test("draws the marks on the shared surface", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 1 },
+        coachmarks: [MARK],
+      });
+      expect(marksOf(container)).toHaveLength(1);
+    });
+
+    test("draws nothing with no share to measure against", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, coachmarks: [MARK] });
+      expect(marksOf(container)).toHaveLength(0);
+    });
+
+    /**
+     * The frame is around the watched surface while both run
+     * (`framedTarget`), so the fractions describe a surface this window is no
+     * longer on.
+     */
+    test("draws nothing while a watch session outranks the share", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        watching: true,
+        screenShare: { kind: "display", displayId: 1 },
+        coachmarks: [MARK],
+      });
+      expect(marksOf(container)).toHaveLength(0);
+    });
+
+    test("takes the marks down when they are withdrawn", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      const shared = {
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display" as const, displayId: 1 },
+      };
+      pushState({ ...shared, coachmarks: [MARK] });
+      pushState(shared);
+      expect(marksOf(container)).toHaveLength(0);
     });
   });
 });

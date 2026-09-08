@@ -411,6 +411,7 @@ declare global {
           strokes: readonly CompanionAnnotationStroke[],
           ink: string,
         ): void;
+        sharedFrame?(target: WatchCaptureTarget): void;
         captureScreen?(
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;

@@ -2304,6 +2304,38 @@
     "redirectUrl": "重新導向網址",
     "waitingAuthorization": "等待授權中..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "夥伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "獨立",
+        "right": "協作"
+      },
+      "genzBoomer": {
+        "left": "Z 世代",
+        "right": "嬰兒潮世代"
+      },
+      "playfulSerious": {
+        "left": "活潑",
+        "right": "嚴肅"
+      },
+      "politeUnfiltered": {
+        "left": "有禮",
+        "right": "直率"
+      }
+    },
+    "loadError": "無法載入個性滑桿。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "儲存",
+    "saveErrorToast": "無法儲存個性滑桿。請再試一次。",
+    "saveSuccessToast": "個性滑桿已儲存。",
+    "saving": "正在儲存…",
+    "subtitle": "將這些滑桿值儲存到此助手。這不會改寫身分檔案。",
+    "title": "個性"
+  },
   "sidebar": {
     "general": "一般",
     "model": "模型與服務",
@@ -2319,6 +2351,7 @@
     "community": "社群",
     "debug": "偵錯",
     "developer": "開發者",
+    "personality": "個性",
     "logout": "登出",
     "login": "登入",
     "title": "設定"
