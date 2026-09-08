@@ -1370,6 +1370,19 @@ const placeOnNamedTarget = async (
 const surfaceBounds = async (
   share: WatchCaptureTarget,
 ): Promise<Rectangle | null> => {
+  // The frame's own rectangle, because that is the one the marks are drawn
+  // on, and it is not always the one the share names. A frame asked for a
+  // display's whole bounds is held to that display's work area, which begins
+  // a menu bar lower and ends a menu bar shorter, so a fraction measured
+  // against the display and drawn into the frame lands low by exactly that
+  // much. Deriving the surface twice is what let the two disagree; asking the
+  // frame is what keeps them the same rectangle by construction.
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame !== null) {
+    return frame.getBounds();
+  }
+  // No frame yet, which a mark cannot be drawn on anyway. Answered from the
+  // share so the caller's own guards decide what to say about it.
   if (share.kind === "display") {
     return (
       screen.getAllDisplays().find((d) => d.id === share.displayId)?.bounds ??

@@ -3266,6 +3266,30 @@ describe("companion window: pointing at what is shared", () => {
   });
 
   /**
+   * The fractions are of the rectangle the marks are drawn on, which is the
+   * frame's, and it is not always the rectangle the share names: a frame
+   * asked for a display's whole bounds can be held to that display's work
+   * area, a menu bar lower and a menu bar shorter. Measured against the
+   * display and drawn into the frame, every mark lands low by exactly that
+   * much, which is what a whole-screen share did on 8 Sep.
+   */
+  test("a named control is measured against the frame, not the share", async () => {
+    await shareAndSee(DISPLAY);
+    // The frame ends up somewhere other than the display it was asked for.
+    glow?.setBounds({ x: 100, y: 50, width: 1000, height: 500 });
+
+    const result = await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+    // The control's middle is (150,90): measured against this frame that is a
+    // twentieth across and two twenty-fifths down. Measured against display 2,
+    // which begins at x 1440, it would not be on the surface at all.
+    expect(result).toEqual({
+      kind: "placed",
+      marks: [{ kind: "point", x: 0.05, y: 0.08, matched: "Share" }],
+    });
+  });
+
+  /**
    * A display is measured from its own origin, not the desktop's. Display 2
    * begins at x 1440, so a control at x 1560 is 120 points into it and a
    * sixteenth of the way across, not past its right edge.
