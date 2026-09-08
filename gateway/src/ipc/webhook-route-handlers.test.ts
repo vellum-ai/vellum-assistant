@@ -118,6 +118,23 @@ describe("register_webhook_route", () => {
     });
   });
 
+  it("refuses the type the plugin reconcile owns, with a client error", () => {
+    // Rows of that type are the reconcile's to keep or remove, so a caller
+    // claiming one would lose it the moment no plugin declares its path.
+    let thrown: unknown;
+    try {
+      register({ path: PATH, type: "plugin", source: "meeting-bot" });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toMatchObject({
+      statusCode: 400,
+      code: "reserved_webhook_route_type",
+    });
+    expect(list()).toEqual({ routes: [] });
+  });
+
   it("throws on a path outside the webhook namespace", () => {
     expect(() => register({ path: "/v1/admin", type: "telegram" })).toThrow();
     expect(() =>

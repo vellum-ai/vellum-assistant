@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "bun:test";
 
+import { MAX_WEBHOOK_INGRESS_PATH_LENGTH } from "../velay/path-utils.js";
 import {
   PLUGIN_INGRESS_MANIFEST_RELPATH,
   PLUGIN_WEBHOOK_PATH_PATTERN,
@@ -466,6 +467,30 @@ describe("parsePluginIngressManifest", () => {
         routes: [{ path: "hook/", kind: "http", description: "d" }],
       }),
     ).toThrow();
+  });
+
+  it("rejects a path too long to compose into a storable public path", () => {
+    // The registry stores 512 characters, and the longest spelling the gateway
+    // serves spends 275 of them on `/webhooks/plugins/`, a plugin directory
+    // name at the filesystem's 255-byte ceiling, and the two slashes around it.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [{ path: "x".repeat(238), kind: "http", description: "d" }],
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a path at that bound, which composes to a storable one", () => {
+    const path = "x".repeat(237);
+
+    const manifest = parsePluginIngressManifest({
+      routes: [{ path, kind: "http", description: "d" }],
+    });
+
+    expect(manifest.routes[0]!.path).toBe(path);
+    expect(`${pluginWebhookPath("p".repeat(255), path)}/`).toHaveLength(
+      MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+    );
   });
 
   it("rejects query strings and fragments", () => {

@@ -1,12 +1,20 @@
 /**
- * Path shapes shared by the Velay bridge and the webhook ingress route store.
+ * Path shapes shared by the Velay bridge, the webhook ingress route store, and
+ * the plugin declarations whose paths are composed into that registry.
  *
- * This module holds no imports of its own so the two sides can agree on what a
+ * This module holds no imports of its own so those sides can agree on what a
  * webhook path looks like without depending on each other.
  */
 
 /** Every path the webhook ingress registry can claim sits under this prefix. */
 export const WEBHOOK_PATH_PREFIX = "/webhooks/";
+
+/**
+ * Longest path the webhook ingress registry stores. Anything that composes a
+ * path destined for the registry has to fit its longest spelling inside this,
+ * because a path the registry refuses is one Velay is never told to forward.
+ */
+export const MAX_WEBHOOK_INGRESS_PATH_LENGTH = 512;
 
 export function isSafeOriginRelativePath(path: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;

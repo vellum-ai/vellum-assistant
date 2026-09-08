@@ -5,19 +5,22 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import {
   isSafeOriginRelativePath,
+  MAX_WEBHOOK_INGRESS_PATH_LENGTH,
   WEBHOOK_PATH_PREFIX,
 } from "../velay/path-utils.js";
 import { getGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
 
-const MAX_WEBHOOK_PATH_LENGTH = 512;
-
 /**
  * Type carried by the rows the plugin ingress gate owns, whose `source` is
- * therefore always a plugin name. Only a reconcile writes or removes them, so
- * nothing outside this module needs to name the type.
+ * therefore always a plugin name.
+ *
+ * This value is reserved: a reconcile treats every row carrying it as its own
+ * to keep or remove, so {@link registerWebhookIngressRoute} refuses it and a
+ * claim made through that function survives the next reconcile, whatever its
+ * source name.
  */
-const PLUGIN_WEBHOOK_ROUTE_TYPE = "plugin";
+export const PLUGIN_WEBHOOK_ROUTE_TYPE = "plugin";
 
 const changeListeners = new Set<() => void>();
 
@@ -62,7 +65,7 @@ function hasTraversalSegment(path: string): boolean {
  */
 function isValidWebhookIngressPath(path: string): boolean {
   return (
-    path.length <= MAX_WEBHOOK_PATH_LENGTH &&
+    path.length <= MAX_WEBHOOK_INGRESS_PATH_LENGTH &&
     path.startsWith(WEBHOOK_PATH_PREFIX) &&
     !hasTraversalSegment(path) &&
     !/\s/.test(path) &&
@@ -80,6 +83,10 @@ export interface RegisterWebhookIngressRouteInput {
 /**
  * Claim `path` for `type`. Registering the same path again refreshes its
  * registration time and keeps the original `createdAt`.
+ *
+ * {@link PLUGIN_WEBHOOK_ROUTE_TYPE} is refused, because a row carrying it
+ * belongs to the plugin reconcile and would be removed the moment the path is
+ * absent from what plugins declare.
  */
 export function registerWebhookIngressRoute(
   input: RegisterWebhookIngressRouteInput,
@@ -87,6 +94,11 @@ export function registerWebhookIngressRoute(
   const { path } = input;
   if (!isValidWebhookIngressPath(path)) {
     throw new Error(`Invalid webhook ingress path: ${path}`);
+  }
+  if (input.type === PLUGIN_WEBHOOK_ROUTE_TYPE) {
+    throw new Error(
+      `Webhook ingress route type "${PLUGIN_WEBHOOK_ROUTE_TYPE}" is reserved for plugin declarations`,
+    );
   }
 
   const existing = readWebhookIngressRoute(path);
@@ -166,8 +178,9 @@ export interface PluginWebhookRouteReconciliation {
  * plugin uninstalled while the gateway was down or a manifest edited into a
  * different digest, settle on the next reconcile.
  *
- * Only plugin rows are removed, so a claim another subsystem registered is
- * never withdrawn, whatever its source name.
+ * Only rows carrying {@link PLUGIN_WEBHOOK_ROUTE_TYPE} are removed, and that
+ * type is reserved against {@link registerWebhookIngressRoute}, so a claim
+ * another subsystem registered is never withdrawn, whatever its source name.
  *
  * Fires the change listener once when anything moved, and not at all otherwise,
  * so an unchanged reconcile does not ask the tunnel to re-advertise.

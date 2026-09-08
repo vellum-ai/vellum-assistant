@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
+import { MAX_WEBHOOK_INGRESS_PATH_LENGTH } from "../velay/path-utils.js";
 import { IngressInboundSchema } from "./ingress-inbound.js";
 import { IngressVerificationSchema } from "./ingress-verification.js";
 
@@ -47,6 +48,26 @@ export type IngressHandshake = z.infer<typeof IngressHandshakeSchema>;
 const SAFE_PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
 
 /**
+ * Longest plugin directory name the composed-path budget assumes. Nothing in
+ * the install path bounds a plugin name, so the assumption is the filesystem's
+ * own ceiling: a POSIX `NAME_MAX` of 255 bytes for a single directory entry.
+ */
+const MAX_PLUGIN_NAME_LENGTH = 255;
+
+/**
+ * Longest declared route path whose composed public path still fits the
+ * webhook registry, in the longest spelling the gateway serves:
+ * `/webhooks/plugins/` and the plugin name and a separating slash and the
+ * declared path and a trailing slash. A declaration over this bound is a
+ * declaration problem, refused here where the plugin author sees it, rather
+ * than a route the ingress resolver reports servable and the registry has no
+ * row for.
+ */
+const MAX_INGRESS_ROUTE_PATH_LENGTH =
+  MAX_WEBHOOK_INGRESS_PATH_LENGTH -
+  (PLUGIN_WEBHOOK_PREFIX.length + 1 + MAX_PLUGIN_NAME_LENGTH + 1 + 1);
+
+/**
  * A path is canonical when percent-decoding and POSIX normalization both
  * leave it unchanged.
  *
@@ -78,6 +99,10 @@ export const IngressRouteSchema = z.object({
   path: z
     .string()
     .min(1)
+    .max(
+      MAX_INGRESS_ROUTE_PATH_LENGTH,
+      "path is too long to compose into a servable public path",
+    )
     .regex(
       /^[^/?#\s][^?#\s]*$/,
       "path must be relative (no leading slash) and free of query/fragment",

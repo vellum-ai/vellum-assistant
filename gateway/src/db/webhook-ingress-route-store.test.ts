@@ -16,12 +16,14 @@ import {
 } from "bun:test";
 
 import "../__tests__/test-preload.js";
+import { pluginWebhookPath } from "../channels/plugin-ingress.js";
 import { getGatewayDb, initGatewayDb, resetGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
 import {
   hasWebhookIngressRoute,
   listWebhookIngressRoutes,
   onWebhookIngressRoutesChanged,
+  PLUGIN_WEBHOOK_ROUTE_TYPE,
   reconcilePluginWebhookIngressRoutes,
   registerWebhookIngressRoute,
   unregisterWebhookIngressRoute,
@@ -112,7 +114,7 @@ describe("registerWebhookIngressRoute", () => {
       `/webhooks/${"x".repeat(500)}`,
     ]) {
       expect(() =>
-        registerWebhookIngressRoute({ path, type: "plugin" }),
+        registerWebhookIngressRoute({ path, type: "twilio" }),
       ).not.toThrow();
       expect(hasWebhookIngressRoute(path)).toBe(true);
     }
@@ -157,6 +159,19 @@ describe("registerWebhookIngressRoute", () => {
     }
     expect(listWebhookIngressRoutes()).toEqual([]);
   });
+
+  it("refuses the type the plugin reconcile owns", () => {
+    // A row of this type is the reconcile's to keep or remove, so a claim
+    // accepted here would be reaped the moment no plugin declares its path.
+    expect(() =>
+      registerWebhookIngressRoute({
+        path: PATH,
+        type: PLUGIN_WEBHOOK_ROUTE_TYPE,
+        source: "meeting-bot",
+      }),
+    ).toThrow(/reserved/);
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
 });
 
 describe("unregisterWebhookIngressRoute", () => {
@@ -186,8 +201,8 @@ describe("reconcilePluginWebhookIngressRoutes", () => {
   }
 
   it("claims every path in the set, attributed to its plugin", () => {
-    // The empty-registry case is the one that matters: a grant recorded before
-    // any of this existed has no row, and only a reconcile can give it one.
+    // The empty-registry case is the one that matters: a persisted grant holds
+    // no row of its own, so a reconcile is what populates the registry from it.
     const { added, removed } = reconcilePluginWebhookIngressRoutes([
       claim(REALTIME, "meeting-bot"),
       claim(NOTES, "notes"),
@@ -295,6 +310,22 @@ describe("reconcilePluginWebhookIngressRoutes", () => {
     expect(fired).toBe(0);
 
     unsubscribe();
+  });
+
+  it("stores both spellings composed from a maximum-length declaration", () => {
+    // What the declaration schema's length bound buys: the longest path a
+    // manifest may declare, under the longest plugin name a directory entry
+    // can carry, still fits the registry with its trailing slash on.
+    const plugin = "p".repeat(255);
+    const path = pluginWebhookPath(plugin, "x".repeat(237));
+
+    const { added, rejected } = reconcilePluginWebhookIngressRoutes([
+      claim(path, plugin),
+      claim(`${path}/`, plugin),
+    ]);
+
+    expect(rejected).toEqual([]);
+    expect(added.sort()).toEqual([path, `${path}/`].sort());
   });
 
   it("skips a path it could not compare byte for byte and settles the rest", () => {

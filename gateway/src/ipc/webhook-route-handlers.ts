@@ -20,11 +20,31 @@ import {
 
 import {
   listWebhookIngressRoutes,
+  PLUGIN_WEBHOOK_ROUTE_TYPE,
   registerWebhookIngressRoute,
   unregisterWebhookIngressRoute,
 } from "../db/webhook-ingress-route-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { ipcRoute, type IpcRoute } from "./server.js";
+
+/**
+ * The contract carries `type` as free text, so the caller is told here that
+ * one value is not theirs to claim: rows of that type belong to the plugin
+ * ingress reconcile, which removes any it does not currently serve.
+ *
+ * `code` is the property `buildErrorResponse` mirrors into the wire
+ * `errorCode` for IPC clients.
+ */
+function assertUnreservedRouteType(type: string): void {
+  if (type === PLUGIN_WEBHOOK_ROUTE_TYPE) {
+    throw Object.assign(
+      new Error(
+        `Webhook route type "${PLUGIN_WEBHOOK_ROUTE_TYPE}" is reserved for plugin declarations`,
+      ),
+      { statusCode: 400, code: "reserved_webhook_route_type" },
+    );
+  }
+}
 
 export function createWebhookRouteRoutes(): IpcRoute[] {
   return [
@@ -35,6 +55,7 @@ export function createWebhookRouteRoutes(): IpcRoute[] {
         if (!isFeatureFlagEnabled("velay-webhooks")) {
           return { disabled: true };
         }
+        assertUnreservedRouteType(params.type);
         return { disabled: false, route: registerWebhookIngressRoute(params) };
       },
     }),

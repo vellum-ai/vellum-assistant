@@ -28,6 +28,7 @@ import {
 } from "../../db/schema.js";
 import {
   listWebhookIngressRoutes,
+  reconcilePluginWebhookIngressRoutes,
   registerWebhookIngressRoute,
 } from "../../db/webhook-ingress-route-store.js";
 import {
@@ -341,11 +342,11 @@ describe("webhook route reconciliation", () => {
     // Uninstalling does not revoke, so the approval outlives the plugin. What
     // decides is the declaration, and there is no longer one.
     approvePluginIngress({ plugin: "gone", digest: "a".repeat(32) });
-    registerWebhookIngressRoute({
-      path: "/webhooks/plugins/gone/events",
-      type: "plugin",
-      source: "gone",
-    });
+    // A reconcile is the only writer of plugin rows, so it is also how the
+    // registry comes to hold one for a plugin that is now absent.
+    reconcilePluginWebhookIngressRoutes([
+      { path: "/webhooks/plugins/gone/events", source: "gone" },
+    ]);
 
     await reconcile();
 
