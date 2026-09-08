@@ -1,21 +1,15 @@
 /** Store for the webhook subpaths this assistant accepts from outside. */
 
+import type { WebhookIngressRoute } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { eq } from "drizzle-orm";
 
-import { isSafeOriginRelativePath } from "../velay/bridge-utils.js";
+import {
+  isSafeOriginRelativePath,
+  WEBHOOK_PATH_PREFIX,
+} from "../velay/path-utils.js";
 import { getGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
 
-export interface WebhookIngressRoute {
-  path: string;
-  type: string;
-  source: string | null;
-  match: "exact";
-  createdAt: number;
-  lastRegisteredAt: number;
-}
-
-const WEBHOOK_PATH_PREFIX = "/webhooks/";
 const MAX_WEBHOOK_PATH_LENGTH = 512;
 
 const changeListeners = new Set<() => void>();

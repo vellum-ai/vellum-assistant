@@ -25,6 +25,7 @@ import { ipcRegisterWebhookRoute } from "../ipc/gateway-client.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { resolveClaimedPodWebhookUrl } from "./pod-webhook-claim.js";
 import {
   PublicIngressDisabledError,
   tryGetPublicBaseUrl,
@@ -272,36 +273,37 @@ export async function resolveCallbackUrl(
   queryParams?: Record<string, string>,
   sourceIdentifier?: string,
 ): Promise<string> {
-  const isPlatform = getIsPlatform();
-  if (!isPlatform || isVelayWebhooksEnabled()) {
+  if (getIsPlatform()) {
+    if (isVelayWebhooksEnabled()) {
+      const claimed = await resolveClaimedPodWebhookUrl(directUrl, () =>
+        registerLocalWebhookRoute(callbackPath, type, sourceIdentifier),
+      );
+      if (claimed !== undefined) {
+        return claimed;
+      }
+    }
+  } else {
     let ingressUrl: string | undefined;
     let ingressError: unknown;
     try {
       ingressUrl = directUrl();
     } catch (err) {
-      if (err instanceof PublicIngressDisabledError && !isPlatform) {
+      if (err instanceof PublicIngressDisabledError) {
         throw err;
       }
       ingressError = err;
     }
 
     if (ingressUrl !== undefined) {
-      // A pod's tunnel only forwards subpaths the gateway has claimed, so the
-      // URL is handed out only once the claim succeeds.
-      if (
-        !isPlatform ||
-        (await registerLocalWebhookRoute(callbackPath, type, sourceIdentifier))
-      ) {
-        return ingressUrl;
-      }
-    } else if (!isPlatform) {
-      // No ingress configured. Fall back to the platform gateway when this
-      // assistant is connected to the platform. Platform pods always are, so
-      // they skip the context probe and register directly.
-      const context = await resolvePlatformCallbackRegistrationContext();
-      if (!context.enabled) {
-        throw ingressError;
-      }
+      return ingressUrl;
+    }
+
+    // No ingress configured. Fall back to the platform gateway when this
+    // assistant is connected to the platform. Platform pods always are, so
+    // they skip the context probe and register directly.
+    const context = await resolvePlatformCallbackRegistrationContext();
+    if (!context.enabled) {
+      throw ingressError;
     }
   }
 

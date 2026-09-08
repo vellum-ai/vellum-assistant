@@ -16,6 +16,7 @@ import {
   type RegisterWebhookRouteIpcResponse,
   UnregisterWebhookRouteIpcParamsSchema,
   type UnregisterWebhookRouteIpcResponse,
+  VELAY_WEBHOOKS_FLAG_KEY,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import {
@@ -25,8 +26,6 @@ import {
 } from "../db/webhook-ingress-route-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { ipcRoute, type IpcRoute } from "./server.js";
-
-const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
 
 export function createWebhookRouteRoutes(): IpcRoute[] {
   return [

@@ -4,6 +4,7 @@ import { eventRefersToAnotherMessage } from "./channels/inbound-event.js";
 import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
+import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import {
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
@@ -253,7 +254,6 @@ import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
 import { onWebhookIngressRoutesChanged } from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
-import { VELAY_WEBHOOKS_FLAG_KEY } from "./velay/allowed-paths.js";
 import {
   clearManagedPublicBaseUrl,
   createVelayTunnelClient,

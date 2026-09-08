@@ -43,6 +43,8 @@
  * the allowlist and the gateway's actual public surface.
  */
 
+import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 
 /**
@@ -110,12 +112,6 @@ export const VELAY_ALLOWED_PATHS_HEADER = "X-Vellum-Velay-Allowed-Paths";
 /** Encoded header value advertised while `velay-webhooks` is off. */
 export const VELAY_ALLOWED_PATHS_HEADER_VALUE =
   JSON.stringify(VELAY_ALLOWED_PATHS);
-
-/**
- * Gates whether the webhook namespace is advertised as one wildcard rule or as
- * one exact rule per registered path.
- */
-export const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
 
 const RE2_METACHARACTERS = /[.*+?^${}()|[\]\\]/g;
 

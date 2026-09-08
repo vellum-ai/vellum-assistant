@@ -18,6 +18,7 @@ import {
   registerLocalWebhookRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
+import { resolveClaimedPodWebhookUrl } from "../../inbound/pod-webhook-claim.js";
 import {
   getPublicBaseUrl,
   isPublicIngressDisabled,
@@ -149,19 +150,13 @@ async function handleWebhooksRegister(
 
   if (getIsPlatform()) {
     if (isVelayWebhooksEnabled()) {
-      let baseUrl: string | undefined;
-      try {
-        baseUrl = getPublicBaseUrl(getConfig());
-      } catch {
-        // No published tunnel URL yet (or ingress toggled off), so platform
-        // registration keeps webhooks working.
-      }
-      if (
-        baseUrl !== undefined &&
-        (await registerLocalWebhookRoute(webhookPath, type, sourceIdentifier))
-      ) {
+      const callbackUrl = await resolveClaimedPodWebhookUrl(
+        () => `${getPublicBaseUrl(getConfig())}/${webhookPath}`,
+        () => registerLocalWebhookRoute(webhookPath, type, sourceIdentifier),
+      );
+      if (callbackUrl !== undefined) {
         return {
-          callbackUrl: `${baseUrl}/${webhookPath}`,
+          callbackUrl,
           type,
           path: webhookPath,
           mode: "self-hosted",

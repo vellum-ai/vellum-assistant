@@ -1,15 +1,14 @@
 import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
 import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
+import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { hasWebhookIngressRoute } from "../db/webhook-ingress-route-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
+import { isSafeOriginRelativePath, WEBHOOK_PATH_PREFIX } from "./path-utils.js";
 import type { VelayHeaders } from "./protocol.js";
 
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
-
-const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
-const WEBHOOK_PATH_PREFIX = "/webhooks/";
 
 /**
  * Velay admission is decided across three layers. The webhook ingress route
@@ -78,19 +77,6 @@ export function isAllowedVelayWebSocketPath(path: string): boolean {
       path as (typeof VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS)[number],
     )
   );
-}
-
-export function isSafeOriginRelativePath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  if (path.includes("\\") || path.includes("?") || path.includes("#")) {
-    return false;
-  }
-  try {
-    const parsed = new URL(path, "http://127.0.0.1");
-    return parsed.origin === "http://127.0.0.1" && parsed.pathname === path;
-  } catch {
-    return false;
-  }
 }
 
 export function formatRawQuery(rawQuery: string | undefined): string {

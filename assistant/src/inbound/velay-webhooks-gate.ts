@@ -1,6 +1,6 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { VELAY_WEBHOOKS_FLAG_KEY } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
-const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks" as const;
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 
 /**
  * Whether platform pods resolve webhook callback URLs from the

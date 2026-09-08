@@ -407,6 +407,14 @@ export type ContactsIdentitySnapshotIpcResponse = z.infer<
 // read these schemas so a change to the stored row has to travel through the
 // contract.
 
+/**
+ * Feature flag gating the whole webhook ingress registry. The gateway reads it
+ * to decide whether to accept a claim and how to advertise its allowed paths,
+ * and the daemon reads it to decide whether to claim at all, so both sides have
+ * to name the same key.
+ */
+export const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
+
 export const WebhookIngressRouteSchema = z.object({
   path: z.string(),
   type: z.string(),
