@@ -570,14 +570,15 @@ describe("decision tool title field specification", () => {
       tool.input_schema.properties.renderedCopy.properties.vellum.properties
         .title.description;
 
-    expect(description).toContain("2 to 5 words");
+    expect(description).toContain("2 to 6 words");
     expect(description).toContain("40 characters");
-    expect(description).toContain("noun phrase");
-    expect(description).toContain(
-      "Do NOT restate, summarize, or echo the body",
-    );
+    // The title carries a bell row on its own, so it states the outcome
+    // rather than naming a topic the body then explains.
+    expect(description).toContain("WHAT HAPPENED or WHAT IS NEEDED");
+    expect(description).toContain("Lead with the outcome");
+    expect(description).toContain("Do NOT restate the body word for word");
     expect(description).toContain("no markdown");
-    expect(description).toContain("Missing Context");
+    expect(description).toContain("Missing context");
     expect(description.match(/NOT '/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 });
