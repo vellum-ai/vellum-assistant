@@ -47,6 +47,15 @@ public static class NotificationServiceTests
         Assert(blankXml.Contains("<text>T</text><text>B</text>", StringComparison.Ordinal));
         Assert(!blankXml.Contains("<image", StringComparison.Ordinal));
 
+        // The src is built from the path's own segments, so a literal percent
+        // sequence in a folder name stays encoded instead of decoding to a
+        // different file.
+        Assert(AvatarImageSrc(@"C:\Users\%20\a.png") == "file:///C:/Users/%2520/a.png");
+        // Spaces and reserved characters are percent-encoded, not passed through.
+        Assert(AvatarImageSrc(@"C:\Vellum Data\a&b.png") == "file:///C:/Vellum%20Data/a%26b.png");
+        // A path with no drive root is not something a toast can load.
+        Assert(AvatarImageSrc(@"notification-avatars\a.png") is null);
+
         Assert(NotificationService.ParseActivationArguments("kind=action;index=1") == ("action", 1));
         // Unreadable arguments still route as a body click.
         Assert(NotificationService.ParseActivationArguments("garbage") == ("click", -1));
@@ -77,6 +86,23 @@ public static class NotificationServiceTests
         Assert(okResult is NotificationService.ShowResponse { Success: true } && delivered == 1);
 
         Console.WriteLine("NotificationService tests passed");
+    }
+
+    /// <summary>The app-logo image src the toast carries for an avatar path,
+    /// or null when the toast drops the image.</summary>
+    private static string? AvatarImageSrc(string avatarPath)
+    {
+        const string prefix =
+            "<image placement=\"appLogoOverride\" hint-crop=\"circle\" src=\"";
+        var xml = NotificationService.BuildToastXml(
+            new NotificationService.ShowRequest("t-src", "T", null, "B", [], avatarPath));
+        var start = xml.IndexOf(prefix, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return null;
+        }
+        var value = xml[(start + prefix.Length)..];
+        return value[..value.IndexOf('"')];
     }
 
     private static void Assert(bool condition)
