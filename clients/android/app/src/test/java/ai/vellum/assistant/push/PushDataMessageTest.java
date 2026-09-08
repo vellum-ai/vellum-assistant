@@ -104,9 +104,12 @@ public class PushDataMessageTest {
     }
 
     @Test
-    public void onlyABackgroundedDataOnlyPushIsRenderedNatively() {
+    public void onlyADataOnlyPushTheWebLayerCannotRenderIsRenderedNatively() {
         assertTrue(PushDataMessage.of(alertData(), false).rendersNatively(false));
-        assertFalse("foreground", PushDataMessage.of(alertData(), false).rendersNatively(true));
+        assertFalse(
+            "web layer renders it",
+            PushDataMessage.of(alertData(), false).rendersNatively(true)
+        );
         assertFalse(
             "notification block",
             PushDataMessage.of(alertData(), true).rendersNatively(false)
@@ -120,7 +123,7 @@ public class PushDataMessageTest {
     @Test
     public void theShortcutIdSeparatesTwoConversationsWithOneAssistant() {
         assertEquals(
-            "assistant-1:conversation-1",
+            "vellum-conversation:assistant-1:conversation-1",
             PushDataMessage.shortcutId("assistant-1", "conversation-1")
         );
         assertNotEquals(
@@ -138,9 +141,25 @@ public class PushDataMessageTest {
 
         assertNull(message.conversationId);
         assertEquals(
-            "assistant-1",
+            "vellum-conversation:assistant-1",
             PushDataMessage.shortcutId("assistant-1", message.conversationId)
         );
+    }
+
+    /** Pruning has to tell our conversation shortcuts from the launcher's own. */
+    @Test
+    public void everyShortcutIdCarriesTheOwnershipPrefix() {
+        assertTrue(
+            PushDataMessage.shortcutId("assistant-1", "conversation-1")
+                .startsWith(PushDataMessage.SHORTCUT_ID_PREFIX)
+        );
+    }
+
+    @Test
+    public void theShortcutLabelPrefersTheConversationTitle() {
+        assertEquals("Weekly review", PushDataMessage.shortcutLabel("Weekly review", "Vellum"));
+        assertEquals("Vellum", PushDataMessage.shortcutLabel(null, "Vellum"));
+        assertEquals("Vellum", PushDataMessage.shortcutLabel("   ", "Vellum"));
     }
 
     @Test
@@ -151,5 +170,33 @@ public class PushDataMessageTest {
 
         assertEquals(first, PushDataMessage.of(alertData(), false).notificationId());
         assertNotEquals(first, PushDataMessage.of(other, false).notificationId());
+    }
+
+    /**
+     * The expected values come from running the web layer's toNotificationId
+     * (clients/web/src/runtime/notifications.ts) over the same seeds. A drift
+     * here shows both a native and a web notification for one delivery.
+     */
+    @Test
+    public void theNotificationIdMatchesTheWebFormula() {
+        assertEquals(1077802136, PushDataMessage.notificationId("delivery-1"));
+        assertEquals("negative hash", 1676096153, PushDataMessage.notificationId("conversation-1"));
+        assertEquals("Integer.MIN_VALUE", 1, PushDataMessage.notificationId("delivery-4b*42%$"));
+    }
+
+    @Test
+    public void theNotificationIdSeedFallsBackThroughConversationToMessageId() {
+        Map<String, String> data = alertData();
+        data.remove("delivery_id");
+        assertEquals(
+            PushDataMessage.notificationId("conversation-1"),
+            PushDataMessage.of(data, false, "message-1").notificationId()
+        );
+
+        data.remove("conversationId");
+        assertEquals(
+            PushDataMessage.notificationId("message-1"),
+            PushDataMessage.of(data, false, "message-1").notificationId()
+        );
     }
 }

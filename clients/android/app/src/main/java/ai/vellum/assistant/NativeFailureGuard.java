@@ -35,7 +35,7 @@ public final class NativeFailureGuard {
         }
     }
 
-    static <T> T get(String logMessage, Supplier<T> operation, T fallback) {
+    public static <T> T get(String logMessage, Supplier<T> operation, T fallback) {
         try {
             return operation.get();
         } catch (RuntimeException exception) {
@@ -44,7 +44,7 @@ public final class NativeFailureGuard {
         }
     }
 
-    static void record(String logMessage, Throwable exception) {
+    public static void record(String logMessage, Throwable exception) {
         Logger.error(logMessage, exception);
         Context context = applicationContext;
         if (context == null) {

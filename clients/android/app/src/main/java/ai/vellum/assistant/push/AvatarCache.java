@@ -15,24 +15,29 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.function.Function;
 import javax.net.ssl.HttpsURLConnection;
 
 /**
  * Disk cache for the sender avatars drawn into conversation notifications.
  * Every method blocks on the calling thread, which is the Firebase message
  * thread rather than the main thread. {@link #load} is a disk read; only
- * {@link #fetch} touches the network, and callers post their notification
- * before reaching it.
+ * {@link #fetch} touches the network.
  */
 public final class AvatarCache {
     private static final String DIRECTORY = "notification-avatars";
     private static final String EXTENSION = ".png";
     private static final int MAX_BYTES = 512 * 1024;
-    // A cached avatar is a handful of kilobytes, and onMessageReceived has a
-    // short execution window, so a stalled host has to give up quickly.
+    // The timeouts run inside onMessageReceived, whose window is far shorter
+    // than the 8 s an iOS notification-service extension gets, and a cached
+    // avatar is a handful of kilobytes, so a stalled host has to give up fast.
     private static final int CONNECT_TIMEOUT_MILLIS = 3_000;
     private static final int READ_TIMEOUT_MILLIS = 3_000;
     private static final int MAX_FILES = 8;
+    // A notification large icon is displayed at well under 512 px, and a
+    // decoded bitmap this size costs a megabyte of the Firebase callback's heap.
+    private static final int MAX_PIXELS = 512;
+    private static final int MAX_BITMAP_BYTES = 4 * 1024 * 1024;
 
     private final File directory;
 
@@ -46,7 +51,13 @@ public final class AvatarCache {
         if (normalized == null) {
             return null;
         }
-        return BitmapFactory.decodeFile(new File(directory, normalized + EXTENSION).getPath());
+        File file = new File(directory, normalized + EXTENSION);
+        Bitmap bitmap = decode(options -> BitmapFactory.decodeFile(file.getPath(), options));
+        if (bitmap != null) {
+            // Eviction reads the modified time, so a hit is also a touch.
+            file.setLastModified(System.currentTimeMillis());
+        }
+        return bitmap;
     }
 
     @Nullable
@@ -59,11 +70,50 @@ public final class AvatarCache {
         if (bytes == null || !normalized.equals(sha256Hex(bytes))) {
             return null;
         }
-        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        Bitmap bitmap = decode(options ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options)
+        );
         if (bitmap == null) {
             return null;
         }
         store(normalized, bytes);
+        return bitmap;
+    }
+
+    /**
+     * Reads the bounds first so the image is downsampled as it is decoded: a
+     * push claiming an enormous avatar must not allocate it in full.
+     */
+    @Nullable
+    private static Bitmap decode(Function<BitmapFactory.Options, Bitmap> decoder) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        decoder.apply(bounds);
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight);
+        return bounded(decoder.apply(options));
+    }
+
+    /** Halvings that bring the longest edge down to {@link #MAX_PIXELS}. */
+    static int sampleSize(int width, int height) {
+        int longest = Math.max(width, height);
+        int size = 1;
+        while (longest / size > MAX_PIXELS) {
+            size *= 2;
+        }
+        return size;
+    }
+
+    /** Downsampling alone still leaves room for an allocation the callback cannot afford. */
+    @Nullable
+    private static Bitmap bounded(@Nullable Bitmap bitmap) {
+        if (bitmap == null) {
+            return null;
+        }
+        if (bitmap.getByteCount() > MAX_BITMAP_BYTES) {
+            bitmap.recycle();
+            return null;
+        }
         return bitmap;
     }
 
@@ -83,8 +133,9 @@ public final class AvatarCache {
         prune();
     }
 
+    /** Keeps the {@link #MAX_FILES} most recently used avatars. */
     private void prune() {
-        File[] files = directory.listFiles();
+        File[] files = directory.listFiles((unused, name) -> name.endsWith(EXTENSION));
         if (files == null || files.length <= MAX_FILES) {
             return;
         }
@@ -121,7 +172,7 @@ public final class AvatarCache {
     }
 
     @Nullable
-    private static byte[] readCapped(InputStream stream) throws IOException {
+    static byte[] readCapped(InputStream stream) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         int read = stream.read(chunk);
@@ -135,7 +186,7 @@ public final class AvatarCache {
         return buffer.toByteArray();
     }
 
-    private static String sha256Hex(byte[] bytes) {
+    static String sha256Hex(byte[] bytes) {
         final byte[] digest;
         try {
             digest = MessageDigest.getInstance("SHA-256").digest(bytes);
@@ -152,7 +203,7 @@ public final class AvatarCache {
 
     /** Lowercased sha256 hex, which is also a filename that cannot escape the cache. */
     @Nullable
-    private static String normalized(@Nullable String hash) {
+    static String normalized(@Nullable String hash) {
         if (hash == null || !hash.matches("[0-9a-fA-F]{64}")) {
             return null;
         }

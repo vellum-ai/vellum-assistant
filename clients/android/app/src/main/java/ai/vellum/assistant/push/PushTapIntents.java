@@ -21,18 +21,33 @@ public final class PushTapIntents {
 
     @Nullable
     public static Intent launchIntent(Context context, RemoteMessage remoteMessage) {
-        Intent intent = context
-            .getPackageManager()
-            .getLaunchIntentForPackage(context.getPackageName());
+        Intent intent = launcherIntent(context);
         if (intent == null) {
             return null;
         }
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         for (Map.Entry<String, String> extra : tapExtras(
             remoteMessage.getData(),
             remoteMessage.getMessageId()
         ).entrySet()) {
             intent.putExtra(extra.getKey(), extra.getValue());
+        }
+        return intent;
+    }
+
+    /**
+     * Tap target for a conversation shortcut, which outlives the push that
+     * created it. It names the conversation and nothing else: carrying the
+     * push's identifiers would make a shortcut tap replay a delivery the user
+     * has already read.
+     */
+    @Nullable
+    public static Intent shortcutIntent(Context context, @Nullable String conversationId) {
+        Intent intent = launcherIntent(context);
+        if (intent == null) {
+            return null;
+        }
+        if (conversationId != null) {
+            intent.putExtra(PushDataMessage.KEY_CONVERSATION_ID, conversationId);
         }
         return intent;
     }
@@ -44,6 +59,18 @@ public final class PushTapIntents {
             intent,
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
         );
+    }
+
+    @Nullable
+    private static Intent launcherIntent(Context context) {
+        Intent intent = context
+            .getPackageManager()
+            .getLaunchIntentForPackage(context.getPackageName());
+        if (intent == null) {
+            return null;
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return intent;
     }
 
     static Map<String, String> tapExtras(
