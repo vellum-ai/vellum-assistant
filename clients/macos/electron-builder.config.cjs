@@ -1,4 +1,4 @@
-// @ts-check
+const fs = require("fs");
 
 const {
   deriveCommunicationEntitlements,
@@ -37,7 +37,16 @@ const helperBundleName =
 // build signs with the plain entitlements and posts plain notifications. The
 // profile build's plist is derived from app.plist at pack time, so app.plist
 // stays the single source of the entitlement set.
+//
+// A variable pointing at a file that is not there means the release job failed
+// to decode the profile, so the build stops rather than quietly shipping the
+// plain entitlements under a name that says otherwise.
 const provisioningProfile = process.env.VELLUM_MAC_PROVISIONING_PROFILE || "";
+if (provisioningProfile && !fs.existsSync(provisioningProfile)) {
+  throw new Error(
+    `VELLUM_MAC_PROVISIONING_PROFILE names ${provisioningProfile}, which does not exist`,
+  );
+}
 const entitlements = provisioningProfile
   ? deriveCommunicationEntitlements()
   : "./scripts/entitlements/app.plist";

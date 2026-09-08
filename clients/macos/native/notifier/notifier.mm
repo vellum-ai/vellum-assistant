@@ -13,18 +13,21 @@
 // `UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it
 // is constructed (by `new Notification()`, by `Notification.isSupported()`, or
 // by the renderer's Web Notification API). This addon installs its own
-// delegate, remembers whichever delegate was installed before it, and forwards
-// every response it does not own to that delegate. Every entry point that
-// touches the notification center re-asserts the delegate first, and
-// `reassertDelegate()` lets JavaScript do the same between posts, so a late
-// Electron presenter cannot keep the seat.
+// delegate, holds a strong reference to whichever delegate it displaced, and
+// forwards every response it does not own to that delegate. `Show` and
+// `RequestAuthorization` re-assert the delegate on the way in, and the JS side
+// routes its notification permission probe through `requestAuthorization`
+// rather than `electron.Notification`, so no path in the app can build the
+// presenter without the addon taking the seat straight back.
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 #import <Intents/Intents.h>
 #import <UserNotifications/UserNotifications.h>
+#import <os/log.h>
 
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -48,6 +51,9 @@ struct Event {
   // Negative when the event carries no action index.
   int actionIndex = -1;
   std::string error;
+  // Non-empty on `shown` when the Communication Notification treatment could
+  // not be applied, naming why the plain layout went out instead.
+  std::string degraded;
 };
 
 // Called with g_mutex held.
@@ -123,6 +129,9 @@ void EmitEvent(const std::string &id, Event event, bool final) {
         if (!value->error.empty()) {
           object.Set("error", Napi::String::New(env, value->error));
         }
+        if (!value->degraded.empty()) {
+          object.Set("degraded", Napi::String::New(env, value->degraded));
+        }
         jsCallback.Call({object});
         delete value;
       });
@@ -152,8 +161,12 @@ NSString *ToNSString(const std::string &value) {
 // ---------------------------------------------------------------------------
 
 @interface VellumNotifierDelegate : NSObject <UNUserNotificationCenterDelegate>
-// Weak so a torn-down Electron presenter zeroes out instead of dangling.
-@property(nonatomic, weak) id<UNUserNotificationCenterDelegate> previousDelegate;
+// Strong: every response this addon does not own is forwarded here, and the
+// notification center itself holds its delegate weakly, so a weak reference
+// would leave responses going nowhere the moment the displaced delegate lost
+// its last other owner. `restoreDelegate` hands the seat back and drops it.
+@property(nonatomic, strong)
+    id<UNUserNotificationCenterDelegate> previousDelegate;
 @end
 
 @implementation VellumNotifierDelegate
@@ -250,7 +263,41 @@ void EnsureDelegateInstalled() {
   center.delegate = g_delegate;
 }
 
-void RegisterCategory(NSString *categoryId, NSArray<NSString *> *actionTitles) {
+void RestoreDelegate() {
+  if (g_delegate == nil) {
+    return;
+  }
+  UNUserNotificationCenter *center =
+      [UNUserNotificationCenter currentNotificationCenter];
+  if (center.delegate == g_delegate) {
+    center.delegate = g_delegate.previousDelegate;
+  }
+  g_delegate.previousDelegate = nil;
+}
+
+// Hands the notification center the union of what it already holds and every
+// category this addon has registered. Replacing the set instead would drop
+// categories registered by anything else in the process.
+void ApplyCategories() {
+  UNUserNotificationCenter *center =
+      [UNUserNotificationCenter currentNotificationCenter];
+  NSDictionary<NSString *, UNNotificationCategory *> *ours =
+      [g_categories copy];
+  [center getNotificationCategoriesWithCompletionHandler:^(
+              NSSet<UNNotificationCategory *> *existing) {
+    NSMutableDictionary<NSString *, UNNotificationCategory *> *merged =
+        [NSMutableDictionary dictionary];
+    for (UNNotificationCategory *category in existing) {
+      merged[category.identifier] = category;
+    }
+    // Ours win on a shared identifier: the JS side mints one identifier per
+    // ordered action set, so a collision means the same buttons either way.
+    [merged addEntriesFromDictionary:ours];
+    [center setNotificationCategories:[NSSet setWithArray:merged.allValues]];
+  }];
+}
+
+void RememberCategory(NSString *categoryId, NSArray<NSString *> *actionTitles) {
   if (g_categories == nil) {
     g_categories = [NSMutableDictionary dictionary];
   }
@@ -271,9 +318,6 @@ void RegisterCategory(NSString *categoryId, NSArray<NSString *> *actionTitles) {
                      actions:actions
            intentIdentifiers:@[]
                      options:UNNotificationCategoryOptionCustomDismissAction];
-  [[UNUserNotificationCenter currentNotificationCenter]
-      setNotificationCategories:[NSSet
-                                    setWithArray:g_categories.allValues]];
 }
 
 struct SenderRequest {
@@ -309,17 +353,29 @@ INPerson *MakePerson(NSString *identifier, NSString *displayName, INImage *image
                                  suggestionType:INPersonSuggestionTypeNone];
 }
 
+struct SenderContent {
+  UNNotificationContent *content = nil;
+  // Empty when the intent was applied; otherwise why the plain layout is
+  // going out instead, which the `shown` event carries back to JavaScript.
+  std::string degraded;
+};
+
+SenderContent Degraded(UNNotificationContent *content, std::string reason) {
+  os_log_error(OS_LOG_DEFAULT, "vellum-notifier: %{public}s", reason.c_str());
+  return {content, std::move(reason)};
+}
+
 // Returns content updated with a donated Communication Notification intent, or
 // the plain content when anything on the intent path fails. The entitlement is
 // restricted: an unsigned build, a build without the provisioning profile, or a
 // missing avatar all land here and post an ordinary notification.
-UNNotificationContent *ContentWithSenderIntent(
-    UNMutableNotificationContent *content, const ShowRequest &request) {
+SenderContent ContentWithSenderIntent(UNMutableNotificationContent *content,
+                                      const ShowRequest &request) {
   @try {
     NSString *avatarPath = ToNSString(request.sender.avatarPngPath);
     NSData *avatarData = [NSData dataWithContentsOfFile:avatarPath];
     if (avatarData == nil) {
-      return content;
+      return Degraded(content, "the avatar file could not be read");
     }
     INImage *image = [INImage imageWithImageData:avatarData];
     NSString *senderId = ToNSString(request.sender.id);
@@ -358,21 +414,33 @@ UNNotificationContent *ContentWithSenderIntent(
     UNNotificationContent *updated =
         [content contentByUpdatingWithProvider:intent error:&updateError];
     if (updated != nil && updateError == nil) {
-      return updated;
+      return {updated, std::string()};
     }
+    return Degraded(content,
+                    updateError != nil
+                        ? "contentByUpdatingWithProvider: " +
+                              ToStdString(updateError.localizedDescription)
+                        : "contentByUpdatingWithProvider: returned no content");
   } @catch (NSException *exception) {
-    // Fall through to the plain content below.
+    return Degraded(content,
+                    "the intent path raised: " + ToStdString(exception.reason));
   }
-  return content;
 }
 
 void PostNotification(const ShowRequest &request) {
   NSString *categoryId = ToNSString(request.categoryId);
-  NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
-  for (const std::string &action : request.actions) {
-    [actionTitles addObject:ToNSString(action)];
+  // Every action set the app posts is registered at startup through
+  // `registerCategories`, because `setNotificationCategories:` applies
+  // asynchronously and a category minted in the runloop turn its notification
+  // is posted can miss it. This covers a set that was not registered there.
+  if (g_categories[categoryId] == nil) {
+    NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
+    for (const std::string &action : request.actions) {
+      [actionTitles addObject:ToNSString(action)];
+    }
+    RememberCategory(categoryId, actionTitles);
+    ApplyCategories();
   }
-  RegisterCategory(categoryId, actionTitles);
 
   UNMutableNotificationContent *content =
       [[UNMutableNotificationContent alloc] init];
@@ -384,8 +452,13 @@ void PostNotification(const ShowRequest &request) {
   content.sound = [UNNotificationSound defaultSound];
   content.categoryIdentifier = categoryId;
 
-  UNNotificationContent *finalContent =
-      request.hasSender ? ContentWithSenderIntent(content, request) : content;
+  UNNotificationContent *finalContent = content;
+  std::string degraded;
+  if (request.hasSender) {
+    SenderContent applied = ContentWithSenderIntent(content, request);
+    finalContent = applied.content;
+    degraded = applied.degraded;
+  }
 
   const std::string id = request.id;
   UNNotificationRequest *notificationRequest =
@@ -404,6 +477,7 @@ void PostNotification(const ShowRequest &request) {
          }
          Event event;
          event.kind = "shown";
+         event.degraded = degraded;
          EmitEvent(id, std::move(event), false);
        }];
 }
@@ -419,14 +493,12 @@ Napi::Value IsSupported(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(info.Env(), IsBundled());
 }
 
-// Reclaims the notification center's delegate. Idempotent, and cheap enough to
-// call on a timer: the addon remembers whichever delegate it displaces and
-// keeps forwarding to it.
-Napi::Value ReassertDelegate(const Napi::CallbackInfo &info) {
+// Returns the notification center's delegate to whoever held it before this
+// addon installed its own, and drops the addon's reference to them. Called at
+// quit.
+Napi::Value RestoreDelegateBinding(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  if (IsBundled()) {
-    EnsureDelegateInstalled();
-  }
+  RestoreDelegate();
   return env.Undefined();
 }
 
@@ -463,14 +535,22 @@ Napi::Value RequestAuthorization(const Napi::CallbackInfo &info) {
 
   EnsureDelegateInstalled();
 
-  Napi::ThreadSafeFunction *tsfn = nullptr;
+  // Owned by the completion block: a prompt the user never answers destroys
+  // the block without calling it, and the deleter releases the function then
+  // rather than leaking it for the life of the process.
+  std::shared_ptr<Napi::ThreadSafeFunction> tsfn;
   if (hasCallback) {
     Napi::ThreadSafeFunction created =
         Napi::ThreadSafeFunction::New(env, info[0].As<Napi::Function>(),
                                       "vellum-notifier-authorization", 0, 1);
     // The prompt waits on the user, so it must not hold the process open.
     created.Unref(env);
-    tsfn = new Napi::ThreadSafeFunction(created);
+    tsfn = std::shared_ptr<Napi::ThreadSafeFunction>(
+        new Napi::ThreadSafeFunction(created),
+        [](Napi::ThreadSafeFunction *function) {
+          function->Release();
+          delete function;
+        });
   }
 
   [[UNUserNotificationCenter currentNotificationCenter]
@@ -478,7 +558,7 @@ Napi::Value RequestAuthorization(const Napi::CallbackInfo &info) {
                                       UNAuthorizationOptionSound |
                                       UNAuthorizationOptionBadge
                     completionHandler:^(BOOL granted, NSError *error) {
-                      if (tsfn == nullptr) {
+                      if (!tsfn) {
                         return;
                       }
                       auto *payload = new AuthorizationResult();
@@ -497,8 +577,6 @@ Napi::Value RequestAuthorization(const Napi::CallbackInfo &info) {
                       if (status != napi_ok) {
                         delete payload;
                       }
-                      tsfn->Release();
-                      delete tsfn;
                     }];
   return env.Undefined();
 }
@@ -519,6 +597,44 @@ std::string OptionalString(const Napi::Object &object, const char *key) {
     return std::string();
   }
   return value.As<Napi::String>().Utf8Value();
+}
+
+// Registers every category the app can post, so `setNotificationCategories:`
+// has applied long before the first notification carries one of them.
+Napi::Value RegisterCategories(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsArray()) {
+    throw Napi::TypeError::New(
+        env, "notifier.registerCategories(categories) requires an array");
+  }
+  if (!IsBundled()) {
+    return env.Undefined();
+  }
+
+  Napi::Array categories = info[0].As<Napi::Array>();
+  for (uint32_t index = 0; index < categories.Length(); index++) {
+    Napi::Value entry = categories.Get(index);
+    if (!entry.IsObject()) {
+      continue;
+    }
+    Napi::Object category = entry.As<Napi::Object>();
+    NSString *categoryId = ToNSString(RequiredString(category, "categoryId"));
+    NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
+    Napi::Value actionsValue = category.Get("actions");
+    if (actionsValue.IsArray()) {
+      Napi::Array actions = actionsValue.As<Napi::Array>();
+      for (uint32_t action = 0; action < actions.Length(); action++) {
+        Napi::Value title = actions.Get(action);
+        if (title.IsString()) {
+          [actionTitles
+              addObject:ToNSString(title.As<Napi::String>().Utf8Value())];
+        }
+      }
+    }
+    RememberCategory(categoryId, actionTitles);
+  }
+  ApplyCategories();
+  return env.Undefined();
 }
 
 Napi::Value Show(const Napi::CallbackInfo &info) {
@@ -605,7 +721,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
   exports.Set("requestAuthorization",
               Napi::Function::New(env, RequestAuthorization));
-  exports.Set("reassertDelegate", Napi::Function::New(env, ReassertDelegate));
+  exports.Set("registerCategories",
+              Napi::Function::New(env, RegisterCategories));
+  exports.Set("restoreDelegate",
+              Napi::Function::New(env, RestoreDelegateBinding));
   exports.Set("show", Napi::Function::New(env, Show));
   return exports;
 }

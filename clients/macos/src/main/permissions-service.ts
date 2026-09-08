@@ -131,9 +131,37 @@ const settingsPaneUrl = (kind: PermissionKind): string => {
 // the outcome is called unknown.
 const NOTIFICATION_PROMPT_TIMEOUT_MS = 30_000;
 
-// The native notifier owns the notification center whenever it is loaded, and
-// `electron.Notification.isSupported()` alone builds Electron's presenter,
-// which takes the center's delegate. Ask the addon instead.
+/**
+ * Runs `probe` and resolves whatever it settles on, or `null` once `timeoutMs`
+ * passes with no answer. The first settle wins, so a probe that answers twice
+ * (or answers after the timeout) cannot change the outcome.
+ */
+const settleWithin = <T>(
+  timeoutMs: number,
+  probe: (settle: (value: T | null) => void) => void,
+): Promise<T | null> =>
+  new Promise((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const settle = (value: T | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      resolve(value);
+    };
+    timeout = setTimeout(() => {
+      settle(null);
+    }, timeoutMs);
+    timeout.unref?.();
+    probe(settle);
+  });
+
+// Asking the addon rather than `electron.Notification.isSupported()`, which
+// builds Electron's presenter and takes the notification center's delegate.
 const initialNotificationStatus = (): PermissionStatus => {
   const notifier = getNotifier();
   const supported = notifier
@@ -315,25 +343,17 @@ export class PermissionsService {
     return this.requestElectronNotifications();
   }
 
-  // The addon prompts through UNUserNotificationCenter directly. Probing with
-  // `electron.Notification` here would build Electron's presenter, which takes
-  // the notification center's delegate, and clicks on notifications the addon
-  // already delivered would stop reaching the app.
+  // Prompting through the addon rather than `electron.Notification` is half of
+  // what keeps the delegate with the addon; see the delegate rule in README.md.
   private async requestNativeNotifications(notifier: Notifier): Promise<void> {
     if (!notifier.isSupported()) {
       this.notificationStatus = "restricted";
       return;
     }
-    const result = await new Promise<NotifierAuthorizationResult | null>(
-      (resolve) => {
-        const timeout = setTimeout(() => {
-          resolve(null);
-        }, NOTIFICATION_PROMPT_TIMEOUT_MS);
-        timeout.unref?.();
-        void requestNotifierAuthorization().then((value) => {
-          clearTimeout(timeout);
-          resolve(value);
-        });
+    const result = await settleWithin<NotifierAuthorizationResult>(
+      NOTIFICATION_PROMPT_TIMEOUT_MS,
+      (settle) => {
+        void requestNotifierAuthorization().then(settle);
       },
     );
     if (result === null) {
@@ -343,42 +363,29 @@ export class PermissionsService {
     this.notificationStatus = result.granted ? "granted" : "denied";
   }
 
-  private requestElectronNotifications(): Promise<void> {
+  private async requestElectronNotifications(): Promise<void> {
     if (!Notification.isSupported()) {
       this.notificationStatus = "restricted";
-      return Promise.resolve();
+      return;
     }
-
-    return new Promise((resolve) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const notification = new Notification({
-        title: "Vellum",
-        body: "Notifications are enabled.",
-        silent: false,
-      });
-
-      const settle = (status: PermissionStatus) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        this.notificationStatus = status;
-        resolve();
-      };
-
-      timeout = setTimeout(() => {
-        settle("unknown");
-      }, NOTIFICATION_PROMPT_TIMEOUT_MS);
-      timeout.unref?.();
-
-      notification.once("show", () => settle("granted"));
-      notification.once("failed", () => settle("denied"));
-      try {
-        notification.show();
-      } catch {
-        settle("unknown");
-      }
-    });
+    const status = await settleWithin<PermissionStatus>(
+      NOTIFICATION_PROMPT_TIMEOUT_MS,
+      (settle) => {
+        const notification = new Notification({
+          title: "Vellum",
+          body: "Notifications are enabled.",
+          silent: false,
+        });
+        notification.once("show", () => settle("granted"));
+        notification.once("failed", () => settle("denied"));
+        try {
+          notification.show();
+        } catch {
+          settle(null);
+        }
+      },
+    );
+    this.notificationStatus = status ?? "unknown";
   }
 
   private startPolling(kind: PermissionKind, sender?: WebContents): void {

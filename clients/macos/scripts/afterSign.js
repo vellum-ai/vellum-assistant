@@ -18,9 +18,7 @@ function getConfiguredQualifier(options) {
     return options.identity;
   }
 
-  return (
-    process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || undefined
-  );
+  return process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || undefined;
 }
 
 function getCertificateTypes(isDevelopment) {
@@ -69,7 +67,7 @@ async function resolveSigningIdentity(context) {
 
   if (identity == null) {
     throw new Error(
-      "afterSign: unable to resolve the macOS signing identity that electron-builder used",
+      "afterSign: unable to resolve the macOS signing identity that electron-builder used"
     );
   }
 
@@ -183,26 +181,27 @@ exports.default = async function afterSign(context) {
   for (const executable of executables) {
     if (!fs.existsSync(executable.path)) {
       console.warn(
-        `afterSign: ${executable.name} not found at ${executable.path}, skipping codesign`,
+        `afterSign: ${executable.name} not found at ${executable.path}, skipping codesign`
       );
       continue;
     }
 
     console.log(
-      `afterSign: codesigning ${executable.name} with identity="${identity.name}"`,
+      `afterSign: codesigning ${executable.name} with identity="${identity.name}"`
     );
     codesign(executable.path, executable.entitlements, identity);
   }
 
   console.log(
-    `afterSign: re-signing ${productName}.app with identity="${identity.name}"`,
+    `afterSign: re-signing ${productName}.app with identity="${identity.name}"`
   );
-  // Mirrors electron-builder.config.cjs: a build with a provisioning profile
-  // carries the restricted Communication Notifications entitlement, and every
-  // other build must not. Deriving here rather than reading a checked-in copy
-  // keeps this pass on the same entitlement set electron-builder signed with.
-  const appEntitlements = process.env.VELLUM_MAC_PROVISIONING_PROFILE
-    ? deriveCommunicationEntitlements()
+  // Read back the decision electron-builder.config.cjs already made, rather
+  // than re-reading the environment: only a build configured with a
+  // provisioning profile may carry the restricted Communication Notifications
+  // entitlement, and this pass has to sign the same set electron-builder did.
+  const macOptions = packager.platformSpecificBuildOptions || {};
+  const appEntitlements = macOptions.provisioningProfile
+    ? macOptions.entitlements || deriveCommunicationEntitlements()
     : path.join(entitlementsDir, "app.plist");
   codesign(appDir, appEntitlements, identity);
 };

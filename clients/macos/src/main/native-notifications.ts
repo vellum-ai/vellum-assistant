@@ -16,18 +16,10 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import path from "node:path";
 
 import { app } from "electron";
 
+import { ensureNotificationAvatarFile } from "@vellumai/electron-desktop/notification-avatar-file";
 import type {
   CategoryAction,
   NotificationCreateOptions,
@@ -35,58 +27,12 @@ import type {
 } from "@vellumai/electron-desktop/notifications";
 
 import log from "./logger";
-import { getNotifier, type NotifierRequest } from "./notifier";
-
-/**
- * The addon reads the avatar from disk (Intents takes image data, not a
- * buffer over IPC), so the PNG is cached under the user data directory keyed
- * by its content hash.
- */
-const AVATAR_DIR_NAME = "notification-avatars";
-const MAX_AVATAR_FILES = 8;
-
-// The hash arrives over IPC; folding every other character to an underscore is
-// what stops a crafted value from naming a path outside the avatar directory,
-// while keeping two different hashes on two different filenames.
-const sanitizeHash = (avatarHash: string): string =>
-  avatarHash.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 64);
-
-// `keepPath` is the avatar this notification is about to hand the addon, so it
-// survives the cap no matter how old the cached file is.
-const pruneAvatarFiles = (dir: string, keepPath: string): void => {
-  const files = readdirSync(dir)
-    .filter((name) => name.endsWith(".png"))
-    .map((name) => path.join(dir, name))
-    .filter((filePath) => filePath !== keepPath)
-    .map((filePath) => ({ filePath, mtimeMs: statSync(filePath).mtimeMs }))
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  for (const stale of files.slice(MAX_AVATAR_FILES - 1)) {
-    try {
-      rmSync(stale.filePath, { force: true });
-    } catch {
-      // A file another process is holding stays; the cap is advisory.
-    }
-  }
-};
-
-const ensureNotificationAvatarFile = (
-  userDataDir: string,
-  avatarPng: Buffer,
-  avatarHash: string,
-): string => {
-  const hash = sanitizeHash(avatarHash);
-  if (hash.length === 0) {
-    throw new Error("Notification avatar hash is empty");
-  }
-  const dir = path.join(userDataDir, AVATAR_DIR_NAME);
-  mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `${hash}.png`);
-  if (!existsSync(filePath)) {
-    writeFileSync(filePath, avatarPng);
-    pruneAvatarFiles(dir, filePath);
-  }
-  return filePath;
-};
+import {
+  getNotifier,
+  registerNotifierCategories,
+  type NotifierCategory,
+  type NotifierRequest,
+} from "./notifier";
 
 type Listeners = {
   click?: () => void;
@@ -104,12 +50,45 @@ type Listeners = {
  * action labels gives every distinct set its own category, an empty set
  * included, and keeps a repeated set on the one registration.
  */
-const categoryIdForActions = (actions: readonly CategoryAction[]): string => {
+const categoryIdForLabels = (labels: readonly string[]): string => {
   const digest = createHash("sha256")
-    .update(JSON.stringify(actions.map((action) => action.text)))
+    .update(JSON.stringify(labels))
     .digest("hex")
     .slice(0, 16);
   return `vellum.actions.${digest}`;
+};
+
+const categoryIdForActions = (actions: readonly CategoryAction[]): string =>
+  categoryIdForLabels(actions.map((action) => action.text));
+
+/**
+ * The action labels of every category the app posts, copied from
+ * `CATEGORY_ACTIONS` in `@vellumai/electron-desktop/notifications`, which does
+ * not export them.
+ */
+const CATEGORY_ACTION_LABELS: readonly (readonly string[])[] = [
+  ["View Results"],
+  ["Allow", "Deny"],
+  ["View Response"],
+  ["View"],
+];
+
+/**
+ * Registers every category up front.
+ *
+ * `setNotificationCategories:` applies asynchronously, so a category first
+ * registered in the runloop turn its notification is posted can miss it and
+ * the buttons never render. Registering at startup gives macOS the whole set
+ * long before the first notification.
+ */
+export const registerNativeNotificationCategories = (): void => {
+  const categories: NotifierCategory[] = CATEGORY_ACTION_LABELS.map(
+    (labels) => ({
+      categoryId: categoryIdForLabels(labels),
+      actions: [...labels],
+    }),
+  );
+  registerNotifierCategories(categories);
 };
 
 export const createNativeNotificationFactory = (): {
@@ -132,6 +111,8 @@ export const createNativeNotificationFactory = (): {
         return {
           id: sender.id,
           name: sender.name,
+          // The addon reads the avatar from disk: Intents takes image data,
+          // not a buffer over IPC.
           avatarPngPath: ensureNotificationAvatarFile(
             app.getPath("userData"),
             sender.avatarPng,
@@ -166,6 +147,12 @@ export const createNativeNotificationFactory = (): {
       try {
         notifier.show(request, (event) => {
           if (event.kind === "shown") {
+            if (event.degraded) {
+              log.warn(
+                "[notifications] posted without the avatar:",
+                event.degraded,
+              );
+            }
             listeners.show?.();
           } else if (event.kind === "failed") {
             listeners.failed?.(

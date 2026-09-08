@@ -121,7 +121,7 @@ jobs:
           cat > "$RUNNER_TEMP/smoke-notifier.js" <<'JS'
           const addon = { exports: {} };
           process.dlopen(addon, process.argv[2]);
-          const exported = ["isSupported", "requestAuthorization", "reassertDelegate", "show"];
+          const exported = ["isSupported", "requestAuthorization", "registerCategories", "restoreDelegate", "show"];
           for (const name of exported) {
             if (typeof addon.exports[name] !== "function") {
               console.error(`vellum-notifier: missing export ${name}`);
