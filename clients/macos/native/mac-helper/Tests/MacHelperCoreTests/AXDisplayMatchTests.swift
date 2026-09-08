@@ -36,6 +36,31 @@ struct AXDisplayMatchTests {
         #expect(AXDisplayMatch.tree(at: frames, standsOn: Self.external))
     }
 
+    /**
+     A window lying across the seam stands on both, but each of its controls
+     stands on one. Pointing at one that is not on the shared display would
+     normalise to a fraction outside 0 to 1 and draw at a clamped edge.
+     */
+    @Test("a control is on the display its own frame is on")
+    func perControl() {
+        let onBuiltIn = CGRect(x: 1300, y: 200, width: 80, height: 24)
+        let onExternal = CGRect(x: 1500, y: 200, width: 80, height: 24)
+        #expect(AXDisplayMatch.frame(onBuiltIn, standsOn: Self.builtIn))
+        #expect(!AXDisplayMatch.frame(onBuiltIn, standsOn: Self.external))
+        #expect(AXDisplayMatch.frame(onExternal, standsOn: Self.external))
+        #expect(!AXDisplayMatch.frame(onExternal, standsOn: Self.builtIn))
+    }
+
+    @Test("a control with no area is on nothing")
+    func noArea() {
+        #expect(
+            !AXDisplayMatch.frame(
+                CGRect(x: 100, y: 100, width: 0, height: 0),
+                standsOn: Self.builtIn
+            )
+        )
+    }
+
     @Test("a tree that says nothing about where it is is refused")
     func noGeometry() {
         #expect(!AXDisplayMatch.tree(at: [], standsOn: Self.builtIn))

@@ -1246,6 +1246,11 @@ const syncCapturedTarget = (): void => {
  * changes and cannot reach one that arrives afterwards, so the arrival is
  * refused here instead.
  *
+ * **A request replaces everything, including with nothing.** A name that does
+ * not resolve takes the standing marks down on its way to saying so. They
+ * describe the step before this one, and leaving them up would point the user
+ * at a control while the assistant says it could not find the one it meant.
+ *
  * **Taking them down always succeeds**, whoever asks and whatever the frame is
  * around. The two directions are not the same risk: a mark placed by the
  * wrong conversation is a ring on a stranger's screen reported as a success,
@@ -1288,6 +1293,10 @@ export const showCompanionCoachmarks = async (
       return { kind: "refused", refusal: moved };
     }
     if ("reason" in placed) {
+      // A request replaces everything on screen, and it has replaced it with
+      // nothing it can draw. Leaving the last step's mark up would point the
+      // user at a control this turn is about to say it could not find.
+      setCoachmarks(NO_COACHMARKS);
       return { kind: "unresolved", unresolved: placed };
     }
     marks.push(placed);

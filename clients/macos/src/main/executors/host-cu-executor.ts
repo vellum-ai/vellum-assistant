@@ -211,6 +211,18 @@ const answerFor = (
  * and the frame it would be drawing on is this client's alone.
  */
 class PointAtExecutor implements HostProxyExecutor {
+  /**
+   * Point-at requests still resolving a name.
+   *
+   * A name is looked up through the helper, so a request is out for as long
+   * as that round trip takes and a cancel can arrive inside it. Held so a
+   * cancel can tell one of those from a request that has already answered.
+   */
+  private readonly resolving = new Set<string>();
+
+  /** Those of them a cancel has since named. */
+  private readonly cancelled = new Set<string>();
+
   constructor(
     private readonly helper: HostProxyExecutor,
     private readonly paint: CoachmarkPainter | undefined,
@@ -245,11 +257,26 @@ class PointAtExecutor implements HostProxyExecutor {
     // for the same user. Absent on a daemon too old to send it, which the
     // painter reads as a claim it cannot check.
     const conversationId = message.conversationId;
-    void paint(
-      marks,
-      typeof conversationId === "string" ? conversationId : undefined,
-    )
+    const conversation =
+      typeof conversationId === "string" ? conversationId : undefined;
+    this.resolving.add(requestId);
+    void paint(marks, conversation)
       .then((result) => {
+        if (this.settle(requestId)) {
+          // The turn that asked is over, so nobody is left to say what the
+          // marks mean or to take them down. A ring standing over the user's
+          // work with nothing to explain it is worse than none, and clearing
+          // is the one direction that always succeeds.
+          if (result.kind === "placed" && result.marks.length > 0) {
+            void paint([], conversation).catch((err: unknown) => {
+              log.warn(
+                "[host-cu-executor] cancelled point_at not cleared:",
+                err,
+              );
+            });
+          }
+          return;
+        }
         void poster.postCuResult({
           requestId,
           ...answerFor(result),
@@ -260,6 +287,9 @@ class PointAtExecutor implements HostProxyExecutor {
         // that rather than carry on describing a ring: it is not looking at
         // the screen it asked to draw on.
         log.warn("[host-cu-executor] point_at failed:", err);
+        if (this.settle(requestId)) {
+          return;
+        }
         void poster.postCuResult({
           requestId,
           executionError:
@@ -269,11 +299,31 @@ class PointAtExecutor implements HostProxyExecutor {
   }
 
   /**
-   * Forwarded whatever the tool was. A cancel names a request rather than a
-   * tool, and the pointing this executor answers is done before a cancel
-   * could reach it, so the only cancel worth recording is the helper's.
+   * Retire a request, and say whether a cancel reached it first.
+   *
+   * Both sets are emptied of it here, so a cancel that names a request no
+   * longer out leaves nothing behind to accumulate.
+   */
+  private settle(requestId: string): boolean {
+    this.resolving.delete(requestId);
+    return this.cancelled.delete(requestId);
+  }
+
+  /**
+   * Forwarded whatever the tool was, and recorded when it names a pointing
+   * still out.
+   *
+   * A cancel names a request rather than a tool, so this cannot tell which
+   * executor owns it and both are told. Resolving a name takes a round trip,
+   * which is long enough for a cancel to land inside one, and the turn that
+   * asked is gone by the time it answers: what it drew comes down and no
+   * result is posted for it.
    */
   handleCancel(message: HostProxySseMessage, poster: HostProxyPoster): void {
+    const requestId = message.requestId as string | undefined;
+    if (requestId !== undefined && this.resolving.has(requestId)) {
+      this.cancelled.add(requestId);
+    }
     this.helper.handleCancel(message, poster);
   }
 }

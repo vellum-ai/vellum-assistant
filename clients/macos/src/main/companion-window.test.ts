@@ -3480,6 +3480,28 @@ describe("companion window: pointing at what is shared", () => {
     expect(state().coachmarks).toBeUndefined();
   });
 
+  /**
+   * A request replaces everything on screen, and this one has replaced it
+   * with nothing it can draw. The mark left over from the last step points at
+   * a control the assistant is in the same breath saying it could not find.
+   */
+  test("a name that does not resolve takes down what was up", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    await showCompanionCoachmarks([{ target: "Share" }], CALL);
+    expect(state().coachmarks).toHaveLength(1);
+
+    located = {
+      found: false,
+      reason: "no-match",
+      available: ["color balance", "cropping"],
+    };
+    expect(
+      await showCompanionCoachmarks([{ target: "white balance" }], CALL),
+    ).toMatchObject({ kind: "unresolved" });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
   /** Bounds still go up untouched, for what the tree cannot name. */
   test("a mark given as bounds is drawn without asking the tree", async () => {
     await shareAndSee();

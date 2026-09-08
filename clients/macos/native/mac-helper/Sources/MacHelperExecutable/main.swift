@@ -688,6 +688,7 @@ final class MacHelper: @unchecked Sendable {
             }
 
             let flattened = AccessibilityTreeEnumerator.flattenElements(tree.elements)
+            let displayBounds = displayId.map { CGDisplayBounds(CGDirectDisplayID($0)) }
 
             // Focus is one thing across every monitor, so the window it names
             // can be standing on a different screen from the one asked about.
@@ -697,11 +698,8 @@ final class MacHelper: @unchecked Sendable {
             // Read off the whole tree rather than the candidates below, since
             // where a window is and what it has worth pointing at are two
             // questions.
-            if let displayId,
-               !AXDisplayMatch.tree(
-                   at: flattened.map(\.frame),
-                   standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
-               ) {
+            if let displayBounds,
+               !AXDisplayMatch.tree(at: flattened.map(\.frame), standsOn: displayBounds) {
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": false,
                     "reason": "no-tree",
@@ -712,9 +710,19 @@ final class MacHelper: @unchecked Sendable {
             // Anything named and actually on screen is a thing that can be
             // pointed at, interactive or not: a value someone is reading is as
             // legitimate a target as a button they are about to press.
+            //
+            // On the shared display, though. A window can lie across the seam
+            // between two monitors, and a control on the half that is not
+            // being shared is not on the surface: normalised against the
+            // shared display its frame falls outside 0 to 1, so pointing at
+            // it draws at a clamped edge. It is not a candidate, and a query
+            // that named it comes back with the labels that are on the
+            // display instead.
             let elements = flattened.filter { element in
                 guard let title = element.title, !title.isEmpty else { return false }
-                return element.frame.width > 0 && element.frame.height > 0
+                guard element.frame.width > 0, element.frame.height > 0 else { return false }
+                guard let displayBounds else { return true }
+                return AXDisplayMatch.frame(element.frame, standsOn: displayBounds)
             }
             let outcome = AXTargetMatch.locate(
                 query: query,

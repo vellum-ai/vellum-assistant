@@ -277,6 +277,85 @@ describe("pointing at the shared surface", () => {
     expect(told).not.toContain("Ask the user to share");
   });
 
+  /**
+   * Resolving a name is a round trip, which is long enough for a cancel to
+   * land inside one. By the time it answers the turn that asked is gone: a
+   * result posted for it answers nobody.
+   */
+  test("posts nothing for a pointing that was cancelled mid-lookup", async () => {
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    showCoachmarks.mockImplementationOnce(async (marks) => {
+      await held;
+      return {
+        kind: "placed",
+        marks: marks as never,
+      } as CoachmarkResult;
+    });
+    const executor = createHostCuExecutor({
+      helper: helperReturning({}),
+      showCoachmarks,
+    });
+    const { poster, postCuResult } = makePoster();
+
+    executor.handleRequest(pointAt(), poster);
+    executor.handleCancel(pointAt(), poster);
+    letGo();
+    await tick();
+
+    expect(postCuResult).not.toHaveBeenCalled();
+  });
+
+  /**
+   * And what it drew comes down. Nobody is left to say what the ring means or
+   * to take it down later, and a mark standing over the user's work with no
+   * words beside it is worse than none.
+   */
+  test("takes down the marks a cancelled pointing drew", async () => {
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    showCoachmarks.mockImplementationOnce(async (marks) => {
+      await held;
+      return {
+        kind: "placed",
+        marks: marks as never,
+      } as CoachmarkResult;
+    });
+    const executor = createHostCuExecutor({
+      helper: helperReturning({}),
+      showCoachmarks,
+    });
+    const { poster } = makePoster();
+
+    executor.handleRequest(pointAt(), poster);
+    executor.handleCancel(pointAt(), poster);
+    letGo();
+    await tick();
+
+    expect(showCoachmarks.mock.calls[1]?.[0]).toEqual([]);
+  });
+
+  /** A cancel for a pointing that already answered changes nothing. */
+  test("a cancel after the marks are up leaves them up", async () => {
+    const executor = createHostCuExecutor({
+      helper: helperReturning({}),
+      showCoachmarks,
+    });
+    const { poster, postCuResult } = makePoster();
+
+    executor.handleRequest(pointAt(), poster);
+    await tick();
+    executor.handleCancel(pointAt(), poster);
+    await tick();
+
+    expect(postCuResult).toHaveBeenCalledTimes(1);
+    expect(showCoachmarks).toHaveBeenCalledTimes(1);
+  });
+
   test("refuses coordinates measured against some other surface", async () => {
     const executor = createHostCuExecutor({
       helper: helperReturning({}),

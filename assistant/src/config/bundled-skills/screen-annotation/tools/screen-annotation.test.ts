@@ -126,6 +126,12 @@ describe("the published mark schema", () => {
     expect(accepts({ x: 0.1, y: 0.2, width: 0.3 })).toBe(false);
   });
 
+  /** An empty name is a name of nothing, and the host rejects it as one. */
+  test("a target has to say something", () => {
+    const target = item.properties?.target as { minLength?: number };
+    expect(target.minLength).toBe(1);
+  });
+
   /** Both shapes at once names a target and estimates it in the same breath. */
   test("a name and bounds together is not a mark", () => {
     expect(

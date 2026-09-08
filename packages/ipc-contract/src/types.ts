@@ -1531,8 +1531,8 @@ export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
  * frame of every labelled control on the surface, so a name resolves to where
  * the thing actually is; a rectangle is a guess at it, measured off a picture
  * that has been scaled and compressed on its way to whoever is guessing. The
- * rectangle form remains for what the tree cannot name — a canvas, an image,
- * a plugin's own drawing — where there is nothing to resolve against.
+ * rectangle form remains for what the tree cannot name (a canvas, an image,
+ * a plugin's own drawing), where there is nothing to resolve against.
  */
 export type CoachmarkRequest =
   | { target: string; caption?: string }
