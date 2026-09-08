@@ -77,9 +77,20 @@ export function useConversationAttachments(target: {
     // same attachment ids, so the first sighting wins.
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]!;
-      for (const [position, attachment] of (
-        message.attachments ?? []
-      ).entries()) {
+      // A channel-deleted row keeps its content but renders as a tombstone,
+      // so its files are not on show either.
+      if (message.deletedAt) {
+        continue;
+      }
+      const attachments = message.attachments ?? [];
+      // Folded assistant rows append the newer donor's files after the
+      // survivor's, so a row is walked from its end as well.
+      for (
+        let position = attachments.length - 1;
+        position >= 0;
+        position -= 1
+      ) {
+        const attachment = attachments[position]!;
         const key = entryKey(message.id, attachment.id, position);
         if (seen.has(key)) {
           continue;
