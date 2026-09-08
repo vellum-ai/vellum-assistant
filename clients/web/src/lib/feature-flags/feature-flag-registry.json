@@ -424,6 +424,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "stripe-link-oauth",
+      "scope": "assistant",
+      "key": "stripe-link-oauth",
+      "label": "Link by Stripe Integration",
+      "description": "Gates the seeded Link by Stripe OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes. Off by default because a connected wallet lets an assistant spend real money.",
+      "defaultEnabled": false
+    },
+    {
       "id": "monday-oauth",
       "scope": "assistant",
       "key": "monday-oauth",
