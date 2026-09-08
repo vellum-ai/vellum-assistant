@@ -8,9 +8,18 @@ import os
 /// Communication Notification so the assistant's avatar is the icon. Everything
 /// else, including every push sent while the `push-avatar-sender` flag is off,
 /// is delivered exactly as it arrived.
+///
+/// Every path that gives up on the rewrite logs one stable `nse.*` prefix
+/// before delivering the push unchanged, so a device that shows plain
+/// notifications can be diagnosed from Console with a single filter on `nse.`
+/// rather than by guessing which of the five it took.
 final class NotificationService: UNNotificationServiceExtension {
+    /// Falls back to the production appex bundle id so a build that somehow
+    /// reports no identifier still logs under a subsystem Console can filter,
+    /// rather than one that matches nothing.
     private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "ai.vellum.assistant",
+        subsystem: Bundle.main.bundleIdentifier
+            ?? "ai.vocify-inc.vellum-assistant-ios.NotificationService",
         category: "NotificationService"
     )
 
@@ -29,17 +38,16 @@ final class NotificationService: UNNotificationServiceExtension {
         unchangedContent = request.content
         lock.unlock()
 
-        let userInfo = request.content.userInfo
-        guard let sender = SenderPayload.parse(userInfo: userInfo),
-              let cache = AvatarCache.inAppGroup()
-        else {
+        guard let sender = SenderPayload.parse(userInfo: request.content.userInfo) else {
+            Self.logger.info("nse.no_sender: push carries no complete sender block")
             deliver(request.content)
             return
         }
-        let conversationId = SenderPayload.conversationIdentifier(
-            userInfo: userInfo,
-            senderId: sender.id
-        )
+        guard let cache = AvatarCache.inAppGroup() else {
+            Self.logger.error("nse.no_app_group: the appex declares no App Group container")
+            deliver(request.content)
+            return
+        }
 
         Task {
             var avatar = cache.data(forHash: sender.avatarHash)
@@ -47,7 +55,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 avatar = await cache.fetch(url: url, hash: sender.avatarHash)
             }
             guard let avatar else {
-                Self.logger.info("No avatar for the push sender, delivering unchanged")
+                Self.logger.info("nse.avatar_unavailable: cache miss and no usable download")
                 self.deliver(request.content)
                 return
             }
@@ -56,13 +64,12 @@ final class NotificationService: UNNotificationServiceExtension {
                     try await communicationContent(
                         from: request.content,
                         sender: sender,
-                        avatar: avatar,
-                        conversationId: conversationId
+                        avatar: avatar
                     )
                 )
             } catch {
                 Self.logger.error(
-                    "Communication notification rewrite failed: \(error.localizedDescription, privacy: .public)"
+                    "nse.intent_failed: \(error.localizedDescription, privacy: .public)"
                 )
                 self.deliver(request.content)
             }
@@ -76,6 +83,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let content = unchangedContent
         lock.unlock()
         if let content {
+            Self.logger.info("nse.expired: budget ran out before the rewrite finished")
             deliver(content)
         }
     }

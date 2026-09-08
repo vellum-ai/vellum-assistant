@@ -10,11 +10,15 @@ import UserNotifications
 /// is rewritten. `updating(from:)` copies the sender, image, and thread onto the
 /// content and leaves `userInfo`, `categoryIdentifier`, and the body alone, so
 /// tap routing is unaffected.
+///
+/// The intent is built the way `clients/macos/native/notifier/notifier.mm`
+/// builds its own, so one assistant looks and threads the same on both
+/// platforms: the sender id is the thread, "me" is a handle rather than an
+/// empty person, and `serviceName` is left off.
 func communicationContent(
     from content: UNNotificationContent,
     sender: SenderPayload,
-    avatar: Data,
-    conversationId: String
+    avatar: Data
 ) async throws -> UNNotificationContent {
     // INImage(url:) reads local files only, so the bytes travel inline.
     let image = INImage(imageData: avatar)
@@ -29,12 +33,12 @@ func communicationContent(
         suggestionType: .none
     )
     let mePerson = INPerson(
-        personHandle: INPersonHandle(value: nil, type: .unknown),
+        personHandle: INPersonHandle(value: "me", type: .unknown),
         nameComponents: nil,
         displayName: nil,
         image: nil,
         contactIdentifier: nil,
-        customIdentifier: nil,
+        customIdentifier: "me",
         isMe: true,
         suggestionType: .none
     )
@@ -51,8 +55,8 @@ func communicationContent(
         outgoingMessageType: .outgoingMessageText,
         content: content.body,
         speakableGroupName: groupName,
-        conversationIdentifier: conversationId,
-        serviceName: "Vellum",
+        conversationIdentifier: sender.id,
+        serviceName: nil,
         sender: senderPerson,
         attachments: nil
     )

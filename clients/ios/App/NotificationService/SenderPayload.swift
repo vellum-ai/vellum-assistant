@@ -30,25 +30,6 @@ struct SenderPayload: Equatable {
         )
     }
 
-    /// Thread the rewritten notification belongs to, read from the same
-    /// `deep_link.conversationId` a tap routes through
-    /// (`extractPushConversationId` in `clients/web/src/runtime/push-registration.ts`).
-    ///
-    /// The sender id is the fallback so notifications from one assistant still
-    /// group together when the platform dropped the deep link to fit the
-    /// payload budget.
-    static func conversationIdentifier(
-        userInfo: [AnyHashable: Any],
-        senderId: String
-    ) -> String {
-        guard let deepLink = userInfo["deep_link"] as? [AnyHashable: Any],
-              let conversationId = nonEmptyString(deepLink["conversationId"])
-        else {
-            return senderId
-        }
-        return conversationId
-    }
-
     private static func nonEmptyString(_ value: Any?) -> String? {
         guard let text = value as? String, !text.isEmpty else {
             return nil

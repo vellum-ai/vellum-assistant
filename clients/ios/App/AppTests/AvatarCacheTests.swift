@@ -9,9 +9,12 @@ final class AvatarCacheTests: XCTestCase {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("AvatarCache-\(UUID().uuidString)", isDirectory: true)
         cache = AvatarCache(rootURL: root)
+        URLProtocol.registerClass(CountingURLProtocol.self)
+        loadCounter.reset()
     }
 
     override func tearDown() {
+        URLProtocol.unregisterClass(CountingURLProtocol.self)
         try? FileManager.default.removeItem(at: root)
         super.tearDown()
     }
@@ -100,6 +103,16 @@ final class AvatarCacheTests: XCTestCase {
         XCTAssertEqual(cache.data(forHash: hashes[0]), avatar(0))
     }
 
+    func testDropsACachedFileWhoseBytesNoLongerMatchItsName() throws {
+        let hash = AvatarCache.sha256Hex(avatar(1))
+        let url = try XCTUnwrap(cache.fileURL(forHash: hash))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try avatar(2).write(to: url)
+
+        XCTAssertNil(cache.data(forHash: hash))
+        XCTAssertEqual(storedFileCount(), 0)
+    }
+
     func testReadsUpToTheByteCap() async throws {
         let atCap = ByteFeed(count: 16)
         let atCapBytes = try await AvatarCache.readAtMost(16, from: atCap.stream())
@@ -111,13 +124,85 @@ final class AvatarCacheTests: XCTestCase {
         XCTAssertEqual(underCapBytes?.count, 4)
     }
 
+    func testReadsABodyThatSpansSeveralBufferedChunks() async throws {
+        let count = AvatarCache.readChunkSize * 2 + 7
+        let feed = ByteFeed(count: count)
+        let bytes = try await AvatarCache.readAtMost(AvatarCache.maxBytes, from: feed.stream())
+        XCTAssertEqual(bytes?.count, count)
+        XCTAssertEqual(feed.produced, count)
+    }
+
     func testStopsReadingPastTheByteCap() async throws {
         let feed = ByteFeed(count: 4_096)
         let bytes = try await AvatarCache.readAtMost(16, from: feed.stream())
         XCTAssertNil(bytes)
         // One byte past the cap is enough to know the body is too large, so the
-        // rest of the response is never pulled into memory.
+        // rest of the response is never pulled into memory, buffered chunk or
+        // not.
         XCTAssertEqual(feed.produced, 17)
+    }
+
+    func testFetchRefusesANonHttpsURL() async throws {
+        let url = try XCTUnwrap(URL(string: "http://storage.example.com/avatar.png"))
+        let bytes = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
+        XCTAssertNil(bytes)
+        XCTAssertEqual(loadCounter.count, 0)
+    }
+
+    func testFetchRefusesAMalformedHash() async throws {
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let bytes = await cache.fetch(url: url, hash: "../etc/passwd")
+        XCTAssertNil(bytes)
+        XCTAssertEqual(loadCounter.count, 0)
+    }
+
+    /// Proves the two guards above are what stopped the request, rather than a
+    /// stub that never intercepts: the same call with both guards satisfied
+    /// does reach the URL loading system.
+    func testFetchReachesTheNetworkOnceTheGuardsPass() async throws {
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let bytes = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(avatar(1)))
+        XCTAssertNil(bytes)
+        XCTAssertEqual(loadCounter.count, 1)
+    }
+}
+
+/// Counts the requests that reach the URL loading system and fails every one of
+/// them, so a test can tell a guard that returned early apart from a request
+/// that went out and came back empty.
+private final class CountingURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        loadCounter.increment()
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+
+    override func stopLoading() {}
+}
+
+/// Shared because `URLProtocol` instances are created by the loading system,
+/// which hands the test no reference to them.
+private let loadCounter = LoadCounter()
+
+private final class LoadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int { lock.withLock { value } }
+
+    func increment() {
+        lock.withLock { value += 1 }
+    }
+
+    func reset() {
+        lock.withLock { value = 0 }
     }
 }
 
