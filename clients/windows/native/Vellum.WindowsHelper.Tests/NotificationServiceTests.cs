@@ -10,12 +10,42 @@ public static class NotificationServiceTests
         Assert(NotificationService.TryParseShowRequest(valid.RootElement, out var request, out _));
         Assert(request.Actions.Count == 2);
 
+        Assert(request.Subtitle is null && request.AvatarPath is null);
+
         var xml = NotificationService.BuildToastXml(request);
-        Assert(xml.Contains("<text>Ti&lt;tle</text>", StringComparison.Ordinal));
-        Assert(xml.Contains("<text>B&amp;ody</text>", StringComparison.Ordinal));
+        // Without a sender: title then body, and no app-logo image.
+        Assert(xml.Contains("<text>Ti&lt;tle</text><text>B&amp;ody</text>", StringComparison.Ordinal));
+        Assert(!xml.Contains("<image", StringComparison.Ordinal));
         Assert(xml.Contains("content=\"Allow\"", StringComparison.Ordinal));
         Assert(xml.Contains("launch=\"kind=click\"", StringComparison.Ordinal));
         Assert(xml.Contains("arguments=\"kind=action;index=1\"", StringComparison.Ordinal));
+
+        using var withSender = JsonDocument.Parse(
+            """{ "token": "t-2", "title": "Aria", "subtitle": "Ti<tle", "body": "B&ody", "actions": [], "avatarPath": "C:\\Users\\test\\Vellum Data\\a&b.png" }""");
+        Assert(NotificationService.TryParseShowRequest(withSender.RootElement, out var senderRequest, out _));
+        Assert(senderRequest is { Subtitle: "Ti<tle", AvatarPath: "C:\\Users\\test\\Vellum Data\\a&b.png" });
+
+        var senderXml = NotificationService.BuildToastXml(senderRequest);
+        // Assistant name, conversation title, body, in that order.
+        Assert(senderXml.Contains(
+            "<text>Aria</text><text>Ti&lt;tle</text><text>B&amp;ody</text>",
+            StringComparison.Ordinal));
+        Assert(senderXml.Contains(
+            "<image placement=\"appLogoOverride\" hint-crop=\"circle\" src=\"file:///C:/Users/test/Vellum%20Data/",
+            StringComparison.Ordinal));
+        // The image sits inside the binding, and no raw ampersand reaches the XML.
+        Assert(senderXml.Contains("/></binding></visual>", StringComparison.Ordinal));
+        Assert(!senderXml.Contains("&b.png", StringComparison.Ordinal));
+
+        // A blank subtitle is the same as none, and a path a toast cannot load
+        // drops the image rather than emitting a broken src.
+        using var blankExtras = JsonDocument.Parse(
+            """{ "token": "t-3", "title": "T", "subtitle": "", "body": "B", "actions": [], "avatarPath": "notification-avatars/a.png" }""");
+        Assert(NotificationService.TryParseShowRequest(blankExtras.RootElement, out var blankRequest, out _));
+        Assert(blankRequest.Subtitle is null);
+        var blankXml = NotificationService.BuildToastXml(blankRequest);
+        Assert(blankXml.Contains("<text>T</text><text>B</text>", StringComparison.Ordinal));
+        Assert(!blankXml.Contains("<image", StringComparison.Ordinal));
 
         Assert(NotificationService.ParseActivationArguments("kind=action;index=1") == ("action", 1));
         // Unreadable arguments still route as a body click.

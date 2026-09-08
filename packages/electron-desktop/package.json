@@ -61,6 +61,7 @@
     "./lockfile-watcher": "./src/lockfile-watcher.ts",
     "./module-configuration": "./src/module-configuration.ts",
     "./native-auth": "./src/native-auth.ts",
+    "./notification-avatar-file": "./src/notification-avatar-file.ts",
     "./notifications": "./src/notifications.ts",
     "./paired-gateway-request-guard": "./src/paired-gateway-request-guard.ts",
     "./permissions": "./src/permissions.ts",
