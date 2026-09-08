@@ -1,4 +1,4 @@
-import { Bell, Trash2 } from "lucide-react";
+import { Bell } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -36,12 +36,10 @@ import {
   resolveFeedItemTitle,
   sortFeedItems,
 } from "../utils";
-import {
-  NOTIFICATIONS_PANEL_HEADER_CLASS,
-  NotificationsBellDetail,
-} from "./notifications-bell-detail";
+import { NotificationsBellDetail } from "./notifications-bell-detail";
 import { NotificationsBellEmptyState } from "./notifications-bell-empty-state";
 import { NotificationsBellList } from "./notifications-bell-list";
+import { NotificationsBellPanel } from "./notifications-bell-panel";
 
 // The height budget the panel's content region is drawn against: the list's
 // 16px top padding, then six rows and the five 12px gaps between them. A row
@@ -438,59 +436,16 @@ export function NotificationsBell() {
           onTriggerAction={handleTriggerAction}
         />
       ) : (
-        <>
-          {/* The heading names the panel; the count beside it says how much
-              is in it, and the dot between them is decoration. Both stay
-              outside the heading so its name is the panel's alone. */}
-          <div className={`${NOTIFICATIONS_PANEL_HEADER_CLASS} gap-[6px]`}>
-            <Typography
-              variant="title-small"
-              as="h2"
-              className="text-[var(--content-emphasised)]"
-            >
-              {t("notificationsBell.heading")}
-            </Typography>
-            {visibleItems.length > 0 ? (
-              <>
-                <span
-                  aria-hidden="true"
-                  className="h-[3px] w-[3px] rounded-full bg-[var(--content-tertiary)]"
-                />
-                <Typography
-                  variant="title-small"
-                  data-testid="notifications-bell-count"
-                  className="text-[var(--content-secondary)]"
-                >
-                  {visibleItems.length}
-                </Typography>
-              </>
-            ) : null}
-          </div>
-
+        <NotificationsBellPanel
+          count={visibleItems.length}
+          hasUnread={hasUnread}
+          showsBulkActions={supportsBulkStatus && visibleItems.length > 0}
+          isBulkPending={feedQuery.markAll.isPending}
+          onMarkAllRead={handleMarkAllRead}
+          onClearAll={handleClearAll}
+        >
           {list}
-
-          {supportsBulkStatus && visibleItems.length > 0 ? (
-            <div className="flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-subtle)] p-[var(--app-spacing-lg)]">
-              {hasUnread ? (
-                <Button
-                  variant="ghost"
-                  onClick={handleMarkAllRead}
-                  disabled={feedQuery.markAll.isPending}
-                >
-                  {t("actions.markAllAsRead")}
-                </Button>
-              ) : null}
-              <Button
-                variant="outlined"
-                leftIcon={<Trash2 />}
-                onClick={handleClearAll}
-                disabled={feedQuery.markAll.isPending}
-              >
-                {t("actions.clearAll")}
-              </Button>
-            </div>
-          ) : null}
-        </>
+        </NotificationsBellPanel>
       )}
     </div>
   );
