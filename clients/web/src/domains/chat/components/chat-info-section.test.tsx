@@ -175,10 +175,19 @@ describe("ChatInfoSection", () => {
       tileWidth: APP_TILE_WIDTH,
     });
     expect(seeAll()).toBeNull();
+    // Nothing runs past the edge, so the strip claims no trailing inset.
+    expect(fitted.container.querySelector("[data-overflow]")).toBeNull();
     fitted.unmount();
 
-    renderSection({ items: makeItems(3), count: 3, tileWidth: APP_TILE_WIDTH });
+    const overflowing = renderSection({
+      items: makeItems(3),
+      count: 3,
+      tileWidth: APP_TILE_WIDTH,
+    });
     expect(seeAll()).not.toBeNull();
+    expect(
+      overflowing.container.querySelector("[data-overflow]"),
+    ).not.toBeNull();
   });
 
   test("calls onSeeAll when the control is activated", () => {

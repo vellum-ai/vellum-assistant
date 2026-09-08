@@ -14,6 +14,7 @@ import { Button, ScrollShadow, Typography } from "@vellumai/design-library";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
+import { cn } from "@/utils/misc";
 
 /** Gutter between tiles, the pixel value behind the rows' `gap-2`. */
 export const CHAT_INFO_TILE_GAP_PX = 8;
@@ -71,6 +72,9 @@ export function ChatInfoSection<T>({
     tileWidth,
   );
   const showSeeAll = count > fit;
+  // Trailing padding only when tiles run past the edge: a strip that fits
+  // must not scroll into blank inset or fade an edge nothing hides behind.
+  const stripOverflows = items.length > fit;
 
   return (
     <section className="flex flex-col gap-3">
@@ -118,9 +122,12 @@ export function ChatInfoSection<T>({
           <ScrollShadow
             orientation="horizontal"
             hideScrollBar
-            className="-mx-5 px-5"
+            className={cn("-mx-5 pl-5", stripOverflows && "pr-5")}
           >
-            <div className="flex w-max gap-2">
+            <div
+              className="flex w-max gap-2"
+              data-overflow={stripOverflows || undefined}
+            >
               {items.map((item, index) => renderTile(item, index, "strip"))}
             </div>
           </ScrollShadow>
