@@ -374,6 +374,24 @@
     "newChat": "新增聊天",
     "untitled": "未命名"
   },
+  "chatInfoPanel": {
+    "appsTitle": "應用程式",
+    "backAria": "返回聊天資訊",
+    "backTooltip": "聊天資訊",
+    "closeAria": "關閉聊天資訊",
+    "filesTitle": "文件與圖片",
+    "framesTitle": "相機影格",
+    "loadMore": "載入更多",
+    "openAppAria": "開啟 {name}",
+    "openDocumentAria": "開啟 {name}",
+    "previewAttachmentAria": "預覽 {filename}",
+    "previewFrameAria": "預覽相機影格",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部應用程式",
+    "seeAllFilesAria": "查看全部文件與圖片",
+    "seeAllFramesAria": "查看全部相機影格",
+    "title": "聊天資訊"
+  },
   "chatLayout": {
     "navigationAria": "導覽"
   },

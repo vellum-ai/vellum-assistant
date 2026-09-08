@@ -375,6 +375,24 @@
     "newChat": "Chat nuevo",
     "untitled": "Sin título"
   },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Volver a la información del chat",
+    "backTooltip": "Información del chat",
+    "closeAria": "Cerrar la información del chat",
+    "filesTitle": "Documentos e imágenes",
+    "framesTitle": "Fotogramas de la cámara",
+    "loadMore": "Cargar más",
+    "openAppAria": "Abrir {name}",
+    "openDocumentAria": "Abrir {name}",
+    "previewAttachmentAria": "Vista previa de {filename}",
+    "previewFrameAria": "Vista previa del fotograma de la cámara",
+    "seeAll": "Ver todo",
+    "seeAllAppsAria": "Ver todas las apps",
+    "seeAllFilesAria": "Ver todos los documentos e imágenes",
+    "seeAllFramesAria": "Ver todos los fotogramas de la cámara",
+    "title": "Información del chat"
+  },
   "chatLayout": {
     "navigationAria": "Navegación"
   },
