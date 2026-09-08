@@ -41,9 +41,17 @@ export function notificationAvatarDiscHex(accentHex: string | null): string {
   return `#${mixed(16)}${mixed(8)}${mixed(0)}`.toUpperCase();
 }
 
+/** Raster formats an `<image>` href carries here; what resvg and a canvas both decode. */
+export type NotificationAvatarMediaType =
+  | "image/png"
+  | "image/jpeg"
+  | "image/gif";
+
 export interface NotificationAvatarSvgOptions {
-  /** The avatar raster to draw inside the disc, base64 PNG with no data prefix. */
+  /** The avatar raster to draw inside the disc, base64 with no data prefix. */
   innerPngBase64: string;
+  /** What `innerPngBase64` holds; PNG unless an upload arrived as a JPEG or a GIF. */
+  innerMediaType?: NotificationAvatarMediaType;
   accentHex: string | null;
   size?: number;
 }
@@ -63,13 +71,14 @@ function px(value: number): string {
  */
 export function notificationAvatarSvg({
   innerPngBase64,
+  innerMediaType = "image/png",
   accentHex,
   size = NOTIFICATION_AVATAR_SIZE,
 }: NotificationAvatarSvgOptions): string {
   const offset = size * NOTIFICATION_AVATAR_INSET;
   const inner = size - 2 * offset;
   const radius = size / 2;
-  const href = `data:image/png;base64,${innerPngBase64}`;
+  const href = `data:${innerMediaType};base64,${innerPngBase64}`;
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
     `width="${px(size)}" height="${px(size)}" viewBox="0 0 ${px(size)} ${px(size)}">` +

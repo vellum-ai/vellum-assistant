@@ -29,7 +29,12 @@ import {
   ensureAvatarRasterPath,
   readContainedAvatarRaster,
 } from "../avatar/ensure-raster.js";
-import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
+import {
+  getResvg,
+  isResvgAvailable,
+  isResvgDecodableType,
+  RESVG_DECODABLE_TYPES,
+} from "../avatar/resvg-lazy.js";
 import { detectMediaType } from "../tools/shared/filesystem/image-read.js";
 import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
@@ -46,12 +51,6 @@ const log = getLogger("sync-avatar");
 const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
 const DOWNSCALE_PX = 128;
 const NONE_KEY = "none";
-/** Raster formats resvg decodes inside an `<image>`; anything else renders blank. */
-const RESVG_DECODABLE_TYPES: ReadonlySet<string> = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-]);
 /** Only bytes that sniff as a raster image are ever uploaded. */
 const UPLOADABLE_TYPES: ReadonlySet<string> = new Set([
   ...RESVG_DECODABLE_TYPES,
@@ -177,7 +176,7 @@ function downscaleRaster(bytes: Buffer): Buffer | null {
     return null;
   }
   const mediaType = detectMediaType(bytes);
-  if (mediaType === null || !RESVG_DECODABLE_TYPES.has(mediaType)) {
+  if (!isResvgDecodableType(mediaType)) {
     log.warn(
       { mediaType },
       "Avatar raster format is not decodable by resvg; skipping downscale",
