@@ -19,8 +19,8 @@ import { NOTIFICATION_AVATAR_SIZE } from "@vellumai/avatar-manifest/notification
  * Shaped like `useElectronIconSync` and mounted beside it, off the same avatar
  * query, so the notification icon can never show a different assistant than the
  * one on screen. The canvas work is gated behind Electron and
- * `push-avatar-sender`: no other host reads the holder, and with the flag off
- * the IPC payload must be byte-for-byte what it is today.
+ * `push-avatar-sender`: no other host reads the holder, and while the flag is
+ * off the holder stays empty so the IPC payload carries no `sender` field.
  *
  * Every run starts by emptying the holder, and what it stores is stamped with
  * the assistant it was drawn for. The holder outlives this effect, so a flag
