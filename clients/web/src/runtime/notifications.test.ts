@@ -290,6 +290,24 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     );
   });
 
+  test("a foreground data-only push reads its title and body from data", async () => {
+    nativeAndroid = true;
+    postForegroundRemotePush({
+      id: "message-2",
+      data: {
+        title: "Ada",
+        body: "Standup notes are up",
+        delivery_id: "delivery-data-only",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    const scheduled = scheduleMock.mock.calls[0]?.[0].notifications[0];
+    expect(scheduled?.title).toBe("Ada");
+    expect(scheduled?.body).toBe("Standup notes are up");
+  });
+
   test("a concurrent waiter retries after scheduling fails", async () => {
     nativeAndroid = true;
     let rejectFirst!: (error: Error) => void;

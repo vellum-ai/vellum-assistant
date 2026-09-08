@@ -633,17 +633,17 @@ export function postForegroundRemotePush(
     typeof notification.data === "object" && notification.data !== null
       ? (notification.data as Record<string, unknown>)
       : {};
-  const deliveryId =
-    typeof data.delivery_id === "string" ? data.delivery_id : notification.id;
-  const sourceEventName =
-    typeof data.source_event_name === "string"
-      ? data.source_event_name
-      : "remote_push";
+  const text = (value: unknown): string | undefined =>
+    typeof value === "string" ? value : undefined;
+  const deliveryId = text(data.delivery_id) ?? notification.id;
+  const sourceEventName = text(data.source_event_name) ?? "remote_push";
   const conversationId = extractPushConversationId(data);
 
   void postLocalNotification({
-    title: notification.title ?? "Vellum",
-    body: notification.body ?? "",
+    // A data-only push carries no notification block, so the copy the OS
+    // would have rendered lives in `data`.
+    title: notification.title ?? text(data.title) ?? "Vellum",
+    body: notification.body ?? text(data.body) ?? "",
     sourceEventName,
     deliveryId,
     correlationId: deliveryId,

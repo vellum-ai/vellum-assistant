@@ -66,6 +66,7 @@ interface RegisteredToken {
 interface AndroidPushRegistrationPlugin {
   register(): Promise<void>;
   unregister(): Promise<void>;
+  getCapabilities(): Promise<{ capabilities: string[] }>;
 }
 
 const ANDROID_PUSH_REGISTRATION_PLUGIN = "AndroidPushRegistration";
@@ -163,6 +164,27 @@ export function isRemotePushSupported(): boolean {
 }
 
 /**
+ * What this Android build can do with a push, advertised on the token row.
+ *
+ * The platform sends data-only FCM messages only to tokens claiming
+ * `native-notification-render`, so an older shell whose plugin lacks the
+ * method must report nothing and keep receiving notification-block pushes.
+ */
+async function readAndroidCapabilities(): Promise<string[]> {
+  if (!Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
+    return [];
+  }
+  try {
+    const { capabilities } = await AndroidPushRegistration.getCapabilities();
+    return Array.isArray(capabilities)
+      ? capabilities.filter((value) => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Upsert a freshly-minted native token to the platform for the given assistant.
  * Best-effort: a non-2xx response or thrown error is reported and swallowed.
  */
@@ -182,6 +204,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
             token,
             platform: "android" as const,
             bundle_id: bundleId,
+            capabilities: await readAndroidCapabilities(),
           }
         : {
             token,

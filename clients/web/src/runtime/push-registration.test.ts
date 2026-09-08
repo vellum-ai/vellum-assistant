@@ -13,6 +13,10 @@ let platform = "ios";
 let androidPushRegistrationAvailable = true;
 const androidRegisterMock = mock(async () => {});
 const androidUnregisterMock = mock(async () => {});
+let androidCapabilities: unknown = {
+  capabilities: ["native-notification-render"],
+};
+const androidGetCapabilitiesMock = mock(async () => androidCapabilities);
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
@@ -31,6 +35,7 @@ mock.module("@capacitor/core", () => ({
     return {
       register: androidRegisterMock,
       unregister: androidUnregisterMock,
+      getCapabilities: androidGetCapabilitiesMock,
     };
   },
 }));
@@ -129,6 +134,7 @@ interface UpsertArg {
     platform: string;
     bundle_id: string;
     apns_environment?: string;
+    capabilities?: string[];
   };
   throwOnError: boolean;
 }
@@ -235,6 +241,8 @@ beforeEach(() => {
   unregisterMock.mockClear();
   androidRegisterMock.mockClear();
   androidUnregisterMock.mockClear();
+  androidCapabilities = { capabilities: ["native-notification-render"] };
+  androidGetCapabilitiesMock.mockClear();
   ensureAndroidAlertsChannelMock.mockClear();
   callOrder.length = 0;
   getInfoMock.mockClear();
@@ -292,6 +300,7 @@ describe("registerForRemotePush", () => {
       },
       throwOnError: false,
     });
+    expect(androidGetCapabilitiesMock).not.toHaveBeenCalled();
   });
 
   test("creates the Android channel before registering and omits APNs fields", async () => {
@@ -312,10 +321,36 @@ describe("registerForRemotePush", () => {
       token: "fcm-token-abc",
       platform: "android",
       bundle_id: "ai.vellum.assistant.dev",
+      capabilities: ["native-notification-render"],
     });
     expect(resolveSignedApnsEnvironmentMock).not.toHaveBeenCalled();
     receivedHandler?.({ id: "message-1", data: { delivery_id: "delivery-1" } });
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("advertises no capabilities when the shell's plugin lacks the method", async () => {
+    platform = "android";
+    androidGetCapabilitiesMock.mockImplementationOnce(async () => {
+      throw new Error("not implemented");
+    });
+
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
+    registrationHandler?.({ value: "fcm-token-abc" });
+    await flushMicrotasks();
+
+    expect(lastUpsertArg?.body.capabilities).toEqual([]);
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("advertises no capabilities when the plugin answers with a non-array", async () => {
+    platform = "android";
+    androidCapabilities = {};
+
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
+    registrationHandler?.({ value: "fcm-token-abc" });
+    await flushMicrotasks();
+
+    expect(lastUpsertArg?.body.capabilities).toEqual([]);
   });
 
   test("installs listeners but skips registration on Android shells without the guarded plugin", async () => {
