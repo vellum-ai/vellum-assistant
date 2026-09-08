@@ -1215,6 +1215,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private receivedAudio = false;
   private detectedSpeech = false;
   private dispatchedTurn = false;
+  // Loudest server-VAD chunk the session saw, on the gate's own scale. Logged
+  // with a silent session's end so `no_speech` can be told apart: a peak
+  // under the gate is a user who talked and was not heard, a peak near the
+  // floor is a user who said nothing.
+  private peakChunkAmplitude = 0;
   // The client declared a text input affordance on the start frame, so it can
   // take a turn without the microphone. Governs one thing only: whether a
   // missing speech-to-text leg is fatal to startup (see start()).
@@ -1883,6 +1888,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ),
       outcome: failed ? "failed" : "completed",
     });
+    if (silenceReason !== null) {
+      // The levels behind a silent session, on the gate's scale, since the
+      // end event carries only the classification. A peak below `speechGate`
+      // on a `no_speech` session is a microphone the gate could not hear.
+      log.info(
+        {
+          sessionId: this.context.sessionId,
+          reason,
+          silenceReason,
+          peakChunkAmplitude: Math.round(this.peakChunkAmplitude),
+          noiseFloor:
+            this.roomNoiseFloor.floor === null
+              ? null
+              : Math.round(this.roomNoiseFloor.floor),
+          speechGate: Math.round(this.effectiveBaseThreshold()),
+        },
+        "Live-voice session ended without a turn",
+      );
+    }
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
@@ -2384,6 +2408,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    */
   private classifyVadEnergy(chunk: Buffer): VadClassifiedChunk[] {
     const meanAmplitude = pcm16MeanAmplitude(chunk);
+    if (meanAmplitude > this.peakChunkAmplitude) {
+      this.peakChunkAmplitude = meanAmplitude;
+    }
     const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
