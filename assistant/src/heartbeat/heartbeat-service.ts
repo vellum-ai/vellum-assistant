@@ -1038,3 +1038,50 @@ function isWithinActiveHours(
   // Overnight window: e.g. 22-6 means 22,23,0,1,2,3,4,5
   return hour >= start || hour < end;
 }
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function rawObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Cron next-run is computed in the resolved timezone at schedule time. Interval
+ * active hours are evaluated live, so only cron needs a reschedule when the
+ * fallback zone changes and heartbeat.timezone is unset.
+ */
+export function shouldRescheduleHeartbeatForTimezoneChange(
+  previousRaw: Record<string, unknown>,
+  nextRaw: Record<string, unknown>,
+): boolean {
+  const nextHeartbeat = rawObject(nextRaw.heartbeat);
+  if (stringOrNull(nextHeartbeat?.timezone)) {
+    return false;
+  }
+  if (!stringOrNull(nextHeartbeat?.cronExpression)) {
+    return false;
+  }
+  const previousUi = rawObject(previousRaw.ui);
+  const nextUi = rawObject(nextRaw.ui);
+  return (
+    stringOrNull(previousUi?.userTimezone) !==
+      stringOrNull(nextUi?.userTimezone) ||
+    stringOrNull(previousUi?.detectedTimezone) !==
+      stringOrNull(nextUi?.detectedTimezone)
+  );
+}
+
+export function rescheduleHeartbeatIfTimezoneChanged(
+  previousRaw: Record<string, unknown>,
+  nextRaw: Record<string, unknown>,
+): void {
+  if (!shouldRescheduleHeartbeatForTimezoneChange(previousRaw, nextRaw)) {
+    return;
+  }
+  HeartbeatService.getInstance()?.reconfigure();
+}

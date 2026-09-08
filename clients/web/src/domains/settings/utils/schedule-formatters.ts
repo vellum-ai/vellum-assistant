@@ -200,7 +200,8 @@ export function heartbeatSubtitle(
   config: HeartbeatConfigGetResponse,
   fallbackTimezone?: string | null,
 ): string {
-  const timezone = config.timezone || fallbackTimezone || null;
+  const timezone =
+    config.effectiveTimezone || config.timezone || fallbackTimezone || null;
   if (config.cronExpression) {
     return timezone
       ? `Cron: ${config.cronExpression} (${timezone})`

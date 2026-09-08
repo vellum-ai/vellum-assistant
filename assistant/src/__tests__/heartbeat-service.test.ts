@@ -308,8 +308,11 @@ export function setTestProcessMessage(
 }
 
 // Import after mocks are set up
-const { HeartbeatService, isShallowProfile } =
-  await import("../heartbeat/heartbeat-service.js");
+const {
+  HeartbeatService,
+  isShallowProfile,
+  shouldRescheduleHeartbeatForTimezoneChange,
+} = await import("../heartbeat/heartbeat-service.js");
 
 // Read the bundled template files so we can write them into the test workspace
 const templatesDir = join(import.meta.dirname!, "..", "prompts", "templates");
@@ -1741,5 +1744,55 @@ describe("HeartbeatService", () => {
 
       expect(prompt).not.toContain("<heartbeat-disposition>");
     });
+  });
+});
+
+describe("shouldRescheduleHeartbeatForTimezoneChange", () => {
+  test("reschedules cron heartbeats when the fallback user timezone changes", () => {
+    expect(
+      shouldRescheduleHeartbeatForTimezoneChange(
+        {
+          ui: { userTimezone: "America/New_York" },
+          heartbeat: { cronExpression: "0 9 * * *" },
+        },
+        {
+          ui: { userTimezone: "America/Los_Angeles" },
+          heartbeat: { cronExpression: "0 9 * * *" },
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("ignores ui timezone changes in interval mode", () => {
+    expect(
+      shouldRescheduleHeartbeatForTimezoneChange(
+        { ui: { userTimezone: "America/New_York" }, heartbeat: {} },
+        {
+          ui: { userTimezone: "America/Los_Angeles" },
+          heartbeat: {},
+        },
+      ),
+    ).toBe(false);
+  });
+
+  test("ignores ui timezone changes when heartbeat.timezone is set", () => {
+    expect(
+      shouldRescheduleHeartbeatForTimezoneChange(
+        {
+          ui: { userTimezone: "America/New_York" },
+          heartbeat: {
+            cronExpression: "0 9 * * *",
+            timezone: "UTC",
+          },
+        },
+        {
+          ui: { userTimezone: "America/Los_Angeles" },
+          heartbeat: {
+            cronExpression: "0 9 * * *",
+            timezone: "UTC",
+          },
+        },
+      ),
+    ).toBe(false);
   });
 });

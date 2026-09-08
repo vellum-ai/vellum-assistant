@@ -63,6 +63,7 @@ import {
   findSubstrateShadowing,
 } from "../../config/substrate-twin-shadowing.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
+import { rescheduleHeartbeatIfTimezoneChanged } from "../../heartbeat/heartbeat-service.js";
 import {
   getEmbeddingConfigInfo,
   setEmbeddingConfig,
@@ -1471,6 +1472,7 @@ export async function commitConfigWrite(
 
   clearEmbeddingBackendCache();
   invalidateConfigCache();
+  rescheduleHeartbeatIfTimezoneChanged(preWrite, raw);
   // Reinitialize providers so the live registry reflects the new config.
   // Suppress disk writes inside loadConfig() — we just wrote the raw config
   // and the first-launch seed path would overwrite it with full defaults.

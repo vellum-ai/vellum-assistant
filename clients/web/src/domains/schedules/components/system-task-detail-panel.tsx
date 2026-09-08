@@ -24,7 +24,6 @@ import {
   retrospectiveRunsGetInfiniteOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
-import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -88,11 +87,10 @@ export function SystemTaskDetailPanel({
 }: SystemTaskDetailPanelProps) {
   const { t } = useTranslation("schedules");
   const navigate = useNavigate();
-  const effectiveTimezone = useEffectiveTimezone();
   const { heartbeatConfig, consolidationConfig, retrospectiveConfig } =
     systemTasks;
   const heartbeatTimezone =
-    heartbeatConfig?.timezone || effectiveTimezone || null;
+    heartbeatConfig?.effectiveTimezone || heartbeatConfig?.timezone || null;
 
   let name: string;
   let subtitle: string;

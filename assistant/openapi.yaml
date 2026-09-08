@@ -13782,6 +13782,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13799,6 +13806,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -13870,6 +13878,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13887,6 +13902,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success

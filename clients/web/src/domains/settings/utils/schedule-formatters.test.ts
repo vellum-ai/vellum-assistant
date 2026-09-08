@@ -106,7 +106,7 @@ describe("heartbeatSubtitle", () => {
     ).toBe("Every 1 hr (8:00–22:00 America/Los_Angeles)");
   });
 
-  test("prefers the configured timezone over the fallback", () => {
+  test("prefers effectiveTimezone over the stored override and fallback", () => {
     expect(
       heartbeatSubtitle(
         {
@@ -116,12 +116,13 @@ describe("heartbeatSubtitle", () => {
           activeHoursEnd: 22,
           cronExpression: null,
           timezone: "America/New_York",
+          effectiveTimezone: "America/Chicago",
           nextRunAt: null,
           lastRunAt: null,
           success: true,
         },
         "America/Los_Angeles",
       ),
-    ).toBe("Every 1 hr (8:00–22:00 America/New_York)");
+    ).toBe("Every 1 hr (8:00–22:00 America/Chicago)");
   });
 });

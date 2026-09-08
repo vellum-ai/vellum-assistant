@@ -11,7 +11,6 @@ import {
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { Trans, useTranslation } from "@/i18n";
-import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
@@ -151,7 +150,6 @@ export function SystemTasksSection({
   onSelectRetrospective,
 }: SystemTasksSectionProps) {
   const { t } = useTranslation("settings");
-  const effectiveTimezone = useEffectiveTimezone();
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
   const showRetrospective = retrospectiveConfig?.available === true;
@@ -201,10 +199,7 @@ export function SystemTasksSection({
       {showHeartbeat ? (
         <SystemTaskRow
           name={t("systemTasksSection.heartbeatName")}
-          subtitle={heartbeatSubtitle(
-            heartbeatConfig,
-            heartbeatConfig.timezone || effectiveTimezone,
-          )}
+          subtitle={heartbeatSubtitle(heartbeatConfig)}
           enabled={heartbeatConfig.enabled}
           nextRunAt={heartbeatConfig.nextRunAt}
           lastRunAt={heartbeatConfig.lastRunAt}
