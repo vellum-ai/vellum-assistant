@@ -163,6 +163,7 @@ describe("health probes", () => {
     expect(src).toMatch(/\/readyz/);
     // Health server uses Bun.serve on a dedicated port, not the socket
     expect(src).toMatch(/startHealthServer\(\s*healthPort/);
+    expect(src).toMatch(/hostname:\s*"127\.0\.0\.1"/);
   });
 
   test("getHealthPort defaults to 8090", () => {
