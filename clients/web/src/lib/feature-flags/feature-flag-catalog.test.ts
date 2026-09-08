@@ -97,6 +97,17 @@ describe("feature flag catalog", () => {
     expect("summarizeUpToHere" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("summarizeUpToHere" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
+
+  test("does not expose GA desktop presence suppression as a feature flag", () => {
+    expect("desktopPresenceSuppression" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("desktopPresenceSuppression" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("desktopPresenceSuppression" in CLIENT_STRING_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect("desktopPresenceSuppression" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(
+      false,
+    );
+  });
 });
 
 describe("readEnvFlagOverrides", () => {

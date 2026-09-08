@@ -51,6 +51,7 @@ const REASON_TEXT_KEYS = {
   heartbeat: "frameGateHud.reasonHeartbeat",
   novel: "frameGateHud.reasonNovel",
   unchanged: "frameGateHud.reasonUnchanged",
+  forced: "frameGateHud.reasonForced",
 } as const satisfies Record<FrameGateReason, string>;
 
 const STEP_LABEL_KEYS = {
@@ -62,6 +63,7 @@ const STEP_LABEL_KEYS = {
   heartbeat: "frameGateHud.stepHeartbeat",
   novel: "frameGateHud.stepNovel",
   unchanged: "frameGateHud.stepUnchanged",
+  forced: "frameGateHud.stepForced",
 } as const satisfies Record<FrameGateReason, string>;
 
 const SLIDER_LABEL_KEYS = {

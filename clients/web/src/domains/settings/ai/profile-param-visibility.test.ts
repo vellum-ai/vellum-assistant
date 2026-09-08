@@ -262,6 +262,12 @@ describe("geminiThinkingLevels", () => {
     ).toEqual(["low", "medium", "high"]);
   });
 
+  test("gemini-3.8-flash excludes 'minimal'", () => {
+    const levels = geminiThinkingLevels("gemini-3.8-flash");
+    expect(levels).toEqual(["low", "medium", "high"]);
+    expect(levels).not.toContain("minimal");
+  });
+
   test("gemini-3.7-flash excludes 'minimal'", () => {
     const levels = geminiThinkingLevels("gemini-3.7-flash");
     expect(levels).toEqual(["low", "medium", "high"]);

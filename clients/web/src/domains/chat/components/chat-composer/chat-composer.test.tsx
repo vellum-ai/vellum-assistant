@@ -115,14 +115,17 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
   useLiveVoiceStore,
+  type LiveVoiceSeedOptions,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 const liveStarterSpy = mock(
+  // The starter's own options type, not a restated copy, so a field added to
+  // what a caller hands the starter reaches this spy on its own.
   (
     _assistantId: string,
     _conversationId: string | null,
-    _options?: { seedText?: string },
+    _options?: LiveVoiceSeedOptions,
   ) => {},
 );
 const livePrewarmSpy = mock(() => {});
@@ -2419,6 +2422,7 @@ describe("ChatComposer — live-voice integration", () => {
     // ready verdict (the composer holds no controller of its own).
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,
@@ -2594,6 +2598,7 @@ describe("ChatComposer — live-voice integration", () => {
     // the WS-level handshake surfaces any real credential problem
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,
@@ -2661,6 +2666,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,
@@ -2738,6 +2744,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      entry: "composer",
       // No greeting: this composer is bound to a conversation already
       // underway (JARVIS-1649).
       seedText: undefined,

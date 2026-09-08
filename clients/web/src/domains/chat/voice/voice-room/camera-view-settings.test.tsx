@@ -214,6 +214,15 @@ describe("CameraViewSettings", () => {
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
     expect(row("Kept frame")?.getAttribute("aria-checked")).toBe("false");
+
+    // The direction a fresh profile takes, since the preference ships off:
+    // this row is the only place a call turns the thumbnail on.
+    await act(async () => {
+      fireEvent.click(row("Kept frame")!);
+    });
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
+    expect(row("Kept frame")?.getAttribute("aria-checked")).toBe("true");
   });
 
   test("the readout row writes the persisted switch", async () => {

@@ -25,7 +25,11 @@ import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { deleteMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
+import {
+  deleteMemoryCheckpoint,
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../../persistence/checkpoints.js";
 import {
   geminiCacheExtras,
   getMemoryBackendStatus,
@@ -58,6 +62,274 @@ export const SECTION_COLLECTION = "memory_v3_sections";
  */
 export const MAINTAIN_EMBED_HIGH_WATER_KEY =
   "memory_v3_maintain:sections_embedded_through_ms";
+
+/**
+ * Checkpoint key of the section chunker version the stored vectors were built
+ * with, and the current version. Point ids derive from `(article, ordinal)`
+ * and the dense lane resolves hits by ordinal against the in-memory index, so
+ * a chunker change that moves chunk text or ordinals (version 2: the body
+ * budget that keeps the head line on every chunk) leaves a collection built
+ * by the previous chunker pointing at the wrong sections until every page is
+ * re-embedded. {@link ensureSectionChunkerVersion} forces that rebuild once
+ * per version change through the same high-water reset a recreated
+ * collection uses.
+ */
+export const SECTION_CHUNKER_VERSION_KEY =
+  "memory_v3_maintain:section_chunker_version";
+export const SECTION_CHUNKER_VERSION = 2;
+
+/**
+ * Checkpoint key marking a rebuild that a chunker version change forced and
+ * that no clean full re-embed pass has completed since: written by
+ * {@link ensureSectionChunkerVersion} before it resets the high-water, so an
+ * interruption between the two writes leaves the marker in place and the
+ * next check finishes the transition, and cleared by
+ * {@link commitSectionEmbedHighWater}. While it is set the stored points were
+ * built by the previous chunker, so their ordinals can name the wrong section
+ * of the current index and the dense lane serves no hits
+ * ({@link sectionDenseReadsHeld}); the maintain pass it names re-embeds every
+ * page and every capability row the store holds before its commit clears the
+ * marker. Persisted rather than held in process state so a restart between
+ * the reset and the rebuild keeps holding reads.
+ */
+export const SECTION_REBUILD_PENDING_KEY =
+  "memory_v3_maintain:section_rebuild_pending";
+
+/**
+ * Compare the recorded chunker version with the current one before an embed
+ * pass, and report whether the section store awaits a chunker rebuild. On a
+ * mismatch against a store holding vectors built by another chunker (see
+ * {@link sectionStoreHoldsStaleVectors}): mark the rebuild pending, then
+ * clear the embed high-water (so the next maintain pass re-embeds every page
+ * and prunes stale points through its usual paths), record the current
+ * version, and log once. The marker is written first because it is the only
+ * signal that survives the high-water reset: a crash or failed write between
+ * the two leaves the hold in place and the next check finishes the
+ * transition, where the reverse order would leave a store that reads as a
+ * fresh install with stale points still in it. On a mismatch against an empty
+ * store (a fresh install) only the version is recorded. On a match nothing is
+ * written. Returns whether a rebuild is pending after the check: one this
+ * call forced, or one an earlier check marked that no clean pass has
+ * committed since. Called at dense lane init, by the maintain job, and by the
+ * one-time backfill, whichever runs first, so the version is on record before
+ * any pass commits a high-water, and retried from the dense read path while
+ * a lane init's check has not completed ({@link settleSectionDenseReadHold}).
+ */
+export async function ensureSectionChunkerVersion(): Promise<boolean> {
+  const recorded = getMemoryCheckpoint(SECTION_CHUNKER_VERSION_KEY);
+  if (recorded === String(SECTION_CHUNKER_VERSION)) {
+    return getMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY) !== null;
+  }
+  const stale = await sectionStoreHoldsStaleVectors();
+  if (stale) {
+    setMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY, "1");
+    deleteMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY);
+    log.info(
+      { recorded, current: SECTION_CHUNKER_VERSION },
+      "memory-v3 section chunker version changed: the next maintain pass rebuilds the section dense store from every page",
+    );
+  }
+  setMemoryCheckpoint(
+    SECTION_CHUNKER_VERSION_KEY,
+    String(SECTION_CHUNKER_VERSION),
+  );
+  return stale;
+}
+
+/**
+ * Whether a store whose recorded chunker version is absent or differs from
+ * the current one holds vectors built by another chunker. True when an embed
+ * high-water is on record (a pass committed vectors), when a rebuild is
+ * already pending (an earlier transition was interrupted before the version
+ * was recorded), or, with neither on record, when the collection holds any
+ * point (an install whose passes never committed cleanly). An empty
+ * collection is a fresh install with nothing to rebuild. The collection probe
+ * throws when Qdrant is unreachable, so the check completes only once the
+ * store can be read.
+ */
+async function sectionStoreHoldsStaleVectors(): Promise<boolean> {
+  if (getMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY) !== null) {
+    return true;
+  }
+  if (getMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY) !== null) {
+    return true;
+  }
+  const result = await getSectionDenseClient().scroll(SECTION_COLLECTION, {
+    limit: 1,
+    with_payload: false,
+    with_vector: false,
+  });
+  return result.points.length > 0;
+}
+
+/**
+ * Why this process holds dense reads: `rebuild` while the durable marker
+ * says the store awaits a chunker rebuild; `indeterminate` while the version
+ * check has not completed (its last run threw: a collection probe against an
+ * unreachable Qdrant, a checkpoint the ledger could not serve), so whether
+ * the stored ordinals are safe is unknown; `open` when nothing holds them.
+ */
+type SectionDenseReadHold = "open" | "rebuild" | "indeterminate";
+
+let _hold: SectionDenseReadHold = "open";
+
+/** Epoch ms of the version check whose failure last left the hold
+ *  indeterminate; the retry waits {@link SECTION_VERSION_CHECK_RETRY_MS}
+ *  from it. */
+let _checkFailedAt = 0;
+
+/** The retried check in flight, shared by the dense reads that overlap it. */
+let _retry: Promise<boolean> | null = null;
+
+/** Registered at lane init: kicks the rebuild pass when a check first
+ *  reports a rebuild pending in this process. */
+let _onRebuildPending: (() => void) | undefined;
+
+/**
+ * How long after a failed version check the dense read path waits before
+ * retrying it, so an outage draws one collection probe a minute rather than
+ * one per read.
+ */
+const SECTION_VERSION_CHECK_RETRY_MS = 60_000;
+
+/**
+ * Hold dense reads while the section store awaits its chunker rebuild, or
+ * while whether it does cannot be determined. Run at dense lane init, before
+ * the lanes are handed out: compares the chunker version on record
+ * ({@link ensureSectionChunkerVersion}, which marks the rebuild pending and
+ * resets the high-water on a mismatch, and reports a marker an earlier check
+ * left), so a restart between a reset and the rebuild resumes the hold. A
+ * check that reports a rebuild pending holds reads until the rebuild's
+ * commit and calls `onRebuildPending`, the caller's cue to kick the rebuild
+ * pass. A check that throws holds reads as indeterminate: nothing on record
+ * proves the stored ordinals safe (the failed probe may be the one that
+ * would have found them stale), so the dense read path retries the check
+ * ({@link settleSectionDenseReadHold}) until one completes, and a retried
+ * check that reports the rebuild calls `onRebuildPending` the same way.
+ * Returns whether this call started a hold; a hold already in place, or none
+ * needed, returns false.
+ */
+export async function holdSectionDenseReadsUntilRebuilt(
+  onRebuildPending?: () => void,
+): Promise<boolean> {
+  if (_hold !== "open") {
+    return false;
+  }
+  _onRebuildPending = onRebuildPending;
+  return applySectionChunkerVersionCheck();
+}
+
+/**
+ * Run the version check and move the hold to what it reports: `rebuild`
+ * (kicking the rebuild pass) when one is pending, `indeterminate` when the
+ * check throws, `open` when nothing is pending. Returns whether reads are
+ * held afterwards.
+ */
+async function applySectionChunkerVersionCheck(): Promise<boolean> {
+  let pending: boolean;
+  try {
+    pending = await ensureSectionChunkerVersion();
+  } catch (err) {
+    _hold = "indeterminate";
+    _checkFailedAt = Date.now();
+    log.warn(
+      {
+        err: err instanceof Error ? err.message : String(err),
+        retryAfterMs: SECTION_VERSION_CHECK_RETRY_MS,
+      },
+      "memory-v3 section chunker version check failed; dense reads held until a retried check completes",
+    );
+    return true;
+  }
+  if (!pending) {
+    releaseSectionDenseReadHold();
+    return false;
+  }
+  _hold = "rebuild";
+  log.warn(
+    { current: SECTION_CHUNKER_VERSION },
+    "memory-v3 section store awaits its chunker rebuild: the dense lane serves no hits until the rebuild pass completes",
+  );
+  _onRebuildPending?.();
+  return true;
+}
+
+/**
+ * Whether the dense lane must serve no hits, the fast path of every dense
+ * read. A hold for a rebuild on record re-reads the durable marker, so the
+ * read that finds it cleared (the rebuild completed in another process)
+ * releases the hold, and a marker that cannot be read keeps holding. An
+ * indeterminate hold stays until a retried check completes
+ * ({@link settleSectionDenseReadHold}), never on the marker's absence, which
+ * is exactly what the failed check left unproven.
+ */
+export function sectionDenseReadsHeld(): boolean {
+  if (_hold === "open") {
+    return false;
+  }
+  if (_hold === "indeterminate") {
+    return true;
+  }
+  try {
+    if (getMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY) !== null) {
+      return true;
+    }
+  } catch {
+    return true;
+  }
+  releaseSectionDenseReadHold();
+  return false;
+}
+
+/**
+ * The slow path behind {@link sectionDenseReadsHeld}, for a dense read that
+ * found reads held: an indeterminate hold whose retry cooldown has elapsed
+ * runs the version check again (one check at a time, shared by the reads
+ * that overlap it), and the check that completes moves the hold to the
+ * rebuild it reports or releases it. Resolves to whether reads are still
+ * held.
+ */
+export async function settleSectionDenseReadHold(): Promise<boolean> {
+  if (_hold !== "indeterminate") {
+    return sectionDenseReadsHeld();
+  }
+  if (Date.now() - _checkFailedAt < SECTION_VERSION_CHECK_RETRY_MS) {
+    return true;
+  }
+  if (!_retry) {
+    _retry = applySectionChunkerVersionCheck().finally(() => {
+      _retry = null;
+    });
+  }
+  return _retry;
+}
+
+function releaseSectionDenseReadHold(): void {
+  if (_hold === "open") {
+    return;
+  }
+  const released = _hold;
+  _hold = "open";
+  log.info(
+    released === "rebuild"
+      ? "memory-v3 section store rebuilt for the current chunker: dense reads resume"
+      : "memory-v3 section chunker version check completed with no rebuild pending: dense reads resume",
+  );
+}
+
+/**
+ * Record the epoch-ms high-water of a re-embed pass that completed with zero
+ * failures, the point from which the maintain job and the backfill advance
+ * the mark. A pass that started with the mark absent, which is what a forced
+ * chunker rebuild leaves behind, re-embedded every page (and, with the
+ * rebuild marked pending, every capability row the store held), so the same
+ * commit clears the pending marker and releases this process's read hold.
+ */
+export function commitSectionEmbedHighWater(highWaterMs: number): void {
+  setMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY, String(highWaterMs));
+  deleteMemoryCheckpoint(SECTION_REBUILD_PENDING_KEY);
+  releaseSectionDenseReadHold();
+}
 
 /**
  * Stable UUIDv5 namespace used to derive a deterministic Qdrant point ID from a
@@ -314,6 +586,36 @@ export async function upsertSections(
 }
 
 /**
+ * Sections per backend call when warming the cache: the vectors of one call
+ * are held in memory until its cache rows are written, so this bounds that
+ * footprint (a few megabytes at 3,072 dimensions) while a call still spans
+ * many pages.
+ */
+export const WARM_SECTIONS_PER_CALL = 200;
+
+/**
+ * Warm the `memory_embeddings` cache for `sections` across pages, in backend
+ * calls of at most {@link WARM_SECTIONS_PER_CALL} sections (every miss in a
+ * call embeds in one batched request), so the per-page `upsertSections` calls
+ * that follow serve from the cache and make no backend round trip. Without
+ * the warm-up a corpus rebuild pays one backend call per page. The vectors
+ * are not returned: the cache rows are the product, keyed exactly as the
+ * per-page path keys them, and each call's vectors are released once its rows
+ * are written. An empty `sections` array is a no-op.
+ */
+export async function warmSectionEmbeddings(
+  config: AssistantConfig,
+  sections: Section[],
+): Promise<void> {
+  for (let i = 0; i < sections.length; i += WARM_SECTIONS_PER_CALL) {
+    await embedSectionsCached(
+      config,
+      sections.slice(i, i + WARM_SECTIONS_PER_CALL),
+    );
+  }
+}
+
+/**
  * Resolve a dense vector per section, reusing cached vectors for sections whose
  * `text` is unchanged and embedding only the misses in a single batched backend
  * call. Returns one entry per input section, index-aligned; a position is left
@@ -491,4 +793,8 @@ export async function listSectionArticles(
 export function _resetSectionDenseStoreForTests(): void {
   _client = null;
   _collectionReady = false;
+  _hold = "open";
+  _checkFailedAt = 0;
+  _retry = null;
+  _onRebuildPending = undefined;
 }

@@ -12,6 +12,11 @@
  * `runtime/event-sources/*` producer) captures exactly what reached
  * consumers, on a single channel, and keeps the producers pure.
  *
+ * `app.attention` is recorded for the neighbouring question: a desktop
+ * window that reported itself watched suppresses the notification for the
+ * conversation it was showing, so a "the notification never arrived" report
+ * needs the same trail of where that window actually was.
+ *
  * A consumer, not a producer — wired once at mount alongside the signal
  * sources in `hooks/use-event-bus-init.ts`.
  */
@@ -22,6 +27,7 @@ import { subscribe, type BusEventName } from "@/lib/event-bus";
 const LIFECYCLE_EVENTS = [
   "app.resume",
   "app.hidden",
+  "app.attention",
   "app.online",
   "app.offline",
   "power.suspend",

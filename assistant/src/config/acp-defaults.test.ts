@@ -21,11 +21,11 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
     });
   });
 
-  test("codex profile uses the @zed-industries adapter binary", () => {
+  test("codex profile uses the @agentclientprotocol adapter binary", () => {
     expect(DEFAULT_ACP_AGENT_PROFILES.codex).toEqual({
       command: "codex-acp",
       args: [],
-      description: "OpenAI Codex CLI (via @zed-industries/codex-acp)",
+      description: "OpenAI Codex CLI (via @agentclientprotocol/codex-acp)",
     });
   });
 
@@ -45,7 +45,7 @@ describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
   test("is keyed by command name with the canonical npm package", () => {
     expect(DEFAULT_AGENT_NPM_PACKAGES).toEqual({
       "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-      "codex-acp": "@zed-industries/codex-acp",
+      "codex-acp": "@agentclientprotocol/codex-acp",
     });
   });
 

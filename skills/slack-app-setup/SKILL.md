@@ -17,15 +17,9 @@ metadata:
       - "create a Slack bot"
 ---
 
-## When to Use
+## Scope
 
-USE THIS SKILL WHEN:
-
-- The user says "set up Slack", "connect Slack", "add a Slack workspace", "get you on Slack", or any variant that means _connect this assistant to Slack_.
-- A freshly-provisioned assistant needs a Slack bot identity (tokens, scopes, events) configured for the first time.
-- The user wants to switch the assistant to a new Slack workspace or rotate its tokens.
-
-DO NOT use this skill for runtime Slack operations (posting, reading channels, triage). That is the separate `slack` skill.
+This skill connects an assistant to a Slack workspace: first-time bot identity (tokens, scopes, events), or switching workspaces and rotating tokens. Runtime Slack operations (posting, reading channels, triage) belong to the separate `slack` skill.
 
 ## Step 1 — Check existing configuration
 

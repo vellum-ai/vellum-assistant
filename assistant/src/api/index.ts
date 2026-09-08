@@ -832,6 +832,10 @@ export {
   MemoryV2ConfigSnapshotSchema,
 } from "./responses/memory-v2-activation-log.js";
 export {
+  type MemoryV3Pool,
+  type MemoryV3PoolCandidate,
+  MemoryV3PoolCandidateSchema,
+  MemoryV3PoolSchema,
   type MemoryV3SelectionLog,
   MemoryV3SelectionLogSchema,
   type MemoryV3SelectionRow,

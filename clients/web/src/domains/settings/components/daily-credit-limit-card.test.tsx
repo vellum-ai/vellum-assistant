@@ -100,11 +100,9 @@ import {
 
 import { routes } from "@/utils/routes";
 
-const {
-  DAILY_CREDIT_LIMIT_ANCHOR_ID,
-  DailyCreditLimitCard,
-  validateDailyLimit,
-} = await import("./daily-credit-limit-card");
+const { DAILY_CREDIT_LIMIT_ANCHOR_ID, DailyCreditLimitCard } =
+  await import("./daily-credit-limit-card");
+const { validateDailyLimit } = await import("./daily-credit-limit-input");
 
 const AUTO_TOP_UP_OFF: AutoTopUpConfigResponse = {
   enabled: false,

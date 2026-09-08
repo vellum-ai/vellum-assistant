@@ -1,23 +1,32 @@
 /**
  * Generic notification conversation pairing.
  *
- * Materializes a conversation + message for a notification delivery
- * before the adapter sends it, so the delivery has an auditable
- * conversation trail and the macOS/iOS client can deep-link into it.
+ * Pairs a notification delivery with a conversation before the adapter
+ * sends it, so the delivery has an auditable conversation trail and the
+ * macOS/iOS client can deep-link into it. What is written before the send
+ * depends on the channel's strategy:
+ *
+ * - `start_new_conversation` (vellum): the conversation and its seed
+ *   message are materialized here. The send is a local broadcast, and the
+ *   feed card's deep link and rewritable row depend on the row existing.
+ * - `continue_existing_conversation` (every external channel adapter): only
+ *   the chat's home conversation is resolved here, and no row is written.
+ *   The broadcaster records the delivered post as an assistant row once the
+ *   channel acknowledges it (`recordDeliveredChannelPost`), so a failed or
+ *   pending delivery never reads as something the assistant said.
+ *
  * Guardian-request deliveries to channels are the exception: they are
  * delivery projections of a canonical request and pair nothing (see the
  * guard below); only their vellum delivery carries a conversation.
  *
- * Resolution order:
- * 1. Explicit `reuse_existing` conversation action — highest precedence.
- * 2. Binding-key reuse — for `continue_existing_conversation` channels:
- *    a. Inbound conversation lookup — checks the un-prefixed binding
- *       (sourceChannel, externalChatId) for a conversation created by
- *       the inbound message handler. Preferred for reply continuity.
- *    b. Notification-scoped binding — checks the `notification:`-prefixed
- *       binding for a prior notification conversation.
- * 3. Default — creates a fresh conversation and, when binding context is
- *    present, upserts it into the external-conversation store for future reuse.
+ * Resolution order for a channel delivery's home
+ * (`resolveChannelDeliveryHome`, `resolveProactiveHomeConversation`):
+ * 1. Explicit `reuse_existing` conversation action, when its target exists
+ *    with the expected source.
+ * 2. The chat's inbound conversation, from its thread-less binding at the
+ *    un-prefixed (sourceChannel, externalChatId) key.
+ * 3. The chat's `notification:`-namespace conversation.
+ * 4. A fresh background conversation, bound under that namespace.
  */
 
 import type { ConversationStrategy } from "../channels/config.js";
@@ -29,7 +38,10 @@ import {
   createConversation,
   getConversation,
 } from "../persistence/conversation-crud.js";
-import { ASSISTANT_INITIATED_SOURCE } from "../persistence/conversation-types.js";
+import {
+  ASSISTANT_INITIATED_SOURCE,
+  type ConversationCreateType,
+} from "../persistence/conversation-types.js";
 import {
   getBindingByChannelChat,
   upsertOutboundBinding,
@@ -84,19 +96,16 @@ export interface PairingOptions {
 /**
  * Pair a notification delivery with a conversation and seed message.
  *
- * Looks up the channel's conversation strategy from the policy registry
- * and materializes a conversation + assistant message accordingly.
+ * Looks up the channel's conversation strategy from the policy registry.
+ * For `continue_existing_conversation` channels it resolves the chat's home
+ * conversation and returns a null `messageId` (the row is written after the
+ * channel acknowledges the send). For `start_new_conversation` it
+ * materializes a conversation and its seed message:
+ * 1. `options.conversationAction === "reuse_existing"` reuses the explicit
+ *    target when it exists with the expected source.
+ * 2. Otherwise a new conversation is created.
  *
- * Resolution precedence:
- * 1. `options.conversationAction === "reuse_existing"` — reuse the explicit target.
- * 2. `continue_existing_conversation` strategy with binding context:
- *    a. Un-prefixed (inbound) binding — preferred for reply continuity so
- *       the user's replies include the notification in their history.
- *    b. `notification:`-prefixed binding — used when no inbound conversation
- *       exists yet (e.g. first notification before the user has messaged).
- * 3. Create a new conversation (and upsert the binding when context is present).
- *
- * Invalid/stale targets at any level fall through to the next.
+ * Invalid/stale targets fall through to the next step.
  *
  * Passive vellum notifications (those without `requiresConversation`) never
  * reach that order. They create nothing, and instead append their body to the
@@ -274,6 +283,31 @@ export async function pairDeliveryWithConversation(
     const conversationType =
       signal.conversationMetadata?.conversationType ??
       (strategy === "start_new_conversation" ? "standard" : "background");
+    const source = signal.conversationMetadata?.source ?? "notification";
+
+    // A channel delivery (`continue_existing_conversation`, the strategy of
+    // every external channel adapter) resolves the chat's home conversation
+    // here and writes no row. The row is written by the broadcaster once the
+    // channel acknowledges the post (`recordDeliveredChannelPost`), so a
+    // failed or pending delivery never reads as something the assistant said.
+    if (strategy === "continue_existing_conversation") {
+      const home = await resolveChannelDeliveryHome({
+        signal,
+        channel,
+        conversationAction,
+        bindingContext,
+        source,
+        conversationType,
+        title,
+      });
+      return {
+        conversationId: home.conversationId,
+        messageId: null,
+        strategy,
+        createdNewConversation: home.createdNewConversation,
+        conversationFallbackUsed: home.conversationFallbackUsed,
+      };
+    }
 
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {
@@ -372,135 +406,6 @@ export async function pairDeliveryWithConversation(
       };
     }
 
-    // For channels with continue_existing_conversation strategy, try to
-    // reuse a previously bound conversation keyed by (sourceChannel, externalChatId)
-    // before falling through to create a new one.
-    if (
-      strategy === "continue_existing_conversation" &&
-      bindingContext?.sourceChannel &&
-      bindingContext?.externalChatId
-    ) {
-      // ── Step 1: Prefer the inbound conversation for reply continuity ──
-      //
-      // When the user has previously messaged in this channel, the inbound
-      // pipeline created a binding at the un-prefixed (sourceChannel,
-      // externalChatId) key.  Posting to that conversation means the
-      // user's subsequent replies will include the notification in their
-      // conversation history — avoiding "split brain" where proactive
-      // messages live in one conversation and replies route to another.
-      //
-      // The source check is intentionally skipped here: the inbound
-      // conversation will have a different source (typically null) from
-      // notifications, but it is the correct target for reply continuity.
-      const inboundBinding = getBindingByChannelChat(
-        bindingContext.sourceChannel,
-        bindingContext.externalChatId,
-      );
-
-      if (inboundBinding) {
-        const inboundConversation = getConversation(
-          inboundBinding.conversationId,
-        );
-
-        if (inboundConversation) {
-          const message = await addMessage(
-            inboundConversation.id,
-            "assistant",
-            messageContent,
-            { skipIndexing: true },
-          );
-
-          log.info(
-            {
-              signalId: signal.signalId,
-              channel,
-              strategy,
-              conversationId: inboundConversation.id,
-              messageId: message.id,
-              bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
-            },
-            "Appended notification to inbound conversation for reply continuity",
-          );
-
-          return {
-            conversationId: inboundConversation.id,
-            messageId: message.id,
-            strategy,
-            createdNewConversation: false,
-            conversationFallbackUsed: false,
-          };
-        }
-      }
-
-      // ── Step 2: Fall back to notification-scoped binding ──
-      //
-      // Before the user has ever messaged in this channel, there is no
-      // inbound binding.  Check the notification-prefixed namespace for a
-      // prior notification conversation so successive deliveries still
-      // accumulate in the same thread.
-      const notificationBinding = getBindingByChannelChat(
-        notificationChannel(bindingContext.sourceChannel),
-        bindingContext.externalChatId,
-      );
-
-      if (notificationBinding) {
-        const boundConversation = getConversation(
-          notificationBinding.conversationId,
-        );
-
-        const effectiveSource =
-          signal.conversationMetadata?.source ?? "notification";
-        if (boundConversation && boundConversation.source === effectiveSource) {
-          const message = await addMessage(
-            boundConversation.id,
-            "assistant",
-            messageContent,
-            { skipIndexing: true },
-          );
-
-          // Touch the outbound timestamp so the binding stays fresh.
-          upsertOutboundBinding({
-            conversationId: boundConversation.id,
-            sourceChannel: notificationChannel(bindingContext.sourceChannel),
-            externalChatId: bindingContext.externalChatId,
-          });
-
-          log.info(
-            {
-              signalId: signal.signalId,
-              channel,
-              strategy,
-              conversationId: boundConversation.id,
-              messageId: message.id,
-              bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
-            },
-            "Reused bound notification conversation for channel destination",
-          );
-
-          return {
-            conversationId: boundConversation.id,
-            messageId: message.id,
-            strategy,
-            createdNewConversation: false,
-            conversationFallbackUsed: false,
-          };
-        }
-
-        // Binding exists but conversation is stale or wrong source — fall through
-        // to create a new one and re-bind below.
-        log.warn(
-          {
-            signalId: signal.signalId,
-            channel,
-            boundConversationId: notificationBinding.conversationId,
-            boundConversationExists: !!boundConversation,
-            boundConversationSource: boundConversation?.source,
-          },
-          "Bound notification conversation stale or invalid — creating fresh conversation",
-        );
-      }
-    }
-
     // Default path: create a new conversation
     // Memory indexing is skipped on the seed message below to prevent
     // notification copy from polluting conversational recall.
@@ -574,6 +479,209 @@ export async function pairDeliveryWithConversation(
       conversationFallbackUsed: false,
     };
   }
+}
+
+/**
+ * Where a chat's proactive posts live: the conversation a delivery to
+ * (`sourceChannel`, `externalChatId`) is recorded in once the channel
+ * acknowledges it.
+ *
+ * Resolution order:
+ * 1. The chat's inbound conversation, when the person has messaged in this
+ *    chat and the inbound pipeline bound it at the un-prefixed key. Posting
+ *    there keeps the notification in the history the person's replies land
+ *    in. The source check is skipped on purpose: that conversation's source
+ *    is not `notification`, and it is still the right home. The lookup is
+ *    for the chat's thread-less binding, so a thread-scoped chat (a Slack
+ *    agent DM, a Telegram topic), whose inbound bindings each carry a thread
+ *    id, never resolves here and falls through to its own proactive home
+ *    rather than into one of its threads.
+ * 2. The chat's `notification:`-namespace conversation, when one exists with
+ *    the expected source. Its binding is touched so it stays fresh.
+ * 3. A new background conversation, bound under the `notification:`
+ *    namespace so later deliveries reuse it.
+ *
+ * Resolves only; writes no message row. Shared by notification pairing and
+ * by the messaging tool's cross-post, which record their delivered posts
+ * after the provider acknowledges them.
+ */
+export async function resolveProactiveHomeConversation(params: {
+  sourceChannel: string;
+  externalChatId: string;
+  /** Source stamped on a conversation this creates, and required of a reused one. */
+  source: string;
+  conversationType: ConversationCreateType;
+  title: string;
+  groupId?: string;
+  scheduleJobId?: string;
+}): Promise<{ conversationId: string; createdNewConversation: boolean }> {
+  const { sourceChannel, externalChatId } = params;
+
+  const inboundBinding = getBindingByChannelChat(sourceChannel, externalChatId);
+  if (inboundBinding) {
+    const inboundConversation = getConversation(inboundBinding.conversationId);
+    if (inboundConversation) {
+      return {
+        conversationId: inboundConversation.id,
+        createdNewConversation: false,
+      };
+    }
+  }
+
+  const notificationBinding = getBindingByChannelChat(
+    notificationChannel(sourceChannel),
+    externalChatId,
+  );
+  if (notificationBinding) {
+    const boundConversation = getConversation(
+      notificationBinding.conversationId,
+    );
+    if (boundConversation && boundConversation.source === params.source) {
+      upsertOutboundBinding({
+        conversationId: boundConversation.id,
+        sourceChannel: notificationChannel(sourceChannel),
+        externalChatId,
+      });
+      return {
+        conversationId: boundConversation.id,
+        createdNewConversation: false,
+      };
+    }
+    log.warn(
+      {
+        sourceChannel,
+        externalChatId,
+        boundConversationId: notificationBinding.conversationId,
+        boundConversationExists: !!boundConversation,
+        boundConversationSource: boundConversation?.source,
+      },
+      "Bound notification conversation stale or invalid: creating a fresh conversation",
+    );
+  }
+
+  const conversation = await withSqliteRetry(
+    () =>
+      createConversation({
+        title: params.title,
+        conversationType: params.conversationType,
+        source: params.source,
+        groupId: params.groupId,
+        scheduleJobId: params.scheduleJobId,
+      }),
+    { op: "conversationPairing.proactiveHome" },
+  );
+  upsertOutboundBinding({
+    conversationId: conversation.id,
+    sourceChannel: notificationChannel(sourceChannel),
+    externalChatId,
+  });
+  return { conversationId: conversation.id, createdNewConversation: true };
+}
+
+/**
+ * Resolve the home conversation for a channel delivery before it is sent.
+ *
+ * An explicit `reuse_existing` action from the decision engine takes
+ * precedence when its target exists with the expected source (and the
+ * destination is rebound to it); otherwise the chat's proactive home
+ * (`resolveProactiveHomeConversation`). A delivery with no binding context
+ * has no chat to key on and gets a fresh background conversation.
+ */
+async function resolveChannelDeliveryHome(params: {
+  signal: NotificationSignal;
+  channel: NotificationChannel;
+  conversationAction: ConversationAction | undefined;
+  bindingContext: DestinationBindingContext | undefined;
+  source: string;
+  conversationType: ConversationCreateType;
+  title: string;
+}): Promise<{
+  conversationId: string;
+  createdNewConversation: boolean;
+  conversationFallbackUsed: boolean;
+}> {
+  const { signal, channel, conversationAction, bindingContext } = params;
+  const metadata = signal.conversationMetadata;
+  let conversationFallbackUsed = false;
+
+  if (conversationAction?.action === "reuse_existing") {
+    const targetId = conversationAction.conversationId;
+    const existing = getConversation(targetId);
+    if (existing && existing.source === params.source) {
+      if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+        upsertOutboundBinding({
+          conversationId: existing.id,
+          sourceChannel: notificationChannel(bindingContext.sourceChannel),
+          externalChatId: bindingContext.externalChatId,
+        });
+      }
+      log.info(
+        {
+          signalId: signal.signalId,
+          channel,
+          conversationId: existing.id,
+          conversationAction: "reuse_existing",
+        },
+        "Reused existing notification conversation as the delivery's home",
+      );
+      return {
+        conversationId: existing.id,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+    }
+    log.warn(
+      {
+        signalId: signal.signalId,
+        channel,
+        targetConversationId: targetId,
+        targetExists: !!existing,
+        targetSource: existing?.source,
+      },
+      "Conversation reuse target invalid: resolving the chat's home instead",
+    );
+    conversationFallbackUsed = true;
+  }
+
+  if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+    const home = await resolveProactiveHomeConversation({
+      sourceChannel: bindingContext.sourceChannel,
+      externalChatId: bindingContext.externalChatId,
+      source: params.source,
+      conversationType: params.conversationType,
+      title: params.title,
+      groupId: metadata?.groupId,
+      scheduleJobId: metadata?.scheduleJobId,
+    });
+    log.info(
+      {
+        signalId: signal.signalId,
+        channel,
+        conversationId: home.conversationId,
+        createdNewConversation: home.createdNewConversation,
+        bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
+      },
+      "Resolved the chat's home conversation for a channel delivery",
+    );
+    return { ...home, conversationFallbackUsed };
+  }
+
+  const conversation = await withSqliteRetry(
+    () =>
+      createConversation({
+        title: params.title,
+        conversationType: params.conversationType,
+        source: params.source,
+        groupId: metadata?.groupId,
+        scheduleJobId: metadata?.scheduleJobId,
+      }),
+    { op: "conversationPairing.channelHomeUnbound" },
+  );
+  return {
+    conversationId: conversation.id,
+    createdNewConversation: true,
+    conversationFallbackUsed,
+  };
 }
 
 /**

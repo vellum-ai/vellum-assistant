@@ -28,7 +28,9 @@ import {
   subagentSpawnDetail,
   thinkingDetail,
   unknownToolDetail,
+  webFetchDetail,
   webSearchDetail,
+  webSearchErrorDetail,
 } from "@/domains/chat/components/tool-detail-story-fixtures";
 
 import { ToolDetailPanel } from "./tool-detail-panel";
@@ -68,7 +70,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_write` shows the written body as a JSON string literal with escaped newlines; `file_edit` shows a diff as two such literals side by side, with no diff rendering at all. |
  * | Shell (`bash`, `host_bash`) | generic | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | A command and its stdout are shown as a JSON object and a `<pre>`, so the thing the user reads is quoted and escaped rather than rendered as a terminal. |
  * | Memory (`remember`, `recall`) | generic | 3 | Remember, Recall | `recall` returns a ranked list and renders as flat preformatted text; `remember` spends the full section chrome on a one-line acknowledgement. |
- * | Web (`web_search`, `web_fetch`) | dedicated views, reachable only from `SubagentDetailPanel` | 4 | WebSearchKind | `ToolDetailPanel` has no `kind === "web_search"` branch, so the same payload renders as a search view under a subagent and as generic JSON here. |
+ * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
  * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | Nested-object inputs are the worst case for the raw JSON block. |
@@ -104,9 +106,8 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * ## Still open
  *
- * LUM-3511 for the MCP naming, and LUM-3512 for the `web_search` kind that two
- * panels disagree about. Every other treatment below documents behaviour the
- * panel has, not a gap it is waiting on.
+ * LUM-3511 for the MCP naming. Every other treatment below documents behaviour
+ * the panel has, not a gap it is waiting on.
  */
 const meta: Meta<typeof ToolDetailPanel> = {
   title: "Chat/ToolDetailPanel",
@@ -343,12 +344,20 @@ export const SkillExecute: Story = { args: { detail: skillExecuteDetail } };
 export const Thinking: Story = { args: { detail: thinkingDetail } };
 
 /**
- * A `kind: "web_search"` payload opened through `ToolDetailPanel`. Only
- * `SubagentDetailPanel` branches on this kind, so here the search query and
- * the parsed sources are ignored and the call falls through to the generic
- * tool treatment.
+ * A `kind: "web_search"` payload. The query and its sources render as a search
+ * view in every panel that hosts a tool detail, because the renderer is looked
+ * up in one registry rather than branched on per panel.
  */
 export const WebSearchKind: Story = { args: { detail: webSearchDetail } };
+
+/**
+ * A failed search. With no sources to lay out it falls through to the generic
+ * body on purpose, so the error reads the way any other failed tool's does.
+ */
+export const WebSearchError: Story = { args: { detail: webSearchErrorDetail } };
+
+/** `web_fetch`. The fetched page, not the header-and-marker envelope. */
+export const WebFetch: Story = { args: { detail: webFetchDetail } };
 
 // ---------------------------------------------------------------------------
 // Presentation

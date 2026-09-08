@@ -18,6 +18,14 @@ import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 const log = getLogger("recall-conversations-source");
 
 const SUBAGENT_SOURCE = "subagent";
+/**
+ * A notification conversation holds the posts the daemon delivered to a chat,
+ * written after the channel acknowledged them with the `providerMeta`
+ * envelope (`notifications/delivered-post-record.ts`). Only those rows are
+ * evidence: rows the pre-send pairing path wrote there carry no envelope and
+ * may describe a post the channel never accepted, and the lexical backfill
+ * indexes every finalized row regardless of how it was written.
+ */
 const NOTIFICATION_SOURCE = "notification";
 
 interface ConversationEvidenceRow {
@@ -36,7 +44,8 @@ interface ConversationEvidenceRow {
  * The read fetches ranked message-id candidates first and filters them in SQL
  * afterwards (Qdrant has no visibility filtering), so it must over-fetch
  * enough candidates that excluded rows (the active conversation,
- * subagent/auto-analysis/notification sources, private history) don't starve
+ * subagent/auto-analysis sources, notification rows without a delivered-post
+ * envelope, private history) don't starve
  * the post-filter pool. A generous candidate pool is cheap — the final
  * consumer takes top-N after the app-side scorer anyway.
  *
@@ -251,7 +260,12 @@ function searchByIds(
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.id IN (${placeholders})
-      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
+      AND (c.source IS NULL OR c.source NOT IN (?, ?))
+      AND (
+        c.source IS NULL
+        OR c.source != ?
+        OR json_extract(m.metadata, '$.providerMeta') IS NOT NULL
+      )
       AND c.id != ?
       AND c.conversation_type != 'private'
     ORDER BY m.created_at DESC

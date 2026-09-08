@@ -456,7 +456,7 @@ describe("the model list", () => {
     expect(opus).toHaveLength(1);
     expect(opus[0].meta).toBe("");
 
-    const gemini = rows.find((row) => row.label === "Gemini 3.6 Flash");
+    const gemini = rows.find((row) => row.label === "Gemini 3.8 Flash");
     expect(gemini?.meta).toBe("");
   });
 

@@ -17,6 +17,7 @@ import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-set
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
@@ -101,6 +102,7 @@ import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
+import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actions";
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -199,7 +201,7 @@ export function RootLayout() {
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
   // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
   // (and any future accent-tinted UI) can read it from plain CSS.
-  useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
+  useAvatarAccentVar(avatar.accentHex);
   // Publish the same avatar for the iOS Live Activity, which cannot fetch an
   // image at render time and needs the bytes to travel with the activity.
   useIslandAvatarSource(
@@ -210,7 +212,12 @@ export function RootLayout() {
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
-  useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
+  useElectronIconSync(
+    avatar.customImageUrl,
+    avatar.components,
+    avatar.traits,
+    avatar.accentHex,
+  );
   useElectronStatusSync();
   useElectronIdentitySync();
   useLockfileIdentitySync();
@@ -334,9 +341,10 @@ export function RootLayout() {
       );
     },
     startVoice: () => {
-      // See `startVoiceFromSurface` for the three steps and why the window
-      // stays where it is.
-      startVoiceFromSurface(navigate);
+      // The companion surface's Talk, the one sender of this command. See
+      // `startVoiceFromSurface` for the three steps and why the window stays
+      // where it is.
+      startVoiceFromSurface(navigate, { entry: "companion" });
     },
     cancelVoiceStart: () => {
       // The companion's dial, ended. Handled here rather than beside the
@@ -354,7 +362,7 @@ export function RootLayout() {
         endLiveVoiceSession();
         return;
       }
-      startVoiceFromSurface(navigate);
+      startVoiceFromSurface(navigate, { entry: "voice_key" });
     },
     answerWatchRetro: (command) => {
       if (command.kind !== "answerWatchRetro") {
@@ -390,11 +398,42 @@ export function RootLayout() {
       // `navigateToConversation` exists to prevent.
       navigateToConversation(navigate, retro.conversationId);
     },
+    answerDictationOffer: (command) => {
+      if (command.kind !== "answerDictationOffer") {
+        return;
+      }
+      void answerDictationOffer(command.answer, command.offerId);
+    },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so
     // its refusal is worth being able to test, and a module is what makes that
-    // possible. It takes no arguments, which the handler signature allows.
-    toggleWatch: handleToggleWatchCommand,
+    // possible. The command carries the picker's target on a start, and the
+    // handler is handed exactly that and nothing else of the command.
+    toggleWatch: (command) => {
+      handleToggleWatchCommand(
+        command.kind === "toggleWatch" ? command.target : undefined,
+      );
+    },
+    // The share the companion's control asks for, or its stop. Straight to
+    // the session's store: the frames are taken by a hook mounted beside the
+    // session, and a target with no session to show it to is dropped there.
+    setScreenShare: (command) => {
+      setLiveVoiceScreenShare(
+        command.kind === "setScreenShare" ? (command.target ?? null) : null,
+      );
+    },
+    // A mark the user is drawing on what the call is being shown. Straight to
+    // the session's store, the way the share itself is: the frame that
+    // carries the mark is taken by the hook mounted beside the session, and a
+    // drawing with no session to send it to is dropped there.
+    annotateShare: (command) => {
+      if (command.kind !== "annotateShare") {
+        return;
+      }
+      useLiveVoiceStore
+        .getState()
+        .setShareAnnotation(command.phase, command.strokes, command.ink);
+    },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);
     },

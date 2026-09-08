@@ -15,8 +15,9 @@ import { useTranslation } from "@/i18n";
  *   the body springs from its on-screen size to BE the screen, the color fades
  *   in behind it, the giant eyes grow into the center. See
  *   {@link VoiceRoomColorLook}.
- * - Custom-image avatars have no palette color and no eyes, so the room samples
- *   a field color out of the uploaded image ({@link useCustomAvatarFieldHex})
+ * - Custom-image avatars have no eyes and no palette color, so the room paints
+ *   the accent the daemon read out of the uploaded image (sampled here instead
+ *   on an assistant that predates accents, {@link useSampledAvatarAccentHex})
  *   and the image itself takes the center. Everything else is the character
  *   room, which is the point: a session reads the same whichever avatar the
  *   assistant wears.
@@ -154,7 +155,7 @@ import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
-import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { scopedAvatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
@@ -180,13 +181,16 @@ import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
 import { useVoiceRoomSight } from "./use-voice-room-sight";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
-import { resolveWaveAccentHex } from "./wave-accent";
 
 import {
+  CAMERA_PILL_INSET,
   SAFE_AREA_BOTTOM,
   SAFE_AREA_LEFT,
   SAFE_AREA_RIGHT,
   SAFE_AREA_TOP,
+  VOICE_ROOM_CORNER_GAP,
+  VOICE_ROOM_CORNER_LEFT,
+  VOICE_ROOM_CORNER_RIGHT,
 } from "./voice-room-layout";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
@@ -198,7 +202,8 @@ import {
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
-import { useCustomAvatarFieldHex } from "./use-custom-avatar-field";
+import { normalizeFieldHex } from "@/utils/avatar-image-color";
+import { useSampledAvatarAccentHex } from "./use-sampled-avatar-accent";
 // Every circular icon control in the room is one of these: the corner
 // minimize, the two mutes, the camera toggle, flip camera and end session. See
 // that module for the toning, and for why the design library's `Button` is not
@@ -217,33 +222,6 @@ import {
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
-
-/**
- * Gap between a corner control and the room's edges. One constant so the
- * top-right exit and the bottom control row sit on the same rhythm.
- */
-const CORNER_GAP = "1.25rem";
-
-/**
- * The band the camera status pill is centred in, on the same line as the
- * top-right corner chrome. A configured assistant name is arbitrarily long, so
- * without a bound the pill runs under that chrome and off a phone-width room.
- *
- * Each side gives up only what stands on it: the room's corner offset on the
- * left, and on the right that offset plus the cluster plus a 0.5rem gap the
- * two never close. Reserving the right's share on both sides instead would
- * leave a phone-width room less than the pill's own floor, and the pill would
- * overhang the cluster rather than truncate inside its ceiling.
- *
- * Two right-hand reserves because the cluster is two sizes. Minimize stands
- * there alone at 3.25rem; where the view options join it the cluster is both
- * controls and the 0.25rem between them. Reserving for two against a corner
- * holding one would shift the pill off the band's centre for a control that
- * is not there.
- */
-const CAMERA_PILL_LEFT = `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})`;
-const CAMERA_PILL_RIGHT_ONE_CONTROL = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
-const CAMERA_PILL_RIGHT_TWO_CONTROLS = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 7.25rem)`;
 
 /**
  * The tier the camera's view-options panel renders on, above every layer the
@@ -829,17 +807,30 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // The sample resolves a frame or more after the query does, and can fail
   // outright, so the room paints the void until it lands rather than holding
   // its first frame on a decode.
-  const { components, traits, customImageUrl } =
-    useAssistantAvatar(assistantId);
-  const customFieldHex = useCustomAvatarFieldHex(customImageUrl);
+  const {
+    components,
+    traits,
+    customImageUrl,
+    accentHex: avatarAccentHex,
+  } = useAssistantAvatar(assistantId);
+  // An uploaded image on an assistant that predates accents carries none, so
+  // its colour is sampled here instead; the daemon's accent wins when there
+  // is one, and a character never needs the sample.
+  const sampledAccentHex = useSampledAvatarAccentHex(
+    avatarAccentHex === null ? customImageUrl : null,
+  );
+  // The accent var, scoped to the room for the void state's bands and mirrored
+  // by the iOS Live Activity so island and room agree. Null for still-loading
+  // avatars and images with no colour to read, where the room shadows the
+  // document's accent so every band keeps its own fallback rather than
+  // inheriting the colour of whichever assistant the app has selected.
+  const accentHex = avatarAccentHex ?? sampledAccentHex;
   const look =
     resolveVoiceRoomLook(components, traits, customImageUrl) ??
-    (customFieldHex ? voiceRoomImageLook(customFieldHex) : null);
+    (customImageUrl && accentHex
+      ? voiceRoomImageLook(normalizeFieldHex(accentHex))
+      : null);
   const tone = look ? toneForBg(look.bgHex) : null;
-  // The accent var, published for the void state's bands and mirrored by the
-  // iOS Live Activity so island and room agree. Null for custom-image / "none"
-  // / still-loading avatars, where those bands keep their own fallback.
-  const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.
@@ -907,23 +898,20 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // flush camera sheet reach the notch: the former clamps its gap up to the
   // inset, the latter adds the gap to it so the grabber fits between. The panel
   // and the header-resting sheet start below the app's own chrome, where the
-  // inset is not their edge to clear. The band's two edges ride along, since
-  // the pill's slot is told where they are the same way, and the right one
-  // follows how many controls the corner is holding: see
-  // {@link CAMERA_PILL_RIGHT_TWO_CONTROLS}.
+  // inset is not their edge to clear. The band rides along, since the pill's
+  // slot is told what it reserves the same way, and it is one value taken off
+  // both edges so the pill lands on the room's centre line: see
+  // {@link CAMERA_PILL_INSET}.
   const topBandVars = {
     "--room-chrome-top": fullscreen
-      ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
+      ? `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_TOP})`
       : cameraSheet
-        ? `calc(${CORNER_GAP} + ${SAFE_AREA_TOP})`
-        : CORNER_GAP,
+        ? `calc(${VOICE_ROOM_CORNER_GAP} + ${SAFE_AREA_TOP})`
+        : VOICE_ROOM_CORNER_GAP,
     "--room-grabber-top": cameraSheet
       ? `calc(0.5rem + ${SAFE_AREA_TOP})`
       : "0.5rem",
-    "--camera-pill-left": CAMERA_PILL_LEFT,
-    "--camera-pill-right": viewOptionsOffered
-      ? CAMERA_PILL_RIGHT_TWO_CONTROLS
-      : CAMERA_PILL_RIGHT_ONE_CONTROL,
+    "--camera-pill-inset": CAMERA_PILL_INSET,
   } as CSSProperties;
 
   const body = (
@@ -979,7 +967,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           : null),
         ...topBandVars,
         ...toneVars,
-        ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
+        ...scopedAvatarAccentVars(accentHex),
       }}
       // On close the chrome and rectangular backgrounds fade, while the avatar
       // shape itself shrinks back toward the entry origin (the character
@@ -1110,9 +1098,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
           Above the scrims at `z-[3]` and below the connect card at `z-20`, so
           it reads over the frame without covering the one surface that needs a
-          press. Parked on the left below the chrome band: the shutter column
-          and the thumbnail band own the floor, and the status pill owns the
-          top centre. Inside `inset-0` because the room clips.
+          press. Parked on the left, clear of the whole chrome band: the view
+          options hold that corner, the shutter column and the thumbnail band
+          own the floor, and the status pill owns the top centre. Inside
+          `inset-0` because the room clips.
 
           Camera-only, and either viewfinder. Both feed the same gate, so both
           have decisions to read, and this is the instrument the thresholds are
@@ -1130,8 +1119,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         <FrameGateHud
           surface="voice"
           collapsible
-          className="absolute top-[calc(var(--room-chrome-top)+2.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
-          style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
+          className="absolute top-[calc(var(--room-chrome-top)+3.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
+          style={{ left: VOICE_ROOM_CORNER_LEFT }}
         />
       ) : null}
 
@@ -1186,13 +1175,33 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         />
       ) : null}
 
+      {/* Top-left: the camera's view options, and only where Live is on offer,
+          which is the only place its switches name anything the room draws.
+          Every other room leaves this corner empty, since a piece of small
+          chrome against the look competes with the room's own cast for
+          attention.
+
+          Its own corner box rather than a slot inside the pill's row: the pill
+          is centred on the room, so anything sharing a box with it would push
+          it off that centre. */}
+      {viewOptionsOffered ? (
+        <div
+          // Mirrors the minimize corner, so the two read as a matched pair on
+          // the room's own band; see `--room-chrome-top`.
+          style={{ left: VOICE_ROOM_CORNER_LEFT }}
+          className="absolute top-[var(--room-chrome-top)] z-10 flex"
+        >
+          <CameraViewSettings panelHost={viewOptionsHost} />
+        </div>
+      ) : null}
+
       {/* Camera mode's status readout: what the camera is doing, and what the
           session is doing. On the same offset the corner chrome uses, so it
           shares a line with that chrome instead of floating on a rhythm of its
-          own; that offset already clears the sheet's grabber. Centred in the
-          band the chrome leaves rather than on the room, which is what keeps a
-          long name inside a ceiling at phone width: see
-          {@link CAMERA_PILL_RIGHT_TWO_CONTROLS}.
+          own; that offset already clears the sheet's grabber. One reserve off
+          both edges, so the slot's middle is the room's middle and a long name
+          still has a ceiling to truncate inside at phone width: see
+          {@link CAMERA_PILL_INSET}.
 
           Camera-only. With the viewfinder closed the room says all of this
           through the look itself (the avatar's visual, the state caption, the
@@ -1201,7 +1210,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {cameraOpen ? (
         <div
           data-testid="camera-status-pill-slot"
-          className="pointer-events-none absolute left-[var(--camera-pill-left)] right-[var(--camera-pill-right)] top-[var(--room-chrome-top)] z-10 flex justify-center"
+          className="pointer-events-none absolute inset-x-[var(--camera-pill-inset)] top-[var(--room-chrome-top)] z-10 flex justify-center"
         >
           <CameraStatusPill
             mode={cameraMode}
@@ -1212,34 +1221,26 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </div>
       ) : null}
 
-      {/* Top-right: minimize, with the camera's view options beside it.
+      {/* Top-right: minimize, and nothing else.
 
           The corner is where every other surface in the app puts "get this off
           my screen", and that is exactly what it does: the session keeps
-          running on the composer's voice bar or the title-bar pill. It used to
-          END the call, which put the most destructive act in the room at the
-          one spot muscle memory reaches for without looking; hanging up moved
-          into the control row below, where it sits among the other things you
-          do to a call and has to be aimed at.
+          running on the composer's voice bar or the title-bar pill. Hanging up
+          lives in the control row below, among the other things you do to a
+          call, so the most destructive act in the room is one you have to aim
+          at rather than the one spot muscle memory reaches for without looking.
 
           Minimize is never gated behind avatar readiness, so the room can
-          always be dismissed even mid-load / on failure, and it keeps the
-          extreme corner. View options sits inboard of it and only where Live
-          is on offer, which is the only place its switches name anything the
-          room draws; every other room carries nothing but minimize here, since
-          a cluster of small chrome against the look competes with the room's
-          own cast for attention. Voice and listening language are Settings'
-          either way. */}
+          always be dismissed even mid-load / on failure, and it holds this
+          corner alone in every room the app draws, camera or not. Voice and
+          listening language are Settings' either way. */}
       <div
         // An equal gap from both edges, so the control reads as sitting in the
         // corner rather than floating near it. The top comes off the room's own
         // band, shared with the camera pill; see `--room-chrome-top`.
-        style={{ right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})` }}
-        className="absolute top-[var(--room-chrome-top)] z-10 flex items-center gap-1"
+        style={{ right: VOICE_ROOM_CORNER_RIGHT }}
+        className="absolute top-[var(--room-chrome-top)] z-10 flex"
       >
-        {viewOptionsOffered ? (
-          <CameraViewSettings panelHost={viewOptionsHost} />
-        ) : null}
         <VoiceRoomControl
           label={t("voiceRoom.minimizeAria")}
           tooltip={t("voiceRoom.minimizeTooltip")}
@@ -1347,7 +1348,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           // to stay off the thing that hangs up, and it is the GAP that
           // guarantees that, not the number.
           style={{
-            bottom: `calc(6.125rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
+            bottom: `calc(6.125rem + max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
           }}
         >
           {errorMessage ? (
@@ -1470,7 +1471,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         className="absolute inset-x-0 z-10 flex items-center justify-center gap-4"
         // The bottom edge IS the screen's on the sheet and fullscreen, so the
         // home-indicator inset is real here in a way the top inset was not.
-        style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
+        style={{ bottom: `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
         <VoiceRoomControl
           label={

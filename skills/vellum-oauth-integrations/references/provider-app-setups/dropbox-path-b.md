@@ -82,9 +82,17 @@ Tell the user:
 
 Wait for the App key. Then ask for the secret:
 
-> Now send me the **App secret**. You may need to click **Show** to reveal it. Send it as a standalone message with no other text.
+> You may need to click **Show** to reveal the **App secret**. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: Dropbox app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service dropbox --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the App secret from the app settings page."
+```
+
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
 
 ## Path B Step 7: Authorize and Verify
 

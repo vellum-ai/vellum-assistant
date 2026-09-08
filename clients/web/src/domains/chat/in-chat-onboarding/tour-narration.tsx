@@ -39,16 +39,14 @@ export function TourNarration({
   variant,
   controls,
 }: TourNarrationProps) {
-  const { components, traits } = useAssistantAvatar(assistantId);
+  const {
+    components,
+    traits,
+    accentHex: accent,
+  } = useAssistantAvatar(assistantId);
   const [typed, setTyped] = useState("");
 
   const typedDone = step != null && typed.length >= step.body.length;
-
-  const accent =
-    (components &&
-      traits &&
-      components.colors.find((c) => c.id === traits.color)?.hex) ||
-    null;
 
   const eyeArt = useMemo<TourEyeArt | null>(() => {
     if (!components || !traits) {

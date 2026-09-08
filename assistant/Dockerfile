@@ -30,18 +30,9 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-RUN bun install --frozen-lockfile --ignore-scripts \
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --ignore-scripts \
     --filter='./assistant' --filter='./assistant/src/api'
-
-# The repo-root .dockerignore decides which skills (and files) ship.
-COPY skills ./skills
-RUN set -eu; for pkg in /app/skills/*/package.json; do \
-      [ -e "$pkg" ] || continue; \
-      dir="$(dirname "$pkg")"; \
-      echo "Installing dependencies for $dir"; \
-      (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
-    done
-
 
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
@@ -114,7 +105,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-COPY --from=builder /app /app
+COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog
@@ -131,6 +122,9 @@ COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
 
+# The repo-root .dockerignore decides which skills (and files) ship.
+COPY skills /app/skills
+
 # Materialize the git-ignored offline plugin manifest from its canonical source.
 # `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
 # (loaded even when platform features are enabled), so it must exist in the image
@@ -142,6 +136,14 @@ COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.jso
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
     chmod +x /usr/local/bin/assistant
+
+# The image ships no Node, so `bunx <pkg>` follows a bin's `#!/usr/bin/env node`
+# shebang into this launcher. It hands off to a real Node when one is installed
+# later and otherwise runs the bin under Bun with the auto-serve shim preloaded,
+# so a CLI whose bundle default-exports an object with `fetch` exits instead of
+# being turned into an HTTP server by `bun:main`. Installing it here also stops
+# Bun synthesizing its own `node` shim in /tmp/bun-node-<hash> at daemon launch.
+RUN ln -s /app/assistant/docker-node-launcher.sh /usr/local/bin/node
 
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
@@ -237,6 +239,7 @@ RUN chmod +x \
     /app/assistant/docker-kata-chroot-exec.sh \
     /app/assistant/docker-kata-pip.sh \
     /app/assistant/docker-kata-runtime-family.sh \
+    /app/assistant/docker-node-launcher.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \
     /usr/local/bin/vellum-block-volume-mount.sh \

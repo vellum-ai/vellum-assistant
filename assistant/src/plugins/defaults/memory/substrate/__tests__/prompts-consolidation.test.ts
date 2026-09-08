@@ -67,9 +67,11 @@ const {
   CORE_PAGES_PLACEHOLDER,
   CUTOFF_PLACEHOLDER,
   DANGLING_LINKS_PLACEHOLDER,
+  OVERLONG_SECTIONS_PLACEHOLDER,
   PARSE_FAILURES_PLACEHOLDER,
   renderConsolidationPrompt,
   renderDanglingLinksSection,
+  renderOverlongSectionsSection,
   renderParseFailuresSection,
   resolveConsolidationPrompt,
 } = await import("../prompts/consolidation.js");
@@ -110,7 +112,8 @@ const bundledPrompt = (includeCorePagesSection = false): string =>
         : "",
     )
     .replaceAll(PARSE_FAILURES_PLACEHOLDER, "")
-    .replaceAll(DANGLING_LINKS_PLACEHOLDER, "");
+    .replaceAll(DANGLING_LINKS_PLACEHOLDER, "")
+    .replaceAll(OVERLONG_SECTIONS_PLACEHOLDER, "");
 
 /** Sample dangling links for the repair-section tests. */
 const SAMPLE_DANGLING = [
@@ -648,5 +651,171 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     expect(warnCalls).toHaveLength(1);
     const data = warnCalls[0].data as Record<string, unknown>;
     expect(data.reason).toBe("not_regular_file");
+  });
+});
+
+describe("resolveConsolidationPrompt: over-long-sections repair section", () => {
+  const V3 = { includeCorePagesSection: false, articleShape: "v3" as const };
+  const REPORT = {
+    windowChars: 6000,
+    sections: [
+      {
+        slug: "people/alice",
+        title: "notes with `ticks`\nand a newline",
+        chars: 6500,
+      },
+      { slug: "project-notes", title: "design notes", chars: 95270 },
+      { slug: "daily-log", title: "", chars: 7000 },
+    ],
+  };
+
+  test("no report: no section and no placeholder residue, both article shapes", () => {
+    for (const articleShape of ["v2", "v3"] as const) {
+      const result = resolveConsolidationPrompt(null, CUTOFF, {
+        includeCorePagesSection: false,
+        articleShape,
+      });
+      expect(result).not.toContain(OVERLONG_SECTIONS_PLACEHOLDER);
+      expect(result).not.toContain("exceed the retrieval window");
+    }
+    expect(renderOverlongSectionsSection(undefined)).toBe("");
+    expect(
+      renderOverlongSectionsSection({ windowChars: 6000, sections: [] }),
+    ).toBe("");
+  });
+
+  test("renders largest first, one line per section, the lead labelled, page text neutralized", () => {
+    const section = renderOverlongSectionsSection(REPORT);
+    expect(
+      section.startsWith(
+        "## 0. FIRST: split sections that exceed the retrieval window",
+      ),
+    ).toBe(true);
+    expect(section).toContain("runs past 6,000 characters");
+    const pieces = section.indexOf(
+      "`memory/concepts/project-notes.md`, `## design notes` (95,270 characters)",
+    );
+    const lead = section.indexOf(
+      "`memory/concepts/daily-log.md`, the lead (7,000 characters)",
+    );
+    const alice = section.indexOf(
+      "`memory/concepts/people/alice.md`, `## notes with 'ticks' and a newline` (6,500 characters)",
+    );
+    expect(pieces).toBeGreaterThan(0);
+    expect(lead).toBeGreaterThan(pieces);
+    expect(alice).toBeGreaterThan(lead);
+    expect(section).not.toContain("reported next pass");
+  });
+
+  test("a repeated heading is named by its position on the page", () => {
+    const section = renderOverlongSectionsSection({
+      windowChars: 6000,
+      sections: [
+        { slug: "notes", title: "Notes", chars: 7000, occurrence: 1 },
+        { slug: "notes", title: "Notes", chars: 6500, occurrence: 0 },
+        { slug: "other", title: "Notes", chars: 6200 },
+      ],
+    });
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, `## Notes` (the 2nd heading of that name) (7,000 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, `## Notes` (the 1st heading of that name) (6,500 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/other.md`, `## Notes` (6,200 characters)",
+    );
+  });
+
+  test("an empty title is the lead only when it is the page's first; a later one is a blank heading", () => {
+    const section = renderOverlongSectionsSection({
+      windowChars: 6000,
+      sections: [
+        { slug: "notes", title: "", chars: 7000, occurrence: 0 },
+        { slug: "notes", title: "", chars: 6500, occurrence: 1 },
+        { slug: "other", title: "", chars: 6200 },
+      ],
+    });
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, the lead (7,000 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/notes.md`, a blank `## ` heading (the 1st heading with no title) (6,500 characters)",
+    );
+    expect(section).toContain(
+      "`memory/concepts/other.md`, the lead (6,200 characters)",
+    );
+  });
+
+  test("caps the list at ten, largest first, and counts the remainder", () => {
+    const sections = Array.from({ length: 12 }, (_, i) => ({
+      slug: `page-${i}`,
+      title: `Section ${i}`,
+      chars: 6001 + i,
+    }));
+    const section = renderOverlongSectionsSection({
+      windowChars: 6000,
+      sections,
+    });
+    expect(section).toContain("`memory/concepts/page-11.md`");
+    expect(section).toContain("`memory/concepts/page-2.md`");
+    expect(section).not.toContain("`memory/concepts/page-1.md`");
+    expect(section).not.toContain("`memory/concepts/page-0.md`");
+    expect(section).toContain(
+      "...and 2 more, reported next pass once these are settled.",
+    );
+  });
+
+  test("bundled prompt: the section renders once, before step 1", () => {
+    const result = resolveConsolidationPrompt(null, CUTOFF, {
+      ...V3,
+      overlongSections: REPORT,
+    });
+    const at = result.indexOf(
+      "split sections that exceed the retrieval window",
+    );
+    expect(at).toBeGreaterThan(0);
+    expect(result.indexOf("split sections that exceed", at + 1)).toBe(-1);
+    expect(at).toBeLessThan(
+      result.indexOf("## 1. Read the buffer holistically"),
+    );
+    expect(result).not.toContain(OVERLONG_SECTIONS_PLACEHOLDER);
+  });
+
+  test("override containing the placeholder: substituted in place", () => {
+    const path = join(tmpWorkspace, "custom-prompt.md");
+    writeFileSync(path, "Top\n{{OVERLONG_SECTIONS_SECTION}}Bottom\n");
+
+    const result = resolveConsolidationPrompt(path, CUTOFF, {
+      ...V3,
+      overlongSections: REPORT,
+    });
+    const at = result.indexOf("split sections that exceed");
+    expect(result.indexOf("Top")).toBeLessThan(at);
+    expect(at).toBeLessThan(result.indexOf("Bottom"));
+    expect(result).not.toContain(OVERLONG_SECTIONS_PLACEHOLDER);
+  });
+
+  test("override without the placeholder: appended after the other repair sections", () => {
+    const path = join(tmpWorkspace, "no-placeholder.md");
+    writeFileSync(path, "My custom prompt {{CUTOFF}}\n");
+
+    const result = resolveConsolidationPrompt(path, CUTOFF, {
+      ...V3,
+      danglingLinks: SAMPLE_DANGLING,
+      overlongSections: REPORT,
+    });
+    const danglingAt = result.indexOf("resolve dangling links");
+    const overlongAt = result.indexOf("split sections that exceed");
+    expect(danglingAt).toBeGreaterThan(0);
+    expect(overlongAt).toBeGreaterThan(danglingAt);
+  });
+
+  test("override without the placeholder and no report: output untouched", () => {
+    const path = join(tmpWorkspace, "no-placeholder.md");
+    writeFileSync(path, "My custom prompt {{CUTOFF}}\n");
+
+    const result = resolveConsolidationPrompt(path, CUTOFF, V3);
+    expect(result).toBe(`My custom prompt ${CUTOFF}\n`);
   });
 });

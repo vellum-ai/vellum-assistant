@@ -9,10 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { Trans, useTranslation } from "@/i18n";
-import { captureError } from "@/lib/sentry/capture-error";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { formatRelativeDate } from "@/utils/format-date";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import {
@@ -22,8 +19,12 @@ import {
 } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import type { TagTone } from "@vellumai/design-library/components/tag";
-import { toast } from "@vellumai/design-library/components/toast";
 
+import {
+  type GuardianDecisionAction,
+  isRetiredDecisionReason,
+  useGuardianDecision,
+} from "../hooks/use-guardian-decision";
 import { HomeMarkdownContent } from "./home-markdown-content";
 
 /** The ask, set in a recessed block so it reads as the quoted request. */
@@ -64,15 +65,9 @@ export function HomeGuardianRequestCard({
   item,
 }: HomeGuardianRequestCardProps) {
   const { t } = useTranslation("home");
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const guardianRequest = item.guardianRequest;
 
-  const decision = useGuardianactionsDecisionPostMutation({
-    onError: (err) => {
-      captureError(err, { context: "guardian-request-card-decision" });
-      toast.error(t("homeGuardianRequestCard.decisionFailed"));
-    },
-  });
+  const decision = useGuardianDecision();
 
   if (!guardianRequest) {
     // The panel header above this card already renders the title, so this
@@ -80,23 +75,28 @@ export function HomeGuardianRequestCard({
     return <HomeMarkdownContent content={item.summary} />;
   }
 
-  const decide = (action: "approve_once" | "reject") => {
-    if (!assistantId) {
-      return;
-    }
-    decision.mutate({
-      path: { assistant_id: assistantId },
-      body: { requestId: guardianRequest.requestId, action },
-    });
+  const decide = (action: GuardianDecisionAction) => {
+    decision.decide(guardianRequest.requestId, action);
   };
 
+  // Only this request's outcome counts: the hook remembers the last decision
+  // wherever it was made, and the bell can decide one row while another's
+  // detail is open.
+  const outcome =
+    decision.outcome?.requestId === guardianRequest.requestId
+      ? decision.outcome
+      : null;
   const decidedLocally =
-    decision.data?.applied === true
-      ? decision.variables?.body?.action === "approve_once"
+    outcome?.applied === true
+      ? outcome.action === "approve_once"
         ? ("approved" as const)
         : ("denied" as const)
       : null;
-  const resolvedElsewhere = decision.data?.applied === false;
+  // A declined decision retires the request only when the reason says it is
+  // settled or gone; a decision this actor may not make, or that could not
+  // be applied, leaves the request pending and the buttons in place.
+  const resolvedElsewhere =
+    outcome?.applied === false && isRetiredDecisionReason(outcome.reason);
 
   const isPending =
     guardianRequest.status === "pending" &&
@@ -193,14 +193,14 @@ export function HomeGuardianRequestCard({
         <div className="flex flex-wrap gap-[var(--app-spacing-sm)]">
           <Button
             variant="primary"
-            disabled={decision.isPending || !assistantId}
+            disabled={decision.isPending || !decision.canDecide}
             onClick={() => decide("approve_once")}
           >
             {t("homeGuardianRequestCard.approve")}
           </Button>
           <Button
             variant="outlined"
-            disabled={decision.isPending || !assistantId}
+            disabled={decision.isPending || !decision.canDecide}
             onClick={() => decide("reject")}
           >
             {t("homeGuardianRequestCard.reject")}

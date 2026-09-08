@@ -600,7 +600,7 @@ export function useConversationHistory({
         queryKey: organizationsBillingSummaryRetrieveQueryKey(),
       });
       // The BYOK banner gate's recent-spend probe
-      // (`useSuppressCreditBannersForByok`) must see a managed burn from this
+      // (`useByokCreditRouteVerdict`) must see a managed burn from this
       // turn too, or a cached zero keeps suppressing the banners in an open
       // tab. Its key carries a from/to window, so match on the key's base
       // fields (derived from the generated key builder, minus the window)

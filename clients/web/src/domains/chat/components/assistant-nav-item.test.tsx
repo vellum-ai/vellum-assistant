@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
 
 /* The hook reads through React Query, which static rendering has no client
    for. Mocked through a mutable value rather than a fixed one: a module mock
@@ -33,6 +34,10 @@ let avatar: AvatarState = {
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({
     ...avatar,
+    // The real hook's own derivation, so the row can only wear what the app
+    // resolves for the same avatar.
+    accentHex: resolveAvatarAccentHex({ ...avatar, state: null }),
+    accent: null,
     isLoading: false,
     invalidate: () => {},
   }),

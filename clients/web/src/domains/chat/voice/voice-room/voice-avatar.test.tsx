@@ -28,6 +28,8 @@ mock.module(
       traits: null,
       customImageUrl: null,
       state: null,
+      accentHex: null,
+      accent: null,
       isLoading: false,
       isSuccess: true,
       invalidate: () => {},

@@ -121,8 +121,9 @@ function clampThinkingLevelToFloor(
  * dynamic medium-level thinking).
  *
  * - `enabled: false` maps to the model's floor (the most "off" state it
- *   allows): `"minimal"` for most models, `"low"` for Pro and Gemini 3.7
- *   Flash, which reject `"minimal"`.
+ *   allows): `"minimal"` for most models, `"low"` for models whose catalog
+ *   `thinkingFloor` is `"low"` (Pro and recent Flash IDs that reject
+ *   `"minimal"`).
  * - An explicit `level` below the floor is raised to the floor.
  * - When no `level` is pinned, Pro models get the documented default (`"high"`)
  *   because an absent level resolves to the unsupported `"minimal"` upstream;

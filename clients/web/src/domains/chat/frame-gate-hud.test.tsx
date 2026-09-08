@@ -241,6 +241,7 @@ describe("FrameGateHud decision order", () => {
     expect(renderedSteps()).toEqual([
       "warmup",
       "featureless",
+      "forced",
       "rate-floor",
       "moving",
       "heartbeat",
@@ -259,6 +260,7 @@ describe("FrameGateHud decision order", () => {
     expect(renderedSteps()).toEqual([
       "warmup",
       "featureless",
+      "forced",
       "rate-floor",
       "moving",
       "first",
@@ -277,6 +279,7 @@ describe("FrameGateHud decision order", () => {
     expect(renderedSteps()).toEqual([
       "warmup",
       "featureless",
+      "forced",
       "rate-floor",
       "moving",
       "first",

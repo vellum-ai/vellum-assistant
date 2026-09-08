@@ -49,7 +49,7 @@ export function PersonalityPage() {
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { components, traits, customImageUrl } =
+  const { components, traits, customImageUrl, accentHex } =
     useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const slidersQuery = useQuery({
@@ -98,6 +98,7 @@ export function PersonalityPage() {
       components={components}
       traits={traits}
       customImageUrl={customImageUrl}
+      accentHex={accentHex}
       entrance
     >
       <PersonalityBody

@@ -2,7 +2,11 @@ import type { Ref, UIEventHandler } from "react";
 
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
-import { HomeRecapRow } from "../home-recap-row";
+import { HomeRecapRow, type HomeRecapRowDecision } from "../home-recap-row";
+import { resolveThreadName } from "../utils";
+
+/** No titles known: every row falls back to its source label, or to nothing. */
+const NO_CONVERSATION_TITLES: ReadonlyMap<string, string> = new Map();
 
 export interface NotificationsBellListProps {
   /**
@@ -15,17 +19,26 @@ export interface NotificationsBellListProps {
    * panel; a longer one scrolls inside it.
    */
   maxHeight: string;
+  /**
+   * Titles of the conversations the items came from, by conversation id, so
+   * each row can name its thread. Empty until the conversation lists load.
+   */
+  conversationTitles?: ReadonlyMap<string, string>;
   /** Restores the scroll offset the bell parked while a detail was open. */
   scrollRef?: Ref<HTMLDivElement>;
   onScroll?: UIEventHandler<HTMLDivElement>;
   onSelect: (item: FeedItem) => void;
   onDismiss: (itemId: string) => void;
   onToggleRead: (itemId: string, newStatus: FeedItemStatus) => void;
+  /** Decides a pending approval from its row; see `HomeRecapRow`. */
+  onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
+  isDecisionPending?: boolean;
 }
 
 /**
  * The notifications the bell shows before one is opened: a scrolling stack
- * of compact rows, newest first under whatever is waiting on the user.
+ * of rows divided by rules, newest first under whatever is waiting on the
+ * user.
  *
  * The empty and failed-load states belong to the bell, which decides
  * between them and this list.
@@ -33,11 +46,14 @@ export interface NotificationsBellListProps {
 export function NotificationsBellList({
   items,
   maxHeight,
+  conversationTitles = NO_CONVERSATION_TITLES,
   scrollRef,
   onScroll,
   onSelect,
   onDismiss,
   onToggleRead,
+  onDecide,
+  isDecisionPending = false,
 }: NotificationsBellListProps) {
   return (
     <div
@@ -45,16 +61,18 @@ export function NotificationsBellList({
       onScroll={onScroll}
       data-testid="notifications-bell-list"
       style={{ maxHeight }}
-      className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
+      className="flex flex-col gap-[var(--app-spacing-md)] overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]"
     >
       {items.map((item) => (
         <HomeRecapRow
           key={item.id}
           item={item}
-          density="compact"
+          threadName={resolveThreadName(item, conversationTitles)}
           onSelect={onSelect}
           onDismiss={onDismiss}
           onToggleRead={onToggleRead}
+          onDecide={onDecide}
+          isDecisionPending={isDecisionPending}
         />
       ))}
     </div>

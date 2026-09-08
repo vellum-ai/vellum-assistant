@@ -334,7 +334,10 @@ describe("pairDeliveryWithConversation", () => {
     );
 
     expect(result.conversationId).toBe("conv-001");
-    expect(result.messageId).toBe("msg-001");
+    // A channel delivery writes no row before the send; the broadcaster
+    // records the post once the channel acknowledges it.
+    expect(result.messageId).toBeNull();
+    expect(addMessageMock).not.toHaveBeenCalled();
     expect(result.strategy).toBe("continue_existing_conversation");
     expect(result.createdNewConversation).toBe(true);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
@@ -376,14 +379,13 @@ describe("pairDeliveryWithConversation", () => {
     );
 
     expect(result.conversationId).toBe("conv-bound");
-    expect(result.messageId).toBe("msg-001");
+    expect(result.messageId).toBeNull();
     expect(result.createdNewConversation).toBe(false);
     expect(result.conversationFallbackUsed).toBe(false);
     expect(result.strategy).toBe("continue_existing_conversation");
-    // Should append to existing, not create new
+    // Resolves the existing home; writes nothing before the send.
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock).toHaveBeenCalledTimes(1);
-    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-bound");
+    expect(addMessageMock).not.toHaveBeenCalled();
     // Should touch the outbound binding
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
   });
@@ -544,12 +546,11 @@ describe("pairDeliveryWithConversation", () => {
 
     // Should use the inbound conversation, not the notification one
     expect(result.conversationId).toBe("conv-inbound");
-    expect(result.messageId).toBe("msg-001");
+    expect(result.messageId).toBeNull();
     expect(result.createdNewConversation).toBe(false);
     expect(result.conversationFallbackUsed).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock).toHaveBeenCalledTimes(1);
-    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-inbound");
+    expect(addMessageMock).not.toHaveBeenCalled();
     // Should NOT touch the notification binding — we only read the inbound one
     expect(upsertOutboundBindingMock).not.toHaveBeenCalled();
   });
@@ -589,7 +590,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.conversationId).toBe("conv-inbound-null-source");
     expect(result.createdNewConversation).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-inbound-null-source");
+    expect(addMessageMock).not.toHaveBeenCalled();
   });
 
   test("falls back to notification binding when inbound binding points to deleted conversation", async () => {

@@ -15,22 +15,36 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import {
   announceAskRefused,
   askVoiceFromSurface,
+  toggleVoiceFromSurface,
 } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
-import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
+import {
+  armDictationOfferWatch,
+  clearDictationOffer,
+  setDictationOffer,
+  setUnplacedDictationOffer,
+} from "@/domains/chat/voice/dictation-offer-store";
+import {
+  findRunningFnClaimant,
+  type FnClaimant,
+} from "@/domains/chat/voice/fn-claimants";
+import { useVoiceKey } from "@/domains/chat/voice/use-voice-key";
+import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import {
   markHoldDictation,
-  useHoldToDictateEnabled,
-} from "@/utils/hold-to-dictate";
-import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
+  useVoiceKey as useVoiceKeySetting,
+} from "@/utils/voice-key";
+import { useVoiceKeyRegistrationStore } from "@/stores/voice-key-registration-store";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
+import { frontmostApp } from "@/runtime/running-apps";
 import { useConversationStore } from "@/stores/conversation-store";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -180,6 +194,12 @@ function showVoiceErrorToast(code: string): void {
  * be done, in the composer, so nothing said is lost. A paste the system turned
  * away says so once, with a stable id, and marks the recording so the overlay
  * shows the failure rather than a check.
+ *
+ * A front application with nowhere to put the words is not a failure and is
+ * not announced as one. Nothing is pasted, nothing is denied, and the user is
+ * not in the app to read a message about it: the words go up on the companion
+ * instead, where they can be copied, and into the composer behind that in
+ * case the surface is not on screen at all.
  */
 async function landInFrontApp(
   text: string,
@@ -194,7 +214,9 @@ async function landInFrontApp(
     return;
   }
 
-  if (frontAppInsertion.status === "automation-denied") {
+  if (frontAppInsertion.status === "no-text-field") {
+    setUnplacedDictationOffer(text);
+  } else if (frontAppInsertion.status === "automation-denied") {
     showVoiceErrorToast("dictation-automation-denied");
     useVoiceRecordingStore
       .getState()
@@ -233,7 +255,10 @@ export function GlobalPushToTalkBridge({
     stream: voiceStream,
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
-  const holdToDictateEnabled = useHoldToDictateEnabled();
+  const voiceKey = useVoiceKeySetting();
+  const setVoiceKeyRegistered = useVoiceKeyRegistrationStore(
+    (state) => state.setRegistered,
+  );
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   useEffect(() => {
@@ -241,7 +266,15 @@ export function GlobalPushToTalkBridge({
   }, [navigate]);
   // What the hold in progress began over. Read when its transcript lands,
   // which decides whether the words go to the cursor or to the assistant.
-  const holdSelectionRef = useRef<HotkeySelection | null>(null);
+  const holdSelectionRef = useRef<Promise<HotkeySelection | null> | null>(null);
+  // Which other dictation app, if any, was running when the hold began, and
+  // so heard the same key. Asked at the start rather than at the end: it is
+  // the app that pasted first that the offer names, and one launched while
+  // the user was talking heard none of it.
+  const holdClaimantRef = useRef<Promise<FnClaimant | null> | null>(null);
+  // The application in front as the hold began, which is where a claimant
+  // pasted and so the only place "use" may undo.
+  const holdFrontAppRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -255,10 +288,10 @@ export function GlobalPushToTalkBridge({
   // (RootLayout) while the chat composer only exists on chat routes; the
   // overlay must mirror dictation hosted by either VoiceInputButton
   // instance. Reads everything from the shared recording store.
-  // While the hold is bound, the companion surface carries the status instead:
-  // one surface saying a microphone is open rather than a panel and a pill
-  // saying it separately.
-  useDictationOverlaySync({ suppressed: holdToDictateEnabled });
+  // While the voice key is bound, the companion surface carries the status
+  // instead: one surface saying a microphone is open rather than a panel and
+  // a pill saying it separately.
+  useDictationOverlaySync({ suppressed: voiceKey.kind !== "off" });
 
   /**
    * The recorder a held key drives, which is always this bridge's own.
@@ -299,14 +332,15 @@ export function GlobalPushToTalkBridge({
   // same way dictation is.
   useVoiceModeHotkey({ enabled: supportsKeyboardActivation() });
 
-  // Hold to dictate, from whatever app the user is in. The same target the
-  // overlay's stop button drives, so a hold and a press are the same dictation
-  // and land the same way: through `handleTranscript` below, which cleans the
-  // transcript up and drops it at the cursor. A hold made over a selection is
-  // the one exception: its words are a question about the selection, and go
-  // to the assistant instead.
-  useHoldToDictate({
-    enabled: holdToDictateEnabled,
+  // The voice key, from whatever app the user is in. A hold drives the same
+  // target the overlay's stop button drives, so a hold and a press are the
+  // same dictation and land the same way: through `handleTranscript` below,
+  // which cleans the transcript up and drops it at the cursor. A hold made
+  // over a selection is the one exception: its words are a question about the
+  // selection, and go to the assistant instead. A double tap is Talk.
+  useVoiceKey({
+    key: voiceKey,
+    onRegistered: setVoiceKeyRegistered,
     onHoldStart: ({ selection }) => {
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
@@ -320,6 +354,19 @@ export function GlobalPushToTalkBridge({
       // so that transcript is still about what it was held over.
       if (holdTarget()?.start() === true) {
         holdSelectionRef.current = selection;
+        // Only the window that can publish an offer makes one. A pop-out can
+        // own the key (main routes the edges to the last focused window) but
+        // the companion mirror publishes from the main window alone, so an
+        // offer made here would be one nobody is ever shown. A pop-out pastes
+        // as it always did.
+        holdClaimantRef.current = isPopoutWindowLifetime()
+          ? null
+          : findRunningFnClaimant();
+        holdFrontAppRef.current = frontmostApp();
+        // A new hold is a new question. An offer still standing from the
+        // last one would otherwise outlive it, and be answered onto words
+        // the user has moved past.
+        clearDictationOffer();
       }
     },
     onHoldEnd: () => {
@@ -328,13 +375,30 @@ export function GlobalPushToTalkBridge({
         return;
       }
       holdTarget()?.stop();
+      // From here the other app's paste is the last edit, and the cleanup
+      // pass stands between this and the offer. Watch from now so a press in
+      // that gap is seen: after one, there is nothing safe left to replace.
+      if (holdClaimantRef.current !== null) {
+        armDictationOfferWatch();
+      }
+    },
+    onDoubleTap: () => {
+      toggleVoiceFromSurface(
+        (to, options) => navigateRef.current(to, options),
+        "voice_key",
+      );
     },
   });
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
-      const selection = holdSelectionRef.current;
+      const pendingSelection = holdSelectionRef.current;
       holdSelectionRef.current = null;
+      const pendingClaimant = holdClaimantRef.current;
+      holdClaimantRef.current = null;
+      const pendingFrontApp = holdFrontAppRef.current;
+      holdFrontAppRef.current = null;
+      const selection = pendingSelection ? await pendingSelection : null;
       if (selection !== null) {
         // Words over an editable selection may be asking for it changed. The
         // daemon reads them either way: an edit comes back to be put where
@@ -362,6 +426,7 @@ export function GlobalPushToTalkBridge({
         const taken = askVoiceFromSurface(
           (to, options) => navigateRef.current(to, options),
           ask,
+          "voice_key_ask",
         );
         console.info(
           `dictation: ask selectionChars=${selection.text.length} truncated=${selection.truncated} words=${rawText.length} taken=${taken}`,
@@ -390,6 +455,21 @@ export function GlobalPushToTalkBridge({
       console.info(
         `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
       );
+      // Another dictation app heard the same key and has pasted by now.
+      // Pasting beside it would leave the sentence twice, so the words are
+      // offered on the companion instead, and land only if asked to.
+      const claimant = pendingClaimant ? await pendingClaimant : null;
+      if (claimant !== null) {
+        const offered = setDictationOffer(
+          claimant,
+          insertText,
+          pendingFrontApp ? await pendingFrontApp : null,
+        );
+        console.info(
+          `dictation: ${offered ? "offered" : "dropped"} instead of pasted, beside ${claimant.bundleId} chars=${insertText.length}`,
+        );
+        return;
+      }
       await landInFrontApp(insertText, assistantId);
     },
     [assistantId],

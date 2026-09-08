@@ -146,7 +146,7 @@ Conversations created by a schedule's runs land in the sidebar's Scheduled secti
 
 ## Conversation Reuse
 
-Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.
+Each run of a recurring schedule starts a fresh conversation unless `reuse_conversation: true` is set, in which case subsequent runs continue the conversation from the last successful run and keep its context (for example a `thread_ts` the run posted to earlier, so it can post into the same Slack thread again). Reuse is a property of the run's own conversation: a run never posts to a channel on its own, so what reaches Slack, Telegram, or Discord is only what the run sends explicitly (see Delivering Results). One-shot schedules always create a fresh conversation.
 
 - Only applies to **recurring** schedules; ignored for one-shot schedules.
 - If the prior conversation has been deleted, a new one is created automatically.
@@ -247,4 +247,4 @@ Choose the right delivery tool based on the content:
 
 Example schedule message for a Slack digest:
 
-> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to #alex-agent-messages (C0A7STRJ4G5)."
+> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to the channel the user named."

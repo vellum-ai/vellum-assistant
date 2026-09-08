@@ -135,6 +135,39 @@ export interface LiveVoiceClientStartFrame {
    * load-bearing for what a voice turn may do.
    */
   readonly client?: ClientOs;
+  /**
+   * Which control the session was asked from, as distinct from which client
+   * (`client`) it was asked on. The macOS app alone has three: the chat's
+   * voice button (`composer`), the companion surface's Talk (`companion`),
+   * and the voice key (`voice_key`, or `voice_key_ask` for a hold made over a
+   * selection). `deep_link` is Siri, a widget, the Action Button or a Live
+   * Activity tap, and `cli` the terminal client. Absent from clients that
+   * predate the field.
+   *
+   * Analytics only, exactly like `client`, and unlike `client` an open string
+   * rather than a closed set: the values are minted where the controls are,
+   * in the clients, and a daemon older than the client that sent one must
+   * carry the value through rather than erase it. The parser bounds the shape
+   * instead ({@link parseLiveVoiceEntry}) and drops anything outside it, so a
+   * malformed value costs a chart facet and never the session.
+   */
+  readonly entry?: string;
+}
+
+/**
+ * The shape a start frame's `entry` must have: a short snake_case token.
+ *
+ * The bound is set by where the value lands. The started telemetry row stamps
+ * `started_<client>:<entry>` into a 64-character wire field, and the longest
+ * `ClientOs` is seven characters, so 32 leaves the stamp well inside it.
+ */
+const LIVE_VOICE_ENTRY_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+
+/** Parse a start frame's `entry`. Returns `null` for anything off-shape. */
+export function parseLiveVoiceEntry(value: unknown): string | null {
+  return typeof value === "string" && LIVE_VOICE_ENTRY_PATTERN.test(value)
+    ? value
+    : null;
 }
 
 /**
@@ -1088,6 +1121,8 @@ function validateStartFrame(
   // analytics dimension, and failing a session's startup over it would trade a
   // gap in a chart for a user who cannot talk to their assistant.
   const client = parseClientOs(value.client);
+  // Same policy for the same reason: a dimension, not a capability.
+  const entry = parseLiveVoiceEntry(value.entry);
 
   return {
     ok: true,
@@ -1097,6 +1132,7 @@ function validateStartFrame(
         ? { conversationId: value.conversationId }
         : {}),
       ...(client ? { client } : {}),
+      ...(entry ? { entry } : {}),
       audio: audioConfig.frame,
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }

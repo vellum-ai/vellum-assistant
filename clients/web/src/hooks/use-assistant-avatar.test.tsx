@@ -48,6 +48,7 @@ const characterState: AvatarState = {
   traits,
   source: "builder",
   image: { updatedAt: "2024-01-01T00:00:00Z", etag: "abc" },
+  accent: null,
 };
 
 const imageState: AvatarState = {
@@ -55,6 +56,7 @@ const imageState: AvatarState = {
   traits: null,
   source: "upload",
   image: { updatedAt: "2024-01-01T00:00:00Z", etag: "def" },
+  accent: null,
 };
 
 const noneState: AvatarState = {
@@ -62,6 +64,7 @@ const noneState: AvatarState = {
   traits: null,
   source: null,
   image: null,
+  accent: null,
 };
 
 const fetchCharacterComponents = mock(async () => components);
@@ -501,6 +504,7 @@ describe("useAssistantAvatar", () => {
       traits,
       source: null,
       image: null,
+      accent: null,
     });
     expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
     expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
@@ -526,6 +530,7 @@ describe("useAssistantAvatar", () => {
       traits: null,
       source: null,
       image: null,
+      accent: null,
     });
     expect(fetchCharacterTraitsResult).not.toHaveBeenCalled();
     expect(fetchAvatarState).not.toHaveBeenCalled();

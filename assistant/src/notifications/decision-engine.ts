@@ -43,10 +43,10 @@ import {
 import { composeFallbackCopy, resolveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
-  applyGuardianReplyMechanics,
   buildQuestionDeliveryText,
   parseGuardianQuestionPayload,
   resolveGuardianInstructionModeFromPayload,
+  stripGuardianReplyMechanicsFromCopy,
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
@@ -155,8 +155,7 @@ function buildSystemPrompt(
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
-    `  - For slack approval requests: the message renders inside an interactive card with Approve/Reject buttons. Describe only what needs approval — never include approval/reference codes, code-reply instructions, or directions to respond in another app.`,
-    `  - For vellum and platform guardian requests: the copy is read in the notification bell, the banner, and the push, which act through the request card. Never include reference codes, code-reply instructions, or directions to respond elsewhere.`,
+    `  - For guardian requests (approvals, questions, access requests) on every channel: describe the request only. Never include reference or approval codes, code-reply instructions, or directions to respond elsewhere. The delivery layer adds buttons, or typed-reply instructions where a channel has none.`,
     `- \`conversationSeedMessage\` is the opening message in the internal notification conversation and also the expanded detail shown in the home feed. It should be richer and more contextual than the popup body.`,
     `  - For vellum (desktop): use structured markdown for readability. Break content into bullet points, numbered lists, or short sections with **bold** labels. Avoid long unbroken paragraphs — scan-friendly formatting is preferred.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
@@ -225,23 +224,28 @@ function buildUserPrompt(signal: NotificationSignal): string {
 // ── Tool definition ────────────────────────────────────────────────────
 
 /**
- * Spec for the per-channel notification title. Mirrors the conversation title
- * prompt (`persistence/conversation-title-service.ts`), which gets clean
- * noun-phrase headlines out of this same model profile.
+ * Spec for the per-channel notification title. The title is the one line a
+ * reader sees in the notification bell, where a row that only reports shows
+ * nothing else, so it has to say what happened on its own rather than name a
+ * topic the body then explains. Same length discipline as the conversation
+ * title prompt (`persistence/conversation-title-service.ts`), which shares
+ * this model profile and the `normalizeTitle` clamp.
  */
 const TITLE_FIELD_DESCRIPTION = [
-  "Scannable headline naming the TOPIC of this notification, not a summary of it.",
+  "Scannable headline saying WHAT HAPPENED or WHAT IS NEEDED, so it stands on its own without the body.",
   "Rules:",
-  "- 2 to 5 words. Longer titles are unacceptable, ruthlessly compress",
+  "- 2 to 6 words. Longer titles are unacceptable, ruthlessly compress",
   "- 40 characters absolute maximum, longer titles get truncated and look broken",
-  "- A noun phrase naming the topic, never a sentence, question, or greeting (e.g. 'Platform Standup', 'Nightly Backup Failure')",
-  "- Do NOT restate, summarize, or echo the body. The title and the body must carry different information",
+  "- Lead with the outcome as a short clause: a past-tense verb for something done ('Prepared a wedding schedule', 'Nightly backup failed'), a need for something waiting on the reader ('Needs an answer on the venue')",
+  "- Sentence case, never Title Case",
+  "- Do NOT restate the body word for word. The body adds the detail the title leaves out: numbers, names, what to do next",
   "- No quotes, no markdown, no trailing punctuation",
-  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Missing Context' are forbidden. Extract a topic from the words that ARE present",
+  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Activity complete', 'Missing context' are forbidden. Say what was done from the words that ARE present",
   "Examples:",
-  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform Standup', NOT 'Standup Starts In 5 Minutes'",
-  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly Backup Failure', NOT 'Nightly Backup Job Failed On db-primary'",
-  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Q3 Pricing Deck', NOT 'Alice Replied About The Pricing Deck'",
+  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform standup in 5 minutes', NOT 'Platform Standup'",
+  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly backup failed', NOT 'Nightly Backup Failure'",
+  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Alice wants notes on the Q3 deck', NOT 'Q3 Pricing Deck'",
+  "- Body 'Recapped the 12 emails that needed a reply and deleted 6 newsletters' -> 'Recapped 12 emails, deleted 6', NOT 'Inbox Recap'",
 ].join("\n");
 
 function buildDecisionTool(availableChannels: NotificationChannel[]) {
@@ -593,37 +597,54 @@ export function validateConversationActions(
 }
 
 /**
- * Guardian questions that share a conversation require explicit request-code
- * targeting, so the reply-mechanics rule runs on every decision path: a
- * channel the guardian answers by typing gets the instruction enforced into
- * its copy even when the model left it out, and a channel that acts through
- * a card (the vellum bell and banner, the platform push, Slack approval
- * cards) gets it stripped, model-authored code phrasing included. The
- * per-channel rule is `guardianCopyCarriesReplyMechanics`.
+ * Composed copy never carries reply mechanics. The broadcaster's
+ * `plainTextFallback` is their only home, and a transport appends it exactly
+ * when it sends text without buttons, so the model's own echo of them
+ * ("Reference code: X", "Reply "X approve"", "Reply "X trust"") is noise on
+ * every channel and comes out here on every decision path.
  */
-function enforceGuardianRequestCode(
+function stripReplyMechanics(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") {
+  const isQuestion = signal.sourceEventName === "guardian.question";
+  const isAccessRequest = signal.sourceEventName === "ingress.access_request";
+  if (!isQuestion && !isAccessRequest) {
     return decision;
   }
+  const rawCode = signal.contextPayload.requestCode;
+  const requestCode =
+    typeof rawCode === "string" && rawCode.trim().length > 0
+      ? rawCode.trim().toUpperCase()
+      : undefined;
+  if (isQuestion && !requestCode) {
+    return decision;
+  }
+  const questionText = readPayloadString(signal.contextPayload, "questionText");
+
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
-
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
     if (!copy) {
       continue;
     }
-    nextCopy[channel] = applyGuardianReplyMechanics(copy, channel, signal);
+    nextCopy[channel] =
+      isQuestion && requestCode
+        ? stripGuardianReplyMechanicsFromCopy(copy, requestCode, questionText)
+        : // The invite directive is context the model may leave out, and the
+          // only affordance for that flow on most surfaces, so it is ensured
+          // after the code mechanics come out.
+          ensureAccessRequestInviteDirectiveInCopy(
+            stripAccessRequestReplyMechanicsFromCopy(
+              copy,
+              signal.contextPayload,
+            ),
+          );
   }
 
-  return {
-    ...decision,
-    renderedCopy: nextCopy,
-  };
+  return { ...decision, renderedCopy: nextCopy };
 }
 
 /**
@@ -670,10 +691,6 @@ function ensureSeedContentBlocks(
  *
  * Scoped to answer mode. A `pending_question` carrying a tool name is a voice
  * tool approval, where composed copy is the right thing.
- *
- * The pinned text carries the reference-code instruction; the
- * reply-mechanics pass runs after this one and keeps or strips it per
- * channel, so this pin never has to know which surfaces take a typed reply.
  */
 function pinQuestionDeliveryCopy(
   decision: NotificationDecision,
@@ -729,36 +746,18 @@ function enforceToolApprovalSeedBlocks(
 }
 
 /**
- * Access-request copy never carries the request-code directive: that is the
- * card's `plainTextFallback`, appended by a transport only when it sends
- * text without buttons. A model's echo of it comes out on every channel.
- * The invite-flow directive is the opposite case, context rather than
- * mechanics (no surface has an invite button, so the sentence is the only
- * way to start the flow), and model-composed copy that leaves it out gets
- * it appended. The Surface card is ensured on every decision path, the
- * same way tool approvals are.
+ * Access-request notifications need their Surface card on every decision
+ * path, the same way tool approvals do.
  */
-function enforceAccessRequestCopy(
+function enforceAccessRequestSeedBlocks(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
   if (signal.sourceEventName !== "ingress.access_request") {
     return decision;
   }
-  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
-    ...decision.renderedCopy,
-  };
-  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
-    const copy = nextCopy[channel];
-    if (!copy) {
-      continue;
-    }
-    nextCopy[channel] = ensureAccessRequestInviteDirectiveInCopy(
-      stripAccessRequestReplyMechanicsFromCopy(copy, signal.contextPayload),
-    );
-  }
   return ensureSeedContentBlocks(
-    { ...decision, renderedCopy: nextCopy },
+    decision,
     buildAccessRequestSeedContentBlocks(signal.contextPayload),
   );
 }
@@ -822,19 +821,16 @@ function buildPassThroughDecision(params: {
 
 /**
  * The deterministic guards every decision passes through once the model,
- * the assistant-tool pass-through, or the fallback has rendered copy. In
- * dependency order: the question pin writes the copy the reply-mechanics
- * pass then settles per channel, and the seed-block guard is independent
- * of both.
+ * the assistant-tool pass-through, or the fallback has rendered copy.
  */
 function applyDecisionGuards(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
   decision = pinQuestionDeliveryCopy(decision, signal);
-  decision = enforceGuardianRequestCode(decision, signal);
+  decision = stripReplyMechanics(decision, signal);
   decision = enforceToolApprovalSeedBlocks(decision, signal);
-  decision = enforceAccessRequestCopy(decision, signal);
+  decision = enforceAccessRequestSeedBlocks(decision, signal);
   decision = enforceGuardianRequestConversationAffinity(decision, signal);
   return enforceConversationAffinity(decision, signal.conversationAffinityHint);
 }

@@ -62,6 +62,7 @@ function emptyReasonCounts(): Record<FrameGateReason, number> {
     heartbeat: 0,
     novel: 0,
     unchanged: 0,
+    forced: 0,
   };
 }
 

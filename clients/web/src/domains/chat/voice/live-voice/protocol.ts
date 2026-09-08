@@ -63,6 +63,32 @@ export const LIVE_VOICE_AUDIO_FORMAT_PARAMS: Record<string, string> = {
 
 export type LiveVoiceTurnDetectionMode = "manual" | "server_vad";
 
+/**
+ * Which control a live-voice session was asked from. The start frame's
+ * `client` says which app the user was on; this says what they reached for in
+ * it, which is the only thing that separates the macOS app's three ways in
+ * from each other.
+ *
+ * - `composer`       the chat's voice button
+ * - `companion`      the macOS companion surface's Talk
+ * - `voice_key`      the voice key's double tap, or the voice mode shortcut
+ * - `voice_key_ask`  the voice key held over a selection, asking about it
+ * - `deep_link`      Siri, a widget, the Action Button, a Live Activity tap
+ *
+ * Analytics only. The daemon stamps it on the session's started telemetry row
+ * and on each voice turn's `client` bag, and reads the field as an open
+ * string, so a value added here reaches the warehouse without a daemon
+ * release. Keep the tokens short snake_case: the daemon drops anything that
+ * does not match `^[a-z][a-z0-9_]{0,31}$`, and a dropped value reads as
+ * unknown downstream rather than failing the session.
+ */
+export type LiveVoiceEntry =
+  | "composer"
+  | "companion"
+  | "voice_key"
+  | "voice_key_ask"
+  | "deep_link";
+
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
   readonly conversationId?: string;
@@ -97,6 +123,11 @@ export interface LiveVoiceClientStartFrame {
    * interface id, which decides what the turn is allowed to do.
    */
   readonly client?: ClientOs;
+  /**
+   * Which control asked for the session (see {@link LiveVoiceEntry}). Absent
+   * from callers that predate the field, which the daemon reports as unknown.
+   */
+  readonly entry?: LiveVoiceEntry;
   /**
    * This client can take a turn without the microphone (see the `text` frame),
    * so a missing speech-to-text leg is degradation rather than failure.

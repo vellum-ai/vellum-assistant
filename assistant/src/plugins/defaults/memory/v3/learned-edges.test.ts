@@ -43,11 +43,11 @@ let nextTurn = 0;
 /** Insert one selector call: every slug shares the same (conv, created_at). */
 function seedCall(slugs: string[], createdAt = NOW, conv = "conv-1"): void {
   const stmt = sqlite.query(
-    `INSERT INTO memory_v3_selections (conversation_id, turn, slug, source, pinned, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO memory_v3_selections (conversation_id, turn, slug, source, created_at) VALUES (?, ?, ?, ?, ?)`,
   );
   const turn = nextTurn++;
   for (const slug of slugs) {
-    stmt.run(conv, turn, slug, "needle", 0, createdAt);
+    stmt.run(conv, turn, slug, "needle", createdAt);
   }
 }
 

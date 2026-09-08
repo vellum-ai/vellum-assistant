@@ -25,6 +25,7 @@ import { mock } from "bun:test";
 import type {
   LiveVoiceClientEventMap,
   LiveVoiceClientEventName,
+  LiveVoiceConnectArgs,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import type {
   LiveVoiceAudioCaptureOptions,
@@ -42,13 +43,9 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 export class FakeClient {
-  connectArgs: {
-    assistantId: string;
-    conversationId?: string;
-    turnDetection?: "manual" | "server_vad";
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  } | null = null;
+  // The real client's own args type, not a restated copy, so a field added to
+  // the connect frame reaches every assertion made against this fake.
+  connectArgs: LiveVoiceConnectArgs | null = null;
   sentAudio: ArrayBuffer[] = [];
   sentText: string[] = [];
   /** Per-send options, index-aligned with {@link sentText}. */
@@ -86,13 +83,7 @@ export class FakeClient {
     return () => set?.delete(handler as (payload: never) => void);
   }
 
-  async connect(args: {
-    assistantId: string;
-    conversationId?: string;
-    turnDetection?: "manual" | "server_vad";
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  }): Promise<void> {
+  async connect(args: LiveVoiceConnectArgs): Promise<void> {
     this.connectArgs = args;
   }
 

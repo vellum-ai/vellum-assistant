@@ -255,7 +255,6 @@
     "bodyLoadingWithClaims": "Todavía estoy revisando el resto. Puedes ir mirando lo que va llegando.",
     "bodyReadyWithClaims": "He buscado en la web. Siéntete libre de quitar cualquier cosa que no sea cierta.",
     "bodyLoadingEmpty": "Todavía lo estoy armando…",
-    "bodyReadyEmpty": "No he encontrado mucho, lo iremos completando al chatear.",
     "removeClaim": "Quitar «{claim}»",
     "notMe": "Esto no soy yo",
     "stillSearching": "Todavía buscando…"

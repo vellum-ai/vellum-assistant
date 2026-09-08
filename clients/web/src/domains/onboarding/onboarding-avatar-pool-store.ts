@@ -10,9 +10,9 @@
  * characters and lets the picker animate a character from its edge slot into the
  * center and back.
  *
- * The cast is a fixed, hand-picked set (not random) so the scene is consistent
- * across sessions and matches the design. Index 0 is the picker's initial
- * centered avatar.
+ * The cast is a fixed, hand-picked set so the scene matches the design. Which
+ * of those faces starts centered is chosen at random so the step does not
+ * always open on the same character.
  */
 
 import { create } from "zustand";
@@ -27,10 +27,10 @@ export const AVATAR_POOL_SIZE = 12;
  * The hand-picked cast, chosen to match the design. Spans all 9 body shapes and
  * all 9 eye styles (a few unavoidably repeat across 12 characters) so the picker
  * shows the full variety instead of leaning on the same faces. Index 0 is the
- * picker's initial centered avatar.
+ * picker's designed center when the random draw lands on 0.
  */
-// Index 0 is the center; indices 1–11 fill the picker's edge slots in order (see
-// `edgeSlots` in onboarding-character-stage). Tuned to match the design.
+// Indices 1–11 fill the picker's edge slots in order (see `edgeSlots` in
+// onboarding-character-stage). Tuned to match the design.
 const HARDCODED_POOL: CharacterTraits[] = [
   { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" }, // center: teal spiky
   { bodyShape: "blob", eyeStyle: "grumpy", color: "purple" }, // top-left: purple blob
@@ -52,7 +52,10 @@ interface OnboardingAvatarPoolState {
   /** Index of the character shown as the selected/center avatar in the picker. */
   selectedIndex: number;
   /** Populate the pool once (no-op if already done). */
-  ensureGenerated: (components: CharacterComponents) => void;
+  ensureGenerated: (
+    components: CharacterComponents,
+    random?: () => number,
+  ) => void;
   /** Replace one character's traits (e.g. the picker's shuffle-dice reroll). */
   setCharacterTraits: (index: number, traits: CharacterTraits) => void;
   setSelectedIndex: (index: number) => void;
@@ -64,11 +67,14 @@ const useOnboardingAvatarPoolStoreBase = create<OnboardingAvatarPoolState>(
   (set, get) => ({
     characters: [],
     selectedIndex: 0,
-    ensureGenerated: () => {
+    ensureGenerated: (_components, random = Math.random) => {
       if (get().characters.length > 0) {
         return;
       }
-      set({ characters: HARDCODED_POOL, selectedIndex: 0 });
+      set({
+        characters: HARDCODED_POOL,
+        selectedIndex: pickInitialAvatarIndex(HARDCODED_POOL.length, random),
+      });
     },
     setCharacterTraits: (index, traits) =>
       set((s) => ({
@@ -95,3 +101,13 @@ const useOnboardingAvatarPoolStoreBase = create<OnboardingAvatarPoolState>(
 export const useOnboardingAvatarPoolStore = createSelectors(
   useOnboardingAvatarPoolStoreBase,
 );
+
+export function pickInitialAvatarIndex(
+  count: number,
+  random: () => number = Math.random,
+): number {
+  if (count <= 0) {
+    return 0;
+  }
+  return Math.floor(random() * count);
+}

@@ -37,6 +37,15 @@
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Не удалось загрузить все диалоги в этом разделе. Повторите попытку."
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Скрыть экран сна",
+    "sleeping": "Ваш ассистент спит",
+    "sleepingNamed": "{name} спит",
+    "waking": "Ваш ассистент просыпается…",
+    "wakingNamed": "{name} просыпается…",
+    "woke": "Ваш ассистент только что проснулся",
+    "wokeNamed": "{name} только что проснулся"
+  },
   "assistantSwitcher": {
     "collapse": "Скрыть ассистентов",
     "currentAssistant": "{name}, текущий ассистент",
@@ -270,21 +279,32 @@
     "recordSaveFailed": "Не удалось сохранить контакт. Попробуйте ещё раз."
   },
   "contactPromptCard": {
+    "addingToContact": "Добавление канала для {name}",
     "markVerified": "Отметить этот адрес как подтверждённый",
-    "markVerifiedHelp": "Подтверждённый адрес может писать вашему ассистенту."
+    "markVerifiedHelp": "Подтверждённый адрес может писать вашему ассистенту.",
+    "namePlaceholder": "Имя",
+    "notesLabel": "Заметки"
   },
   "contactRecordCard": {
     "cancel": "Отмена",
+    "channelType": "{channel}:",
     "contactDeleted": "Контакт удалён",
+    "contactMerged": "Контакты объединены",
     "contactSaved": "Контакт сохранён",
     "createTitle": "Добавить контакт",
     "delete": "Удалить",
     "deleteTitle": "Удалить {name}?",
     "deleteWarning": "Вместе с ним удаляются его каналы, и он больше не сможет связаться с вашим ассистентом.",
-    "dismiss": "Закрыть",
+    "merge": "Объединить",
+    "mergeDonorChannels": "Переходят от {name}",
+    "mergeSurvivorChannels": "Уже у {name}",
+    "mergeTitle": "Объединить {donor} с {survivor}?",
+    "mergeWarning": "Эти каналы перейдут к {survivor}, а запись {donor} будет удалена.",
+    "nameLabel": "Имя",
     "namePlaceholder": "Имя",
     "noChannels": "У этого контакта нет каналов.",
-    "notesPlaceholder": "Заметки (необязательно)",
+    "notesLabel": "Заметки",
+    "notesPlaceholder": "Добавить заметку",
     "save": "Сохранить",
     "saving": "Сохранение…",
     "updateTitle": "Обновить: {name}"
@@ -537,6 +557,12 @@
     "breakdownSource": "источник",
     "breakdownSpreadDelta": "spread Δ",
     "breakdownStatus": "статус",
+    "candidatePoolChosenChip": "выбрана",
+    "candidatePoolNoneBody": "Пул кандидатов для этого хода не записан.",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, one {# кандидат передан напрямую} few {# кандидата передано напрямую} many {# кандидатов передано напрямую} other {# кандидата передано напрямую}} без оценки селектора · селектор отключён",
+    "candidatePoolSelectorNotRunBody": "Селектор не запускался в этом ходе.",
+    "candidatePoolSubtitle": "{poolSize, plural, one {# кандидат показан} few {# кандидата показано} many {# кандидатов показано} other {# кандидата показано}} селектору · {selectedCount, plural, one {выбрана # страница} few {выбраны # страницы} many {выбрано # страниц} other {выбрано # страницы}}",
+    "candidatePoolTitle": "Пул кандидатов",
     "candidateScores": "sem {semantic} · rec {recency}",
     "carriedPill": "Перенесено: {count}",
     "conceptActivationsSubtitle": "Сортировка по итоговой активации. Записи навыков идут с префиксом `skills/`; разверни строку, чтобы увидеть разбивку активации.",
@@ -585,8 +611,6 @@
     "pillMemoryV2": "Memory V2",
     "pillMemoryV3": "Memory V3",
     "pillRecallV1": "Recall (v1)",
-    "pinnedChip": "закреплено",
-    "pinnedPill": "Закреплено: {count}",
     "providerLabel": "Провайдер",
     "queryContextSubtitle": "Текст, который встроили как поисковый вектор для семантического поиска.",
     "queryContextTitle": "Контекст запроса",
@@ -841,6 +865,12 @@
   "frameGateHud": {
     "collapse": "Скрыть показатели фильтра кадров",
     "expand": "Показать показатели фильтра кадров"
+  },
+  "watchRetroSurface": {
+    "doneDiscarded": "Не сохранено",
+    "doneNotRight": "Отмечено как неверное",
+    "doneSaved": "Навык сохранён",
+    "recommended": "Рекомендуем"
   },
   "restoreManagedCredentialButton": {
     "restore": "Восстановить доступ",

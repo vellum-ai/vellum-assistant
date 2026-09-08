@@ -109,7 +109,10 @@ import {
 } from "./consolidation-lock.js";
 import { getPageIndex, type PageParseFailure } from "./page-index.js";
 import type { DanglingLink } from "./page-links.js";
-import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
+import {
+  type OverlongSectionsReport,
+  resolveConsolidationPrompt,
+} from "./prompts/consolidation.js";
 import { resolveSubstrateTuning } from "./tuning.js";
 
 const log = getLogger("memory-v2-consolidate");
@@ -312,9 +315,30 @@ export type ConsolidationOutcome =
 /** Dangling links named in the post-run warn line before the count takes over. */
 const MAX_LOGGED_DANGLING_LINKS = 20;
 
+/**
+ * Tier-owned inputs the job composes without importing a tier; the memory
+ * plugin's job registration (`job-handlers.ts`) supplies them.
+ */
+export interface ConsolidationJobDeps {
+  /**
+   * Sections over the section-grain retrieval window, for the prompt's
+   * over-long-sections repair step. Read only where memory-v3 is live, since
+   * the window is v3's; a missing or failing lister omits the step. Like the
+   * other repair steps it rides a buffer-driven pass: an empty buffer skips
+   * the run, repairs included, so no LLM pass is spent on a workspace with
+   * nothing new to file, and a quiet workspace's backlog waits for its next
+   * real pass. An over-long section stays retrievable meanwhile, chunk by
+   * chunk.
+   */
+  listOverlongSections?: (
+    workspaceDir: string,
+  ) => Promise<OverlongSectionsReport>;
+}
+
 export async function memoryV2ConsolidateJob(
   _job: MemoryJob,
   config: AssistantConfig,
+  deps: ConsolidationJobDeps = {},
 ): Promise<ConsolidationOutcome> {
   // One gate, not two: `usesConceptPageMemory` already returns false on an
   // explicit `memory.enabled === false`, so the memory-off case lands here
@@ -449,6 +473,20 @@ export async function memoryV2ConsolidateJob(
         "consolidation: page-index read failed; omitting the repair sections",
       );
     }
+    // Sections the v3 chunker splits, rendered into the prompt's over-long
+    // sections repair step so the agent splits them at the page. Best-effort
+    // like the index read above.
+    let overlongSections: OverlongSectionsReport | undefined;
+    if (memoryV3Live && deps.listOverlongSections) {
+      try {
+        overlongSections = await deps.listOverlongSections(getWorkspaceDir());
+      } catch (err) {
+        log.warn(
+          { err },
+          "consolidation: over-long section scan failed; omitting the repair step",
+        );
+      }
+    }
     const prompt = resolveConsolidationPrompt(
       tuning.consolidation_prompt_path,
       cutoff,
@@ -457,6 +495,7 @@ export async function memoryV2ConsolidateJob(
         articleShape: memoryV3Live ? "v3" : "v2",
         parseFailures,
         danglingLinks,
+        overlongSections,
       },
     );
 

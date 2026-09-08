@@ -591,6 +591,7 @@ export function ChatComposer({
     // start, only a reason to open silent, so it is decided here rather than
     // in the staleness guard.
     starter?.start(assistantId, conversationId ?? null, {
+      entry: "composer",
       seedText: voiceEntryGreetingSeed(latest.conversationIsEmpty),
     });
   }, [assistantId, conversationId]);
@@ -1048,10 +1049,10 @@ export function ChatComposer({
           ? ""
           : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
       }`
-    // Undefined rather than the layout classes while hidden: `hidden` already
-    // takes the group out of layout, and a class arriving with the reveal is
-    // what makes the entrance animation run on each one.
-    : undefined;
+    : // Undefined rather than the layout classes while hidden: `hidden` already
+      // takes the group out of layout, and a class arriving with the reveal is
+      // what makes the entrance animation run on each one.
+      undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both shared with the live-voice bar: it stacks on this

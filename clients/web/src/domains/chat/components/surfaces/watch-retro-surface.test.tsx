@@ -1,11 +1,12 @@
 /**
- * The card's two load-bearing behaviours: it pages, and every page a user taps
- * past still lands on an answer.
+ * The card's load-bearing behaviours: it pages, a pick or a gate is answered
+ * by the user rather than for them, and the card says when it is done.
  *
- * Neither is visible to a static render. The card is only short if the
- * questions really are on separate pages, and "every question is optional" only
- * holds if skipping submits a default rather than a hole, with the gate
- * defaulting to the cautious option rather than to what the recording showed.
+ * None of them is visible to a static render. The card is only short if the
+ * questions really are on separate pages; an answer is only the user's if no
+ * option starts selected and the page cannot be left without a tap; and a
+ * submitted card only reads as submitted if the completed surface draws
+ * something other than the page it was on.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -97,7 +98,7 @@ describe("WatchRetroSurface", () => {
     ).toBeNull();
   });
 
-  test("submits a default for every page the user skips", async () => {
+  test("a skipped fill keeps its suggestion, and a tapped pick is the user's", async () => {
     const calls: { actionId: string; data?: Record<string, unknown> }[] = [];
     render(
       <CardSurface
@@ -108,20 +109,22 @@ describe("WatchRetroSurface", () => {
       />,
     );
 
-    // Past the recap, then skip all three questions, which lands on the
-    // summary. Skipping every page reaches review without submitting: saving
-    // is its own act, asked for on the summary and nowhere else.
+    // Past the recap, skip the trigger, then answer the pick and the gate by
+    // tapping their recommended option. That lands on the summary without
+    // submitting: saving is its own act, asked for there and nowhere else.
     fireEvent.click(screen.getByText("Looks right"));
     fireEvent.click(screen.getByText("Skip"));
-    fireEvent.click(screen.getByText("Skip"));
-    fireEvent.click(screen.getByText("Skip"));
+    fireEvent.click(screen.getByText("Over 100 events"));
+    fireEvent.click(screen.getByText("Ask me first"));
     expect(calls).toHaveLength(0);
 
     fireEvent.click(screen.getByText("Save skill"));
     expect(calls).toHaveLength(1);
     // A `card` is not one-shot daemon-side, so the card has to ask to be
-    // completed or it stays answerable after it has been answered.
+    // completed or it stays answerable after it has been answered. The summary
+    // rides along so history restores what happened rather than "Completed".
     expect(calls[0]!.data!._completeSurface).toBe(true);
+    expect(calls[0]!.data!._completionSummary).toBe("Skill saved");
     const answers = calls[0]!.data!.answers as {
       questionId: string;
       answer: string;
@@ -137,22 +140,64 @@ describe("WatchRetroSurface", () => {
       answer: "file this Sentry bug",
       skipped: true,
     });
-    // A skipped `pick` takes the first option: the reading the recording
-    // already supports, so accepting it is the status quo.
+    // Tapping the recommended option is still a choice: it goes out as the
+    // user's answer, not as an accepted default.
     expect(answers[1]).toMatchObject({
       questionId: "priority",
       optionId: "events",
-      skipped: true,
+      skipped: false,
     });
-    // A skipped `gate` takes the first option too, and on a gate that has to
-    // be the cautious one. Watching someone resolve an issue once is not
-    // agreement to have it resolved again unattended, so tapping through the
-    // card must never hand over the destructive step.
     expect(answers[2]).toMatchObject({
       questionId: "resolve",
       optionId: "ask",
-      skipped: true,
+      skipped: false,
     });
+  });
+
+  test("a pick starts with nothing selected, the first option marked, and no way past it but a tap", () => {
+    render(<CardSurface surface={surface()} onAction={() => undefined} />);
+
+    fireEvent.click(screen.getByText("Looks right"));
+    fireEvent.click(screen.getByText("Next"));
+    expect(
+      screen.getByText("You set this one to High. What decides that?"),
+    ).toBeDefined();
+
+    // Nothing is preselected: the recommendation is marked, not chosen.
+    const options = screen.getAllByRole("button", { pressed: false });
+    expect(options.map((option) => option.textContent)).toEqual([
+      expect.stringContaining("Over 100 events"),
+      expect.stringContaining("It hit a customer"),
+    ]);
+    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
+    // The recommendation is visible without being the answer.
+    expect(options[0]!.textContent).toContain("Recommended");
+    expect(options[1]!.textContent).not.toContain("Recommended");
+
+    // The page cannot be left forward without answering.
+    expect(screen.queryByText("Skip")).toBeNull();
+    expect(screen.queryByText("Next")).toBeNull();
+  });
+
+  test("a pick revisited with an answer standing can be left with Next", () => {
+    render(<CardSurface surface={surface()} onAction={() => undefined} />);
+
+    fireEvent.click(screen.getByText("Looks right"));
+    fireEvent.click(screen.getByText("Next"));
+    fireEvent.click(screen.getByText("It hit a customer"));
+    expect(
+      screen.getByText("Resolving the Sentry issue, on my own?"),
+    ).toBeDefined();
+
+    // Back on the pick, the answer is still marked, and Next has appeared so
+    // moving on does not mean tapping the same option again.
+    fireEvent.click(screen.getByText("Back"));
+    const chosen = screen.getByRole("button", { pressed: true });
+    expect(chosen.textContent).toContain("It hit a customer");
+    fireEvent.click(screen.getByText("Next"));
+    expect(
+      screen.getByText("Resolving the Sentry issue, on my own?"),
+    ).toBeDefined();
   });
 
   test("commits a pick on tap and moves to the next page", () => {
@@ -168,8 +213,7 @@ describe("WatchRetroSurface", () => {
 
     fireEvent.click(screen.getByText("Looks right"));
     fireEvent.click(screen.getByText("Next"));
-    // A single-select surface commits on tap everywhere else in the app, so
-    // the pick page carries no advance button: the option is the gesture.
+    // The option is the gesture: a tap answers and advances in one.
     fireEvent.click(screen.getByText("It hit a customer"));
 
     expect(calls).toHaveLength(0);
@@ -290,11 +334,83 @@ describe("WatchRetroSurface", () => {
 
     fireEvent.click(screen.getByText("Looks right"));
     fireEvent.click(screen.getByText("Skip"));
-    fireEvent.click(screen.getByText("Skip"));
-    fireEvent.click(screen.getByText("Skip"));
+    fireEvent.click(screen.getByText("Over 100 events"));
+    fireEvent.click(screen.getByText("Ask me first"));
 
     fireEvent.click(screen.getByText("Don't save"));
     expect(calls).toEqual(["discard"]);
+  });
+
+  test("a completed surface collapses to one row saying what happened", () => {
+    const { rerender } = render(
+      <CardSurface surface={surface()} onAction={() => undefined} />,
+    );
+    expect(screen.getByText("Looks right")).toBeDefined();
+
+    // What `completeSubmittedSurface` does the moment a submit is accepted:
+    // completed, with no summary until the daemon's completion event lands.
+    rerender(
+      <CardSurface
+        surface={{ ...surface(), completed: true }}
+        onAction={() => undefined}
+      />,
+    );
+    expect(screen.queryByText("Looks right")).toBeNull();
+    expect(screen.queryByText("Open the Sentry issue")).toBeNull();
+    expect(
+      screen.getByText("Filing a Linear bug from a Sentry alert"),
+    ).toBeDefined();
+    expect(screen.getByText("Done")).toBeDefined();
+
+    // The summary the card sent is what the daemon echoes back and what a
+    // restored conversation carries. It is matched back to its ending and
+    // drawn from the catalog, so the row reads in the viewer's locale rather
+    // than the locale of whoever answered.
+    rerender(
+      <CardSurface
+        surface={{
+          ...surface(),
+          completed: true,
+          completionSummary: "Flagged as not right",
+        }}
+        onAction={() => undefined}
+      />,
+    );
+    expect(screen.getByText("Flagged as not right")).toBeDefined();
+    expect(screen.queryByText("Done")).toBeNull();
+  });
+
+  test("the ending submitted from this card names the row before the summary arrives", async () => {
+    let current = surface();
+    const { rerender } = render(
+      <CardSurface
+        surface={current}
+        onAction={(_surfaceId, _actionId, data) => {
+          // The optimistic completion: no summary yet, only the flag.
+          expect(data!._completionSummary).toBe("Flagged as not right");
+          current = { ...current, completed: true };
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Something's off"));
+    rerender(<CardSurface surface={current} onAction={() => undefined} />);
+    await waitFor(() => {
+      expect(screen.getByText("Flagged as not right")).toBeDefined();
+    });
+    expect(screen.queryByText("Something's off")).toBeNull();
+
+    // The daemon's summary is the ending that actually landed. When it
+    // disagrees with what this mount submitted, because another client
+    // answered the same card first, the summary wins.
+    rerender(
+      <CardSurface
+        surface={{ ...current, completionSummary: "Skill saved" }}
+        onAction={() => undefined}
+      />,
+    );
+    expect(screen.getByText("Skill saved")).toBeDefined();
+    expect(screen.queryByText("Flagged as not right")).toBeNull();
   });
 
   test("saying the recap read wrong ends the card without saving", () => {

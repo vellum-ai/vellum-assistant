@@ -40,10 +40,10 @@ let nextTurn = 0;
 /** Insert one selection row per createdAt (distinct turns keep the PK unique). */
 function seed(slug: string, createdAts: number[]): void {
   const stmt = sqlite.query(
-    `INSERT INTO memory_v3_selections (conversation_id, turn, slug, source, pinned, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO memory_v3_selections (conversation_id, turn, slug, source, created_at) VALUES (?, ?, ?, ?, ?)`,
   );
   for (const createdAt of createdAts) {
-    stmt.run("conv-1", nextTurn++, slug, "needle", 0, createdAt);
+    stmt.run("conv-1", nextTurn++, slug, "needle", createdAt);
   }
 }
 

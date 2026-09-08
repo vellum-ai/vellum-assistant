@@ -2,9 +2,10 @@
  * Memory v3 — config-gated live orchestration engine.
  *
  * When `memory.v3.live` is set, runs the v3 orchestrator each turn and records
- * its selection set to `memory_v3_selections`. The injector (`memoryV3Injector`
- * in `./injector.ts`) renders this turn's selections into a `<memory>` block
- * and returns it at v2's dynamic-memory placement (`after-memory-prefix`).
+ * its selection set to `memory_v3_selections` and its candidate pool to
+ * `memory_v3_pools`. The injector (`memoryV3Injector` in `./injector.ts`)
+ * renders this turn's selections into a `<memory>` block and returns it at
+ * v2's dynamic-memory placement (`after-memory-prefix`).
  *
  * On each live turn:
  *   1. Lazy-init the v3 lanes (section index, section-grain BM25 needle,
@@ -16,7 +17,9 @@
  *      and rebuilds.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
- *      `memory_v3_selections` with a best-effort lane attribution.
+ *      `memory_v3_selections` with a best-effort lane attribution, plus the
+ *      full candidate pool and verdict to `memory_v3_pools` for the inspector,
+ *      as one transaction ({@link writeTurnLog}).
  *
  * {@link observeTurn} wraps everything in try/catch — any failure is logged and
  * swallowed so it can never affect the live turn. The injector treats a
@@ -40,9 +43,10 @@ import {
   recordLatencySubSpan,
   timeLatencySubSpan,
 } from "../../../../daemon/turn-latency-sub-spans.js";
+import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
-import { memorySqliteOrNull } from "../memory-db.js";
+import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
 import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
@@ -56,18 +60,27 @@ import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
-import { getActiveSlugs } from "./ever-injected-store.js";
+import { getActiveSections, sectionRefSetHas } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
+import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
+import {
+  buildPoolRecord,
+  type PoolRecord,
+  writePool,
+} from "./pool-log-store.js";
 import {
   MemoryV3RetrievalUnavailableError,
   resolveSelectorPrompt,
 } from "./pool-select.js";
-import { ensureSectionCollection } from "./section-dense-store.js";
+import {
+  ensureSectionCollection,
+  holdSectionDenseReadsUntilRebuilt,
+} from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
@@ -75,6 +88,8 @@ import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
   type SectionIndex,
+  sectionKey,
+  sectionRefId,
   type SelectionSource,
   type Slug,
 } from "./types.js";
@@ -119,7 +134,7 @@ export interface ShadowLanes {
   /** Modification-recency fresh set in recency order: core and hot excluded,
    *  filtered to pages in the section index. */
   freshSlugs: string[];
-  /** Skills pinned into the stable prefix every turn (`always-candidate: true`
+  /** Skills placed in the stable prefix every turn (`always-candidate: true`
    *  in SKILL.md), existence-filtered and core/hot/fresh-excluded. */
   alwaysCandidateSlugs: string[];
   /** Learned-edge graph: co-selection NPMI associations over the selection
@@ -297,7 +312,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
   }).filter((slug) => sectionIndex.byArticle.has(slug));
 
-  // Always-candidate skills are pinned into the stable prefix every turn so the
+  // Always-candidate skills are placed in the stable prefix every turn so the
   // selector can choose a cross-cutting capability (e.g. workflows) even when no
   // retrieval lane surfaces it — its relevance is a judgment the model makes,
   // not something embedding similarity finds. Filtered to skills present in the
@@ -401,6 +416,24 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
       "memory-v3: section collection ensure failed; continuing with the dense lane degraded",
     );
   }
+  // Dense reads are held while the section store awaits the rebuild a
+  // chunker version change forces (its points' ordinals can name the wrong
+  // section of this index), or while the check that decides it cannot
+  // complete (Qdrant unreachable; the dense read path retries it). The check
+  // that first reports the rebuild in this process, here or retried, kicks
+  // the maintain job at once instead of waiting out the six-hour backstop.
+  // Best-effort like the ensure above: a failed enqueue leaves the backstop
+  // to run the rebuild, with reads held meanwhile.
+  await holdSectionDenseReadsUntilRebuilt(() => {
+    try {
+      enqueueMemoryJob("memory_v3_maintain", {});
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "memory-v3: failed to enqueue the section rebuild; the maintenance backstop will run it",
+      );
+    }
+  });
 
   return {
     sectionIndex,
@@ -569,12 +602,15 @@ async function buildShadowTurn(
 interface SelectionRow {
   slug: Slug;
   source: SelectionSource;
-  pinned: number;
-  /** Ordinal of the matched section a finder lane surfaced; null for
-   *  core/hot/fresh/edge selections with no matched section. */
+  /** Ordinal of the selection's first selected section; null for a page
+   *  selected with no section (a card, or a section-less edge or learned
+   *  line). */
   sectionOrdinal: number | null;
-  /** Heading of the matched section; null when there is no matched section. */
+  /** Heading of that section; null when there is no selected section. */
   sectionTitle: string | null;
+  /** That section's `sectionKey` (`types.ts`), the identity the inspector
+   *  resolves the section by; null when there is no selected section. */
+  sectionKey: string | null;
 }
 
 /**
@@ -586,19 +622,44 @@ interface SelectionRow {
  * time). A finder hit on a stable-prefix page therefore still logs as its
  * prefix lane — the prefix is where the candidate lived. (`"needle"` is the
  * fallback if a selected slug is somehow absent from every lane, which should
- * not happen since every pooled candidate comes from one.)
+ * not happen since every pooled candidate comes from one.) A page with
+ * several finder lines is attributed the lane of the line whose section the
+ * selector chose (the selection's first section), so an additive lane such as
+ * `"rare"` is credited when its line was the one picked; a selection with no
+ * section, or whose section matches no line, takes the lane of the page's
+ * first line.
+ *
+ * The row holds one section per slug: the selection's FIRST selected section
+ * (pool order) stands for the page; a page selected with no section (a card,
+ * or a section-less edge or learned line) logs none.
  */
 export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const core = new Set<Slug>(result.lanes.core);
   const hot = new Set<Slug>(result.lanes.hot);
   const fresh = new Set<Slug>(result.lanes.fresh);
-  const finderLane = new Map(
-    result.lanes.finder.map((c) => [c.slug, c.lane] as const),
-  );
+  const firstLane = new Map<Slug, SelectionSource>();
+  const sectionLane = new Map<string, SelectionSource>();
+  for (const candidate of result.lanes.finder) {
+    if (!firstLane.has(candidate.slug)) {
+      firstLane.set(candidate.slug, candidate.lane);
+    }
+    if (candidate.section) {
+      const id = sectionRefId({
+        slug: candidate.slug,
+        key: sectionKey(candidate.section),
+      });
+      if (!sectionLane.has(id)) {
+        sectionLane.set(id, candidate.lane);
+      }
+    }
+  }
   return result.selections.map((sel) => {
-    // The matched section is populated only for finder-lane hits (including
-    // hits on core/hot pages); core/hot/fresh/edge-only selections have none.
-    const section = result.matchedSections.get(sel.slug);
+    const section = sel.sections[0];
+    const lineLane = section
+      ? sectionLane.get(
+          sectionRefId({ slug: sel.slug, key: sectionKey(section) }),
+        )
+      : undefined;
     return {
       slug: sel.slug,
       source: core.has(sel.slug)
@@ -607,72 +668,113 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
           ? ("hot" as const)
           : fresh.has(sel.slug)
             ? ("fresh" as const)
-            : (finderLane.get(sel.slug) ?? "needle"),
-      pinned: sel.pinned ? 1 : 0,
+            : (lineLane ?? firstLane.get(sel.slug) ?? "needle"),
       sectionOrdinal: section?.ordinal ?? null,
       sectionTitle: section?.title ?? null,
+      sectionKey: section ? sectionKey(section) : null,
     };
   });
 }
 
 /**
- * Write the attributed selection rows to `memory_v3_selections` over the
- * dedicated memory connection. Best-effort: an unavailable memory database or
- * a failed write drops the turn's log rows rather than affecting the turn.
+ * Replace the turn's rows in `memory_v3_selections` on `raw` with `rows`, in
+ * selection order. The turn's earlier rows are deleted rather than upserted
+ * over, so a slug an earlier observation of the same turn kept and this one
+ * did not does not survive: a re-observed turn carries only its latest
+ * observation's rows, which is also what the frecency hot set and the
+ * learned-edge graph count. `message_id` is written NULL (the assistant
+ * message does not exist at injection time) and stamped at turn end by
+ * `backfillMemoryV3SelectionMessageId`. Throws on a failed statement; the
+ * caller owns the transaction.
  */
-export function writeSelections(
+function replaceSelections(
+  raw: MemorySqlite,
   conversationId: string,
   turn: number,
   rows: SelectionRow[],
 ): void {
+  raw
+    .query(
+      /*sql*/ `DELETE FROM memory_v3_selections
+               WHERE conversation_id = ? AND turn = ?`,
+    )
+    .run(conversationId, turn);
   if (rows.length === 0) {
     return;
   }
-  try {
-    const raw = memorySqliteOrNull("writeSelections");
-    if (!raw) {
-      return;
-    }
-    // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
-    // idempotent if the same turn is observed twice (e.g. a retried turn).
-    // `message_id` is written NULL here (the assistant message does not exist
-    // at injection time) and stamped at turn end by
-    // `backfillMemoryV3SelectionMessageId`.
-    const stmt = raw.query(/*sql*/ `
-      INSERT OR REPLACE INTO memory_v3_selections (
-        conversation_id, turn, slug, source, pinned, created_at,
-        message_id, section_ordinal, section_title
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-    `);
-    const now = Date.now();
-    for (const row of rows) {
-      stmt.run(
-        conversationId,
-        turn,
-        row.slug,
-        row.source,
-        row.pinned,
-        now,
-        row.sectionOrdinal,
-        row.sectionTitle,
-      );
-    }
-  } catch (err) {
-    log.warn({ err }, "failed to write memory-v3 selections; continuing");
+  const stmt = raw.query(/*sql*/ `
+    INSERT INTO memory_v3_selections (
+      conversation_id, turn, slug, source, created_at,
+      message_id, section_ordinal, section_title, section_key
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+  `);
+  const now = Date.now();
+  for (const row of rows) {
+    stmt.run(
+      conversationId,
+      turn,
+      row.slug,
+      row.source,
+      now,
+      row.sectionOrdinal,
+      row.sectionTitle,
+      row.sectionKey,
+    );
   }
 }
 
 /**
- * Stamp the turn's assistant message id onto the selection rows just written
- * for it. Mirrors the v2 activation-log backfill: `writeSelections` writes
- * `message_id = NULL` at injection time, and this runs at turn end once the
- * assistant message exists. Relies on the single-threaded-per-conversation turn
- * invariant — every NULL-`message_id` row for the conversation belongs to the
- * turn that just finished. Lets the inspector look v3 selections up by the
- * turn's message ids (robust against v2/v3 turn-counter drift).
+ * Write the turn's log over the dedicated memory connection: its attributed
+ * selection rows to `memory_v3_selections` and its candidate pool to
+ * `memory_v3_pools`, in one transaction. A turn observed again (a retried or
+ * re-entered turn index) replaces its rows in both tables as a unit, so the
+ * pool's `chosen` flags and the selection rows always describe the same
+ * observation. Best-effort: an unavailable memory database or a failed
+ * statement drops this observation's log rather than affecting the turn, and
+ * the transaction leaves the earlier observation's rows in place in both
+ * tables. The selection table's plugin-owned `section_key` column is ensured
+ * on the first use of a connection in this process (`plugin-schema.ts`).
+ */
+export function writeTurnLog(
+  conversationId: string,
+  turn: number,
+  rows: SelectionRow[],
+  pool: PoolRecord,
+): void {
+  try {
+    const raw = memorySqliteOrNull("writeTurnLog");
+    if (!raw) {
+      return;
+    }
+    ensureMemoryV3SelectionsSectionKeyOnce(raw);
+    raw.transaction(() => {
+      replaceSelections(raw, conversationId, turn, rows);
+      writePool(raw, conversationId, turn, pool);
+    })();
+  } catch (err) {
+    log.warn(
+      { err },
+      "failed to write memory-v3 selections and pool; continuing",
+    );
+  }
+}
+
+/**
+ * Stamp the turn's assistant message id onto the selection rows and the pool
+ * row written for it. Mirrors the v2 activation-log backfill: `writeTurnLog`
+ * writes `message_id = NULL` on both at injection time, and this runs at turn
+ * end once the assistant message exists. `turn` is the injector's `turnIndex`
+ * for the finished turn, so a row an earlier turn left unstamped (it crashed
+ * or was cancelled before reaching turn end) is never claimed by a later
+ * message: it stays NULL and stays unreachable by message id. Lets the
+ * inspector look v3 selections up by the turn's message ids (robust against
+ * v2/v3 turn-counter drift). The selection rows are stamped first so a
+ * failing pool stamp degrades the inspector to selections-only rather than
+ * blanking it.
  */
 export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
+  turn: number,
   assistantMessageId: string,
 ): void {
   try {
@@ -683,9 +785,15 @@ export function backfillMemoryV3SelectionMessageId(
     raw
       .query(
         /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
-                 WHERE conversation_id = ? AND message_id IS NULL`,
+                 WHERE conversation_id = ? AND turn = ? AND message_id IS NULL`,
       )
-      .run(assistantMessageId, conversationId);
+      .run(assistantMessageId, conversationId, turn);
+    raw
+      .query(
+        /*sql*/ `UPDATE memory_v3_pools SET message_id = ?
+                 WHERE conversation_id = ? AND turn = ? AND message_id IS NULL`,
+      )
+      .run(assistantMessageId, conversationId, turn);
   } catch (err) {
     log.warn(
       { err },
@@ -730,6 +838,10 @@ export async function observeTurn(
     // lane-build params (hot/fresh K, learned-edge graph) stay frozen on the
     // lanes for stable-prefix cache reuse.
     const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
+    // Read-only: lets orchestrate compute the `net_new_count` telemetry field
+    // against the same store the injector renders from. This turn has not
+    // committed yet, so the set matches what the injector will see.
+    const activeSections = getActiveSections(conversationId);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -744,11 +856,15 @@ export async function observeTurn(
       needleK: tuning.needleK,
       denseK: tuning.denseK,
       realConceptPageCount: lanes.realConceptPageCount,
-      // Read-only: lets orchestrate compute the `net_new_count` telemetry field
-      // against the same store the injector renders from. This turn has not
-      // committed yet, so the set matches what the injector will see.
-      activeSlugs: getActiveSlugs(conversationId),
+      isResident: (slug, key) => sectionRefSetHas(activeSections, slug, key),
       entityCap: v3.entity.cap,
+      // Rare lines are candidates for the selector's judgment, not evidence
+      // strong enough to inject unjudged, so the lane runs only when the
+      // selector does: with the selector off (the lean profile) every pooled
+      // line is injected.
+      rareTerm:
+        v3.rareTerm.enabled && tuning.selectorEnabled ? v3.rareTerm : undefined,
+      finderSectionsPerPage: v3.finderSectionsPerPage,
       replyQueryK: tuning.replyQueryK,
       spanQueryK: tuning.spanQueryK,
       edgeSeeds: tuning.edgeSeedCount,
@@ -770,7 +886,8 @@ export async function observeTurn(
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be
     // worth a breadcrumb (observed on meta-prompt-shaped system turns): the
-    // turn itself proceeds normally — cards already in context still serve it.
+    // turn itself proceeds normally, sections already in context still serve
+    // it.
     if (result.selections.length === 0) {
       log.info(
         {
@@ -785,8 +902,12 @@ export async function observeTurn(
     }
 
     const persistStartedAt = Date.now();
-    const rows = attributeSelections(result);
-    writeSelections(conversationId, turnIndex, rows);
+    writeTurnLog(
+      conversationId,
+      turnIndex,
+      attributeSelections(result),
+      buildPoolRecord(result),
+    );
     recordLatencySubSpan(
       "v3_persist",
       "Selection persistence",
