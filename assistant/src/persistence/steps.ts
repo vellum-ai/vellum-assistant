@@ -484,6 +484,8 @@ import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-inde
 import { migrateChannelInboundMessageIdIndex } from "./migrations/374-channel-inbound-message-id-index.js";
 import { migrateCreateChannelOutboundPosts } from "./migrations/375-create-channel-outbound-posts.js";
 import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/376-notification-deliveries-canonical-message-id.js";
+import { migrateAcpSessionHistoryModel } from "./migrations/377-acp-session-history-model.js";
+import { migrateCreateAcpConversationModelPreference } from "./migrations/378-create-acp-conversation-model-preference.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1602,4 +1604,6 @@ export const migrationSteps: MigrationStep[] = [
   migrateChannelInboundMessageIdIndex,
   migrateCreateChannelOutboundPosts,
   migrateNotificationDeliveriesCanonicalMessageId,
+  migrateAcpSessionHistoryModel,
+  migrateCreateAcpConversationModelPreference,
 ];

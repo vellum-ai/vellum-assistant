@@ -4,6 +4,7 @@ import { runHook } from "../../plugins/pipeline.js";
 import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
+import { deleteAcpConversationModelPreferences } from "../acp-model-preference.js";
 import { purgeConversationSegments } from "../conversation-crud.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
@@ -161,9 +162,10 @@ function parseDeletedCount(stdout: string | undefined): number {
  * Tables with onDelete cascade on conversation FK (memory_segments,
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
  * external_conversation_bindings) are handled automatically. Tables without
- * cascade (messages, tool_invocations, plus llm_request_logs and
- * conversation-scoped telemetry_events rows on their dedicated connections)
- * are deleted explicitly before removing the conversation row.
+ * cascade (messages, tool_invocations, acp_conversation_model_preference,
+ * plus llm_request_logs and conversation-scoped telemetry_events rows on
+ * their dedicated connections) are deleted explicitly before removing the
+ * conversation row.
  */
 export function pruneOldConversationsJob(
   job: MemoryJob,
@@ -198,7 +200,7 @@ export function pruneOldConversationsJob(
   const db = getDb();
   const prunedIds: string[] = [];
   for (const { id } of stale) {
-    db.transaction(() => {
+    db.transaction((tx) => {
       // Re-check staleness inside the transaction to avoid racing with a conversation
       // that became active again between the initial SELECT and this DELETE.
       const still = rawAll<{ id: string }>(
@@ -238,6 +240,10 @@ export function pruneOldConversationsJob(
         `DELETE FROM messages WHERE conversation_id = ?`,
         id,
       );
+      // Conversation-keyed, no foreign key of its own, so the cascade below
+      // never reaches it. Handed the open transaction so the preference rows
+      // commit or roll back with the conversation row they belong to.
+      deleteAcpConversationModelPreferences(id, tx);
       // Conversation row deletion cascades to remaining dependent tables
       rawRun(
         "cleanup:pruneOldConversations:conv",

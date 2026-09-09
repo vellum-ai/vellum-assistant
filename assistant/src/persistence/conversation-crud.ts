@@ -54,6 +54,7 @@ import {
   purgeAllWatchTimelines,
   purgeWatchTimelineForConversation,
 } from "../watch/watch-timeline.js";
+import { deleteAcpConversationModelPreferences } from "./acp-model-preference.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -2242,6 +2243,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       .where(eq(toolInvocations.conversationId, id))
       .run();
     tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    deleteAcpConversationModelPreferences(id, tx);
     // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
     // commit or roll back with the conversation row they describe.
     deleteSubagentRecordsByParent(id);
@@ -2392,6 +2394,7 @@ export async function deleteConversationGently(
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
       .run();
+    deleteAcpConversationModelPreferences(id, tx);
     // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
     // commit or roll back with the conversation row they describe.
     deleteSubagentRecordsByParent(id);
@@ -3827,6 +3830,10 @@ export async function clearAll(): Promise<{
   // cascade; wipe them explicitly so labels/objectives don't survive (or
   // rehydrate after) a clear-all.
   await runOrThrow("DELETE FROM subagents");
+  // Per-conversation ACP model preferences are conversation-keyed with no FK
+  // cascade either, so a wipe that skipped them would hand a reused id someone
+  // else's model choice.
+  await runOrThrow("DELETE FROM acp_conversation_model_preference");
   // Watch-session timelines are conversation-keyed rows the cascade does not
   // reach. They come after `conversations` so this statement is the last thing
   // that needs to reach one: an append arriving from here on finds no
