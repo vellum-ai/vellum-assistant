@@ -68,6 +68,9 @@ export function DocumentViewerPage() {
       return;
     }
 
+    setLoading(true);
+    setError(null);
+
     let cancelled = false;
     void (async () => {
       try {
@@ -178,9 +181,23 @@ export function DocumentViewerPage() {
   // Render
   // -------------------------------------------------------------------------
 
-  if (loading) {
+  // The page reuses one instance across changes of the route parameter and of
+  // the active assistant, and the loaded document trails both until the next
+  // fetch resolves. Every handler the viewer owns (autosave, rename, comments,
+  // export, feedback) and the composer below it act on that document under the
+  // assistant that is active now, so the page waits for a document matching
+  // what the route and the active assistant name.
+  const docIsCurrent =
+    doc !== null &&
+    doc.surfaceId === surfaceId &&
+    docAssistantId === assistantId;
+
+  if (loading || (!error && !docIsCurrent)) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div
+        className="flex h-full items-center justify-center"
+        data-testid="document-loading"
+      >
         <Loader2
           size={24}
           className="animate-spin"
@@ -221,16 +238,10 @@ export function DocumentViewerPage() {
     />
   );
 
-  // The composer targets a document only while it is the one the route names
-  // and it came from the assistant that is active now. This route reuses a
-  // single page instance across both changes, and the loaded document trails
-  // them until the next fetch resolves, so a composer handed the trailing
-  // document would send into a conversation that neither the URL nor the
-  // active assistant still points at.
-  const composerDoc =
-    doc.surfaceId === surfaceId && docAssistantId === assistantId
-      ? { surfaceId: doc.surfaceId, conversationId: doc.conversationId }
-      : null;
+  const composerDoc = {
+    surfaceId: doc.surfaceId,
+    conversationId: doc.conversationId,
+  };
 
   return (
     <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">

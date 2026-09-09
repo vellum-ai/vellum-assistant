@@ -115,6 +115,7 @@ function publishGenerationHandoff(conversationId: string) {
 function publishMessageQueued(
   conversationId: string,
   clientMessageId?: string,
+  position = 1,
 ) {
   act(() => {
     publish("sse.event", {
@@ -124,7 +125,7 @@ function publishMessageQueued(
         type: "message_queued",
         conversationId,
         requestId: `req-${conversationId}`,
-        position: 1,
+        position,
         ...(clientMessageId ? { clientMessageId } : {}),
       },
     });
@@ -442,10 +443,11 @@ describe("DocumentComposerReplyWatcher", () => {
 
     publishGenerationHandoff("conv-1");
 
-    // The turn that finished belongs to a message queued ahead of this one.
+    // The turn that finished is the one this send sits behind in the queue.
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(awaiting("conv-1")).toBe(true);
 
+    publishMessageDequeued("conv-1");
     publishMessageComplete("conv-1");
 
     expect(toastSuccessMock).toHaveBeenCalledTimes(1);
@@ -453,9 +455,9 @@ describe("DocumentComposerReplyWatcher", () => {
   });
 
   describe("sends in order", () => {
-    test("each terminal settles one send, oldest first", () => {
-      // GIVEN a second document composer send into a conversation whose first
-      // send is still running
+    test("one terminal answers every send the daemon dequeued together", () => {
+      // GIVEN two sends the daemon parked and then took off the queue into a
+      // single turn
       useDocumentComposerReplyStore
         .getState()
         .startAwaitingReply("conv-1", "cm-1");
@@ -465,16 +467,17 @@ describe("DocumentComposerReplyWatcher", () => {
       useConversationStore.getState().addProcessingConversationId("conv-1");
       render(<DocumentComposerReplyWatcher />);
 
+      publishMessageQueued("conv-1", "cm-1");
+      publishMessageQueued("conv-1", "cm-2", 2);
+      publishMessageDequeued("conv-1", "cm-1");
+      publishMessageDequeued("conv-1", "cm-2");
+
+      expect(queuedFlags("conv-1")).toEqual([false, false]);
+
       publishMessageComplete("conv-1");
 
-      // THEN the first send has its reply, and the second is still owed one
+      // THEN that turn answered both of them, and announced itself once
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
-      expect(oldestNonce("conv-1")).toBe("cm-2");
-      expect(processing("conv-1")).toBe(true);
-
-      publishMessageComplete("conv-1");
-
-      expect(toastSuccessMock).toHaveBeenCalledTimes(2);
       expect(awaiting("conv-1")).toBe(false);
       expect(processing("conv-1")).toBe(false);
     });
@@ -560,7 +563,8 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(processing("conv-1")).toBe(true);
     });
 
-    test("a cancelled first turn still leaves the second send its toast", () => {
+    test("a cancelled first turn still leaves the queued send its toast", () => {
+      // GIVEN a running send and a second one parked behind it
       useDocumentComposerReplyStore
         .getState()
         .startAwaitingReply("conv-1", "cm-1");
@@ -570,12 +574,16 @@ describe("DocumentComposerReplyWatcher", () => {
       useConversationStore.getState().addProcessingConversationId("conv-1");
       render(<DocumentComposerReplyWatcher />);
 
+      publishMessageQueued("conv-1", "cm-2");
       publishGenerationCancelled("conv-1");
 
+      // The cancelled turn was the running send's, and it has nothing to
+      // announce; the queued one is still owed a reply.
       expect(toastSuccessMock).not.toHaveBeenCalled();
       expect(oldestNonce("conv-1")).toBe("cm-2");
       expect(processing("conv-1")).toBe(true);
 
+      publishMessageDequeued("conv-1", "cm-2");
       publishMessageComplete("conv-1");
 
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
@@ -593,7 +601,7 @@ describe("DocumentComposerReplyWatcher", () => {
     ];
 
     for (const [name, publishTerminal] of terminals) {
-      test(`${name} for the running turn is absorbed, and the queued message's reply toasts`, () => {
+      test(`${name} for the turn ahead settles nothing, and the queued send toasts on its own turn`, () => {
         useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
         useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
         useConversationStore.getState().addProcessingConversationId("conv-1");
@@ -602,12 +610,13 @@ describe("DocumentComposerReplyWatcher", () => {
         publishTerminal("conv-1");
 
         // The turn that ended is the one the queued message sits behind, so
-        // the wait and the activity it drives both stay up.
+        // the wait, its queued flag, and the activity all stay up.
         expect(toastSuccessMock).not.toHaveBeenCalled();
         expect(awaiting("conv-1")).toBe(true);
-        expect(queued("conv-1")).toBe(false);
+        expect(queued("conv-1")).toBe(true);
         expect(processing("conv-1")).toBe(true);
 
+        publishMessageDequeued("conv-1");
         publishMessageComplete("conv-1");
 
         expect(toastSuccessMock).toHaveBeenCalledTimes(1);
@@ -623,9 +632,36 @@ describe("DocumentComposerReplyWatcher", () => {
       render(<DocumentComposerReplyWatcher />);
 
       publishGenerationCancelled("conv-1");
+      publishMessageDequeued("conv-1");
       publishConversationError("conv-1");
 
       expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("a send queued at position 2 waits out both turns ahead of it", () => {
+      // GIVEN a send parked behind two turns it cannot be batched with
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-1", 2);
+
+      // Both turns ahead of it end without this send ever running.
+      publishGenerationHandoff("conv-1");
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(queued("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageDequeued("conv-1", "cm-1");
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
       expect(awaiting("conv-1")).toBe(false);
       expect(processing("conv-1")).toBe(false);
     });
@@ -717,7 +753,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
     });
 
-    test("a rolled-back dequeue leaves the competing turn's terminal absorbed", () => {
+    test("a rolled-back dequeue leaves the competing turn's terminal alone", () => {
       useDocumentComposerReplyStore
         .getState()
         .startAwaitingReply("conv-1", "cm-1");
@@ -737,6 +773,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
       expect(processing("conv-1")).toBe(true);
 
+      publishMessageDequeued("conv-1", "cm-1");
       publishMessageComplete("conv-1");
 
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
@@ -797,6 +834,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
       expect(processing("conv-1")).toBe(true);
 
+      publishMessageDequeued("conv-1", "cm-1");
       publishMessageComplete("conv-1");
 
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
@@ -819,6 +857,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
       expect(processing("conv-1")).toBe(true);
 
+      publishMessageDequeued("conv-1", "cm-1");
       publishMessageComplete("conv-1");
 
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);

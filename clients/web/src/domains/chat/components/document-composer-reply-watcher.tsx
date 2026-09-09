@@ -30,13 +30,14 @@ function clearProcessingWhenSettled(conversationId: string): void {
  * Fires the document composer's "Assistant replied" toast once the daemon
  * reports a turn complete for a send `useDocumentComposerSubmit` flagged as
  * awaiting a reply (`document-composer-reply-store.ts`), and ends the wait
- * silently when that turn is cancelled or fails instead. Each terminal stream
- * event settles one send, oldest first, which is the order the daemon runs the
- * turns in.
+ * silently when that turn is cancelled or fails instead. A terminal stream
+ * event answers every send running in its conversation, since one turn can
+ * run a batch of them, and raises one toast for them all.
  *
  * The queued flag on a pending send is this watcher's own: the daemon's queue
- * events set and clear it, which keeps it ordered against the terminals it has
- * to survive.
+ * events set and clear it, so a send parked behind another turn waits for the
+ * dequeue that starts its own rather than for a terminal that is not its
+ * reply.
  *
  * Mounted once in `RootLayout`, above every document host's null guard, so
  * this subscription survives closing the document (`MobileDocumentOverlay`
@@ -98,8 +99,8 @@ export function DocumentComposerReplyWatcher() {
       return;
     }
 
-    // The runtime is starting the queued send, so the next terminal is its own
-    // and there is nothing left ahead of it to absorb.
+    // The daemon took the send off the queue for a turn, so it is running and
+    // the terminal that ends that turn is its reply.
     if (event.type === "message_dequeued") {
       useDocumentComposerReplyStore
         .getState()
@@ -142,20 +143,21 @@ export function DocumentComposerReplyWatcher() {
     }
     // Each of these ends the turn that was running (`error` and
     // `conversation_error` are the two the chat stream handlers also treat as
-    // turn-ending, `utils/stream-handlers/error-handlers.ts`), and the daemon
-    // drains the conversation's queue after every one of them. So the turn
-    // that ended is the oldest pending send's, unless that send is flagged
-    // queued, in which case the turn ahead of it owns this terminal.
+    // turn-ending, `utils/stream-handlers/error-handlers.ts`). One turn can
+    // run a batch of sends the daemon dequeued together, so this answers every
+    // send running in the conversation. Sends still queued wait for their own
+    // dequeue, and a terminal with none of these sends running belongs to a
+    // turn started elsewhere.
     const settled = useDocumentComposerReplyStore
       .getState()
-      .settleOldestReply(conversationId);
-    if (settled !== "answered") {
+      .settleRunningReplies(conversationId);
+    if (settled === 0) {
       return;
     }
     clearProcessingWhenSettled(conversationId);
     // The daemon emits a handoff in place of `message_complete` when the turn
     // finishes with more messages queued behind it, so the reply is done. The
-    // three failure terminals answer the send with nothing to announce.
+    // three failure terminals answer the sends with nothing to announce.
     if (
       event.type !== "message_complete" &&
       event.type !== "generation_handoff"

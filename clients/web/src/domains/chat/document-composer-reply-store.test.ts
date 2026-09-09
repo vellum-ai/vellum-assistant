@@ -3,9 +3,10 @@
  * document composer sends still owed an assistant reply.
  *
  * `useDocumentComposerSubmit` appends to it after a send and
- * `DocumentComposerReplyWatcher` settles entries off it, so the two sides only
- * agree if order and nonce matching are exact: this file pins those semantics
- * directly through the store's non-React API.
+ * `DocumentComposerReplyWatcher` settles the running entries off it, so the
+ * two sides only agree if the running/queued split and nonce matching are
+ * exact: this file pins those semantics directly through the store's
+ * non-React API.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -111,59 +112,65 @@ describe("stopAwaitingReply", () => {
   });
 });
 
-describe("settleOldestReply", () => {
-  test("reports none when the conversation has nothing pending", () => {
-    expect(getState().settleOldestReply("conv-1")).toBe("none");
+describe("settleRunningReplies", () => {
+  test("settles nothing in a conversation with nothing pending", () => {
+    expect(getState().settleRunningReplies("conv-1")).toBe(0);
   });
 
-  test("answers the oldest send and drops it", () => {
-    // GIVEN two sends, the first of which the daemon runs first
-    getState().startAwaitingReply("conv-1", "cm-1");
-    getState().startAwaitingReply("conv-1", "cm-2");
-
-    // WHEN a terminal arrives for the conversation
-    const settled = getState().settleOldestReply("conv-1");
-
-    // THEN it answered the first send, and the second still waits
-    expect(settled).toBe("answered");
-    expect(noncesFor("conv-1")).toEqual(["cm-2"]);
-  });
-
-  test("the conversation drops off once its last send is answered", () => {
+  test("answers the running send and drops it", () => {
+    // GIVEN one send, running because nothing else held the conversation
     getState().startAwaitingReply("conv-1", "cm-1");
 
-    getState().settleOldestReply("conv-1");
+    // WHEN the turn it started ends
+    const settled = getState().settleRunningReplies("conv-1");
 
+    // THEN it is answered, and the conversation drops off with it
+    expect(settled).toBe(1);
     expect(getState().pendingReplies.has("conv-1")).toBe(false);
   });
 
-  test("a queued oldest send absorbs the terminal and keeps waiting", () => {
-    // GIVEN the oldest send parked behind a turn already running
+  test("one terminal answers every send the daemon ran in the same turn", () => {
+    // GIVEN two sends the daemon dequeued together, which one turn answers
     getState().startAwaitingReply("conv-1", "cm-1");
-    getState().markReplyQueued("conv-1", "cm-1");
+    getState().startAwaitingReply("conv-1", "cm-2");
 
-    // WHEN that running turn ends
-    const settled = getState().settleOldestReply("conv-1");
+    const settled = getState().settleRunningReplies("conv-1");
 
-    // THEN the terminal was the other turn's, and the send waits unflagged
-    // for the next one
-    expect(settled).toBe("absorbed");
-    expect(noncesFor("conv-1")).toEqual(["cm-1"]);
-    expect(queuedFlags("conv-1")).toEqual([false]);
-    expect(getState().settleOldestReply("conv-1")).toBe("answered");
+    expect(settled).toBe(2);
+    expect(getState().pendingReplies.has("conv-1")).toBe(false);
   });
 
-  test("settles the oldest send even when a later one is queued", () => {
-    // GIVEN a running send and a second one queued behind it
+  test("leaves a queued send behind the running one it settles", () => {
+    // GIVEN a running send and a second one parked behind it
     getState().startAwaitingReply("conv-1", "cm-1");
     getState().startAwaitingReply("conv-1", "cm-2");
     getState().markReplyQueued("conv-1", "cm-2");
 
-    const settled = getState().settleOldestReply("conv-1");
+    const settled = getState().settleRunningReplies("conv-1");
 
-    expect(settled).toBe("answered");
+    expect(settled).toBe(1);
     expect(noncesFor("conv-1")).toEqual(["cm-2"]);
     expect(queuedFlags("conv-1")).toEqual([true]);
+  });
+
+  test("settles nothing while every send is queued", () => {
+    // GIVEN a send parked behind a turn this composer sent nothing toward
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1", "cm-1");
+    const before = getState().pendingReplies;
+
+    // WHEN that other turn ends
+    const settled = getState().settleRunningReplies("conv-1");
+
+    // THEN the terminal was not this send's, and the wait stands untouched
+    expect(settled).toBe(0);
+    expect(getState().pendingReplies).toBe(before);
+    expect(queuedFlags("conv-1")).toEqual([true]);
+
+    // Only its own dequeue makes it settleable.
+    getState().clearReplyQueued("conv-1", "cm-1");
+
+    expect(getState().settleRunningReplies("conv-1")).toBe(1);
   });
 });
 

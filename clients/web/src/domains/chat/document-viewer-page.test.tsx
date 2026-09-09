@@ -186,57 +186,42 @@ describe("DocumentViewerPage: mobile composer", () => {
       conversationId: "conv-1",
     });
   });
+});
 
-  test("hands the composer no document while the loaded one is not the route's", async () => {
+describe("DocumentViewerPage: the document the page renders", () => {
+  test("holds the loading state while the loaded document is not the route's", async () => {
+    // GIVEN a fetch that answers with a document the route does not name.
     mockIsMobile = true;
-    documentResult = () =>
-      Promise.resolve({ data: documentSurface({ surfaceId: "surf-2" }) });
+    let loads = 0;
+    documentResult = () => {
+      loads += 1;
+      return Promise.resolve({
+        data: documentSurface({ surfaceId: "surf-2" }),
+      });
+    };
 
-    const { findByTestId } = renderPage("surf-1");
-    await findByTestId("doc-composer-panel");
-
-    expect(composerPanelProps?.doc).toBeNull();
-  });
-
-  test("drops the composer's document while the route moves ahead of the load", async () => {
-    // One page instance spans both URLs, and the loaded document trails the
-    // param until the next fetch resolves, so the composer must not stay
-    // pointed at the document the URL has already left.
-    mockIsMobile = true;
-    documentResult = () => Promise.resolve({ data: documentSurface() });
-
-    const { findByTestId, getByTestId } = renderPage(
-      "surf-1",
-      "/assistant/documents/surf-2",
-    );
-    await findByTestId("doc-composer-panel");
-    expect(composerPanelProps?.doc).toEqual({
-      surfaceId: "surf-1",
-      conversationId: "conv-1",
-    });
-
-    documentResult = () => new Promise<DocumentResult>(() => {});
-    fireEvent.click(getByTestId("go"));
-
+    // WHEN the page renders that route and the answer settles.
+    const { queryByTestId } = renderPage("surf-1");
     await waitFor(() => {
-      expect(composerPanelProps?.doc).toBeNull();
+      expect(loads).toBe(1);
     });
+    await act(async () => {});
+
+    // THEN neither the viewer nor the composer reaches the screen.
+    expect(queryByTestId("document-loading")).not.toBeNull();
+    expect(queryByTestId("viewer")).toBeNull();
+    expect(queryByTestId("doc-composer-panel")).toBeNull();
   });
 
-  test("drops the composer's document while the assistant moves ahead of the load", async () => {
-    // The route param holds still when the active assistant changes, so the
-    // surface half of the gate keeps passing while the document fetched for
-    // the outgoing assistant is still the one on screen.
+  test("withholds the page while the active assistant moves ahead of the load", async () => {
+    // GIVEN a document loaded under the assistant that was active.
     mockIsMobile = true;
     documentResult = () => Promise.resolve({ data: documentSurface() });
 
-    const { findByTestId } = renderPage("surf-1");
-    await findByTestId("doc-composer-panel");
-    expect(composerPanelProps?.doc).toEqual({
-      surfaceId: "surf-1",
-      conversationId: "conv-1",
-    });
+    const { findByTestId, queryByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
 
+    // WHEN another assistant becomes active and its fetch is still in flight.
     let resolveReload: (result: DocumentResult) => void = () => {};
     documentResult = () =>
       new Promise<DocumentResult>((resolve) => {
@@ -246,18 +231,103 @@ describe("DocumentViewerPage: mobile composer", () => {
       useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
     });
 
-    await waitFor(() => {
-      expect(composerPanelProps?.assistantId).toBe("asst-2");
-      expect(composerPanelProps?.doc).toBeNull();
+    // THEN the loading state stands in for the document the switch left behind.
+    await findByTestId("document-loading");
+    expect(queryByTestId("viewer")).toBeNull();
+    expect(queryByTestId("doc-composer-panel")).toBeNull();
+
+    // AND the new assistant's document renders once its fetch resolves.
+    await act(async () => {
+      resolveReload({ data: documentSurface({ conversationId: "conv-2" }) });
     });
+    await findByTestId("viewer");
+    await findByTestId("doc-composer-panel");
 
-    resolveReload({ data: documentSurface({ conversationId: "conv-2" }) });
+    expect(composerPanelProps?.assistantId).toBe("asst-2");
+    expect(composerPanelProps?.doc).toEqual({
+      surfaceId: "surf-1",
+      conversationId: "conv-2",
+    });
+  });
 
-    await waitFor(() => {
-      expect(composerPanelProps?.doc).toEqual({
-        surfaceId: "surf-1",
-        conversationId: "conv-2",
+  test("withholds the page while the route moves ahead of the load", async () => {
+    // GIVEN a document loaded for the surface the route named.
+    mockIsMobile = true;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId, getByTestId, queryByTestId } = renderPage(
+      "surf-1",
+      "/assistant/documents/surf-2",
+    );
+    await findByTestId("viewer");
+
+    // WHEN the route names another document and its fetch is still in flight.
+    let resolveReload: (result: DocumentResult) => void = () => {};
+    documentResult = () =>
+      new Promise<DocumentResult>((resolve) => {
+        resolveReload = resolve;
+      });
+    fireEvent.click(getByTestId("go"));
+
+    // THEN the loading state stands in for the document the route left behind.
+    await findByTestId("document-loading");
+    expect(queryByTestId("viewer")).toBeNull();
+    expect(queryByTestId("doc-composer-panel")).toBeNull();
+
+    // AND the document the route names renders once its fetch resolves.
+    await act(async () => {
+      resolveReload({
+        data: documentSurface({
+          surfaceId: "surf-2",
+          conversationId: "conv-2",
+        }),
       });
     });
+    await findByTestId("viewer");
+    await findByTestId("doc-composer-panel");
+
+    expect(composerPanelProps?.doc).toEqual({
+      surfaceId: "surf-2",
+      conversationId: "conv-2",
+    });
+  });
+
+  test("shows the error state when the refetch fails, not the loaded document", async () => {
+    // GIVEN a document already on screen.
+    mockIsMobile = true;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId, findByText, queryByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+
+    // WHEN another assistant becomes active and its fetch fails.
+    documentResult = () => Promise.reject(new Error("boom"));
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    // THEN the failure replaces the document rather than leaving it up.
+    await findByText("Failed to load document.");
+    expect(queryByTestId("viewer")).toBeNull();
+    expect(queryByTestId("doc-composer-panel")).toBeNull();
+  });
+
+  test("drops a previous failure once a later fetch resolves", async () => {
+    // GIVEN a first load that failed.
+    mockIsMobile = true;
+    documentResult = () => Promise.reject(new Error("boom"));
+
+    const { findByTestId, findByText, queryByText } = renderPage("surf-1");
+    await findByText("Failed to load document.");
+
+    // WHEN another assistant becomes active and its fetch resolves.
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    // THEN the document renders with no failure left over it.
+    await findByTestId("viewer");
+    expect(queryByText("Failed to load document.")).toBeNull();
   });
 });

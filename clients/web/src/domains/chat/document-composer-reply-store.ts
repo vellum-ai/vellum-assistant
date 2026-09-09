@@ -6,9 +6,9 @@
  * toast can be raised by an always-mounted watcher
  * (`DocumentComposerReplyWatcher`, mounted in `RootLayout`) instead of a
  * host component that unmounts when the document closes. A send adds itself
- * to its conversation's list; the watcher settles the oldest entry on each
- * terminal stream event for that conversation, which is the order the daemon
- * runs the turns in.
+ * to its conversation's list; the watcher settles the sends that are running
+ * when a terminal stream event arrives for that conversation. The daemon's
+ * queue events say which sends those are.
  *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *
@@ -27,9 +27,9 @@ export interface PendingDocumentReply {
    */
   clientMessageId?: string;
   /**
-   * The daemon parked the message behind a turn already running in the
-   * conversation. That turn's terminal event is not this message's reply, so
-   * the watcher lets one terminal pass before treating the next as its own.
+   * The send is parked in the daemon's queue rather than running: some other
+   * turn holds the conversation. A terminal never settles a queued send, so
+   * it waits for the dequeue that starts its own turn.
    */
   queued: boolean;
 }
@@ -41,15 +41,6 @@ export interface DocumentComposerReplyState {
    */
   pendingReplies: ReadonlyMap<string, readonly PendingDocumentReply[]>;
 }
-
-/** What settling a conversation's oldest pending send amounted to. */
-export type SettledReply =
-  /** The oldest send was answered and is off the list. */
-  | "answered"
-  /** The terminal belonged to the turn ahead of a queued send, which is next. */
-  | "absorbed"
-  /** Nothing was pending in that conversation. */
-  | "none";
 
 export interface DocumentComposerReplyActions {
   /**
@@ -68,22 +59,24 @@ export interface DocumentComposerReplyActions {
    */
   stopAwaitingReply: (conversationId: string, clientMessageId: string) => void;
   /**
-   * A terminal stream event arrived for `conversationId`: settle its oldest
-   * pending send, and report how.
+   * A terminal stream event arrived for `conversationId`: settle every send
+   * running there, since one turn answers all of them, and report how many
+   * that was. Queued sends stay, and 0 means the terminal belongs to a turn
+   * none of these sends is in.
    */
-  settleOldestReply: (conversationId: string) => SettledReply;
+  settleRunningReplies: (conversationId: string) => number;
   /**
-   * The daemon queued the send carrying `clientMessageId` behind the turn
-   * running in `conversationId`. When the event or every pending send lacks
-   * a nonce, the newest pending send is the one that was queued; a nonce
-   * that names none of them is another client's message.
+   * The daemon parked the send carrying `clientMessageId` in
+   * `conversationId`'s queue, so it is not the one running. When the event or
+   * every pending send lacks a nonce, the newest pending send is the one that
+   * was queued; a nonce that names none of them is another client's message.
    */
   markReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /**
-   * The runtime is starting the queued send carrying `clientMessageId`, so
-   * the next terminal is its own. When the event or every pending send lacks
-   * a nonce, the oldest queued send is the one that started; a nonce that
-   * names none of them is another client's message.
+   * The daemon took the send carrying `clientMessageId` off `conversationId`'s
+   * queue for a turn, so it is running now. When the event or every pending
+   * send lacks a nonce, the oldest queued send is the one that started; a
+   * nonce that names none of them is another client's message.
    */
   clearReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /** Drop every pending send, for a context change no reply can arrive across. */
@@ -178,25 +171,24 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       });
     },
 
-    settleOldestReply: (conversationId) => {
+    settleRunningReplies: (conversationId) => {
       const pending = get().pendingReplies.get(conversationId);
-      if (!pending || pending.length === 0) {
-        return "none";
+      if (!pending) {
+        return 0;
       }
-      const [oldest, ...rest] = pending;
-      if (oldest.queued) {
-        set((s) => ({
-          pendingReplies: withPending(s.pendingReplies, conversationId, [
-            { ...oldest, queued: false },
-            ...rest,
-          ]),
-        }));
-        return "absorbed";
+      const stillQueued = pending.filter((p) => p.queued);
+      const settled = pending.length - stillQueued.length;
+      if (settled === 0) {
+        return 0;
       }
       set((s) => ({
-        pendingReplies: withPending(s.pendingReplies, conversationId, rest),
+        pendingReplies: withPending(
+          s.pendingReplies,
+          conversationId,
+          stillQueued,
+        ),
       }));
-      return "answered";
+      return settled;
     },
 
     markReplyQueued: (conversationId, clientMessageId) => {

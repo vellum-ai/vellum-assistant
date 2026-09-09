@@ -1249,7 +1249,9 @@ describe("when the reply wait goes up", () => {
 
     // The first attempt landed after all and its turn finished, so the
     // watcher took the wait back down before the user retried.
-    useDocumentComposerReplyStore.getState().settleOldestReply("conv-existing");
+    useDocumentComposerReplyStore
+      .getState()
+      .settleRunningReplies("conv-existing");
 
     await act(async () => {
       await result.current.submit();
@@ -1455,7 +1457,9 @@ describe("the sidebar processing mark", () => {
 
     // What the watcher does when the whole turn runs and completes before the
     // POST answers: it ends the wait and takes the mark down with it.
-    useDocumentComposerReplyStore.getState().settleOldestReply("conv-existing");
+    useDocumentComposerReplyStore
+      .getState()
+      .settleRunningReplies("conv-existing");
     useConversationStore
       .getState()
       .removeProcessingConversationId("conv-existing");

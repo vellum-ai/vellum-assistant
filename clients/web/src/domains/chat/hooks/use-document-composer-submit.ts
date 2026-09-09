@@ -343,8 +343,8 @@ export function useDocumentComposerSubmit({
       // List this send among `conversationId`'s pending sends, under the nonce
       // it is carrying, so the watcher can tell stream events that echo it
       // apart from events about any other message in the conversation. Every
-      // send lists itself, and the watcher settles them one terminal at a
-      // time, in the order they went out.
+      // send lists itself, and a terminal event settles whichever of them
+      // were running when it arrived.
       const raiseReplyWait = (conversationId: string) => {
         useDocumentComposerReplyStore
           .getState()
