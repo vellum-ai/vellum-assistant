@@ -3,12 +3,12 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { z } from "zod";
 
 import {
   IpcCallError,
   IpcConnectError,
 } from "@vellumai/gateway-client/ipc-client";
+import { z } from "zod";
 
 import { ServiceUnavailableError } from "../../runtime/routes/errors.js";
 
