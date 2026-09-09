@@ -30344,6 +30344,40 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/settings/avatar/generate:
+    post:
+      operationId: settings_avatar_generate_post
+      summary: Generate AI avatar (legacy alias)
+      description: Alias of avatar/generate kept for older clients; returns the avatar image path.
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+              required:
+                - description
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  avatarPath:
+                    type: string
+                required:
+                  - ok
+                  - avatarPath
+                additionalProperties: false
   /v1/settings/client:
     put:
       operationId: settings_client_put

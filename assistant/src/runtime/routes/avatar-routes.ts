@@ -33,7 +33,11 @@ import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { detectMediaType } from "../../tools/shared/filesystem/image-read.js";
 import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { getLogger } from "../../util/logger.js";
-import { getAvatarDir, getWorkspaceDir } from "../../util/platform.js";
+import {
+  getAvatarDir,
+  getAvatarImagePath,
+  getWorkspaceDir,
+} from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getOriginClientId,
@@ -505,6 +509,28 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["avatar"],
     requestBody: z.object({ description: z.string() }),
     responseBody: z.object({ ok: z.boolean(), message: z.string() }),
+  },
+  {
+    // The legacy Swift macOS app posted here and read `avatarPath`; those
+    // installs never update, so the endpoint stays as an alias of
+    // avatar/generate with the response shape they expect.
+    operationId: "settings_avatar_generate_post",
+    endpoint: "settings/avatar/generate",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: async (args: RouteHandlerArgs) => {
+      await handleGenerateAvatar(args);
+      return { ok: true, avatarPath: getAvatarImagePath() };
+    },
+    summary: "Generate AI avatar (legacy alias)",
+    description:
+      "Alias of avatar/generate kept for older clients; returns the avatar image path.",
+    tags: ["settings"],
+    requestBody: z.object({ description: z.string() }),
+    responseBody: z.object({ ok: z.boolean(), avatarPath: z.string() }),
   },
   {
     operationId: "avatar_set",

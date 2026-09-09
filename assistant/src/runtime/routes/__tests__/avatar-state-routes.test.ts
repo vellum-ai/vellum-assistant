@@ -428,6 +428,19 @@ describe("avatar write/remove handlers", () => {
     });
   });
 
+  describe("POST /settings/avatar/generate (legacy alias)", () => {
+    test("validates the body the way avatar/generate does", async () => {
+      const route = ROUTES.find(
+        (r) => r.operationId === "settings_avatar_generate_post",
+      );
+      expect(route?.endpoint).toBe("settings/avatar/generate");
+      await expect(
+        getHandler("settings_avatar_generate_post")({ body: {} }),
+      ).rejects.toThrow(/description is required/);
+      expect(readManifestFile()).toBeNull();
+    });
+  });
+
   describe("POST /avatar/accent", () => {
     const uploadRed = async () => {
       await getHandler("avatar_upload_image")({
