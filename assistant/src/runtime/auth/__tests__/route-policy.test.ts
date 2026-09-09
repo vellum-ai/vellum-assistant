@@ -7,7 +7,8 @@
  * side-registry to look up against.
  *
  * Covers:
- * - `policy: null` is treated as unprotected (always allowed)
+ * - `policy: null` is unprotected for a broad profile, closed to a grant
+ *   minted for a single route
  * - Principal type check denies disallowed types
  * - Scope check denies missing scopes
  * - Allowed requests return null
@@ -35,13 +36,14 @@ import type { AuthContext, Scope } from "../types.js";
 function buildTestContext(overrides?: {
   principalType?: AuthContext["principalType"];
   scopes?: Scope[];
+  scopeProfile?: AuthContext["scopeProfile"];
 }): AuthContext {
   return {
     subject: "actor:self:test-principal",
     principalType: overrides?.principalType ?? "actor",
     assistantId: "self",
     actorPrincipalId: "test-principal",
-    scopeProfile: "actor_client_v1",
+    scopeProfile: overrides?.scopeProfile ?? "actor_client_v1",
     scopes: new Set(
       overrides?.scopes ?? [
         "chat.read",
@@ -196,6 +198,118 @@ describe("enforcePolicy", () => {
     const ctx = buildTestContext({ scopes: [] });
     const result = enforcePolicy("open", openPolicy, ctx);
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Single-route grants
+//
+// An oauth_proxy_v1 grant is printed for a user to export into a stock
+// third-party CLI's environment, so it sits outside this install's trust
+// boundary. `policy: null` admits any valid token, which for this grant means
+// mutating routes it was never minted for (integrations/a2a/invite/accept).
+// ---------------------------------------------------------------------------
+
+/** The context an exported OAuth proxy grant produces. */
+function buildProxyGrantContext(): AuthContext {
+  return {
+    ...buildTestContext({
+      principalType: "local",
+      scopes: [...resolveScopeProfile("oauth_proxy_v1")],
+      scopeProfile: "oauth_proxy_v1",
+    }),
+    subject: "local:self:oauth-proxy.stripe_link",
+    actorPrincipalId: undefined,
+    conversationId: "oauth-proxy.stripe_link",
+  };
+}
+
+describe("enforcePolicy with an oauth_proxy_v1 grant", () => {
+  test("denies an unprotected route", () => {
+    authDisabled = false;
+    const result = enforcePolicy(
+      "integrations/a2a/invite/accept",
+      null,
+      buildProxyGrantContext(),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("denies a policy that names no scope", () => {
+    authDisabled = false;
+    const result = enforcePolicy(
+      "open",
+      { requiredScopes: [], allowedPrincipalTypes: ["local"] },
+      buildProxyGrantContext(),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("allows the passthrough policy", () => {
+    authDisabled = false;
+    expect(
+      enforcePolicy(
+        "oauth/proxy",
+        OAUTH_PROXY_POLICY,
+        buildProxyGrantContext(),
+      ),
+    ).toBeNull();
+  });
+
+  test("denies a settings.write policy", () => {
+    authDisabled = false;
+    const result = enforcePolicy(
+      "settings",
+      { requiredScopes: ["settings.write"], allowedPrincipalTypes: ["local"] },
+      buildProxyGrantContext(),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("the dev bypass still admits it", () => {
+    authDisabled = true;
+    expect(
+      enforcePolicy(
+        "integrations/a2a/invite/accept",
+        null,
+        buildProxyGrantContext(),
+      ),
+    ).toBeNull();
+    authDisabled = false;
+  });
+
+  test("a local CLI token still reaches an unprotected route", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "local",
+      scopes: [...resolveScopeProfile("local_v1")],
+      scopeProfile: "local_v1",
+    });
+    expect(
+      enforcePolicy("integrations/a2a/invite/accept", null, ctx),
+    ).toBeNull();
+  });
+
+  test("the passthrough ROUTES entries admit the grant", async () => {
+    authDisabled = false;
+    const { ROUTES } = await import("../../routes/index.js");
+    const proxyRoutes = ROUTES.filter((r) =>
+      r.operationId.startsWith("oauth_proxy_"),
+    );
+    expect(proxyRoutes.length).toBeGreaterThan(1);
+    const ctx = buildProxyGrantContext();
+    for (const route of proxyRoutes) {
+      const result = enforcePolicy(route.endpoint, route.policy, ctx);
+      if (route.operationId === "oauth_proxy_grant") {
+        // Minting takes settings.write, so a grant cannot mint another.
+        expect(result!.status).toBe(403);
+      } else {
+        expect(result).toBeNull();
+      }
+    }
   });
 });
 
