@@ -30,6 +30,7 @@
 
 import { createServer, type Server, type Socket } from "node:net";
 
+import { IpcConnectError } from "@vellumai/gateway-client/ipc-client";
 import {
   ensureSocketDir,
   type IpcEnvelope,
@@ -490,6 +491,14 @@ export class AssistantIpcServer {
         response.errorDetails = err.details;
       }
       return response;
+    }
+    if (err instanceof IpcConnectError) {
+      return {
+        id,
+        error: `Gateway is not reachable over IPC: ${err.message}`,
+        statusCode: 503,
+        errorCode: "SERVICE_UNAVAILABLE",
+      };
     }
     return { id, error: String(err) };
   }

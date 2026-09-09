@@ -200,6 +200,16 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 - Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
 - `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).
 
+### In-app links (Vellum chat)
+
+When you mention a schedule or a conversation it owns in Vellum chat, write a markdown link so the name is clickable:
+
+- `[Weekly digest](/assistant/schedules/<id>)`
+- `[Digest ready](/assistant/conversations/<id>)`
+
+Use these paths only in Vellum chat. Do not use them in Slack, Telegram, Discord, email, or notifications. Those surfaces cannot navigate `/assistant/...` routes.
+
+
 ### Anchored & Ambiguous Relative Time
 
 Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "20 minutes in" are **clock-position or anchored relative time** expressions. Do NOT treat them as offsets from now.

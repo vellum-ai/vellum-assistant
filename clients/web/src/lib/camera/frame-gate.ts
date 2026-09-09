@@ -14,7 +14,11 @@
  * is drawn to a small canvas; on iOS the native preview's existing
  * `AVCaptureVideoDataOutput` buffer is strided down in Swift. Keeping the
  * decision here rather than in each sampler is what lets the thresholds be
- * tuned in a browser and shipped to a phone unchanged.
+ * tuned in a browser and shipped to a phone unchanged. A third source, the
+ * companion's screen share, has no stream at all: it hands the gate one grid
+ * per still it takes of the shared surface, on its own occasions, and turns
+ * off the rules below that are about a lens (see
+ * `use-live-voice-screen-share.ts`).
  *
  * ## The two scores
  *
@@ -330,6 +334,24 @@ export interface FrameGate {
    */
   observe(grid: FrameGrid, nowMs: number): void;
   /**
+   * Record a frame a caller sent on its own as the last keep.
+   *
+   * One kind of frame is never offered: one the user asked for by hand (a
+   * mark drawn on the shared screen), which goes whatever the gate would
+   * have said about it. The transcript now shows that view, so the next
+   * offer has to be judged against it rather than against the keep before
+   * it, or a view the call was just given is kept again as novel the moment
+   * the cadence looks at it.
+   *
+   * Exactly what a keep does to the gate's history and nothing more: the
+   * frame becomes the novelty baseline and the motion baseline, the
+   * heartbeat's clock restarts, and a standing arm is spent, since a frame
+   * the call was given of this moment answers the ask. It does not end
+   * warmup and is not judged: `nowMs` is when the picture was taken, and
+   * whether it was worth sending was the caller's call.
+   */
+  adopt(grid: FrameGrid, nowMs: number): void;
+  /**
    * Ask for a frame of the scene the user is asking about.
    *
    * The gate judges a frame against the ones around it, and there is one thing
@@ -526,16 +548,21 @@ export function createFrameGate(
     previousAtMs = nowMs;
   }
 
+  /** Make `current` the last kept frame: what every keep does to history. */
+  function recordKeep(nowMs: number): void {
+    kept.set(current);
+    hasKept = true;
+    keptAtMs = nowMs;
+    rememberPrevious(nowMs);
+  }
+
   function keepFrame(
     nowMs: number,
     reason: FrameGateReason,
     motion: number | null,
     novelty: number | null,
   ): FrameGateDecision {
-    kept.set(current);
-    hasKept = true;
-    keptAtMs = nowMs;
-    rememberPrevious(nowMs);
+    recordKeep(nowMs);
     return { keep: true, reason, motion, novelty, detail };
   }
 
@@ -678,6 +705,21 @@ export function createFrameGate(
       // frame being decided, and this one is not being decided.
       normalizeGrid(grid, current);
       rememberPrevious(nowMs);
+    },
+
+    adopt(grid: FrameGrid, nowMs: number): void {
+      if (grid.length !== FRAME_GRID_CELLS) {
+        throw new Error(
+          `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
+        );
+      }
+      // The same history write every keep makes, so this is a keep in every
+      // respect the next offer can observe. `detail` is set as a side effect,
+      // as it is for an offer, and describes this frame until the next one is
+      // judged.
+      detail = normalizeGrid(grid, current);
+      forcedArm = null;
+      recordKeep(nowMs);
     },
 
     armForcedKeep(nowMs: number): void {

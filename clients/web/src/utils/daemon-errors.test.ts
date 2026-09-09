@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-const { isExpectedDaemonTransientError, shouldRetryDaemonError } =
-  await import("@/utils/daemon-errors");
+const {
+  isExpectedDaemonTransientError,
+  shouldRetryDaemonError,
+  shouldRetryDaemonOrNetworkError,
+} = await import("@/utils/daemon-errors");
 const { ApiError } = await import("@/utils/api-errors");
 
 describe("isExpectedDaemonTransientError", () => {
@@ -109,5 +112,40 @@ describe("shouldRetryDaemonError", () => {
         new ApiError(400, "Vellum-Organization-Id header is required."),
       ),
     ).toBe(true);
+  });
+});
+
+describe("shouldRetryDaemonOrNetworkError", () => {
+  test("retries a refused connection within the same budget", () => {
+    const err = new TypeError("Failed to fetch");
+    expect(shouldRetryDaemonOrNetworkError(0, err)).toBe(true);
+    expect(shouldRetryDaemonOrNetworkError(2, err)).toBe(true);
+  });
+
+  test("stops retrying a refused connection after 3 failures", () => {
+    const err = new TypeError("Failed to fetch");
+    expect(shouldRetryDaemonOrNetworkError(3, err)).toBe(false);
+    expect(shouldRetryDaemonOrNetworkError(4, err)).toBe(false);
+  });
+
+  test("retries the statuses a restarting assistant answers with", () => {
+    expect(
+      shouldRetryDaemonOrNetworkError(
+        0,
+        new ApiError(503, "Your assistant is still starting up."),
+      ),
+    ).toBe(true);
+  });
+
+  test("does not retry an answered failure", () => {
+    expect(
+      shouldRetryDaemonOrNetworkError(
+        0,
+        new ApiError(500, "Internal Server Error"),
+      ),
+    ).toBe(false);
+    expect(shouldRetryDaemonOrNetworkError(0, new Error("random error"))).toBe(
+      false,
+    );
   });
 });

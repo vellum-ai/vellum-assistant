@@ -344,4 +344,34 @@ describe("gateway-flag-listener", () => {
 
     expect(testServer.clients.size).toBeLessThanOrEqual(initialClientCount);
   });
+
+  test("missing gateway socket does not throw and reconnects when the socket appears", async () => {
+    const uncaught: unknown[] = [];
+    const onUncaught = (err: unknown) => {
+      uncaught.push(err);
+    };
+    process.on("uncaughtException", onUncaught);
+    process.on("unhandledRejection", onUncaught);
+
+    try {
+      startGatewayFlagListener();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(uncaught).toHaveLength(0);
+
+      await new Promise<void>((resolve) => {
+        testServer.server.listen(socketPath, resolve);
+      });
+
+      const client = await Promise.race([
+        testServer.waitForClient(),
+        new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+      ]);
+
+      expect(client).not.toBeNull();
+      expect(uncaught).toHaveLength(0);
+    } finally {
+      process.off("uncaughtException", onUncaught);
+      process.off("unhandledRejection", onUncaught);
+    }
+  });
 });

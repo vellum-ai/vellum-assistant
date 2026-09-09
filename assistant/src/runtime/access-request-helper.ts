@@ -11,6 +11,8 @@
  * principal so access requests cannot bind to stale/cross-assistant contacts.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { isGuardianRequestExpired } from "@vellumai/gateway-client";
 
 import {
@@ -289,7 +291,9 @@ export async function notifyGuardianOfAccessRequest(
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
-  const requestId = `access-req-${DAEMON_INTERNAL_ASSISTANT_ID}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
+  // Primary key of the gateway row; the insert is strict, so each create
+  // mints an id unique to itself. Nothing parses its shape.
+  const requestId = randomUUID();
 
   // Access requests are decisionable: without a bound principal nobody could
   // ever decide them (mirrors the gateway create's integrity guard).
