@@ -9,6 +9,8 @@
  *   5. A stored value outside the list opens on the custom row, pre-filled.
  *   6. The capability gate is scoped to the assistant the card writes to.
  *   7. An assistant that predates the feature gets no card at all.
+ *   8. Switching assistants drops an unsaved draft instead of saving it to
+ *      the assistant the user landed on.
  *
  * The design-library Select is real, driven through its combobox trigger like
  * `web-search-card.test.tsx`.
@@ -24,8 +26,10 @@ import {
 } from "@testing-library/react";
 
 const ASSISTANT_ID = "asst-test";
+const OTHER_ASSISTANT_ID = "asst-other";
+let activeAssistantId = ASSISTANT_ID;
 mock.module("@/assistant/use-active-assistant-id", () => ({
-  useActiveAssistantId: () => ASSISTANT_ID,
+  useActiveAssistantId: () => activeAssistantId,
 }));
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
@@ -36,16 +40,27 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 // Controllable daemon config the config-get query resolves to; `initialData`
 // makes it available synchronously like a warm cache.
 let daemonConfigData: { acp?: { defaultModel?: string } } = {};
+// Per-assistant configs for the assistant-switch test; any assistant absent
+// from this map reads `daemonConfigData`.
+let daemonConfigByAssistant: Record<
+  string,
+  { acp?: { defaultModel?: string } }
+> = {};
+
+function configFor(assistantId: string): { acp?: { defaultModel?: string } } {
+  return daemonConfigByAssistant[assistantId] ?? daemonConfigData;
+}
+
 interface SdkCall {
   path?: unknown;
   body?: unknown;
 }
 const configPatchCalls: SdkCall[] = [];
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
-  configGetOptions: () => ({
-    queryKey: ["config-get-test"],
-    queryFn: () => Promise.resolve(daemonConfigData),
-    initialData: daemonConfigData,
+  configGetOptions: ({ path }: { path: { assistant_id: string } }) => ({
+    queryKey: ["config-get-test", path.assistant_id],
+    queryFn: () => Promise.resolve(configFor(path.assistant_id)),
+    initialData: configFor(path.assistant_id),
   }),
   configGetSetQueryData: () => {},
   useConfigPatchMutation: () => ({
@@ -80,11 +95,15 @@ function renderCard() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  // A fresh element per render: reusing one lets React bail out of the
+  // rerender the assistant-switch test depends on.
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <CodingAgentsCard />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(tree());
+  return { ...view, rerenderCard: () => view.rerender(tree()) };
 }
 
 function modelTrigger(): HTMLButtonElement {
@@ -130,6 +149,8 @@ describe("CodingAgentsCard", () => {
     supportsModelSwitching = true;
     scopedAssistantIds = [];
     daemonConfigData = {};
+    daemonConfigByAssistant = {};
+    activeAssistantId = ASSISTANT_ID;
   });
 
   afterEach(() => {
@@ -233,6 +254,24 @@ describe("CodingAgentsCard", () => {
 
     expect(scopedAssistantIds.length).toBeGreaterThan(0);
     expect(new Set(scopedAssistantIds)).toEqual(new Set([ASSISTANT_ID]));
+  });
+
+  test("switching assistants drops the unsaved draft", () => {
+    daemonConfigByAssistant = {
+      [ASSISTANT_ID]: {},
+      [OTHER_ASSISTANT_ID]: { acp: { defaultModel: "haiku" } },
+    };
+    const { rerenderCard } = renderCard();
+
+    fireEvent.click(modelTrigger());
+    selectOption("Opus");
+    expect(saveButton().disabled).toBe(false);
+
+    activeAssistantId = OTHER_ASSISTANT_ID;
+    rerenderCard();
+
+    expect(modelTrigger().textContent).toContain("Haiku");
+    expect(saveButton().disabled).toBe(true);
   });
 
   test("renders nothing on an assistant that predates model switching", () => {

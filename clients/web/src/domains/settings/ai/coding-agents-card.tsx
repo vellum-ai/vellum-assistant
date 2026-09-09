@@ -38,8 +38,14 @@ import { captureError } from "@/lib/sentry/capture-error";
  * delegates model selection to the adapter.
  */
 export function CodingAgentsCard() {
-  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
+  // The key remounts the body on an assistant switch, so an unsaved draft
+  // never carries over and gets saved onto another assistant's config.
+  return <CodingAgentsCardBody key={assistantId} assistantId={assistantId} />;
+}
+
+function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
   const supportsModelSwitching =
