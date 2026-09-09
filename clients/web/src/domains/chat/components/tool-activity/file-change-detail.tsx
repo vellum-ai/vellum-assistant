@@ -58,7 +58,7 @@ export function FileChangeDetail({
   // twins), which is a whole-file before and after for both tools. The client
   // drops it on the floor today, and it is not persisted on the conversation
   // message, so a reopened conversation would have nothing. Reading it is
-  // LUM-3548; this branch is the one place that would change.
+  // LUM-3403, and this is the one place that would change.
   const hasBefore =
     "old_string" in detail.input || "new_string" in detail.input;
 
