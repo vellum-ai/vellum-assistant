@@ -5,11 +5,11 @@
  * The conversation's assets arrive through the real hook, seeded at both of
  * its sources: the query cache holds the apps and documents, the chat-session
  * store holds the transcript rows the attachments come from. Only the row's
- * measured width and the window-size axis are mocked, since happy-dom reports
- * a zero box for everything. What is left is what this component owns: which
- * sections exist, where See All appears, which level renders, what it says
- * while the sources are unresolved, and the sequence each tile runs when it is
- * opened.
+ * measured width is mocked, since happy-dom reports a zero box for everything,
+ * and the window-size axis comes from a `matchMedia` stub. What is left is
+ * what this component owns: which sections exist, where See All appears, which
+ * level renders, what it says while the sources are unresolved, and the
+ * sequence each tile runs when it is opened.
  *
  * Camera frames and paged categories are not exercised here: the transcript is
  * the hook's only source today and it can produce neither.
@@ -33,22 +33,25 @@ import {
   screen,
 } from "@testing-library/react";
 
-import * as appHtmlCache from "@/utils/app-html-cache";
 import {
+  attachmentRows,
+  CHAT_INFO_DRAWER_WIDTH_PX,
   CHAT_INFO_T0,
+  chatInfoAppHtmlCacheMock,
   clearTranscriptMessages,
   installChatInfoDomStubs,
   makeAppSummary,
   makeChatInfoQueryClient,
   makeDocumentSummary,
+  makeElementSizeMock,
   makePendingChatInfoQueryClient,
+  makeTranscriptRow,
   seedChatInfoConversation,
   seedQueryFailure,
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type * as ElementSizeModule from "@/hooks/use-element-size";
-import type * as IsMobileModule from "@/hooks/use-is-mobile";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
@@ -56,34 +59,15 @@ import type { ChatInfoCategory } from "@/stores/viewer-store";
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 const OTHER_CONVERSATION_ID = "conv-2";
-/** The drawer's body width on the desktop mock: 3 app tiles, 4 file tiles. */
-const DRAWER_WIDTH = 569;
 
 installChatInfoDomStubs();
 
-mock.module(
-  "@/hooks/use-element-size",
-  (): Partial<typeof ElementSizeModule> => ({
-    useElementSize: () => ({ ref: () => {}, size: { w: DRAWER_WIDTH, h: 0 } }),
-  }),
-);
-
-mock.module(
-  "@/hooks/use-is-mobile",
-  (): Partial<typeof IsMobileModule> => ({
-    useIsMobile: () => false,
-    MOBILE_MEDIA_QUERY: "(max-width: 767px)",
-  }),
+mock.module("@/hooks/use-element-size", () =>
+  makeElementSizeMock(() => CHAT_INFO_DRAWER_WIDTH_PX),
 );
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.
-mock.module(
-  "@/utils/app-html-cache",
-  (): Partial<typeof appHtmlCache> => ({
-    ...appHtmlCache,
-    getCachedAppHtml: async () => "<!doctype html><title>App</title>",
-  }),
-);
+mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
 
 const calls: string[] = [];
 
@@ -124,31 +108,20 @@ const PACKING_LIST = makeDocumentSummary({
 });
 const DOCUMENTS = [TRIP_NOTES, PACKING_LIST];
 
-function imageRow(id: string, index: number, timestamp: number) {
-  return {
-    id,
-    role: "user" as const,
-    timestamp,
-    attachments: [
-      makeDisplayAttachment({
-        id: `img-${index}`,
-        filename: `photo-${index}.png`,
-        previewUrl: SAMPLE_PREVIEWS[index]!,
-      }),
-    ],
-  };
-}
-
-const IMAGE_ROWS: DisplayMessage[] = [
-  imageRow("msg-1", 0, CHAT_INFO_T0),
-  imageRow("msg-2", 1, CHAT_INFO_T0 + 1_000),
-];
+const IMAGE_ROWS: DisplayMessage[] = attachmentRows(
+  [0, 1].map((index) =>
+    makeDisplayAttachment({
+      id: `img-${index}`,
+      filename: `photo-${index}.png`,
+      previewUrl: SAMPLE_PREVIEWS[index]!,
+    }),
+  ),
+);
 
 /** Two legacy rows whose attachments carry the same synthetic id. */
 const LEGACY_ROWS: DisplayMessage[] = [
-  {
+  makeTranscriptRow({
     id: "msg-old",
-    role: "user",
     timestamp: CHAT_INFO_T0,
     attachments: [
       makeDisplayAttachment({
@@ -156,10 +129,9 @@ const LEGACY_ROWS: DisplayMessage[] = [
         filename: "legacy-old.png",
       }),
     ],
-  },
-  {
+  }),
+  makeTranscriptRow({
     id: "msg-new",
-    role: "user",
     timestamp: CHAT_INFO_T0 + 1_000,
     attachments: [
       makeDisplayAttachment({
@@ -167,7 +139,7 @@ const LEGACY_ROWS: DisplayMessage[] = [
         filename: "legacy-new.png",
       }),
     ],
-  },
+  }),
 ];
 
 // ---------------------------------------------------------------------------
@@ -187,6 +159,8 @@ const loadDocument = mock(
     calls.push("loadDocument");
   },
 );
+
+const viewport = viewportAxesStub();
 
 const onClose = mock((): void => undefined);
 const onSelectCategory = mock(
@@ -254,6 +228,7 @@ async function renderChatInfo(
 
 beforeEach(() => {
   calls.length = 0;
+  viewport.set({ narrow: false, coarsePointer: false });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   loadApp.mockClear();
   closeChatInfo.mockClear();
@@ -265,6 +240,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  viewport.restore();
   clearTranscriptMessages();
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
@@ -433,10 +409,32 @@ describe("ChatInfoPanel See All level", () => {
 });
 
 describe("ChatInfoPanel unsettled sources", () => {
+  const DOCUMENTS_KEY = documentsGetQueryKey({
+    path: { assistant_id: ASSISTANT_ID },
+    query: { conversationId: CONVERSATION_ID },
+  });
+
+  /** Leaves the documents source failed with nothing cached under it. */
+  function failDocuments(client: QueryClient): void {
+    client.removeQueries({ queryKey: DOCUMENTS_KEY });
+    seedQueryFailure(client, DOCUMENTS_KEY);
+  }
+
   test("says nothing at all while the sources are loading", async () => {
-    await renderChatInfo(null, { client: makePendingChatInfoQueryClient() });
+    await renderChatInfo(null, {
+      client: makePendingChatInfoQueryClient(),
+      messages: [],
+    });
 
     expect(screen.getByText("Chat Info")).toBeDefined();
+    expect(screen.queryByText("No assets in this chat yet")).toBeNull();
+    expect(screen.queryByText("Assets could not be loaded")).toBeNull();
+  });
+
+  test("lists the transcript's files while the sources are loading", async () => {
+    await renderChatInfo(null, { client: makePendingChatInfoQueryClient() });
+
+    expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
     expect(screen.queryByText("No assets in this chat yet")).toBeNull();
     expect(screen.queryByText("Assets could not be loaded")).toBeNull();
   });
@@ -454,18 +452,24 @@ describe("ChatInfoPanel unsettled sources", () => {
     expect(screen.getByText("No assets in this chat yet")).toBeDefined();
   });
 
-  test("says so when a source could not be loaded", async () => {
+  test("keeps listing documents a failed refetch left cached", async () => {
     await renderChatInfo(null, {
-      afterSeed: (client) =>
-        seedQueryFailure(
-          client,
-          documentsGetQueryKey({
-            path: { assistant_id: ASSISTANT_ID },
-            query: { conversationId: CONVERSATION_ID },
-          }),
-        ),
+      afterSeed: (client) => seedQueryFailure(client, DOCUMENTS_KEY),
     });
 
-    expect(screen.getByText("Assets could not be loaded")).toBeDefined();
+    expect(screen.getByLabelText("Open Trip Notes")).toBeDefined();
+    expect(screen.queryByText("Assets could not be loaded")).toBeNull();
+  });
+
+  test("heads the categories it does have with the failure", async () => {
+    await renderChatInfo(null, { apps: [], afterSeed: failDocuments });
+
+    const notice = screen.getByText("Assets could not be loaded");
+    const filesTitle = screen.getByText("Documents & Images");
+    expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
+    expect(
+      notice.compareDocumentPosition(filesTitle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeGreaterThan(0);
   });
 });

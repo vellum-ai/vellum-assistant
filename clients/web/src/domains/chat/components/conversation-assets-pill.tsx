@@ -10,7 +10,7 @@
 
 import { Layers } from "lucide-react";
 import { useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect } from "react";
+import { useCallback, useLayoutEffect } from "react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -50,7 +50,7 @@ export function ConversationAssetsPill({
   conversationId,
   refreshKey,
 }: ConversationAssetsPillProps) {
-  const { count } = useConversationAssets({
+  const { count, status } = useConversationAssets({
     assistantId,
     conversationId,
     refreshKey,
@@ -76,14 +76,6 @@ export function ConversationAssetsPill({
     };
   }, [targetKey]);
 
-  // Zero assets hides the trigger, and a panel with no control to dismiss it
-  // is a trap; the last asset leaving takes the panel with it.
-  useEffect(() => {
-    if (count === 0) {
-      closeOwnedChatInfo(targetKey);
-    }
-  }, [count, targetKey]);
-
   // The header cluster only has room for a labelled pill on a roomy window.
   const isMobile = useIsMobile();
   const { t } = useTranslation("chat");
@@ -94,7 +86,9 @@ export function ConversationAssetsPill({
     useViewerStore.getState().toggleChatInfo({ assistantId, conversationId });
   }, [assistantId, conversationId]);
 
-  if (count === 0) {
+  // A conversation with nothing to show has no trigger, but one whose sources
+  // failed keeps it: the panel is where the user finds out why.
+  if (status === "ready" && count === 0) {
     return null;
   }
 

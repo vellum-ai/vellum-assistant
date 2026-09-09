@@ -161,10 +161,20 @@ export function useConversationAssets({
   const apps = appsQuery.data ?? NO_APPS;
   const docs = documentsQuery.data ?? NO_DOCUMENTS;
 
+  // A failed background refetch keeps the last data, so a source is failed or
+  // unresolved only while it has nothing to show.
+  const appsUnresolved = appsQuery.data === undefined;
+  const documentsUnresolved = documentsQuery.data === undefined;
   let status: ConversationAssetsStatus = "ready";
-  if (appsQuery.isError || documentsQuery.isError) {
+  if (
+    (appsQuery.isError && appsUnresolved) ||
+    (documentsQuery.isError && documentsUnresolved)
+  ) {
     status = "error";
-  } else if (appsQuery.isPending || documentsQuery.isPending) {
+  } else if (
+    (appsQuery.isPending && appsUnresolved) ||
+    (documentsQuery.isPending && documentsUnresolved)
+  ) {
     status = "pending";
   }
 

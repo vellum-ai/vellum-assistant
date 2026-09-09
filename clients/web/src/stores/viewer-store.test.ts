@@ -626,7 +626,8 @@ describe("closeActiveOverlay", () => {
   });
 
   it("pops the chat-info drill-in before closing the panel", () => {
-    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("apps");
 
     expect(getState().closeActiveOverlay()).toBe(true);
     expect(getState().mainView).toBe("chat-info");
@@ -912,11 +913,6 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
     expect(state.viewBeforeChatInfo).toBe("chat");
   });
 
-  it("opens the panel drilled into a category", () => {
-    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
-    expect(getState().activeChatInfo?.category).toBe("apps");
-  });
-
   it("close restores the prior view and clears the payload", () => {
     useViewerStore.setState({ mainView: "app" });
     getState().openChatInfo(SAMPLE_CHAT_INFO);
@@ -936,7 +932,8 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
   });
 
   it("toggle switches to a DIFFERENT conversation at the top level", () => {
-    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "files" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("files");
     getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, conversationId: "c2" });
     const state = getState();
     expect(state.mainView).toBe("chat-info");
@@ -949,7 +946,8 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
 
   it("clearTranscriptPanelPayloads settles the chat-info view on a conversation switch", () => {
     useViewerStore.setState({ mainView: "app" });
-    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("apps");
 
     getState().clearTranscriptPanelPayloads();
 
@@ -989,7 +987,8 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
   });
 
   it("setChatInfoCategory does not notify when the category is unchanged", () => {
-    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("apps");
     const before = getState().activeChatInfo;
     getState().setChatInfoCategory("apps");
     expect(getState().activeChatInfo).toBe(before);
