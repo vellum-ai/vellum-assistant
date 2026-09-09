@@ -92,46 +92,58 @@ function writeDefaultModel(
 }
 
 /**
- * Sets or clears `acp.agents.<id>.model`. `AcpAgentConfigSchema` requires
- * `command` and the bundled agents live in code rather than in the file, so a
- * new entry is seeded with the command the resolver reports: a bare
- * `{ model }` entry fails validation and takes the whole `acp` section down
- * with it on the next load.
+ * Sets or clears `acp.agents.<id>.model`.
+ *
+ * The agent id addresses the `agents` record as a literal key, never as a
+ * segment of a dotted path: `AcpConfigSchema` keys agents by arbitrary
+ * string, so an id carrying a dot ("team.agent") would otherwise be split
+ * into nested objects, leaving the real entry untouched and persisting a
+ * command-less one beside it.
+ *
+ * `AcpAgentConfigSchema` requires `command` and the bundled agents live in
+ * code rather than in the file, so a new entry is seeded with the command the
+ * resolver reports: a bare `{ model }` entry fails validation and takes the
+ * whole `acp` section down with it on the next load.
  */
 function writeAgentModel(
   raw: Record<string, unknown>,
   agent: { id: string; command: string },
   model: string | null,
 ): boolean {
-  const entry = readAgentEntry(raw, agent.id);
-  if (model !== null) {
-    if (!entry || typeof entry.command !== "string") {
-      setNestedValue(raw, `acp.agents.${agent.id}.command`, agent.command);
+  const agents = readAgentsRecord(raw);
+  const existing = agents?.[agent.id];
+  const entry = isPlainObject(existing) ? existing : undefined;
+
+  if (model === null) {
+    if (!entry || !("model" in entry)) {
+      return false;
     }
-    setNestedValue(raw, `acp.agents.${agent.id}.model`, model);
+    entry.model = null;
     return true;
   }
-  if (!entry || !("model" in entry)) {
-    return false;
+
+  const next = entry ?? {};
+  if (typeof next.command !== "string") {
+    next.command = agent.command;
   }
-  entry.model = null;
+  next.model = model;
+  if (agents) {
+    agents[agent.id] = next;
+  } else {
+    setNestedValue(raw, "acp.agents", { [agent.id]: next });
+  }
   return true;
 }
 
-function readAgentEntry(
+function readAgentsRecord(
   raw: Record<string, unknown>,
-  agentId: string,
 ): Record<string, unknown> | undefined {
   const acp = raw.acp;
   if (!isPlainObject(acp)) {
     return undefined;
   }
   const agents = acp.agents;
-  if (!isPlainObject(agents)) {
-    return undefined;
-  }
-  const entry = agents[agentId];
-  return isPlainObject(entry) ? entry : undefined;
+  return isPlainObject(agents) ? agents : undefined;
 }
 
 /** States exactly what stands now, in the terms the user asked in. */

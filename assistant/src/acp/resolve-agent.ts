@@ -135,6 +135,20 @@ const AGENT_ID_ALIASES: Record<string, string> = {
 };
 
 /**
+ * Ids that read back as inherited `Object.prototype` members instead of
+ * configured agents. `directLookup` and `mergedAgentIds` refuse them so an id
+ * from a tool call or an HTTP body can resolve to nothing but a real entry:
+ * resolving one would report a configured agent that does not exist, and a
+ * caller that then writes settings under the resolved id (the
+ * `acp_set_default_model` tool) would walk onto the prototype chain.
+ */
+const PROTOTYPE_SENSITIVE_AGENT_IDS: ReadonlySet<string> = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+
+/**
  * Normalize a raw agent id for alias matching: lowercase and strip spaces,
  * underscores, and hyphens so "Claude Code", "claude-code", and
  * "claude_code" all hit the same alias entry.
@@ -197,7 +211,10 @@ function lookupAgent(
   if (direct) {
     return { ...direct, id };
   }
-  const canonicalId = AGENT_ID_ALIASES[normalizeAgentId(id)];
+  const normalized = normalizeAgentId(id);
+  const canonicalId = Object.hasOwn(AGENT_ID_ALIASES, normalized)
+    ? AGENT_ID_ALIASES[normalized]
+    : undefined;
   if (canonicalId === undefined) {
     return undefined;
   }
@@ -209,11 +226,16 @@ function directLookup(
   userAgents: Record<string, AcpAgentConfig>,
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
-  const userAgent = userAgents[id];
+  if (PROTOTYPE_SENSITIVE_AGENT_IDS.has(id)) {
+    return undefined;
+  }
+  const userAgent = Object.hasOwn(userAgents, id) ? userAgents[id] : undefined;
   if (userAgent) {
     return { agent: userAgent, source: "config" };
   }
-  const defaultAgent = DEFAULT_ACP_AGENT_PROFILES[id];
+  const defaultAgent = Object.hasOwn(DEFAULT_ACP_AGENT_PROFILES, id)
+    ? DEFAULT_ACP_AGENT_PROFILES[id]
+    : undefined;
   if (defaultAgent) {
     return { agent: defaultAgent, source: "default" };
   }
@@ -230,7 +252,7 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
       ...Object.keys(DEFAULT_ACP_AGENT_PROFILES),
       ...Object.keys(userAgents),
     ]),
-  );
+  ).filter((id) => !PROTOTYPE_SENSITIVE_AGENT_IDS.has(id));
 }
 
 /**

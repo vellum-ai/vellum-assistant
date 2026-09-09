@@ -181,6 +181,62 @@ describe("acp_set_default_model - a single agent", () => {
   });
 });
 
+describe("acp_set_default_model - hostile agent ids", () => {
+  // A dotted path would split these into nested objects; `__proto__` would
+  // walk onto the prototype itself.
+  test("an id containing a dot addresses one literal agents key", async () => {
+    writeConfig({
+      acp: { agents: { "team.agent": { command: "custom-acp" } } },
+    });
+
+    const result = await executeAcpSetDefaultModel(
+      { model: "opus", agent: "team.agent" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(agentEntry("team.agent")).toEqual({
+      command: "custom-acp",
+      model: "opus",
+    });
+    expect(agentEntry("team")).toBeUndefined();
+    expect(getConfig().acp.agents["team.agent"]?.model).toBe("opus");
+  });
+
+  test("clearing an id containing a dot removes only that entry's model", async () => {
+    writeConfig({
+      acp: {
+        agents: { "team.agent": { command: "custom-acp", model: "opus" } },
+      },
+    });
+
+    const result = await executeAcpSetDefaultModel(
+      { model: null, agent: "team.agent" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(agentEntry("team.agent")).toEqual({ command: "custom-acp" });
+    expect(agentEntry("team")).toBeUndefined();
+  });
+
+  for (const id of ["__proto__", "constructor", "prototype"]) {
+    test(`"${id}" is rejected and touches neither config nor Object.prototype`, async () => {
+      const result = await executeAcpSetDefaultModel(
+        { model: "opus", agent: id },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(`Unknown agent "${id}"`);
+      expect(readConfig()).toEqual({});
+      const untouched: Record<string, unknown> = {};
+      expect(untouched.model).toBeUndefined();
+      expect(untouched.command).toBeUndefined();
+    });
+  }
+});
+
 describe("acp_set_default_model - input validation", () => {
   test("an omitted model is a caller mistake, not a clear", async () => {
     const result = await executeAcpSetDefaultModel({}, makeContext());

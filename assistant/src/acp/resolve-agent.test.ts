@@ -10,7 +10,8 @@ afterAll(() => {
   which.restore();
 });
 
-const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
+const { resolveAcpAgent, listAcpAgents, resolveAcpAgentId } =
+  await import("./resolve-agent.js");
 
 beforeEach(() => {
   config.setConfig({});
@@ -56,7 +57,9 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.agent.command).toBe("codex-acp");
-    expect(result.agent.description).toContain("@agentclientprotocol/codex-acp");
+    expect(result.agent.description).toContain(
+      "@agentclientprotocol/codex-acp",
+    );
   });
 
   test("falls back to default profile for claude when no user entry", () => {
@@ -491,5 +494,102 @@ describe("listAcpAgents", () => {
     expect(custom?.setupHint).toBe(
       "Install 'unknown-binary' and ensure it is on PATH.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAcpAgentId
+// ---------------------------------------------------------------------------
+
+describe("resolveAcpAgentId", () => {
+  test("resolves a bundled id to its canonical key and command", () => {
+    config.setConfig({ agents: {} });
+
+    const result = resolveAcpAgentId("claude");
+
+    expect(result).toEqual({
+      ok: true,
+      id: "claude",
+      command: "claude-agent-acp",
+    });
+  });
+
+  test("resolves a natural name to the canonical key", () => {
+    config.setConfig({ agents: {} });
+
+    expect(resolveAcpAgentId("OpenAI Codex")).toEqual({
+      ok: true,
+      id: "codex",
+      command: "codex-acp",
+    });
+  });
+
+  test("resolves a user id containing a dot as one literal key", () => {
+    config.setConfig({
+      agents: { "team.agent": { command: "custom-acp", args: [] } },
+    });
+
+    expect(resolveAcpAgentId("team.agent")).toEqual({
+      ok: true,
+      id: "team.agent",
+      command: "custom-acp",
+    });
+  });
+
+  test("does not consult the binary, so an uninstalled agent still resolves", () => {
+    config.setConfig({ agents: {} });
+    which.setWhich(() => null);
+
+    expect(resolveAcpAgentId("claude").ok).toBe(true);
+    expect(resolveAcpAgent("claude").ok).toBe(false);
+  });
+
+  test("an unknown id reports the configured agents", () => {
+    config.setConfig({ agents: {} });
+
+    expect(resolveAcpAgentId("gemini")).toEqual({
+      ok: false,
+      reason: "unknown_agent",
+      available: ["claude", "codex"],
+    });
+  });
+});
+
+describe("agent ids that name Object.prototype members", () => {
+  // An id read off the prototype chain would resolve as a configured agent
+  // that does not exist, and a caller writing settings under it would reach
+  // the prototype itself.
+  for (const id of ["__proto__", "constructor", "prototype"]) {
+    test(`"${id}" resolves to nothing`, () => {
+      config.setConfig({ agents: {} });
+
+      const byId = resolveAcpAgentId(id);
+      expect(byId.ok).toBe(false);
+      if (byId.ok) {
+        return;
+      }
+      expect(byId.available).toEqual(["claude", "codex"]);
+
+      const resolved = resolveAcpAgent(id);
+      expect(resolved.ok).toBe(false);
+      if (resolved.ok) {
+        return;
+      }
+      expect(resolved.reason).toBe("unknown_agent");
+    });
+  }
+
+  test("the catalog never lists one, even when config carries the key", () => {
+    config.setConfig({
+      agents: {
+        ...JSON.parse('{"__proto__": {"command": "evil", "args": []}}'),
+        claude: { command: "claude-agent-acp", args: [] },
+      },
+    });
+
+    expect(listAcpAgents().agents.map((a) => a.id)).toEqual([
+      "claude",
+      "codex",
+    ]);
   });
 });
