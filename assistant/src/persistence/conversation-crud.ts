@@ -2764,7 +2764,13 @@ export function listConversationAttachments(
     )
     .innerJoin(attachments, eq(attachments.id, messageAttachments.attachmentId))
     .where(and(lineageFilter(conversationId), eq(messages.finalized, 1)))
-    .orderBy(desc(messages.createdAt), asc(messageAttachments.position))
+    // `(createdAt, id)` before position: carriers sharing a millisecond would
+    // otherwise compare equal, so paging and the first-seen dedupe would drift.
+    .orderBy(
+      desc(messages.createdAt),
+      desc(messages.id),
+      asc(messageAttachments.position),
+    )
     .all();
 
   const seen = new Set<string>();

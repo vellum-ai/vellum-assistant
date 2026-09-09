@@ -450,6 +450,44 @@ describe("GET /v1/attachments", () => {
     expect(last.hasMore).toBe(false);
   });
 
+  test("pages deterministically when two carriers share a millisecond", async () => {
+    const conversation = createConversation("Same tick");
+
+    const firstPhoto = await newAttachment("tie-first.png");
+    const firstCarrier = await addMessage(conversation.id, "user", "first", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(firstCarrier.id, firstPhoto, 0);
+    setCreatedAt(firstCarrier.id, 7000);
+
+    const secondPhoto = await newAttachment("tie-second.png");
+    const secondCarrier = await addMessage(conversation.id, "user", "second", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(secondCarrier.id, secondPhoto, 0);
+    setCreatedAt(secondCarrier.id, 7000);
+
+    const fullOrder = listAttachments({
+      conversationId: conversation.id,
+    }).attachments.map((a) => a.id);
+    expect([...fullOrder].sort()).toEqual([firstPhoto, secondPhoto].sort());
+
+    for (let run = 0; run < 3; run += 1) {
+      const head = listAttachments({
+        conversationId: conversation.id,
+        limit: "1",
+      });
+      const tail = listAttachments({
+        conversationId: conversation.id,
+        limit: "1",
+        offset: "1",
+      });
+      expect(
+        [...head.attachments, ...tail.attachments].map((a) => a.id),
+      ).toEqual(fullOrder);
+    }
+  });
+
   test("rejects a request without a conversation", () => {
     expect(() => listAttachments({})).toThrow(BadRequestError);
   });
