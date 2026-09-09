@@ -1089,6 +1089,41 @@ describe("idempotency nonce", () => {
     );
   });
 
+  test("a retry after a thrown send mints a fresh id when the draft changed", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("network dropped");
+        }
+        return sentResult("conv-existing");
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("error");
+
+    // The user edits the draft before retrying. Reusing the prior nonce would
+    // have the daemon dedupe the retry back to the ORIGINAL payload and this
+    // send resolve as the old message, silently discarding the edit, so the
+    // retry must mint a fresh id that the daemon treats as a new message.
+    useComposerStore.getState().setInput("hello, edited", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.status).toBe("sent");
+    expect(sentOptions(1).clientMessageId).toBeTruthy();
+    expect(sentOptions(1).clientMessageId).not.toBe(
+      sentOptions(0).clientMessageId as string,
+    );
+  });
+
   test("a send the daemon answered and refused starts the next attempt fresh", async () => {
     let calls = 0;
     postChatMessageMock = mock(

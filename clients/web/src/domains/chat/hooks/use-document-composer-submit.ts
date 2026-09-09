@@ -104,10 +104,18 @@ export function useDocumentComposerSubmit({
   // by which point the hook may point at another document or another
   // assistant. The nonce survives a thrown send so the retry carries the same
   // id, which lets the daemon dedupe the case where it accepted the message
-  // and only the response was lost.
+  // and only the response was lost. The nonce is tied to the exact
+  // content/attachment snapshot it was minted for: a retry only reuses it when
+  // the payload is unchanged, since the daemon dedupes on
+  // `(conversation, clientMessageId)` back to the ORIGINAL payload, and
+  // reusing it against an edited draft would have the daemon answer the old
+  // message while the hook cleared the new edits.
   const surfaceId = doc?.surfaceId ?? null;
   const currentOwnerRef = useRef<DocumentSlotOwner>({ assistantId, surfaceId });
-  const pendingClientMessageIdRef = useRef<string | null>(null);
+  const pendingClientMessageRef = useRef<{
+    clientMessageId: string;
+    snapshot: string;
+  } | null>(null);
   const armedReplyConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     currentOwnerRef.current = { assistantId, surfaceId };
@@ -115,7 +123,7 @@ export function useDocumentComposerSubmit({
     // send is a different message: its own nonce, its own wait. A wait an
     // earlier attempt armed stays up, since that message may still be on its
     // way to a reply.
-    pendingClientMessageIdRef.current = null;
+    pendingClientMessageRef.current = null;
     armedReplyConversationIdRef.current = null;
     // The composer on screen belongs to the incoming owner and has sent
     // nothing, so it starts enabled instead of inheriting the outgoing
@@ -294,9 +302,29 @@ export function useDocumentComposerSubmit({
       const snapshot = findConversation(queryClient, assistantId, resolvedId)
         ?.latestAssistantMessageAt;
 
-      const clientMessageId =
-        pendingClientMessageIdRef.current ?? crypto.randomUUID();
-      pendingClientMessageIdRef.current = clientMessageId;
+      // The nonce is only valid for the exact payload it was minted for. If an
+      // earlier attempt failed ambiguously (the daemon may have accepted the
+      // message and only the response was lost), the user may have edited the
+      // draft since; reusing the old id would have the daemon dedupe the retry
+      // back to the ORIGINAL payload and this send resolve as the old message,
+      // silently discarding the edits. So a retry only carries the id when the
+      // content/attachment snapshot is unchanged, minting a fresh one (and thus
+      // sending the new payload) whenever the draft moved on. Attachment ids
+      // are stable upload-row ids, so the snapshot is exact for that set.
+      const payloadSnapshot = `${content}\u0000${attachmentIds.join("\u0000")}`;
+      let clientMessageId: string;
+      if (
+        pendingClientMessageRef.current?.snapshot === payloadSnapshot &&
+        pendingClientMessageRef.current.clientMessageId
+      ) {
+        clientMessageId = pendingClientMessageRef.current.clientMessageId;
+      } else {
+        clientMessageId = crypto.randomUUID();
+      }
+      pendingClientMessageRef.current = {
+        clientMessageId,
+        snapshot: payloadSnapshot,
+      };
 
       // Armed before the POST, not off its response. The daemon dedupes a
       // retry on `(conversation, clientMessageId)` and answers a duplicate
@@ -318,7 +346,7 @@ export function useDocumentComposerSubmit({
         // down and the next attempt goes out as a fresh send rather than a
         // duplicate the daemon would dedupe against nothing.
         disarmReplyWaiter();
-        pendingClientMessageIdRef.current = null;
+        pendingClientMessageRef.current = null;
         if (ownsSlotNow()) {
           setStatus("error");
         }
@@ -334,7 +362,7 @@ export function useDocumentComposerSubmit({
 
       // The daemon holds the message, queued or not, so the nonce has done
       // its job and the next send is a new message.
-      pendingClientMessageIdRef.current = null;
+      pendingClientMessageRef.current = null;
 
       const conversationId = result.conversationId;
       // A reply wait and a processing marker both watch the assistant's own
