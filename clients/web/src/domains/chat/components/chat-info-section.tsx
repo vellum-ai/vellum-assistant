@@ -7,10 +7,14 @@
  * fit rule.
  */
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { Button, ScrollShadow, Typography } from "@vellumai/design-library";
 
+import {
+  DETAIL_SHELL_BODY_INSET_PX,
+  DetailShellMidlineDot,
+} from "@/components/detail-shell";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
@@ -19,11 +23,10 @@ import { cn } from "@/utils/misc";
 /** Gutter between tiles, the pixel value behind the rows' `gap-2`. */
 export const CHAT_INFO_TILE_GAP_PX = 8;
 
-/**
- * How far the narrow-window strip runs past the measured column on the right:
- * `DetailShell`'s 20px body inset, which the strip's `-mx-5 px-5` reclaims.
- */
-const MOBILE_STRIP_BLEED_PX = 20;
+/** Feeds the strip's own margin and padding classes below. */
+const STRIP_BLEED_STYLE = {
+  "--chat-info-strip-bleed": `${DETAIL_SHELL_BODY_INSET_PX}px`,
+} as CSSProperties;
 
 /** Whole tiles that fit on one line of `rowWidth`, never fewer than one. */
 export function fitTileCount(
@@ -68,7 +71,7 @@ export function ChatInfoSection<T>({
   const isMobile = useIsMobile();
   // The strip runs through the body's right inset, so that width counts too.
   const fit = fitTileCount(
-    isMobile ? size.w + MOBILE_STRIP_BLEED_PX : size.w,
+    isMobile ? size.w + DETAIL_SHELL_BODY_INSET_PX : size.w,
     tileWidth,
   );
   const showSeeAll = count > fit;
@@ -77,7 +80,7 @@ export function ChatInfoSection<T>({
   const stripOverflows = items.length > fit;
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3" style={STRIP_BLEED_STYLE}>
       <div className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-1">
           <Typography
@@ -86,10 +89,7 @@ export function ChatInfoSection<T>({
           >
             {title}
           </Typography>
-          <span
-            aria-hidden
-            className="size-[3px] shrink-0 rounded-full bg-[var(--content-disabled)]"
-          />
+          <DetailShellMidlineDot className="bg-[var(--content-disabled)]" />
           <Typography
             variant="title-small"
             className="shrink-0 text-[var(--content-disabled)]"
@@ -116,13 +116,16 @@ export function ChatInfoSection<T>({
           measured width, so See All and the visible tiles can never disagree:
           a roomy window truncates the line to what fits, a narrow one scrolls
           the whole fetched set past the same edge. The strip cancels
-          `DetailShell`'s 20px body inset so tiles run to the viewport edge. */}
+          `DetailShell`'s body inset so tiles run to the viewport edge. */}
       <div ref={ref} className="w-full">
         {isMobile ? (
           <ScrollShadow
             orientation="horizontal"
             hideScrollBar
-            className={cn("-mx-5 pl-5", stripOverflows && "pr-5")}
+            className={cn(
+              "-mx-[var(--chat-info-strip-bleed)] pl-[var(--chat-info-strip-bleed)]",
+              stripOverflows && "pr-[var(--chat-info-strip-bleed)]",
+            )}
           >
             <div
               className="flex w-max gap-2"

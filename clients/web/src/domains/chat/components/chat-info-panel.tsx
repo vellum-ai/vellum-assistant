@@ -13,12 +13,13 @@ import { ChevronLeft, Layers } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import {
   DetailShell,
   type DetailShellHeaderProps,
+  DetailShellTitleWithCount,
 } from "@/components/detail-shell";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import {
@@ -49,30 +50,6 @@ export interface ChatInfoPanelProps {
   onClose: () => void;
   /** See All drills in with a category; the back control passes `null`. */
   onSelectCategory: (category: ChatInfoCategory | null) => void;
-}
-
-/** The drilled-in header's title cluster: title · N, as every detail panel draws it. */
-function TitleWithCount({ title, count }: { title: string; count: number }) {
-  return (
-    <span className="flex min-w-0 items-center gap-1.5 py-0.5">
-      <Typography
-        variant="title-medium"
-        className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
-      >
-        {title}
-      </Typography>
-      <span
-        aria-hidden
-        className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-      />
-      <Typography
-        variant="title-medium"
-        className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
-      >
-        {count}
-      </Typography>
-    </span>
-  );
 }
 
 export function ChatInfoPanel({
@@ -297,7 +274,7 @@ export function ChatInfoPanel({
             />
           ),
           titleNode: (
-            <TitleWithCount
+            <DetailShellTitleWithCount
               title={categoryTitles[level]}
               count={counts[level]}
             />
