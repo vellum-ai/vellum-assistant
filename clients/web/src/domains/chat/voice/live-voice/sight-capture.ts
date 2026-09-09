@@ -324,9 +324,12 @@ export function createSightCapture(errorContext: string): SightCapture {
       onDropped?.();
     };
     // Taken for lost at the bound: its number is settled empty so the sends
-    // behind it drain, and whatever its upload produces afterwards is given
-    // back rather than sent, since the order has moved past it.
+    // behind it drain, its upload is ended so the request and the bytes it
+    // holds do not outlive the decision, and whatever the upload produces
+    // anyway is given back rather than sent, since the order has moved past
+    // it.
     let writtenOff = false;
+    const aborter = settleWithinMs === undefined ? null : new AbortController();
     const deadline =
       settleWithinMs === undefined
         ? null
@@ -334,6 +337,7 @@ export function createSightCapture(errorContext: string): SightCapture {
             writtenOff = true;
             dropped();
             settleCapture(seq, null);
+            aborter?.abort();
           }, settleWithinMs);
     try {
       frameCount += 1;
@@ -350,7 +354,11 @@ export function createSightCapture(errorContext: string): SightCapture {
       const file = prepared.status === "failed" ? frame : prepared.file;
       const encodedAtMs = performance.now();
 
-      const uploaded = await uploadChatAttachment(assistantId, file);
+      const uploaded = await uploadChatAttachment(
+        assistantId,
+        file,
+        aborter === null ? undefined : { signal: aborter.signal },
+      );
       if (!uploaded.ok) {
         return;
       }
@@ -411,9 +419,12 @@ export function createSightCapture(errorContext: string): SightCapture {
         },
       };
     } catch (cause) {
-      // Best effort by design: nobody asked for this frame, so a failure
+      // An upload this capture ended itself is not a fault. Anything else
+      // is best effort by design: nobody asked for this frame, so a failure
       // costs one frame and says nothing to the user.
-      captureError(cause, { context: errorContext, bestEffort: true });
+      if (!writtenOff) {
+        captureError(cause, { context: errorContext, bestEffort: true });
+      }
     } finally {
       if (deadline !== null) {
         clearTimeout(deadline);

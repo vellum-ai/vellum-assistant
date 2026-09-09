@@ -394,6 +394,13 @@ export type UploadAttachmentResult =
 export async function uploadChatAttachment(
   assistantId: string,
   file: File,
+  opts?: {
+    /**
+     * Ends the upload early. For a caller that has written the frame off,
+     * so the request and the bytes it holds do not outlive the decision.
+     */
+    signal?: AbortSignal;
+  },
 ): Promise<UploadAttachmentResult> {
   const filename = file.name || "attachment";
   const mimeType = file.type || "application/octet-stream";
@@ -402,6 +409,7 @@ export async function uploadChatAttachment(
     path: { assistant_id: assistantId },
     body: { file, filename, mimeType },
     throwOnError: false,
+    ...(opts?.signal ? { signal: opts.signal } : {}),
   });
   assertHasResponse(response, error, "Failed to upload attachment");
 

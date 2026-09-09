@@ -52,10 +52,15 @@ function frameOf(view: string): ScreenCaptureFrame {
  * other (past the ambient bar), and a name with a `+` on it is that view with
  * a small change in it: past the bar a question lowers the gate to, and short
  * of the ambient one. The same name is the same picture, byte for byte, which
- * is what a screen capture of an unchanged screen is.
+ * is what a screen capture of an unchanged screen is. `light` and `dark` are
+ * two blank pages: no structure at all, and the gate cannot tell them apart.
  */
 function gridFor(view: string): FrameGrid {
   const grid = new Uint8Array(FRAME_GRID_CELLS);
+  if (view === "light" || view === "dark") {
+    grid.fill(view === "light" ? 235 : 30);
+    return grid;
+  }
   const name = view.replace("+", "");
   for (let i = 0; i < FRAME_GRID_CELLS; i++) {
     const lit =
@@ -442,6 +447,38 @@ describe("useLiveVoiceScreenShare: cadence", () => {
       "att-2",
       expect.objectContaining({ reason: "novel" }),
     );
+  });
+
+  /**
+   * The gate normalizes away everything but shape, and a blank page has no
+   * shape: a light one and a dark one are the same nothing to it. A screen
+   * keeps such frames, so the share tells them apart by their light.
+   */
+  test("a blank page turning dark is a new view", async () => {
+    show("light");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    // The same blank page again is not news.
+    speak(true);
+    speak(false);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    show("dark");
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "forced" }),
+    );
+    // And it is now the view the call has.
+    speak(false);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
   });
 
   /**
@@ -1005,7 +1042,12 @@ describe("useLiveVoiceScreenShare: an upload that hangs", () => {
       expect.objectContaining({ reason: "forced" }),
     );
 
-    // The upload finishing after all is given back, not sent.
+    // The hung upload is ended, so the request does not outlive the
+    // decision, and one that finishes after all is given back, not sent.
+    const hungUpload = uploadChatAttachment.mock.calls[1] as unknown[];
+    expect((hungUpload[2] as { signal: AbortSignal }).signal.aborted).toBe(
+      true,
+    );
     question.finish();
     await flush();
     expect(controls.sightFrame).toHaveBeenCalledTimes(2);

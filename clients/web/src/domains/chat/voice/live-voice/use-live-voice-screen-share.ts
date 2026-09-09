@@ -148,6 +148,32 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
  */
 export const SCREEN_SHARE_SETTLE_WITHIN_MS = 5_000;
 
+/**
+ * Below this much structure a screen is flat, and flat screens are compared
+ * by their light rather than by their shape.
+ *
+ * The gate normalizes every grid before comparing, which is what makes it
+ * blind to a camera's exposure and is exactly wrong for a blank page: a
+ * blank light page and a blank dark page normalize to the same nothing, so
+ * the gate reads no change where the user sees a whole new view. The camera
+ * refuses such frames outright; a screen keeps them (see
+ * {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}), so it has to tell them apart
+ * some other way, and the only thing left to compare is their mean luma.
+ * The floor is the camera's own featureless floor, and the shift is well
+ * past anything a screen's own rendering drifts by.
+ */
+export const SCREEN_SHARE_FLAT_DETAIL = DEFAULT_FRAME_GATE_OPTIONS.minDetail;
+export const SCREEN_SHARE_FLAT_LUMA_SHIFT = 32;
+
+/** Mean luma of a grid, 0-255. */
+function meanLuma(grid: Uint8Array): number {
+  let sum = 0;
+  for (const cell of grid) {
+    sum += cell;
+  }
+  return sum / grid.length;
+}
+
 export function useLiveVoiceScreenShare(): void {
   const target = useLiveVoiceStore.use.screenShareTarget();
   const state = useLiveVoiceStore.use.state();
@@ -201,6 +227,9 @@ export function useLiveVoiceScreenShare(): void {
       readonly grid: Uint8Array;
       readonly atMs: number;
       readonly seq: number;
+      /** Structure and light, for telling two flat screens apart. */
+      readonly detail: number;
+      readonly meanLuma: number;
       /**
        * The ask this frame answered, when it was a forced keep: the arm it
        * spent, to be given back if the frame is lost. The ask still stands
@@ -360,6 +389,9 @@ export function useLiveVoiceScreenShare(): void {
       const nowMs = performance.now();
       judgedSeq += 1;
       let spentArmMs: number | null = null;
+      // A drawing is not judged, so its structure is not measured; it is
+      // never mistaken for a flat screen.
+      let detail = Number.POSITIVE_INFINITY;
       let keep: SightKeepOrigin;
       if (drawing !== null) {
         keep = { reason: "drawing" };
@@ -373,7 +405,19 @@ export function useLiveVoiceScreenShare(): void {
           gate.armForcedKeep(askedAtMs);
         }
         const decision = gate.offer(grid, nowMs, requestedAtMs);
-        if (!decision.keep) {
+        // A flat screen whose light changed is a new view the gate cannot
+        // see; see `SCREEN_SHARE_FLAT_DETAIL`. Adopted, so the gate's
+        // history is what it would be for a keep, and taken as the answer
+        // to an open question, since the ask stands for a change and this
+        // is one.
+        const light = meanLuma(grid);
+        const flatChange =
+          !decision.keep &&
+          baseline !== null &&
+          (decision.detail < SCREEN_SHARE_FLAT_DETAIL ||
+            baseline.detail < SCREEN_SHARE_FLAT_DETAIL) &&
+          Math.abs(light - baseline.meanLuma) >= SCREEN_SHARE_FLAT_LUMA_SHIFT;
+        if (!decision.keep && !flatChange) {
           console.debug("[live-voice screen share] frame skipped:", {
             reason: decision.reason,
             novelty: decision.novelty,
@@ -386,14 +430,20 @@ export function useLiveVoiceScreenShare(): void {
               : null;
           return;
         }
+        let reason: string = decision.reason;
+        if (flatChange) {
+          gate.adopt(grid, nowMs);
+          reason = armedAtMs !== null ? "forced" : "novel";
+        }
         keep =
-          decision.reason === "forced" && armedAtMs !== null
-            ? { reason: decision.reason, armedAtMs }
-            : { reason: decision.reason };
-        if (decision.reason === "forced") {
+          reason === "forced" && armedAtMs !== null
+            ? { reason, armedAtMs }
+            : { reason };
+        if (reason === "forced") {
           spentArmMs = armedAtMs;
           armedAtMs = null;
         }
+        detail = decision.detail;
       }
       // What this occasion has just made the gate's baseline: on delivery
       // it is what the call has, and until then it is what a failure has to
@@ -402,6 +452,8 @@ export function useLiveVoiceScreenShare(): void {
         grid: picture.grid,
         atMs: nowMs,
         seq: judgedSeq,
+        detail,
+        meanLuma: meanLuma(picture.grid),
         spentArmMs,
       };
       if (drawing !== null) {
