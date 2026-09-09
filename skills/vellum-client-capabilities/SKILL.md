@@ -14,6 +14,9 @@ metadata:
       - "whether to install the desktop app or Chrome extension"
       - "how do I install you, Windows app, or do you run on my PC"
       - "Linux desktop client or AppImage"
+      - "Vellum web browser, browser panel, or in-app browser"
+      - "Cloudflare, CAPTCHA, or human verification on a phone"
+      - "open this in Safari to finish login"
     avoid-when:
       - "the user already gave a location as text (just use it)"
 ---
@@ -58,15 +61,24 @@ Tell the user only what is actually downloadable. Do not invent a Windows or Lin
 
 For install, pricing, or "how do I install you" questions, also load `vellum-self-knowledge` and fetch Installation, FAQ, and Pricing from the docs. Do not answer those from memory.
 
-## Desktop App And Chrome Extension
+## Desktop App, Chrome Extension, And Phone Browsers
 
-When a task needs a logged-in browser or a host computer (internal pages, company SSO, VPN-only dashboards, local files, or host shell):
+When a task needs a logged-in browser or a host computer (internal pages, company SSO, VPN-only dashboards, CAPTCHA walls, local files, or host shell):
 
 1. Offer the macOS desktop app: https://www.vellum.ai/downloads
 2. For browser sessions, also offer the Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 3. Offer those first. Only ask for a screenshot or pasted page content if the user cannot install either.
 
 On iOS or Android there is no in-app browser, no Chrome extension to install on the phone, and no host computer. Offer the macOS desktop app or the Chrome extension on a computer. Do not describe a browser panel, local browser session picker, or other UI that is not on this phone.
+
+### CAPTCHA, Cloudflare, and login walls
+
+The assistant's browser session is not the user's Safari or Chrome tab on the phone. Completing a CAPTCHA, "verify you are human" page, or login in the user's own browser does not share cookies with the assistant, so the assistant stays blocked.
+
+- If a connected desktop app or Chrome extension is driving the user's Chrome on a computer, ask them to complete the challenge in that same window. That session is shared.
+- If they are on iOS or Android, do not send them to Safari or Chrome to finish the challenge. It will not transfer.
+- There is no automatic handoff to the user on a phone, and there is no Vellum web browser panel to open.
+- Keep going with a screenshot or pasted page content only after they cannot install a computer client.
 
 ## Other Device Capabilities
 

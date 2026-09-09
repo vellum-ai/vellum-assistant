@@ -175,7 +175,9 @@ export function KeyConceptsChannelsContent() {
             <a href={routes.iosAppStore}>
               App Store
             </a>{" "}
-            for iPhone and iPad.
+            for iPhone and iPad. There is no in-app browser on iOS, so CAPTCHA
+            and login walls the assistant hits cannot be completed inside the
+            phone app.
           </p>
         </section>
 
@@ -194,7 +196,8 @@ export function KeyConceptsChannelsContent() {
             <a href={routes.androidPlayStore}>
               Google Play
             </a>
-            .
+            . There is no in-app browser on Android, so CAPTCHA and login walls
+            the assistant hits cannot be completed inside the phone app.
           </p>
         </section>
 

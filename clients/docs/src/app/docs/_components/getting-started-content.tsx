@@ -120,7 +120,9 @@ export function GettingStartedContent() {
           </ol>
           <p className="mb-6 text-zinc-600">
             Approval requests can arrive as mobile notifications, so you can review
-            sensitive actions from your phone.
+            sensitive actions from your phone. The iOS app does not include an
+            in-app browser for logins or CAPTCHA walls. For those, use the Mac
+            desktop app or the Chrome extension on a computer.
           </p>
         </section>
 
@@ -149,7 +151,9 @@ export function GettingStartedContent() {
           </ol>
           <p className="mb-6 text-zinc-600">
             The Android app is a client for your cloud assistant. It does not run a local
-            assistant on the phone. See{" "}
+            assistant on the phone, and it does not include an in-app browser for logins or
+            CAPTCHA walls. For those, use the Mac desktop app or the Chrome extension on a
+            computer. See{" "}
             <a href={routes.downloads} className="font-semibold text-emerald-700 underline hover:text-emerald-800">
               Downloads
             </a>

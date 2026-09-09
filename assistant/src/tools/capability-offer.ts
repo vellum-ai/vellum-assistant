@@ -59,6 +59,9 @@ export function formatLoggedInBrowserOffer(
       `Install the macOS desktop app (${DESKTOP_APP_DOWNLOAD_URL}) or the Chrome extension in Chrome on a computer (${CHROME_WEB_STORE_INSTALL_URL}).`,
     );
     lines.push(
+      "Completing a CAPTCHA or login in Safari or Chrome on this phone does not transfer the session to the assistant.",
+    );
+    lines.push(
       "Offer those first. Do not describe a browser panel here. Only ask for a screenshot or pasted page content if the user cannot install either.",
     );
     return lines.join("\n");

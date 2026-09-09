@@ -193,7 +193,9 @@ export function HelpFaqContent() {
               Google Play
             </Link>
             . You can also reach your assistant through Telegram or phone calls from any
-            device.
+            device. The phone apps do not include an in-app browser, so logins and
+            CAPTCHA walls that the assistant hits still need a computer with the Mac
+            desktop app or the Chrome extension.
           </p>
 
           <SectionHeading id="is-there-a-windows-app" level={3}>

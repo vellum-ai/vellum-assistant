@@ -39,6 +39,11 @@ describe("GettingStartedContent", () => {
     expect(html).toContain("self-host the assistant runtime");
   });
 
+  test("says phone apps have no in-app browser for CAPTCHA and login walls", () => {
+    expect(html).toContain("does not include an in-app browser");
+    expect(html).toContain("CAPTCHA");
+  });
+
   test("carries no contents entry for a section that is not on the page", () => {
     const targets = tocTargets(html);
     expect(targets).toContain("android-app");

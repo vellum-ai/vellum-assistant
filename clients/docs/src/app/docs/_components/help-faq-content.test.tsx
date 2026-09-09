@@ -1,6 +1,7 @@
 /**
  * `/docs/help/faq` is the public platform list the assistant is told to
- * fetch. These tests lock Android, Windows/Linux honesty, and the Base plan.
+ * fetch. These tests lock Android, Windows/Linux honesty, Base plan, and
+ * the phone in-app browser gap.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -30,5 +31,11 @@ describe("HelpFaqContent", () => {
     expect(html).toContain("Is Vellum free?");
     expect(html).toContain("Base");
     expect(html).toContain("/docs/pricing");
+  });
+
+  test("says phone apps have no in-app browser for CAPTCHA walls", () => {
+    expect(html).toContain("do not include an in-app browser");
+    expect(html).toContain("CAPTCHA");
+    expect(html).toContain("Chrome extension");
   });
 });
