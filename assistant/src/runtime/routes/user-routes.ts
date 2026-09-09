@@ -17,26 +17,56 @@
 
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-import { RouteResponse } from "./types.js";
+import { IDENTITY_HEADERS, RouteResponse } from "./types.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
 
 const dispatcher = new UserRouteDispatcher();
 
 /**
- * Reconstruct a Web API `Request` from transport-agnostic handler args.
- *
- * The synthesized Request carries all information the dispatcher needs:
- * path, method, headers, and body. The host/port/scheme are synthetic —
- * user handlers should not depend on them.
+ * The identity a user-authored handler is allowed to see. The verified
+ * subject is withheld: it is the daemon's own authorization material (an
+ * OAuth proxy grant is honored for the subject it names), and handler files
+ * in the workspace are a wider audience than the routes that gate on it.
+ * Every other {@link IDENTITY_HEADERS} entry is withheld too, so a new one
+ * reaches user code only when someone adds it here.
  */
-function synthesizeRequest(method: string, args: RouteHandlerArgs): Request {
+const USER_HANDLER_IDENTITY_HEADERS = new Set<string>([
+  "x-vellum-principal-type",
+  "x-vellum-actor-principal-id",
+]);
+
+/**
+ * URL for a request that did not arrive over HTTP, rebuilt from the matched
+ * path and the flattened query. Repeated query keys collapsed on the way in,
+ * so only `rawUrl` carries them.
+ */
+function reconstructUrl(args: RouteHandlerArgs): URL {
   const path = args.pathParams?.path ?? "";
   const url = new URL(`http://localhost/v1/x/${path}`);
   for (const [k, v] of Object.entries(args.queryParams ?? {})) {
     url.searchParams.set(k, v);
   }
+  return url;
+}
+
+/**
+ * Reconstruct a Web API `Request` from transport-agnostic handler args.
+ *
+ * The synthesized Request carries all information the dispatcher needs:
+ * path, method, headers, and body. Over HTTP the URL is the one the client
+ * sent, percent-encoding and repeated query keys intact; over IPC it is
+ * rebuilt around a synthetic origin, so user handlers should not depend on
+ * host, port, or scheme.
+ */
+function synthesizeRequest(method: string, args: RouteHandlerArgs): Request {
+  const url = args.rawUrl ?? reconstructUrl(args);
 
   const headers = new Headers(args.headers ?? {});
+  for (const name of IDENTITY_HEADERS) {
+    if (!USER_HANDLER_IDENTITY_HEADERS.has(name)) {
+      headers.delete(name);
+    }
+  }
 
   let body: BodyInit | undefined;
   if (args.rawBody) {
