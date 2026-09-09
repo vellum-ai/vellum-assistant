@@ -24,16 +24,6 @@ export const HOST_PROXY_CAPABILITIES = [
 
 export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
 
-/**
- * Interfaces that support desktop host-proxy tools. This identity is used by
- * the discriminated transport metadata union and by the
- * `supportsHostProxy(id)` type predicate.
- *
- * Extend this literal type AND `HOST_PROXY_SUPPORT` below in lock-step when
- * adding a new host-capable client.
- */
-export type HostProxyInterfaceId = "macos" | "windows" | "linux";
-
 /** Every host capability except the three macOS-only ones. */
 const DESKTOP_SHARED_CAPABILITIES = HOST_PROXY_CAPABILITIES.filter(
   (capability) =>
@@ -43,11 +33,18 @@ const DESKTOP_SHARED_CAPABILITIES = HOST_PROXY_CAPABILITIES.filter(
 );
 
 /**
- * `chrome-extension` appears here because it serves `host_browser`, but it is
- * not a `HostProxyInterfaceId` — the no-arg `supportsHostProxy(id)` predicate
- * that gates desktop-only call sites still rejects it. Interfaces absent from
- * this table (web, ios, android, and every messaging transport) provide no
- * host capabilities.
+ * Interfaces that support desktop host-proxy tools. Used by the discriminated
+ * transport metadata union and by the `supportsHostProxy(id)` type predicate.
+ */
+export type HostProxyInterfaceId = "macos" | "windows" | "linux";
+
+/**
+ * Capabilities each client provides.
+ *
+ * chrome-extension is here because it serves `host_browser`, but it is not a
+ * `HostProxyInterfaceId`: the no-arg `supportsHostProxy(id)` gate that
+ * desktop-only call sites use still rejects it. Clients absent from this table
+ * (web, ios, android, and every messaging transport) provide none.
  *
  * Windows and Linux run the same host proxy as macOS minus app control. The
  * two window-scoped CU capabilities ride the host_cu transport and are
@@ -64,6 +61,14 @@ export const HOST_PROXY_SUPPORT = {
   linux: DESKTOP_SHARED_CAPABILITIES,
   "chrome-extension": ["host_browser"],
 } as const satisfies Record<string, readonly HostProxyCapability[]>;
+
+// Every desktop interface must appear in the table above. A new one added to
+// the union without a capability entry fails to compile here.
+const _everyDesktopInterfaceHasCapabilities: Record<
+  HostProxyInterfaceId,
+  keyof typeof HOST_PROXY_SUPPORT
+> = { macos: "macos", windows: "windows", linux: "linux" };
+void _everyDesktopInterfaceHasCapabilities;
 
 /**
  * Whether the interface is a native desktop host-proxy client. Distinct from
