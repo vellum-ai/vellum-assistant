@@ -135,7 +135,7 @@
     "ariaLabel": "Step {current} of {total}"
   },
   "googleCalendar": {
-    "authorizationFailed": "Failed to start Google Calendar authorization."
+    "providerLabel": "Google Calendar"
   },
   "introductionScreen": {
     "greetingNamed": "Hey, {name}!",

@@ -984,6 +984,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "Аккаунт {name}",
+    "cancel": "Отмена",
     "connectAccount": "Подключить аккаунт",
     "connectAccountLower": "Подключить аккаунт",
     "connectToContinue": "Подключение аккаунта для продолжения",
