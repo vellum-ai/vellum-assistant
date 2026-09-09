@@ -65,7 +65,9 @@ let persistentClient: PackagePersistentIpcClient | null = null;
  * Unlike `ipcCall()`, this maintains a single connection across calls,
  * making it suitable for hot-path operations like risk classification.
  *
- * Throws on failure (timeout, socket error) — callers must handle errors.
+ * Throws `IpcConnectError` when the gateway socket is missing or refused,
+ * and `IpcCallError` when the gateway returns a structured error. Callers
+ * must handle errors.
  */
 export async function ipcCallPersistent(
   method: string,

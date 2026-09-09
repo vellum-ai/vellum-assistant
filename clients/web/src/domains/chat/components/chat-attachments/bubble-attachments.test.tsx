@@ -3,13 +3,16 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { mockAttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 
-mockAttachmentPreviewModal();
+const restorePreviewModal = mockAttachmentPreviewModal();
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
 
+// `mock.module` is process-global, so the real preview modal goes back before
+// the next file loads.
 afterAll(() => {
+  restorePreviewModal();
   mock.restore();
 });
 afterEach(() => {
@@ -79,6 +82,29 @@ describe("BubbleAttachments", () => {
     ).toBe("img-1");
   });
 
+  test("opens the gallery at the clicked image's position when two share an id", () => {
+    // The text-parsing history fallback can rehydrate two rows under one
+    // synthetic id, which the modal's id lookup cannot tell apart.
+    const rehydrated = (filename: string): DisplayAttachment => ({
+      id: "rehydrated:0",
+      filename,
+      mimeType: "image/png",
+      sizeBytes: 1_024,
+      previewUrl: `https://example.com/${filename}`,
+    });
+    const { getByRole, getByTestId } = render(
+      <BubbleAttachments
+        attachments={[rehydrated("first.png"), rehydrated("second.png")]}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "second.png" }));
+
+    const modal = getByTestId("preview-modal");
+    expect(modal.getAttribute("data-attachment-id")).toBe("rehydrated:0");
+    expect(modal.getAttribute("data-current-index")).toBe("1");
+  });
+
   test("preserves the original attachment order for a mixed list", () => {
     const { getByText, getByRole } = render(
       <BubbleAttachments attachments={[pdf, imageWithPreview]} />,
@@ -140,6 +166,29 @@ describe("BubbleAttachments", () => {
     const modal = getByTestId("preview-modal");
     expect(modal.getAttribute("data-attachment-id")).toBe("img-4");
     expect(modal.getAttribute("data-preview-url")).toBe("null");
+  });
+
+  test("keeps the good twin's preview when one of two rows under a shared id fails", () => {
+    // The history fallback rehydrates every row it recovers as `rehydrated:0`,
+    // so a set keyed by id alone would blank both on one dead decode.
+    const rehydrated = (filename: string): DisplayAttachment => ({
+      id: "rehydrated:0",
+      filename,
+      mimeType: "image/png",
+      sizeBytes: 1_024,
+      previewUrl: `https://example.com/${filename}`,
+    });
+    const { getByRole } = render(
+      <BubbleAttachments
+        attachments={[rehydrated("first.png"), rehydrated("second.png")]}
+      />,
+    );
+
+    fireEvent.error(getByRole("button", { name: "first.png" }));
+
+    const twin = getByRole("button", { name: "second.png" });
+    expect(twin.tagName).toBe("IMG");
+    expect(twin.getAttribute("src")).toBe("https://example.com/second.png");
   });
 
   test("strips a failed sibling's previewUrl in the gallery array so arrow navigation refetches stored bytes", () => {

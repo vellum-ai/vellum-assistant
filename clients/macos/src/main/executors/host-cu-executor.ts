@@ -15,7 +15,6 @@ import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/post
 import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
 import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 import {
-  companionCoachmarkSchema,
   COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_COACHMARK_MAX,
   type CoachmarkRefusal,
@@ -57,7 +56,13 @@ const POINT_AT_INPUT = z.object({
           target: z.string().min(1).max(TARGET_MAX),
           caption: z.string().max(COMPANION_COACHMARK_CAPTION_MAX).optional(),
         }),
-        companionCoachmarkSchema,
+        z.object({
+          x: z.number().min(0).max(1),
+          y: z.number().min(0).max(1),
+          width: z.number().min(0).max(1),
+          height: z.number().min(0).max(1),
+          caption: z.string().max(COMPANION_COACHMARK_CAPTION_MAX).optional(),
+        }),
       ]),
     )
     .max(COMPANION_COACHMARK_MAX),
@@ -77,12 +82,15 @@ const PLACED = (marks: CoachmarkResult & { kind: "placed" }): string => {
   }
   const drawn = marks.marks
     .map((mark) => {
-      const where = `${percent(mark.x)},${percent(mark.y)} to ${percent(
-        mark.x + mark.width,
-      )},${percent(mark.y + mark.height)}`;
+      if (mark.kind === "region") {
+        return `a ring over ${percent(mark.x)},${percent(mark.y)} to ${percent(
+          mark.x + mark.width,
+        )},${percent(mark.y + mark.height)}`;
+      }
+      const at = `${percent(mark.x)},${percent(mark.y)}`;
       return mark.matched === undefined
-        ? `a ring over ${where}`
-        : `a ring around "${mark.matched}", at ${where}`;
+        ? `an arrow at ${at}`
+        : `an arrow at "${mark.matched}", ${at}`;
     })
     .join("; ");
   return `Drew ${marks.marks.length} mark${
@@ -114,7 +122,7 @@ const CANDIDATES_SHOWN = 24;
 const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
   const { target, reason, candidates } = unresolved;
   if (reason === "no-tree") {
-    return `The shared surface exposes no accessibility information, so nothing on it can be found by name. Give bounds for "${target}" instead, measured against the picture you were last shown.`;
+    return `The shared surface exposes no accessibility information, so nothing on it can be found by name. Say where "${target}" is out loud instead of drawing it.`;
   }
   const shown = candidates.slice(0, CANDIDATES_SHOWN).join(", ");
   // Counted off what the surface carried rather than off what arrived: the
@@ -126,7 +134,7 @@ const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
   if (reason === "ambiguous") {
     return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. A name is matched whole, so there is no wording of "${target}" that picks one of them out. Point at a nearby control whose name is its own, or say where the thing is out loud.`;
   }
-  return `Nothing on the shared surface is called "${target}". What is there: ${shown}${rest}. Point at one of those by name, or give bounds if the thing you mean has no label.`;
+  return `Nothing on the shared surface is called "${target}". What is there: ${shown}${rest}. Point at one of those by name, or say where the thing is out loud. Do not fall back to guessing bounds for it: a ring drawn at a guess is worse than no ring, because it is followed.`;
 };
 
 const UNSHARED =

@@ -133,6 +133,8 @@
     "closePreviewAria": "關閉預覽",
     "downloadAria": "下載 {filename}",
     "downloadLabel": "下載",
+    "legacyUnavailable": "預覽無法使用。檔案內容未保存於聊天記錄中。",
+    "loadFailed": "無法載入預覽。",
     "nextAttachmentAria": "下一個附件",
     "pdfLoadFailed": "無法顯示此 PDF",
     "previewAria": "{filename} 的預覽",
@@ -376,6 +378,26 @@
     "newChat": "新增聊天",
     "untitled": "未命名"
   },
+  "chatInfoPanel": {
+    "appsTitle": "應用程式",
+    "backAria": "返回聊天資訊",
+    "backTooltip": "聊天資訊",
+    "closeAria": "關閉聊天資訊",
+    "empty": "此聊天中還沒有內容",
+    "filesTitle": "文件與圖片",
+    "framesTitle": "相機影格",
+    "loadFailed": "無法載入內容",
+    "loadMore": "載入更多",
+    "openAppAria": "開啟 {name}",
+    "openDocumentAria": "開啟 {name}",
+    "previewAttachmentAria": "預覽 {filename}",
+    "previewFrameAria": "預覽相機影格",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部應用程式",
+    "seeAllFilesAria": "查看全部文件與圖片",
+    "seeAllFramesAria": "查看全部相機影格",
+    "title": "聊天資訊"
+  },
   "chatLayout": {
     "navigationAria": "導覽"
   },
@@ -613,9 +635,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "對話資產，{count, plural, one {# 個項目} other {# 個項目}}",
+    "ariaLabelUnavailable": "對話資產，無法載入",
     "ariaLabelUnseen": "對話資產，{count, plural, one {# 個項目} other {# 個項目}} (未檢視的變更)",
-    "heading": "資產",
-    "label": "{count, plural, one {# 個資產} other {# 個資產}}"
+    "label": "{count, plural, one {# 個資產} other {# 個資產}}",
+    "labelUnavailable": "無法載入資產"
   },
   "conversationRow": {
     "untitled": "未命名"
