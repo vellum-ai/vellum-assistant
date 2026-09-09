@@ -76,8 +76,8 @@ export function DatabaseDebugPanel() {
         </div>
         <Button
           type="button"
-          variant="secondary"
-          size="sm"
+          variant="outlined"
+          size="compact"
           leftIcon={<RotateCw />}
           onClick={() => {
             void query.refetch();
