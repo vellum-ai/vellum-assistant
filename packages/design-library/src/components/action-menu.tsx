@@ -1,4 +1,4 @@
-import { type LucideIcon } from "lucide-react";
+import { Check, type LucideIcon } from "lucide-react";
 import {
   createContext,
   useCallback,
@@ -250,6 +250,13 @@ interface ActionMenuItemProps {
    * a sheet row left default is the drift this component exists to prevent.
    */
   tone?: "default" | "destructive";
+  /**
+   * This row is the current choice among the list's rows: it draws a trailing
+   * check in both presentations and announces itself through `aria-current`.
+   * The check is decorative, so the row's accessible name stays its label
+   * rather than gaining a word the sighted reader never sees.
+   */
+  selected?: boolean;
   disabled?: boolean;
   onSelect?: () => void;
   className?: string;
@@ -279,12 +286,20 @@ function Item({
   shortcut,
   trailing,
   tone = "default",
+  selected = false,
   disabled = false,
   onSelect,
   className,
 }: ActionMenuItemProps) {
   const { presentation, close } = useActionMenuContext("Item");
   const isDestructive = tone === "destructive";
+  const check = selected ? (
+    <Check
+      className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+      aria-hidden
+    />
+  ) : null;
+  const ariaCurrent = selected ? ("true" as const) : undefined;
 
   if (presentation === "sheet") {
     return (
@@ -305,6 +320,12 @@ function Item({
         // The command names the row, so a supporting line does not become part
         // of its accessible name and both presentations announce the same verb.
         aria-label={typeof label === "string" ? label : undefined}
+        aria-current={ariaCurrent}
+        /* A bare badge rather than `trailingAction`: the trailing slot is
+           revealed on hover, which a thumb never does, and the mark has to
+           stand on its own. */
+        badge={check}
+        badgeBare
         disabled={disabled}
         className={cn(
           isDestructive && actionMenuDestructiveClasses.sheet,
@@ -322,7 +343,17 @@ function Item({
     <Menu.Item
       leftIcon={Icon ? <Icon size={14} /> : undefined}
       shortcut={shortcut}
-      trailing={trailing}
+      trailing={
+        selected ? (
+          <>
+            {trailing}
+            {check}
+          </>
+        ) : (
+          trailing
+        )
+      }
+      aria-current={ariaCurrent}
       disabled={disabled}
       className={cn(
         "whitespace-nowrap",

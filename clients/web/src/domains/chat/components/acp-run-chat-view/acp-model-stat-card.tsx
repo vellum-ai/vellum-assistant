@@ -20,7 +20,7 @@
  * real button rather than a copy of the same classes.
  */
 
-import { Check, ChevronDown, Sparkles } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import {
   Fragment,
   useCallback,
@@ -51,6 +51,9 @@ import { isActiveAcpStatus } from "@/utils/acp-run-status";
 import { rejectionMessage } from "@/utils/api-errors";
 
 const EMPTY_OPTIONS: AcpModelOption[] = [];
+
+/** The keys the anchored surface opens from, which a pending switch refuses. */
+const OPENING_KEYS = new Set(["Enter", " ", "ArrowDown"]);
 
 /** What the tile needs back from a switch: the daemon's refreshed selection. */
 type AcpModelSelection = Pick<
@@ -208,19 +211,38 @@ export function AcpModelStatCard({
     );
   }
 
+  const pending = pendingValue !== null;
+  // A switch in flight refuses a second one here rather than through the
+  // native `disabled`, which would drop the focus the closing menu returns.
+  // Without this the menu still opens on an `aria-disabled` trigger, offering
+  // rows whose mark names a model the daemon is already replacing. The
+  // handlers sit on the surface's trigger, where a prevented default stops
+  // the one that opens it, and cover both: an anchored menu opens from the
+  // press, a sheet from the click.
+  const refuseWhilePending = (event: { preventDefault: () => void }) => {
+    if (pending) {
+      event.preventDefault();
+    }
+  };
+
   return (
     <ActionMenu.Root defaultOpen={defaultOpen}>
-      <ActionMenu.Trigger asChild>
+      <ActionMenu.Trigger
+        asChild
+        onPointerDown={refuseWhilePending}
+        onClick={refuseWhilePending}
+        onKeyDown={(event) => {
+          if (OPENING_KEYS.has(event.key)) {
+            refuseWhilePending(event);
+          }
+        }}
+      >
         <ModelTileTrigger
           icon={icon}
           value={value}
           label={label}
-          ariaLabel={
-            named
-              ? t("acpRunChatView.modelTriggerAria", { model: named })
-              : t("acpRunChatView.modelTriggerAriaUnset")
-          }
-          pending={pendingValue !== null}
+          ariaLabel={t("acpRunChatView.modelTriggerAria", { model: value })}
+          pending={pending}
         />
       </ActionMenu.Trigger>
       <ActionMenu.Content
@@ -230,36 +252,21 @@ export function AcpModelStatCard({
         {groupOptions(options).map(({ group, items }, index) => (
           <Fragment key={`${index}-${group ?? ""}`}>
             {group ? <ActionMenu.Label>{group}</ActionMenu.Label> : null}
-            {items.map((option) => (
-              <ActionMenu.Item
-                key={option.value}
-                // The selected state rides the label, which both presentations
-                // render; `trailing` is the anchored menu's column alone, so a
-                // check placed only there leaves the sheet row unmarked.
-                label={
-                  option.value === model ? (
-                    <>
-                      {option.label}{" "}
-                      <span className="sr-only">
-                        {t("acpRunChatView.modelSelectedAria")}
-                      </span>
-                    </>
-                  ) : (
-                    option.label
-                  )
-                }
-                description={option.description}
-                trailing={
-                  option.value === model ? (
-                    <Check
-                      className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
-                      aria-hidden
-                    />
-                  ) : null
-                }
-                onSelect={() => handleSelect(option.value)}
-              />
-            ))}
+            {items.map((option) => {
+              // The chosen row tracks what the tile shows, so a pending switch
+              // marks the model being moved to rather than the one being left.
+              const selected = option.value === shown;
+              return (
+                <ActionMenu.Item
+                  key={option.value}
+                  label={option.label}
+                  description={option.description}
+                  selected={selected}
+                  disabled={pending}
+                  onSelect={() => handleSelect(option.value)}
+                />
+              );
+            })}
           </Fragment>
         ))}
         <ActionMenu.Separator />
@@ -279,7 +286,8 @@ export function AcpModelStatCard({
  * `aria-disabled`, not the native attribute: the menu closes in the same
  * commit the switch starts, and a trigger that goes `disabled` there cannot
  * take Radix's focus return, so keyboard focus falls to the body for the whole
- * round trip. `handleSelect` is what actually refuses a second choice.
+ * round trip. What refuses the activation is the surface's own trigger props,
+ * since that is where Radix composes the handler that opens the menu.
  */
 function ModelTileTrigger({
   icon,
