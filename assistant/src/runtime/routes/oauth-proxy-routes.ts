@@ -72,9 +72,10 @@ export async function handleOAuthProxy(
 
   // A grant names one provider and, when it pinned one, one account. The
   // subject is re-derived from this request's own segment, so rewriting or
-  // dropping `@account` no longer matches the grant. Only a platform-managed
-  // pod skips the comparison: there the daemon discards the token and builds a
-  // synthetic context that carries no grant subject to compare against.
+  // dropping `@account` cannot match the grant's subject. Only a
+  // platform-managed pod skips the comparison: there the daemon discards the
+  // token and builds a synthetic context that carries no grant subject to
+  // compare against.
   if (
     !isPlatformAuthBypassActive() &&
     args.headers?.["x-vellum-subject"] !== proxyGrantSubject(provider, account)

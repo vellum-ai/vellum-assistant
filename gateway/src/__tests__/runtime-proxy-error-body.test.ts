@@ -95,15 +95,16 @@ function makeConfig(): GatewayConfig {
 
 /** Reply to the next proxied request with these exact bytes. */
 function mockUpstream(
-  body: BodyInit,
+  body: BodyInit | null,
   status: number,
   headers: Record<string, string> = {},
 ) {
   fetchMock = mock(async () => new Response(body, { status, headers }));
 }
 
-function proxyRequest(path: string): Request {
+function proxyRequest(path: string, method = "GET"): Request {
   return new Request(`http://localhost:7830${path}`, {
+    method,
     headers: { authorization: `Bearer ${TOKEN}` },
   });
 }
@@ -203,6 +204,42 @@ describe("runtime proxy error bodies", () => {
     expect(record!.level).toBe("error");
     expect(record!.fields).not.toHaveProperty("body");
     expect(JSON.stringify(logCalls)).not.toContain("upstream stack trace");
+  });
+
+  test("keeps the entity metadata of a failed HEAD", async () => {
+    // A HEAD answers with the headers describing a body it omits, so the
+    // buffer here is empty by definition and says nothing about the entity.
+    // The daemon preserves both headers for a HEAD; this hop has to as well,
+    // or a HEAD that fails reports a zero-length, unencoded entity.
+    mockUpstream(null, 404, {
+      "content-length": "5120",
+      "content-encoding": "gzip",
+      "content-type": "application/json",
+    });
+
+    const res = await createRuntimeProxyHandler(makeConfig())(
+      proxyRequest(PROXY_PATH, "HEAD"),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-length")).toBe("5120");
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+    expect((await res.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  test("still reframes the buffer on a failed GET", async () => {
+    mockUpstream("nope", 404, {
+      "content-length": "5120",
+      "content-encoding": "gzip",
+    });
+
+    const res = await createRuntimeProxyHandler(makeConfig())(
+      proxyRequest(PROXY_PATH),
+    );
+
+    expect(res.headers.get("content-length")).toBe("4");
+    expect(res.headers.get("content-encoding")).toBeNull();
+    expect(await res.text()).toBe("nope");
   });
 
   test("leaves a successful response streaming and untouched", async () => {

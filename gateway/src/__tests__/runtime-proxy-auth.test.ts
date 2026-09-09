@@ -1,7 +1,12 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
-import { initSigningKey, mintToken } from "../auth/token-service.js";
+import {
+  initSigningKey,
+  mintToken,
+  verifyToken,
+} from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+import type { TokenClaims } from "../auth/types.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -155,5 +160,135 @@ describe("runtime proxy auth enforcement", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
+  });
+});
+
+// =========================================================================
+// The OAuth passthrough grant, against a gateway that requires no client auth
+//
+// `assistant oauth proxy-url` hands a third-party binary a URL and a grant.
+// The daemon's passthrough route authorizes on the grant's own subject and
+// `oauth.proxy` scope, so the grant has to survive this hop as itself: a
+// service token names neither and the route answers 403.
+// =========================================================================
+
+/** The subject `oauth_proxy_grant` mints for a grant pinned to one provider. */
+const PROXY_GRANT_SUB = "local:self:oauth-proxy.stripe_link";
+
+function mintProxyGrant(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: PROXY_GRANT_SUB,
+    scope_profile: "oauth_proxy_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const NO_AUTH_CONFIG = () => makeConfig({ runtimeProxyRequireAuth: false });
+
+/** Run one proxied request and return the headers it sent upstream. */
+async function forwardedHeaders(
+  config: GatewayConfig,
+  init?: RequestInit,
+): Promise<Headers> {
+  let captured: Headers | undefined;
+  fetchMock = mock(
+    async (_input: string | URL | Request, requestInit?: RequestInit) => {
+      captured = requestInit?.headers as unknown as Headers;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  );
+  await createRuntimeProxyHandler(config)(
+    new Request("http://localhost:7830/v1/oauth/proxy/stripe_link/v1/me", init),
+  );
+  return captured!;
+}
+
+/** Claims of the daemon-audience token the proxy forwarded. */
+function forwardedClaims(headers: Headers): TokenClaims {
+  const auth = headers.get("authorization") ?? "";
+  expect(auth).toStartWith("Bearer ");
+  const result = verifyToken(auth.slice(7), "vellum-daemon");
+  expect(result.ok).toBe(true);
+  return (result as { ok: true; claims: TokenClaims }).claims;
+}
+
+describe("runtime proxy without client-facing auth", () => {
+  test("exchanges a presented proxy grant with its subject and profile", async () => {
+    const headers = await forwardedHeaders(NO_AUTH_CONFIG(), {
+      headers: { authorization: `Bearer ${mintProxyGrant()}` },
+    });
+
+    const claims = forwardedClaims(headers);
+    expect(claims.sub).toBe(PROXY_GRANT_SUB);
+    expect(claims.scope_profile).toBe("oauth_proxy_v1");
+  });
+
+  test("mints a service token when no bearer is presented", async () => {
+    const headers = await forwardedHeaders(NO_AUTH_CONFIG());
+
+    const claims = forwardedClaims(headers);
+    expect(claims.sub).toBe("svc:gateway:self");
+    expect(claims.scope_profile).toBe("gateway_service_v1");
+  });
+
+  test("mints a service token for a grant this install never signed", async () => {
+    // The bearer is the shape of a grant and carries no valid signature.
+    // Auth being off makes a bearer optional, not an unsigned one credible.
+    const forged = `${mintProxyGrant()}tampered`;
+    const headers = await forwardedHeaders(NO_AUTH_CONFIG(), {
+      headers: { authorization: `Bearer ${forged}` },
+    });
+
+    const claims = forwardedClaims(headers);
+    expect(claims.sub).toBe("svc:gateway:self");
+    expect(claims.scope_profile).toBe("gateway_service_v1");
+  });
+
+  test("mints a service token for an expired grant", async () => {
+    const expired = mintToken({
+      aud: "vellum-gateway",
+      sub: PROXY_GRANT_SUB,
+      scope_profile: "oauth_proxy_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: -1,
+    });
+    const headers = await forwardedHeaders(NO_AUTH_CONFIG(), {
+      headers: { authorization: `Bearer ${expired}` },
+    });
+
+    const claims = forwardedClaims(headers);
+    expect(claims.scope_profile).toBe("gateway_service_v1");
+  });
+
+  test("leaves a broad edge token on the service-token path", async () => {
+    // Only the single-route grant is carried through: a broad token reaching
+    // the daemon as its own actor principal would hold scopes (admin.write)
+    // the service token does not.
+    const headers = await forwardedHeaders(NO_AUTH_CONFIG(), {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+
+    const claims = forwardedClaims(headers);
+    expect(claims.sub).toBe("svc:gateway:self");
+    expect(claims.scope_profile).toBe("gateway_service_v1");
+  });
+
+  test("exchanges the same grant identically when auth is required", async () => {
+    const grant = `Bearer ${mintProxyGrant()}`;
+    const withoutAuth = forwardedClaims(
+      await forwardedHeaders(NO_AUTH_CONFIG(), {
+        headers: { authorization: grant },
+      }),
+    );
+    const withAuth = forwardedClaims(
+      await forwardedHeaders(makeConfig(), {
+        headers: { authorization: grant },
+      }),
+    );
+
+    expect(withoutAuth.sub).toBe(withAuth.sub);
+    expect(withoutAuth.scope_profile).toBe(withAuth.scope_profile);
   });
 });
