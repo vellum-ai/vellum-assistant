@@ -214,4 +214,39 @@ export function currentLocale(): SupportedLocale {
   return isSupportedLocale(language) ? language : DEFAULT_LOCALE;
 }
 
+/** The primary language subtag of a BCP 47 tag, lowercased. */
+function primaryLanguage(tag: string): string {
+  return tag.split("-")[0].toLowerCase();
+}
+
+/**
+ * The locale to format dates, times, and numbers in.
+ *
+ * {@link currentLocale} answers with one of the five language tags the app
+ * ships a catalog for, which is the right answer for copy and the wrong one
+ * for formatting: it drops the region, so a UK user reading English copy
+ * would get US date order and 12-hour times. This returns the host's own tag
+ * whenever its primary language subtag is the app locale's, and the app
+ * locale otherwise, so `en-GB` under app locale `en` keeps its region while
+ * `de-DE` under `en` does not format German dates beside English copy.
+ *
+ * Comparison is by primary subtag, so a `zh-TW` host keeps `zh-TW` under
+ * either Chinese catalog.
+ *
+ * References:
+ * - https://developer.mozilla.org/en-US/docs/Web/API/Navigator/language
+ * - https://www.rfc-editor.org/rfc/rfc5646 (BCP 47 tag structure)
+ */
+export function formatLocale(): string {
+  const app = currentLocale();
+  if (typeof navigator === "undefined") {
+    return app;
+  }
+  const host = navigator.language;
+  if (!host) {
+    return app;
+  }
+  return primaryLanguage(host) === primaryLanguage(app) ? host : app;
+}
+
 export { i18next };

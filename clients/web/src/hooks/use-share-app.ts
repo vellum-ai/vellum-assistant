@@ -16,15 +16,11 @@ import {
   type ShareAppCopy,
 } from "@/utils/share-app-with-toast";
 
-export interface ShareAppHandle {
-  share: () => Promise<void>;
-}
-
 export function useShareApp(
   assistantId: string,
   app: Pick<AppSummary, "id" | "name">,
   { exported, failed }: ShareAppCopy,
-): ShareAppHandle {
+): () => Promise<void> {
   const { id, name } = app;
   const isSharingRef = useRef(false);
 
@@ -40,5 +36,5 @@ export function useShareApp(
     }
   }, [assistantId, id, name, exported, failed]);
 
-  return { share };
+  return share;
 }

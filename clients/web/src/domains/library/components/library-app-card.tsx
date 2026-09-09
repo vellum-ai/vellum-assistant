@@ -60,7 +60,7 @@ export function LibraryAppCard({
     () => getCachedAppHtml(assistantId, app.id),
     [assistantId, app.id],
   );
-  const { share } = useShareApp(assistantId, app, {
+  const share = useShareApp(assistantId, app, {
     exported: t("libraryAppCard.exported"),
     failed: t("libraryAppCard.shareFailed"),
   });
