@@ -41,11 +41,11 @@ let resumeSessionGate: Promise<void> | null = null;
 /** Config options session/resume and session/load report back. */
 let resumeConfigOptions: SessionConfigOption[] = [];
 /**
- * When set, session/load announces these through a `config_option_update`
- * during its replay, the way an adapter reports what the reattached session
- * is on before the load resolves.
+ * One `config_option_update` per entry, announced during session/load's
+ * replay, the way an adapter reports what the reattached session moved
+ * through before the load resolves.
  */
-let replayConfigOptions: SessionConfigOption[] | null = null;
+let replayConfigOptionUpdates: SessionConfigOption[][] = [];
 /** When set, setConfigOption rejects with it (the adapter refusing a pin). */
 let setConfigOptionError: Error | null = null;
 /** Every `setConfigOption` the manager dispatched during a resume. */
@@ -106,8 +106,8 @@ class FakeAcpAgentProcess {
     for (const text of replayChunks) {
       await this.emitChunk(text);
     }
-    if (replayConfigOptions) {
-      await this.emitConfigOptions(replayConfigOptions);
+    for (const configOptions of replayConfigOptionUpdates) {
+      await this.emitConfigOptions(configOptions);
     }
     return { configOptions: resumeConfigOptions };
   }
@@ -326,7 +326,7 @@ beforeEach(() => {
   prepareAgentEnvCommands = [];
   resumeSessionGate = null;
   resumeConfigOptions = [];
-  replayConfigOptions = null;
+  replayConfigOptionUpdates = [];
   setConfigOptionError = null;
   setConfigOptionCalls.length = 0;
   resolveImpl = () => ({
@@ -834,7 +834,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     seedConversationRow("conv-1");
     // The reattached adapter announces its own default mid-replay, before
     // the pin that puts the run back on what the row recorded.
-    replayConfigOptions = [modelOption("default")];
+    replayConfigOptionUpdates = [[modelOption("default")]];
     resumeConfigOptions = [modelOption("default")];
     insertHistoryRow({ id: "resume-replay-model", model: "opus" });
 
@@ -849,12 +849,39 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     ).toBeUndefined();
   });
 
+  test("the model switches a session/load replays record no preference", async () => {
+    fakeCaps.loadSession = true;
+    seedConversationRow("conv-1");
+    // A transcript the user typed two `/model` commands into: the replay
+    // reports each of them before the load resolves.
+    replayConfigOptionUpdates = [
+      [modelOption("sonnet")],
+      [modelOption("opus")],
+    ];
+    resumeConfigOptions = [modelOption("opus")];
+    insertHistoryRow({ id: "resume-replay-switches", model: "opus" });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-replay-switches", () => {});
+
+    expect(
+      getAcpConversationModelPreference("conv-1", "claude"),
+    ).toBeUndefined();
+
+    // The pin latched the baseline, so the next change is the user's own.
+    await fakeInstances[0]!.emitConfigOptions([modelOption("sonnet")]);
+
+    expect(getAcpConversationModelPreference("conv-1", "claude")).toBe(
+      "sonnet",
+    );
+  });
+
   test("a session/load answering with no config options keeps the replayed selector", async () => {
     fakeCaps.loadSession = true;
     seedConversationRow("conv-1");
     // The selector reaches the manager only through the replayed
     // notification: the load itself answers with no config options at all.
-    replayConfigOptions = [modelOption("default")];
+    replayConfigOptionUpdates = [[modelOption("default")]];
     resumeConfigOptions = [];
     insertHistoryRow({ id: "resume-replay-only", model: "opus" });
 
