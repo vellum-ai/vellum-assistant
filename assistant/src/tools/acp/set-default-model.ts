@@ -23,10 +23,15 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
  * {@link executeAcpSetDefaultModel}. `model` is nullable rather than
  * optional: `null` is the clear, so an omitted field is a caller mistake and
  * not a silent no-op.
+ *
+ * `agent` is trimmed and non-empty in the schema so an omitted agent (the
+ * global default) stays distinguishable from a supplied blank one, which is
+ * a caller mistake: trimming a blank to falsy in the body would silently
+ * widen a request scoped to one agent into a write for every agent.
  */
 export const acpSetDefaultModelInputSchema = z.looseObject({
   model: z.string().nullable(),
-  agent: nullAsOmitted(z.string()),
+  agent: nullAsOmitted(z.string().trim().min(1)),
 });
 
 export async function executeAcpSetDefaultModel(
@@ -45,9 +50,9 @@ export async function executeAcpSetDefaultModel(
     };
   }
 
-  const requestedAgent = parsedInput.data.agent?.trim();
+  const requestedAgent = parsedInput.data.agent;
   let agent: { id: string; command: string } | undefined;
-  if (requestedAgent) {
+  if (requestedAgent !== undefined) {
     const resolved = resolveAcpAgentId(requestedAgent);
     if (!resolved.ok) {
       return {

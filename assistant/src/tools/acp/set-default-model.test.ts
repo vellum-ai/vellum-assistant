@@ -259,6 +259,54 @@ describe("acp_set_default_model - input validation", () => {
     expect(readConfig()).toEqual({});
   });
 
+  test("an explicitly blank agent is an error, not the global default", async () => {
+    const result = await executeAcpSetDefaultModel(
+      { model: "opus", agent: "" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "acp_set_default_model"',
+    );
+    expect(result.content).toContain("agent");
+    expect(readConfig()).toEqual({});
+  });
+
+  test("a whitespace-only agent is an error, not the global default", async () => {
+    const result = await executeAcpSetDefaultModel(
+      { model: "opus", agent: "   " },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "acp_set_default_model"',
+    );
+    expect(readConfig()).toEqual({});
+  });
+
+  test("an explicitly null agent still means the global default", async () => {
+    const result = await executeAcpSetDefaultModel(
+      { model: "opus", agent: null },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(acpSection()?.defaultModel).toBe("opus");
+    expect(acpSection()?.agents).toBeUndefined();
+  });
+
+  test("a padded agent id is trimmed before it is resolved", async () => {
+    const result = await executeAcpSetDefaultModel(
+      { model: "opus", agent: "  claude  " },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(agentEntry("claude")?.model).toBe("opus");
+  });
+
   test("rejects a non-string model", async () => {
     const result = await executeAcpSetDefaultModel({ model: 7 }, makeContext());
 

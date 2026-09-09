@@ -125,7 +125,8 @@
           },
           "agent": {
             "type": "string",
-            "description": "Optional agent id to scope the default to (e.g. 'claude', 'codex'). Natural names like 'claude code' resolve too. Omit to set the default for every agent."
+            "minLength": 1,
+            "description": "Optional agent id to scope the default to (e.g. 'claude', 'codex'). Natural names like 'claude code' resolve too. Omit to set the default for every agent; do not pass an empty string."
           }
         },
         "required": ["model"]
