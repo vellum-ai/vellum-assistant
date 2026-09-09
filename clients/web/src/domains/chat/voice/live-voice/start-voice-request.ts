@@ -31,6 +31,7 @@ import {
   publishConfigNotice,
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
+import { voiceEntryGreetingSeed } from "@/domains/chat/voice/live-voice/voice-entry-greeting";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
@@ -427,7 +428,16 @@ export async function drainPendingVoiceStart(
   // Absent only from a park written by code that predates the field.
   const entry = consumed.entry ? { entry: consumed.entry } : {};
   if (consumed.ask === null) {
-    readyStarter.start(assistantId, conversationId, entry);
+    // The draft was minted a moment ago, so the conversation is empty by
+    // construction, and an empty conversation is where the assistant speaks
+    // first (see `voiceEntryGreetingSeed`): the same seed the composer's voice
+    // button sends on a blank thread, so a call opened from the companion or
+    // the voice key does not open silent while one opened in the app greets.
+    // `start()` spends the seed once per start and never on a reconnect.
+    readyStarter.start(assistantId, conversationId, {
+      ...entry,
+      seedText: voiceEntryGreetingSeed(true),
+    });
     return;
   }
   // The question is the user's own words, so it renders as theirs, and the

@@ -191,6 +191,14 @@
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
+  "companionWatchFramePage": {
+    "sharingScreen": "Sharing your screen",
+    "sharingScreenNamed": "Sharing your screen with {name}",
+    "sharingWindow": "Sharing a window",
+    "sharingWindowNamed": "Sharing a window with {name}",
+    "teaching": "Teaching",
+    "teachingNamed": "Teaching {name}"
+  },
   "contentActionBar": {
     "copiedAria": "Copied",
     "copyFailed": "Couldn't copy the file contents.",

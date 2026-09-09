@@ -190,6 +190,21 @@ describe("emitScheduleResultNotification", () => {
     );
   });
 
+  test("turns literal newline escapes in the run body into real line breaks", async () => {
+    assistantRow = makeAssistantRow([
+      {
+        type: "text",
+        text: "Inbox pass:**\\n\\n•** First item worth review.",
+      },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+      "Inbox pass:**\n\n•** First item worth review.",
+    );
+  });
+
   test("stays silent when the run already notified itself", async () => {
     alreadyNotified = true;
 

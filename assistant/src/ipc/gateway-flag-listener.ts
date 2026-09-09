@@ -1,4 +1,4 @@
-import { connect, type Socket } from "node:net";
+import { Socket } from "node:net";
 
 import { refreshOverridesFromGateway } from "../config/assistant-feature-flags.js";
 import { getBalancedModelExperimentArm } from "../config/balanced-model-experiment.js";
@@ -109,7 +109,9 @@ function connectToGateway(): void {
   }
 
   const socketPath = getSocketPath();
-  const conn = connect(socketPath);
+  // Attach error listeners before connect() so a missing gateway.sock cannot
+  // surface as an uncaught exception.
+  const conn = new Socket();
 
   conn.on("connect", () => {
     if (stopped) {
@@ -149,6 +151,8 @@ function connectToGateway(): void {
     log.debug({ err }, "Gateway IPC connection error");
     conn.destroy();
   });
+
+  conn.connect(socketPath);
 }
 
 export function startGatewayFlagListener(): void {

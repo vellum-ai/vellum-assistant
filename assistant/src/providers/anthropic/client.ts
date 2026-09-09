@@ -17,6 +17,7 @@ import {
 } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import { isEffortSupported } from "../model-catalog.js";
 import {
   couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
@@ -112,7 +113,8 @@ function readAnthropicErrorType(
   error: InstanceType<typeof Anthropic.APIError>,
 ): string | undefined {
   const body = error.error as
-    { type?: string; error?: { type?: string; code?: string } } | undefined;
+    | { type?: string; error?: { type?: string; code?: string } }
+    | undefined;
   return body?.error?.type ?? body?.type;
 }
 
@@ -132,7 +134,8 @@ function readAnthropicMessage(
   error: InstanceType<typeof Anthropic.APIError>,
 ): string | undefined {
   const body = error.error as
-    { message?: string; error?: { message?: string } } | undefined;
+    | { message?: string; error?: { message?: string } }
+    | undefined;
   const inner = body?.error?.message ?? body?.message;
   return typeof inner === "string" && inner.length > 0 ? inner : undefined;
 }
@@ -963,7 +966,8 @@ export class AnthropicProvider implements Provider {
     const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const cacheTtl: "5m" | "1h" =
       ((config as Record<string, unknown> | undefined)?.cacheTtl as
-        "5m" | "1h") ?? "1h";
+        | "5m"
+        | "1h") ?? "1h";
     // Opt-out for callers (e.g. the memory router) that send a single
     // user message per call with content that changes every time. The
     // turn-start cache breakpoint below is only useful when the same
@@ -1035,7 +1039,8 @@ export class AnthropicProvider implements Provider {
       const effectiveModel =
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
-      const supportsEffort = !isHaiku;
+      // Effort support is per-model: Haiku and Sonnet 4.5 reject the param (see isEffortSupported).
+      const supportsEffort = isEffortSupported(effectiveModel);
       // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
       // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
       // for this model" — model-wide, not effort-conditional (verified

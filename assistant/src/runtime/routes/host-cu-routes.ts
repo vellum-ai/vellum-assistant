@@ -7,20 +7,11 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import {
-  enforceSameActorOrThrow,
-  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
-} from "../auth/same-actor.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { SAME_ACTOR_FORBIDDEN_DESCRIPTION } from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from "./errors.js";
+import { ConflictError, NotFoundError } from "./errors.js";
+import { assertHostProxyResultBinding } from "./host-proxy-result-binding.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -78,39 +69,14 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  // Validate submitting client matches the targeted client (if any).
-  if (peeked.targetClientId != null) {
-    const headerMap = (headers as Record<string, string | undefined>) ?? {};
-    const submittingClientId =
-      headerMap["x-vellum-client-id"]?.trim() || undefined;
-    if (!submittingClientId) {
-      throw new BadRequestError(
-        "x-vellum-client-id header is missing for a targeted host CU request.",
-      );
-    }
-    if (submittingClientId !== peeked.targetClientId) {
-      throw new ForbiddenError(
-        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
-      );
-    }
-
-    // Defense-in-depth: require the submitting actor's principal id to match
-    // the actor principal id captured when the target client opened its SSE
-    // stream. This prevents a different authenticated user with knowledge of
-    // both the requestId and target clientId from submitting a result on
-    // behalf of the targeted client.
-    const submittingActorPrincipalId =
-      await resolveActorPrincipalIdForLocalGuardian(
-        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-      );
-    enforceSameActorOrThrow({
-      sourceActorPrincipalId: submittingActorPrincipalId,
-      targetActorPrincipalId: peeked.targetActorPrincipalId,
-      targetClientId: peeked.targetClientId,
-      op: "host_cu",
-      hubForMissingTarget: assistantEventHub,
-    });
-  }
+  await assertHostProxyResultBinding({
+    headers: headers as Record<string, string | undefined> | undefined,
+    targetClientId: peeked.targetClientId,
+    targetActorPrincipalId: peeked.targetActorPrincipalId,
+    op: "host_cu",
+    missingClientIdMessage:
+      "x-vellum-client-id header is missing for a targeted host CU request.",
+  });
 
   // Conversation-agnostic observation (see `runtime/host-observe.ts`): the
   // request was raised outside any turn, so there is no conversation and no CU
