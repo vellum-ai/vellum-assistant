@@ -11,7 +11,7 @@ import {
 import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
-import { DetailShellMidlineDot } from "@/components/detail-shell";
+import { MidlineDot } from "@/components/midline-dot";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
@@ -352,7 +352,7 @@ export function TaskProgressBody({ progress }: { progress: TaskProgress }) {
         <span className="min-w-0 truncate py-0.5 text-title-small leading-snug text-[var(--content-strong)]">
           {progress.title}
         </span>
-        <DetailShellMidlineDot />
+        <MidlineDot />
         <span className="shrink-0 whitespace-nowrap py-0.5 text-title-small font-normal! leading-snug text-[var(--content-tertiary)]">
           {t("progressRail.stepCounter", { current, total })}
         </span>

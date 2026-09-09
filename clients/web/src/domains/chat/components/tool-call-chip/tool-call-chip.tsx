@@ -28,7 +28,7 @@ import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
-import { DetailShellMidlineDot } from "@/components/detail-shell";
+import { MidlineDot } from "@/components/midline-dot";
 import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
 import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -192,7 +192,7 @@ export function InlineConfirmationCard({
           </span>
           {contextLabel ? (
             <>
-              <DetailShellMidlineDot />
+              <MidlineDot />
               <span className="min-w-0 truncate">{contextLabel}</span>
             </>
           ) : null}

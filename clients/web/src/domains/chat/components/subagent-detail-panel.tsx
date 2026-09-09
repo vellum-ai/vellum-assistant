@@ -19,7 +19,7 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -505,12 +505,9 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <Typography
-                    variant="body-small-default"
-                    className="py-4 text-center text-[var(--content-tertiary)]"
-                  >
+                  <DetailShellNotice>
                     {t("subagentDetailPanel.noEventsYet")}
-                  </Typography>
+                  </DetailShellNotice>
                 )}
               </div>
             </>

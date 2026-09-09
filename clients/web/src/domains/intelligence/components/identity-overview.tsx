@@ -33,6 +33,7 @@ import { Card, toast } from "@vellumai/design-library";
 
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { MidlineDot } from "@/components/midline-dot";
 import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
@@ -1122,10 +1123,7 @@ function OverviewBento({
                   </span>
                   {scheduleCount !== undefined && (
                     <>
-                      <span
-                        className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-                        aria-hidden
-                      />
+                      <MidlineDot />
                       <span className="text-title-small leading-normal text-[var(--content-tertiary)]">
                         {scheduleCount}
                       </span>
