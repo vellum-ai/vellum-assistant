@@ -24411,19 +24411,14 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/octet-stream:
-            schema: &a1
-              type: string
-              format: binary
       responses:
         "200":
           description: Successful response
           content:
             application/octet-stream:
-              schema: *a1
+              schema: &a1
+                type: string
+                format: binary
         "400":
           description: Malformed provider segment or proxied path
         "402":
@@ -24550,11 +24545,6 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/octet-stream:
-            schema: *a1
       responses:
         "200":
           description: Successful response
@@ -24599,11 +24589,6 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/octet-stream:
-            schema: *a1
       responses:
         "200":
           description: Successful response
@@ -24648,11 +24633,6 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/octet-stream:
-            schema: *a1
       responses:
         "200":
           description: Successful response

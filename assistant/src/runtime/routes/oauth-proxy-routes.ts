@@ -11,7 +11,7 @@
  * `oauth-proxy-passthrough.ts`; this module is the wiring around them.
  */
 
-import { isHttpAuthDisabled } from "../../config/env.js";
+import { isPlatformAuthBypassActive } from "../../config/env.js";
 import {
   isIdempotentHttpMethod,
   type OAuthConnectionResponse,
@@ -72,11 +72,11 @@ export async function handleOAuthProxy(
 
   // A grant names one provider and, when it pinned one, one account. The
   // subject is re-derived from this request's own segment, so rewriting or
-  // dropping `@account` no longer matches the grant. The bypass is the one
-  // `enforcePolicy` honors: platform pods discard the token and build a
-  // synthetic context rather than one derived from the grant.
+  // dropping `@account` no longer matches the grant. Only a platform-managed
+  // pod skips the comparison: there the daemon discards the token and builds a
+  // synthetic context that carries no grant subject to compare against.
   if (
-    !isHttpAuthDisabled() &&
+    !isPlatformAuthBypassActive() &&
     args.headers?.["x-vellum-subject"] !== proxyGrantSubject(provider, account)
   ) {
     throw new ForbiddenError(
@@ -169,7 +169,7 @@ export async function handleOAuthProxy(
  */
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
 
-/** GET and HEAD carry no request body, on the wire or in the spec. */
+/** GET and HEAD carry no request body. */
 function carriesBody(method: string): boolean {
   return method !== "GET" && method !== "HEAD";
 }
@@ -207,7 +207,8 @@ export const ROUTES: RouteDefinition[] = METHODS.map((method) => ({
   description:
     "Forwards the remainder path, query, headers, and body to the provider's API base through the connection resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and it is honored only for the provider and account its subject names.",
   tags: ["oauth"],
-  ...(carriesBody(method) ? { requestBody: BINARY_BODY } : {}),
+  // No `requestBody`: the spec generator marks every declared body required,
+  // and a proxied POST, PUT, PATCH, or DELETE may carry none.
   responseBody: BINARY_BODY,
   additionalResponses: ERROR_RESPONSES,
   handler: (args: RouteHandlerArgs) => handleOAuthProxy(method, args),
