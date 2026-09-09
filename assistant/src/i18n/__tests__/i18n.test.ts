@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_LOCALE,
-  MESSAGE_CATALOGS,
-  MESSAGE_KEYS,
-  SUPPORTED_LOCALES,
   isMessageKey,
   localeFromAcceptLanguage,
+  MESSAGE_CATALOGS,
+  MESSAGE_KEYS,
   negotiateLocale,
   resolveConversationTitle,
+  SUPPORTED_LOCALES,
   t,
 } from "../index.js";
 

@@ -8,7 +8,7 @@
  */
 
 import { DEFAULT_LOCALE, type SupportedLocale } from "./locales.js";
-import { MESSAGE_KEYS, isMessageKey, t } from "./messages.js";
+import { isMessageKey, MESSAGE_KEYS, t } from "./messages.js";
 
 export function resolveConversationTitle(
   title: string | null | undefined,

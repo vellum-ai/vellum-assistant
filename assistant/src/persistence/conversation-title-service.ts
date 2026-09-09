@@ -7,7 +7,7 @@
  * overwritten, never user-provided custom titles.
  */
 
-import { MESSAGE_KEYS, isMessageKey } from "../i18n/index.js";
+import { isMessageKey,MESSAGE_KEYS } from "../i18n/index.js";
 import {
   requestShortLabel,
   type ShortLabelTool,

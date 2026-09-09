@@ -7,11 +7,11 @@
  */
 
 import { parseChannelId } from "../../channels/types.js";
+import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   resolveConversationTitle,
   type SupportedLocale,
 } from "../../i18n/index.js";
-import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
   type AttentionState,
