@@ -74,6 +74,8 @@ const {
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { isLiveVoiceSessionOwnedBy, useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { voiceEntryGreetingSeed } =
+  await import("@/domains/chat/voice/live-voice/voice-entry-greeting");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
@@ -164,13 +166,18 @@ function mintedConversationId(): string {
  * The whole binding in one assertion: the session was started on a conversation
  * minted for it rather than the one the app was left on, and the composer for
  * that conversation was navigated onto the screen so it can own the session.
+ * A minted draft is empty, so the session opens with the assistant speaking
+ * first, exactly as the composer's voice button opens one on a blank thread.
  */
 function expectStartedOnFreshDraft(
   entry: "deep_link" | "companion" = "deep_link",
 ): void {
   const draftId = mintedConversationId();
   expect(draftId).not.toBe(PRIOR_CONVERSATION_ID);
-  expect(starter).toHaveBeenCalledWith("assistant-1", draftId, { entry });
+  expect(starter).toHaveBeenCalledWith("assistant-1", draftId, {
+    entry,
+    seedText: voiceEntryGreetingSeed(true),
+  });
   expect(navigate).toHaveBeenCalledWith(routes.conversation(draftId), {
     replace: true,
   });
@@ -388,6 +395,7 @@ describe("a request that cannot be served yet stays parked", () => {
     expect(draftId).not.toBe(PRIOR_CONVERSATION_ID);
     expect(starter).toHaveBeenCalledWith("assistant-2", draftId, {
       entry: "deep_link",
+      seedText: voiceEntryGreetingSeed(true),
     });
     expect(isParked()).toBe(false);
   });
@@ -594,6 +602,27 @@ describe("startVoiceFromSurface", () => {
     expectStartedOnFreshDraft("companion");
   });
 
+  test("the companion's press opens with the assistant speaking first", async () => {
+    // The call lands on a draft minted for it, which has nothing in it, and a
+    // blank thread is where in-app voice mode has the assistant greet. The
+    // seed is the composer's own, hidden rather than rendered as the user's
+    // words, and it is not an ask, so the call stays open after the reply.
+    identityHydrated();
+    registerStarter();
+
+    startVoiceFromSurface(navigate, { entry: "companion" });
+    await flushDrain();
+
+    const seed = voiceEntryGreetingSeed(true);
+    const draftId = mintedConversationId();
+    expect(seed).toBeString();
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(starter).toHaveBeenCalledWith("assistant-1", draftId, {
+      entry: "companion",
+      seedText: seed,
+    });
+  });
+
   test("a running session spends the press", () => {
     identityHydrated();
     registerStarter();
@@ -601,8 +630,10 @@ describe("startVoiceFromSurface", () => {
 
     startVoiceFromSurface(navigate, { entry: "companion" });
 
-    // That session is the one the user is in. Navigating would only walk the
-    // app away from the composer that owns it.
+    // That session is the one the user is in, on a thread already underway:
+    // nothing starts, so nothing greets into it. Navigating would only walk
+    // the app away from the composer that owns it.
+    expect(starter).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
   });
