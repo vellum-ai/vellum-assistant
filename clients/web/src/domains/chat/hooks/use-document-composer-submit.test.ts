@@ -133,6 +133,7 @@ const { conversationListQueryKey } =
 const { listPage } = await import("@/utils/conversation-list.test-helper");
 const { useDocumentComposerReplyStore } =
   await import("@/domains/chat/document-composer-reply-store");
+const { useViewerStore } = await import("@/stores/viewer-store");
 const { useDocumentComposerSubmit } =
   await import("./use-document-composer-submit");
 
@@ -246,6 +247,27 @@ function isAwaitingReply(conversationId: string): boolean {
     .awaitingReplyConversationIds.has(conversationId);
 }
 
+function isQueuedReply(conversationId: string): boolean {
+  return useDocumentComposerReplyStore
+    .getState()
+    .queuedReplyConversationIds.has(conversationId);
+}
+
+/** The document `document-viewer-page`'s "Submit Feedback" leaves open: on a
+ *  draft conversation nothing has sent against yet. */
+const OPENED_DRAFT_DOC = {
+  source: "document",
+  surfaceId: SURFACE_ID,
+  conversationId: "conv-draft",
+  documentName: "README.md",
+  content: "# Hello",
+} as const;
+
+function openedConversationId(): string | null {
+  const opened = useViewerStore.getState().openedDocumentState;
+  return opened?.source === "document" ? opened.conversationId : null;
+}
+
 beforeEach(() => {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -262,7 +284,9 @@ beforeEach(() => {
   });
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
+    queuedReplyConversationIds: new Set(),
   });
+  useViewerStore.setState({ openedDocumentState: null });
   useAssistantIdentityStore.setState({ version: null });
   window.sessionStorage.clear();
   postChatMessageMock = mock(defaultPostChatMessage);
@@ -280,7 +304,9 @@ afterEach(() => {
   window.sessionStorage.clear();
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
+    queuedReplyConversationIds: new Set(),
   });
+  useViewerStore.setState({ openedDocumentState: null });
 });
 
 describe("conversation id resolution", () => {
@@ -794,6 +820,107 @@ describe("failure path", () => {
     expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
   });
 
+  test("a refused link on the mint path leaves the open document on the draft id, and the retry that links moves it", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    // The state `document-viewer-page`'s "Submit Feedback" leaves behind: the
+    // document is open against a draft conversation, cached under the surface,
+    // that nothing has sent against yet.
+    useConversationStore.setState({
+      draftConversationIds: new Set(["conv-draft"]),
+    });
+    setEditChatConversationId(ASSISTANT_ID, SURFACE_ID, "conv-draft");
+    useViewerStore.setState({ openedDocumentState: OPENED_DRAFT_DOC });
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("link refused");
+    });
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    // The session cache says which row to reuse, so it takes the minted id.
+    // The open document's conversation id says which row the document is
+    // linked to, and that link was refused, so it stays on the draft.
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBe(
+      MINTED_CONVERSATION_ID,
+    );
+    expect(openedConversationId()).toBe("conv-draft");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The retry reuses the row the mint created and asks for the link again
+    // for real, rather than taking the shortcut an already-moved open document
+    // would have handed it.
+    expect(conversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(2);
+    expect(documentsByIdConversationsPostMock.mock.calls[1]?.[0]).toEqual({
+      path: { assistant_id: ASSISTANT_ID, id: SURFACE_ID },
+      body: { conversationId: MINTED_CONVERSATION_ID },
+      throwOnError: true,
+    });
+    expect(openedConversationId()).toBe(MINTED_CONVERSATION_ID);
+    expect(result.current.status).toBe("sent");
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+  });
+
+  test("a refused link on the mint path keeps a document open against the draft off the dead id", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    // The overlay host, where the composer's `doc` is the open document
+    // itself, so both are on the same draft conversation.
+    useConversationStore.setState({
+      draftConversationIds: new Set(["conv-draft"]),
+    });
+    setEditChatConversationId(ASSISTANT_ID, SURFACE_ID, "conv-draft");
+    useViewerStore.setState({ openedDocumentState: OPENED_DRAFT_DOC });
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("link refused");
+    });
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-draft");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    // The mint replaced the draft with a row under another id, and nothing is
+    // linked to that row yet, so the draft mark stays: it is what makes the
+    // retry resolve the minted row instead of the id the document is open
+    // against.
+    expect(
+      useConversationStore.getState().draftConversationIds.has("conv-draft"),
+    ).toBe(true);
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBe(
+      MINTED_CONVERSATION_ID,
+    );
+    expect(openedConversationId()).toBe("conv-draft");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The retry reuses the minted row, links it for real, and moves the open
+    // document onto it. The draft id the daemon never minted goes nowhere.
+    expect(conversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(2);
+    expect(documentsByIdConversationsPostMock.mock.calls[1]?.[0]).toEqual({
+      path: { assistant_id: ASSISTANT_ID, id: SURFACE_ID },
+      body: { conversationId: MINTED_CONVERSATION_ID },
+      throwOnError: true,
+    });
+    expect(openedConversationId()).toBe(MINTED_CONVERSATION_ID);
+    expect(result.current.status).toBe("sent");
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+  });
+
   test("a refused link on an assistant without server minting still sends", async () => {
     documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
       throw new Error("no such route");
@@ -838,6 +965,24 @@ describe("queued sends", () => {
     expect(result.current.status).toBe("sent");
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(isAwaitingReply("conv-existing")).toBe(true);
+    // The turn already running in the conversation ends with a terminal event
+    // of its own, which is not this message's reply, so the wait carries the
+    // flag that tells the watcher to let one through.
+    expect(isQueuedReply("conv-existing")).toBe(true);
+  });
+
+  test("an immediately-accepted result leaves the wait unflagged", async () => {
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // Nothing runs ahead of this message, so the next terminal event in the
+    // conversation is its own.
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+    expect(isQueuedReply("conv-existing")).toBe(false);
   });
 });
 

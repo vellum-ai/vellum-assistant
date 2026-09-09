@@ -32,6 +32,7 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import type {
@@ -531,6 +532,13 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       // One SSE connection follows the active assistant, so a wait held past
       // the switch never sees its reply and toasts on an unrelated turn.
       useDocumentComposerReplyStore.getState().clearAwaitingReplies();
+      // An open document belongs to the outgoing assistant, and the viewer
+      // would keep handing its conversation id to the incoming assistant's
+      // document composer.
+      const viewer = useViewerStore.getState();
+      if (viewer.openedDocumentState || viewer.activeDocumentTarget) {
+        viewer.closeDocument();
+      }
     } else {
       // Same assistant, different conversation — keep blob URLs for sent messages.
       useComposerStore.getState().resetAttachments();

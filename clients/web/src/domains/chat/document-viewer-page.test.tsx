@@ -260,17 +260,4 @@ describe("DocumentViewerPage: mobile composer", () => {
       });
     });
   });
-
-  test("hands the composer no bottom inset of its own", async () => {
-    // The app shell around this route already pads the bottom safe area when
-    // the keyboard is closed and zeroes it when open, so a second inset here
-    // would double the gap under the composer.
-    mockIsMobile = true;
-    documentResult = () => Promise.resolve({ data: documentSurface() });
-
-    const { findByTestId } = renderPage("surf-1");
-    await findByTestId("doc-composer-panel");
-
-    expect(composerPanelProps?.bottomInset).toBeNull();
-  });
 });

@@ -4,6 +4,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
+import { useViewerStore } from "@/stores/viewer-store";
 import {
   pushSseEvent,
   registerSseClient,
@@ -573,6 +574,7 @@ describe("chat-session-store: composer reset on assistant switch", () => {
     useDocumentComposerReplyStore.setState({
       awaitingReplyConversationIds: new Set(),
     });
+    useViewerStore.getState().reset();
   });
 
   test("an assistant switch fully resets both composer slots, not just main", () => {
@@ -657,5 +659,43 @@ describe("chat-session-store: composer reset on assistant switch", () => {
     expect([
       ...useDocumentComposerReplyStore.getState().awaitingReplyConversationIds,
     ]).toEqual([]);
+  });
+
+  test("an assistant switch closes the open document", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    useViewerStore.setState({
+      mainView: "document",
+      viewBeforeDocument: "chat",
+      activeDocumentTarget: { source: "document", surfaceId: "surf-1" },
+      openedDocumentState: {
+        source: "document",
+        surfaceId: "surf-1",
+        conversationId: "conv-A",
+        documentName: "Notes",
+        content: "# Notes",
+      },
+    });
+
+    // Same assistant: the document still belongs to it, and the composer can
+    // keep sending against the conversation it names.
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
+    expect(useViewerStore.getState().openedDocumentState).not.toBeNull();
+
+    // A different assistant: the document's conversation belongs to the
+    // outgoing one, so the composer would send against an id the incoming
+    // assistant has never heard of.
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-C",
+    });
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    expect(useViewerStore.getState().activeDocumentTarget).toBeNull();
+    expect(useViewerStore.getState().mainView).toBe("chat");
   });
 });

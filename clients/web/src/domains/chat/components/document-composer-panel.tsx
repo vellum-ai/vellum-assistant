@@ -12,15 +12,6 @@ import { useTranslation } from "@/i18n";
 export interface DocumentComposerPanelProps {
   assistantId: string | null;
   doc: DocumentConversationRef | null;
-  /**
-   * Bottom padding for the safe area below the composer, one value per host.
-   * `MobileDocumentOverlay` is `position: fixed` outside the app shell and
-   * defines the keyboard-aware `--overlay-safe-area-bottom` variable this
-   * defaults to. The standalone document route lays out inside `RootLayout`'s
-   * app shell, which already pads the safe area around it, and passes `null`
-   * so the composer does not pad it a second time.
-   */
-  bottomInset?: string | null;
 }
 
 /**
@@ -28,12 +19,12 @@ export interface DocumentComposerPanelProps {
  * `useDocumentComposerSubmit` and the `"document"` composer-store slot.
  * Shared by `MobileDocumentOverlay` (the in-chat overlay) and, on mobile,
  * `DocumentViewerPage` (the standalone `/documents/:surfaceId` route), so the
- * two entry points send through one wiring rather than two.
+ * two entry points send through one wiring rather than two. Both hosts sit in
+ * a shell that already pads the bottom safe area, so the panel adds none.
  */
 export function DocumentComposerPanel({
   assistantId,
   doc,
-  bottomInset = "var(--overlay-safe-area-bottom)",
 }: DocumentComposerPanelProps) {
   const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -65,10 +56,7 @@ export function DocumentComposerPanel({
   const disabled = status === "sending" || !doc;
 
   return (
-    <div
-      className="shrink-0 px-3 pt-2"
-      style={{ paddingBottom: bottomInset ?? undefined }}
-    >
+    <div className="shrink-0 px-3 pt-2">
       {status === "sent" && (
         <div className="flex items-center justify-center gap-1 pb-1 text-[var(--content-tertiary)]">
           <Check size={12} className="shrink-0" />

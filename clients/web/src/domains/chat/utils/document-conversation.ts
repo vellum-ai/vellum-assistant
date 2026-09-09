@@ -9,6 +9,7 @@
  */
 import { documentsByIdConversationsPost } from "@/generated/daemon/sdk.gen";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   getEditChatConversationId,
@@ -29,6 +30,13 @@ export interface DocumentConversationRef {
  * session-cached id from a previous resolution (4h TTL, see
  * `edit-chat-session.ts`), then a freshly minted draft id.
  *
+ * A document's own id yields to the cache while that id is still a
+ * client-minted draft and the cache names a different row. That pairing is a
+ * send that minted a row for this document and failed to link it: the minted
+ * row is the one to reuse, and the draft id is one the daemon has never heard
+ * of, so sending against it would 404 on an assistant that strict-looks-up
+ * conversation ids.
+ *
  * Deliberately does not persist the result: a caller that resolves a fresh or
  * reused id but never successfully sends against it must not leave that id
  * cached, or the next resolution would reuse an id the server has never heard
@@ -39,11 +47,15 @@ export function resolveDocumentConversationId(
   doc: DocumentConversationRef,
   assistantId: string,
 ): string {
-  return (
-    doc.conversationId ||
-    getEditChatConversationId(assistantId, doc.surfaceId) ||
-    createDraftConversationId()
-  );
+  const cached = getEditChatConversationId(assistantId, doc.surfaceId);
+  if (
+    cached &&
+    cached !== doc.conversationId &&
+    useConversationStore.getState().draftConversationIds.has(doc.conversationId)
+  ) {
+    return cached;
+  }
+  return doc.conversationId || cached || createDraftConversationId();
 }
 
 /**
@@ -99,11 +111,43 @@ export async function linkDocumentConversationIfNeeded(
 }
 
 /**
+ * Point the document open in the viewer at a conversation the daemon has just
+ * linked it to.
+ *
+ * The open document's `conversationId` is what
+ * {@link resolveDocumentConversationId} trusts ahead of the session cache, and
+ * what makes {@link linkDocumentConversationIfNeeded} skip its request, so it
+ * stands for "this conversation is linked to this document", not "this is the
+ * conversation the next send is aimed at". Only call it once the link is in
+ * place.
+ *
+ * Matches on surface id, so it also moves a document left pointing at a draft
+ * id an earlier attempt minted past without managing to link.
+ */
+export function markOpenedDocumentLinked(
+  surfaceId: string,
+  conversationId: string,
+): void {
+  const opened = useViewerStore.getState().openedDocumentState;
+  if (
+    !opened ||
+    opened.source !== "document" ||
+    opened.surfaceId !== surfaceId ||
+    opened.conversationId === conversationId
+  ) {
+    return;
+  }
+  useViewerStore
+    .getState()
+    .relinkOpenedDocumentConversation(opened.conversationId, conversationId);
+}
+
+/**
  * When a draft conversation id a document is open against gets re-keyed to a
  * server-minted id (any send against that draft, whether from the document
  * composer itself or a chat page navigated to from `document-viewer-page`'s
- * "Submit Feedback"), keep the document viewer store in sync and re-link the
- * document server-side to the minted id.
+ * "Submit Feedback"), re-link the document server-side to the minted id and
+ * keep the document viewer store in sync.
  *
  * Without this, `openedDocumentState.conversationId` keeps pointing at the
  * dead draft id: it wins over the session cache in
@@ -112,29 +156,34 @@ export async function linkDocumentConversationIfNeeded(
  * has never minted and 404s. Re-linking also keeps the document in the
  * minted conversation's turn context instead of dropping out of it.
  *
- * No-ops when no document is open against `oldConversationId` (match is on
- * conversation id, not surface id: the caller doesn't know which document,
- * if any, was open against the draft).
+ * The link goes first, because the store update is what claims the link is in
+ * place (see {@link markOpenedDocumentLinked}). Returns whether the open
+ * document was re-keyed: `false` when the link failed, and when no document is
+ * open against `oldConversationId` (match is on conversation id, not surface
+ * id: the caller doesn't know which document, if any, was open against the
+ * draft).
  */
 export async function rekeyOpenedDocumentConversation(
   assistantId: string,
   oldConversationId: string,
   newConversationId: string,
-): Promise<void> {
+): Promise<boolean> {
   const opened = useViewerStore.getState().openedDocumentState;
   if (
     !opened ||
     opened.source !== "document" ||
     opened.conversationId !== oldConversationId
   ) {
-    return;
+    return false;
   }
-  useViewerStore
-    .getState()
-    .relinkOpenedDocumentConversation(oldConversationId, newConversationId);
-  await linkDocumentConversationIfNeeded(
+  const linked = await linkDocumentConversationIfNeeded(
     { surfaceId: opened.surfaceId, conversationId: oldConversationId },
     assistantId,
     newConversationId,
   );
+  if (!linked) {
+    return false;
+  }
+  markOpenedDocumentLinked(opened.surfaceId, newConversationId);
+  return true;
 }

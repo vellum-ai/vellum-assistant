@@ -19,9 +19,14 @@ function watchedIds(): string[] {
   return [...getState().awaitingReplyConversationIds];
 }
 
+function queuedIds(): string[] {
+  return [...getState().queuedReplyConversationIds];
+}
+
 beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
+    queuedReplyConversationIds: new Set(),
   });
 });
 
@@ -49,12 +54,57 @@ describe("startAwaitingReply", () => {
   });
 });
 
+describe("markReplyQueued", () => {
+  test("starts the wait and flags it as queued", () => {
+    getState().markReplyQueued("conv-1");
+    expect(watchedIds()).toEqual(["conv-1"]);
+    expect(queuedIds()).toEqual(["conv-1"]);
+  });
+
+  test("flags a wait that is already up", () => {
+    getState().startAwaitingReply("conv-1");
+    getState().markReplyQueued("conv-1");
+    expect(watchedIds()).toEqual(["conv-1"]);
+    expect(queuedIds()).toEqual(["conv-1"]);
+  });
+});
+
+describe("clearReplyQueued", () => {
+  test("unflags the wait without ending it", () => {
+    getState().markReplyQueued("conv-1");
+
+    getState().clearReplyQueued("conv-1");
+
+    expect(queuedIds()).toEqual([]);
+    expect(watchedIds()).toEqual(["conv-1"]);
+  });
+
+  test("is a no-op for a wait that was never flagged", () => {
+    getState().startAwaitingReply("conv-1");
+    const before = getState().queuedReplyConversationIds;
+
+    getState().clearReplyQueued("conv-1");
+
+    expect(getState().queuedReplyConversationIds).toBe(before);
+    expect(watchedIds()).toEqual(["conv-1"]);
+  });
+});
+
 describe("stopAwaitingReply", () => {
   test("stops tracking a conversation once its reply lands", () => {
     getState().startAwaitingReply("conv-1");
     getState().stopAwaitingReply("conv-1");
     expect(getState().awaitingReplyConversationIds.has("conv-1")).toBe(false);
     expect(watchedIds()).toEqual([]);
+  });
+
+  test("clears the queued flag along with the wait", () => {
+    getState().markReplyQueued("conv-1");
+
+    getState().stopAwaitingReply("conv-1");
+
+    expect(watchedIds()).toEqual([]);
+    expect(queuedIds()).toEqual([]);
   });
 
   test("is a no-op for a conversation that was never awaiting a reply", () => {
@@ -76,6 +126,16 @@ describe("clearAwaitingReplies", () => {
     getState().clearAwaitingReplies();
 
     expect(watchedIds()).toEqual([]);
+  });
+
+  test("drops the queued flags too", () => {
+    getState().markReplyQueued("conv-1");
+    getState().markReplyQueued("conv-2");
+
+    getState().clearAwaitingReplies();
+
+    expect(watchedIds()).toEqual([]);
+    expect(queuedIds()).toEqual([]);
   });
 
   test("is a no-op when nothing is awaiting a reply", () => {

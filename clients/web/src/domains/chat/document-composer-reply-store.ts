@@ -20,6 +20,13 @@ import { createSelectors } from "@/utils/create-selectors";
 
 export interface DocumentComposerReplyState {
   awaitingReplyConversationIds: ReadonlySet<string>;
+  /**
+   * Waits whose message the daemon queued behind a turn already running in
+   * that conversation. The running turn's own terminal event is not the
+   * queued message's, so the watcher lets one such terminal pass before
+   * treating the next as the reply.
+   */
+  queuedReplyConversationIds: ReadonlySet<string>;
 }
 
 export interface DocumentComposerReplyActions {
@@ -27,6 +34,13 @@ export interface DocumentComposerReplyActions {
   startAwaitingReply: (conversationId: string) => void;
   /** Stop waiting, once the reply toast has fired (or is no longer wanted). */
   stopAwaitingReply: (conversationId: string) => void;
+  /**
+   * Record that the awaited message is queued behind the turn currently
+   * running in `conversationId`; starts the wait when none is up yet.
+   */
+  markReplyQueued: (conversationId: string) => void;
+  /** The turn ahead of the queued message has ended; the next terminal is its own. */
+  clearReplyQueued: (conversationId: string) => void;
   /** Drop every wait, for a context change that no reply can arrive across. */
   clearAwaitingReplies: () => void;
 }
@@ -37,6 +51,7 @@ export type DocumentComposerReplyStore = DocumentComposerReplyState &
 const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set) => ({
     awaitingReplyConversationIds: new Set(),
+    queuedReplyConversationIds: new Set(),
 
     startAwaitingReply: (conversationId) => {
       set((s) => {
@@ -53,16 +68,51 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         }
         const next = new Set(s.awaitingReplyConversationIds);
         next.delete(conversationId);
-        return { awaitingReplyConversationIds: next };
+        const queued = new Set(s.queuedReplyConversationIds);
+        queued.delete(conversationId);
+        return {
+          awaitingReplyConversationIds: next,
+          queuedReplyConversationIds: queued,
+        };
+      });
+    },
+
+    markReplyQueued: (conversationId) => {
+      set((s) => {
+        const next = new Set(s.awaitingReplyConversationIds);
+        next.add(conversationId);
+        const queued = new Set(s.queuedReplyConversationIds);
+        queued.add(conversationId);
+        return {
+          awaitingReplyConversationIds: next,
+          queuedReplyConversationIds: queued,
+        };
+      });
+    },
+
+    clearReplyQueued: (conversationId) => {
+      set((s) => {
+        if (!s.queuedReplyConversationIds.has(conversationId)) {
+          return s;
+        }
+        const queued = new Set(s.queuedReplyConversationIds);
+        queued.delete(conversationId);
+        return { queuedReplyConversationIds: queued };
       });
     },
 
     clearAwaitingReplies: () => {
       set((s) => {
-        if (s.awaitingReplyConversationIds.size === 0) {
+        if (
+          s.awaitingReplyConversationIds.size === 0 &&
+          s.queuedReplyConversationIds.size === 0
+        ) {
           return s;
         }
-        return { awaitingReplyConversationIds: new Set() };
+        return {
+          awaitingReplyConversationIds: new Set(),
+          queuedReplyConversationIds: new Set(),
+        };
       });
     },
   }),

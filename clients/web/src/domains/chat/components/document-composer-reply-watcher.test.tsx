@@ -115,9 +115,22 @@ function awaiting(conversationId: string): boolean {
     .awaitingReplyConversationIds.has(conversationId);
 }
 
+function queued(conversationId: string): boolean {
+  return useDocumentComposerReplyStore
+    .getState()
+    .queuedReplyConversationIds.has(conversationId);
+}
+
+function processing(conversationId: string): boolean {
+  return useConversationStore
+    .getState()
+    .processingConversationIds.has(conversationId);
+}
+
 beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
+    queuedReplyConversationIds: new Set(),
   });
   useConversationStore.setState({
     processingConversationIds: new Set(),
@@ -297,5 +310,50 @@ describe("DocumentComposerReplyWatcher", () => {
 
     expect(toastSuccessMock).toHaveBeenCalledTimes(1);
     expect(awaiting("conv-1")).toBe(false);
+  });
+
+  describe("a wait queued behind a running turn", () => {
+    const terminals: [string, (conversationId: string) => void][] = [
+      ["generation_handoff", publishGenerationHandoff],
+      ["generation_cancelled", publishGenerationCancelled],
+      ["error", publishStreamError],
+      ["conversation_error", publishConversationError],
+    ];
+
+    for (const [name, publishTerminal] of terminals) {
+      test(`${name} for the running turn is absorbed, and the queued message's reply toasts`, () => {
+        useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
+        useConversationStore.getState().addProcessingConversationId("conv-1");
+        render(<DocumentComposerReplyWatcher />);
+
+        publishTerminal("conv-1");
+
+        // The turn that ended is the one the queued message sits behind, so
+        // the wait and the activity it drives both stay up.
+        expect(toastSuccessMock).not.toHaveBeenCalled();
+        expect(awaiting("conv-1")).toBe(true);
+        expect(queued("conv-1")).toBe(false);
+        expect(processing("conv-1")).toBe(true);
+
+        publishMessageComplete("conv-1");
+
+        expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+        expect(awaiting("conv-1")).toBe(false);
+        expect(processing("conv-1")).toBe(false);
+      });
+    }
+
+    test("the queued message's own failure ends the wait silently", () => {
+      useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishGenerationCancelled("conv-1");
+      publishConversationError("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
   });
 });

@@ -39,8 +39,8 @@ import {
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import {
   linkDocumentConversationIfNeeded,
+  markOpenedDocumentLinked,
   persistDocumentConversationId,
-  rekeyOpenedDocumentConversation,
   resolveDocumentConversationId,
   type DocumentConversationRef,
 } from "@/domains/chat/utils/document-conversation";
@@ -229,32 +229,41 @@ export function useDocumentComposerSubmit({
           throwOnError: true,
         });
         targetConversationId = minted.data.id;
-        // The row exists server-side now, so the client-side draft mark no
-        // longer applies.
-        useConversationStore.getState().clearDraftConversationId(resolvedId);
+        // The session cache answers "which row to reuse" and a document's
+        // `conversationId` answers "which row it is linked to", so the minted
+        // id goes into the cache whether or not the link below lands: a retry
+        // reuses this row instead of minting a second one, and still has to
+        // link it before anything goes out.
+        persistDocumentConversationId(doc, assistantId, targetConversationId);
         if (targetConversationId !== resolvedId) {
           resolveEditChatDraftConversationId(resolvedId, targetConversationId);
-          // If the document open in the viewer store is the one this mint was
-          // for, keep its conversation id in sync so a later submit does not
-          // resolve back to the now-dead draft id (see
-          // `resolveDocumentConversationId`'s fallback order).
-          await rekeyOpenedDocumentConversation(
-            assistantId,
-            resolvedId,
-            targetConversationId,
-          );
         }
-        persistDocumentConversationId(doc, assistantId, targetConversationId);
       }
       if (assistantChanged()) {
         return;
       }
 
+      // On the mint path `doc` still carries the id the document was opened
+      // against rather than the minted one, so this is a real request.
       const linked = await linkDocumentConversationIfNeeded(
         doc,
         assistantId,
         targetConversationId,
       );
+      if (linked) {
+        // The mint left the draft id behind for a row under another id, so
+        // the mark comes off only once the document is linked to that row and
+        // nothing resolves the draft any more. While the link is missing the
+        // mark is what makes `resolveDocumentConversationId` hand a document
+        // still open against the draft the minted row instead.
+        if (useServerMint) {
+          useConversationStore.getState().clearDraftConversationId(resolvedId);
+        }
+        // The document open in the viewer may be this one, still on a draft
+        // id: with the link in place it can carry the id a later submit
+        // resolves (see `resolveDocumentConversationId`'s fallback order).
+        markOpenedDocumentLinked(doc.surfaceId, targetConversationId);
+      }
       // Nothing has gone out yet, and no await stands between here and the
       // POST, so this is the last point the send can still be dropped whole.
       if (assistantChanged()) {
@@ -338,12 +347,17 @@ export function useDocumentComposerSubmit({
         // The assistant is the source of truth for the id: a legacy
         // `conversationKey` send for a fresh draft comes back with the row
         // the daemon minted rather than the key that went out, so the wait
-        // moves onto it. A queued result waits the same way an immediate one
-        // does. The daemon ends a turn that has messages queued behind it
-        // with `generation_handoff` instead of `message_complete`, so the
-        // reply watcher's `message_complete` lands only once this message's
-        // own turn, and every turn ahead of it, has finished.
+        // moves onto it.
         armReplyWaiter(conversationId);
+        if (result.queued) {
+          // The daemon parked this message behind a turn already running in
+          // the conversation. That turn ends with a terminal event of its
+          // own, which is not this message's reply, so the wait carries the
+          // flag that tells the watcher to let one through.
+          useDocumentComposerReplyStore
+            .getState()
+            .markReplyQueued(conversationId);
+        }
         // The watcher owns the wait from here; the next send arms its own.
         armedReplyConversationIdRef.current = null;
       }

@@ -134,36 +134,11 @@ describe("DocumentComposerPanel", () => {
     expect(submitMock).toHaveBeenCalledTimes(1);
   });
 
-  test("defaults the bottom inset to the overlay's keyboard-aware variable", () => {
+  test("pads no bottom safe area of its own", () => {
+    // Both hosts sit in a shell that already pads the bottom safe area, so a
+    // second inset here would double the gap under the composer.
     const { container } = render(
       <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
-    );
-    const panel = container.firstChild as HTMLElement;
-    expect(panel.style.paddingBottom).toBe("var(--overlay-safe-area-bottom)");
-  });
-
-  test("a caller can override the bottom inset", () => {
-    // A plain value, not `env(...)`: this test asserts the prop is honored,
-    // and happy-dom's CSSOM does not retain an `env()` value the way a real
-    // browser does.
-    const { container } = render(
-      <DocumentComposerPanel
-        assistantId="assistant-1"
-        doc={DOC}
-        bottomInset="12px"
-      />,
-    );
-    const panel = container.firstChild as HTMLElement;
-    expect(panel.style.paddingBottom).toBe("12px");
-  });
-
-  test("pads nothing for a host that already pads the safe area", () => {
-    const { container } = render(
-      <DocumentComposerPanel
-        assistantId="assistant-1"
-        doc={DOC}
-        bottomInset={null}
-      />,
     );
     const panel = container.firstChild as HTMLElement;
     expect(panel.style.paddingBottom).toBe("");
@@ -212,11 +187,7 @@ describe("DocumentComposerPanel: document-slot lifecycle", () => {
     useComposerStore.getState().setInput("still typing", "document");
 
     rerender(
-      <DocumentComposerPanel
-        assistantId="assistant-1"
-        doc={{ ...DOC }}
-        bottomInset="12px"
-      />,
+      <DocumentComposerPanel assistantId="assistant-1" doc={{ ...DOC }} />,
     );
 
     expect(useComposerStore.getState().documentInput).toBe("still typing");

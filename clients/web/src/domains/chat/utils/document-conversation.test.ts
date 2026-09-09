@@ -27,6 +27,7 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const {
   linkDocumentConversationIfNeeded,
+  markOpenedDocumentLinked,
   persistDocumentConversationId,
   rekeyOpenedDocumentConversation,
   resolveDocumentConversationId,
@@ -46,6 +47,7 @@ const OPENED_DOC = {
 beforeEach(() => {
   window.sessionStorage.clear();
   documentsByIdConversationsPostMock.mockClear();
+  useConversationStore.setState({ draftConversationIds: new Set() });
   useViewerStore.setState({ openedDocumentState: null });
 });
 
@@ -56,6 +58,41 @@ afterEach(() => {
 
 describe("resolveDocumentConversationId", () => {
   test("prefers the document's own linked conversation", () => {
+    const id = resolveDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "conv-linked" },
+      ASSISTANT_ID,
+    );
+    expect(id).toBe("conv-linked");
+  });
+
+  test("yields to the cached row while the document's own id is still a draft", () => {
+    useConversationStore.setState({
+      draftConversationIds: new Set(["conv-draft"]),
+    });
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-minted",
+    );
+
+    const id = resolveDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
+      ASSISTANT_ID,
+    );
+
+    // The cache names the row a send minted for this document and failed to
+    // link: the draft the document is still open against is an id the daemon
+    // has never heard of.
+    expect(id).toBe("conv-minted");
+  });
+
+  test("keeps the document's own conversation ahead of the cache when it is not a draft", () => {
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-cached",
+    );
+
     const id = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "conv-linked" },
       ASSISTANT_ID,
@@ -187,12 +224,13 @@ describe("rekeyOpenedDocumentConversation", () => {
   test("re-keys the open document and re-links it to the minted conversation", async () => {
     useViewerStore.setState({ openedDocumentState: OPENED_DOC });
 
-    await rekeyOpenedDocumentConversation(
+    const rekeyed = await rekeyOpenedDocumentConversation(
       ASSISTANT_ID,
       "conv-draft",
       "conv-minted",
     );
 
+    expect(rekeyed).toBe(true);
     // Only the conversation id moves: the document itself is the same one.
     expect(useViewerStore.getState().openedDocumentState).toEqual({
       ...OPENED_DOC,
@@ -206,13 +244,33 @@ describe("rekeyOpenedDocumentConversation", () => {
     });
   });
 
-  test("no-ops when no document is open", async () => {
-    await rekeyOpenedDocumentConversation(
+  test("leaves the open document on the draft id when the link is refused", async () => {
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("link refused");
+    });
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    const rekeyed = await rekeyOpenedDocumentConversation(
       ASSISTANT_ID,
       "conv-draft",
       "conv-minted",
     );
 
+    // The open document's conversation id is what makes a later
+    // `linkDocumentConversationIfNeeded` skip its request, so it only moves
+    // once the association it stands for exists.
+    expect(rekeyed).toBe(false);
+    expect(useViewerStore.getState().openedDocumentState).toBe(OPENED_DOC);
+  });
+
+  test("no-ops when no document is open", async () => {
+    const rekeyed = await rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-draft",
+      "conv-minted",
+    );
+
+    expect(rekeyed).toBe(false);
     expect(useViewerStore.getState().openedDocumentState).toBeNull();
     expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
   });
@@ -249,5 +307,31 @@ describe("rekeyOpenedDocumentConversation", () => {
 
     expect(useViewerStore.getState().openedDocumentState).toBe(OPENED_DOC);
     expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("markOpenedDocumentLinked", () => {
+  test("moves the open document onto the conversation just linked to it", () => {
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    markOpenedDocumentLinked(SURFACE_ID, "conv-minted");
+
+    // Matched on surface id, so it also catches a document left on a draft id
+    // an earlier attempt minted past without managing to link.
+    expect(useViewerStore.getState().openedDocumentState).toEqual({
+      ...OPENED_DOC,
+      conversationId: "conv-minted",
+    });
+    // The link is the caller's, already made: this records it, it does not
+    // ask for a second one.
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+  });
+
+  test("no-ops for a document other than the one open", () => {
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    markOpenedDocumentLinked("surf-2", "conv-minted");
+
+    expect(useViewerStore.getState().openedDocumentState).toBe(OPENED_DOC);
   });
 });

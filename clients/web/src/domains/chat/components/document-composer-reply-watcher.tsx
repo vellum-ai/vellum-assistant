@@ -25,6 +25,21 @@ function stopAwaitingReply(conversationId: string): boolean {
 }
 
 /**
+ * Absorb one terminal event on behalf of a wait flagged queued, reporting
+ * whether it did. The flag says the awaited message sits behind the turn
+ * currently running in that conversation, so that turn's terminal is not the
+ * awaited reply's: the next one is.
+ */
+function consumeQueuedTerminal(conversationId: string): boolean {
+  const state = useDocumentComposerReplyStore.getState();
+  if (!state.queuedReplyConversationIds.has(conversationId)) {
+    return false;
+  }
+  state.clearReplyQueued(conversationId);
+  return true;
+}
+
+/**
  * Fires the document composer's "Assistant replied" toast once the daemon
  * reports a turn complete for a conversation `useDocumentComposerSubmit`
  * flagged as awaiting a reply (`document-composer-reply-store.ts`), and ends
@@ -43,27 +58,31 @@ export function DocumentComposerReplyWatcher() {
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
 
-    // A turn can end without a reply: cancelled, or failed terminally. The
-    // daemon emits no `message_complete` after any of these, so the wait ends
-    // here rather than latching until an unrelated turn completes and toasts
-    // in its place. `error` and `conversation_error` are the two the chat
-    // stream handlers also treat as turn-ending
-    // (`utils/stream-handlers/error-handlers.ts`).
+    // Each of these ends the turn that was running (`error` and
+    // `conversation_error` are the two the chat stream handlers also treat as
+    // turn-ending, `utils/stream-handlers/error-handlers.ts`), and the daemon
+    // drains the conversation's queue after all four. So a wait flagged queued
+    // survives the terminal it absorbs, an unflagged wait ends silently on the
+    // three failures, and a handoff leaves it open.
     if (
+      event.type === "generation_handoff" ||
       event.type === "generation_cancelled" ||
       event.type === "error" ||
       event.type === "conversation_error"
     ) {
       const { conversationId } = event;
-      if (conversationId) {
+      if (!conversationId) {
+        return;
+      }
+      if (consumeQueuedTerminal(conversationId)) {
+        return;
+      }
+      if (event.type !== "generation_handoff") {
         stopAwaitingReply(conversationId);
       }
       return;
     }
 
-    // `generation_handoff` is not terminal here: the daemon emits it when a
-    // finished turn hands off to the next message queued in the same
-    // conversation, so the reply this composer sent toward has yet to land.
     if (event.type !== "message_complete") {
       return;
     }
