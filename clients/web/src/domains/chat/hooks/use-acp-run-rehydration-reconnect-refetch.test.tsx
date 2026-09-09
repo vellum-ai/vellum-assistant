@@ -400,3 +400,63 @@ describe("useAcpRunRehydration: re-reading once a Connect flow settles", () => {
     expect(getCalls).toBe(0);
   });
 });
+
+describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  test("keeps a live model update that landed while the fetch was open", async () => {
+    // The request read `opus`; a live `acp_session_model_update` moved the
+    // session to `sonnet` before the response arrived. Seeding stamps the
+    // moment the request went out, so the older snapshot leaves it alone.
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "run-A",
+      agent: "claude",
+      parentConversationId: "conv-A",
+      startedAt: 0,
+    });
+
+    let releaseSnapshot = (_v: unknown) => {};
+    const held = new Promise((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    mockGetImpl = async () => {
+      await held;
+      return {
+        data: {
+          sessions: [
+            {
+              id: "run-A",
+              agentId: "claude",
+              acpSessionId: "run-A",
+              parentConversationId: "conv-A",
+              status: "running",
+              startedAt: 0,
+              model: "opus",
+              availableModels: [{ value: "opus", label: "Opus" }],
+            },
+          ],
+        },
+        response: { ok: true },
+      };
+    };
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+    await flush();
+
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    releaseSnapshot(undefined);
+    await flush();
+
+    const entry = useAcpRunStore.getState().byId["run-A"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+    mockGetImpl = undefined;
+  });
+});

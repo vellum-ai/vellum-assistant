@@ -3,6 +3,7 @@ import type {
   AcpSessionSpawnedEvent,
   AcpSessionUpdateEvent,
   AcpSessionUsageEvent,
+  AcpSessionModelUpdateEvent,
   AcpSessionCompletedEvent,
   AcpSessionErrorEvent,
 } from "@vellumai/assistant-api";
@@ -66,6 +67,16 @@ export function handleAcpSessionUsage(event: AcpSessionUsageEvent): void {
     outputTokens: event.outputTokens,
     costAmount: event.costAmount,
     costCurrency: event.costCurrency,
+  });
+}
+
+export function handleAcpSessionModelUpdate(
+  event: AcpSessionModelUpdateEvent,
+): void {
+  useAcpRunStore.getState().setModel({
+    acpSessionId: event.acpSessionId,
+    model: event.model,
+    availableModels: event.availableModels,
   });
 }
 

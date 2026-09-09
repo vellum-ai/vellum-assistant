@@ -12,6 +12,8 @@
 
 import { create } from "zustand";
 
+import type { AcpSessionModelUpdateEvent } from "@vellumai/assistant-api";
+
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 import {
@@ -68,6 +70,10 @@ export interface AcpRunRawEvent {
   messageId?: string;
 }
 
+/** One selectable model as the ACP adapter reported it. */
+export type AcpModelOption =
+  AcpSessionModelUpdateEvent["availableModels"][number];
+
 export interface AcpRunEntry {
   acpSessionId: string;
   agent: string;
@@ -99,6 +105,17 @@ export interface AcpRunEntry {
   /** Cumulative cost reported by the agent, when available. */
   costAmount?: number;
   costCurrency?: string;
+  /** Model the session currently runs on, when the adapter reports one. */
+  model?: string;
+  /** Models the session can switch to; absent when the adapter has no selector. */
+  availableModels?: AcpModelOption[];
+  /**
+   * When `setModel` last recorded a live selection, in `Date.now()` ms. Store
+   * local, never on the wire: it orders a live update against a snapshot whose
+   * fetch began earlier, so an in-flight `/acp/sessions` read cannot replace a
+   * selection the adapter has already moved past.
+   */
+  modelUpdatedAt?: number;
   events: AcpRunRawEvent[];
 }
 
@@ -215,13 +232,34 @@ export interface AcpRunActions {
   }) => void;
 
   /**
+   * Record the session's model selection. Unlike `updateUsage`, both fields are
+   * replaced wholesale: the adapter reports its full current state, so a
+   * cleared selection or a shrunken option set must not be masked by the
+   * previous one. Stamps `modelUpdatedAt` so a snapshot requested before this
+   * update cannot roll it back.
+   */
+  setModel: (params: {
+    acpSessionId: string;
+    model?: string;
+    availableModels: AcpModelOption[];
+  }) => void;
+
+  /**
    * Idempotent merge of history entries keyed by acpSessionId. Unions live and
    * incoming `events` by `seq` so a live stream is never clobbered by a
    * stale-but-longer snapshot, while always merging terminal/status/usage
    * metadata from the history entry. Sets `highWaterMark` to the max seq over
    * the merged buffer and indexes `byToolUseId`.
+   *
+   * `fetchedAt` is when the caller issued the request these entries answer.
+   * A model update stamped at or after it is newer than the snapshot, so the
+   * live selection is kept. Callers that cannot say omit it and get the plain
+   * snapshot rules.
    */
-  seedFromHistory: (entries: AcpRunEntry[]) => void;
+  seedFromHistory: (
+    entries: AcpRunEntry[],
+    options?: { fetchedAt?: number },
+  ) => void;
 
   reset: () => void;
 }
@@ -290,6 +328,53 @@ function mergeEvents(
 }
 
 /**
+ * Fold a snapshot's model selection into a live entry.
+ *
+ * A live `acp_session_model_update` that landed at or after `fetchedAt` is
+ * newer than anything this response can carry: the fetch and the SSE stream are
+ * separate asynchronous paths, so a request that read model A can be answered
+ * after the adapter already moved to model B. That live selection is kept. A
+ * snapshot that applies stamps its own `fetchedAt`, so an older request that
+ * is answered after a newer one is ignored by the same rule.
+ *
+ * Otherwise the snapshot rules apply: a row carrying `availableModels` is
+ * authoritative for both fields, so the supported no-selection state (no
+ * `model`, empty options) clears a stale selection, while a legacy row that
+ * omits the option set keeps the store's options and only upgrades a model it
+ * actually carries.
+ */
+function mergeModelSelection(
+  existing: AcpRunEntry,
+  incoming: AcpRunEntry,
+  fetchedAt?: number,
+): Pick<AcpRunEntry, "model" | "availableModels" | "modelUpdatedAt"> {
+  if (
+    fetchedAt !== undefined &&
+    existing.modelUpdatedAt !== undefined &&
+    existing.modelUpdatedAt >= fetchedAt
+  ) {
+    return {
+      model: existing.model,
+      availableModels: existing.availableModels,
+      modelUpdatedAt: existing.modelUpdatedAt,
+    };
+  }
+  const modelUpdatedAt = fetchedAt ?? existing.modelUpdatedAt;
+  if (incoming.availableModels !== undefined) {
+    return {
+      model: incoming.model,
+      availableModels: incoming.availableModels,
+      modelUpdatedAt,
+    };
+  }
+  return {
+    model: incoming.model ?? existing.model,
+    availableModels: existing.availableModels,
+    modelUpdatedAt,
+  };
+}
+
+/**
  * Merge a history entry into an existing live entry. Unions both event buffers
  * by `seq` (never dropping the newest live events) and always folds in the
  * history entry's terminal/status/usage metadata. A terminal history status
@@ -299,6 +384,7 @@ function mergeEvents(
 function mergeHistoryEntry(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
+  fetchedAt?: number,
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
@@ -321,6 +407,7 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
+    ...mergeModelSelection(existing, incoming, fetchedAt),
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -620,20 +707,48 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     });
   },
 
-  seedFromHistory: (entries) => {
+  setModel: (params) => {
+    const { byId } = get();
+    const existing = byId[params.acpSessionId];
+    if (!existing) {
+      return;
+    }
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: {
+          ...existing,
+          model: params.model,
+          availableModels: params.availableModels,
+          modelUpdatedAt: Date.now(),
+        },
+      },
+    });
+  },
+
+  seedFromHistory: (entries, options) => {
     const { byId, orderedIds, byToolUseId, highWaterMark } = get();
 
     // Union live + history events by seq and always merge terminal/status/
     // usage metadata from history so a live entry can't stay stale. The shared
     // helper owns the byId/orderedIds insertion; the seq high-water mark and the
     // tool-use index are acp-specific and folded in from the merged result.
+    // A row inserted fresh carries the fetch time too, so an older overlapping
+    // response cannot roll it back through the merge path afterwards.
+    const fetchedAt = options?.fetchedAt;
+    const stamped =
+      fetchedAt === undefined
+        ? entries
+        : entries.map((entry) => ({ ...entry, modelUpdatedAt: fetchedAt }));
     const { byId: nextById, orderedIds: nextOrderedIds } =
       seedEntriesFromHistory({
-        entries,
+        entries: stamped,
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
-        merge: mergeHistoryEntry,
+        merge: (existing, incoming) =>
+          mergeHistoryEntry(existing, incoming, fetchedAt),
       });
 
     let nextByToolUseId = byToolUseId;
