@@ -17,7 +17,9 @@
  * `avatar_base64: null` is sent only when the avatar is actually removed; a
  * non-none avatar whose raster is missing (image PNG gone, character
  * re-render unavailable) is skipped so the platform keeps the last synced
- * copy.
+ * copy. A removal nulls the notification field too, and falls back to nulling
+ * the display avatar alone, so a platform that rejects the notification field
+ * cannot block clearing the avatar.
  * The same PATCH carries `notification_avatar_base64`, the disc render the
  * push pipeline shows as the sender. The dedup key carries the accent,
  * `NOTIFICATION_AVATAR_SPEC_VERSION` and whether a disc can be drawn at all,
@@ -67,6 +69,7 @@ import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
 import {
   createPlatformPatchQueue,
+  type PatchBodyResult,
   type PatchPayload,
   type PlatformPatchQueue,
   type SyncedKey,
@@ -152,7 +155,9 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   if (state.kind === "none") {
     return {
       key: NONE_KEY,
-      body: { avatar_base64: null, notification_avatar_base64: null },
+      // A removal that had to drop the notification field still records
+      // NONE_KEY, as the non-empty reduced send records its full body's key.
+      body: async () => withNotificationFallback({ avatar_base64: null }, null),
     };
   }
   const path = await ensureAvatarRasterPath(state);
@@ -189,23 +194,28 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
         // draws again.
         return { body: rasterOnly, key: keyFor(NONE_KEY) };
       }
-      const discKey = keyFor(DISC_KEY);
-      return {
-        body: {
-          avatar_base64: encoded,
-          notification_avatar_base64: notification.toString("base64"),
-        },
-        key: discKey,
-        // A 400 is the platform refusing this render rather than missing it,
-        // so the reduced send records the disc key: re-drawing would take the
-        // same 400 on every later enqueue.
-        retryWithout: {
-          field: NOTIFICATION_FIELD,
-          body: rasterOnly,
-          key: discKey,
-        },
-      };
+      // A 400 is the platform refusing this render rather than missing it,
+      // so the reduced send records the disc key: re-drawing would take the
+      // same 400 on every later enqueue.
+      return withNotificationFallback(
+        rasterOnly,
+        notification.toString("base64"),
+        keyFor(DISC_KEY),
+      );
     },
+  };
+}
+
+/** Pairs a body carrying the disc with the reduced send a 400 falls back to. */
+function withNotificationFallback(
+  displayOnly: { avatar_base64: string | null },
+  notification: string | null,
+  key?: string,
+): PatchBodyResult {
+  return {
+    body: { ...displayOnly, notification_avatar_base64: notification },
+    key,
+    retryWithout: { field: NOTIFICATION_FIELD, body: displayOnly, key },
   };
 }
 
